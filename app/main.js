@@ -1,12 +1,26 @@
 import { html, render } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 import { checkDataRepo, getToken, setToken, DATA_REPO } from "./lib/github.js";
+import { initStore, write, getSyncStatus, onSyncChange } from "./lib/store.js";
 
 export const APP = { name: "Mise", version: "0.2.0" };
 
 /** @typedef {Awaited<ReturnType<typeof checkDataRepo>>} RepoStatus */
 
 let checkGen = 0;
+
+/**
+ * Time for today's syncs; date + time once it's stale enough to mislead.
+ * @param {string | null} iso
+ */
+function formatSyncTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return d.toDateString() === new Date().toDateString()
+    ? time
+    : `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
+}
 
 function App() {
   const [online, setOnline] = useState(navigator.onLine);
@@ -16,6 +30,12 @@ function App() {
   const [draft, setDraft] = useState("");
   /** @type {["installing" | "ready" | "failed", (s: "installing" | "ready" | "failed") => void]} */
   const [sw, setSw] = useState(/** @type {"installing" | "ready" | "failed"} */ ("installing"));
+  const [sync, setSync] = useState(getSyncStatus());
+
+  useEffect(() => {
+    initStore();
+    return onSyncChange(() => setSync(getSyncStatus()));
+  }, []);
 
   useEffect(() => {
     const on = () => setOnline(true);
@@ -60,6 +80,14 @@ function App() {
     runCheck();
   };
 
+  const testWrite = () => {
+    const device = /iPhone|iPad/.test(navigator.userAgent) ? "iphone" : "laptop";
+    void write("meta.json", {
+      schemaVersion: 1,
+      lastWrite: { device, at: new Date().toISOString() },
+    });
+  };
+
   const publicAlarm = repo?.privacy === "PUBLIC";
   // header and probe results must never disagree: offline if either says so
   const effectiveOnline = online && (repo ? repo.reachable : true);
@@ -98,6 +126,52 @@ function App() {
                 : html`<span class="status dim">installing…</span>`
           }
         </div>
+      </div>
+
+      <div class="tile">
+        <h2>Sync</h2>
+        <div class="row">
+          <span class="k">Queued writes</span>
+          ${
+            sync.loading
+              ? html`<span class="status dim">…</span>`
+              : sync.flushing
+                ? html`<span class="status num dim">syncing…</span>`
+                : html`<span class="status num ${sync.pending ? "warn" : "ok"}"
+                    >${sync.pending}</span
+                  >`
+          }
+        </div>
+        <div class="row">
+          <span class="k">Conflicts</span>
+          ${
+            sync.loading
+              ? html`<span class="status dim">…</span>`
+              : html`<span class="status num ${sync.conflicts ? "bad" : "ok"}"
+                  >${sync.conflicts}</span
+                >`
+          }
+        </div>
+        <div class="row">
+          <span class="k">Last sync</span>
+          <span class="status num dim"
+            >${sync.loading ? "…" : formatSyncTime(sync.lastSyncAt)}</span
+          >
+        </div>
+        ${
+          repo?.auth === "invalid" &&
+          sync.pending > 0 &&
+          html`<p class="hint">
+            Not syncing — your access token needs renewing (see Data repo below).
+          </p>`
+        }
+        <div class="actions">
+          <button class="primary" onClick=${testWrite}>TEST SYNC WRITE</button>
+        </div>
+        <p class="hint">
+          Writes a timestamp to meta.json in the data repo. Works offline — it queues and pushes
+          when signal returns.
+        </p>
       </div>
 
       <div class="tile">

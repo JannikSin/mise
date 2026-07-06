@@ -150,7 +150,8 @@ header.app .net.off {
   color: var(--dim);
 }
 
-.token-form {
+.token-form,
+.actions {
   display: flex;
   gap: 8px;
   margin-top: 10px;

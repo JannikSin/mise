@@ -34,6 +34,9 @@ const browserGlobals = {
   clearInterval: "readonly",
   queueMicrotask: "readonly",
   structuredClone: "readonly",
+  TextEncoder: "readonly",
+  TextDecoder: "readonly",
+  Uint8Array: "readonly",
   CustomEvent: "readonly",
   Event: "readonly",
   EventTarget: "readonly",
@@ -46,14 +49,7 @@ const browserGlobals = {
 
 export default [
   {
-    ignores: [
-      "node_modules/",
-      "vendor/",
-      "mockups/",
-      "spike/",
-      ".claude/",
-      "claude-config/",
-    ],
+    ignores: ["node_modules/", "vendor/", "mockups/", "spike/", ".claude/", "claude-config/"],
   },
   js.configs.recommended,
   {
