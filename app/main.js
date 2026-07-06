@@ -1,28 +1,38 @@
 import { html, render } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 import { checkDataRepo, getToken, setToken, DATA_REPO } from "./lib/github.js";
-import { initStore, write, getSyncStatus, onSyncChange } from "./lib/store.js";
+import {
+  initStore,
+  write,
+  read,
+  readCollection,
+  getSyncStatus,
+  onSyncChange,
+} from "./lib/store.js";
+import { initRouter } from "./lib/router.js";
+import { formatSyncTime, isoWeekId, statusDate } from "./lib/dates.js";
+import { HomeView } from "./views/home.js";
+import { QuizView } from "./views/quiz.js";
+import { CookbookView } from "./views/cookbook.js";
+import { RecipeView, CookView } from "./views/recipe.js";
+import { SystemView } from "./views/system.js";
 
-export const APP = { name: "Mise", version: "0.2.0" };
+export const APP = { name: "Mise", version: "0.3.0" };
 
 /** @typedef {Awaited<ReturnType<typeof checkDataRepo>>} RepoStatus */
 
 let checkGen = 0;
 
-/**
- * Time for today's syncs; date + time once it's stale enough to mislead.
- * @param {string | null} iso
- */
-function formatSyncTime(iso) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  return d.toDateString() === new Date().toDateString()
-    ? time
-    : `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
-}
+const TABS = [
+  { hash: "#/", view: "home", icon: "◉", label: "Today" },
+  { hash: "#/cookbook", view: "cookbook", icon: "▤", label: "Recipes" },
+  { hash: "#/system", view: "system", icon: "☰", label: "Sys" },
+];
 
 function App() {
+  const [route, setRoute] = useState(
+    /** @type {{ view: string, id?: string }} */ ({ view: "home" }),
+  );
   const [online, setOnline] = useState(navigator.onLine);
   /** @type {[RepoStatus | null, (s: RepoStatus | null) => void]} */
   const [repo, setRepo] = useState(/** @type {RepoStatus | null} */ (null));
@@ -31,11 +41,10 @@ function App() {
   /** @type {["installing" | "ready" | "failed", (s: "installing" | "ready" | "failed") => void]} */
   const [sw, setSw] = useState(/** @type {"installing" | "ready" | "failed"} */ ("installing"));
   const [sync, setSync] = useState(getSyncStatus());
+  const [recipes, setRecipes] = useState(/** @type {Record<string, any>[]} */ ([]));
+  const [useSoonFoods, setUseSoonFoods] = useState(/** @type {string[]} */ ([]));
 
-  useEffect(() => {
-    initStore();
-    return onSyncChange(() => setSync(getSyncStatus()));
-  }, []);
+  useEffect(() => initRouter(setRoute), []);
 
   useEffect(() => {
     const on = () => setOnline(true);
@@ -59,6 +68,35 @@ function App() {
       .then(() => setSw("ready"))
       .catch(() => setSw("failed"));
   }, []);
+
+  useEffect(() => {
+    initStore();
+    return onSyncChange(() => setSync(getSyncStatus()));
+  }, []);
+
+  // recipes + use-soon pantry items: cached-first, refreshed whenever sync
+  // activity changes the cache
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      readCollection("recipes").then((r) => {
+        if (alive) setRecipes(r);
+      });
+      read("pantry.json").then((p) => {
+        if (!alive || !p) return;
+        const soon = /** @type {any[]} */ (p.perishables ?? [])
+          .filter((x) => x.useSoon)
+          .map((x) => String(x.food));
+        setUseSoonFoods(soon);
+      });
+    };
+    load();
+    const unsub = onSyncChange(load);
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [hasToken]);
 
   // generation guard: a slow older check must never overwrite a newer result
   const runCheck = () => {
@@ -91,7 +129,16 @@ function App() {
   const publicAlarm = repo?.privacy === "PUBLIC";
   // header and probe results must never disagree: offline if either says so
   const effectiveOnline = online && (repo ? repo.reachable : true);
+  const recipeById = (/** @type {string | undefined} */ id) => recipes.find((r) => r.id === id);
 
+  const loading = recipes.length === 0 && hasToken;
+
+  if (route.view === "cook") {
+    // key: hook state (current step) must reset when the recipe changes
+    return html`<${CookView} key=${route.id} recipe=${recipeById(route.id)} loading=${loading} />`;
+  }
+
+  const now = new Date();
   return html`
     ${
       publicAlarm &&
@@ -101,133 +148,61 @@ function App() {
       </div>`
     }
 
-    <header class="app">
-      <h1>MISE //</h1>
-      <span class="ver num">v${APP.version}</span>
-      <span class="net ${effectiveOnline ? "" : "off"}"
-        >${effectiveOnline ? "● ONLINE" : "○ OFFLINE"}</span
-      >
-    </header>
-
-    <div class="tiles">
-      <div class="tile">
-        <h2>System</h2>
-        <div class="row">
-          <span class="k">App shell</span>
-          <span class="status ok">hello, David ✓</span>
-        </div>
-        <div class="row">
-          <span class="k">Offline cache</span>
-          ${
-            sw === "ready"
-              ? html`<span class="status ok">ready</span>`
-              : sw === "failed"
-                ? html`<span class="status bad">unavailable ✗</span>`
-                : html`<span class="status dim">installing…</span>`
-          }
-        </div>
-      </div>
-
-      <div class="tile">
-        <h2>Sync</h2>
-        <div class="row">
-          <span class="k">Queued writes</span>
-          ${
-            sync.loading
-              ? html`<span class="status dim">…</span>`
-              : sync.flushing
-                ? html`<span class="status num dim">syncing…</span>`
-                : html`<span class="status num ${sync.pending ? "warn" : "ok"}"
-                    >${sync.pending}</span
-                  >`
-          }
-        </div>
-        <div class="row">
-          <span class="k">Conflicts</span>
-          ${
-            sync.loading
-              ? html`<span class="status dim">…</span>`
-              : html`<span class="status num ${sync.conflicts ? "bad" : "ok"}"
-                  >${sync.conflicts}</span
-                >`
-          }
-        </div>
-        <div class="row">
-          <span class="k">Last sync</span>
-          <span class="status num dim"
-            >${sync.loading ? "…" : formatSyncTime(sync.lastSyncAt)}</span
-          >
-        </div>
+    <div class="statusline">
+      <span>${statusDate(now)} · WK-${isoWeekId(now).split("-W")[1]}</span>
+      <span class="sync ${effectiveOnline ? "" : "off"}">
         ${
-          repo?.auth === "invalid" &&
-          sync.pending > 0 &&
-          html`<p class="hint">
-            Not syncing — your access token needs renewing (see Data repo below).
-          </p>`
+          effectiveOnline
+            ? sync.lastSyncAt
+              ? `SYNCED ${formatSyncTime(sync.lastSyncAt)}`
+              : "ONLINE"
+            : "OFFLINE"
         }
-        <div class="actions">
-          <button class="primary" onClick=${testWrite}>TEST SYNC WRITE</button>
-        </div>
-        <p class="hint">
-          Writes a timestamp to meta.json in the data repo. Works offline — it queues and pushes
-          when signal returns.
-        </p>
-      </div>
-
-      <div class="tile">
-        <h2>Data repo — ${DATA_REPO.owner}/${DATA_REPO.repo}</h2>
-        <div class="row">
-          <span class="k">Privacy</span>
-          ${
-            repo == null
-              ? html`<span class="status dim">checking…</span>`
-              : repo.privacy === "private"
-                ? html`<span class="status ok">PRIVATE ✓</span>`
-                : repo.privacy === "PUBLIC"
-                  ? html`<span class="status bad">PUBLIC ✗</span>`
-                  : html`<span class="status warn">unknown (offline?)</span>`
-          }
-        </div>
-        <div class="row">
-          <span class="k">Token</span>
-          ${
-            repo == null
-              ? html`<span class="status dim">…</span>`
-              : repo.auth === "ok"
-                ? html`<span class="status ok">connected ✓</span>`
-                : repo.auth === "missing"
-                  ? html`<span class="status warn">not set</span>`
-                  : repo.auth === "invalid"
-                    ? html`<span class="status bad">invalid ✗</span>`
-                    : html`<span class="status warn">unverified (offline)</span>`
-          }
-        </div>
-        ${
-          (!hasToken || repo?.auth === "invalid") &&
-          html`
-            ${
-              repo?.auth === "invalid" &&
-              html`<p class="hint">Your saved token stopped working — paste a new one.</p>`
-            }
-            <div class="token-form">
-              <input
-                type="password"
-                aria-label="Fine-grained personal access token"
-                placeholder="paste fine-grained PAT"
-                value=${draft}
-                onInput=${(/** @type {{ currentTarget: HTMLInputElement }} */ e) =>
-                  setDraft(e.currentTarget.value)}
-              />
-              <button class="primary" onClick=${saveToken}>SAVE</button>
-            </div>
-            <p class="hint">
-              Stored only in this device's localStorage. Scope: ${DATA_REPO.repo} repo, Contents
-              read/write, nothing else.
-            </p>
-          `
-        }
-      </div>
+      </span>
     </div>
+
+    ${
+      route.view === "home" &&
+      html`<${HomeView} recipes=${recipes} sync=${sync} hasToken=${hasToken} repo=${repo} />`
+    }
+    ${
+      route.view === "quiz" &&
+      html`<${QuizView} recipes=${recipes} useSoonFoods=${useSoonFoods} hasToken=${hasToken} />`
+    }
+    ${
+      route.view === "cookbook" && html`<${CookbookView} recipes=${recipes} hasToken=${hasToken} />`
+    }
+    ${
+      route.view === "recipe" &&
+      html`<${RecipeView} recipe=${recipeById(route.id)} loading=${loading} />`
+    }
+    ${
+      route.view === "system" &&
+      html`<${SystemView}
+        sw=${sw}
+        sync=${sync}
+        repo=${repo}
+        hasToken=${hasToken}
+        draft=${draft}
+        onDraft=${setDraft}
+        onSaveToken=${saveToken}
+        onTestWrite=${testWrite}
+      />`
+    }
+
+    <nav class="tabbar">
+      ${TABS.map(
+        (t) => html`
+          <a
+            class=${route.view === t.view ? "active" : ""}
+            aria-current=${route.view === t.view ? "page" : undefined}
+            href=${t.hash}
+          >
+            <span class="i" aria-hidden="true">${t.icon}</span>${t.label}
+          </a>
+        `,
+      )}
+    </nav>
   `;
 }
 

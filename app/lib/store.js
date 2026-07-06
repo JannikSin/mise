@@ -7,8 +7,8 @@
 //          pushes queued files in order — with sha, merging on conflict —
 //          whenever we're online. Offline writes simply stay queued.
 
-import { dbGet, dbGetAll, dbUpdate } from "./db.js";
-import { readFile, writeFile } from "./github.js";
+import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate } from "./db.js";
+import { listDir, readFile, writeFile } from "./github.js";
 import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 
 const io = { read: readFile, write: writeFile };
@@ -75,21 +75,83 @@ async function revalidate(path) {
     const remote = await readFile(path);
     if (!remote) return;
     if (rec && remote.sha === rec.sha) return;
-    // atomic: a write() landing after the fetch above must not be clobbered
-    await dbUpdate(path, (cur) =>
-      cur?.dirty
-        ? null
-        : {
-            path,
-            data: remote.data,
-            base: remote.data,
-            sha: remote.sha,
-            dirty: false,
-            queuedAt: null,
-            rev: cur?.rev ?? 0,
-          },
-    );
+    await cacheRemote(path, remote.data, remote.sha);
     emit();
+  } catch {
+    // offline or no token — cache already served the read
+  }
+}
+
+/**
+ * Store a freshly-fetched remote file as clean cache, atomically skipping
+ * if a local write landed mid-fetch (that write's flush will reconcile).
+ * @param {string} path
+ * @param {Record<string, unknown>} data
+ * @param {string} sha
+ * @returns {Promise<void>}
+ */
+function cacheRemote(path, data, sha) {
+  return dbUpdate(path, (cur) =>
+    cur?.dirty
+      ? null
+      : { path, data, base: data, sha, dirty: false, queuedAt: null, rev: cur?.rev ?? 0 },
+  );
+}
+
+/**
+ * Cached-first collection read (e.g. "recipes"). Returns everything cached
+ * under the directory immediately; kicks off a background listing that
+ * fetches new/changed files by sha and drops files deleted upstream.
+ * @param {string} dir
+ * @returns {Promise<Record<string, unknown>[]>}
+ */
+export async function readCollection(dir) {
+  const prefix = `${dir}/`;
+  const cached = (await dbGetAll())
+    .filter((r) => r.path.startsWith(prefix))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  void revalidateCollection(dir);
+  return cached.map((r) => r.data);
+}
+
+/**
+ * @param {string} dir
+ * @returns {Promise<void>}
+ */
+async function revalidateCollection(dir) {
+  if (!navigator.onLine) return;
+  const prefix = `${dir}/`;
+  try {
+    const listing = await listDir(dir);
+    const cached = (await dbGetAll()).filter((r) => r.path.startsWith(prefix));
+    const cachedByPath = new Map(cached.map((r) => [r.path, r]));
+    const listed = new Set(listing.map((e) => e.path));
+    let changed = false;
+    for (const entry of listing) {
+      const rec = cachedByPath.get(entry.path);
+      if (rec && (rec.sha === entry.sha || rec.dirty)) continue;
+      /** @type {Awaited<ReturnType<typeof readFile>>} */
+      let remote;
+      try {
+        remote = await readFile(entry.path);
+      } catch {
+        continue; // one unreadable/corrupt file must not sink the whole collection
+      }
+      if (!remote) continue;
+      // store the LISTING's sha — it's what the next revalidate compares
+      // against, so a listing/content sha disagreement can never cause an
+      // endless refetch-emit loop (they're the same blob sha on GitHub)
+      await cacheRemote(entry.path, remote.data, entry.sha);
+      changed = true;
+    }
+    for (const rec of cached) {
+      if (!listed.has(rec.path) && !rec.dirty) {
+        // atomic re-check inside: a write landing after our snapshot survives
+        await dbDeleteIfClean(rec.path);
+        changed = true;
+      }
+    }
+    if (changed) emit();
   } catch {
     // offline or no token — cache already served the read
   }

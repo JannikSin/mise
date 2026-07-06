@@ -78,6 +78,28 @@ export async function dbPut(record) {
 }
 
 /**
+ * Delete a cached record ONLY if it has no unsynced local edits, checked
+ * atomically in one transaction (a write landing mid-flight must never be
+ * deleted out from under the queue).
+ * @param {string} path
+ * @returns {Promise<void>}
+ */
+export async function dbDeleteIfClean(path) {
+  const db = await open();
+  const store = db.transaction("files", "readwrite").objectStore("files");
+  await new Promise((resolve, reject) => {
+    const getReq = store.get(path);
+    getReq.onerror = () => reject(getReq.error);
+    getReq.onsuccess = () => {
+      if (!getReq.result || getReq.result.dirty) return resolve(undefined);
+      const delReq = store.delete(path);
+      delReq.onsuccess = () => resolve(undefined);
+      delReq.onerror = () => reject(delReq.error);
+    };
+  });
+}
+
+/**
  * Atomic read-modify-write in a single transaction — the only safe way to
  * finalize a record that a concurrent write() may have touched mid-flight.
  * The updater sees the CURRENT record and returns what to store, or null to

@@ -17,3 +17,13 @@ Note: hooks.module.js contains a bare `import ... from "preact"` — the app's
 index.html must serve an import map resolving "preact", "preact/hooks" and
 "htm" to these files.
 
+
+## Fonts (vendor/fonts/)
+
+Variable woff2, latin subset, fetched 2026-07-06 from Google Fonts (css2 API).
+Both licensed under the SIL Open Font License 1.1.
+
+| File | Family | Axis | License |
+|---|---|---|---|
+| fonts/archivo-var.woff2 | Archivo | wght 100-900 (variable) | OFL 1.1 |
+| fonts/jetbrains-mono-var.woff2 | JetBrains Mono | wght 100-800 (variable) | OFL 1.1 |

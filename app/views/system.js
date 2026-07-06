@@ -1,0 +1,142 @@
+import { html } from "htm/preact";
+import { DATA_REPO } from "../lib/github.js";
+import { formatSyncTime } from "../lib/dates.js";
+
+/**
+ * System status view: app health, sync queue, data-repo checks, token entry.
+ * All state lives in the app shell; this view just renders and forwards events.
+ * @param {{
+ *   sw: "installing" | "ready" | "failed",
+ *   sync: Record<string, any>,
+ *   repo: Record<string, any> | null,
+ *   hasToken: boolean,
+ *   draft: string,
+ *   onDraft: (v: string) => void,
+ *   onSaveToken: () => void,
+ *   onTestWrite: () => void
+ * }} props
+ */
+export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveToken, onTestWrite }) {
+  return html`
+    <div class="view">
+      <div class="hero"><h1>System</h1></div>
+
+      <div class="tile">
+        <h2 class="k">App</h2>
+        <div class="row">
+          <span class="k">Shell</span>
+          <span class="status ok">running ✓</span>
+        </div>
+        <div class="row">
+          <span class="k">Offline cache</span>
+          ${
+            sw === "ready"
+              ? html`<span class="status ok">ready</span>`
+              : sw === "failed"
+                ? html`<span class="status bad">unavailable ✗</span>`
+                : html`<span class="status dim">installing…</span>`
+          }
+        </div>
+      </div>
+
+      <div class="tile">
+        <h2 class="k">Sync</h2>
+        <div class="row">
+          <span class="k">Queued writes</span>
+          ${
+            sync.loading
+              ? html`<span class="status dim">…</span>`
+              : sync.flushing
+                ? html`<span class="status num dim">syncing…</span>`
+                : html`<span class="status num ${sync.pending ? "warn" : "ok"}"
+                    >${sync.pending}</span
+                  >`
+          }
+        </div>
+        <div class="row">
+          <span class="k">Conflicts</span>
+          ${
+            sync.loading
+              ? html`<span class="status dim">…</span>`
+              : html`<span class="status num ${sync.conflicts ? "bad" : "ok"}"
+                  >${sync.conflicts}</span
+                >`
+          }
+        </div>
+        <div class="row">
+          <span class="k">Last sync</span>
+          <span class="status num dim"
+            >${sync.loading ? "…" : formatSyncTime(sync.lastSyncAt)}</span
+          >
+        </div>
+        ${
+          repo?.auth === "invalid" &&
+          sync.pending > 0 &&
+          html`<p class="hint">Not syncing — your access token needs renewing (see below).</p>`
+        }
+        <div class="actions">
+          <button class="primary" onClick=${onTestWrite}>TEST SYNC WRITE</button>
+        </div>
+        <p class="hint">
+          Writes a timestamp to meta.json in the data repo. Works offline — it queues and pushes
+          when signal returns.
+        </p>
+      </div>
+
+      <div class="tile">
+        <h2 class="k">Data repo — ${DATA_REPO.owner}/${DATA_REPO.repo}</h2>
+        <div class="row">
+          <span class="k">Privacy</span>
+          ${
+            repo == null
+              ? html`<span class="status dim">checking…</span>`
+              : repo.privacy === "private"
+                ? html`<span class="status ok">PRIVATE ✓</span>`
+                : repo.privacy === "PUBLIC"
+                  ? html`<span class="status bad">PUBLIC ✗</span>`
+                  : html`<span class="status warn">unknown (offline?)</span>`
+          }
+        </div>
+        <div class="row">
+          <span class="k">Token</span>
+          ${
+            repo == null
+              ? html`<span class="status dim">…</span>`
+              : repo.auth === "ok"
+                ? html`<span class="status ok">connected ✓</span>`
+                : repo.auth === "missing"
+                  ? html`<span class="status warn">not set</span>`
+                  : repo.auth === "invalid"
+                    ? html`<span class="status bad">invalid ✗</span>`
+                    : html`<span class="status warn">unverified (offline)</span>`
+          }
+        </div>
+        ${
+          (!hasToken || repo?.auth === "invalid") &&
+          html`
+            ${
+              repo?.auth === "invalid" &&
+              html`<p class="hint">Your saved token stopped working — paste a new one.</p>`
+            }
+            <div class="token-form">
+              <input
+                type="password"
+                aria-label="Fine-grained personal access token"
+                placeholder="paste fine-grained PAT"
+                value=${draft}
+                onInput=${(/** @type {{ currentTarget: HTMLInputElement }} */ e) =>
+                  onDraft(e.currentTarget.value)}
+              />
+              <button class="primary" onClick=${onSaveToken}>SAVE</button>
+            </div>
+            <p class="hint">
+              Stored only on this device. Get one at github.com → Settings → Developer settings →
+              Fine-grained tokens: access to the ${DATA_REPO.repo} repo only, Contents read/write,
+              nothing else.
+            </p>
+          `
+        }
+      </div>
+    </div>
+  `;
+}

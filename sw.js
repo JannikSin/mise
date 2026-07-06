@@ -2,7 +2,7 @@
 // Bump CACHE_VERSION on every deploy that changes shell files.
 // Hardening (update prompts, stale-while-revalidate) lands at Task 10.
 
-const CACHE_VERSION = "mise-shell-v2";
+const CACHE_VERSION = "mise-shell-v3";
 
 const SHELL = [
   "./",
@@ -15,6 +15,17 @@ const SHELL = [
   "./app/lib/sync.js",
   "./app/lib/db.js",
   "./app/lib/store.js",
+  "./app/lib/router.js",
+  "./app/lib/quiz.js",
+  "./app/lib/dates.js",
+  "./app/views/home.js",
+  "./app/views/quiz.js",
+  "./app/views/cookbook.js",
+  "./app/views/recipe.js",
+  "./app/views/recipe-row.js",
+  "./app/views/system.js",
+  "./vendor/fonts/archivo-var.woff2",
+  "./vendor/fonts/jetbrains-mono-var.woff2",
   "./vendor/preact/preact.module.js",
   "./vendor/preact/hooks.module.js",
   "./vendor/htm/htm.module.js",

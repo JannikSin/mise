@@ -117,6 +117,22 @@ export async function writeFile(path, data, sha) {
   return { sha: json.content.sha };
 }
 
+/**
+ * List the JSON files of a directory in the data repo.
+ * @param {string} dir
+ * @returns {Promise<{ name: string, path: string, sha: string }[]>} [] if the dir is absent
+ */
+export async function listDir(dir) {
+  const res = await fetch(contentsUrl(dir), { headers: authedHeaders() });
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error(`list ${dir}: HTTP ${res.status}`);
+  const json = await res.json();
+  if (!Array.isArray(json)) throw new Error(`list ${dir}: not a directory`);
+  return json
+    .filter((e) => e.type === "file" && e.name.endsWith(".json"))
+    .map((e) => ({ name: e.name, path: e.path, sha: e.sha }));
+}
+
 /** @param {string} path */
 function contentsUrl(path) {
   return `${API}/repos/${DATA_REPO.owner}/${DATA_REPO.repo}/contents/${path}`;
