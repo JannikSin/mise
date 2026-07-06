@@ -1,5 +1,5 @@
 import { html, render } from "htm/preact";
-import { useEffect, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { checkDataRepo, getToken, setToken, DATA_REPO } from "./lib/github.js";
 import {
   initStore,
@@ -16,6 +16,8 @@ import { QuizView } from "./views/quiz.js";
 import { CookbookView } from "./views/cookbook.js";
 import { RecipeView, CookView } from "./views/recipe.js";
 import { SystemView } from "./views/system.js";
+import { PlannerView } from "./views/planner.js";
+import { setEntry, removeEntry, shiftWeek } from "./lib/plan.js";
 
 export const APP = { name: "Mise", version: "0.3.0" };
 
@@ -26,6 +28,7 @@ let checkGen = 0;
 const TABS = [
   { hash: "#/", view: "home", icon: "◉", label: "Today" },
   { hash: "#/cookbook", view: "cookbook", icon: "▤", label: "Recipes" },
+  { hash: "#/plan", view: "plan", icon: "⬒", label: "Plan" },
   { hash: "#/system", view: "system", icon: "☰", label: "Sys" },
 ];
 
@@ -43,6 +46,11 @@ function App() {
   const [sync, setSync] = useState(getSyncStatus());
   const [recipes, setRecipes] = useState(/** @type {Record<string, any>[]} */ ([]));
   const [useSoonFoods, setUseSoonFoods] = useState(/** @type {string[]} */ ([]));
+  const [weekId, setWeekId] = useState(isoWeekId(new Date()));
+  const [plan, setPlan] = useState(
+    /** @type {{ week: string, entries: Record<string, any>[] }} */ ({ week: weekId, entries: [] }),
+  );
+  const [targets, setTargets] = useState(/** @type {Record<string, any> | null} */ (null));
 
   useEffect(() => initRouter(setRoute), []);
 
@@ -97,6 +105,80 @@ function App() {
       unsub();
     };
   }, [hasToken]);
+
+  // this week's plan: cached-first, refreshed on sync activity
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      read(`plans/${weekId}.json`).then((p) => {
+        if (!alive) return;
+        setPlan(
+          p
+            ? /** @type {{ week: string, entries: Record<string, any>[] }} */ (p)
+            : { week: weekId, entries: [] },
+        );
+      });
+    };
+    load();
+    const unsub = onSyncChange(load);
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [weekId, hasToken]);
+
+  useEffect(() => {
+    read("fitness/targets.json").then((t) => {
+      if (t) setTargets(t);
+    });
+  }, [hasToken]);
+
+  // refs keep the drop/remove callbacks identity-stable (so the drag engine's
+  // listeners never re-attach mid-gesture) while still seeing fresh state —
+  // planRef is also advanced inside updatePlan so back-to-back drops chain
+  // correctly even before the next render commits
+  const planRef = useRef(plan);
+  planRef.current = plan;
+  const weekRef = useRef(weekId);
+  weekRef.current = weekId;
+
+  const updatePlan = useCallback(
+    (/** @type {{ week: string, entries: Record<string, any>[] }} */ next) => {
+      planRef.current = next;
+      setPlan(next); // optimistic: instant UI, then queue+flush via the store
+      void write(`plans/${weekRef.current}.json`, next);
+    },
+    [],
+  );
+
+  const handleDrop = useCallback(
+    (/** @type {string} */ date, /** @type {string} */ slot, /** @type {DOMStringMap} */ drag) => {
+      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      if (drag.drag === "recipe" && drag.recipe) {
+        updatePlan(setEntry(p, date, slot, { recipeId: drag.recipe, servings: 1 }));
+      } else if (drag.drag === "text" && drag.text) {
+        updatePlan(setEntry(p, date, slot, { freeText: drag.text, servings: 1 }));
+      } else if (drag.drag === "move" && drag.date && drag.slot) {
+        if (drag.date === date && drag.slot === slot) return;
+        const src = p.entries.find((e) => e.date === drag.date && e.slot === drag.slot);
+        if (!src) return;
+        const content = src.recipeId
+          ? { recipeId: src.recipeId, servings: src.servings }
+          : { freeText: src.freeText, servings: src.servings };
+        updatePlan(setEntry(removeEntry(p, drag.date, drag.slot), date, slot, content));
+      }
+    },
+    [updatePlan],
+  );
+
+  const handleRemove = useCallback(
+    (/** @type {string} */ date, /** @type {string} */ slot) => {
+      updatePlan(
+        removeEntry(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), date, slot),
+      );
+    },
+    [updatePlan],
+  );
 
   // generation guard: a slow older check must never overwrite a newer result
   const runCheck = () => {
@@ -171,6 +253,20 @@ function App() {
     }
     ${
       route.view === "cookbook" && html`<${CookbookView} recipes=${recipes} hasToken=${hasToken} />`
+    }
+    ${
+      route.view === "plan" &&
+      html`<${PlannerView}
+        recipes=${recipes}
+        plan=${plan}
+        targets=${targets}
+        hasToken=${hasToken}
+        loading=${loading}
+        weekId=${weekId}
+        onWeek=${(/** @type {number} */ d) => setWeekId(shiftWeek(weekId, d))}
+        onDropInto=${handleDrop}
+        onRemove=${handleRemove}
+      />`
     }
     ${
       route.view === "recipe" &&

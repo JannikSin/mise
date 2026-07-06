@@ -31,6 +31,8 @@
   --red: #f85149;
   --red-bg: #2d1216;
   --on-signal: #06130b;
+  --signal-08: rgba(61, 220, 132, 0.08);
+  --line-strong: #3a454d;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sans: "Archivo", -apple-system, "Segoe UI", system-ui, sans-serif;
 }
@@ -415,7 +417,7 @@ a.tile {
 .chip.on {
   border-color: var(--signal);
   color: var(--signal);
-  background: rgba(61, 220, 132, 0.08);
+  background: var(--signal-08);
 }
 
 /* ---- recipe detail ---- */
@@ -613,6 +615,243 @@ a.tile {
 
 .cook .nav button:disabled {
   opacity: 0.35;
+}
+
+/* ---- planner ---- */
+
+.weeknav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.weeknav .wkmid {
+  flex: 1;
+  text-align: center;
+}
+
+.weeknav .sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+  margin-top: 2px;
+}
+
+.weeknav .wk {
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.weeknav .wk:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
+}
+
+.tray {
+  position: sticky;
+  top: env(safe-area-inset-top);
+  z-index: 30;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 8px 4px 10px;
+  background: var(--bg);
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+
+.tray::-webkit-scrollbar {
+  display: none;
+}
+
+.drag-chip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  max-width: 190px;
+  padding: 8px 12px 8px 9px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  cursor: grab;
+  /* pan-x: sideways swipes scroll the tray; vertical movement starts a drag */
+  touch-action: pan-x;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.drag-chip .grip {
+  color: var(--dim);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.drag-chip .chipbody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.drag-chip .n {
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drag-chip .m {
+  font-size: 9.5px;
+  color: var(--dim);
+}
+
+.drag-chip.text .n {
+  color: var(--dim);
+  font-style: italic;
+}
+
+.drag-lifted {
+  opacity: 0.4;
+}
+
+.drag-ghost {
+  position: fixed;
+  z-index: 100;
+  margin: 0;
+  pointer-events: none;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.6);
+  border-color: var(--signal);
+}
+
+.drag-snapping {
+  transition:
+    left 0.16s ease-out,
+    top 0.16s ease-out,
+    opacity 0.16s ease-out;
+}
+
+.traylabel {
+  margin: 0 4px 4px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+}
+
+.day {
+  margin-bottom: 6px;
+}
+
+.meters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 0 4px 8px;
+}
+
+.meterline .k {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--dim);
+}
+
+.meter {
+  height: 5px;
+  background: var(--panel-2);
+  border-radius: 3px;
+  margin-top: 5px;
+  overflow: hidden;
+}
+
+.meter i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--signal);
+}
+
+.meterline.warn .meter i {
+  background: var(--amber);
+}
+
+.traymsg {
+  padding: 8px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.slotgrid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.slotrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+}
+
+.slotrow .t {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+  width: 34px;
+  flex-shrink: 0;
+}
+
+.slotrow .fill {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  border-style: solid;
+  /* filled chips sit in the vertical page flow — no sideways pan to allow */
+  touch-action: none;
+}
+
+.slotrow .emptyslot {
+  flex: 1;
+  color: var(--dim);
+  text-align: center;
+  font-family: var(--mono);
+}
+
+.slotrow.drop-over {
+  border-color: var(--signal);
+  border-style: solid;
+  background: var(--signal-08);
+}
+
+.slotrow .rm {
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--dim);
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 10px;
+}
+
+.slotrow .rm:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
 }
 
 /* ---- forms ---- */
