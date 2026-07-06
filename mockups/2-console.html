@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mise — Direction 2: Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0c0f11;
+    --panel: #14181b;
+    --panel-2: #1a2024;
+    --line: #262e33;
+    --text: #e8edef;
+    --dim: #7d8b92;
+    --signal: #3ddc84;     /* on-track */
+    --amber: #ffb224;      /* attention */
+    --recover: #4cc3ff;    /* recovery tag */
+    --preact-tag: #ff7849; /* pre-activity tag */
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #22282c;
+    background-image: linear-gradient(160deg, #2a3136 0%, #191d20 100%);
+    font-family: 'Archivo', sans-serif; color: var(--text);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 40px 16px 80px;
+  }
+  .direction-label {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: #9db1ba; margin-bottom: 24px;
+  }
+  .phone {
+    width: 390px; max-width: 100%; background: var(--bg);
+    border-radius: 42px; overflow: hidden; position: relative;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    border: 1px solid #000;
+  }
+  .screen { padding: 50px 18px 100px; }
+
+  .statusline {
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+    color: var(--dim); letter-spacing: 0.08em; padding: 0 4px 14px;
+  }
+  .statusline .sync { color: var(--signal); }
+  .statusline .sync::before { content: "●"; margin-right: 5px; font-size: 8px; }
+
+  .hero { padding: 2px 4px 18px; }
+  .hero h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.05; }
+  .hero h1 span { color: var(--dim); font-weight: 600; }
+  .hero .sub { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--dim);
+    margin-top: 6px; letter-spacing: 0.04em; }
+  .hero .sub b { color: var(--amber); font-weight: 600; }
+
+  .ask {
+    width: 100%; padding: 16px; border: none; border-radius: 12px; cursor: pointer;
+    background: linear-gradient(135deg, #3ddc84 0%, #22b866 100%); color: #06130b;
+    font-family: 'Archivo', sans-serif; font-size: 16px; font-weight: 800; letter-spacing: 0.01em;
+    box-shadow: 0 0 24px rgba(61,220,132,0.25);
+  }
+  .ask small { display: block; font-family: 'JetBrains Mono', monospace; font-weight: 400;
+    font-size: 10px; margin-top: 3px; opacity: 0.8; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+  .tile {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px;
+  }
+  .tile .k { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
+  .tile .v { font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 800;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .tile .v small { font-size: 11px; font-weight: 400; color: var(--dim); }
+  .meter { height: 5px; background: var(--panel-2); border-radius: 3px; margin-top: 9px; overflow: hidden; }
+  .meter i { display: block; height: 100%; border-radius: 3px; background: var(--signal); }
+  .tile.warn .meter i { background: var(--amber); }
+  .tile .d { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--dim); margin-top: 7px; }
+  .tile .d b { color: var(--signal); font-weight: 600; }
+  .tile.warn .d b { color: var(--amber); }
+
+  .block-title {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.2em;
+    text-transform: uppercase; color: var(--dim); margin: 20px 4px 10px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .block-title::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+
+  .slots { display: flex; flex-direction: column; gap: 8px; }
+  .slot {
+    display: flex; align-items: center; gap: 12px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px;
+  }
+  .slot .t { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--dim);
+    width: 44px; flex-shrink: 0; }
+  .slot .name { flex: 1; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+  .slot .name .tag {
+    display: inline-block; font-family: 'JetBrains Mono', monospace; font-size: 8.5px;
+    letter-spacing: 0.1em; text-transform: uppercase; padding: 2px 7px; border-radius: 20px;
+    margin-left: 7px; vertical-align: 2px;
+  }
+  .tag.recover { background: rgba(76,195,255,0.14); color: var(--recover); }
+  .tag.preact { background: rgba(255,120,73,0.14); color: var(--preact-tag); }
+  .slot .m { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--dim);
+    text-align: right; line-height: 1.5; }
+  .slot .m b { color: var(--text); font-weight: 600; }
+  .slot.done { opacity: 0.45; }
+  .slot.done .name { text-decoration: line-through; }
+
+  .train {
+    margin-top: 8px; background: var(--panel); border: 1px solid var(--line);
+    border-left: 3px solid var(--recover); border-radius: 12px; padding: 12px 14px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .train .l .k { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--recover); }
+  .train .l .n { font-size: 15px; font-weight: 700; margin-top: 3px; }
+  .train .r { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--dim);
+    text-align: right; line-height: 1.6; }
+  .train .r b { color: var(--text); }
+
+  .tabbar {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(12,15,17,0.92); backdrop-filter: blur(10px);
+    border-top: 1px solid var(--line); display: flex; padding: 12px 6px 26px;
+  }
+  .tabbar a { flex: 1; text-align: center; text-decoration: none; color: var(--dim);
+    font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .tabbar a .i { display: block; font-size: 16px; margin-bottom: 4px; }
+  .tabbar a.active { color: var(--signal); }
+</style>
+</head>
+<body>
+  <div class="direction-label">direction_2 :: «console» — the training-room dashboard</div>
+  <div class="phone"><div class="screen">
+
+    <div class="statusline">
+      <span>MON 07·06 · WK-28</span>
+      <span class="sync">SYNCED 07:41</span>
+    </div>
+
+    <div class="hero">
+      <h1>1,290 <span>/ 3,400 kcal</span></h1>
+      <div class="sub">protein 86/210g · <b>tennis @ 18:00</b> · office night — lights out 21:30</div>
+    </div>
+
+    <button class="ask">WHAT SHOULD I EAT?
+      <small>time · purpose · load · pantry → ranked picks</small>
+    </button>
+
+    <div class="grid">
+      <div class="tile">
+        <div class="k">Protein</div>
+        <div class="v">86<small> /210 g</small></div>
+        <div class="meter"><i style="width:41%"></i></div>
+        <div class="d">pace <b>on track</b> for 210 by 21:00</div>
+      </div>
+      <div class="tile warn">
+        <div class="k">Water</div>
+        <div class="v">1.2<small> /3.5 L</small></div>
+        <div class="meter"><i style="width:34%"></i></div>
+        <div class="d">pace <b>behind</b> — 500ml before lunch</div>
+      </div>
+      <div class="tile">
+        <div class="k">Supplements</div>
+        <div class="v">2<small> /4</small></div>
+        <div class="meter"><i style="width:50%"></i></div>
+        <div class="d">creatine ✓ vits ✓ · mag + fish oil due</div>
+      </div>
+      <div class="tile">
+        <div class="k">Pushups</div>
+        <div class="v">40<small> /100</small></div>
+        <div class="meter"><i style="width:40%"></i></div>
+        <div class="d">2 sets logged · <b>60 to go</b></div>
+      </div>
+    </div>
+
+    <div class="block-title">Today's fuel plan</div>
+    <div class="slots">
+      <div class="slot done">
+        <span class="t">07:00</span>
+        <span class="name">Overnight Oats + Berries</span>
+        <span class="m"><b>610</b> kcal<br>34g P</span>
+      </div>
+      <div class="slot">
+        <span class="t">12:30</span>
+        <span class="name">Shawarma Bowl<span class="tag preact">pre-act</span></span>
+        <span class="m"><b>740</b> kcal<br>52g P</span>
+      </div>
+      <div class="slot">
+        <span class="t">16:30</span>
+        <span class="name">Cherry Smoothie + Creatine</span>
+        <span class="m"><b>520</b> kcal<br>41g P</span>
+      </div>
+      <div class="slot">
+        <span class="t">20:00</span>
+        <span class="name">Bulgogi Beef Bowl<span class="tag recover">recovery</span></span>
+        <span class="m"><b>910</b> kcal<br>58g P</span>
+      </div>
+    </div>
+
+    <div class="block-title">Session</div>
+    <div class="train">
+      <div class="l">
+        <div class="k">Upper A · after tennis</div>
+        <div class="n">Bench · Row · OHP · Curls</div>
+      </div>
+      <div class="r">last: bench <b>165×8</b><br>row <b>150×10</b></div>
+    </div>
+
+  </div>
+  <nav class="tabbar">
+    <a class="active" href="#"><span class="i">◉</span>Today</a>
+    <a href="#"><span class="i">▤</span>Recipes</a>
+    <a href="#"><span class="i">⬒</span>Plan</a>
+    <a href="#"><span class="i">☰</span>List</a>
+    <a href="#"><span class="i">▲</span>Train</a>
+  </nav>
+  </div>
+</body>
+</html>

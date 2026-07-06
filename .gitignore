@@ -1,0 +1,24 @@
+node_modules/
+.playwright-mcp/
+*.tsbuildinfo
+
+# secrets never exist as files (CLAUDE.md Part 2, rule 7) — belt and suspenders
+.env
+.env.*
+*.pem
+*.key
+
+# local-only: personal data + planning artifacts. This repo goes PUBLIC at
+# Task 2 (CLAUDE.md Part 2, rule 1: code only, never personal data). These
+# stay on disk for local sessions but must never enter git history.
+# Seed content moves to the private mise-data repo at Tasks 2/4.
+seed-data/
+HANDOFF_CONTEXT.md
+MISE_BLUEPRINT.md
+FIRST_SESSION_PROMPT.md
+START_HERE.md
+INSTALL_GUIDE.md
+docs/BUILD_PLAN.md
+spike/
+claude-config/
+.claude/settings.local.json

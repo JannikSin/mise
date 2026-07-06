@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mise — Direction 3: Riviera</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,650;0,9..144,750;1,9..144,500&family=Karla:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #faf5ec;
+    --sea: #14557b;
+    --sea-deep: #0d3f5c;
+    --citrus: #f5a623;
+    --terracotta: #d96b43;
+    --leaf: #4f8a5b;
+    --ink: #23303a;
+    --cloud: #ffffff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: linear-gradient(170deg, #9cc4d8 0%, #7bafc9 55%, #dbc9a5 100%);
+    font-family: 'Karla', sans-serif; color: var(--ink);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 40px 16px 80px;
+  }
+  .direction-label {
+    font-family: 'Fraunces', serif; font-size: 15px; font-style: italic;
+    color: #17455f; margin-bottom: 24px; letter-spacing: 0.03em;
+  }
+  .phone {
+    width: 390px; max-width: 100%; background: var(--sand);
+    border-radius: 42px; overflow: hidden; position: relative;
+    box-shadow: 0 30px 80px rgba(13, 63, 92, 0.45);
+    border: 1px solid rgba(13,63,92,0.2);
+  }
+  .screen { padding: 0 0 100px; }
+
+  .sunhead {
+    background: linear-gradient(160deg, var(--sea) 0%, var(--sea-deep) 100%);
+    color: var(--sand); padding: 58px 24px 26px; position: relative; overflow: hidden;
+    border-radius: 0 0 34px 34px;
+  }
+  .sunhead::before {
+    content: ""; position: absolute; right: -55px; top: -55px; width: 190px; height: 190px;
+    border-radius: 50%; background: radial-gradient(circle, var(--citrus) 0%, rgba(245,166,35,0.0) 68%);
+    opacity: 0.85;
+  }
+  .sunhead .day { font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; opacity: 0.75; }
+  .sunhead h1 {
+    font-family: 'Fraunces', serif; font-weight: 650; font-size: 34px; line-height: 1.12;
+    margin: 8px 0 4px; letter-spacing: -0.01em;
+  }
+  .sunhead h1 em { font-style: italic; color: var(--citrus); }
+  .sunhead .meta { font-size: 13px; opacity: 0.85; }
+
+  .quiz-card {
+    margin: -20px 20px 0; position: relative; z-index: 2;
+    background: var(--cloud); border-radius: 22px; padding: 18px 18px 16px;
+    box-shadow: 0 14px 34px rgba(13,63,92,0.16);
+  }
+  .quiz-card h2 { font-family: 'Fraunces', serif; font-size: 21px; font-weight: 650; margin-bottom: 4px; }
+  .quiz-card p { font-size: 13px; color: #5c6b76; margin-bottom: 13px; }
+  .quiz-btn {
+    display: block; width: 100%; padding: 15px; border: none; border-radius: 14px; cursor: pointer;
+    background: var(--citrus); color: #3c2a05;
+    font-family: 'Karla', sans-serif; font-size: 16px; font-weight: 800;
+    box-shadow: 0 6px 0 #d18a10;
+  }
+
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding: 18px 20px 4px; }
+  .chip {
+    flex-shrink: 0; font-size: 12px; font-weight: 700; padding: 8px 14px; border-radius: 30px;
+    background: rgba(217,107,67,0.12); color: var(--terracotta); border: 1.5px solid rgba(217,107,67,0.3);
+  }
+  .chip.leaf { background: rgba(79,138,91,0.12); color: var(--leaf); border-color: rgba(79,138,91,0.3); }
+  .chip.sea { background: rgba(20,85,123,0.09); color: var(--sea); border-color: rgba(20,85,123,0.25); }
+
+  h3.sect {
+    font-family: 'Fraunces', serif; font-size: 19px; font-weight: 650;
+    margin: 18px 22px 10px;
+  }
+  h3.sect em { font-style: italic; color: var(--terracotta); }
+
+  .meals { padding: 0 20px; display: flex; flex-direction: column; gap: 10px; }
+  .meal {
+    display: flex; align-items: center; gap: 13px; background: var(--cloud);
+    border-radius: 18px; padding: 12px 14px; box-shadow: 0 3px 12px rgba(13,63,92,0.07);
+  }
+  .meal .dot {
+    width: 44px; height: 44px; border-radius: 14px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Fraunces', serif; font-size: 20px; font-weight: 650; color: var(--cloud);
+  }
+  .dot.b { background: var(--citrus); } .dot.l { background: var(--terracotta); }
+  .dot.s { background: var(--leaf); } .dot.d { background: var(--sea); }
+  .meal .info { flex: 1; }
+  .meal .info .n { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
+  .meal .info .why { font-size: 12px; color: #6b7883; }
+  .meal .kc { font-size: 13px; font-weight: 700; color: var(--sea); text-align: right;
+    font-variant-numeric: tabular-nums; }
+  .meal .kc small { display: block; font-weight: 500; color: #8a97a1; }
+  .meal.done { opacity: 0.55; }
+  .meal.done .n { text-decoration: line-through; }
+
+  .ring-row {
+    margin: 16px 20px 0; background: var(--cloud); border-radius: 22px; padding: 16px;
+    display: flex; align-items: center; gap: 18px; box-shadow: 0 3px 12px rgba(13,63,92,0.07);
+  }
+  .ring { width: 92px; height: 92px; flex-shrink: 0; position: relative; }
+  .ring svg { transform: rotate(-90deg); }
+  .ring .mid {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .ring .mid b { font-size: 17px; font-weight: 800; }
+  .ring .mid span { font-size: 9.5px; color: #8a97a1; font-weight: 700; letter-spacing: 0.06em; }
+  .stats { flex: 1; }
+  .stat { display: flex; justify-content: space-between; font-size: 13px; padding: 5px 0;
+    border-bottom: 1px dashed #e3dbc9; }
+  .stat:last-child { border-bottom: none; }
+  .stat .k { color: #6b7883; font-weight: 500; }
+  .stat .v { font-weight: 800; font-variant-numeric: tabular-nums; }
+  .stat .v.good { color: var(--leaf); } .stat .v.warn { color: var(--terracotta); }
+
+  .tabbar {
+    position: absolute; bottom: 0; left: 0; right: 0; background: var(--cloud);
+    border-top: 1px solid #e8e0cf; display: flex; padding: 12px 8px 26px;
+    border-radius: 26px 26px 0 0; box-shadow: 0 -8px 24px rgba(13,63,92,0.08);
+  }
+  .tabbar a { flex: 1; text-align: center; text-decoration: none; color: #92a0aa;
+    font-size: 10px; font-weight: 800; }
+  .tabbar a .i { display: block; font-size: 18px; margin-bottom: 3px; }
+  .tabbar a.active { color: var(--sea); }
+  .tabbar a.active .i { color: var(--citrus); }
+</style>
+</head>
+<body>
+  <div class="direction-label">Direction 3 · « Riviera » — warm coast, big sun, big buttons</div>
+  <div class="phone"><div class="screen">
+
+    <header class="sunhead">
+      <div class="day">Monday · July 6 · Week 28</div>
+      <h1>Bonjour, David.<br>Tennis at six — <em>fuel light, finish strong.</em></h1>
+      <div class="meta">Office night · lights out by 9:30</div>
+    </header>
+
+    <div class="quiz-card">
+      <h2>What should I eat?</h2>
+      <p>Four quick questions — time, purpose, heavy or light, what's expiring.</p>
+      <button class="quiz-btn">Start the quiz →</button>
+    </div>
+
+    <div class="chips">
+      <span class="chip">🥬 Use soon: half cabbage</span>
+      <span class="chip leaf">🧀 Ricotta by Thursday</span>
+      <span class="chip sea">🧂 Low: olive oil</span>
+    </div>
+
+    <h3 class="sect">Today's plate, <em>set in place</em></h3>
+    <div class="meals">
+      <div class="meal done">
+        <div class="dot b">B</div>
+        <div class="info"><div class="n">Overnight Oats + Berries</div>
+          <div class="why">Done at 7:05 · easy start</div></div>
+        <div class="kc">610<small>34g P</small></div>
+      </div>
+      <div class="meal">
+        <div class="dot l">L</div>
+        <div class="info"><div class="n">Chicken Shawarma Bowl</div>
+          <div class="why">Pre-activity · light for tennis</div></div>
+        <div class="kc">740<small>52g P</small></div>
+      </div>
+      <div class="meal">
+        <div class="dot s">S</div>
+        <div class="info"><div class="n">Cherry Recovery Smoothie</div>
+          <div class="why">Creatine 5g goes here</div></div>
+        <div class="kc">520<small>41g P</small></div>
+      </div>
+      <div class="meal">
+        <div class="dot d">D</div>
+        <div class="info"><div class="n">Beef Bulgogi Bowl</div>
+          <div class="why">Recovery · 15-min assembly, Sunday rice</div></div>
+        <div class="kc">910<small>58g P</small></div>
+      </div>
+    </div>
+
+    <div class="ring-row">
+      <div class="ring">
+        <svg width="92" height="92" viewBox="0 0 92 92">
+          <circle cx="46" cy="46" r="38" fill="none" stroke="#eee5d2" stroke-width="9"/>
+          <circle cx="46" cy="46" r="38" fill="none" stroke="#f5a623" stroke-width="9"
+            stroke-linecap="round" stroke-dasharray="238.7" stroke-dashoffset="148"/>
+        </svg>
+        <div class="mid"><b>1,290</b><span>OF 3,400</span></div>
+      </div>
+      <div class="stats">
+        <div class="stat"><span class="k">Protein</span><span class="v good">86 / 210 g</span></div>
+        <div class="stat"><span class="k">Water</span><span class="v warn">1.2 / 3.5 L</span></div>
+        <div class="stat"><span class="k">Supps</span><span class="v">2 of 4 ✓</span></div>
+        <div class="stat"><span class="k">Upper A</span><span class="v">bench 165×8 last</span></div>
+      </div>
+    </div>
+
+  </div>
+  <nav class="tabbar">
+    <a class="active" href="#"><span class="i">☀️</span>Today</a>
+    <a href="#"><span class="i">📖</span>Recipes</a>
+    <a href="#"><span class="i">🗓</span>Week</a>
+    <a href="#"><span class="i">🧺</span>Market</a>
+    <a href="#"><span class="i">💪</span>Train</a>
+  </nav>
+  </div>
+</body>
+</html>

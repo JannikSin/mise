@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mise — Direction 1: Carnet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Libre+Caslon+Text:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #f5efe3;
+    --paper-deep: #ede4d2;
+    --ink: #211d15;
+    --ink-soft: #6b6353;
+    --oxblood: #7c2b1d;
+    --hairline: rgba(33, 29, 21, 0.22);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #d8cdb8;
+    background-image: radial-gradient(circle at 30% 20%, #e2d8c4 0%, #cfc3ab 100%);
+    font-family: 'Libre Caslon Text', Georgia, serif;
+    color: var(--ink);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 40px 16px 80px;
+  }
+  .direction-label {
+    font-family: 'Cormorant Garamond', serif; font-size: 15px; letter-spacing: 0.25em;
+    text-transform: uppercase; color: #5d5342; margin-bottom: 24px;
+  }
+  .phone {
+    width: 390px; max-width: 100%; background: var(--paper);
+    border-radius: 42px; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(40, 30, 10, 0.45), 0 2px 0 rgba(255,255,255,0.5) inset;
+    border: 1px solid rgba(33,29,21,0.25);
+    position: relative;
+  }
+  .screen { padding: 54px 26px 96px; position: relative; }
+  .screen::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  }
+
+  .masthead { text-align: center; padding-bottom: 18px; border-bottom: 1px solid var(--ink); }
+  .masthead .date {
+    font-size: 11px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--ink-soft);
+  }
+  .masthead h1 {
+    font-family: 'Cormorant Garamond', serif; font-weight: 500;
+    font-size: 52px; letter-spacing: 0.06em; line-height: 1; margin: 8px 0 6px;
+  }
+  .masthead .tagline {
+    font-style: italic; font-size: 13.5px; color: var(--ink-soft);
+  }
+  .rule-double { border-bottom: 1px solid var(--ink); margin-top: 2px; }
+
+  .ask {
+    display: block; width: 100%; margin: 26px 0 8px; padding: 17px 20px;
+    background: var(--ink); color: var(--paper); border: none; border-radius: 2px;
+    font-family: 'Cormorant Garamond', serif; font-size: 21px; letter-spacing: 0.12em;
+    text-transform: uppercase; text-align: center; cursor: pointer;
+  }
+  .ask small { display: block; font-family: 'Libre Caslon Text', serif; font-style: italic;
+    text-transform: none; letter-spacing: 0; font-size: 12px; opacity: 0.75; margin-top: 3px; }
+
+  .section-title {
+    font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase;
+    color: var(--oxblood); text-align: center; margin: 30px 0 12px; position: relative;
+  }
+  .section-title::before, .section-title::after {
+    content: ""; position: absolute; top: 50%; width: 22%; border-top: 1px solid var(--hairline);
+  }
+  .section-title::before { left: 0; } .section-title::after { right: 0; }
+
+  .menu { list-style: none; }
+  .menu li {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 11px 2px; border-bottom: 1px dotted var(--hairline);
+  }
+  .menu .course { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--ink-soft); width: 74px; flex-shrink: 0; }
+  .menu .dish { font-family: 'Cormorant Garamond', serif; font-size: 19px; font-weight: 500; flex: 1; }
+  .menu .dish em { font-family: 'Libre Caslon Text', serif; font-style: italic;
+    font-size: 12px; color: var(--oxblood); display: block; }
+  .menu .kcal { font-size: 12.5px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .menu li.done .dish { text-decoration: line-through; text-decoration-thickness: 1px; color: var(--ink-soft); }
+
+  .ledger {
+    margin-top: 26px; padding: 16px 18px 14px;
+    border: 1px solid var(--ink); background: var(--paper-deep); border-radius: 2px;
+  }
+  .ledger h3 { font-family: 'Cormorant Garamond', serif; font-weight: 600; font-size: 15px;
+    letter-spacing: 0.18em; text-transform: uppercase; text-align: center; margin-bottom: 12px; }
+  .bar-row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .bar-row .lbl { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    width: 64px; color: var(--ink-soft); }
+  .bar { flex: 1; height: 7px; background: transparent; border: 1px solid var(--ink);
+    border-radius: 0; position: relative; }
+  .bar i { position: absolute; inset: 1px auto 1px 1px; background: var(--oxblood); }
+  .bar-row .num { font-size: 12px; font-variant-numeric: tabular-nums; width: 92px; text-align: right; }
+
+  .notes { margin-top: 24px; font-size: 13px; line-height: 1.65; }
+  .notes .note { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px dotted var(--hairline); }
+  .notes .glyph { color: var(--oxblood); font-style: italic; font-family: 'Cormorant Garamond', serif; font-size: 16px; }
+  .notes em { font-style: italic; }
+
+  .tabbar {
+    position: absolute; bottom: 0; left: 0; right: 0; background: var(--paper);
+    border-top: 1px solid var(--ink); display: flex; padding: 14px 8px 26px;
+  }
+  .tabbar a {
+    flex: 1; text-align: center; text-decoration: none; color: var(--ink-soft);
+    font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase;
+  }
+  .tabbar a .g { display: block; font-family: 'Cormorant Garamond', serif;
+    font-size: 19px; font-style: italic; margin-bottom: 3px; }
+  .tabbar a.active { color: var(--oxblood); }
+</style>
+</head>
+<body>
+  <div class="direction-label">Direction 1 · «Carnet» — the French paper notebook</div>
+  <div class="phone"><div class="screen">
+
+    <header class="masthead">
+      <div class="date">Monday · 6 July · Office Week</div>
+      <h1>Mise</h1>
+      <div class="tagline">tout est en place</div>
+    </header>
+    <div class="rule-double"></div>
+
+    <button class="ask">What should I eat?
+      <small>the four questions — time, purpose, weight, pantry</small>
+    </button>
+
+    <div class="section-title">Menu du jour</div>
+    <ul class="menu">
+      <li class="done">
+        <span class="course">Breakfast</span>
+        <span class="dish">Overnight Oats, Berries<em>done · 7:05 am</em></span>
+        <span class="kcal">610 kcal</span>
+      </li>
+      <li>
+        <span class="course">Lunch</span>
+        <span class="dish">Chicken Shawarma Bowl<em>pre-activity · tennis at six</em></span>
+        <span class="kcal">740 kcal</span>
+      </li>
+      <li>
+        <span class="course">Smoothie</span>
+        <span class="dish">Cherry Recovery Blend<em>creatine · 5 g</em></span>
+        <span class="kcal">520 kcal</span>
+      </li>
+      <li>
+        <span class="course">Dinner</span>
+        <span class="dish">Beef Bulgogi, Sunday Rice<em>recovery · 15-min assembly</em></span>
+        <span class="kcal">910 kcal</span>
+      </li>
+    </ul>
+
+    <div class="ledger">
+      <h3>The Day's Ledger</h3>
+      <div class="bar-row"><span class="lbl">Calories</span>
+        <div class="bar"><i style="width:38%"></i></div><span class="num">1,290 / 3,400</span></div>
+      <div class="bar-row"><span class="lbl">Protein</span>
+        <div class="bar"><i style="width:41%"></i></div><span class="num">86 / 210 g</span></div>
+      <div class="bar-row"><span class="lbl">Water</span>
+        <div class="bar"><i style="width:33%"></i></div><span class="num">1.2 / 3.5 L</span></div>
+    </div>
+
+    <div class="notes">
+      <div class="note"><span class="glyph">✎</span><span><em>Use soon:</em> half a savoy cabbage, ricotta (Thurs) — the quiz already knows.</span></div>
+      <div class="note"><span class="glyph">✎</span><span><em>Tonight:</em> tennis 6:00 — light lunch is set, dinner is recovery-tagged.</span></div>
+      <div class="note"><span class="glyph">✎</span><span><em>Train:</em> Upper A — last time: bench 165 × 8, row 150 × 10.</span></div>
+    </div>
+
+  </div>
+  <nav class="tabbar">
+    <a class="active" href="#"><span class="g">a</span>Aujourd'hui</a>
+    <a href="#"><span class="g">c</span>Cookbook</a>
+    <a href="#"><span class="g">s</span>Semaine</a>
+    <a href="#"><span class="g">m</span>Marché</a>
+    <a href="#"><span class="g">f</span>Forme</a>
+  </nav>
+  </div>
+</body>
+</html>
