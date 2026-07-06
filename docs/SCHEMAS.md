@@ -12,6 +12,8 @@ ingredients, staple flags, slot-typed plans, derived shopping list; no stock led
 
 - **Files are small and per-domain** to minimize write-conflict surface.
 - **ids**: lowercase kebab-case slugs, unique within their domain (`chicken-bulgogi-bowl`).
+  Exception: supplement ids are camelCase (`fishOil`) — they double as the keys of
+  `fitness/daily.json`'s `supplements` check map.
 - **dates**: ISO 8601 `YYYY-MM-DD` local dates; weeks as ISO week ids `2026-W28`.
 - **timestamps**: ISO 8601 UTC with `Z` suffix, only where sync needs them.
 - **units**: metric-friendly free strings (`g`, `ml`, `tbsp`, `clove`, `can`); `qty` is a number.
@@ -25,6 +27,7 @@ recipes/<id>.json         one recipe per file
 pantry.json               staples registry + perishables
 plans/<week>.json         e.g. plans/2026-W28.json
 shopping.json             current derived list + check-state
+fitness/targets.json      macro targets, adjustment rules, priority stack
 fitness/workouts.json     split templates + session log
 fitness/daily.json        daily check-ins
 fitness/activities.json   tennis/climbing/hiking sessions
@@ -150,6 +153,42 @@ Derived (aggregate week's ingredients → merge duplicates → subtract pantry
 }
 ```
 
+## Fitness — `fitness/targets.json`
+
+The stable reference the fitness page renders (blueprint §6.6 "Targets" tab).
+Seeded from the FITNESS.md system; edited rarely.
+
+```jsonc
+{
+  "macros": {
+    "calories": 3400,
+    "caloriesFloor": 3200,
+    "protein": 210,                     // grams
+    "proteinFloor": 185,
+    "fat": 95,                          // ? grams
+    "carbs": 430,                       // ? grams
+    "waterLiters": 3.5                  // daily target midpoint
+  },
+  "adjustmentRule": "Weigh 3 mornings/week…",  // plain-text calorie adjustment rule
+  "sleepHoursTarget": 8,
+  "pushupsPerDay": 200,
+  "priorityStack": ["Sleep", "Protein", "Training", "Water", "Everything else"],
+  "nonNegotiables": ["1 L water on waking", "…"],  // daily checklist source
+  "supplementPlan": [
+    {
+      "id": "creatine",
+      "name": "Creatine monohydrate",
+      "dose": "5g",
+      "timing": "daily, in smoothie",
+      "notes": ""                       // ?
+    }
+  ]
+}
+```
+
+The `supplementPlan[].id` values are the keys used in `fitness/daily.json`'s
+per-day `supplements` check map.
+
 ## Fitness — `fitness/workouts.json`
 
 ```jsonc
@@ -159,7 +198,7 @@ Derived (aggregate week's ingredients → merge duplicates → subtract pantry
       "id": "upper-a",
       "name": "Upper A",
       "exercises": [
-        { "name": "Bench Press", "targetSets": 4, "targetReps": "6-8" }
+        { "name": "Bench Press", "targetSets": 4, "targetReps": "6-8", "note": "Heavy. Primary overload lift." } // note ?
       ]
     }
   ],

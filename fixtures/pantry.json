@@ -1,0 +1,27 @@
+{
+  "staples": [
+    {
+      "id": "test-oil",
+      "name": "Test oil",
+      "section": "dry-goods",
+      "onHand": true,
+      "runningLow": false
+    },
+    {
+      "id": "test-spice",
+      "name": "Test spice",
+      "section": "spices",
+      "onHand": false,
+      "runningLow": true
+    }
+  ],
+  "perishables": [
+    {
+      "food": "test cabbage half",
+      "qty": "0.5 head",
+      "added": "2026-07-01",
+      "expires": "2026-07-08",
+      "useSoon": true
+    }
+  ]
+}

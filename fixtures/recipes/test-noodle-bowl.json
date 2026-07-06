@@ -1,0 +1,26 @@
+{
+  "id": "test-noodle-bowl",
+  "name": "Test Noodle Bowl",
+  "description": "Synthetic fixture recipe — not real data. Used by tests and local dev.",
+  "servings": 2,
+  "prepTime": 5,
+  "cookTime": 10,
+  "totalTime": 15,
+  "mealType": "dinner",
+  "cuisine": "test",
+  "tags": ["fixture"],
+  "difficulty": 1,
+  "purpose": ["everyday"],
+  "effort": "assembly",
+  "ingredients": [
+    { "qty": 200, "unit": "g", "food": "test noodles", "staple": false },
+    { "qty": 1, "unit": "tbsp", "food": "test oil", "staple": true }
+  ],
+  "instructions": [
+    { "step": 1, "text": "Boil the test noodles." },
+    { "step": 2, "text": "Toss with test oil." }
+  ],
+  "nutrition": { "calories": 400, "protein": 20, "carbs": 60, "fat": 10, "method": "estimated" },
+  "timesCooked": 0,
+  "lessons": []
+}
