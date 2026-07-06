@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- The sha256 below allows ONLY the inline import map (import maps cannot
+         be external files on iOS Safari). If the import map changes, the
+         browser console prints the new required hash — update it here. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; connect-src 'self' https://api.github.com; img-src 'self' data:; style-src 'self'; script-src 'self' 'sha256-zHPloj1/u51aEEuFrwddKN7lXMQDwVXJEnJCeuO8lfI='; base-uri 'none'; form-action 'none'; object-src 'none'"
+    />
+    <meta name="theme-color" content="#0d1117" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Mise" />
+    <title>Mise</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <link rel="icon" href="./icons/icon-192.png" type="image/png" />
+    <link rel="stylesheet" href="./app/styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "preact": "./vendor/preact/preact.module.js",
+          "preact/hooks": "./vendor/preact/hooks.module.js",
+          "htm": "./vendor/htm/htm.module.js",
+          "htm/preact": "./vendor/htm/preact.module.js"
+        }
+      }
+    </script>
+    <script type="module" src="./app/main.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>

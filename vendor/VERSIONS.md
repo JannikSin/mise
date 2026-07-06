@@ -11,7 +11,9 @@ They must always match the versions below.
 | preact/preact.module.js | preact | 10.29.4 | dist/preact.module.js |
 | preact/hooks.module.js | preact | 10.29.4 | hooks/dist/hooks.module.js |
 | htm/htm.module.js | htm | 3.1.1 | dist/htm.module.js |
+| htm/preact.module.js | htm | 3.1.1 | preact/index.module.js |
 
 Note: hooks.module.js contains a bare `import ... from "preact"` — the app's
 index.html must serve an import map resolving "preact", "preact/hooks" and
 "htm" to these files.
+

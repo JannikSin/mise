@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit -p jsconfig.json",
-    "lint": "eslint app",
+    "lint": "eslint .",
     "format": "prettier --write \"app/**/*.{js,css,html,json}\" \"docs/**/*.md\""
   },
   "devDependencies": {
