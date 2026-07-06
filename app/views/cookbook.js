@@ -10,9 +10,14 @@ const TIMES = [
 ];
 
 /**
- * @param {{ recipes: Record<string, any>[], hasToken: boolean }} props
+ * @param {{
+ *   recipes: Record<string, any>[],
+ *   hasToken: boolean,
+ *   weekId: string,
+ *   onPlan: (recipe: Record<string, any>, date: string) => void
+ * }} props
  */
-export function CookbookView({ recipes, hasToken }) {
+export function CookbookView({ recipes, hasToken, weekId, onPlan }) {
   const [purpose, setPurpose] = useState(/** @type {string | null} */ (null));
   const [time, setTime] = useState(/** @type {string | null} */ (null));
 
@@ -55,7 +60,9 @@ export function CookbookView({ recipes, hasToken }) {
         )}
       </div>
       <div class="slots">
-        ${filtered.map((r) => html`<${RecipeRow} key=${r.id} recipe=${r} />`)}
+        ${filtered.map(
+          (r) => html`<${RecipeRow} key=${r.id} recipe=${r} weekId=${weekId} onPlan=${onPlan} />`,
+        )}
         ${
           filtered.length === 0 &&
           html`<div class="empty">

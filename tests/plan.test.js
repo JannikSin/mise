@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { datesOfWeek, setEntry, removeEntry, dayTotals, shiftWeek } from "../app/lib/plan.js";
+import {
+  datesOfWeek,
+  shiftWeek,
+  addEntry,
+  removeEntryById,
+  moveEntry,
+  normalizePlan,
+  entriesAt,
+  dayTotals,
+} from "../app/lib/plan.js";
 
 test("shiftWeek moves across plain and year-boundary weeks", () => {
   assert.equal(shiftWeek("2026-W28", 1), "2026-W29");
@@ -22,72 +31,94 @@ test("datesOfWeek returns Monday-Sunday ISO dates for an ISO week id", () => {
 });
 
 test("datesOfWeek handles year-boundary weeks", () => {
-  assert.equal(datesOfWeek("2026-W01")[0], "2025-12-29"); // W01 Monday in prior calendar year
+  assert.equal(datesOfWeek("2026-W01")[0], "2025-12-29");
   assert.equal(datesOfWeek("2026-W53")[6], "2027-01-03");
 });
 
-test("setEntry adds an entry to an empty plan", () => {
+test("addEntry appends with a generated unique id and does not mutate", () => {
   const plan = { week: "2026-W28", entries: [] };
-  const next = setEntry(plan, "2026-07-06", "dinner", { recipeId: "beef", servings: 1 });
-  assert.deepEqual(next.entries, [
-    { date: "2026-07-06", slot: "dinner", recipeId: "beef", servings: 1 },
-  ]);
-  assert.deepEqual(plan.entries, [], "original plan is not mutated");
+  const next = addEntry(plan, "2026-07-06", "dinner", { recipeId: "beef", servings: 1 });
+  assert.equal(next.entries.length, 1);
+  assert.equal(typeof next.entries[0].id, "string");
+  assert.ok(next.entries[0].id.length >= 6);
+  assert.equal(next.entries[0].recipeId, "beef");
+  assert.deepEqual(plan.entries, []);
 });
 
-test("setEntry replaces the entry occupying the same date+slot", () => {
-  const plan = {
+test("addEntry stacks multiple entries in the SAME date+slot", () => {
+  let plan = { week: "2026-W28", entries: [] };
+  plan = addEntry(plan, "2026-07-06", "dinner", { recipeId: "beef", servings: 1 });
+  plan = addEntry(plan, "2026-07-06", "dinner", { recipeId: "congee", servings: 1 });
+  const stacked = entriesAt(plan.entries, "2026-07-06", "dinner");
+  assert.equal(stacked.length, 2);
+  assert.notEqual(plan.entries[0].id, plan.entries[1].id);
+});
+
+test("removeEntryById removes exactly one entry", () => {
+  let plan = { week: "2026-W28", entries: [] };
+  plan = addEntry(plan, "2026-07-06", "dinner", { recipeId: "beef", servings: 1 });
+  plan = addEntry(plan, "2026-07-06", "dinner", { recipeId: "congee", servings: 1 });
+  const next = removeEntryById(plan, plan.entries[0].id);
+  assert.equal(next.entries.length, 1);
+  assert.equal(next.entries[0].recipeId, "congee");
+});
+
+test("moveEntry reassigns date+slot, keeping id and content", () => {
+  let plan = { week: "2026-W28", entries: [] };
+  plan = addEntry(plan, "2026-07-06", "dinner", { recipeId: "beef", servings: 2 });
+  const id = plan.entries[0].id;
+  const next = moveEntry(plan, id, "2026-07-07", "lunch");
+  assert.deepEqual(next.entries[0], {
+    id,
+    date: "2026-07-07",
+    slot: "lunch",
+    recipeId: "beef",
+    servings: 2,
+  });
+});
+
+test("normalizePlan builds an empty plan and assigns ids to legacy entries", () => {
+  assert.deepEqual(normalizePlan(null, "2026-W28"), { week: "2026-W28", entries: [] });
+  const legacy = {
     week: "2026-W28",
     entries: [{ date: "2026-07-06", slot: "dinner", recipeId: "beef", servings: 1 }],
   };
-  const next = setEntry(plan, "2026-07-06", "dinner", { freeText: "leftovers", servings: 1 });
-  assert.deepEqual(next.entries, [
-    { date: "2026-07-06", slot: "dinner", freeText: "leftovers", servings: 1 },
-  ]);
+  const fixed = normalizePlan(legacy, "2026-W28");
+  assert.equal(typeof fixed.entries[0].id, "string");
+  assert.equal(fixed.entries[0].recipeId, "beef");
 });
 
-test("setEntry leaves other slots and days alone", () => {
-  const plan = {
-    week: "2026-W28",
-    entries: [{ date: "2026-07-06", slot: "lunch", recipeId: "salad", servings: 1 }],
-  };
-  const next = setEntry(plan, "2026-07-06", "dinner", { recipeId: "beef", servings: 1 });
-  assert.equal(next.entries.length, 2);
-});
-
-test("removeEntry drops exactly the date+slot entry", () => {
-  const plan = {
+test("normalizePlan self-heal ids are DETERMINISTIC — two devices agree", () => {
+  // if two devices independently normalize the same legacy file, they must
+  // produce identical ids, or id-keyed merges duplicate/resurrect entries
+  const legacy = {
     week: "2026-W28",
     entries: [
       { date: "2026-07-06", slot: "dinner", recipeId: "beef", servings: 1 },
-      { date: "2026-07-07", slot: "dinner", recipeId: "congee", servings: 1 },
+      { date: "2026-07-06", slot: "dinner", recipeId: "beef", servings: 1 }, // identical twin
+      { date: "2026-07-07", slot: "lunch", freeText: "leftovers", servings: 1 },
     ],
   };
-  const next = removeEntry(plan, "2026-07-06", "dinner");
-  assert.deepEqual(next.entries, [
-    { date: "2026-07-07", slot: "dinner", recipeId: "congee", servings: 1 },
-  ]);
+  const a = normalizePlan(structuredClone(legacy), "2026-W28");
+  const b = normalizePlan(structuredClone(legacy), "2026-W28");
+  assert.deepEqual(
+    a.entries.map((e) => e.id),
+    b.entries.map((e) => e.id),
+  );
+  // identical twins in the same slot still get DISTINCT ids
+  assert.notEqual(a.entries[0].id, a.entries[1].id);
 });
 
-test("dayTotals sums calories and protein scaled by servings", () => {
+test("dayTotals sums stacked entries in the same slot", () => {
   const recipes = new Map([
     ["beef", { nutrition: { calories: 900, protein: 61 } }],
-    ["smoothie", { nutrition: { calories: 780, protein: 58 } }],
+    ["snack", { nutrition: { calories: 205, protein: 28 } }],
   ]);
   const entries = [
-    { date: "2026-07-06", slot: "dinner", recipeId: "beef", servings: 1 },
-    { date: "2026-07-06", slot: "smoothie", recipeId: "smoothie", servings: 2 },
-    { date: "2026-07-07", slot: "dinner", recipeId: "beef", servings: 1 },
+    { id: "a", date: "2026-07-06", slot: "dinner", recipeId: "beef", servings: 1 },
+    { id: "b", date: "2026-07-06", slot: "dinner", recipeId: "snack", servings: 1 },
+    { id: "c", date: "2026-07-06", slot: "lunch", freeText: "eating out", servings: 1 },
+    { id: "d", date: "2026-07-07", slot: "dinner", recipeId: "beef", servings: 1 },
   ];
-  assert.deepEqual(dayTotals(entries, recipes, "2026-07-06"), { calories: 2460, protein: 177 });
-});
-
-test("dayTotals ignores freeText entries and unknown recipe ids", () => {
-  const recipes = new Map([["beef", { nutrition: { calories: 900, protein: 61 } }]]);
-  const entries = [
-    { date: "2026-07-06", slot: "lunch", freeText: "eating out", servings: 1 },
-    { date: "2026-07-06", slot: "dinner", recipeId: "gone", servings: 1 },
-    { date: "2026-07-06", slot: "smoothie", recipeId: "beef", servings: 1 },
-  ];
-  assert.deepEqual(dayTotals(entries, recipes, "2026-07-06"), { calories: 900, protein: 61 });
+  assert.deepEqual(dayTotals(entries, recipes, "2026-07-06"), { calories: 1105, protein: 89 });
 });

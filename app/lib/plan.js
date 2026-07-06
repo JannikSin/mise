@@ -1,12 +1,15 @@
-// Weekly plan operations (plans/<week>.json). Entries are keyed by
-// date+slot — the same key mergeFieldWise uses, so two devices editing
-// different slots merge cleanly.
+// Weekly plan operations (plans/<week>.json). Entries carry a unique id —
+// the key mergeFieldWise prefers — so multiple entries may STACK in the same
+// date+slot and two devices editing the same week merge cleanly.
 import { isoWeekId } from "./dates.js";
 
 /**
- * @typedef {{ date: string, slot: string, recipeId?: string, freeText?: string, servings: number }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number }} PlanEntry
  * @typedef {{ week: string, entries: PlanEntry[] }} Plan
  */
+
+/** The valid slot keys, in display order (docs/SCHEMAS.md plan section). */
+export const SLOT_KEYS = ["breakfast", "lunch", "dinner", "smoothie", "snack"];
 
 /**
  * Monday..Sunday ISO dates of an ISO week id like "2026-W28".
@@ -46,36 +49,96 @@ export function shiftWeek(weekId, delta) {
   return isoWeekId(d);
 }
 
+/** @returns {string} unique-per-device entry id */
+function genId() {
+  return crypto.randomUUID().slice(0, 8);
+}
+
 /**
- * Set what's planned for one date+slot (replacing anything already there).
- * Pure — returns a new plan.
+ * Deterministic id for a legacy (pre-id) entry: two devices independently
+ * self-healing the same file MUST agree on ids, or id-keyed merges would
+ * duplicate entries and resurrect deletions. FNV-1a over the entry's stable
+ * content plus its index among identical twins.
+ * @param {Record<string, any>} e
+ * @param {number} twinIndex
+ * @returns {string}
+ */
+function legacyId(e, twinIndex) {
+  const s = `${e.date}|${e.slot}|${e.recipeId ?? ""}|${e.freeText ?? ""}|${e.servings}|${twinIndex}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `l${h.toString(16).padStart(8, "0")}`;
+}
+
+/**
+ * Append a planned item; entries stack, nothing is replaced. Pure.
  * @param {Plan} plan
  * @param {string} date
  * @param {string} slot
- * @param {{ recipeId?: string, freeText?: string, servings: number }} entry
+ * @param {{ recipeId?: string, freeText?: string, servings: number }} content
  * @returns {Plan}
  */
-export function setEntry(plan, date, slot, entry) {
-  return {
-    ...plan,
-    entries: [
-      ...plan.entries.filter((e) => !(e.date === date && e.slot === slot)),
-      { date, slot, ...entry },
-    ],
-  };
+export function addEntry(plan, date, slot, content) {
+  return { ...plan, entries: [...plan.entries, { id: genId(), date, slot, ...content }] };
 }
 
 /**
  * @param {Plan} plan
+ * @param {string} id
+ * @returns {Plan}
+ */
+export function removeEntryById(plan, id) {
+  return { ...plan, entries: plan.entries.filter((e) => e.id !== id) };
+}
+
+/**
+ * @param {Plan} plan
+ * @param {string} id
  * @param {string} date
  * @param {string} slot
  * @returns {Plan}
  */
-export function removeEntry(plan, date, slot) {
+export function moveEntry(plan, id, date, slot) {
   return {
     ...plan,
-    entries: plan.entries.filter((e) => !(e.date === date && e.slot === slot)),
+    entries: plan.entries.map((e) => (e.id === id ? { ...e, date, slot } : e)),
   };
+}
+
+/**
+ * Shape a freshly-read (or absent) plan file: guarantees week + entries and
+ * self-heals pre-id legacy entries by assigning ids (persisted on next write).
+ * @param {Record<string, any> | null} raw
+ * @param {string} weekId
+ * @returns {Plan}
+ */
+export function normalizePlan(raw, weekId) {
+  if (!raw || !Array.isArray(raw.entries)) return { week: weekId, entries: [] };
+  /** @type {Map<string, number>} */
+  const twinCounts = new Map();
+  return {
+    week: typeof raw.week === "string" ? raw.week : weekId,
+    entries: raw.entries.map((/** @type {any} */ e) => {
+      if (typeof e.id === "string") return e;
+      const contentKey = `${e.date}|${e.slot}|${e.recipeId ?? ""}|${e.freeText ?? ""}|${e.servings}`;
+      const twinIndex = twinCounts.get(contentKey) ?? 0;
+      twinCounts.set(contentKey, twinIndex + 1);
+      return { ...e, id: legacyId(e, twinIndex) };
+    }),
+  };
+}
+
+/**
+ * @param {PlanEntry[]} entries
+ * @param {string} date
+ * @param {string} slot
+ * @returns {PlanEntry[]}
+ */
+export function entriesAt(entries, date, slot) {
+  return entries.filter((e) => e.date === date && e.slot === slot);
 }
 
 /**

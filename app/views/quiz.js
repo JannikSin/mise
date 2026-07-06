@@ -16,10 +16,17 @@ const LOAD_OPTS = [
 ];
 
 /**
- * The opening quiz (blueprint §6.1): three chip questions → ranked picks.
- * @param {{ recipes: Record<string, any>[], useSoonFoods: string[], hasToken: boolean }} props
+ * The opening quiz (blueprint §6.1): three chip questions → ranked picks,
+ * each with a one-tap "plan it" button.
+ * @param {{
+ *   recipes: Record<string, any>[],
+ *   useSoonFoods: string[],
+ *   hasToken: boolean,
+ *   weekId: string,
+ *   onPlan: (recipe: Record<string, any>, date: string) => void
+ * }} props
  */
-export function QuizView({ recipes, useSoonFoods, hasToken }) {
+export function QuizView({ recipes, useSoonFoods, hasToken, weekId, onPlan }) {
   const [time, setTime] = useState(/** @type {number | null} */ (null));
   const [purpose, setPurpose] = useState(/** @type {string | null} */ (null));
   const [load, setLoad] = useState(/** @type {"heavy" | "light" | null} */ (null));
@@ -94,6 +101,8 @@ export function QuizView({ recipes, useSoonFoods, hasToken }) {
                     key=${s.recipe.id}
                     recipe=${s.recipe}
                     why=${s.reasons.join(" · ")}
+                    weekId=${weekId}
+                    onPlan=${onPlan}
                   />`,
               )}
             ${

@@ -115,13 +115,19 @@ Two tiers, deliberately lightweight (no decrement-on-cook ledger, ever).
 
 ## Meal plan — `plans/<week>.json`
 
+Entries carry a unique `id` and multiple entries may STACK in the same
+date+slot (hitting 3,400 kcal often needs more than one item per slot).
+The `id` doubles as the merge key, so two devices editing the same week —
+even the same slot — merge without losing either entry.
+
 ```jsonc
 {
   "week": "2026-W28",
   "entries": [
     {
+      "id": "b3e29f01",                 // unique in the file; merge key
       "date": "2026-07-06",
-      "slot": "dinner",                 // breakfast | lunch | dinner | smoothie
+      "slot": "dinner",                 // breakfast | lunch | dinner | smoothie | snack
       "recipeId": "chicken-bulgogi-bowl", // exactly one of recipeId | freeText
       "freeText": "leftovers",          // e.g. "leftovers", "eating out"
       "servings": 2

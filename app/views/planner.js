@@ -1,15 +1,19 @@
 import { html } from "htm/preact";
 import { useEffect, useRef } from "preact/hooks";
 import { initDrag } from "../lib/drag.js";
-import { datesOfWeek, dayTotals } from "../lib/plan.js";
+import { datesOfWeek, dayTotals, entriesAt, SLOT_KEYS } from "../lib/plan.js";
 import { statusDate } from "../lib/dates.js";
 
-const SLOTS = [
-  { key: "breakfast", label: "BRK" },
-  { key: "lunch", label: "LUN" },
-  { key: "dinner", label: "DIN" },
-  { key: "smoothie", label: "SMO" },
-];
+/** @type {Record<string, { label: string, full: string }>} */
+const SLOT_META = {
+  breakfast: { label: "BRK", full: "Breakfast" },
+  lunch: { label: "LUN", full: "Lunch" },
+  dinner: { label: "DIN", full: "Dinner" },
+  smoothie: { label: "SMO", full: "Smoothie" },
+  snack: { label: "SNK", full: "Snack" },
+};
+
+const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
 const FREE_TEXT = ["leftovers", "eating out"];
 
@@ -30,14 +34,14 @@ function monthDay(isoDate) {
  * no keyboard/switch-control path yet; remove is a plain button.
  * @param {{
  *   recipes: Record<string, any>[],
- *   plan: { week: string, entries: Record<string, any>[] },
+ *   plan: import("../lib/plan.js").Plan,
  *   targets: Record<string, any> | null,
  *   hasToken: boolean,
  *   loading: boolean,
  *   weekId: string,
  *   onWeek: (delta: number) => void,
  *   onDropInto: (date: string, slot: string, drag: DOMStringMap) => void,
- *   onRemove: (date: string, slot: string) => void
+ *   onRemove: (id: string) => void
  * }} props
  */
 export function PlannerView({
@@ -69,9 +73,6 @@ export function PlannerView({
       dropRef.current(drop.date, drop.slot, drag);
     });
   }, []);
-
-  const entryAt = (/** @type {string} */ date, /** @type {string} */ slot) =>
-    plan.entries.find((e) => e.date === date && e.slot === slot);
 
   return html`
     <div class="view" ref=${rootRef}>
@@ -153,42 +154,44 @@ export function PlannerView({
               </div>
             </div>
             <div class="slotgrid">
-              ${SLOTS.map(({ key, label }) => {
-                const entry = entryAt(date, key);
-                const recipe = entry?.recipeId ? byId.get(entry.recipeId) : null;
+              ${SLOTS.map(({ key, label, full }) => {
+                const stacked = entriesAt(plan.entries, date, key);
                 return html`
                   <div class="slotrow" data-drop data-date=${date} data-slot=${key} key=${key}>
-                    <span class="t">${label}</span>
+                    <span class="t" aria-label=${full}>${label}</span>
                     ${
-                      entry
-                        ? html`
-                            <div
-                              class="fill drag-chip"
-                              data-drag="move"
-                              data-date=${date}
-                              data-slot=${key}
-                            >
-                              <span class="grip" aria-hidden="true">⠿</span>
-                              <span class="chipbody">
-                                <span class="n">${recipe ? recipe.name : entry.freeText}</span>
-                                ${
-                                  recipe &&
-                                  html`<span class="m num"
-                                    >${recipe.nutrition?.calories} ·
-                                    ${recipe.nutrition?.protein}P</span
-                                  >`
-                                }
-                              </span>
-                            </div>
-                            <button
-                              class="rm"
-                              aria-label="Remove ${recipe ? recipe.name : entry.freeText} from ${label}"
-                              onClick=${() => onRemove(date, key)}
-                            >
-                              ✕
-                            </button>
-                          `
-                        : html`<span class="emptyslot">—</span>`
+                      stacked.length === 0
+                        ? html`<span class="emptyslot">—</span>`
+                        : html`<div class="stack">
+                            ${stacked.map((entry) => {
+                              const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
+                              const name = recipe ? recipe.name : entry.freeText;
+                              return html`
+                                <div class="stackline" key=${entry.id}>
+                                  <div class="fill drag-chip" data-drag="move" data-id=${entry.id}>
+                                    <span class="grip" aria-hidden="true">⠿</span>
+                                    <span class="chipbody">
+                                      <span class="n">${name}</span>
+                                      ${
+                                        recipe &&
+                                        html`<span class="m num"
+                                          >${recipe.nutrition?.calories} ·
+                                          ${recipe.nutrition?.protein}P</span
+                                        >`
+                                      }
+                                    </span>
+                                  </div>
+                                  <button
+                                    class="rm"
+                                    aria-label="Remove ${name} from ${label}"
+                                    onClick=${() => onRemove(entry.id)}
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              `;
+                            })}
+                          </div>`
                     }
                   </div>
                 `;

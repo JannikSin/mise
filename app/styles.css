@@ -300,19 +300,86 @@ a.tile {
 .slot {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 13px;
+  padding: 6px 6px 6px 13px;
   min-height: 56px;
+}
+
+.slot .slotlink {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   color: inherit;
   text-decoration: none;
   cursor: pointer;
+  padding: 7px 0;
 }
 
 .slot:active {
   background: var(--panel-2);
+}
+
+.slot .plus {
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--signal);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.slot .plus.done {
+  border-color: var(--signal);
+}
+
+.slot .plus:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
+}
+
+.daypick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 6px 2px 2px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  /* right-edge fade: cue that more chips are off-screen */
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+
+.daypick .wklabel {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--dim);
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+
+.added-note {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--signal);
+  padding: 4px 2px 0;
+}
+
+.daypick::-webkit-scrollbar {
+  display: none;
+}
+
+.rowwrap {
+  display: flex;
+  flex-direction: column;
 }
 
 .slot .name {
@@ -813,6 +880,20 @@ a.tile {
   color: var(--dim);
   width: 34px;
   flex-shrink: 0;
+}
+
+.slotrow .stack {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stackline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .slotrow .fill {

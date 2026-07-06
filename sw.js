@@ -2,7 +2,7 @@
 // Bump CACHE_VERSION on every deploy that changes shell files.
 // Hardening (update prompts, stale-while-revalidate) lands at Task 10.
 
-const CACHE_VERSION = "mise-shell-v4";
+const CACHE_VERSION = "mise-shell-v5";
 
 const SHELL = [
   "./",

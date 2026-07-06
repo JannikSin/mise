@@ -17,7 +17,14 @@ import { CookbookView } from "./views/cookbook.js";
 import { RecipeView, CookView } from "./views/recipe.js";
 import { SystemView } from "./views/system.js";
 import { PlannerView } from "./views/planner.js";
-import { setEntry, removeEntry, shiftWeek } from "./lib/plan.js";
+import {
+  addEntry,
+  removeEntryById,
+  moveEntry,
+  normalizePlan,
+  shiftWeek,
+  SLOT_KEYS,
+} from "./lib/plan.js";
 
 export const APP = { name: "Mise", version: "0.3.0" };
 
@@ -111,12 +118,7 @@ function App() {
     let alive = true;
     const load = () => {
       read(`plans/${weekId}.json`).then((p) => {
-        if (!alive) return;
-        setPlan(
-          p
-            ? /** @type {{ week: string, entries: Record<string, any>[] }} */ (p)
-            : { week: weekId, entries: [] },
-        );
+        if (alive) setPlan(normalizePlan(p, weekId));
       });
     };
     load();
@@ -155,27 +157,39 @@ function App() {
     (/** @type {string} */ date, /** @type {string} */ slot, /** @type {DOMStringMap} */ drag) => {
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       if (drag.drag === "recipe" && drag.recipe) {
-        updatePlan(setEntry(p, date, slot, { recipeId: drag.recipe, servings: 1 }));
+        updatePlan(addEntry(p, date, slot, { recipeId: drag.recipe, servings: 1 }));
       } else if (drag.drag === "text" && drag.text) {
-        updatePlan(setEntry(p, date, slot, { freeText: drag.text, servings: 1 }));
-      } else if (drag.drag === "move" && drag.date && drag.slot) {
-        if (drag.date === date && drag.slot === slot) return;
-        const src = p.entries.find((e) => e.date === drag.date && e.slot === drag.slot);
-        if (!src) return;
-        const content = src.recipeId
-          ? { recipeId: src.recipeId, servings: src.servings }
-          : { freeText: src.freeText, servings: src.servings };
-        updatePlan(setEntry(removeEntry(p, drag.date, drag.slot), date, slot, content));
+        updatePlan(addEntry(p, date, slot, { freeText: drag.text, servings: 1 }));
+      } else if (drag.drag === "move" && drag.id) {
+        const src = p.entries.find((e) => e.id === drag.id);
+        if (!src || (src.date === date && src.slot === slot)) return;
+        updatePlan(moveEntry(p, drag.id, date, slot));
       }
     },
     [updatePlan],
   );
 
   const handleRemove = useCallback(
-    (/** @type {string} */ date, /** @type {string} */ slot) => {
+    (/** @type {string} */ id) => {
       updatePlan(
-        removeEntry(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), date, slot),
+        removeEntryById(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), id),
       );
+    },
+    [updatePlan],
+  );
+
+  /** Add straight from quiz/cookbook: slot inferred from the recipe's
+   *  mealType; returns the slot so the row can confirm where it landed. */
+  const handlePlanAdd = useCallback(
+    (/** @type {Record<string, any>} */ recipe, /** @type {string} */ date) => {
+      const slot = SLOT_KEYS.includes(recipe.mealType) ? recipe.mealType : "dinner";
+      updatePlan(
+        addEntry(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), date, slot, {
+          recipeId: recipe.id,
+          servings: 1,
+        }),
+      );
+      return slot;
     },
     [updatePlan],
   );
@@ -249,10 +263,22 @@ function App() {
     }
     ${
       route.view === "quiz" &&
-      html`<${QuizView} recipes=${recipes} useSoonFoods=${useSoonFoods} hasToken=${hasToken} />`
+      html`<${QuizView}
+        recipes=${recipes}
+        useSoonFoods=${useSoonFoods}
+        hasToken=${hasToken}
+        weekId=${weekId}
+        onPlan=${handlePlanAdd}
+      />`
     }
     ${
-      route.view === "cookbook" && html`<${CookbookView} recipes=${recipes} hasToken=${hasToken} />`
+      route.view === "cookbook" &&
+      html`<${CookbookView}
+        recipes=${recipes}
+        hasToken=${hasToken}
+        weekId=${weekId}
+        onPlan=${handlePlanAdd}
+      />`
     }
     ${
       route.view === "plan" &&
