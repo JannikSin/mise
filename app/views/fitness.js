@@ -316,27 +316,48 @@ export function FitnessView({
             </label>
           </div>
           <div class="slots counters">
-            <button
-              class="checkrow counter"
-              aria-label="Add 20 pushups (now ${day.pushups ?? 0} of ${targets?.pushupsPerDay ?? 200})"
-              onClick=${() => onPatchDay({ pushups: (day.pushups ?? 0) + 20 })}
-            >
+            <div class="checkrow counter">
+              <button
+                class="stepbtn"
+                aria-label="Remove 20 pushups (now ${day.pushups ?? 0})"
+                onClick=${() => onPatchDay({ pushups: Math.max(0, (day.pushups ?? 0) - 20) })}
+              >
+                −20
+              </button>
               <span class="food">Pushups</span>
               <span class="countnum num"
                 >${day.pushups ?? 0}<small>/${targets?.pushupsPerDay ?? 200}</small></span
               >
-              <span class="plusbadge num" aria-hidden="true">+20</span>
-            </button>
-            <button
-              class="checkrow counter"
-              aria-label="Add one glass of water (now ${day.water ?? 0})"
-              onClick=${() => onPatchDay({ water: (day.water ?? 0) + 1 })}
-            >
+              <button
+                class="stepbtn plus"
+                aria-label="Add 20 pushups (now ${day.pushups ?? 0} of ${targets?.pushupsPerDay ?? 200})"
+                onClick=${() => onPatchDay({ pushups: (day.pushups ?? 0) + 20 })}
+              >
+                +20
+              </button>
+            </div>
+            <div class="checkrow counter">
+              <button
+                class="stepbtn"
+                aria-label="Remove a quarter liter of water (now ${day.water ?? 0} liters)"
+                onClick=${() => onPatchDay({ water: Math.max(0, ((day.water ?? 0) * 4 - 1) / 4) })}
+              >
+                −¼
+              </button>
               <span class="food">Water</span>
-              <span class="countnum num">${day.water ?? 0}<small> glasses</small></span>
-              <span class="plusbadge num" aria-hidden="true">+1</span>
-            </button>
+              <span class="countnum num"
+                >${day.water ?? 0}<small>/${targets?.macros?.waterLiters ?? 3.5} L</small></span
+              >
+              <button
+                class="stepbtn plus"
+                aria-label="Add a quarter liter of water — a cup is about 250ml (now ${day.water ?? 0} liters)"
+                onClick=${() => onPatchDay({ water: ((day.water ?? 0) * 4 + 1) / 4 })}
+              >
+                +¼
+              </button>
+            </div>
           </div>
+          <p class="hint">water in liters — a cup ≈ ¼, a bottle = 1. mis-taps: use −.</p>
           <h2 class="block-title">Supplements</h2>
           <div class="slots">
             ${(targets?.supplementPlan ?? []).map(
@@ -369,10 +390,13 @@ export function FitnessView({
                 /** @type {any} */ (daily.days),
                 (targets?.supplementPlan ?? []).map((/** @type {any} */ s) => s.id),
                 targets?.pushupsPerDay ?? 200,
+                targets?.macros?.waterLiters ?? 3.5,
                 today,
               )}<small> day streak</small>
             </div>
-            <div class="d">a day counts: sleep logged · pushups done · all supplements ✓</div>
+            <div class="d">
+              a day counts: sleep logged · pushups done · water done · all supplements ✓
+            </div>
           </div>
         `
       }

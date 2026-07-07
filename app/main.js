@@ -30,6 +30,7 @@ import {
   shiftWeek,
   SLOT_KEYS,
 } from "./lib/plan.js";
+import { buildWeek } from "./lib/weekbuilder.js";
 
 export const APP = { name: "Mise", version: "0.3.0" };
 
@@ -381,6 +382,46 @@ function App() {
 
   /** Add straight from quiz/cookbook: slot inferred from the recipe's
    *  mealType; returns the slot so the row can confirm where it landed. */
+  // week builder: fills empty slots optimizing ingredient overlap; RE-ROLL
+  // removes what IT generated (never manual picks) and rebuilds differently
+  const [buildReport, setBuildReport] = useState(
+    /** @type {{ shared: { food: string, count: number }[], distinctItems: number } | null} */ (
+      null
+    ),
+  );
+  const targetsRef = useRef(targets);
+  targetsRef.current = targets;
+  const buildStateRef = useRef({ salt: 0, generatedIds: /** @type {string[]} */ ([]) });
+
+  const handleBuildWeek = useCallback(() => {
+    const bs = buildStateRef.current;
+    let base = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+    if (bs.generatedIds.length > 0) {
+      // re-roll: strip only what the last build added
+      const gen = new Set(bs.generatedIds);
+      base = { ...base, entries: base.entries.filter((e) => !gen.has(e.id)) };
+      bs.salt++;
+    }
+    const before = new Set(base.entries.map((e) => e.id));
+    const result = buildWeek({
+      recipes: recipesRef.current,
+      targets: targetsRef.current,
+      pantry: pantryRef.current,
+      weekId: weekRef.current,
+      plan: base,
+      salt: bs.salt,
+    });
+    bs.generatedIds = result.plan.entries.filter((e) => !before.has(e.id)).map((e) => e.id);
+    updatePlan(result.plan);
+    setBuildReport(result.report);
+  }, [updatePlan]);
+
+  useEffect(() => {
+    // a new week means a fresh build state and report
+    buildStateRef.current = { salt: 0, generatedIds: [] };
+    setBuildReport(null);
+  }, [weekId]);
+
   const handlePlanAdd = useCallback(
     (/** @type {Record<string, any>} */ recipe, /** @type {string} */ date) => {
       const slot = SLOT_KEYS.includes(recipe.mealType) ? recipe.mealType : "dinner";
@@ -493,6 +534,9 @@ function App() {
         onWeek=${(/** @type {number} */ d) => setWeekId(shiftWeek(weekId, d))}
         onDropInto=${handleDrop}
         onRemove=${handleRemove}
+        onBuildWeek=${handleBuildWeek}
+        buildReport=${buildReport}
+        rebuilt=${buildStateRef.current.generatedIds.length > 0}
       />`
     }
     ${

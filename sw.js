@@ -10,7 +10,7 @@
 // Bump CACHE_VERSION on deploys that change vendor/icon files; app-code
 // changes no longer need it for freshness, only for precache hygiene.
 
-const CACHE_VERSION = "mise-shell-v10";
+const CACHE_VERSION = "mise-shell-v11";
 
 const SHELL = [
   "./",

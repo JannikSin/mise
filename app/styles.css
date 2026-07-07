@@ -808,6 +808,27 @@ a.tile {
     opacity 0.16s ease-out;
 }
 
+.ask.buildweek:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.buildreport {
+  margin-top: 10px;
+}
+
+.buildreport .d {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  margin-top: 6px;
+  line-height: 1.6;
+}
+
+.buildreport .d:first-of-type {
+  color: var(--signal);
+}
+
 .traylabel {
   margin: 0 4px 4px;
   font-family: var(--mono);
@@ -1310,19 +1331,49 @@ button.secondary:focus-visible {
   border-color: var(--amber);
 }
 
-/* daily counters: full-width rows, big legible number, visible +N badge */
-.checkrow.counter {
-  cursor: pointer;
-}
-
-.checkrow.counter:active,
+/* daily counters: −/+ steppers flank the count (mis-tap recovery) */
 .checkrow .tickarea:active {
   background: var(--panel-2);
 }
 
-.checkrow.counter:focus-visible {
+.stepbtn {
+  min-width: 52px;
+  min-height: 44px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-2);
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.stepbtn.plus {
+  border-color: var(--signal);
+  color: var(--signal);
+  background: var(--signal-08);
+}
+
+.stepbtn:active {
+  transform: scale(0.94);
+}
+
+.stepbtn:focus-visible {
   outline: 2px solid var(--recover);
   outline-offset: 2px;
+}
+
+.checkrow.counter {
+  cursor: default; /* only the flanking stepbtns are interactive */
+}
+
+.checkrow.counter .food {
+  text-align: left;
+}
+
+.checkrow.counter .countnum {
+  margin-left: auto;
 }
 
 .countnum {
@@ -1336,18 +1387,6 @@ button.secondary:focus-visible {
   font-size: 11px;
   font-weight: 400;
   color: var(--dim);
-}
-
-.plusbadge {
-  flex-shrink: 0;
-  min-width: 48px;
-  text-align: center;
-  padding: 10px 0;
-  border-radius: 10px;
-  border: 1px solid var(--signal);
-  color: var(--signal);
-  background: var(--signal-08);
-  font-size: 12px;
 }
 
 .counters {

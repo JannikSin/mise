@@ -41,7 +41,10 @@ function monthDay(isoDate) {
  *   weekId: string,
  *   onWeek: (delta: number) => void,
  *   onDropInto: (date: string, slot: string, drag: DOMStringMap) => void,
- *   onRemove: (id: string) => void
+ *   onRemove: (id: string) => void,
+ *   onBuildWeek: () => void,
+ *   buildReport: { shared: { food: string, count: number }[], distinctItems: number } | null,
+ *   rebuilt: boolean
  * }} props
  */
 export function PlannerView({
@@ -54,6 +57,9 @@ export function PlannerView({
   onWeek,
   onDropInto,
   onRemove,
+  onBuildWeek,
+  buildReport,
+  rebuilt,
 }) {
   const rootRef = useRef(/** @type {HTMLElement | null} */ (null));
   // tray meal filter: at ~50 recipes an unfiltered tray is unusable (David)
@@ -86,6 +92,35 @@ export function PlannerView({
         </div>
         <button class="wk" aria-label="Next week" onClick=${() => onWeek(1)}>›</button>
       </div>
+
+      <div class="actions">
+        <button
+          class="ask buildweek"
+          aria-label=${rebuilt ? "Re-roll the generated week" : "Build my week automatically"}
+          onClick=${onBuildWeek}
+          disabled=${recipes.length === 0}
+        >
+          ${rebuilt ? "RE-ROLL WEEK" : "✦ BUILD MY WEEK"}
+          <small>overlapping ingredients → fewer, bulkier buys</small>
+        </button>
+      </div>
+      ${
+        buildReport &&
+        html`
+          <div class="tile buildreport" role="status">
+            <div class="k">This week shares</div>
+            <div class="d num">
+              ${
+                buildReport.shared
+                  .slice(0, 6)
+                  .map((s) => `${s.food} ×${s.count}`)
+                  .join(" · ") || "no overlap found"
+              }
+            </div>
+            <div class="d num">${buildReport.distinctItems} distinct items to shop</div>
+          </div>
+        `
+      }
 
       <div class="chips" role="group" aria-label="Filter tray by meal">
         ${SLOTS.map(

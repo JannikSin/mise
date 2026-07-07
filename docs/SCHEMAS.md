@@ -237,7 +237,7 @@ One row per day; 10-second morning check-in.
       "weight": 180.4,                  // ? lb (Task 8 decision); weigh-day mornings only
       "sleepHours": 7.5,                // ?
       "pushups": 60,                    // ? running count through the day
-      "water": 6,                       // ? glasses
+      "water": 3.5,                     // ? LITERS in 0.25 steps (a cup ≈ 0.25 L — David's rule)
       "supplements": { "creatine": true, "magnesium": true, "multi": false, "fishOil": true },
       "calories": 3350,                 // ? auto-filled from day's plan, adjustable
       "protein": 205                    // ? grams

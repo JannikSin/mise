@@ -90,17 +90,20 @@ export function upsertDay(daily, date, patch) {
 
 /**
  * A day counts toward the streak when sleep is logged, pushups hit the
- * target, and every supplement in the plan is ticked. Water is excluded
- * (glasses vs. liters units are unresolved — revisit with David).
+ * target, water (liters) hits the target, and every supplement in the plan
+ * is ticked. Water counts in liters — David's rule: a cup is ~250ml, a
+ * bottle is 1L (unit resolved 2026-07-06).
  * @param {Record<string, any> | undefined} day
  * @param {string[]} supplementIds
  * @param {number} pushupTarget
+ * @param {number} waterTargetLiters
  * @returns {boolean}
  */
-export function dayQualifies(day, supplementIds, pushupTarget) {
+export function dayQualifies(day, supplementIds, pushupTarget, waterTargetLiters) {
   if (!day) return false;
   if (typeof day.sleepHours !== "number" || day.sleepHours <= 0) return false;
   if ((day.pushups ?? 0) < pushupTarget) return false;
+  if ((day.water ?? 0) < waterTargetLiters) return false;
   const supp = day.supplements ?? {};
   return supplementIds.every((id) => supp[id] === true);
 }
@@ -111,14 +114,15 @@ export function dayQualifies(day, supplementIds, pushupTarget) {
  * @param {Record<string, any>[]} days
  * @param {string[]} supplementIds
  * @param {number} pushupTarget
+ * @param {number} waterTargetLiters
  * @param {string} todayIso
  * @returns {number}
  */
-export function computeStreak(days, supplementIds, pushupTarget, todayIso) {
+export function computeStreak(days, supplementIds, pushupTarget, waterTargetLiters, todayIso) {
   const byDate = new Map(days.map((d) => [d.date, d]));
   const qualifies = (/** @type {Date} */ d) => {
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    return dayQualifies(byDate.get(iso), supplementIds, pushupTarget);
+    return dayQualifies(byDate.get(iso), supplementIds, pushupTarget, waterTargetLiters);
   };
   const cursor = new Date(`${todayIso}T12:00:00`);
   if (!qualifies(cursor)) cursor.setDate(cursor.getDate() - 1); // today still open
