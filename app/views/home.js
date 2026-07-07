@@ -21,7 +21,7 @@ export function HomeView({ recipes, sync, hasToken, repo }) {
       </button>
 
       <div class="actions">
-        <a class="secondary linkbtn" href="#/remedies">FEELING OFF? → remedies</a>
+        <a class="secondary linkbtn remedy" href="#/remedies">FEELING OFF? → REMEDIES</a>
       </div>
 
       <div class="grid">

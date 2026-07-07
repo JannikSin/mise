@@ -1,5 +1,5 @@
 import { html } from "htm/preact";
-import { DATA_REPO } from "../lib/github.js";
+import { DATA_REPO, tokenAgeDays, TOKEN_WARN_AGE_DAYS } from "../lib/github.js";
 import { formatSyncTime } from "../lib/dates.js";
 
 /**
@@ -17,6 +17,8 @@ import { formatSyncTime } from "../lib/dates.js";
  * }} props
  */
 export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveToken, onTestWrite }) {
+  const ageDays = tokenAgeDays();
+  const renewSoon = hasToken && ageDays != null && ageDays >= TOKEN_WARN_AGE_DAYS;
   return html`
     <div class="view">
       <div class="hero"><h1>System</h1></div>
@@ -112,7 +114,15 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
           }
         </div>
         ${
-          (!hasToken || repo?.auth === "invalid") &&
+          renewSoon &&
+          html`<p class="hint">
+            ⚠ This token is nearly a year old — fine-grained tokens expire at 12 months. Create a
+            fresh one now (github.com → Settings → Developer settings → Fine-grained tokens) and
+            paste it below before the old one dies mid-week.
+          </p>`
+        }
+        ${
+          (!hasToken || repo?.auth === "invalid" || renewSoon) &&
           html`
             ${
               repo?.auth === "invalid" &&

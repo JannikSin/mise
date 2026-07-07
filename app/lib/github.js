@@ -9,13 +9,38 @@ const TOKEN_KEY = "mise.pat";
 
 /** @returns {string | null} */
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
+  const token = localStorage.getItem(TOKEN_KEY);
+  // lazy backfill: tokens saved before the savedAt stamp existed start their
+  // age clock now — slightly late is survivable (the invalid-token renewal
+  // card is the backstop); NEVER warning is not
+  if (token && !localStorage.getItem(`${TOKEN_KEY}.savedAt`)) {
+    localStorage.setItem(`${TOKEN_KEY}.savedAt`, new Date().toISOString());
+  }
+  return token;
 }
 
 /** @param {string} token */
 export function setToken(token) {
   localStorage.setItem(TOKEN_KEY, token.trim());
+  // fine-grained PATs are created with 1-year expiry (setup ceremony);
+  // the save date drives the renew-soon warning (blueprint §4.5)
+  localStorage.setItem(`${TOKEN_KEY}.savedAt`, new Date().toISOString());
 }
+
+/**
+ * Days since the token was saved on this device; null if unknown (token
+ * predates this feature or was never saved here).
+ * @returns {number | null}
+ */
+export function tokenAgeDays() {
+  const saved = localStorage.getItem(`${TOKEN_KEY}.savedAt`);
+  if (!saved) return null;
+  const ms = Date.now() - new Date(saved).getTime();
+  return Number.isFinite(ms) ? Math.floor(ms / 86400000) : null;
+}
+
+/** Warn two weeks before the assumed 1-year expiry. */
+export const TOKEN_WARN_AGE_DAYS = 351;
 
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
