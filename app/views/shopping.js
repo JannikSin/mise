@@ -1,5 +1,6 @@
 import { html } from "htm/preact";
-import { useState } from "preact/hooks";
+import { useRef, useState } from "preact/hooks";
+import { scanPhoto } from "../lib/worker.js";
 
 const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spices", "other"];
 
@@ -18,7 +19,8 @@ const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spice
  *   onAddManual: (food: string) => void,
  *   onJustBought: () => void,
  *   onToggleLow: (id: string) => void,
- *   onOwnItem: (id: string) => void
+ *   onOwnItem: (id: string) => void,
+ *   onScanApprove: (items: { name: string, kind: string, qty: string }[]) => void
  * }} props
  */
 export function ShoppingView({
@@ -34,9 +36,31 @@ export function ShoppingView({
   onJustBought,
   onToggleLow,
   onOwnItem,
+  onScanApprove,
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry"} */ ("list"));
   const [manual, setManual] = useState("");
+  // camera scan: null | "busy" | { error } | { items, kept: boolean[] }
+  const [scan, setScan] = useState(/** @type {any} */ (null));
+  const fileRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+
+  const onPhotoPicked = async (/** @type {{ currentTarget: HTMLInputElement }} */ e) => {
+    const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = ""; // same photo re-pickable
+    if (!file || scan === "busy") return;
+    setScan("busy");
+    try {
+      const items = await scanPhoto(file);
+      setScan(
+        items.length === 0
+          ? { notice: "no food recognized — try a closer, brighter shot" }
+          : { items, kept: items.map(() => true) },
+      );
+    } catch (err) {
+      setScan({ error: err instanceof Error ? err.message : "scan failed" });
+    }
+  };
+  const tokenBlocked = !hasToken || repo?.auth === "invalid";
   const items = shopping.items ?? [];
   const checkedCount = items.filter((i) => i.checked).length;
 
@@ -155,9 +179,86 @@ export function ShoppingView({
       ${
         tab === "pantry" &&
         html`
+          <button
+            class="ask scanbtn"
+            onClick=${() => fileRef.current?.click()}
+            disabled=${scan === "busy" || tokenBlocked}
+          >
+            ${scan === "busy" ? "READING PHOTO…" : "📷 SCAN SHELF"}
+            <small>
+              photo of fridge or pantry <span aria-hidden="true">→</span> itemized${" "}
+              <span aria-hidden="true">→</span> approve
+            </small>
+          </button>
+          <input
+            ref=${fileRef}
+            class="visuallyhidden"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            tabindex="-1"
+            aria-hidden="true"
+            disabled=${scan === "busy"}
+            onChange=${onPhotoPicked}
+          />
+          ${
+            tokenBlocked &&
+            html`<p class="hint">
+              ${repo?.auth === "invalid" ? "token needs renewing — SYS" : "connect token in SYS"}
+            </p>`
+          }
+          ${scan?.error && html`<p class="hint scanerr" role="status">${scan.error}</p>`}
+          ${scan?.notice && html`<p class="hint" role="status">${scan.notice}</p>`}
+          ${
+            scan?.items &&
+            html`
+              <div class="tile scanreview">
+                <div class="k">Found ${scan.items.length} — untick what's wrong</div>
+                ${scan.items.map(
+                  (/** @type {any} */ it, /** @type {number} */ i) => html`
+                    <label class="checkrow" key=${i}>
+                      <input
+                        type="checkbox"
+                        checked=${scan.kept[i]}
+                        onChange=${() =>
+                          setScan({
+                            ...scan,
+                            kept: scan.kept.map(
+                              (/** @type {boolean} */ k, /** @type {number} */ j) =>
+                                j === i ? !k : k,
+                            ),
+                          })}
+                      />
+                      <span class="food">
+                        ${it.name}${it.qty ? html` <span class="q num">${it.qty}</span>` : ""}
+                      </span>
+                      <span class="tag">${it.kind}</span>
+                    </label>
+                  `,
+                )}
+                <div class="actions">
+                  <button
+                    class="primary"
+                    onClick=${() => {
+                      onScanApprove(
+                        scan.items.filter((/** @type {any} */ _, /** @type {number} */ i) =>
+                          Boolean(scan.kept[i]),
+                        ),
+                      );
+                      setScan(null);
+                    }}
+                    disabled=${!scan.kept.some(Boolean)}
+                  >
+                    ADD ${scan.kept.filter(Boolean).length} TO PANTRY
+                  </button>
+                  <button class="secondary" onClick=${() => setScan(null)}>CANCEL</button>
+                </div>
+              </div>
+            `
+          }
           <p class="hint">
             Tap LOW when a staple runs out — it joins the next shopping list. Perishables arrive
-            here via Just Bought.
+            here via Just Bought or a shelf scan.
           </p>
           <h2 class="block-title">Staples</h2>
           ${

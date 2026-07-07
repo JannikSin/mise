@@ -37,7 +37,7 @@ export function sectionOf(food) {
 }
 
 /** @param {string} food */
-function slug(food) {
+export function slug(food) {
   return food
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")

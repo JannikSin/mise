@@ -10,7 +10,8 @@ import {
   onSyncChange,
 } from "./lib/store.js";
 import { initRouter } from "./lib/router.js";
-import { formatSyncTime, isoWeekId, statusDate } from "./lib/dates.js";
+import { formatSyncTime, isoWeekId, localIsoDate, statusDate } from "./lib/dates.js";
+import { applyScanItems } from "./lib/scan.js";
 import { HomeView } from "./views/home.js";
 import { QuizView } from "./views/quiz.js";
 import { CookbookView } from "./views/cookbook.js";
@@ -337,6 +338,13 @@ function App() {
     [updatePantry],
   );
 
+  const handleScanApprove = useCallback(
+    (/** @type {{ name: string, kind: string, qty: string }[]} */ items) => {
+      updatePantry(applyScanItems(pantryRef.current, items, localIsoDate(new Date())));
+    },
+    [updatePantry],
+  );
+
   // refs keep the drop/remove callbacks identity-stable (so the drag engine's
   // listeners never re-attach mid-gesture) while still seeing fresh state —
   // planRef is also advanced inside updatePlan so back-to-back drops chain
@@ -564,9 +572,13 @@ function App() {
         onJustBought=${handleJustBought}
         onToggleLow=${handleToggleLow}
         onOwnItem=${handleOwnItem}
+        onScanApprove=${handleScanApprove}
       />`
     }
-    ${route.view === "remedies" && html`<${RemediesView} recipes=${recipes} />`}
+    ${
+      route.view === "remedies" &&
+      html`<${RemediesView} recipes=${recipes} hasToken=${hasToken} repo=${repo} />`
+    }
     ${
       route.view === "train" &&
       html`<${FitnessView}

@@ -808,7 +808,7 @@ a.tile {
     opacity 0.16s ease-out;
 }
 
-.ask.buildweek:disabled {
+.ask:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
@@ -1417,6 +1417,49 @@ a.todayrow {
   flex-shrink: 0;
   font-size: 12px;
   color: var(--dim);
+}
+
+/* camera-pantry scan (Task 12) */
+.visuallyhidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.scanbtn {
+  margin-bottom: 12px;
+}
+
+.scanerr {
+  color: var(--red);
+}
+
+.scanreview {
+  margin-bottom: 14px;
+}
+
+.scanreview .checkrow {
+  min-height: 48px;
+}
+
+.scanreview input[type="checkbox"] {
+  accent-color: var(--signal);
+  width: 20px;
+  height: 20px;
+}
+
+.scanreview .q {
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.scanreview .actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .checkrow.counter .countnum {

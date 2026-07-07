@@ -1,0 +1,12 @@
+name = "mise-worker"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+account_id = "bd5fef067bffb5780b2fd25770606075"
+workers_dev = true
+# no per-version preview URLs — one live origin, matching the CORS list in code
+preview_urls = false
+
+# Secrets (set via dashboard or `npx wrangler secret put`, NEVER here):
+#   ANTHROPIC_API_KEY
+# Optional plain vars to override models:
+#   SCAN_MODEL / REMEDY_MODEL (default claude-sonnet-5 in code)

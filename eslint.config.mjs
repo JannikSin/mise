@@ -26,6 +26,7 @@ const browserGlobals = {
   Blob: "readonly",
   File: "readonly",
   FileReader: "readonly",
+  createImageBitmap: "readonly",
   requestAnimationFrame: "readonly",
   cancelAnimationFrame: "readonly",
   innerHeight: "readonly",

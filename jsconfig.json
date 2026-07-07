@@ -14,5 +14,5 @@
     "incremental": true,
     "tsBuildInfoFile": "node_modules/.cache/jsconfig.tsbuildinfo"
   },
-  "include": ["app/**/*.js"]
+  "include": ["app/**/*.js", "worker/**/*.js"]
 }
