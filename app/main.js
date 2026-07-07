@@ -18,6 +18,8 @@ import { RecipeView, CookView } from "./views/recipe.js";
 import { SystemView } from "./views/system.js";
 import { PlannerView } from "./views/planner.js";
 import { ShoppingView } from "./views/shopping.js";
+import { FitnessView } from "./views/fitness.js";
+import { upsertDay } from "./lib/fitness.js";
 import { deriveShoppingList, applyJustBought, ownItemToPantry, sectionOf } from "./lib/shopping.js";
 import {
   addEntry,
@@ -39,8 +41,15 @@ const TABS = [
   { hash: "#/cookbook", view: "cookbook", icon: "▤", label: "Recipes" },
   { hash: "#/plan", view: "plan", icon: "⬒", label: "Plan" },
   { hash: "#/list", view: "list", icon: "☑", label: "List" },
+  { hash: "#/train", view: "train", icon: "▲", label: "Train" },
   { hash: "#/system", view: "system", icon: "☰", label: "Sys" },
 ];
+
+/** Local ISO date (device timezone) for check-ins and session logs. */
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 function App() {
   const [route, setRoute] = useState(
@@ -132,12 +141,6 @@ function App() {
     };
   }, [weekId, hasToken]);
 
-  useEffect(() => {
-    read("fitness/targets.json").then((t) => {
-      if (t) setTargets(t);
-    });
-  }, [hasToken]);
-
   // shopping list + pantry: cached-first, refreshed on sync activity
   const [shopping, setShopping] = useState(
     /** @type {import("./lib/shopping.js").ShoppingList} */ ({ items: [] }),
@@ -186,6 +189,74 @@ function App() {
     pantryRef.current = next;
     setPantry(next);
     void write("pantry.json", next);
+  }, []);
+
+  // fitness data: cached-first, refreshed on sync activity
+  const [workouts, setWorkouts] = useState(
+    /** @type {{ templates: Record<string, any>[], sessions: Record<string, any>[] }} */ ({
+      templates: [],
+      sessions: [],
+    }),
+  );
+  const [dailyLog, setDailyLog] = useState(
+    /** @type {{ days: Record<string, any>[] }} */ ({ days: [] }),
+  );
+  const [fitnessLoaded, setFitnessLoaded] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      read("fitness/workouts.json").then((w) => {
+        if (!alive) return;
+        if (w) setWorkouts(/** @type {any} */ (w));
+        setFitnessLoaded(true);
+      });
+      read("fitness/daily.json").then((d) => {
+        if (alive && d) setDailyLog(/** @type {any} */ (d));
+      });
+      read("fitness/targets.json").then((t) => {
+        if (alive && t) setTargets(t);
+      });
+    };
+    load();
+    const unsub = onSyncChange(load);
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [hasToken]);
+
+  const workoutsRef = useRef(workouts);
+  workoutsRef.current = workouts;
+  const dailyRef = useRef(dailyLog);
+  dailyRef.current = dailyLog;
+
+  // in-progress workout lives at App level: navigating tabs mid-session
+  // must never discard logged sets (reviewer-flagged data-loss risk)
+  const [trainDraft, setTrainDraft] = useState(
+    /** @type {{ templateId: string | null, session: Record<string, any> | null, inputs: Record<string, { w: string, r: string }> }} */ ({
+      templateId: null,
+      session: null,
+      inputs: {},
+    }),
+  );
+
+  const handleSaveSession = useCallback((/** @type {Record<string, any>} */ session) => {
+    const w = workoutsRef.current;
+    // sessions carry a unique id — the merge key — so two same-day sessions
+    // (or two devices) can never collapse into each other on a 409 merge
+    const withId = session.id ? session : { ...session, id: crypto.randomUUID().slice(0, 8) };
+    const next = { ...w, sessions: [...w.sessions, withId] };
+    workoutsRef.current = next;
+    setWorkouts(next);
+    void write("fitness/workouts.json", /** @type {any} */ (next));
+  }, []);
+
+  const handlePatchDay = useCallback((/** @type {Record<string, any>} */ patch) => {
+    const next = upsertDay(/** @type {any} */ (dailyRef.current), todayIso(), patch);
+    dailyRef.current = next;
+    setDailyLog(next);
+    void write("fitness/daily.json", /** @type {any} */ (next));
   }, []);
 
   const recipesRef = useRef(recipes);
@@ -442,6 +513,22 @@ function App() {
         onJustBought=${handleJustBought}
         onToggleLow=${handleToggleLow}
         onOwnItem=${handleOwnItem}
+      />`
+    }
+    ${
+      route.view === "train" &&
+      html`<${FitnessView}
+        workouts=${workouts}
+        daily=${dailyLog}
+        targets=${targets}
+        today=${todayIso()}
+        hasToken=${hasToken}
+        repo=${repo}
+        loading=${!fitnessLoaded}
+        draft=${trainDraft}
+        onDraft=${setTrainDraft}
+        onSaveSession=${handleSaveSession}
+        onPatchDay=${handlePatchDay}
       />`
     }
     ${

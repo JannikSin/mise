@@ -1058,6 +1058,161 @@ a.tile {
   outline-offset: 2px;
 }
 
+/* ---- fitness ---- */
+
+.lift {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 13px;
+}
+
+.liftrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.liftrow .food {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.liftrow .q {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.liftmeta {
+  font-family: var(--mono);
+  /* gym-glance size: the last-time numbers are the point of this screen */
+  font-size: 12.5px;
+  color: var(--dim);
+  margin-top: 4px;
+}
+
+.liftmeta b {
+  color: var(--signal);
+  font-weight: 600;
+}
+
+.setform {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.setform input {
+  width: 0;
+  flex: 1;
+  min-height: 44px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 16px;
+  padding: 8px 10px;
+}
+
+.setform input:focus {
+  outline: none;
+  border-color: var(--recover);
+}
+
+.chartrow {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 13px;
+  margin-bottom: 8px;
+}
+
+.spark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  max-width: 60%;
+}
+
+.sparksvg {
+  flex: 1;
+  height: 30px;
+  min-width: 0;
+}
+
+.spark-line {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.spark-base {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.spark-dot {
+  fill: var(--signal);
+}
+
+.spark-vals {
+  font-family: var(--mono);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.spark-vals small {
+  color: var(--dim);
+  font-size: 9.5px;
+}
+
+.spark-empty {
+  margin: 0;
+}
+
+label.tile .k {
+  display: block;
+}
+
+.dailynum {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 700;
+  min-height: 44px;
+  padding: 6px 10px;
+}
+
+.dailynum:focus {
+  outline: none;
+  border-color: var(--recover);
+}
+
+button.tile.counter {
+  text-align: left;
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+button.tile.counter:active {
+  background: var(--panel-2);
+}
+
+button.tile.counter:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
+}
+
 /* ---- forms ---- */
 
 .token-form,
@@ -1113,6 +1268,56 @@ button.primary {
 
 button.primary:active {
   transform: scale(0.97);
+}
+
+button.primary:disabled,
+button.secondary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* secondary action: visually demoted next to .primary (e.g. FINISH SESSION
+   beside REST — ending a workout must not look like the routine tap) */
+button.secondary {
+  min-height: 44px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  border-radius: 8px;
+  padding: 12px 16px;
+  cursor: pointer;
+}
+
+button.secondary.arm {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+button.secondary:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
+}
+
+/* rest countdown stays visible while scrolling the lift list */
+.restpill {
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top));
+  right: 14px;
+  z-index: 45;
+  background: rgba(12, 15, 17, 0.92);
+  border: 1px solid var(--signal);
+  color: var(--signal);
+  border-radius: 20px;
+  padding: 8px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.setform.inputerr input {
+  border-color: var(--amber);
 }
 
 button.primary:focus-visible,

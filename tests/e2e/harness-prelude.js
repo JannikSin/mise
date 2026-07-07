@@ -106,7 +106,7 @@ const mountMock = async () => {
           })),
         });
       }
-      const seedM = full.match(/\/contents\/(recipes\/[-a-z]+\.json|fitness\/[a-z]+\.json)$/);
+      const seedM = full.match(/\/contents\/(recipes\/[-a-z]+\.json)$/);
       if (seedM && req.method() === "GET") {
         return route.fulfill({
           status: 200,
@@ -116,28 +116,35 @@ const mountMock = async () => {
           },
         });
       }
+      // dynamic files: readable AND writable with sha semantics; seed-backed
+      // ones start from seed-data/generated until first overwritten
       const dynM = full.match(
-        /\/contents\/(plans\/[-A-Za-z0-9]+\.json|meta\.json|shopping\.json|pantry\.json)$/,
+        /\/contents\/(plans\/[-A-Za-z0-9]+\.json|meta\.json|shopping\.json|pantry\.json|fitness\/[a-z]+\.json)$/,
       );
       if (dynM) {
         const path = dynM[1];
+        const SEEDED = [
+          "pantry.json",
+          "fitness/targets.json",
+          "fitness/workouts.json",
+          "fitness/daily.json",
+          "fitness/activities.json",
+        ];
+        const seedSha = SEEDED.includes(path) ? "sha-seed-" + shaOf(path) : undefined;
         if (req.method() === "GET") {
           const f = repoFiles.get(path);
           if (f) return route.fulfill({ status: 200, json: { content: enc(f.json), sha: f.sha } });
-          if (path === "pantry.json")
+          if (seedSha)
             return route.fulfill({
               status: 200,
-              json: {
-                content: enc(await localText("seed-data/generated/pantry.json")),
-                sha: "sha-pantry-seed",
-              },
+              json: { content: enc(await localText("seed-data/generated/" + path)), sha: seedSha },
             });
           return route.fulfill({ status: 404, json: {} });
         }
         if (req.method() === "PUT") {
           const body = JSON.parse(req.postData());
           const ex = repoFiles.get(path);
-          const expected = ex ? ex.sha : path === "pantry.json" ? "sha-pantry-seed" : undefined;
+          const expected = ex ? ex.sha : seedSha;
           if ((expected && body.sha !== expected) || (!expected && body.sha)) {
             return route.fulfill({ status: 409, json: {} });
           }

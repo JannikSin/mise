@@ -210,12 +210,13 @@ per-day `supplements` check map.
   ],
   "sessions": [
     {
+      "id": "a1b2c3d4",                 // unique in the file; merge key (multiple sessions/day allowed)
       "date": "2026-07-05",
       "templateId": "upper-a",          // ? sessions can be freeform
       "exercises": [
         {
           "name": "Bench Press",
-          "sets": [{ "weight": 80, "reps": 8 }]  // weight in kg... TBD Task 8: David may prefer lb
+          "sets": [{ "weight": 80, "reps": 8 }]  // weight in lb (Task 8 decision); 0 = bodyweight
         }
       ],
       "notes": "Felt strong; slept 8h."  // ?
@@ -233,7 +234,7 @@ One row per day; 10-second morning check-in.
   "days": [
     {
       "date": "2026-07-06",
-      "weight": 78.4,                   // ? weigh-day mornings only
+      "weight": 180.4,                  // ? lb (Task 8 decision); weigh-day mornings only
       "sleepHours": 7.5,                // ?
       "pushups": 60,                    // ? running count through the day
       "water": 6,                       // ? glasses
