@@ -385,7 +385,7 @@ function App() {
   // week builder: fills empty slots optimizing ingredient overlap; RE-ROLL
   // removes what IT generated (never manual picks) and rebuilds differently
   const [buildReport, setBuildReport] = useState(
-    /** @type {{ shared: { food: string, count: number }[], distinctItems: number } | null} */ (
+    /** @type {{ shared: { food: string, count: number }[], distinctItems: number, proteinShortDays: { date: string, protein: number, target: number }[] } | null} */ (
       null
     ),
   );
@@ -501,7 +501,13 @@ function App() {
 
     ${
       route.view === "home" &&
-      html`<${HomeView} recipes=${recipes} sync=${sync} hasToken=${hasToken} repo=${repo} />`
+      html`<${HomeView}
+        recipes=${recipes}
+        plan=${plan}
+        sync=${sync}
+        hasToken=${hasToken}
+        repo=${repo}
+      />`
     }
     ${
       route.view === "quiz" &&

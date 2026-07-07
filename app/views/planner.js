@@ -43,7 +43,7 @@ function monthDay(isoDate) {
  *   onDropInto: (date: string, slot: string, drag: DOMStringMap) => void,
  *   onRemove: (id: string) => void,
  *   onBuildWeek: () => void,
- *   buildReport: { shared: { food: string, count: number }[], distinctItems: number } | null,
+ *   buildReport: { shared: { food: string, count: number }[], distinctItems: number, proteinShortDays: { date: string, protein: number, target: number }[] } | null,
  *   rebuilt: boolean
  * }} props
  */
@@ -118,6 +118,19 @@ export function PlannerView({
               }
             </div>
             <div class="d num">${buildReport.distinctItems} distinct items to shop</div>
+            ${
+              buildReport.proteinShortDays.length > 0 &&
+              html`<div class="d num redflag">
+                ⚠ protein short:${" "}
+                ${buildReport.proteinShortDays
+                  .map(
+                    (s) =>
+                      `${new Date(`${s.date}T12:00:00`).toLocaleDateString([], { weekday: "short" })} ${s.protein}g`,
+                  )
+                  .join(" · ")}
+                / ${buildReport.proteinShortDays[0]?.target}g — stack a slot or add a snack
+              </div>`
+            }
           </div>
         `
       }

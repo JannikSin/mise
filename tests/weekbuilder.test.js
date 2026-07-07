@@ -164,6 +164,42 @@ test("buildWeek is deterministic for the same salt, differs for another", () => 
   assert.deepEqual(a1, a2);
 });
 
+test("report red-flags days that miss the protein floor even after the snack", () => {
+  // 5P dinners: 50+55+60+5 = 170, +25 snack = 195 < 199.5 (95% of 210)
+  const weak = [
+    r("tiny-dinner", "dinner", ["chicken thigh"], { protein: 5, calories: 400 }),
+    BREAKFAST,
+    SMOOTHIE,
+    LUNCH,
+    SNACK,
+  ];
+  const { report } = buildWeek({
+    recipes: weak,
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  assert.equal(report.proteinShortDays.length, 7, "every generated day falls short");
+  for (const d of report.proteinShortDays) {
+    assert.match(d.date, /^\d{4}-\d{2}-\d{2}$/);
+    assert.ok(d.protein < 210 * 0.95, `${d.date} protein ${d.protein}`);
+  }
+});
+
+test("report has no protein flags when the week hits the floor", () => {
+  const { report } = buildWeek({
+    recipes: ALL,
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  assert.deepEqual(report.proteinShortDays, []);
+});
+
 test("buildWeek adds a protein snack on short days", () => {
   // tiny recipe pool with low protein → every day falls short → snack added
   const lowProtein = [

@@ -1372,6 +1372,53 @@ button.secondary:focus-visible {
   text-align: left;
 }
 
+.buildreport .redflag {
+  color: var(--red);
+}
+
+.todaylist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+a.todayrow {
+  text-decoration: none;
+  color: var(--text);
+}
+
+.todayrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 13px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.todayrow .t {
+  flex-shrink: 0;
+  width: 34px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+}
+
+.todayrow .n {
+  flex: 1;
+  font-size: 14px;
+}
+
+.todayrow .m {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--dim);
+}
+
 .checkrow.counter .countnum {
   margin-left: auto;
 }

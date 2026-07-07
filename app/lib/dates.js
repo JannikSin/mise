@@ -20,6 +20,18 @@ export function isoWeekId(d) {
 }
 
 /**
+ * Local calendar date as YYYY-MM-DD — plan entries key on local days,
+ * never UTC (an evening in Berlin must not read as tomorrow).
+ * @param {Date} d
+ * @returns {string}
+ */
+export function localIsoDate(d) {
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+/**
  * Time for today's syncs; date + time once it's stale enough to mislead.
  * @param {string | null} iso
  * @returns {string}

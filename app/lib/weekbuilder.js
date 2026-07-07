@@ -152,7 +152,7 @@ const PROTEIN_FLOOR_RATIO = 0.95;
  *   plan: import("./plan.js").Plan,
  *   salt?: number
  * }} args
- * @returns {{ plan: import("./plan.js").Plan, report: { shared: { food: string, count: number }[], distinctItems: number } }}
+ * @returns {{ plan: import("./plan.js").Plan, report: { shared: { food: string, count: number }[], distinctItems: number, proteinShortDays: { date: string, protein: number, target: number }[] } }}
  */
 export function buildWeek({ recipes, targets, pantry, weekId, plan, salt = 0 }) {
   const dates = datesOfWeek(weekId);
@@ -239,6 +239,16 @@ export function buildWeek({ recipes, targets, pantry, weekId, plan, salt = 0 }) 
     }
   }
 
+  // protein is the non-negotiable — red-flag any day still under the floor
+  // after the snack top-up so David sees it before the week starts
+  const proteinShortDays = [];
+  for (const date of dates) {
+    const totals = dayTotals(next.entries, byId, date);
+    if (totals.protein < proteinTarget * PROTEIN_FLOOR_RATIO) {
+      proteinShortDays.push({ date, protein: totals.protein, target: proteinTarget });
+    }
+  }
+
   // the report covers what the GENERATED week actually shares: the committee
   // plus the backbone picks
   const chosen = [
@@ -248,5 +258,5 @@ export function buildWeek({ recipes, targets, pantry, weekId, plan, salt = 0 }) 
     ...(officeLunch ? [officeLunch] : []),
     ...otherLunches,
   ];
-  return { plan: next, report: overlapReport(chosen) };
+  return { plan: next, report: { ...overlapReport(chosen), proteinShortDays } };
 }
