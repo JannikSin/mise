@@ -17,6 +17,8 @@ import { CookbookView } from "./views/cookbook.js";
 import { RecipeView, CookView } from "./views/recipe.js";
 import { SystemView } from "./views/system.js";
 import { PlannerView } from "./views/planner.js";
+import { ShoppingView } from "./views/shopping.js";
+import { deriveShoppingList, applyJustBought, sectionOf } from "./lib/shopping.js";
 import {
   addEntry,
   removeEntryById,
@@ -36,6 +38,7 @@ const TABS = [
   { hash: "#/", view: "home", icon: "◉", label: "Today" },
   { hash: "#/cookbook", view: "cookbook", icon: "▤", label: "Recipes" },
   { hash: "#/plan", view: "plan", icon: "⬒", label: "Plan" },
+  { hash: "#/list", view: "list", icon: "☑", label: "List" },
   { hash: "#/system", view: "system", icon: "☰", label: "Sys" },
 ];
 
@@ -134,6 +137,123 @@ function App() {
       if (t) setTargets(t);
     });
   }, [hasToken]);
+
+  // shopping list + pantry: cached-first, refreshed on sync activity
+  const [shopping, setShopping] = useState(
+    /** @type {import("./lib/shopping.js").ShoppingList} */ ({ items: [] }),
+  );
+  const [pantry, setPantry] = useState(
+    /** @type {Record<string, any>} */ ({ staples: [], perishables: [] }),
+  );
+
+  const [listLoaded, setListLoaded] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      read("shopping.json").then((s) => {
+        if (!alive) return;
+        if (s) setShopping(/** @type {any} */ (s));
+        setListLoaded(true);
+      });
+      read("pantry.json").then((p) => {
+        if (alive && p) setPantry(p);
+      });
+    };
+    load();
+    const unsub = onSyncChange(load);
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [hasToken]);
+
+  const shoppingRef = useRef(shopping);
+  shoppingRef.current = shopping;
+  const pantryRef = useRef(pantry);
+  pantryRef.current = pantry;
+
+  const updateShopping = useCallback(
+    (/** @type {import("./lib/shopping.js").ShoppingList} */ next) => {
+      shoppingRef.current = next;
+      setShopping(next);
+      void write("shopping.json", /** @type {any} */ (next));
+    },
+    [],
+  );
+
+  const updatePantry = useCallback((/** @type {Record<string, any>} */ next) => {
+    pantryRef.current = next;
+    setPantry(next);
+    void write("pantry.json", next);
+  }, []);
+
+  const recipesRef = useRef(recipes);
+  recipesRef.current = recipes;
+
+  const handleBuildList = useCallback(() => {
+    const byId = new Map(recipesRef.current.map((r) => [r.id, r]));
+    updateShopping(
+      deriveShoppingList(
+        /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
+        byId,
+        pantryRef.current,
+        shoppingRef.current,
+      ),
+    );
+  }, [updateShopping]);
+
+  const handleToggleItem = useCallback(
+    (/** @type {string} */ id) => {
+      const s = shoppingRef.current;
+      updateShopping({
+        ...s,
+        items: s.items.map((i) => (i.id === id ? { ...i, checked: !i.checked } : i)),
+      });
+    },
+    [updateShopping],
+  );
+
+  const handleAddManual = useCallback(
+    (/** @type {string} */ food) => {
+      const s = shoppingRef.current;
+      const id =
+        food
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "") + "-x"; // unit-aware id scheme, unit "x"
+      if (s.items.some((i) => i.id === id)) return;
+      updateShopping({
+        ...s,
+        items: [
+          ...s.items,
+          { id, food, qty: 1, unit: "x", section: sectionOf(food), checked: false, manual: true },
+        ],
+      });
+    },
+    [updateShopping],
+  );
+
+  const handleJustBought = useCallback(() => {
+    const today = new Date();
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const result = applyJustBought(shoppingRef.current, pantryRef.current, iso);
+    updateShopping(result.shopping);
+    updatePantry(result.pantry);
+  }, [updateShopping, updatePantry]);
+
+  const handleToggleLow = useCallback(
+    (/** @type {string} */ id) => {
+      const p = pantryRef.current;
+      updatePantry({
+        ...p,
+        staples: (p.staples ?? []).map((/** @type {any} */ s) =>
+          s.id === id ? { ...s, runningLow: !s.runningLow } : s,
+        ),
+      });
+    },
+    [updatePantry],
+  );
 
   // refs keep the drop/remove callbacks identity-stable (so the drag engine's
   // listeners never re-attach mid-gesture) while still seeing fresh state —
@@ -297,6 +417,22 @@ function App() {
     ${
       route.view === "recipe" &&
       html`<${RecipeView} recipe=${recipeById(route.id)} loading=${loading} />`
+    }
+    ${
+      route.view === "list" &&
+      html`<${ShoppingView}
+        shopping=${shopping}
+        pantry=${pantry}
+        weekId=${weekId}
+        hasToken=${hasToken}
+        repo=${repo}
+        loading=${!listLoaded}
+        onBuild=${handleBuildList}
+        onToggleItem=${handleToggleItem}
+        onAddManual=${handleAddManual}
+        onJustBought=${handleJustBought}
+        onToggleLow=${handleToggleLow}
+      />`
     }
     ${
       route.view === "system" &&

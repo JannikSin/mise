@@ -13,6 +13,7 @@ test("top-level views", () => {
   assert.deepEqual(parseRoute("#/quiz"), { view: "quiz" });
   assert.deepEqual(parseRoute("#/system"), { view: "system" });
   assert.deepEqual(parseRoute("#/plan"), { view: "plan" });
+  assert.deepEqual(parseRoute("#/list"), { view: "list" });
 });
 
 test("recipe detail and cook mode carry the id", () => {

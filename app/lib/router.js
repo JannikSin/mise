@@ -14,6 +14,7 @@ export function parseRoute(hash) {
     case "quiz":
     case "system":
     case "plan":
+    case "list":
       return { view: head };
     case "recipe": {
       if (!id) return { view: "home" };
