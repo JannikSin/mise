@@ -20,6 +20,10 @@ export function HomeView({ recipes, sync, hasToken, repo }) {
         <small>time · purpose · load → ranked picks</small>
       </button>
 
+      <div class="actions">
+        <a class="secondary linkbtn" href="#/remedies">FEELING OFF? → remedies</a>
+      </div>
+
       <div class="grid">
         <a class="tile" href="#/cookbook">
           <div class="k">Cookbook</div>

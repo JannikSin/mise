@@ -1027,7 +1027,11 @@ a.tile {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--dim);
-  flex-shrink: 0;
+  flex-shrink: 1;
+  max-width: 38%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .checkrow.static {
@@ -1197,22 +1201,6 @@ label.tile .k {
   border-color: var(--recover);
 }
 
-button.tile.counter {
-  text-align: left;
-  color: var(--text);
-  font-family: inherit;
-  cursor: pointer;
-}
-
-button.tile.counter:active {
-  background: var(--panel-2);
-}
-
-button.tile.counter:focus-visible {
-  outline: 2px solid var(--recover);
-  outline-offset: 2px;
-}
-
 /* ---- forms ---- */
 
 .token-form,
@@ -1318,6 +1306,105 @@ button.secondary:focus-visible {
 
 .setform.inputerr input {
   border-color: var(--amber);
+}
+
+/* daily counters: full-width rows, big legible number, visible +N badge */
+.checkrow.counter {
+  cursor: pointer;
+}
+
+.checkrow.counter:active,
+.checkrow .tickarea:active {
+  background: var(--panel-2);
+}
+
+.checkrow.counter:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
+}
+
+.countnum {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+}
+
+.countnum small {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--dim);
+}
+
+.plusbadge {
+  flex-shrink: 0;
+  min-width: 48px;
+  text-align: center;
+  padding: 10px 0;
+  border-radius: 10px;
+  border: 1px solid var(--signal);
+  color: var(--signal);
+  background: var(--signal-08);
+  font-size: 12px;
+}
+
+.counters {
+  margin-top: 10px;
+}
+
+.streaktile .v {
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.streaktile .v small {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--dim);
+}
+
+.streaktile .d {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--dim);
+  margin-top: 6px;
+}
+
+/* ---- remedies ---- */
+
+.wrapchips {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.protolist {
+  margin: 0;
+  padding: 0 4px;
+  list-style: none;
+}
+
+.protolist li {
+  padding: 8px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  border-bottom: 1px solid var(--line);
+}
+
+.protolist li::before {
+  content: "· ";
+  color: var(--signal);
+}
+
+a.secondary.linkbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  flex: 1;
 }
 
 button.primary:focus-visible,

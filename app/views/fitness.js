@@ -6,6 +6,7 @@ import {
   personalRecords,
   seriesFor,
   addSetToSession,
+  computeStreak,
 } from "../lib/fitness.js";
 
 const SEGMENTS = ["train", "daily", "log", "targets"];
@@ -185,94 +186,102 @@ export function FitnessView({
         seg === "train" &&
         html`
           ${
-          !template &&
-          html`
-            <h2 class="block-title">Pick today's split</h2>
-            <div class="slots">
-              ${workouts.templates.map(
-              (t) => html`
-                <button
-                  class="checkrow"
-                  key=${t.id}
-                  onClick=${() => onDraft({ ...draft, templateId: t.id })}
-                >
-                  <span class="food">${t.name}</span>
-                  <span class="q num">${t.exercises.length} lifts</span>
-                </button>
-              `,
-            )}
-              ${
-              workouts.templates.length === 0 &&
-              html`<div class="empty">
-                ${hasToken ? (loading ? "loading…" : "no split templates yet") : "connect token in SYS"}
-              </div>`
-            }
-            </div>
-          `
-        }
+            !template &&
+            html`
+              <h2 class="block-title">Pick today's split</h2>
+              <div class="slots">
+                ${workouts.templates.map(
+                  (t) => html`
+                    <button
+                      class="checkrow"
+                      key=${t.id}
+                      onClick=${() => onDraft({ ...draft, templateId: t.id })}
+                    >
+                      <span class="food">${t.name}</span>
+                      <span class="q num">${t.exercises.length} lifts</span>
+                    </button>
+                  `,
+                )}
+                ${
+                  workouts.templates.length === 0 &&
+                  html`<div class="empty">
+                    ${hasToken ? (loading ? "loading…" : "no split templates yet") : "connect token in SYS"}
+                  </div>`
+                }
+              </div>
+            `
+          }
           ${
-          template &&
-          html`
-            <div class="actions wrap">
-              <button class="primary" onClick=${startRest}>REST ${REST_SECONDS}s</button>
-              <button
-                class="secondary ${confirmFinish ? "arm" : ""}"
-                onClick=${finishSession}
-                disabled=${!session || session.exercises.length === 0}
-              >
-                ${confirmFinish ? "TAP AGAIN TO FINISH" : "FINISH SESSION"}
-              </button>
-            </div>
-            <h2 class="block-title">${template.name}</h2>
-            <div class="slots">
-              ${template.exercises.map((/** @type {Record<string, any>} */ ex) => {
-              const last = lastSetsFor(/** @type {any} */ (workouts.sessions), ex.name);
-              const logged = session?.exercises.find((/** @type {any} */ e) => e.name === ex.name);
-              const inp = inputs[ex.name] ?? { w: "", r: "" };
-              return html`
-                <div class="lift" key=${ex.name}>
-                  <div class="liftrow">
-                    <span class="food">${ex.name}</span>
-                    <span class="q num">${ex.targetSets}×${ex.targetReps}</span>
-                  </div>
-                  <div class="liftmeta num">
-                    last: ${last ? formatSets(last) : "—"}
-                    ${logged && html` <b>· now: ${formatSets(logged.sets)}</b>`}
-                  </div>
-                  ${ex.note && html`<div class="hint">${ex.note}</div>`}
-                  <div class="setform ${invalid === ex.name ? "inputerr" : ""}">
-                    <input
-                      type="number"
-                      inputmode="decimal"
-                      placeholder="lb"
-                      aria-label="Weight for ${ex.name} (0 for bodyweight)"
-                      value=${inp.w}
-                      onInput=${(/** @type {any} */ e) =>
-                        onDraft({
-                          ...draft,
-                          inputs: { ...inputs, [ex.name]: { ...inp, w: e.currentTarget.value } },
-                        })}
-                    />
-                    <input
-                      type="number"
-                      inputmode="numeric"
-                      placeholder="reps"
-                      aria-label="Reps for ${ex.name}"
-                      value=${inp.r}
-                      onInput=${(/** @type {any} */ e) =>
-                        onDraft({
-                          ...draft,
-                          inputs: { ...inputs, [ex.name]: { ...inp, r: e.currentTarget.value } },
-                        })}
-                    />
-                    <button class="primary" onClick=${() => logSet(ex.name)}>+ SET</button>
-                  </div>
-                </div>
-              `;
-            })}
-            </div>
-          `
-        }
+            template &&
+            html`
+              <div class="actions wrap">
+                <button class="primary" onClick=${startRest}>REST ${REST_SECONDS}s</button>
+                <button
+                  class="secondary ${confirmFinish ? "arm" : ""}"
+                  onClick=${finishSession}
+                  disabled=${!session || session.exercises.length === 0}
+                >
+                  ${confirmFinish ? "TAP AGAIN TO FINISH" : "FINISH SESSION"}
+                </button>
+              </div>
+              <h2 class="block-title">${template.name}</h2>
+              <div class="slots">
+                ${template.exercises.map((/** @type {Record<string, any>} */ ex) => {
+                  const last = lastSetsFor(/** @type {any} */ (workouts.sessions), ex.name);
+                  const logged = session?.exercises.find(
+                    (/** @type {any} */ e) => e.name === ex.name,
+                  );
+                  const inp = inputs[ex.name] ?? { w: "", r: "" };
+                  return html`
+                    <div class="lift" key=${ex.name}>
+                      <div class="liftrow">
+                        <span class="food">${ex.name}</span>
+                        <span class="q num">${ex.targetSets}×${ex.targetReps}</span>
+                      </div>
+                      <div class="liftmeta num">
+                        last: ${last ? formatSets(last) : "—"}
+                        ${logged && html` <b>· now: ${formatSets(logged.sets)}</b>`}
+                      </div>
+                      ${ex.note && html`<div class="hint">${ex.note}</div>`}
+                      <div class="setform ${invalid === ex.name ? "inputerr" : ""}">
+                        <input
+                          type="number"
+                          inputmode="decimal"
+                          placeholder="lb"
+                          aria-label="Weight for ${ex.name} (0 for bodyweight)"
+                          value=${inp.w}
+                          onInput=${(/** @type {any} */ e) =>
+                            onDraft({
+                              ...draft,
+                              inputs: {
+                                ...inputs,
+                                [ex.name]: { ...inp, w: e.currentTarget.value },
+                              },
+                            })}
+                        />
+                        <input
+                          type="number"
+                          inputmode="numeric"
+                          placeholder="reps"
+                          aria-label="Reps for ${ex.name}"
+                          value=${inp.r}
+                          onInput=${(/** @type {any} */ e) =>
+                            onDraft({
+                              ...draft,
+                              inputs: {
+                                ...inputs,
+                                [ex.name]: { ...inp, r: e.currentTarget.value },
+                              },
+                            })}
+                        />
+                        <button class="primary" onClick=${() => logSet(ex.name)}>+ SET</button>
+                      </div>
+                    </div>
+                  `;
+                })}
+              </div>
+            `
+          }
         `
       }
       ${
@@ -305,45 +314,65 @@ export function FitnessView({
                 onChange=${(/** @type {any} */ e) => patchNum("weight", e.currentTarget.value)}
               />
             </label>
+          </div>
+          <div class="slots counters">
             <button
-              class="tile counter"
+              class="checkrow counter"
+              aria-label="Add 20 pushups (now ${day.pushups ?? 0} of ${targets?.pushupsPerDay ?? 200})"
               onClick=${() => onPatchDay({ pushups: (day.pushups ?? 0) + 20 })}
             >
-              <span class="k">Pushups +20</span>
-              <span class="v num"
-                >${day.pushups ?? 0}<small> /${targets?.pushupsPerDay ?? 200}</small></span
+              <span class="food">Pushups</span>
+              <span class="countnum num"
+                >${day.pushups ?? 0}<small>/${targets?.pushupsPerDay ?? 200}</small></span
               >
+              <span class="plusbadge num" aria-hidden="true">+20</span>
             </button>
             <button
-              class="tile counter"
+              class="checkrow counter"
+              aria-label="Add one glass of water (now ${day.water ?? 0})"
               onClick=${() => onPatchDay({ water: (day.water ?? 0) + 1 })}
             >
-              <span class="k">Water +1</span>
-              <span class="v num">${day.water ?? 0}<small> glasses</small></span>
+              <span class="food">Water</span>
+              <span class="countnum num">${day.water ?? 0}<small> glasses</small></span>
+              <span class="plusbadge num" aria-hidden="true">+1</span>
             </button>
           </div>
           <h2 class="block-title">Supplements</h2>
           <div class="slots">
             ${(targets?.supplementPlan ?? []).map(
-            (/** @type {Record<string, any>} */ s) => html`
-              <div class="checkrow" key=${s.id}>
-                <button
-                  class="tickarea"
-                  aria-pressed=${Boolean(supplements[s.id])}
-                  onClick=${() =>
-                    onPatchDay({ supplements: { ...supplements, [s.id]: !supplements[s.id] } })}
-                >
-                  <span class="box" aria-hidden="true">${supplements[s.id] ? "✓" : ""}</span>
-                  <span class="food">${s.name}</span>
-                  <span class="q num">${s.dose}</span>
-                </button>
-              </div>
-            `,
-          )}
+              (/** @type {Record<string, any>} */ s) => html`
+                <div class="checkrow ${supplements[s.id] ? "done" : ""}" key=${s.id}>
+                  <button
+                    class="tickarea"
+                    aria-pressed=${Boolean(supplements[s.id])}
+                    onClick=${() =>
+                      onPatchDay({ supplements: { ...supplements, [s.id]: !supplements[s.id] } })}
+                  >
+                    <span class="box" aria-hidden="true">${supplements[s.id] ? "✓" : ""}</span>
+                    <span class="food">${s.name}</span>
+                    <span class="q num">${s.dose}</span>
+                  </button>
+                </div>
+              `,
+            )}
             ${
-            (targets?.supplementPlan ?? []).length === 0 &&
-            html`<div class="empty">${loading ? "loading…" : "no supplement plan in targets"}</div>`
-          }
+              (targets?.supplementPlan ?? []).length === 0 &&
+              html`<div class="empty">
+                ${loading ? "loading…" : "no supplement plan in targets"}
+              </div>`
+            }
+          </div>
+          <h2 class="block-title">Streak</h2>
+          <div class="tile streaktile">
+            <div class="v num">
+              ${computeStreak(
+                /** @type {any} */ (daily.days),
+                (targets?.supplementPlan ?? []).map((/** @type {any} */ s) => s.id),
+                targets?.pushupsPerDay ?? 200,
+                today,
+              )}<small> day streak</small>
+            </div>
+            <div class="d">a day counts: sleep logged · pushups done · all supplements ✓</div>
           </div>
         `
       }
@@ -352,53 +381,53 @@ export function FitnessView({
         html`
           <h2 class="block-title">Progression</h2>
           ${PRIMARY_LIFTS.map((name) => {
-          const series = seriesFor(/** @type {any} */ (workouts.sessions), name);
-          return html`
-            <div class="liftrow chartrow" key=${name}>
-              <span class="food">${name}</span>
-              <${Sparkline} series=${series} label=${name} loading=${loading} />
-            </div>
-          `;
-        })}
+            const series = seriesFor(/** @type {any} */ (workouts.sessions), name);
+            return html`
+              <div class="liftrow chartrow" key=${name}>
+                <span class="food">${name}</span>
+                <${Sparkline} series=${series} label=${name} loading=${loading} />
+              </div>
+            `;
+          })}
           <h2 class="block-title">PRs</h2>
           <div class="slots">
             ${[...prs.entries()].map(
-            ([name, pr]) => html`
-              <div class="checkrow static" key=${name}>
-                <span class="food">${name}</span>
-                <span class="q num"
-                  >${pr.weight > 0 ? pr.weight : "bw"}×${pr.reps} · ${pr.date}</span
-                >
-              </div>
-            `,
-          )}
-            ${
-            prs.size === 0 &&
-            html`<div class="empty">
-              ${loading ? "loading…" : "log a session to start the record book"}
-            </div>`
-          }
-          </div>
-          <h2 class="block-title">Sessions</h2>
-          <div class="slots">
-            ${[...workouts.sessions]
-            .sort((a, b) => b.date.localeCompare(a.date))
-            .slice(0, 14)
-            .map(
-              (s) => html`
-                <div class="checkrow static" key=${s.id ?? s.date + (s.templateId ?? "")}>
-                  <span class="food">${s.templateId ?? "freeform"}</span>
+              ([name, pr]) => html`
+                <div class="checkrow static" key=${name}>
+                  <span class="food">${name}</span>
                   <span class="q num"
-                    >${s.date} ·
-                    ${s.exercises.reduce(
-                      (/** @type {number} */ n, /** @type {any} */ e) => n + e.sets.length,
-                      0,
-                    )}
-                    sets</span
+                    >${pr.weight > 0 ? pr.weight : "bw"}×${pr.reps} · ${pr.date}</span
                   >
                 </div>
               `,
             )}
+            ${
+              prs.size === 0 &&
+              html`<div class="empty">
+                ${loading ? "loading…" : "log a session to start the record book"}
+              </div>`
+            }
+          </div>
+          <h2 class="block-title">Sessions</h2>
+          <div class="slots">
+            ${[...workouts.sessions]
+              .sort((a, b) => b.date.localeCompare(a.date))
+              .slice(0, 14)
+              .map(
+                (s) => html`
+                  <div class="checkrow static" key=${s.id ?? s.date + (s.templateId ?? "")}>
+                    <span class="food">${s.templateId ?? "freeform"}</span>
+                    <span class="q num"
+                      >${s.date} ·
+                      ${s.exercises.reduce(
+                        (/** @type {number} */ n, /** @type {any} */ e) => n + e.sets.length,
+                        0,
+                      )}
+                      sets</span
+                    >
+                  </div>
+                `,
+              )}
           </div>
         `
       }

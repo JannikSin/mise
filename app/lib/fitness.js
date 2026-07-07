@@ -89,6 +89,48 @@ export function upsertDay(daily, date, patch) {
 }
 
 /**
+ * A day counts toward the streak when sleep is logged, pushups hit the
+ * target, and every supplement in the plan is ticked. Water is excluded
+ * (glasses vs. liters units are unresolved — revisit with David).
+ * @param {Record<string, any> | undefined} day
+ * @param {string[]} supplementIds
+ * @param {number} pushupTarget
+ * @returns {boolean}
+ */
+export function dayQualifies(day, supplementIds, pushupTarget) {
+  if (!day) return false;
+  if (typeof day.sleepHours !== "number" || day.sleepHours <= 0) return false;
+  if ((day.pushups ?? 0) < pushupTarget) return false;
+  const supp = day.supplements ?? {};
+  return supplementIds.every((id) => supp[id] === true);
+}
+
+/**
+ * Consecutive qualifying days ending today — or ending yesterday when today
+ * is still in progress (an unfinished today never breaks a live streak).
+ * @param {Record<string, any>[]} days
+ * @param {string[]} supplementIds
+ * @param {number} pushupTarget
+ * @param {string} todayIso
+ * @returns {number}
+ */
+export function computeStreak(days, supplementIds, pushupTarget, todayIso) {
+  const byDate = new Map(days.map((d) => [d.date, d]));
+  const qualifies = (/** @type {Date} */ d) => {
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return dayQualifies(byDate.get(iso), supplementIds, pushupTarget);
+  };
+  const cursor = new Date(`${todayIso}T12:00:00`);
+  if (!qualifies(cursor)) cursor.setDate(cursor.getDate() - 1); // today still open
+  let streak = 0;
+  while (qualifies(cursor)) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+/**
  * Append a set to a lift within an in-progress session. Pure.
  * @param {Session} session
  * @param {string} exercise

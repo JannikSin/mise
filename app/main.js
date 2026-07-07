@@ -19,6 +19,7 @@ import { SystemView } from "./views/system.js";
 import { PlannerView } from "./views/planner.js";
 import { ShoppingView } from "./views/shopping.js";
 import { FitnessView } from "./views/fitness.js";
+import { RemediesView } from "./views/remedies.js";
 import { upsertDay } from "./lib/fitness.js";
 import { deriveShoppingList, applyJustBought, ownItemToPantry, sectionOf } from "./lib/shopping.js";
 import {
@@ -515,6 +516,7 @@ function App() {
         onOwnItem=${handleOwnItem}
       />`
     }
+    ${route.view === "remedies" && html`<${RemediesView} recipes=${recipes} />`}
     ${
       route.view === "train" &&
       html`<${FitnessView}
