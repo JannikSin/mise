@@ -52,7 +52,18 @@ const browserGlobals = {
 
 export default [
   {
-    ignores: ["node_modules/", "vendor/", "mockups/", "spike/", ".claude/", "claude-config/"],
+    ignores: [
+      "node_modules/",
+      "vendor/",
+      "mockups/",
+      "spike/",
+      ".claude/",
+      "claude-config/",
+      // template fragments for Playwright-MCP runs — `page`/`events` come
+      // from a wrapper added at compose time (tests/e2e/README.md)
+      "tests/e2e/",
+      ".playwright-mcp/",
+    ],
   },
   js.configs.recommended,
   {

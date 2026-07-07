@@ -18,7 +18,7 @@ import { RecipeView, CookView } from "./views/recipe.js";
 import { SystemView } from "./views/system.js";
 import { PlannerView } from "./views/planner.js";
 import { ShoppingView } from "./views/shopping.js";
-import { deriveShoppingList, applyJustBought, sectionOf } from "./lib/shopping.js";
+import { deriveShoppingList, applyJustBought, ownItemToPantry, sectionOf } from "./lib/shopping.js";
 import {
   addEntry,
   removeEntryById,
@@ -242,6 +242,15 @@ function App() {
     updatePantry(result.pantry);
   }, [updateShopping, updatePantry]);
 
+  const handleOwnItem = useCallback(
+    (/** @type {string} */ id) => {
+      const result = ownItemToPantry(shoppingRef.current, pantryRef.current, id);
+      updateShopping(result.shopping);
+      updatePantry(result.pantry);
+    },
+    [updateShopping, updatePantry],
+  );
+
   const handleToggleLow = useCallback(
     (/** @type {string} */ id) => {
       const p = pantryRef.current;
@@ -432,6 +441,7 @@ function App() {
         onAddManual=${handleAddManual}
         onJustBought=${handleJustBought}
         onToggleLow=${handleToggleLow}
+        onOwnItem=${handleOwnItem}
       />`
     }
     ${

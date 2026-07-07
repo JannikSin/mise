@@ -1,6 +1,170 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deriveShoppingList, sectionOf, applyJustBought } from "../app/lib/shopping.js";
+import {
+  deriveShoppingList,
+  sectionOf,
+  applyJustBought,
+  ownItemToPantry,
+} from "../app/lib/shopping.js";
+
+test("on-hand pantry staples are subtracted from the derived list by name", () => {
+  const recipes = new Map([
+    [
+      "risotto",
+      {
+        id: "risotto",
+        servings: 1,
+        ingredients: [
+          { qty: 30, unit: "g", food: "dried porcini mushrooms", staple: false },
+          { qty: 300, unit: "g", food: "arborio rice", staple: false },
+        ],
+      },
+    ],
+  ]);
+  const plan = {
+    week: "2026-W28",
+    entries: [{ id: "a", date: "2026-07-06", slot: "dinner", recipeId: "risotto", servings: 1 }],
+  };
+  const pantry = {
+    staples: [
+      {
+        id: "dried-porcini-mushrooms",
+        name: "dried porcini mushrooms",
+        section: "dry-goods",
+        onHand: true,
+        runningLow: false,
+      },
+      // runningLow on-hand staples must NOT be subtracted
+      {
+        id: "arborio-rice",
+        name: "arborio rice",
+        section: "dry-goods",
+        onHand: true,
+        runningLow: true,
+      },
+    ],
+    perishables: [],
+  };
+  const list = deriveShoppingList(plan, recipes, pantry);
+  assert.equal(
+    list.items.find((i) => i.food === "dried porcini mushrooms"),
+    undefined,
+  );
+  assert.ok(list.items.find((i) => i.food === "arborio rice"));
+});
+
+test("ownItemToPantry removes ALL list rows of that food, any unit", () => {
+  const shopping = {
+    generatedFrom: "2026-W28",
+    items: [
+      {
+        id: "olive-oil-cup",
+        food: "olive oil",
+        qty: 1,
+        unit: "cup",
+        section: "dry-goods",
+        checked: false,
+        manual: false,
+      },
+      {
+        id: "olive-oil-tbsp",
+        food: "olive oil",
+        qty: 2,
+        unit: "tbsp",
+        section: "dry-goods",
+        checked: false,
+        manual: false,
+      },
+      {
+        id: "tuna-can",
+        food: "tuna",
+        qty: 1,
+        unit: "can",
+        section: "other",
+        checked: false,
+        manual: false,
+      },
+    ],
+  };
+  const r = ownItemToPantry(shopping, { staples: [], perishables: [] }, "olive-oil-cup");
+  assert.deepEqual(
+    r.shopping.items.map((i) => i.id),
+    ["tuna-can"],
+  );
+});
+
+test("ownItemToPantry: list item becomes a permanent staple and leaves the list", () => {
+  const shopping = {
+    generatedFrom: "2026-W28",
+    items: [
+      {
+        id: "dried-porcini-g",
+        food: "dried porcini",
+        qty: 30,
+        unit: "g",
+        section: "dry-goods",
+        checked: false,
+        manual: false,
+      },
+      {
+        id: "tuna-can",
+        food: "tuna",
+        qty: 1,
+        unit: "can",
+        section: "other",
+        checked: false,
+        manual: false,
+      },
+    ],
+  };
+  const pantry = { staples: [], perishables: [] };
+  const r = ownItemToPantry(shopping, pantry, "dried-porcini-g");
+  assert.deepEqual(
+    r.shopping.items.map((i) => i.id),
+    ["tuna-can"],
+  );
+  const s = r.pantry.staples[0];
+  assert.equal(s.name, "dried porcini");
+  assert.equal(s.onHand, true);
+  assert.equal(s.runningLow, false);
+  assert.equal(s.section, "dry-goods");
+});
+
+test("ownItemToPantry: existing staple is refreshed, not duplicated", () => {
+  const shopping = {
+    generatedFrom: "2026-W28",
+    items: [
+      {
+        id: "soy-sauce-x",
+        food: "Soy sauce",
+        qty: 1,
+        unit: "x",
+        section: "dry-goods",
+        checked: false,
+        manual: false,
+      },
+    ],
+  };
+  const pantry = {
+    staples: [
+      { id: "soy-sauce", name: "Soy sauce", section: "dry-goods", onHand: false, runningLow: true },
+    ],
+    perishables: [],
+  };
+  const r = ownItemToPantry(shopping, pantry, "soy-sauce-x");
+  assert.equal(r.pantry.staples.length, 1);
+  assert.equal(r.pantry.staples[0].onHand, true);
+  assert.equal(r.pantry.staples[0].runningLow, false);
+  assert.equal(r.shopping.items.length, 0);
+});
+
+test("ownItemToPantry: unknown id is a no-op", () => {
+  const shopping = { generatedFrom: "2026-W28", items: [] };
+  const pantry = { staples: [], perishables: [] };
+  const r = ownItemToPantry(shopping, pantry, "nope");
+  assert.deepEqual(r.shopping.items, []);
+  assert.deepEqual(r.pantry.staples, []);
+});
 
 const RECIPES = new Map([
   [

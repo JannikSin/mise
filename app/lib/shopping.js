@@ -57,6 +57,14 @@ export function deriveShoppingList(plan, recipesById, pantry, previous) {
 
   /** food slugs the plan already shops, any unit (suppresses running-low dupes) */
   const shoppedFoods = new Set();
+  // the documented contract (docs/SCHEMAS.md): subtract pantry onHand staples
+  // by name — this is what makes P+ ("I already own this") stick across builds.
+  // A running-low staple is NOT subtracted: it needs buying.
+  const onHandSlugs = new Set(
+    (pantry.staples ?? [])
+      .filter((/** @type {any} */ s) => s.onHand && !s.runningLow)
+      .flatMap((/** @type {any} */ s) => [s.id, slug(s.name)]),
+  );
 
   for (const entry of plan.entries) {
     if (!entry.recipeId) continue;
@@ -64,7 +72,7 @@ export function deriveShoppingList(plan, recipesById, pantry, previous) {
     if (!recipe) continue;
     const perServing = entry.servings / (recipe.servings || 1);
     for (const ing of recipe.ingredients ?? []) {
-      if (ing.staple) continue;
+      if (ing.staple || onHandSlugs.has(slug(ing.food))) continue;
       // id is unit-aware: the same food in two units must be two distinct
       // items, or toggles and 409 merges (id-keyed) collapse them
       const id = `${slug(ing.food)}-${slug(ing.unit)}`;
@@ -125,6 +133,39 @@ export function deriveShoppingList(plan, recipesById, pantry, previous) {
 /** @param {number} n */
 function round2(n) {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * "I already have this — permanently": a list item becomes (or refreshes) a
+ * pantry staple with onHand true and leaves the list. For the found-it-in-
+ * the-cupboard case; plain ticking covers "have enough for this week".
+ * @param {ShoppingList} shopping
+ * @param {Record<string, any>} pantry
+ * @param {string} itemId
+ * @returns {{ shopping: ShoppingList, pantry: Record<string, any> }}
+ */
+export function ownItemToPantry(shopping, pantry, itemId) {
+  const item = shopping.items.find((i) => i.id === itemId);
+  if (!item) return { shopping, pantry };
+  const foodSlug = slug(item.food);
+  const staples = [...(pantry.staples ?? [])];
+  const existing = staples.findIndex((s) => s.id === foodSlug || slug(s.name) === foodSlug);
+  if (existing >= 0) {
+    staples[existing] = { ...staples[existing], onHand: true, runningLow: false };
+  } else {
+    staples.push({
+      id: foodSlug,
+      name: item.food,
+      section: item.section,
+      onHand: true,
+      runningLow: false,
+    });
+  }
+  return {
+    // owning a food clears EVERY row of it, whatever the unit
+    shopping: { ...shopping, items: shopping.items.filter((i) => slug(i.food) !== foodSlug) },
+    pantry: { ...pantry, staples },
+  };
 }
 
 /**

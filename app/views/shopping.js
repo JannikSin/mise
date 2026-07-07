@@ -17,7 +17,8 @@ const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spice
  *   onToggleItem: (id: string) => void,
  *   onAddManual: (food: string) => void,
  *   onJustBought: () => void,
- *   onToggleLow: (id: string) => void
+ *   onToggleLow: (id: string) => void,
+ *   onOwnItem: (id: string) => void
  * }} props
  */
 export function ShoppingView({
@@ -32,6 +33,7 @@ export function ShoppingView({
   onAddManual,
   onJustBought,
   onToggleLow,
+  onOwnItem,
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry"} */ ("list"));
   const [manual, setManual] = useState("");
@@ -78,7 +80,8 @@ export function ShoppingView({
           </div>
           <p class="hint">
             Aggregates the week's plan, drops pantry staples, groups by aisle. Rebuilt lists keep
-            your ticks and manual items. Just Bought moves ticked items into the pantry.
+            your ticks and manual items. Tick = got it / have enough this week. P+ = already own it
+            — moves it to your permanent pantry staples.
           </p>
 
           ${sections.map(
@@ -87,18 +90,26 @@ export function ShoppingView({
               <div class="slots">
                 ${g.items.map(
                   (i) => html`
-                    <button
-                      class="checkrow ${i.checked ? "done" : ""}"
-                      key=${i.id + i.unit}
-                      aria-pressed=${i.checked}
-                      onClick=${() => onToggleItem(i.id)}
-                    >
-                      <span class="box" aria-hidden="true">${i.checked ? "✓" : ""}</span>
-                      <span class="food"
-                        >${i.food}${i.manual ? html` <span class="tag">manual</span>` : ""}</span
+                    <div class="checkrow ${i.checked ? "done" : ""}" key=${i.id}>
+                      <button
+                        class="tickarea"
+                        aria-pressed=${i.checked}
+                        onClick=${() => onToggleItem(i.id)}
                       >
-                      <span class="q num">${i.qty} ${i.unit}</span>
-                    </button>
+                        <span class="box" aria-hidden="true">${i.checked ? "✓" : ""}</span>
+                        <span class="food"
+                          >${i.food}${i.manual ? html` <span class="tag">manual</span>` : ""}</span
+                        >
+                        <span class="q num">${i.qty} ${i.unit}</span>
+                      </button>
+                      <button
+                        class="ownbtn"
+                        aria-label="Already have ${i.food} — move to pantry staples"
+                        onClick=${() => onOwnItem(i.id)}
+                      >
+                        P+
+                      </button>
+                    </div>
                   `,
                 )}
               </div>
