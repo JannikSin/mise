@@ -2,8 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { SYMPTOMS, protocolFor } from "../app/lib/remedies.js";
 
+test("expanded symptom set is present", () => {
+  const ids = new Set(SYMPTOMS.map((s) => s.id));
+  for (const id of ["headache", "muscle-soreness", "poor-sleep", "coming-down-sick"]) {
+    assert.ok(ids.has(id), id);
+  }
+});
+
 test("every symptom has a complete rule", () => {
-  assert.ok(SYMPTOMS.length >= 6);
+  assert.ok(SYMPTOMS.length >= 10);
   for (const s of SYMPTOMS) {
     const p = protocolFor([s.id]);
     assert.ok(p, s.id);
@@ -31,6 +38,7 @@ test("protocols link to recipes that exist in the seed set", () => {
     "training-smoothie",
     "cottage-cheese-pre-bed",
     "beef-bulgogi-rice-bowl",
+    "electrolyte-lemon-salt-drink", // Task 11 sick-day lane
   ]);
   for (const s of SYMPTOMS) {
     const p = protocolFor([s.id]);

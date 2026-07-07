@@ -1,5 +1,5 @@
 import { html } from "htm/preact";
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { initDrag } from "../lib/drag.js";
 import { datesOfWeek, dayTotals, entriesAt, SLOT_KEYS } from "../lib/plan.js";
 import { statusDate } from "../lib/dates.js";
@@ -56,6 +56,8 @@ export function PlannerView({
   onRemove,
 }) {
   const rootRef = useRef(/** @type {HTMLElement | null} */ (null));
+  // tray meal filter: at ~50 recipes an unfiltered tray is unusable (David)
+  const [trayFilter, setTrayFilter] = useState(/** @type {string | null} */ (null));
   // latest-callback ref: the drag engine attaches ONCE and never re-attaches
   // mid-gesture, regardless of parent re-renders
   const dropRef = useRef(onDropInto);
@@ -85,18 +87,36 @@ export function PlannerView({
         <button class="wk" aria-label="Next week" onClick=${() => onWeek(1)}>›</button>
       </div>
 
-      <div class="tray" aria-label="Drag a recipe into a day">
-        ${recipes.map(
-          (r) => html`
-            <div class="drag-chip" data-drag="recipe" data-recipe=${r.id} key=${r.id}>
-              <span class="grip" aria-hidden="true">⠿</span>
-              <span class="chipbody">
-                <span class="n">${r.name}</span>
-                <span class="m num">${r.nutrition?.calories} · ${r.nutrition?.protein}P</span>
-              </span>
-            </div>
+      <div class="chips" role="group" aria-label="Filter tray by meal">
+        ${SLOTS.map(
+          ({ key, label, full }) => html`
+            <button
+              class="chip ${trayFilter === key ? "on" : ""}"
+              aria-pressed=${trayFilter === key}
+              aria-label="Show ${full} recipes"
+              key=${key}
+              onClick=${() => setTrayFilter(trayFilter === key ? null : key)}
+            >
+              ${label}
+            </button>
           `,
         )}
+      </div>
+
+      <div class="tray" aria-label="Drag a recipe into a day">
+        ${recipes
+          .filter((r) => !trayFilter || r.mealType === trayFilter)
+          .map(
+            (r) => html`
+              <div class="drag-chip" data-drag="recipe" data-recipe=${r.id} key=${r.id}>
+                <span class="grip" aria-hidden="true">⠿</span>
+                <span class="chipbody">
+                  <span class="n">${r.name}</span>
+                  <span class="m num">${r.nutrition?.calories} · ${r.nutrition?.protein}P</span>
+                </span>
+              </div>
+            `,
+          )}
         ${FREE_TEXT.map(
           (t) => html`
             <div class="drag-chip text" data-drag="text" data-text=${t} key=${t}>

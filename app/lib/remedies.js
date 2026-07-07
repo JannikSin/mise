@@ -13,6 +13,10 @@ export const SYMPTOMS = [
   { id: "low-energy", label: "low energy" },
   { id: "post-illness", label: "post-illness appetite" },
   { id: "stressed-down", label: "stressed / down" },
+  { id: "headache", label: "headache" },
+  { id: "muscle-soreness", label: "muscle soreness" },
+  { id: "poor-sleep", label: "poor sleep" },
+  { id: "coming-down-sick", label: "coming down with something" },
 ];
 
 /** @type {Record<string, Protocol>} */
@@ -60,6 +64,66 @@ const RULES = {
       "appetite lags recovery — small meals, more often",
     ],
     recipeIds: ["chicken-rice-congee", "training-smoothie", "cottage-cheese-pre-bed"],
+  },
+  headache: {
+    teas: ["water first — a full glass, then reassess", "ginger tea if it's tension + nausea"],
+    foods: ["something with salt if you've been sweating", "regular meal if you skipped one"],
+    avoid: ["pushing through a screen session", "extra caffeine on top of a caffeine headache"],
+    notes: [
+      "most training-day headaches are hydration or a skipped meal",
+      "dark room + 20 minutes beats toughing it out",
+      "track if it follows heavy lifting days — mention the pattern to a doctor if regular",
+    ],
+    recipeIds: ["electrolyte-lemon-salt-drink"],
+  },
+  "muscle-soreness": {
+    teas: ["ginger tea (mild anti-inflammatory)", "chamomile at night"],
+    foods: ["protein at every meal — repair needs material", "berries + yogurt"],
+    avoid: [
+      "skipping the next session entirely — light movement clears soreness faster",
+      "alcohol",
+    ],
+    notes: [
+      "DOMS peaks ~48h and light cardio or a walk genuinely helps",
+      "hot shower before bed, easy stretch after",
+      "sharp or one-sided pain is not soreness — rest that and reassess",
+    ],
+    recipeIds: ["training-smoothie", "cottage-cheese-pre-bed"],
+  },
+  "poor-sleep": {
+    teas: [
+      "chamomile 30-60 min before bed",
+      "nothing caffeinated after noon — including green tea",
+    ],
+    foods: ["normal dinner, not heavy, not late", "cottage cheese pre-bed if hungry"],
+    avoid: [
+      "screens in bed (the FITNESS.md rule exists for a reason)",
+      "late heavy meals",
+      "revenge bedtime scrolling",
+    ],
+    notes: [
+      "magnesium glycinate per the plan",
+      "wake time consistency matters more than bedtime",
+      "one bad night changes nothing — protect the next one",
+    ],
+    recipeIds: ["cottage-cheese-pre-bed"],
+  },
+  "coming-down-sick": {
+    teas: ["ginger–honey–lemon on repeat", "extra water beyond thirst"],
+    foods: [
+      "front-load protein while appetite lasts",
+      "congee ready in the fridge beats deciding later",
+    ],
+    avoid: [
+      "hard training — a walk is the ceiling today",
+      "pretending it isn't happening until it's worse",
+    ],
+    notes: [
+      "early rest is the highest-return move you have",
+      "batch-cook the congee NOW while you still have energy",
+      "sleep is the actual medicine — everything else is support",
+    ],
+    recipeIds: ["ginger-honey-lemon-tea", "chicken-rice-congee"],
   },
   "stressed-down": {
     teas: ["chamomile in the evening"],
