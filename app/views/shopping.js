@@ -270,7 +270,7 @@ export function ShoppingView({
               (/** @type {Record<string, any>} */ s) => html`
                 <div class="checkrow static" key=${s.id}>
                   <span class="food">
-                    ${s.name}${s.premium ? html` <span class="tag long-satiety">premium</span>` : ""}
+                    ${s.name}${s.premium ? html` <span class="tag premium">premium</span>` : ""}
                   </span>
                   <button
                     class="lowbtn ${s.runningLow ? "on" : ""}"

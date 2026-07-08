@@ -2,6 +2,7 @@ import { html } from "htm/preact";
 import { useState } from "preact/hooks";
 import { SYMPTOMS, protocolFor } from "../lib/remedies.js";
 import { liveRemedy } from "../lib/worker.js";
+import { recipesById } from "../lib/plan.js";
 
 /**
  * Sick/down mode (blueprint §6.7): pick symptoms → merged protocol.
@@ -12,7 +13,7 @@ import { liveRemedy } from "../lib/worker.js";
 export function RemediesView({ recipes, hasToken, repo }) {
   const [picked, setPicked] = useState(/** @type {string[]} */ ([]));
   const protocol = protocolFor(picked);
-  const byId = new Map(recipes.map((r) => [r.id, r]));
+  const byId = recipesById(recipes);
   // live remedy: free text -> Worker -> same protocol shape as the rules
   const [liveText, setLiveText] = useState("");
   const [live, setLive] = useState(

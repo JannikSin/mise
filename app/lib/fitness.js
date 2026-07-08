@@ -1,5 +1,6 @@
 // Fitness data operations (blueprint §6.6): last-time numbers beside each
 // lift, PRs, progression series for the SVG charts, daily check-in upserts.
+import { localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
  * @typedef {{ weight: number, reps: number }} SetEntry
@@ -120,11 +121,9 @@ export function dayQualifies(day, supplementIds, pushupTarget, waterTargetLiters
  */
 export function computeStreak(days, supplementIds, pushupTarget, waterTargetLiters, todayIso) {
   const byDate = new Map(days.map((d) => [d.date, d]));
-  const qualifies = (/** @type {Date} */ d) => {
-    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    return dayQualifies(byDate.get(iso), supplementIds, pushupTarget, waterTargetLiters);
-  };
-  const cursor = new Date(`${todayIso}T12:00:00`);
+  const qualifies = (/** @type {Date} */ d) =>
+    dayQualifies(byDate.get(localIsoDate(d)), supplementIds, pushupTarget, waterTargetLiters);
+  const cursor = parseLocalIso(todayIso);
   if (!qualifies(cursor)) cursor.setDate(cursor.getDate() - 1); // today still open
   let streak = 0;
   while (qualifies(cursor)) {

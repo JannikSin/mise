@@ -57,8 +57,7 @@ body {
   margin: 0 auto;
 }
 
-.num,
-.mono {
+.num {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }

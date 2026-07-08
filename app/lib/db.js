@@ -69,15 +69,6 @@ export async function dbGetAll() {
 }
 
 /**
- * @param {FileRecord} record
- * @returns {Promise<void>}
- */
-export async function dbPut(record) {
-  const db = await open();
-  await promisify(db.transaction("files", "readwrite").objectStore("files").put(record));
-}
-
-/**
  * Delete a cached record ONLY if it has no unsynced local edits, checked
  * atomically in one transaction (a write landing mid-flight must never be
  * deleted out from under the queue).

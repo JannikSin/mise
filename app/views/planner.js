@@ -1,17 +1,15 @@
 import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { initDrag } from "../lib/drag.js";
-import { datesOfWeek, dayTotals, entriesAt, SLOT_KEYS } from "../lib/plan.js";
-import { statusDate } from "../lib/dates.js";
-
-/** @type {Record<string, { label: string, full: string }>} */
-const SLOT_META = {
-  breakfast: { label: "BRK", full: "Breakfast" },
-  lunch: { label: "LUN", full: "Lunch" },
-  dinner: { label: "DIN", full: "Dinner" },
-  smoothie: { label: "SMO", full: "Smoothie" },
-  snack: { label: "SNK", full: "Snack" },
-};
+import {
+  datesOfWeek,
+  dayTotals,
+  entriesAt,
+  recipesById,
+  SLOT_KEYS,
+  SLOT_META,
+} from "../lib/plan.js";
+import { parseLocalIso, statusDate } from "../lib/dates.js";
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
@@ -21,7 +19,7 @@ const FREE_TEXT = ["leftovers", "eating out"];
  * @param {string} isoDate
  */
 function monthDay(isoDate) {
-  return new Date(`${isoDate}T12:00:00`).toLocaleDateString([], {
+  return parseLocalIso(isoDate).toLocaleDateString([], {
     month: "short",
     day: "numeric",
   });
@@ -69,7 +67,7 @@ export function PlannerView({
   const dropRef = useRef(onDropInto);
   dropRef.current = onDropInto;
 
-  const byId = new Map(recipes.map((r) => [r.id, r]));
+  const byId = recipesById(recipes);
   const dates = datesOfWeek(weekId);
   const kcalTarget = targets?.macros?.calories ?? 3400;
   const proteinTarget = targets?.macros?.protein ?? 210;
@@ -95,7 +93,7 @@ export function PlannerView({
 
       <div class="actions">
         <button
-          class="ask buildweek"
+          class="ask"
           aria-label=${rebuilt ? "Re-roll the generated week" : "Build my week automatically"}
           onClick=${onBuildWeek}
           disabled=${recipes.length === 0}
@@ -125,7 +123,7 @@ export function PlannerView({
                 ${buildReport.proteinShortDays
                   .map(
                     (s) =>
-                      `${new Date(`${s.date}T12:00:00`).toLocaleDateString([], { weekday: "short" })} ${s.protein}g`,
+                      `${parseLocalIso(s.date).toLocaleDateString([], { weekday: "short" })} ${s.protein}g`,
                   )
                   .join(" · ")}
                 / ${buildReport.proteinShortDays[0]?.target}g — stack a slot or add a snack
@@ -192,7 +190,7 @@ export function PlannerView({
         const pOk = totals.protein / proteinTarget >= 0.9;
         return html`
           <section class="day" key=${date}>
-            <h2 class="block-title">${statusDate(new Date(`${date}T12:00:00`))}</h2>
+            <h2 class="block-title">${statusDate(parseLocalIso(date))}</h2>
             <div class="meters">
               <div class="meterline ${kcalOk ? "" : "warn"}">
                 <span class="k num">${totals.calories} / ${kcalTarget} kcal</span>

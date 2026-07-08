@@ -22,12 +22,19 @@ import { ShoppingView } from "./views/shopping.js";
 import { FitnessView } from "./views/fitness.js";
 import { RemediesView } from "./views/remedies.js";
 import { upsertDay } from "./lib/fitness.js";
-import { deriveShoppingList, applyJustBought, ownItemToPantry, sectionOf } from "./lib/shopping.js";
+import {
+  deriveShoppingList,
+  applyJustBought,
+  ownItemToPantry,
+  sectionOf,
+  slug,
+} from "./lib/shopping.js";
 import {
   addEntry,
   removeEntryById,
   moveEntry,
   normalizePlan,
+  recipesById,
   shiftWeek,
   SLOT_KEYS,
 } from "./lib/plan.js";
@@ -47,12 +54,6 @@ const TABS = [
   { hash: "#/train", view: "train", icon: "▲", label: "Train" },
   { hash: "#/system", view: "system", icon: "☰", label: "Sys" },
 ];
-
-/** Local ISO date (device timezone) for check-ins and session logs. */
-function todayIso() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 function App() {
   const [route, setRoute] = useState(
@@ -256,7 +257,7 @@ function App() {
   }, []);
 
   const handlePatchDay = useCallback((/** @type {Record<string, any>} */ patch) => {
-    const next = upsertDay(/** @type {any} */ (dailyRef.current), todayIso(), patch);
+    const next = upsertDay(/** @type {any} */ (dailyRef.current), localIsoDate(new Date()), patch);
     dailyRef.current = next;
     setDailyLog(next);
     void write("fitness/daily.json", /** @type {any} */ (next));
@@ -266,7 +267,7 @@ function App() {
   recipesRef.current = recipes;
 
   const handleBuildList = useCallback(() => {
-    const byId = new Map(recipesRef.current.map((r) => [r.id, r]));
+    const byId = recipesById(recipesRef.current);
     updateShopping(
       deriveShoppingList(
         /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
@@ -291,11 +292,7 @@ function App() {
   const handleAddManual = useCallback(
     (/** @type {string} */ food) => {
       const s = shoppingRef.current;
-      const id =
-        food
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "") + "-x"; // unit-aware id scheme, unit "x"
+      const id = slug(food) + "-x"; // unit-aware id scheme, unit "x"
       if (s.items.some((i) => i.id === id)) return;
       updateShopping({
         ...s,
@@ -309,9 +306,11 @@ function App() {
   );
 
   const handleJustBought = useCallback(() => {
-    const today = new Date();
-    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-    const result = applyJustBought(shoppingRef.current, pantryRef.current, iso);
+    const result = applyJustBought(
+      shoppingRef.current,
+      pantryRef.current,
+      localIsoDate(new Date()),
+    );
     updateShopping(result.shopping);
     updatePantry(result.pantry);
   }, [updateShopping, updatePantry]);
@@ -585,7 +584,7 @@ function App() {
         workouts=${workouts}
         daily=${dailyLog}
         targets=${targets}
-        today=${todayIso()}
+        today=${localIsoDate(new Date())}
         hasToken=${hasToken}
         repo=${repo}
         loading=${!fitnessLoaded}

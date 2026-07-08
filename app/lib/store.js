@@ -183,7 +183,7 @@ export async function write(path, data) {
  * merge retries is counted and skipped so one bad file can't block the rest.
  * @returns {Promise<void>}
  */
-export async function flush() {
+async function flush() {
   if (status.flushing || !navigator.onLine) return;
   status.flushing = true;
   status.conflicts = 0;

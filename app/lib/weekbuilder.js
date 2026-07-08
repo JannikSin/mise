@@ -7,15 +7,8 @@
 // protein snack, existing entries are never touched, and the report says
 // exactly what the week shares so the shopping win is visible.
 
-import { addEntry, datesOfWeek, dayTotals, entriesAt } from "./plan.js";
-
-/** @param {string} s */
-function slug(s) {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
+import { addEntry, datesOfWeek, dayTotals, entriesAt, recipesById } from "./plan.js";
+import { slug } from "./shopping.js";
 
 /** deterministic 32-bit FNV-1a — the builder's only randomness source */
 function hash(/** @type {string} */ s) {
@@ -156,7 +149,7 @@ const PROTEIN_FLOOR_RATIO = 0.95;
  */
 export function buildWeek({ recipes, targets, pantry, weekId, plan, salt = 0 }) {
   const dates = datesOfWeek(weekId);
-  const byId = new Map(recipes.map((r) => [r.id, r]));
+  const byId = recipesById(recipes);
   const useSoonFoods = (pantry.perishables ?? [])
     .filter((/** @type {any} */ p) => p.useSoon)
     .map((/** @type {any} */ p) => String(p.food));

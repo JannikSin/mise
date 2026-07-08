@@ -6,7 +6,7 @@
 
 import { getToken } from "./github.js";
 
-export const WORKER_URL = "https://mise-worker.janniksin.workers.dev";
+const WORKER_URL = "https://mise-worker.janniksin.workers.dev";
 
 const MAX_EDGE = 1280;
 
@@ -16,7 +16,7 @@ const MAX_EDGE = 1280;
  * @param {File | Blob} file
  * @returns {Promise<{ image: string, mediaType: string }>} base64 + type
  */
-export async function downscalePhoto(file) {
+async function downscalePhoto(file) {
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");

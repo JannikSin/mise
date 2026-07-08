@@ -1,7 +1,7 @@
 // Weekly plan operations (plans/<week>.json). Entries carry a unique id —
 // the key mergeFieldWise prefers — so multiple entries may STACK in the same
 // date+slot and two devices editing the same week merge cleanly.
-import { isoWeekId } from "./dates.js";
+import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
  * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number }} PlanEntry
@@ -10,6 +10,25 @@ import { isoWeekId } from "./dates.js";
 
 /** The valid slot keys, in display order (docs/SCHEMAS.md plan section). */
 export const SLOT_KEYS = ["breakfast", "lunch", "dinner", "smoothie", "snack"];
+
+/** Console display names per slot — single source for every view.
+ * @type {Record<string, { label: string, full: string }>} */
+export const SLOT_META = {
+  breakfast: { label: "BRK", full: "Breakfast" },
+  lunch: { label: "LUN", full: "Lunch" },
+  dinner: { label: "DIN", full: "Dinner" },
+  smoothie: { label: "SMO", full: "Smoothie" },
+  snack: { label: "SNK", full: "Snack" },
+};
+
+/**
+ * Recipes keyed by id — the lookup shape dayTotals and the views consume.
+ * @param {Record<string, any>[]} recipes
+ * @returns {Map<string, any>}
+ */
+export function recipesById(recipes) {
+  return new Map(recipes.map((r) => [r.id, r]));
+}
 
 /**
  * Monday..Sunday ISO dates of an ISO week id like "2026-W28".
@@ -28,9 +47,7 @@ export function datesOfWeek(weekId) {
   for (let i = 0; i < 7; i++) {
     const d = new Date(week1Monday);
     d.setDate(week1Monday.getDate() + (week - 1) * 7 + i);
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    out.push(`${d.getFullYear()}-${mm}-${dd}`);
+    out.push(localIsoDate(d));
   }
   return out;
 }
@@ -44,7 +61,7 @@ export function datesOfWeek(weekId) {
  */
 export function shiftWeek(weekId, delta) {
   const monday = datesOfWeek(weekId)[0];
-  const d = new Date(`${monday}T12:00:00`);
+  const d = parseLocalIso(monday ?? "");
   d.setDate(d.getDate() + delta * 7);
   return isoWeekId(d);
 }

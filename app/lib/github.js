@@ -42,10 +42,6 @@ export function tokenAgeDays() {
 /** Warn two weeks before the assumed 1-year expiry. */
 export const TOKEN_WARN_AGE_DAYS = 351;
 
-export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY);
-}
-
 /**
  * Data-repo safety check (CLAUDE.md Part 2, rule 1).
  *

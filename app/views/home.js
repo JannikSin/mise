@@ -1,15 +1,6 @@
 import { html } from "htm/preact";
 import { localIsoDate } from "../lib/dates.js";
-import { SLOT_KEYS } from "../lib/plan.js";
-
-/** @type {Record<string, string>} */
-const SLOT_LABEL = {
-  breakfast: "BRK",
-  lunch: "LUN",
-  dinner: "DIN",
-  smoothie: "SMO",
-  snack: "SNK",
-};
+import { recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 
 /**
  * Landing view: today's planned meals (tap → recipe + steps), the ask button,
@@ -17,7 +8,7 @@ const SLOT_LABEL = {
  * @param {{ recipes: Record<string, any>[], plan: { week: string, entries: Record<string, any>[] }, sync: Record<string, any>, hasToken: boolean, repo: Record<string, any> | null }} props
  */
 export function HomeView({ recipes, plan, sync, hasToken, repo }) {
-  const byId = new Map(recipes.map((r) => [r.id, r]));
+  const byId = recipesById(recipes);
   const today = localIsoDate(new Date());
   const todayEntries = plan.entries
     .filter((e) => e.date === today)
@@ -40,7 +31,7 @@ export function HomeView({ recipes, plan, sync, hasToken, repo }) {
           : html`<div class="todaylist">
               ${todayEntries.map((entry) => {
                 const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
-                const label = SLOT_LABEL[entry.slot] ?? entry.slot;
+                const label = SLOT_META[entry.slot]?.label ?? entry.slot;
                 if (!recipe) {
                   return html`
                     <div class="todayrow" key=${entry.id}>

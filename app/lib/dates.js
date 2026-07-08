@@ -32,6 +32,16 @@ export function localIsoDate(d) {
 }
 
 /**
+ * Parse a YYYY-MM-DD string to a local Date anchored at noon — the anchor
+ * keeps day arithmetic safe across DST shifts and midnight rollovers.
+ * @param {string} iso
+ * @returns {Date}
+ */
+export function parseLocalIso(iso) {
+  return new Date(`${iso}T12:00:00`);
+}
+
+/**
  * Time for today's syncs; date + time once it's stale enough to mislead.
  * @param {string | null} iso
  * @returns {string}

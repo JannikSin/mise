@@ -30,12 +30,13 @@ shopping.json             current derived list + check-state
 fitness/targets.json      macro targets, adjustment rules, priority stack
 fitness/workouts.json     split templates + session log
 fitness/daily.json        daily check-ins
-fitness/activities.json   tennis/climbing/hiking sessions
+fitness/activities.json   tennis/climbing/hiking sessions (schema reserved — no UI yet)
 meta.json                 app-level state (schema version, last-write info)
 ```
 
-During development, fixture copies live in the app repo under `fixtures/` with the
-same shapes. Never commit real user data to the app repo.
+Schema-exemplar fixtures live in the app repo under `fixtures/` with the same
+shapes; the post-edit hook's drift check reads them. Never commit real user
+data to the app repo.
 
 ## Recipe — `recipes/<id>.json`
 
@@ -247,6 +248,9 @@ One row per day; 10-second morning check-in.
 ```
 
 ## Fitness — `fitness/activities.json`
+
+Reserved: no app code reads or writes this yet (activity logging is a planned
+fast-follow; the purpose-recommendation hook is the reason `time` exists).
 
 ```jsonc
 {

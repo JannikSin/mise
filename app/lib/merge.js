@@ -143,7 +143,7 @@ function isPlainObject(v) {
  * @param {unknown} b
  * @returns {boolean}
  */
-export function deepEqual(a, b) {
+function deepEqual(a, b) {
   if (a === b) return true;
   if (Array.isArray(a) && Array.isArray(b)) {
     return a.length === b.length && a.every((v, i) => deepEqual(v, b[i]));

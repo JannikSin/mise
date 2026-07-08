@@ -7,6 +7,7 @@
   "scripts": {
     "check": "tsc --noEmit -p jsconfig.json",
     "lint": "eslint .",
+    "test": "node --test \"tests/*.test.js\"",
     "format": "prettier --write \"app/**/*.{js,css,html,json}\" \"docs/**/*.md\""
   },
   "devDependencies": {

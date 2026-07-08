@@ -10,7 +10,7 @@
 // Bump CACHE_VERSION on deploys that change vendor/icon files; app-code
 // changes no longer need it for freshness, only for precache hygiene.
 
-const CACHE_VERSION = "mise-shell-v13";
+const CACHE_VERSION = "mise-shell-v14";
 
 const SHELL = [
   "./",
@@ -99,15 +99,20 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
+/** Cache a successful response without blocking its delivery.
+ * @param {Request} req @param {Response} res */
+function putInCache(req, res) {
+  if (!res.ok) return;
+  const copy = res.clone();
+  caches.open(CACHE_VERSION).then((cache) => cache.put(req, copy));
+}
+
 /** @param {Request} req */
 async function cacheFirst(req) {
   const hit = await caches.match(req);
   if (hit) return hit;
   const res = await fetch(req);
-  if (res.ok) {
-    const copy = res.clone();
-    caches.open(CACHE_VERSION).then((cache) => cache.put(req, copy));
-  }
+  putInCache(req, res);
   return res;
 }
 
@@ -115,10 +120,7 @@ async function cacheFirst(req) {
 async function networkFirst(req) {
   try {
     const res = await fetch(req);
-    if (res.ok) {
-      const copy = res.clone();
-      caches.open(CACHE_VERSION).then((cache) => cache.put(req, copy));
-    }
+    putInCache(req, res);
     return res;
   } catch {
     const hit = await caches.match(req, { ignoreSearch: req.mode === "navigate" });
