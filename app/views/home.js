@@ -1,5 +1,21 @@
 import { html } from "htm/preact";
 import { computeStreak, templateForDate } from "../lib/fitness.js";
+import { weightTrend } from "../lib/weight.js";
+import { DozenTally } from "./dozen-tally.js";
+
+/**
+ * Plain-English read of the gain-phase weight trend (targets.adjustmentRule:
+ * +0.25 to +0.75 lb/wk is on target).
+ * @param {import("../lib/weight.js").WeightTrend} trend
+ * @returns {string}
+ */
+function trendLine(trend) {
+  if (trend.lbPerWeek === null) return "weigh in for a few more mornings to set a baseline";
+  if (trend.verdict === "too-slow") return "flat 2 weeks, add ~200 cal";
+  if (trend.verdict === "too-fast") return "gaining fast, trim ~200 cal";
+  const sign = trend.lbPerWeek >= 0 ? "+" : "";
+  return `${sign}${trend.lbPerWeek.toFixed(1)} lb/wk, on target`;
+}
 
 /**
  * Landing view: the daily check-in (sleep/weight/pushups/water/supplements/
@@ -32,6 +48,7 @@ export function HomeView({
 }) {
   const day = daily.days.find((d) => d.date === today) ?? { date: today };
   const supplements = day.supplements ?? {};
+  const trend = weightTrend(daily.days, today);
 
   const patchNum = (/** @type {string} */ field, /** @type {string} */ v) => {
     const n = Number(v);
@@ -109,6 +126,16 @@ export function HomeView({
           />
         </label>
       </div>
+      <div class="tile">
+        <div class="k">Weight trend</div>
+        <div class="v num">
+          ${trend.current ?? "—"}<small> lb</small>
+        </div>
+        <div class="d num">
+          7-day avg ${trend.avg7 !== null ? trend.avg7.toFixed(1) : "—"} · ${trendLine(trend)}
+        </div>
+      </div>
+      <p class="hint">weigh right after waking, after the bathroom, before eating or drinking, no clothes. same routine every time.</p>
       <div class="slots counters">
         <div class="checkrow counter">
           <button
@@ -175,6 +202,8 @@ export function HomeView({
           html`<div class="empty">${loading ? "loading…" : "no supplement plan in targets"}</div>`
         }
       </div>
+      <h2 class="block-title">Daily Dozen</h2>
+      <${DozenTally} day=${day} targets=${targets} onPatchDay=${onPatchDay} />
       <h2 class="block-title">Streak</h2>
       <div class="tile streaktile">
         <div class="v num">

@@ -433,6 +433,10 @@ export function FitnessView({
               </div>
             </div>
           </div>
+          ${
+            targets?.phase &&
+            html`<p class="hint">phase: ${targets.phase} since ${targets.phaseSince ?? "—"}</p>`
+          }
           <h2 class="block-title">Priority stack</h2>
           <ol class="steps">
             ${(targets?.priorityStack ?? []).map((/** @type {string} */ p) => html`<li key=${p}>${p}</li>`)}

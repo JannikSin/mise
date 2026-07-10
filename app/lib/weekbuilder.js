@@ -245,7 +245,7 @@ const MAX_ENTRY_SERVINGS = 2;
  *    (max +0.5), recomputing day totals each step — portion bumps of
  *    already-chosen meals keep the week boring and the shopping list
  *    unchanged in ITEMS, only quantities grow;
- * 2. only then stack best-fit snack items, at most 2 per day.
+ * 2. only then stack best-fit snack items, at most 3 per day.
  * Pinned entries are never resized, servings never exceed 2x the recipe's
  * base serving, and nothing is invented — only real recipes at realistic
  * portions. Pure and deterministic.
@@ -260,14 +260,16 @@ export function macroTopUp(plan, snackPool, recipesById, floors) {
   const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
   if (dates.length === 0) return plan;
 
-  const bestFor = (/** @type {boolean} */ needProtein) =>
-    [...pool].sort((a, b) => {
-      const pa = a.nutrition?.protein ?? 0;
-      const pb = b.nutrition?.protein ?? 0;
-      const ca = a.nutrition?.calories ?? 0;
-      const cb = b.nutrition?.calories ?? 0;
-      return needProtein ? pb - pa || cb - ca : cb - ca || pb - pa;
-    })[0];
+  const bestFor = (/** @type {boolean} */ needProtein, /** @type {Set<string>} */ exclude) =>
+    [...pool]
+      .filter((r) => !exclude.has(r.id))
+      .sort((a, b) => {
+        const pa = a.nutrition?.protein ?? 0;
+        const pb = b.nutrition?.protein ?? 0;
+        const ca = a.nutrition?.calories ?? 0;
+        const cb = b.nutrition?.calories ?? 0;
+        return needProtein ? pb - pa || cb - ca : cb - ca || pb - pa;
+      })[0];
 
   let next = plan;
   const shortOf = (/** @type {string} */ date) => {
@@ -295,17 +297,26 @@ export function macroTopUp(plan, snackPool, recipesById, floors) {
         };
       }
     }
-    // lever 2: stack snacks, at most 2 servings-worth per day; a repeat of
-    // the same snack bumps the existing entry's servings instead of adding
-    // a duplicate row
-    for (let stacked = 0; stacked < 2; stacked++) {
+    // lever 2: stack snacks, at most 3 servings-worth per day (raised from 2
+    // for the 2026-07-10 gain-phase calorie bump: the 3700/3500 floor needs
+    // more top-up headroom than the old 3400/3200). A repeat of the same
+    // snack bumps the existing entry's servings, never a duplicate row, and
+    // never past the 2x per-entry cap; once the best pick is maxed the next
+    // stack tries the next-best DISTINCT snack instead of stalling out.
+    const maxedOut = new Set();
+    for (let stacked = 0; stacked < 3; stacked++) {
       const s = shortOf(date);
       if (!s.any) break;
-      const pick = bestFor(s.protein);
+      const pick = bestFor(s.protein, maxedOut);
       if (!pick) break;
       const existing = entriesAt(next.entries, date, "snack").find(
-        (e) => !e.pinned && e.recipeId === pick.id && e.servings < MAX_ENTRY_SERVINGS,
+        (e) => !e.pinned && e.recipeId === pick.id,
       );
+      if (existing && existing.servings >= MAX_ENTRY_SERVINGS) {
+        maxedOut.add(pick.id);
+        stacked--; // this attempt didn't spend a stack, retry with the next-best pick
+        continue;
+      }
       next = existing
         ? {
             ...next,
@@ -560,8 +571,13 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0 
     }
   });
 
-  // Step 4: macro top-up (calories + protein), snack committee is the pool
-  next = macroTopUp(next, committees.snack, byId, floors);
+  // Step 4: macro top-up (calories + protein). Uses the FULL snack pool, not
+  // just the ingredient-overlap committee: the committee optimizes for a
+  // tight shopping list, but this is the safety net for hitting the floor,
+  // so it needs every real snack candidate available (2026-07-10 gain-phase
+  // bump: the higher 3700/3500 floor needs more headroom than a 2-recipe
+  // committee reliably provides).
+  next = macroTopUp(next, pool("snack"), byId, floors);
 
   // Step 5: report, never fudge — short days are judged against the floors
   // but reported against the real goals

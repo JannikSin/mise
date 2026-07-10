@@ -184,15 +184,17 @@ Seeded from the FITNESS.md system; edited rarely.
 ```jsonc
 {
   "macros": {
-    "calories": 3400,
-    "caloriesFloor": 3200,
+    "calories": 3700,
+    "caloriesFloor": 3500,
     "protein": 210,                     // grams
     "proteinFloor": 185,
-    "fat": 95,                          // ? grams
-    "carbs": 430,                       // ? grams
+    "fat": 100,                         // ? grams
+    "carbs": 490,                       // ? grams
     "waterLiters": 3.5                  // daily target midpoint
   },
-  "adjustmentRule": "Weigh 3 mornings/week…",  // plain-text calorie adjustment rule
+  "adjustmentRule": "Weigh most mornings…",  // plain-text calorie adjustment rule
+  "phase": "gain",                // ? gain | recomp | cut, current training phase
+  "phaseSince": "2026-07-10",     // ? ISO date the current phase started
   "dailyDozen": {                 // ? PER-DAY serving targets, Greger's published Daily Dozen
     "beans": 3, "berries": 1, "otherFruit": 3, "cruciferousVeg": 1,
     "greens": 2, "otherVeg": 2, "flaxseed": 1, "nuts": 1,

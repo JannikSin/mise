@@ -60,7 +60,7 @@ const RULES = {
     foods: ["congee with chicken and egg", "yogurt", "smoothie — liquid calories count"],
     avoid: ["forcing full-size meals on day one", "greasy comeback meals"],
     notes: [
-      "protein floor (~160g) matters more than the calorie target for a few days",
+      "protein floor (185g) matters more than the calorie target for a few days",
       "appetite lags recovery — small meals, more often",
     ],
     recipeIds: ["chicken-rice-congee", "training-smoothie", "cottage-cheese-pre-bed"],
