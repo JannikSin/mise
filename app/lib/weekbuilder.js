@@ -240,6 +240,132 @@ const PORTION_BUMPS = /** @type {const} */ ([
 const MAX_ENTRY_SERVINGS = 2;
 
 /**
+ * Food-group keys the per-day floor pass insists on, sourced from
+ * targets.dailyDozen but enforced only for these two — one obvious edit away
+ * from growing the set. Per the 2026-07-10 Opus nutrition audit: coverage
+ * clusters (cruciferous 2-4 on a broccoli-dinner day, 0 on a pasta day;
+ * greens 2 on smoothie days, near 0 on rice-bowl days) unless every day is
+ * forced to clear its own floor.
+ */
+export const ENFORCED_DAILY_GROUPS = ["greens", "cruciferousVeg"];
+
+/**
+ * Total of one Daily Dozen food group across a single day's entries.
+ * @param {import("./plan.js").PlanEntry[]} entries
+ * @param {Map<string, any>} recipesById
+ * @param {string} date
+ * @param {string} group
+ * @returns {number}
+ */
+function dayGroupTotal(entries, recipesById, date, group) {
+  let total = 0;
+  for (const e of entries) {
+    if (e.date !== date || !e.recipeId) continue;
+    total += (recipesById.get(e.recipeId)?.foodGroups?.[group] ?? 0) * e.servings;
+  }
+  return total;
+}
+
+/**
+ * Per-day food-group FLOOR pass: forces each date to clear `floors` for the
+ * groups they name (see ENFORCED_DAILY_GROUPS), instead of leaving coverage
+ * to whatever the committee's greedy gap bonus happened to cluster. Runs
+ * AFTER the meal slots are filled and BEFORE macroTopUp, so the calorie/
+ * protein top-up sees each day's post-floor totals.
+ *
+ * For each date short of a floor: first try raising servings on an existing
+ * unpinned entry that already contributes that group (0.5 steps, biggest
+ * per-serving contributor first, capped at MAX_ENTRY_SERVINGS) — bigger
+ * portions beat new items, same philosophy as macroTopUp's portion lever.
+ * Only when every contributing entry is maxed out and the day is still
+ * short does it add ONE recipe from `pool` that contributes the missing
+ * group, preferring candidates whose ingredients already overlap the week's
+ * food pool (tightest shopping list). Never removes or replaces an entry,
+ * never resizes a pinned one. If `pool` has nothing that contributes the
+ * group, the day is left alone — foodGroupGaps reports the shortfall
+ * honestly rather than fudging it. Pure and deterministic (salted hash
+ * tiebreak only, no Math.random/Date.now).
+ * @param {import("./plan.js").Plan} plan
+ * @param {Record<string, any>[]} pool
+ * @param {Map<string, any>} recipesById
+ * @param {Record<string, number>} floors
+ * @returns {import("./plan.js").Plan}
+ */
+export function foodGroupFloorPass(plan, pool, recipesById, floors) {
+  const candidates = pool.filter((r) => r.effort !== "project");
+  const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
+  let next = plan;
+
+  for (const date of dates) {
+    for (const [group, floor] of Object.entries(floors)) {
+      if (!floor) continue;
+      if (dayGroupTotal(next.entries, recipesById, date, group) >= floor) continue;
+
+      // lever 1: raise servings on already-contributing unpinned entries,
+      // biggest per-serving contributor first (closes the gap in fewest
+      // steps), deterministic hash tiebreak
+      const contributors = next.entries
+        .filter(
+          (e) =>
+            e.date === date &&
+            !e.pinned &&
+            e.recipeId &&
+            (recipesById.get(e.recipeId)?.foodGroups?.[group] ?? 0) > 0,
+        )
+        .sort((a, b) => {
+          const pa = recipesById.get(/** @type {string} */ (a.recipeId))?.foodGroups?.[group] ?? 0;
+          const pb = recipesById.get(/** @type {string} */ (b.recipeId))?.foodGroups?.[group] ?? 0;
+          return pb - pa || hash(`${a.id}|${group}`) - hash(`${b.id}|${group}`);
+        });
+
+      for (const entry of contributors) {
+        if (dayGroupTotal(next.entries, recipesById, date, group) >= floor) break;
+        let servings = entry.servings;
+        while (
+          servings + 0.5 <= MAX_ENTRY_SERVINGS &&
+          dayGroupTotal(next.entries, recipesById, date, group) < floor
+        ) {
+          servings += 0.5;
+          next = {
+            ...next,
+            entries: next.entries.map((e) => (e.id === entry.id ? { ...e, servings } : e)),
+          };
+        }
+      }
+      if (dayGroupTotal(next.entries, recipesById, date, group) >= floor) continue;
+
+      // lever 2: portions alone couldn't close it — add ONE recipe that
+      // contributes the group, preferring overlap with the week's food pool
+      // so the shopping list stays tight (matches pickCommittee's seeding)
+      const weekFoodPool = new Set(
+        next.entries.flatMap((e) => {
+          const r = e.recipeId ? recipesById.get(e.recipeId) : null;
+          return r ? [...foodSlugsOf(r)] : [];
+        }),
+      );
+      let best = null;
+      let bestScore = -Infinity;
+      for (const c of candidates) {
+        const contribution = c.foodGroups?.[group] ?? 0;
+        if (contribution <= 0) continue;
+        const score =
+          overlapWith(c, weekFoodPool) * 10 + contribution + (hash(`${c.id}|${date}|${group}`) % 997) / 9970;
+        if (score > bestScore) {
+          bestScore = score;
+          best = c;
+        }
+      }
+      if (best) {
+        next = addEntry(next, date, "snack", { recipeId: best.id, servings: 1 });
+      }
+      // else: no candidate in the pool contributes this group — leave the
+      // day alone, foodGroupGaps reports it honestly
+    }
+  }
+  return next;
+}
+
+/**
  * Top up any day short of calories or protein, cheapest lever first:
  * 1. raise that day's dinner servings in 0.5 steps (max +1.0), then lunch
  *    (max +0.5), recomputing day totals each step — portion bumps of
@@ -486,6 +612,14 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0 
   const dailyDozenWeekly = Object.fromEntries(
     Object.entries(dailyDozenPerDay).map(([k, v]) => [k, Number(v) * 7]),
   );
+  // only the ENFORCED_DAILY_GROUPS get a per-day floor pass; groups absent
+  // from targets.dailyDozen are silently skipped, never invented
+  const dailyGroupFloors = Object.fromEntries(
+    ENFORCED_DAILY_GROUPS.filter((g) => dailyDozenPerDay[g] != null).map((g) => [
+      g,
+      Number(dailyDozenPerDay[g]),
+    ]),
+  );
 
   // seed the week-wide pool/coverage from whatever's already pinned; pinned
   // recipes are also EXCLUDED from committee candidacy — their foods seeding
@@ -570,6 +704,12 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0 
       dinnerCursor++;
     }
   });
+
+  // Step 3.5: per-day food-group floor pass (greens/cruciferous, per the
+  // 2026-07-10 Opus audit) — must run BEFORE macroTopUp so the calorie/
+  // protein top-up sees each day's post-floor totals, not the other way
+  // around.
+  next = foodGroupFloorPass(next, pool("snack"), byId, dailyGroupFloors);
 
   // Step 4: macro top-up (calories + protein). Uses the FULL snack pool, not
   // just the ingredient-overlap committee: the committee optimizes for a

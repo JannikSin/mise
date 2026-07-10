@@ -9,8 +9,11 @@ import {
   foodGroupCoverage,
   foodGroupGapBonus,
   poolInsufficiency,
+  foodGroupFloorPass,
+  ENFORCED_DAILY_GROUPS,
   generateWeek,
 } from "../app/lib/weekbuilder.js";
+import { recipesById } from "../app/lib/plan.js";
 
 const EMPTY_FOOD_GROUPS = {
   beans: 0,
@@ -400,6 +403,80 @@ test("generateWeek reports foodGroupGaps for categories under the weekly dailyDo
   assert.ok(report.poolInsufficient.some((p) => p.reason.includes("flaxseed")));
 });
 
+const MON = MONDAY_W29;
+
+test("foodGroupFloorPass raises servings on an existing greens item before adding a new one", () => {
+  const halfGreensDinner = r("greens-dinner", "dinner", ["kale"], { foodGroups: { greens: 1 } });
+  const otherGreensSnack = r("greens-snack", "snack", ["parsley"], { foodGroups: { greens: 2 } });
+  const plan = {
+    week: "2026-W29",
+    entries: [{ id: "e1", date: MON, slot: "dinner", recipeId: "greens-dinner", servings: 1 }],
+  };
+  const byId = recipesById([halfGreensDinner, otherGreensSnack]);
+  const result = foodGroupFloorPass(plan, [otherGreensSnack], byId, { greens: 2 });
+  assert.equal(result.entries.length, 1, "no new entry added, portion bump alone closes it");
+  assert.equal(result.entries[0].servings, 2, "1 greens/serving x 2 servings = floor of 2");
+});
+
+test("foodGroupFloorPass adds a greens item only when portion bumps cannot close the gap", () => {
+  const lowGreensDinner = r("low-greens-dinner", "dinner", ["lettuce"], {
+    foodGroups: { greens: 0.5 },
+  });
+  const greensSnack = r("greens-snack", "snack", ["parsley"], { foodGroups: { greens: 2 } });
+  const plan = {
+    week: "2026-W29",
+    entries: [{ id: "e1", date: MON, slot: "dinner", recipeId: "low-greens-dinner", servings: 1 }],
+  };
+  const byId = recipesById([lowGreensDinner, greensSnack]);
+  const result = foodGroupFloorPass(plan, [greensSnack], byId, { greens: 2 });
+  const dinner = result.entries.find((e) => e.id === "e1");
+  assert.equal(dinner.servings, 2, "portion lever maxes out at the 2x cap: 0.5 x 2 = 1.0, still short");
+  const added = result.entries.filter((e) => e.id !== "e1");
+  assert.equal(added.length, 1, "exactly one new entry added");
+  assert.equal(added[0].recipeId, "greens-snack");
+  assert.equal(added[0].slot, "snack");
+  assert.ok(!added[0].pinned);
+});
+
+test("foodGroupFloorPass never touches pinned entries", () => {
+  const pinnedGreensDinner = r("pinned-greens-dinner", "dinner", ["kale"], {
+    foodGroups: { greens: 1 },
+  });
+  const greensSnack = r("greens-snack", "snack", ["parsley"], { foodGroups: { greens: 2 } });
+  const plan = {
+    week: "2026-W29",
+    entries: [
+      {
+        id: "pin1",
+        date: MON,
+        slot: "dinner",
+        recipeId: "pinned-greens-dinner",
+        servings: 1,
+        pinned: true,
+      },
+    ],
+  };
+  const byId = recipesById([pinnedGreensDinner, greensSnack]);
+  const result = foodGroupFloorPass(plan, [greensSnack], byId, { greens: 2 });
+  const pin = result.entries.find((e) => e.id === "pin1");
+  assert.equal(pin.servings, 1, "pinned entry's servings never change");
+  const added = result.entries.filter((e) => e.id !== "pin1");
+  assert.equal(added.length, 1, "the gap is closed by adding instead of resizing the pin");
+  assert.equal(added[0].recipeId, "greens-snack");
+});
+
+test("foodGroupFloorPass leaves the day alone and reports honestly when the pool has no greens at all", () => {
+  const noGreensDinner = r("no-greens-dinner", "dinner", ["rice"], { foodGroups: { greens: 0 } });
+  const noGreensSnack = r("no-greens-snack", "snack", ["crackers"], { foodGroups: { greens: 0 } });
+  const plan = {
+    week: "2026-W29",
+    entries: [{ id: "e1", date: MON, slot: "dinner", recipeId: "no-greens-dinner", servings: 1 }],
+  };
+  const byId = recipesById([noGreensDinner, noGreensSnack]);
+  const result = foodGroupFloorPass(plan, [noGreensSnack], byId, { greens: 2 });
+  assert.deepEqual(result.entries, plan.entries, "nothing changes when the pool can't help");
+});
+
 test("REAL pool integration: generated week meets calorie and protein floors every day", () => {
   // David's directive is "meet the calorie goal and protein goal every day":
   // against the actual seed recipes and actual targets.json, the portion
@@ -425,4 +502,44 @@ test("REAL pool integration: generated week meets calorie and protein floors eve
   assert.deepEqual(report.proteinShortDays, [], "no protein-short days on the real pool");
   assert.deepEqual(report.calorieShortDays, [], "no calorie-short days on the real pool");
   for (const e of plan.entries) assert.ok(e.servings <= 2, `${e.recipeId} servings ${e.servings}`);
+});
+
+test("generateWeek: every day clears greens 2 and cruciferous 1 against the real seed pool", () => {
+  // Opus nutrition audit verdict: "the weekly generator should force at
+  // least one greens-2 item per day" — this asserts the floor pass actually
+  // delivers that against the real recipe pool, not just a synthetic one.
+  const recipesDir = fileURLToPath(new URL("../seed-data/generated/recipes/", import.meta.url));
+  const recipes = readdirSync(recipesDir)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => JSON.parse(readFileSync(recipesDir + f, "utf8")));
+  const targets = JSON.parse(
+    readFileSync(
+      fileURLToPath(new URL("../seed-data/generated/fitness/targets.json", import.meta.url)),
+      "utf8",
+    ),
+  );
+  const { plan } = generateWeek({
+    recipes,
+    targets,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  const byId = recipesById(recipes);
+  const dates = [...new Set(plan.entries.map((e) => e.date))];
+  for (const date of dates) {
+    const chosen = plan.entries
+      .filter((e) => e.date === date && e.recipeId)
+      .map((e) => ({ recipe: byId.get(e.recipeId), count: e.servings }))
+      .filter((c) => c.recipe);
+    const coverage = foodGroupCoverage(chosen);
+    for (const group of ENFORCED_DAILY_GROUPS) {
+      const floor = targets.dailyDozen[group];
+      assert.ok(
+        (coverage[group] ?? 0) >= floor,
+        `${date} ${group} = ${coverage[group] ?? 0}, floor ${floor}`,
+      );
+    }
+  }
 });
