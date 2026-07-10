@@ -1,14 +1,39 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   foodSlugsOf,
   overlapReport,
-  pickDinnerCommittee,
-  buildWeek,
+  pickCommittee,
+  foodGroupCoverage,
+  foodGroupGapBonus,
+  poolInsufficiency,
+  generateWeek,
 } from "../app/lib/weekbuilder.js";
 
+const EMPTY_FOOD_GROUPS = {
+  beans: 0,
+  berries: 0,
+  otherFruit: 0,
+  cruciferousVeg: 0,
+  greens: 0,
+  otherVeg: 0,
+  flaxseed: 0,
+  nuts: 0,
+  spicesHerbs: 0,
+  wholeGrains: 0,
+  beverages: 0,
+  method: "estimated",
+};
+
 /** compact recipe factory */
-function r(id, mealType, foods, { protein = 40, calories = 700, servings = 1 } = {}) {
+function r(
+  id,
+  mealType,
+  foods,
+  { protein = 40, calories = 700, servings = 1, foodGroups = {} } = {},
+) {
   return {
     id,
     name: id,
@@ -22,6 +47,7 @@ function r(id, mealType, foods, { protein = 40, calories = 700, servings = 1 } =
         ? { qty: 1, unit: "x", food: f, staple: false }
         : { qty: 1, unit: "x", food: f.food, staple: f.staple },
     ),
+    foodGroups: { ...EMPTY_FOOD_GROUPS, ...foodGroups },
   };
 }
 
@@ -52,6 +78,7 @@ const ALL = [
   SNACK,
 ];
 const TARGETS = { macros: { calories: 3400, protein: 210 } };
+const MONDAY_W29 = "2026-07-13";
 
 test("foodSlugsOf excludes staples", () => {
   assert.deepEqual([...foodSlugsOf(CHICKEN_A)].sort(), ["chicken-thigh", "tomato", "yogurt"]);
@@ -65,8 +92,8 @@ test("overlapReport finds shared foods and distinct item count", () => {
   assert.equal(rep.distinctItems, 4); // chicken thigh, yogurt, tomato, cucumber
 });
 
-test("committee maximizes overlap: the loner never beats the chicken cluster", () => {
-  const committee = pickDinnerCommittee([CHICKEN_A, CHICKEN_B, CHICKEN_C, BEEF_LONER], {
+test("pickCommittee maximizes overlap: the loner never beats the chicken cluster", () => {
+  const committee = pickCommittee([CHICKEN_A, CHICKEN_B, CHICKEN_C, BEEF_LONER], {
     size: 3,
     salt: 0,
   });
@@ -78,7 +105,7 @@ test("project-effort recipes never auto-fill weeknights", () => {
     ...r("weekend-braise", "dinner", ["chicken thigh", "yogurt", "tomato"]),
     effort: "project",
   };
-  const committee = pickDinnerCommittee([project, CHICKEN_A, CHICKEN_B, CHICKEN_C], {
+  const committee = pickCommittee([project, CHICKEN_A, CHICKEN_B, CHICKEN_C], {
     size: 3,
     salt: 0,
   });
@@ -87,7 +114,7 @@ test("project-effort recipes never auto-fill weeknights", () => {
 
 test("useSoon pantry foods boost a recipe into the committee", () => {
   const cabbage = r("cabbage-stirfry", "dinner", ["cabbage", "carrot", "egg"]);
-  const committee = pickDinnerCommittee([CHICKEN_A, CHICKEN_B, BEEF_D, cabbage], {
+  const committee = pickCommittee([CHICKEN_A, CHICKEN_B, BEEF_D, cabbage], {
     size: 3,
     salt: 0,
     useSoonFoods: ["half cabbage"],
@@ -95,12 +122,35 @@ test("useSoon pantry foods boost a recipe into the committee", () => {
   assert.ok(committee.some((c) => c.id === "cabbage-stirfry"));
 });
 
-test("buildWeek fills every empty slot, respects existing, caps dinner repeats at 2", () => {
+test("foodGroupCoverage sums contributions and foodGroupGapBonus rewards under-target categories", () => {
+  const beany = r("bean-bowl", "lunch", ["black beans"], { foodGroups: { beans: 2 } });
+  const noBeans = r("plain-bowl", "lunch", ["rice"], { foodGroups: { beans: 0 } });
+  const coverage = foodGroupCoverage([{ recipe: beany, count: 2 }]);
+  assert.equal(coverage.beans, 4);
+  // a target that's already met contributes nothing further
+  assert.equal(foodGroupGapBonus(beany, { beans: 21 }, { beans: 21 }), 0);
+  // a recipe that doesn't touch the gapped category scores zero on it
+  assert.equal(foodGroupGapBonus(noBeans, { beans: 0 }, { beans: 21 }), 0);
+  // a recipe that does touch a wide-open gap scores above zero
+  assert.ok(foodGroupGapBonus(beany, { beans: 0 }, { beans: 21 }) > 0);
+});
+
+test("poolInsufficient fires when no recipe in the pool contributes a targeted food group", () => {
+  const pool = [CHICKEN_A, BREAKFAST, LUNCH]; // none carry flaxseed
+  const gaps = poolInsufficiency(pool, { flaxseed: 1, beans: 3 });
+  assert.ok(gaps.some((g) => g.reason.includes("flaxseed")));
+  assert.ok(gaps.find((g) => g.reason.includes("flaxseed"))?.suggestion.includes("flaxseed"));
+});
+
+test("generateWeek clears unpinned entries and preserves pinned ones", () => {
   const existing = {
     week: "2026-W29",
-    entries: [{ id: "keep", date: "2026-07-13", slot: "dinner", recipeId: "kofta", servings: 1 }],
+    entries: [
+      { id: "pinned-keep", date: MONDAY_W29, slot: "dinner", recipeId: "kofta", servings: 1, pinned: true },
+      { id: "unpinned-gone", date: MONDAY_W29, slot: "lunch", recipeId: "lunchbox", servings: 1 },
+    ],
   };
-  const { plan, report } = buildWeek({
+  const { plan } = generateWeek({
     recipes: ALL,
     targets: TARGETS,
     pantry: { staples: [], perishables: [] },
@@ -108,21 +158,38 @@ test("buildWeek fills every empty slot, respects existing, caps dinner repeats a
     plan: existing,
     salt: 0,
   });
-  // existing entry untouched
+  assert.ok(plan.entries.some((e) => e.id === "pinned-keep"));
+  assert.ok(!plan.entries.some((e) => e.id === "unpinned-gone"));
+  // the pinned slot itself is never overwritten
+  const mondayDinners = plan.entries.filter((e) => e.date === MONDAY_W29 && e.slot === "dinner");
+  assert.equal(mondayDinners.length, 1);
+  assert.equal(mondayDinners[0].id, "pinned-keep");
+});
+
+test("generateWeek fills every slot and caps dinner repeats at 2", () => {
+  const existing = {
+    week: "2026-W29",
+    entries: [{ id: "keep", date: MONDAY_W29, slot: "dinner", recipeId: "kofta", servings: 1, pinned: true }],
+  };
+  const { plan, report } = generateWeek({
+    recipes: ALL,
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: existing,
+    salt: 0,
+  });
   assert.ok(plan.entries.some((e) => e.id === "keep"));
-  // 7 breakfasts, 7 smoothies, 7 lunches, 7 dinners filled
   for (const slot of ["breakfast", "smoothie", "lunch", "dinner"]) {
     const count = plan.entries.filter((e) => e.slot === slot).length;
     assert.equal(count, 7, `${slot} filled`);
   }
-  // dinner repeat cap: no recipe more than 2 of the 6 GENERATED dinners
   const dinnerIds = plan.entries
     .filter((e) => e.slot === "dinner" && e.id !== "keep")
     .map((e) => e.recipeId);
   const freq = {};
   for (const id of dinnerIds) freq[id] = (freq[id] ?? 0) + 1;
   for (const [id, n] of Object.entries(freq)) assert.ok(n <= 2, `${id} appears ${n}`);
-  // every generated entry has an id and servings
   for (const e of plan.entries) {
     assert.equal(typeof e.id, "string");
     assert.equal(typeof e.servings, "number");
@@ -132,7 +199,7 @@ test("buildWeek fills every empty slot, respects existing, caps dinner repeats a
 
 test("repeat cap holds even with a tiny committee: leftover dinners stay empty", () => {
   const tiny = [CHICKEN_A, CHICKEN_B, CHICKEN_C, BREAKFAST, SMOOTHIE, LUNCH, SNACK]; // 3 dinners
-  const { plan } = buildWeek({
+  const { plan } = generateWeek({
     recipes: tiny,
     targets: TARGETS,
     pantry: { staples: [], perishables: [] },
@@ -147,7 +214,7 @@ test("repeat cap holds even with a tiny committee: leftover dinners stay empty",
   for (const [id, n] of Object.entries(freq)) assert.ok(n <= 2, `${id} appears ${n}`);
 });
 
-test("buildWeek is deterministic for the same salt, differs for another", () => {
+test("generateWeek is deterministic for the same salt, differs for another", () => {
   const args = {
     recipes: ALL,
     targets: TARGETS,
@@ -155,42 +222,60 @@ test("buildWeek is deterministic for the same salt, differs for another", () => 
     weekId: "2026-W29",
     plan: { week: "2026-W29", entries: [] },
   };
-  const a1 = buildWeek({ ...args, salt: 0 }).plan.entries.map(
+  const a1 = generateWeek({ ...args, salt: 0 }).plan.entries.map(
     (e) => `${e.date}|${e.slot}|${e.recipeId}`,
   );
-  const a2 = buildWeek({ ...args, salt: 0 }).plan.entries.map(
+  const a2 = generateWeek({ ...args, salt: 0 }).plan.entries.map(
     (e) => `${e.date}|${e.slot}|${e.recipeId}`,
   );
   assert.deepEqual(a1, a2);
 });
 
-test("report red-flags days that miss the protein floor even after the snack", () => {
-  // 5P dinners: 50+55+60+5 = 170, +25 snack = 195 < 199.5 (95% of 210)
-  const weak = [
-    r("tiny-dinner", "dinner", ["chicken thigh"], { protein: 5, calories: 400 }),
-    BREAKFAST,
-    SMOOTHIE,
-    LUNCH,
-    SNACK,
-  ];
-  const { report } = buildWeek({
-    recipes: weak,
+test("re-roll (salt+1) preserves pins and produces a different unpinned assignment", () => {
+  const base = {
+    week: "2026-W29",
+    entries: [
+      { id: "pin1", date: MONDAY_W29, slot: "dinner", recipeId: "shawarma", servings: 1, pinned: true },
+    ],
+  };
+  const args = {
+    recipes: ALL,
     targets: TARGETS,
     pantry: { staples: [], perishables: [] },
     weekId: "2026-W29",
-    plan: { week: "2026-W29", entries: [] },
-    salt: 0,
-  });
-  assert.equal(report.proteinShortDays.length, 7, "every generated day falls short");
-  for (const d of report.proteinShortDays) {
-    assert.match(d.date, /^\d{4}-\d{2}-\d{2}$/);
-    assert.ok(d.protein < 210 * 0.95, `${d.date} protein ${d.protein}`);
-  }
+  };
+  const r1 = generateWeek({ ...args, plan: base, salt: 1 });
+  assert.ok(r1.plan.entries.some((e) => e.id === "pin1"));
+  const r2 = generateWeek({ ...args, plan: r1.plan, salt: 2 });
+  assert.ok(r2.plan.entries.some((e) => e.id === "pin1"));
+
+  const unpinnedKey = (e) => `${e.date}|${e.slot}|${e.recipeId}`;
+  const unpinned1 = r1.plan.entries.filter((e) => !e.pinned).map(unpinnedKey).sort();
+  const unpinned2 = r2.plan.entries.filter((e) => !e.pinned).map(unpinnedKey).sort();
+  assert.notDeepEqual(unpinned1, unpinned2);
 });
 
-test("report has no protein flags when the week hits the floor", () => {
-  const { report } = buildWeek({
-    recipes: ALL,
+// uniform-macro fixtures so which specific recipe the committee lands on
+// never changes the day totals — isolates the floor/top-up math from the
+// greedy selection
+function uniformPool(mealType, count, protein, calories) {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    out.push(r(`${mealType}-${i}`, mealType, [`${mealType}-food-${i}`], { protein, calories }));
+  }
+  return out;
+}
+
+test("generateWeek hits calorie and protein floor on every day when the pool allows it", () => {
+  const generousPool = [
+    ...uniformPool("dinner", 4, 60, 900),
+    ...uniformPool("lunch", 3, 55, 700),
+    ...uniformPool("breakfast", 2, 40, 600),
+    ...uniformPool("smoothie", 1, 50, 500),
+    ...uniformPool("snack", 2, 30, 300),
+  ];
+  const { report } = generateWeek({
+    recipes: generousPool,
     targets: TARGETS,
     pantry: { staples: [], perishables: [] },
     weekId: "2026-W29",
@@ -198,25 +283,146 @@ test("report has no protein flags when the week hits the floor", () => {
     salt: 0,
   });
   assert.deepEqual(report.proteinShortDays, []);
+  assert.deepEqual(report.calorieShortDays, []);
 });
 
-test("buildWeek adds a protein snack on short days", () => {
-  // tiny recipe pool with low protein → every day falls short → snack added
-  const lowProtein = [
-    r("small-dinner", "dinner", ["chicken thigh"], { protein: 30, calories: 500 }),
-    BREAKFAST,
-    SMOOTHIE,
-    LUNCH,
-    SNACK,
+test("portion lever clears a mildly short day before any snack is stacked", () => {
+  // base day: 900 + 700 + 600 + 500 = 2700 kcal, floor 3230 — a +1.0 dinner
+  // bump (+900) covers it alone, so no snack should appear
+  const pool = [
+    ...uniformPool("dinner", 4, 60, 900),
+    ...uniformPool("lunch", 3, 55, 700),
+    ...uniformPool("breakfast", 2, 40, 600),
+    ...uniformPool("smoothie", 1, 50, 500),
+    ...uniformPool("snack", 2, 30, 300),
   ];
-  const { plan } = buildWeek({
-    recipes: lowProtein,
+  const { plan } = generateWeek({
+    recipes: pool,
     targets: TARGETS,
     pantry: { staples: [], perishables: [] },
     weekId: "2026-W29",
     plan: { week: "2026-W29", entries: [] },
     salt: 0,
   });
-  const snacks = plan.entries.filter((e) => e.slot === "snack");
-  assert.ok(snacks.length >= 5, `expected snacks on short days, got ${snacks.length}`);
+  assert.equal(plan.entries.filter((e) => e.slot === "snack").length, 0, "no snacks needed");
+  for (const e of plan.entries.filter((x) => x.slot === "dinner")) {
+    assert.ok(e.servings <= 2, `dinner servings ${e.servings} within 2x cap`);
+    assert.ok(e.servings > 1, "dinner portion was bumped to cover the calorie floor");
+  }
+});
+
+test("generateWeek reports proteinShortDays and calorieShortDays when the pool cannot", () => {
+  const starvedPool = [
+    ...uniformPool("dinner", 1, 5, 200),
+    ...uniformPool("lunch", 1, 10, 200),
+    ...uniformPool("breakfast", 1, 10, 200),
+    ...uniformPool("smoothie", 1, 10, 150),
+    ...uniformPool("snack", 1, 5, 100),
+  ];
+  const { plan, report } = generateWeek({
+    recipes: starvedPool,
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  assert.equal(report.proteinShortDays.length, 7, "every day falls short on protein");
+  assert.equal(report.calorieShortDays.length, 7, "every day falls short on calories");
+  for (const d of report.proteinShortDays) {
+    assert.match(d.date, /^\d{4}-\d{2}-\d{2}$/);
+    // the report carries the real goal, not the discounted 0.95 floor
+    assert.equal(d.target, 210);
+  }
+  for (const d of report.calorieShortDays) assert.equal(d.target, 3400);
+  // both levers fire fully before the day is reported short: portions maxed
+  // (dinner 2.0, lunch 1.5) AND 2 servings-worth of snack — never gives up
+  // silently. A repeated snack pick bumps servings on ONE row, no duplicates.
+  // (the 1-recipe dinner pool only fills 2 days under the ≤2-repeat cap;
+  // days with no dinner entry have nothing to bump)
+  for (const date of new Set(plan.entries.map((e) => e.date))) {
+    const dinner = plan.entries.find((e) => e.date === date && e.slot === "dinner");
+    const lunch = plan.entries.find((e) => e.date === date && e.slot === "lunch");
+    if (dinner) assert.equal(dinner.servings, 2, `${date} dinner maxed at 2x`);
+    assert.equal(lunch?.servings, 1.5, `${date} lunch maxed at +0.5`);
+    const snacks = plan.entries.filter((e) => e.date === date && e.slot === "snack");
+    assert.equal(snacks.length, 1, `${date} same snack twice = one row, not duplicates`);
+    assert.equal(snacks[0]?.servings, 2, `${date} stacks the max 2 servings-worth`);
+  }
+});
+
+test("a pinned dinner's recipe is never re-picked: it appears only as the pin", () => {
+  // shawarma shares chicken+yogurt with the cluster — before the fix, its
+  // pinned foods seeding weekFoodPool made it the LIKELIEST re-pick
+  const pinned = {
+    week: "2026-W29",
+    entries: [
+      { id: "pin1", date: MONDAY_W29, slot: "dinner", recipeId: "shawarma", servings: 1, pinned: true },
+    ],
+  };
+  const { plan } = generateWeek({
+    recipes: ALL,
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: pinned,
+    salt: 0,
+  });
+  const shawarmas = plan.entries.filter((e) => e.recipeId === "shawarma");
+  assert.equal(shawarmas.length, 1, "pinned recipe appears exactly once");
+  assert.equal(shawarmas[0]?.id, "pin1");
+});
+
+test("generateWeek reports foodGroupGaps for categories under the weekly dailyDozen target", () => {
+  const generousPool = [
+    ...uniformPool("dinner", 4, 60, 900),
+    ...uniformPool("lunch", 3, 55, 700),
+    ...uniformPool("breakfast", 2, 40, 600),
+    ...uniformPool("smoothie", 1, 50, 500),
+    ...uniformPool("snack", 2, 30, 300),
+  ]; // none carry any food group servings — every category is a gap
+  const targetsWithDailyDozen = { ...TARGETS, dailyDozen: { flaxseed: 1 } };
+  const { report } = generateWeek({
+    recipes: generousPool,
+    targets: targetsWithDailyDozen,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  assert.equal(report.foodGroupGaps.length, 7, "one flaxseed gap per day");
+  for (const g of report.foodGroupGaps) {
+    assert.equal(g.group, "flaxseed");
+    assert.equal(g.have, 0);
+    assert.equal(g.target, 1);
+  }
+  assert.deepEqual(report.foodGroupGapsWeekly, [{ group: "flaxseed", have: 0, target: 7 }]);
+  assert.ok(report.poolInsufficient.some((p) => p.reason.includes("flaxseed")));
+});
+
+test("REAL pool integration: generated week meets calorie and protein floors every day", () => {
+  // David's directive is "meet the calorie goal and protein goal every day":
+  // against the actual seed recipes and actual targets.json, the portion
+  // lever plus snack top-up must clear both floors on all 7 days
+  const recipesDir = fileURLToPath(new URL("../seed-data/generated/recipes/", import.meta.url));
+  const recipes = readdirSync(recipesDir)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => JSON.parse(readFileSync(recipesDir + f, "utf8")));
+  const targets = JSON.parse(
+    readFileSync(
+      fileURLToPath(new URL("../seed-data/generated/fitness/targets.json", import.meta.url)),
+      "utf8",
+    ),
+  );
+  const { plan, report } = generateWeek({
+    recipes,
+    targets,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  assert.deepEqual(report.proteinShortDays, [], "no protein-short days on the real pool");
+  assert.deepEqual(report.calorieShortDays, [], "no calorie-short days on the real pool");
+  for (const e of plan.entries) assert.ok(e.servings <= 2, `${e.recipeId} servings ${e.servings}`);
 });

@@ -4,9 +4,11 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean }} PlanEntry
  * @typedef {{ week: string, entries: PlanEntry[] }} Plan
  */
+// pinned is optional; absent = unpinned (today's default, unchanged). true =
+// GENERATE WEEK must never clear or overwrite this entry (app/lib/weekbuilder.js).
 
 /** The valid slot keys, in display order (docs/SCHEMAS.md plan section). */
 export const SLOT_KEYS = ["breakfast", "lunch", "dinner", "smoothie", "snack"];
@@ -122,6 +124,19 @@ export function moveEntry(plan, id, date, slot) {
   return {
     ...plan,
     entries: plan.entries.map((e) => (e.id === id ? { ...e, date, slot } : e)),
+  };
+}
+
+/**
+ * Flip one entry's pinned flag by id. Pure.
+ * @param {Plan} plan
+ * @param {string} id
+ * @returns {Plan}
+ */
+export function togglePinById(plan, id) {
+  return {
+    ...plan,
+    entries: plan.entries.map((e) => (e.id === id ? { ...e, pinned: !e.pinned } : e)),
   };
 }
 

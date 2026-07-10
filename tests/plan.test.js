@@ -9,6 +9,7 @@ import {
   normalizePlan,
   entriesAt,
   dayTotals,
+  togglePinById,
 } from "../app/lib/plan.js";
 
 test("shiftWeek moves across plain and year-boundary weeks", () => {
@@ -107,6 +108,21 @@ test("normalizePlan self-heal ids are DETERMINISTIC — two devices agree", () =
   );
   // identical twins in the same slot still get DISTINCT ids
   assert.notEqual(a.entries[0].id, a.entries[1].id);
+});
+
+test("togglePinById flips pinned on the matching entry and leaves others untouched", () => {
+  let plan = { week: "2026-W28", entries: [] };
+  plan = addEntry(plan, "2026-07-06", "dinner", { recipeId: "beef", servings: 1 });
+  plan = addEntry(plan, "2026-07-06", "dinner", { recipeId: "congee", servings: 1 });
+  const [a, b] = plan.entries;
+
+  const pinned = togglePinById(plan, a.id);
+  assert.equal(pinned.entries.find((e) => e.id === a.id)?.pinned, true);
+  assert.equal(pinned.entries.find((e) => e.id === b.id)?.pinned, undefined);
+  assert.deepEqual(plan.entries, [a, b]); // pure: original untouched
+
+  const unpinned = togglePinById(pinned, a.id);
+  assert.equal(unpinned.entries.find((e) => e.id === a.id)?.pinned, false);
 });
 
 test("dayTotals sums stacked entries in the same slot", () => {

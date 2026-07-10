@@ -23,15 +23,6 @@
  */
 
 /**
- * `plans/<week>.json` entry, extended with the optional `pinned` flag
- * (docs/SCHEMAS.md): true means GENERATE WEEK must never clear or overwrite
- * this entry. Absent = unpinned (today's default behavior, unchanged). The
- * base shape still lives in app/lib/plan.js as `PlanEntry`; this is that
- * type intersected with the new field.
- * @typedef {import("./lib/plan.js").PlanEntry & { pinned?: boolean }} PinnedPlanEntry
- */
-
-/**
  * Weekday -> templateId map, fixed rotation (docs/SCHEMAS.md,
  * `fitness/workouts.json`.schedule). null = rest day.
  * @typedef {{

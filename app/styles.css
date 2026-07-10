@@ -955,6 +955,29 @@ a.tile {
   outline-offset: 2px;
 }
 
+.slotrow .pin {
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  border-radius: 10px;
+}
+
+.slotrow .pin.on {
+  color: var(--signal);
+}
+
+.slotrow .pin:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
+}
+
 /* ---- shopping list ---- */
 
 .checkrow {

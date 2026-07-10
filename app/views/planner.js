@@ -27,7 +27,10 @@ function monthDay(isoDate) {
 
 /**
  * Drag-and-drop weekly planner (blueprint §6.3). Drag a recipe chip from the
- * tray into a slot; drag a filled slot to another slot to move it; ✕ removes.
+ * tray into a slot; drag a filled slot to another slot to move it; ✕ removes,
+ * PIN protects an entry from GENERATE MY WEEK / RE-ROLL WEEK. GENERATE MY
+ * WEEK clears and rebuilds every unpinned entry across all 7 days; a second
+ * tap is a RE-ROLL over the same pinned base.
  * Known gap (accepted for Phase 1, fast-follow planned): add is drag-only —
  * no keyboard/switch-control path yet; remove is a plain button.
  * @param {{
@@ -40,8 +43,9 @@ function monthDay(isoDate) {
  *   onWeek: (delta: number) => void,
  *   onDropInto: (date: string, slot: string, drag: DOMStringMap) => void,
  *   onRemove: (id: string) => void,
- *   onBuildWeek: () => void,
- *   buildReport: { shared: { food: string, count: number }[], distinctItems: number, proteinShortDays: { date: string, protein: number, target: number }[] } | null,
+ *   onTogglePin: (id: string) => void,
+ *   onGenerateWeek: () => void,
+ *   buildReport: import("../lib/weekbuilder.js").WeekReport | null,
  *   rebuilt: boolean
  * }} props
  */
@@ -55,7 +59,8 @@ export function PlannerView({
   onWeek,
   onDropInto,
   onRemove,
-  onBuildWeek,
+  onTogglePin,
+  onGenerateWeek,
   buildReport,
   rebuilt,
 }) {
@@ -70,7 +75,7 @@ export function PlannerView({
   const byId = recipesById(recipes);
   const dates = datesOfWeek(weekId);
   const kcalTarget = targets?.macros?.calories ?? 3400;
-  const proteinTarget = targets?.macros?.protein ?? 180;
+  const proteinTarget = targets?.macros?.protein ?? 210;
 
   useEffect(() => {
     if (!rootRef.current) return;
@@ -94,12 +99,12 @@ export function PlannerView({
       <div class="actions">
         <button
           class="ask"
-          aria-label=${rebuilt ? "Re-roll the generated week" : "Build my week automatically"}
-          onClick=${onBuildWeek}
+          aria-label=${rebuilt ? "Re-roll the generated week" : "Generate my week automatically"}
+          onClick=${onGenerateWeek}
           disabled=${recipes.length === 0}
         >
-          ${rebuilt ? "RE-ROLL WEEK" : "✦ BUILD MY WEEK"}
-          <small>overlapping ingredients → fewer, bulkier buys</small>
+          ${rebuilt ? "RE-ROLL WEEK" : "✦ GENERATE MY WEEK"}
+          <small>overlapping ingredients → fewer, bulkier buys · pinned entries are kept</small>
         </button>
       </div>
       ${
@@ -127,6 +132,35 @@ export function PlannerView({
                   )
                   .join(" · ")}
                 / ${buildReport.proteinShortDays[0]?.target}g — stack a slot or add a snack
+              </div>`
+            }
+            ${
+              buildReport.calorieShortDays.length > 0 &&
+              html`<div class="d num redflag">
+                ⚠ calories short:${" "}
+                ${buildReport.calorieShortDays
+                  .map(
+                    (s) =>
+                      `${parseLocalIso(s.date).toLocaleDateString([], { weekday: "short" })} ${s.calories}`,
+                  )
+                  .join(" · ")}
+                / ${buildReport.calorieShortDays[0]?.target} — stack a slot or add a snack
+              </div>`
+            }
+            ${
+              buildReport.foodGroupGapsWeekly.length > 0 &&
+              html`<div class="d num redflag">
+                ⚠ nutrient gaps (week):${" "}
+                ${buildReport.foodGroupGapsWeekly
+                  .map((g) => `${g.group} ${g.have}/${g.target}`)
+                  .join(" · ")}
+              </div>`
+            }
+            ${
+              buildReport.poolInsufficient.length > 0 &&
+              html`<div class="d num redflag">
+                ⚠ recipe pool:${" "}
+                ${buildReport.poolInsufficient.map((p) => `${p.reason} — ${p.suggestion}`).join(" · ")}
               </div>`
             }
           </div>
@@ -247,6 +281,18 @@ export function PlannerView({
                                       }
                                     </span>
                                   </div>
+                                  <button
+                                    class="pin ${entry.pinned ? "on" : ""}"
+                                    aria-pressed=${Boolean(entry.pinned)}
+                                    aria-label=${
+                                      entry.pinned
+                                        ? `Unpin ${name} — GENERATE WEEK may replace it`
+                                        : `Pin ${name} — GENERATE WEEK will keep it`
+                                    }
+                                    onClick=${() => onTogglePin(entry.id)}
+                                  >
+                                    PIN
+                                  </button>
                                   <button
                                     class="rm"
                                     aria-label="Remove ${name} from ${label}"

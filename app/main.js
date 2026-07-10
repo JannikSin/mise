@@ -36,9 +36,10 @@ import {
   normalizePlan,
   recipesById,
   shiftWeek,
+  togglePinById,
   SLOT_KEYS,
 } from "./lib/plan.js";
-import { buildWeek } from "./lib/weekbuilder.js";
+import { generateWeek } from "./lib/weekbuilder.js";
 
 export const APP = { name: "Mise", version: "0.3.0" };
 
@@ -378,45 +379,53 @@ function App() {
     [updatePlan],
   );
 
+  const handleTogglePin = useCallback(
+    (/** @type {string} */ id) => {
+      updatePlan(togglePinById(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), id));
+    },
+    [updatePlan],
+  );
+
   /** Add straight from the cookbook: slot inferred from the recipe's
    *  mealType; returns the slot so the row can confirm where it landed. */
-  // week builder: fills empty slots optimizing ingredient overlap; RE-ROLL
-  // removes what IT generated (never manual picks) and rebuilds differently
+  // week generator: one tap owns the whole week — every unpinned entry is
+  // cleared and rebuilt; pinned entries are the only state that needs to
+  // survive a RE-ROLL, and they're already in the plan data, not app state
   const [buildReport, setBuildReport] = useState(
-    /** @type {{ shared: { food: string, count: number }[], distinctItems: number, proteinShortDays: { date: string, protein: number, target: number }[] } | null} */ (
-      null
-    ),
+    /** @type {import("./lib/weekbuilder.js").WeekReport | null} */ (null),
   );
   const targetsRef = useRef(targets);
   targetsRef.current = targets;
-  const buildStateRef = useRef({ salt: 0, generatedIds: /** @type {string[]} */ ([]) });
+  const buildStateRef = useRef({ salt: 0 });
 
-  const handleBuildWeek = useCallback(() => {
+  const handleGenerateWeek = useCallback(() => {
     const bs = buildStateRef.current;
-    let base = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
-    if (bs.generatedIds.length > 0) {
-      // re-roll: strip only what the last build added
-      const gen = new Set(bs.generatedIds);
-      base = { ...base, entries: base.entries.filter((e) => !gen.has(e.id)) };
-      bs.salt++;
-    }
-    const before = new Set(base.entries.map((e) => e.id));
-    const result = buildWeek({
+    bs.salt++;
+    const result = generateWeek({
       recipes: recipesRef.current,
       targets: targetsRef.current,
       pantry: pantryRef.current,
       weekId: weekRef.current,
-      plan: base,
+      plan: /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
       salt: bs.salt,
     });
-    bs.generatedIds = result.plan.entries.filter((e) => !before.has(e.id)).map((e) => e.id);
     updatePlan(result.plan);
     setBuildReport(result.report);
-  }, [updatePlan]);
+    // 7a: auto-populate the shopping list from the freshly generated plan,
+    // not the stale planRef, so List is correct the instant Plan finishes
+    updateShopping(
+      deriveShoppingList(
+        result.plan,
+        recipesById(recipesRef.current),
+        pantryRef.current,
+        shoppingRef.current,
+      ),
+    );
+  }, [updatePlan, updateShopping]);
 
   useEffect(() => {
     // a new week means a fresh build state and report
-    buildStateRef.current = { salt: 0, generatedIds: [] };
+    buildStateRef.current = { salt: 0 };
     setBuildReport(null);
   }, [weekId]);
 
@@ -537,9 +546,10 @@ function App() {
         onWeek=${(/** @type {number} */ d) => setWeekId(shiftWeek(weekId, d))}
         onDropInto=${handleDrop}
         onRemove=${handleRemove}
-        onBuildWeek=${handleBuildWeek}
+        onTogglePin=${handleTogglePin}
+        onGenerateWeek=${handleGenerateWeek}
         buildReport=${buildReport}
-        rebuilt=${buildStateRef.current.generatedIds.length > 0}
+        rebuilt=${buildReport !== null}
       />`
     }
     ${
