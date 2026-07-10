@@ -87,10 +87,12 @@ export function TodayView({ recipes, plan, hasToken, loading }) {
       ${
         hasBatchPrep &&
         html`<details class="batchprep" open=${isSunday}>
-          <summary class="block-title">Batch prep</summary>
+          <summary class="block-title">
+            Batch prep <span class="hint">${sundayComponents.length} to prep, tap to open</span>
+          </summary>
           ${sundayComponents.map(
             (r) => html`<div class="batch" key=${r.id}>
-              <div class="k">${r.name} — Sunday</div>
+              <div class="k">Sunday · ${r.name}</div>
               ${r.text}
             </div>`,
           )}
