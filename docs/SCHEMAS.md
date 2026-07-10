@@ -157,6 +157,8 @@ Absent `pinned` = unpinned (default behavior today, unchanged for existing data)
 
 Derived (aggregate week's ingredients → merge duplicates → subtract pantry
 `onHand` staples → group by section). Check-state and manual items persist.
+Displayed `qty`/`unit` are rounded up to a purchasable amount (whole counts,
+sensible gram/ml/kg/L/cup/tbsp/tsp/lb/oz steps) after summing, not before.
 
 ```jsonc
 {

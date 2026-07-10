@@ -125,14 +125,70 @@ export function deriveShoppingList(plan, recipesById, pantry, previous) {
     }
   }
 
-  const items = [...merged.values()].map((i) => ({ ...i, qty: round2(i.qty) }));
+  // rounding happens here, AFTER all merging/summing above — round-then-sum
+  // would inflate totals (two 0.3-each requirements would ceil to 1+1=2
+  // instead of the correct sum-then-ceil(0.6)=1)
+  const items = [...merged.values()].map((i) => {
+    const { qty, unit } = roundForPurchase(i.qty, i.unit);
+    return { ...i, qty, unit };
+  });
   items.sort((a, b) => a.section.localeCompare(b.section) || a.food.localeCompare(b.food));
   return { generatedFrom: plan.week, items };
 }
 
-/** @param {number} n */
-function round2(n) {
-  return Math.round(n * 100) / 100;
+/** Units bought as whole discrete items — never a fraction of one. */
+const COUNTABLE_UNITS = new Set([
+  "each",
+  "clove",
+  "cloves",
+  "can",
+  "cans",
+  "slice",
+  "slices",
+  "pita",
+  "pitas",
+  "egg",
+  "eggs",
+]);
+
+/**
+ * Round a summed quantity up to an amount you can actually buy in a store.
+ * Always rounds UP (better a little extra than short mid-recipe) and never
+ * rounds a nonzero quantity down to zero. Unit is preserved as-is except for
+ * the g→kg and ml→L promotions at the 1000 threshold.
+ * @param {number} qty
+ * @param {string} unit
+ * @returns {{ qty: number, unit: string }}
+ */
+export function roundForPurchase(qty, unit) {
+  const u = unit.toLowerCase().trim();
+  if (COUNTABLE_UNITS.has(u)) return { qty: Math.ceil(qty), unit };
+  if (u === "g") {
+    if (qty < 100) return { qty: ceilStep(qty, 10), unit };
+    if (qty < 1000) return { qty: ceilStep(qty, 25), unit };
+    return { qty: ceilStep(qty / 1000, 0.1), unit: "kg" };
+  }
+  if (u === "ml") {
+    if (qty < 100) return { qty: ceilStep(qty, 10), unit };
+    if (qty < 1000) return { qty: ceilStep(qty, 50), unit };
+    return { qty: ceilStep(qty / 1000, 0.1), unit: "l" };
+  }
+  if (u === "cup" || u === "cups" || u === "tbsp" || u === "tsp") {
+    return { qty: ceilStep(qty, 0.25), unit };
+  }
+  if (u === "lb" || u === "lbs") return { qty: ceilStep(qty, 0.25), unit };
+  if (u === "oz") return { qty: ceilStep(qty, 1), unit };
+  return { qty: ceilStep(qty, 0.1), unit };
+}
+
+/**
+ * Ceil qty to the nearest multiple of step, guarding against float dust.
+ * @param {number} qty
+ * @param {number} step
+ * @returns {number}
+ */
+function ceilStep(qty, step) {
+  return Math.round(Math.ceil((qty - 1e-9) / step) * step * 1e6) / 1e6;
 }
 
 /**

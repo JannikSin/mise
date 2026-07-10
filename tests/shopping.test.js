@@ -5,6 +5,7 @@ import {
   sectionOf,
   applyJustBought,
   ownItemToPantry,
+  roundForPurchase,
 } from "../app/lib/shopping.js";
 
 test("on-hand pantry staples are subtracted from the derived list by name", () => {
@@ -205,9 +206,10 @@ const PLAN = {
 
 test("aggregates ingredients across the week, scaled by servings", () => {
   const list = deriveShoppingList(PLAN, RECIPES, { staples: [], perishables: [] });
-  // beef: 225*1 + 225*2 (beef-bowl) + 225*(1/2 of salad's 2-serving batch) = 787.5
+  // beef: 225*1 + 225*2 (beef-bowl) + 225*(1/2 of salad's 2-serving batch) = 787.5,
+  // rounded up to a purchasable 800g (100-999g band rounds to nearest 25g)
   const beef = list.items.find((i) => i.food === "ground beef");
-  assert.equal(beef.qty, 787.5);
+  assert.equal(beef.qty, 800);
   assert.equal(beef.unit, "g");
 });
 
@@ -404,4 +406,92 @@ test("applyJustBought: checked staples go onHand, others land in perishables", (
     result.shopping.items.map((i) => i.food),
     ["tuna"],
   );
+});
+
+test("roundForPurchase: countable units round up to the next whole number", () => {
+  assert.deepEqual(roundForPurchase(1.88, "each"), { qty: 2, unit: "each" });
+  assert.deepEqual(roundForPurchase(10.5, "each"), { qty: 11, unit: "each" });
+  assert.deepEqual(roundForPurchase(0.2, "clove"), { qty: 1, unit: "clove" });
+  assert.deepEqual(roundForPurchase(1, "can"), { qty: 1, unit: "can" });
+});
+
+test("roundForPurchase: countable units never round a nonzero qty down to 0", () => {
+  assert.deepEqual(roundForPurchase(0.01, "each"), { qty: 1, unit: "each" });
+});
+
+test("roundForPurchase: exact values pass through unchanged", () => {
+  assert.deepEqual(roundForPurchase(2, "each"), { qty: 2, unit: "each" });
+});
+
+test("roundForPurchase: grams under 100 round up to the nearest 10g", () => {
+  assert.deepEqual(roundForPurchase(42, "g"), { qty: 50, unit: "g" });
+});
+
+test("roundForPurchase: grams 100-999 round up to the nearest 25g", () => {
+  assert.deepEqual(roundForPurchase(956.25, "g"), { qty: 975, unit: "g" });
+});
+
+test("roundForPurchase: grams 1000+ promote to kg, one decimal, rounded up", () => {
+  assert.deepEqual(roundForPurchase(1240, "g"), { qty: 1.3, unit: "kg" });
+});
+
+test("roundForPurchase: ml under 100 round up to the nearest 10ml", () => {
+  assert.deepEqual(roundForPurchase(35, "ml"), { qty: 40, unit: "ml" });
+});
+
+test("roundForPurchase: ml 100-999 round up to the nearest 50ml", () => {
+  assert.deepEqual(roundForPurchase(210, "ml"), { qty: 250, unit: "ml" });
+});
+
+test("roundForPurchase: ml 1000+ promote to L, one decimal, rounded up", () => {
+  assert.deepEqual(roundForPurchase(1450, "ml"), { qty: 1.5, unit: "l" });
+});
+
+test("roundForPurchase: cups/tbsp/tsp round up to the nearest 0.25", () => {
+  assert.deepEqual(roundForPurchase(1.1, "cup"), { qty: 1.25, unit: "cup" });
+  assert.deepEqual(roundForPurchase(0.6, "tbsp"), { qty: 0.75, unit: "tbsp" });
+  assert.deepEqual(roundForPurchase(0.05, "tsp"), { qty: 0.25, unit: "tsp" });
+});
+
+test("roundForPurchase: lb rounds up to the nearest 0.25, oz to the nearest 1", () => {
+  assert.deepEqual(roundForPurchase(1.1, "lb"), { qty: 1.25, unit: "lb" });
+  assert.deepEqual(roundForPurchase(3.2, "oz"), { qty: 4, unit: "oz" });
+});
+
+test("roundForPurchase: unknown units round up to 1 decimal place", () => {
+  assert.deepEqual(roundForPurchase(1.234, "bunch"), { qty: 1.3, unit: "bunch" });
+});
+
+test("deriveShoppingList rounds AFTER summing across recipes, not per-recipe", () => {
+  // two recipes each need 0.3 bell pepper (each). Summed first: 0.6 -> ceil -> 1.
+  // Ceiling each recipe's contribution before summing would wrongly give 1+1=2.
+  const recipes = new Map([
+    [
+      "recipe-a",
+      {
+        id: "recipe-a",
+        servings: 1,
+        ingredients: [{ qty: 0.3, unit: "each", food: "bell pepper", staple: false }],
+      },
+    ],
+    [
+      "recipe-b",
+      {
+        id: "recipe-b",
+        servings: 1,
+        ingredients: [{ qty: 0.3, unit: "each", food: "bell pepper", staple: false }],
+      },
+    ],
+  ]);
+  const plan = {
+    week: "2026-W28",
+    entries: [
+      { id: "a", date: "2026-07-06", slot: "dinner", recipeId: "recipe-a", servings: 1 },
+      { id: "b", date: "2026-07-07", slot: "dinner", recipeId: "recipe-b", servings: 1 },
+    ],
+  };
+  const list = deriveShoppingList(plan, recipes, { staples: [], perishables: [] });
+  const pepper = list.items.find((i) => i.food === "bell pepper");
+  assert.equal(pepper.qty, 1);
+  assert.equal(pepper.unit, "each");
 });
