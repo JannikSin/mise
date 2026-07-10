@@ -23,6 +23,12 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
     <div class="view">
       <div class="hero"><h1>System</h1></div>
 
+      <a class="tile" href="#/cookbook">
+        <div class="k">Recipe Library</div>
+        <div class="v">→</div>
+        <div class="d">purpose-tagged · macro'd</div>
+      </a>
+
       <div class="tile">
         <h2 class="k">App</h2>
         <div class="row">

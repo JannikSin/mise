@@ -70,7 +70,7 @@ export function PlannerView({
   const byId = recipesById(recipes);
   const dates = datesOfWeek(weekId);
   const kcalTarget = targets?.macros?.calories ?? 3400;
-  const proteinTarget = targets?.macros?.protein ?? 210;
+  const proteinTarget = targets?.macros?.protein ?? 180;
 
   useEffect(() => {
     if (!rootRef.current) return;

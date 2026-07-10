@@ -11,7 +11,7 @@ export function parseRoute(hash) {
     case undefined:
       return { view: "home" };
     case "cookbook":
-    case "quiz":
+    case "today":
     case "system":
     case "plan":
     case "list":

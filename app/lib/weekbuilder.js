@@ -221,7 +221,7 @@ export function buildWeek({ recipes, targets, pantry, weekId, plan, salt = 0 }) 
   });
 
   // top up short days with the protein snack
-  const proteinTarget = targets?.macros?.protein ?? 210;
+  const proteinTarget = targets?.macros?.protein ?? 180;
   if (snack) {
     for (const date of dates) {
       if (entriesAt(next.entries, date, "snack").length > 0) continue;

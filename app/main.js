@@ -13,7 +13,7 @@ import { initRouter } from "./lib/router.js";
 import { formatSyncTime, isoWeekId, localIsoDate, statusDate } from "./lib/dates.js";
 import { applyScanItems } from "./lib/scan.js";
 import { HomeView } from "./views/home.js";
-import { QuizView } from "./views/quiz.js";
+import { TodayView } from "./views/today.js";
 import { CookbookView } from "./views/cookbook.js";
 import { RecipeView, CookView } from "./views/recipe.js";
 import { SystemView } from "./views/system.js";
@@ -47,8 +47,8 @@ export const APP = { name: "Mise", version: "0.3.0" };
 let checkGen = 0;
 
 const TABS = [
-  { hash: "#/", view: "home", icon: "◉", label: "Today" },
-  { hash: "#/cookbook", view: "cookbook", icon: "▤", label: "Recipes" },
+  { hash: "#/", view: "home", icon: "◉", label: "Home" },
+  { hash: "#/today", view: "today", icon: "▤", label: "Cook" },
   { hash: "#/plan", view: "plan", icon: "⬒", label: "Plan" },
   { hash: "#/list", view: "list", icon: "☑", label: "List" },
   { hash: "#/train", view: "train", icon: "▲", label: "Train" },
@@ -68,7 +68,6 @@ function App() {
   const [sw, setSw] = useState(/** @type {"installing" | "ready" | "failed"} */ ("installing"));
   const [sync, setSync] = useState(getSyncStatus());
   const [recipes, setRecipes] = useState(/** @type {Record<string, any>[]} */ ([]));
-  const [useSoonFoods, setUseSoonFoods] = useState(/** @type {string[]} */ ([]));
   const [weekId, setWeekId] = useState(isoWeekId(new Date()));
   const [plan, setPlan] = useState(
     /** @type {{ week: string, entries: Record<string, any>[] }} */ ({ week: weekId, entries: [] }),
@@ -105,20 +104,12 @@ function App() {
     return onSyncChange(() => setSync(getSyncStatus()));
   }, []);
 
-  // recipes + use-soon pantry items: cached-first, refreshed whenever sync
-  // activity changes the cache
+  // recipes: cached-first, refreshed whenever sync activity changes the cache
   useEffect(() => {
     let alive = true;
     const load = () => {
       readCollection("recipes").then((r) => {
         if (alive) setRecipes(r);
-      });
-      read("pantry.json").then((p) => {
-        if (!alive || !p) return;
-        const soon = /** @type {any[]} */ (p.perishables ?? [])
-          .filter((x) => x.useSoon)
-          .map((x) => String(x.food));
-        setUseSoonFoods(soon);
       });
     };
     load();
@@ -387,7 +378,7 @@ function App() {
     [updatePlan],
   );
 
-  /** Add straight from quiz/cookbook: slot inferred from the recipe's
+  /** Add straight from the cookbook: slot inferred from the recipe's
    *  mealType; returns the slot so the row can confirm where it landed. */
   // week builder: fills empty slots optimizing ingredient overlap; RE-ROLL
   // removes what IT generated (never manual picks) and rebuilds differently
@@ -511,20 +502,19 @@ function App() {
       html`<${HomeView}
         recipes=${recipes}
         plan=${plan}
-        sync=${sync}
         hasToken=${hasToken}
         repo=${repo}
+        daily=${dailyLog}
+        targets=${targets}
+        workouts=${workouts}
+        today=${localIsoDate(now)}
+        loading=${!fitnessLoaded}
+        onPatchDay=${handlePatchDay}
       />`
     }
     ${
-      route.view === "quiz" &&
-      html`<${QuizView}
-        recipes=${recipes}
-        useSoonFoods=${useSoonFoods}
-        hasToken=${hasToken}
-        weekId=${weekId}
-        onPlan=${handlePlanAdd}
-      />`
+      route.view === "today" &&
+      html`<${TodayView} recipes=${recipes} plan=${plan} hasToken=${hasToken} loading=${loading} />`
     }
     ${
       route.view === "cookbook" &&
@@ -582,7 +572,6 @@ function App() {
       route.view === "train" &&
       html`<${FitnessView}
         workouts=${workouts}
-        daily=${dailyLog}
         targets=${targets}
         today=${localIsoDate(new Date())}
         hasToken=${hasToken}
@@ -591,7 +580,6 @@ function App() {
         draft=${trainDraft}
         onDraft=${setTrainDraft}
         onSaveSession=${handleSaveSession}
-        onPatchDay=${handlePatchDay}
       />`
     }
     ${

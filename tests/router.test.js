@@ -10,12 +10,16 @@ test("empty and #/ map to home", () => {
 
 test("top-level views", () => {
   assert.deepEqual(parseRoute("#/cookbook"), { view: "cookbook" });
-  assert.deepEqual(parseRoute("#/quiz"), { view: "quiz" });
+  assert.deepEqual(parseRoute("#/today"), { view: "today" });
   assert.deepEqual(parseRoute("#/system"), { view: "system" });
   assert.deepEqual(parseRoute("#/plan"), { view: "plan" });
   assert.deepEqual(parseRoute("#/list"), { view: "list" });
   assert.deepEqual(parseRoute("#/train"), { view: "train" });
   assert.deepEqual(parseRoute("#/remedies"), { view: "remedies" });
+});
+
+test("removed quiz route falls back to home", () => {
+  assert.deepEqual(parseRoute("#/quiz"), { view: "home" });
 });
 
 test("recipe detail and cook mode carry the id", () => {
