@@ -10,7 +10,7 @@
 // Bump CACHE_VERSION on deploys that change vendor/icon files; app-code
 // changes no longer need it for freshness, only for precache hygiene.
 
-const CACHE_VERSION = "mise-shell-v15";
+const CACHE_VERSION = "mise-shell-v16";
 
 const SHELL = [
   "./",
@@ -33,8 +33,10 @@ const SHELL = [
   "./app/lib/weekbuilder.js",
   "./app/lib/scan.js",
   "./app/lib/worker.js",
+  "./app/lib/dozen.js",
   "./app/views/home.js",
   "./app/views/today.js",
+  "./app/views/dozen-tally.js",
   "./app/views/cookbook.js",
   "./app/views/recipe.js",
   "./app/views/recipe-row.js",

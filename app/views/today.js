@@ -1,5 +1,5 @@
 import { html } from "htm/preact";
-import { localIsoDate } from "../lib/dates.js";
+import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 import { recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 
 /**
@@ -19,6 +19,30 @@ export function TodayView({ recipes, plan, hasToken, loading }) {
   const todayEntries = plan.entries
     .filter((e) => e.date === today)
     .sort((a, b) => SLOT_KEYS.indexOf(a.slot) - SLOT_KEYS.indexOf(b.slot));
+
+  // 7b: Sunday batch-prep block — every recipe in THIS week's plan with
+  // batchPrep data. sundayComponent is deduped by recipe (cook it once,
+  // regardless of how many days it's stacked on); weekdayAssembly is kept
+  // per planned day since the reheat note is about that day, not the dish.
+  const seenSunday = new Set();
+  const sundayComponents = [];
+  const weekdayAssembly = [];
+  for (const entry of plan.entries) {
+    if (!entry.recipeId) continue;
+    const recipe = byId.get(entry.recipeId);
+    const bp = recipe?.batchPrep;
+    if (!bp) continue;
+    if (bp.sundayComponent && !seenSunday.has(recipe.id)) {
+      seenSunday.add(recipe.id);
+      sundayComponents.push({ id: recipe.id, name: recipe.name, text: bp.sundayComponent });
+    }
+    if (bp.weekdayAssembly) {
+      weekdayAssembly.push({ id: entry.id, date: entry.date, name: recipe.name, text: bp.weekdayAssembly });
+    }
+  }
+  weekdayAssembly.sort((a, b) => a.date.localeCompare(b.date));
+  const hasBatchPrep = sundayComponents.length > 0 || weekdayAssembly.length > 0;
+  const isSunday = parseLocalIso(today).getDay() === 0;
 
   return html`
     <div class="view">
@@ -61,9 +85,24 @@ export function TodayView({ recipes, plan, hasToken, loading }) {
               </div>`
       }
       ${
-        // TODO(Phase 7b): Sunday batch-prep block mounts here — every dinner
-        // in this week's plan with batchPrep.sundayComponent, concatenated.
-        null
+        hasBatchPrep &&
+        html`<details class="batchprep" open=${isSunday}>
+          <summary class="block-title">Batch prep</summary>
+          ${sundayComponents.map(
+            (r) => html`<div class="batch" key=${r.id}>
+              <div class="k">${r.name} — Sunday</div>
+              ${r.text}
+            </div>`,
+          )}
+          ${weekdayAssembly.map(
+            (w) => html`<div class="batch" key=${w.id}>
+              <div class="k">
+                ${parseLocalIso(w.date).toLocaleDateString([], { weekday: "short" })} · ${w.name}
+              </div>
+              ${w.text}
+            </div>`,
+          )}
+        </details>`
       }
 
       <div class="actions">

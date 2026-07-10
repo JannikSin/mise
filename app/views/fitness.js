@@ -1,10 +1,44 @@
 import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { lastSetsFor, formatSets, personalRecords, seriesFor, setTopSet } from "../lib/fitness.js";
+import { localIsoDate, parseLocalIso } from "../lib/dates.js";
+import {
+  lastSetsFor,
+  formatSets,
+  personalRecords,
+  seriesFor,
+  setTopSet,
+  templateForDate,
+} from "../lib/fitness.js";
 
 const SEGMENTS = ["train", "log", "targets"];
 const PRIMARY_LIFTS = ["Squat", "Bench Press", "Deadlift or Barbell Row", "Overhead Press"];
 const REST_SECONDS = 90;
+
+/** "lower-a" -> "Lower A" — short label for the rest-day "next up" line. */
+const shortName = (/** @type {string} */ id) =>
+  id
+    .split("-")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+
+/**
+ * Short label for the next scheduled session after today, e.g. "Pull A
+ * tomorrow" — names what's coming instead of leaving the rest-day state
+ * blank.
+ * @param {Record<string, string | null> | undefined} schedule
+ * @param {Record<string, any>[]} templates
+ * @param {string} todayIso
+ * @returns {string | null}
+ */
+function nextSessionLabel(schedule, templates, todayIso) {
+  const cursor = parseLocalIso(todayIso);
+  for (let i = 1; i <= 7; i++) {
+    cursor.setDate(cursor.getDate() + 1);
+    const t = templateForDate(schedule, templates, localIsoDate(cursor));
+    if (t) return i === 1 ? `${shortName(t.id)} tomorrow` : `${shortName(t.id)} in ${i} days`;
+  }
+  return null;
+}
 
 /**
  * Single-series progression sparkline (dataviz: 2px line, endpoint marker,
@@ -53,7 +87,7 @@ function Sparkline({ series, label, loading }) {
  * logged sets. The daily check-in (sleep/weight/pushups/water/supplements/
  * streak) moved to Home — see app/views/home.js.
  * @param {{
- *   workouts: { templates: Record<string, any>[], sessions: Record<string, any>[] },
+ *   workouts: { templates: Record<string, any>[], sessions: Record<string, any>[], schedule?: Record<string, string | null> },
  *   targets: Record<string, any> | null,
  *   today: string,
  *   hasToken: boolean,
@@ -79,6 +113,7 @@ export function FitnessView({
   const [rest, setRest] = useState(0);
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [invalid, setInvalid] = useState(/** @type {string | null} */ (null));
+  const [showPicker, setShowPicker] = useState(false);
   const restRef = useRef(/** @type {ReturnType<typeof setInterval> | null} */ (null));
 
   useEffect(() => {
@@ -98,8 +133,27 @@ export function FitnessView({
     }, 1000);
   };
 
-  const { templateId, session, inputs } = draft;
-  const template = workouts.templates.find((t) => t.id === templateId);
+  const { session, inputs } = draft;
+  // Phase 8: Train shows today's session from the fixed schedule, nothing to
+  // pick. draft.templateId only gets set when David explicitly overrides via
+  // the escape hatch — that pick wins over the schedule for this draft.
+  const hasSchedule = workouts.schedule !== undefined;
+  const scheduled = templateForDate(
+    workouts.schedule,
+    /** @type {any} */ (workouts.templates),
+    today,
+  );
+  const pickedTemplate = draft.templateId
+    ? workouts.templates.find((t) => t.id === draft.templateId)
+    : null;
+  const template = hasSchedule ? (pickedTemplate ?? scheduled) : pickedTemplate;
+  const nextLabel = hasSchedule
+    ? nextSessionLabel(
+        /** @type {any} */ (workouts.schedule),
+        /** @type {any} */ (workouts.templates),
+        today,
+      )
+    : null;
   const prs = personalRecords(/** @type {any} */ (workouts.sessions));
   const tokenBroken = repo?.auth === "invalid";
 
@@ -120,7 +174,7 @@ export function FitnessView({
       setTimeout(() => setInvalid(null), 1200);
       return;
     }
-    const base = session ?? { date: today, templateId, exercises: [] };
+    const base = session ?? { date: today, templateId: template?.id ?? null, exercises: [] };
     onDraft({
       ...draft,
       session: setTopSet(/** @type {any} */ (base), name, { weight, reps }),
@@ -137,6 +191,7 @@ export function FitnessView({
     onSaveSession(session);
     onDraft({ templateId: null, session: null, inputs: {} });
     setConfirmFinish(false);
+    setShowPicker(false);
   };
 
   return html`
@@ -169,29 +224,17 @@ export function FitnessView({
         seg === "train" &&
         html`
           ${
+            !hasSchedule &&
+            html`<p class="hint">
+              no schedule set yet — add one to fitness/workouts.json in SYS. pick a session for now.
+            </p>`
+          }
+          ${
             !template &&
+            hasSchedule &&
             html`
-              <h2 class="block-title">Pick today's split</h2>
-              <div class="slots">
-                ${workouts.templates.map(
-                  (t) => html`
-                    <button
-                      class="checkrow"
-                      key=${t.id}
-                      onClick=${() => onDraft({ ...draft, templateId: t.id })}
-                    >
-                      <span class="food">${t.name}</span>
-                      <span class="q num">${t.exercises.length} lifts</span>
-                    </button>
-                  `,
-                )}
-                ${
-                  workouts.templates.length === 0 &&
-                  html`<div class="empty">
-                    ${hasToken ? (loading ? "loading…" : "no split templates yet") : "connect token in SYS"}
-                  </div>`
-                }
-              </div>
+              <h2 class="block-title">Rest day</h2>
+              <p class="hint">${nextLabel ? `next: ${nextLabel}.` : "nothing scheduled next."}</p>
             `
           }
           ${
@@ -262,6 +305,43 @@ export function FitnessView({
                     </div>
                   `;
                 })}
+              </div>
+            `
+          }
+          ${
+            hasSchedule &&
+            html`<button class="secondary" onClick=${() => setShowPicker((s) => !s)}>
+              ${showPicker ? "hide session picker" : "log a different session"}
+            </button>`
+          }
+          ${
+            ((hasSchedule && showPicker) || (!hasSchedule && !template)) &&
+            html`
+              <h2 class="block-title">
+                ${hasSchedule ? "Pick a different session" : "Pick today's split"}
+              </h2>
+              <div class="slots">
+                ${workouts.templates.map(
+                  (t) => html`
+                    <button
+                      class="checkrow"
+                      key=${t.id}
+                      onClick=${() => {
+                        onDraft({ ...draft, templateId: t.id });
+                        setShowPicker(false);
+                      }}
+                    >
+                      <span class="food">${t.name}</span>
+                      <span class="q num">${t.exercises.length} lifts</span>
+                    </button>
+                  `,
+                )}
+                ${
+                  workouts.templates.length === 0 &&
+                  html`<div class="empty">
+                    ${hasToken ? (loading ? "loading…" : "no split templates yet") : "connect token in SYS"}
+                  </div>`
+                }
               </div>
             `
           }

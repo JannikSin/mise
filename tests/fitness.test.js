@@ -7,6 +7,7 @@ import {
   upsertDay,
   setTopSet,
   formatSets,
+  templateForDate,
 } from "../app/lib/fitness.js";
 
 const SESSIONS = [
@@ -85,4 +86,44 @@ test("setTopSet replaces rather than appends", () => {
   assert.equal(s.exercises[0].sets.length, 1);
   assert.deepEqual(s.exercises[0], { name: "Squat", sets: [{ weight: 195, reps: 3 }] });
   assert.deepEqual(s.exercises[1], { name: "Leg Press", sets: [{ weight: 300, reps: 10 }] });
+});
+
+const SCHEDULE = {
+  mon: "lower-a",
+  tue: "pull-a",
+  wed: "push-a",
+  thu: "pull-b",
+  fri: "lower-b",
+  sat: "push-b",
+  sun: null,
+};
+const TEMPLATES = [
+  { id: "lower-a", name: "Mon: Lower A" },
+  { id: "pull-a", name: "Tue: Pull A" },
+  { id: "push-a", name: "Wed: Push A" },
+  { id: "pull-b", name: "Thu: Pull B" },
+  { id: "lower-b", name: "Fri: Lower B" },
+  { id: "push-b", name: "Sat: Push B" },
+];
+
+test("templateForDate returns the scheduled template for each weekday", () => {
+  assert.equal(templateForDate(SCHEDULE, TEMPLATES, "2026-07-06").id, "lower-a"); // mon
+  assert.equal(templateForDate(SCHEDULE, TEMPLATES, "2026-07-07").id, "pull-a"); // tue
+  assert.equal(templateForDate(SCHEDULE, TEMPLATES, "2026-07-08").id, "push-a"); // wed
+  assert.equal(templateForDate(SCHEDULE, TEMPLATES, "2026-07-09").id, "pull-b"); // thu
+  assert.equal(templateForDate(SCHEDULE, TEMPLATES, "2026-07-10").id, "lower-b"); // fri
+  assert.equal(templateForDate(SCHEDULE, TEMPLATES, "2026-07-11").id, "push-b"); // sat
+});
+
+test("templateForDate returns null on the rest day", () => {
+  assert.equal(templateForDate(SCHEDULE, TEMPLATES, "2026-07-12"), null); // sun
+});
+
+test("templateForDate returns null when schedule is undefined", () => {
+  assert.equal(templateForDate(undefined, TEMPLATES, "2026-07-06"), null);
+});
+
+test("templateForDate returns null when the schedule names an id absent from templates", () => {
+  const badSchedule = { ...SCHEDULE, mon: "not-a-real-id" };
+  assert.equal(templateForDate(badSchedule, TEMPLATES, "2026-07-06"), null);
 });

@@ -288,6 +288,13 @@ a.tile {
   border-top: 1px solid var(--line);
 }
 
+/* Sunday batch-prep block: native <details> is the toggle, Sunday just
+ * opens it by default (app/views/today.js) */
+summary.block-title {
+  cursor: pointer;
+  min-height: 44px;
+}
+
 /* ---- recipe rows ---- */
 
 .slots {

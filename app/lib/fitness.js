@@ -9,6 +9,26 @@ import { localIsoDate, parseLocalIso } from "./dates.js";
  * @typedef {{ days: Record<string, any>[] }} Daily
  */
 
+const WEEKDAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+/**
+ * Today's session from the fixed weekly rotation (Phase 8: zero-guesswork
+ * Train — David never picks a split, the schedule already knows). Null on a
+ * rest day, when there's no schedule yet, or when the scheduled id doesn't
+ * match any template.
+ * @param {Record<string, string | null> | undefined} schedule
+ * @param {Record<string, any>[]} templates
+ * @param {string} dateIso
+ * @returns {Record<string, any> | null}
+ */
+export function templateForDate(schedule, templates, dateIso) {
+  if (!schedule) return null;
+  const weekday = WEEKDAY_KEYS[parseLocalIso(dateIso).getDay()] ?? "sun";
+  const templateId = schedule[weekday];
+  if (!templateId) return null;
+  return templates.find((t) => t.id === templateId) ?? null;
+}
+
 /**
  * Most recent session's sets for a lift (the progressive-overload anchor).
  * @param {Session[]} sessions

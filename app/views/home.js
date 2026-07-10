@@ -1,8 +1,5 @@
 import { html } from "htm/preact";
-import { parseLocalIso } from "../lib/dates.js";
-import { computeStreak } from "../lib/fitness.js";
-
-const WEEKDAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+import { computeStreak, templateForDate } from "../lib/fitness.js";
 
 /**
  * Landing view: the daily check-in (sleep/weight/pushups/water/supplements/
@@ -45,13 +42,11 @@ export function HomeView({
   const mealsLabel =
     mealCount === 0 ? "nothing planned" : `${mealCount} meal${mealCount === 1 ? "" : "s"} planned`;
 
-  const weekday = WEEKDAY_KEYS[parseLocalIso(today).getDay()] ?? "sun";
-  const scheduledId = workouts.schedule?.[weekday];
-  const scheduledTemplate = scheduledId
-    ? workouts.templates.find((t) => t.id === scheduledId)
-    : null;
-  const workoutLabel =
-    scheduledId === undefined ? null : scheduledId === null ? "rest day" : (scheduledTemplate?.name ?? "…");
+  // one source of truth with Train (app/views/fitness.js): the fixed weekly
+  // schedule, not a picker (Phase 8: zero-guesswork Train)
+  const hasSchedule = workouts.schedule !== undefined;
+  const scheduledTemplate = templateForDate(workouts.schedule, workouts.templates, today);
+  const workoutLabel = !hasSchedule ? null : (scheduledTemplate?.name ?? "rest day");
 
   return html`
     <div class="view">

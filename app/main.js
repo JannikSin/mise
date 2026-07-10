@@ -345,6 +345,32 @@ function App() {
   const weekRef = useRef(weekId);
   weekRef.current = weekId;
 
+  // 7c: auto-advance the week pointer when the calendar rolls into a new
+  // ISO week while the app is open — this only changes which week is
+  // DISPLAYED, it never writes a plan. Backs off for an hour after a
+  // manual week nav (onWeek below) so paging back to check last week isn't
+  // yanked forward mid-look.
+  const manualNavRef = useRef(0);
+  const handleWeekNav = useCallback((/** @type {number} */ delta) => {
+    manualNavRef.current = Date.now();
+    setWeekId((w) => shiftWeek(w, delta));
+  }, []);
+
+  useEffect(() => {
+    const BACKOFF_MS = 60 * 60 * 1000;
+    const sync = () => {
+      if (Date.now() - manualNavRef.current < BACKOFF_MS) return;
+      const current = isoWeekId(new Date());
+      setWeekId((w) => (w === current ? w : current));
+    };
+    const id = setInterval(sync, BACKOFF_MS);
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", sync);
+    };
+  }, []);
+
   const updatePlan = useCallback(
     (/** @type {{ week: string, entries: Record<string, any>[] }} */ next) => {
       planRef.current = next;
@@ -543,7 +569,7 @@ function App() {
         hasToken=${hasToken}
         loading=${loading}
         weekId=${weekId}
-        onWeek=${(/** @type {number} */ d) => setWeekId(shiftWeek(weekId, d))}
+        onWeek=${handleWeekNav}
         onDropInto=${handleDrop}
         onRemove=${handleRemove}
         onTogglePin=${handleTogglePin}

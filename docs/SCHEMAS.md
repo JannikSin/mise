@@ -273,11 +273,23 @@ One row per day; 10-second morning check-in.
       "water": 3.5,                     // ? LITERS in 0.25 steps (a cup ≈ 0.25 L — David's rule)
       "supplements": { "creatine": true, "magnesium": true, "multi": false, "fishOil": true },
       "calories": 3350,                 // ? auto-filled from day's plan, adjustable
-      "protein": 205                    // ? grams
+      "protein": 205,                   // ? grams
+      "dozen": {                        // ? hand-tracked Daily Dozen servings, David checks
+                                         //   these off himself — recipes can't reliably deliver
+                                         //   beverages/greens/other fruit/other veg alone
+        "beverages": 3,                 // number of servings logged today, default 0
+        "greens": 1,
+        "otherFruit": 2,
+        "otherVeg": 1
+      }
     }
   ]
 }
 ```
+`dozen`'s keys are a subset of `fitness/targets.json`'s `dailyDozen` keys — the categories
+recipes alone can't cover (directive: David logs these by hand each morning/day; the
+`generateWeek` build report already covers the recipe-deliverable categories via
+`foodGroupGaps`). Absent `dozen` or absent key = 0 logged, not missing data.
 
 ## Fitness — `fitness/activities.json`
 
