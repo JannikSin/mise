@@ -76,6 +76,20 @@ data to the app repo.
     "fat": 18,
     "method": "estimated"               // estimated | usda-spot-checked
   },
+  "foodGroups": {                // ? Daily Dozen servings this recipe provides per serving
+    "beans": 1,                  // legumes/tofu/tempeh/edamame, ~0.5 cup cooked = 1
+    "berries": 0,
+    "otherFruit": 0.5,
+    "cruciferousVeg": 0,         // broccoli, cabbage, kale, etc.
+    "greens": 1,
+    "otherVeg": 1,
+    "flaxseed": 0,
+    "nuts": 0.5,
+    "spicesHerbs": 1,            // meaningful culinary use, not a pinch garnish
+    "wholeGrains": 2,
+    "beverages": 0,               // green tea etc; plain water excluded
+    "method": "estimated"         // estimated | book-verified
+  },
   "batchPrep": {
     "sundayComponent": "Marinate + cook protein; rice in cooker.",  // ?
     "weekdayAssembly": "Reheat, top, pickle. 10 min."               // ?
@@ -131,11 +145,13 @@ even the same slot — merge without losing either entry.
       "slot": "dinner",                 // breakfast | lunch | dinner | smoothie | snack
       "recipeId": "chicken-bulgogi-bowl", // exactly one of recipeId | freeText
       "freeText": "leftovers",          // e.g. "leftovers", "eating out"
-      "servings": 2
+      "servings": 2,
+      "pinned": false   // ? true = GENERATE WEEK must never clear or overwrite this entry
     }
   ]
 }
 ```
+Absent `pinned` = unpinned (default behavior today, unchanged for existing data).
 
 ## Shopping list — `shopping.json`
 
@@ -177,6 +193,11 @@ Seeded from the FITNESS.md system; edited rarely.
     "waterLiters": 3.5                  // daily target midpoint
   },
   "adjustmentRule": "Weigh 3 mornings/week…",  // plain-text calorie adjustment rule
+  "dailyDozen": {                 // ? PER-DAY serving targets, Greger's published Daily Dozen
+    "beans": 3, "berries": 1, "otherFruit": 3, "cruciferousVeg": 1,
+    "greens": 2, "otherVeg": 2, "flaxseed": 1, "nuts": 1,
+    "spicesHerbs": 1, "wholeGrains": 3, "beverages": 5
+  },
   "sleepHoursTarget": 8,
   "pushupsPerDay": 200,
   "priorityStack": ["Sleep", "Protein", "Training", "Water", "Everything else"],
@@ -200,6 +221,12 @@ per-day `supplements` check map.
 
 ```jsonc
 {
+  "_scheduleNote": "PLACEHOLDER mapping of existing templates, awaiting Be fit vault 3-day split", // ?
+  "schedule": {                   // ? weekday -> templateId, fixed rotation (zero split-picking)
+    "mon": "lower-a", "tue": "pull-a", "wed": "push-a",
+    "thu": "pull-b", "fri": "lower-b", "sat": "push-b",
+    "sun": null                   // null = rest day
+  },
   "templates": [
     {
       "id": "upper-a",

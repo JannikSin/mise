@@ -21,6 +21,20 @@
     { "step": 2, "text": "Toss with test oil." }
   ],
   "nutrition": { "calories": 400, "protein": 20, "carbs": 60, "fat": 10, "method": "estimated" },
+  "foodGroups": {
+    "beans": 0,
+    "berries": 0,
+    "otherFruit": 0,
+    "cruciferousVeg": 0,
+    "greens": 0,
+    "otherVeg": 0.5,
+    "flaxseed": 0,
+    "nuts": 0,
+    "spicesHerbs": 0.5,
+    "wholeGrains": 1,
+    "beverages": 0,
+    "method": "estimated"
+  },
   "timesCooked": 0,
   "lessons": []
 }

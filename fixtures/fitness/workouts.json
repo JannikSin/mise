@@ -1,0 +1,25 @@
+{
+  "_scheduleNote": "PLACEHOLDER mapping of existing templates, awaiting Be fit vault 3-day split",
+  "schedule": {
+    "mon": "test-a",
+    "tue": "test-b",
+    "wed": "test-a",
+    "thu": "test-b",
+    "fri": "test-a",
+    "sat": "test-b",
+    "sun": null
+  },
+  "templates": [
+    {
+      "id": "test-a",
+      "name": "Test A",
+      "exercises": [{ "name": "Test Press", "targetSets": 3, "targetReps": "8-10" }]
+    },
+    {
+      "id": "test-b",
+      "name": "Test B",
+      "exercises": [{ "name": "Test Row", "targetSets": 3, "targetReps": "8-10" }]
+    }
+  ],
+  "sessions": []
+}

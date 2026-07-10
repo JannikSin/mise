@@ -1,0 +1,13 @@
+{
+  "week": "2026-W01",
+  "entries": [
+    {
+      "id": "test-entry-1",
+      "date": "2026-01-05",
+      "slot": "dinner",
+      "recipeId": "test-noodle-bowl",
+      "servings": 2,
+      "pinned": true
+    }
+  ]
+}
