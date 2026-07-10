@@ -219,6 +219,11 @@ per-day `supplements` check map.
 
 ## Fitness — `fitness/workouts.json`
 
+Under the simplified logging flow (Phase 6), `sets` is written with exactly one
+entry per exercise per session, the array shape is kept for backward
+compatibility with any historical multi-set sessions, and
+`personalRecords`/`seriesFor` read it unchanged either way.
+
 ```jsonc
 {
   "_scheduleNote": "PLACEHOLDER mapping of existing templates, awaiting Be fit vault 3-day split", // ?

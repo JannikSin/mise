@@ -134,18 +134,20 @@ export function computeStreak(days, supplementIds, pushupTarget, waterTargetLite
 }
 
 /**
- * Append a set to a lift within an in-progress session. Pure.
+ * Set (or replace) the single top-set result for one exercise in an
+ * in-progress session: the simplified logging flow logs once per lift,
+ * not once per set. Pure.
  * @param {Session} session
  * @param {string} exercise
  * @param {SetEntry} set
  * @returns {Session}
  */
-export function addSetToSession(session, exercise, set) {
+export function setTopSet(session, exercise, set) {
   const existing = session.exercises.find((e) => e.name === exercise);
   return {
     ...session,
     exercises: existing
-      ? session.exercises.map((e) => (e.name === exercise ? { ...e, sets: [...e.sets, set] } : e))
+      ? session.exercises.map((e) => (e.name === exercise ? { ...e, sets: [set] } : e))
       : [...session.exercises, { name: exercise, sets: [set] }],
   };
 }

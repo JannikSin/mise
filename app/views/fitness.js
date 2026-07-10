@@ -1,6 +1,6 @@
 import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { lastSetsFor, formatSets, personalRecords, seriesFor, addSetToSession } from "../lib/fitness.js";
+import { lastSetsFor, formatSets, personalRecords, seriesFor, setTopSet } from "../lib/fitness.js";
 
 const SEGMENTS = ["train", "log", "targets"];
 const PRIMARY_LIFTS = ["Squat", "Bench Press", "Deadlift or Barbell Row", "Overhead Press"];
@@ -123,7 +123,7 @@ export function FitnessView({
     const base = session ?? { date: today, templateId, exercises: [] };
     onDraft({
       ...draft,
-      session: addSetToSession(/** @type {any} */ (base), name, { weight, reps }),
+      session: setTopSet(/** @type {any} */ (base), name, { weight, reps }),
     });
   };
 
@@ -257,7 +257,7 @@ export function FitnessView({
                               },
                             })}
                         />
-                        <button class="primary" onClick=${() => logSet(ex.name)}>+ SET</button>
+                        <button class="primary" onClick=${() => logSet(ex.name)}>LOG</button>
                       </div>
                     </div>
                   `;

@@ -5,7 +5,7 @@ import {
   personalRecords,
   seriesFor,
   upsertDay,
-  addSetToSession,
+  setTopSet,
   formatSets,
 } from "../app/lib/fitness.js";
 
@@ -76,12 +76,13 @@ test("upsertDay creates the day when absent", () => {
   assert.deepEqual(next.days, [{ date: "2026-07-06", pushups: 40 }]);
 });
 
-test("addSetToSession appends to the right exercise, creating it on first set", () => {
+test("setTopSet replaces rather than appends", () => {
   let s = { date: "2026-07-06", templateId: "legs", exercises: [] };
-  s = addSetToSession(s, "Squat", { weight: 185, reps: 5 });
-  s = addSetToSession(s, "Squat", { weight: 185, reps: 5 });
-  s = addSetToSession(s, "Leg Press", { weight: 300, reps: 10 });
+  s = setTopSet(s, "Squat", { weight: 185, reps: 5 });
+  s = setTopSet(s, "Squat", { weight: 195, reps: 3 });
+  s = setTopSet(s, "Leg Press", { weight: 300, reps: 10 });
   assert.equal(s.exercises.length, 2);
-  assert.equal(s.exercises[0].sets.length, 2);
+  assert.equal(s.exercises[0].sets.length, 1);
+  assert.deepEqual(s.exercises[0], { name: "Squat", sets: [{ weight: 195, reps: 3 }] });
   assert.deepEqual(s.exercises[1], { name: "Leg Press", sets: [{ weight: 300, reps: 10 }] });
 });
