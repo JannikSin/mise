@@ -163,6 +163,19 @@ export function PlannerView({
                 ${buildReport.poolInsufficient.map((p) => `${p.reason} — ${p.suggestion}`).join(" · ")}
               </div>`
             }
+            ${
+              buildReport.calorieOverDays.length > 0 &&
+              html`<div class="d num">
+                day over calorie ceiling:${" "}
+                ${buildReport.calorieOverDays
+                  .map(
+                    (s) =>
+                      `${parseLocalIso(s.date).toLocaleDateString([], { weekday: "short" })} ${s.calories}`,
+                  )
+                  .join(" · ")}
+                / ${buildReport.calorieOverDays[0]?.ceiling} ceiling
+              </div>`
+            }
           </div>
         `
       }

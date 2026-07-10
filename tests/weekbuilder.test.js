@@ -10,6 +10,7 @@ import {
   foodGroupGapBonus,
   poolInsufficiency,
   foodGroupFloorPass,
+  calorieTrimPass,
   ENFORCED_DAILY_GROUPS,
   generateWeek,
 } from "../app/lib/weekbuilder.js";
@@ -477,6 +478,120 @@ test("foodGroupFloorPass leaves the day alone and reports honestly when the pool
   assert.deepEqual(result.entries, plan.entries, "nothing changes when the pool can't help");
 });
 
+test("calorieTrimPass brings a day under the ceiling by shaving a snack first", () => {
+  const dinnerRecipe = r("trim-dinner", "dinner", ["beef"], { protein: 60, calories: 900 });
+  const snackRecipe = r("trim-snack", "snack", ["chips"], { protein: 10, calories: 300 });
+  const plan = {
+    week: "2026-W29",
+    entries: [
+      { id: "d1", date: MON, slot: "dinner", recipeId: "trim-dinner", servings: 1 },
+      { id: "s1", date: MON, slot: "snack", recipeId: "trim-snack", servings: 2 },
+    ],
+  };
+  const byId = recipesById([dinnerRecipe, snackRecipe]);
+  const result = calorieTrimPass(plan, byId, {
+    calorieCeiling: 1200,
+    calorieFloor: 800,
+    proteinFloor: 20,
+    groupFloors: {},
+  });
+  const dinner = result.entries.find((e) => e.id === "d1");
+  const snack = result.entries.find((e) => e.id === "s1");
+  assert.equal(dinner.servings, 1, "dinner untouched: the snack absorbs the trim first");
+  assert.equal(snack.servings, 1, "snack trimmed 2 -> 1.5 -> 1 to land exactly on the ceiling");
+});
+
+test("calorieTrimPass refuses a trim that would break the protein floor", () => {
+  const dinnerRecipe = r("protein-dinner", "dinner", ["beef"], { protein: 42, calories: 1000 });
+  const plan = {
+    week: "2026-W29",
+    entries: [{ id: "d1", date: MON, slot: "dinner", recipeId: "protein-dinner", servings: 1 }],
+  };
+  const byId = recipesById([dinnerRecipe]);
+  const result = calorieTrimPass(plan, byId, {
+    calorieCeiling: 900,
+    calorieFloor: 400,
+    proteinFloor: 40,
+    groupFloors: {},
+  });
+  assert.deepEqual(
+    result.entries,
+    plan.entries,
+    "the only candidate step (1 -> 0.5) would drop protein from 42 to 21, under the floor of 40",
+  );
+});
+
+test("calorieTrimPass refuses a trim that would break the greens floor", () => {
+  const dinnerRecipe = r("greens-dinner-trim", "dinner", ["kale"], {
+    protein: 100,
+    calories: 1000,
+    foodGroups: { greens: 2 },
+  });
+  const plan = {
+    week: "2026-W29",
+    entries: [{ id: "d1", date: MON, slot: "dinner", recipeId: "greens-dinner-trim", servings: 1 }],
+  };
+  const byId = recipesById([dinnerRecipe]);
+  const result = calorieTrimPass(plan, byId, {
+    calorieCeiling: 900,
+    calorieFloor: 400,
+    proteinFloor: 10,
+    groupFloors: { greens: 2 },
+  });
+  assert.deepEqual(
+    result.entries,
+    plan.entries,
+    "the only candidate step (1 -> 0.5) would drop greens from 2 to 1, under the floor of 2",
+  );
+});
+
+test("calorieTrimPass never touches pinned entries", () => {
+  const pinnedDinner = r("pinned-trim-dinner", "dinner", ["beef"], { protein: 60, calories: 1000 });
+  const snackRecipe = r("trim-snack-2", "snack", ["chips"], { protein: 10, calories: 200 });
+  const plan = {
+    week: "2026-W29",
+    entries: [
+      { id: "p1", date: MON, slot: "dinner", recipeId: "pinned-trim-dinner", servings: 1, pinned: true },
+      { id: "s1", date: MON, slot: "snack", recipeId: "trim-snack-2", servings: 2 },
+    ],
+  };
+  const byId = recipesById([pinnedDinner, snackRecipe]);
+  const result = calorieTrimPass(plan, byId, {
+    calorieCeiling: 1300,
+    calorieFloor: 900,
+    proteinFloor: 20,
+    groupFloors: {},
+  });
+  const pin = result.entries.find((e) => e.id === "p1");
+  const snack = result.entries.find((e) => e.id === "s1");
+  assert.equal(pin.servings, 1, "pinned dinner is never resized, even though it's the biggest contributor");
+  assert.equal(snack.servings, 1.5, "unpinned snack absorbs the trim instead");
+});
+
+test("calorieTrimPass reports calorieOverDays when no legal trim exists", () => {
+  // 4 identical, protein-dense dinner recipes and nothing else in the pool:
+  // every day is dinner-only, comfortably clears both floors, but the single
+  // 0.5 step available would cut calories in half, straight through the
+  // calorie floor, so every day is left over the ceiling, honestly.
+  const denseDinners = uniformPool("dinner", 4, 180, 1200);
+  const targets = { macros: { calories: 1000, protein: 189 } };
+  const { report } = generateWeek({
+    recipes: denseDinners,
+    targets,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  assert.equal(report.calorieOverDays.length, 7, "all 7 dinner-only days sit over the ceiling");
+  for (const d of report.calorieOverDays) {
+    assert.equal(d.calories, 1200);
+    assert.equal(d.ceiling, 1050, "1000 x CEILING_RATIO(1.05)");
+  }
+  assert.deepEqual(report.proteinShortDays, [], "protein floor (179.55) is comfortably cleared at 180");
+  assert.deepEqual(report.calorieShortDays, [], "calorie floor (950) is comfortably cleared at 1200");
+});
+
 test("REAL pool integration: generated week meets calorie and protein floors every day", () => {
   // David's directive is "meet the calorie goal and protein goal every day":
   // against the actual seed recipes and actual targets.json, the portion
@@ -539,6 +654,51 @@ test("generateWeek: every day clears greens 2 and cruciferous 1 against the real
       assert.ok(
         (coverage[group] ?? 0) >= floor,
         `${date} ${group} = ${coverage[group] ?? 0}, floor ${floor}`,
+      );
+    }
+  }
+});
+
+test("generateWeek: every day lands within the calorie floor and ceiling against the real seed pool", () => {
+  // 2026-07-09 smoke-run defect: days were landing 3990/3990/4030 against a
+  // 3700 kcal gain-phase target, 8-9% over. The trim pass must bring every
+  // day back into [floor, ceiling] without breaking protein or the enforced
+  // Daily Dozen floors it just secured.
+  const recipesDir = fileURLToPath(new URL("../seed-data/generated/recipes/", import.meta.url));
+  const recipes = readdirSync(recipesDir)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => JSON.parse(readFileSync(recipesDir + f, "utf8")));
+  const targets = JSON.parse(
+    readFileSync(
+      fileURLToPath(new URL("../seed-data/generated/fitness/targets.json", import.meta.url)),
+      "utf8",
+    ),
+  );
+  const { plan, report } = generateWeek({
+    recipes,
+    targets,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  assert.deepEqual(report.calorieShortDays, [], "no calorie-short days on the real pool");
+  assert.deepEqual(report.calorieOverDays, [], "no calorie-over days on the real pool");
+  assert.deepEqual(report.proteinShortDays, [], "protein floor still met after the trim pass");
+
+  const byId = recipesById(recipes);
+  const dates = [...new Set(plan.entries.map((e) => e.date))];
+  for (const date of dates) {
+    const chosen = plan.entries
+      .filter((e) => e.date === date && e.recipeId)
+      .map((e) => ({ recipe: byId.get(e.recipeId), count: e.servings }))
+      .filter((c) => c.recipe);
+    const coverage = foodGroupCoverage(chosen);
+    for (const group of ENFORCED_DAILY_GROUPS) {
+      const floor = targets.dailyDozen[group];
+      assert.ok(
+        (coverage[group] ?? 0) >= floor,
+        `${date} ${group} = ${coverage[group] ?? 0}, floor ${floor} still met after the trim pass`,
       );
     }
   }
