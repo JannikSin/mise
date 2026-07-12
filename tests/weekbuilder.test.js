@@ -592,6 +592,38 @@ test("calorieTrimPass reports calorieOverDays when no legal trim exists", () => 
   assert.deepEqual(report.calorieShortDays, [], "calorie floor (950) is comfortably cleared at 1200");
 });
 
+test("generateWeek fills only the mealSlots listed in targets", () => {
+  const targets = { ...TARGETS, mealSlots: ["breakfast", "lunch", "dinner"] };
+  const { plan } = generateWeek({
+    recipes: ALL,
+    targets,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  assert.equal(plan.entries.filter((e) => e.slot === "smoothie").length, 0, "no smoothie entries");
+  for (const slot of ["breakfast", "lunch", "dinner"]) {
+    const count = plan.entries.filter((e) => e.slot === slot).length;
+    assert.equal(count, 7, `${slot} filled`);
+  }
+});
+
+test("generateWeek defaults to breakfast/lunch/dinner/smoothie when targets.mealSlots is absent", () => {
+  const { plan } = generateWeek({
+    recipes: ALL,
+    targets: TARGETS, // no mealSlots key
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  for (const slot of ["breakfast", "lunch", "dinner", "smoothie"]) {
+    const count = plan.entries.filter((e) => e.slot === slot).length;
+    assert.equal(count, 7, `${slot} filled`);
+  }
+});
+
 test("REAL pool integration: generated week meets calorie and protein floors every day", () => {
   // David's directive is "meet the calorie goal and protein goal every day":
   // against the actual seed recipes and actual targets.json, the portion

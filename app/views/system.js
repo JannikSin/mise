@@ -1,6 +1,8 @@
 import { html } from "htm/preact";
+import { useEffect, useState } from "preact/hooks";
 import { DATA_REPO, tokenAgeDays, TOKEN_WARN_AGE_DAYS } from "../lib/github.js";
 import { formatSyncTime } from "../lib/dates.js";
+import { activeProfile, readProfiles } from "../lib/store.js";
 
 /**
  * System status view: app health, sync queue, data-repo checks, token entry.
@@ -19,6 +21,27 @@ import { formatSyncTime } from "../lib/dates.js";
 export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveToken, onTestWrite }) {
   const ageDays = tokenAgeDays();
   const renewSoon = hasToken && ageDays != null && ageDays >= TOKEN_WARN_AGE_DAYS;
+
+  const [profile, setProfile] = useState(/** @type {Record<string, any> | null} */ (null));
+  useEffect(() => {
+    let alive = true;
+    const id = activeProfile();
+    readProfiles().then((p) => {
+      if (alive) setProfile(p.profiles.find((x) => x.id === id) ?? { id, name: id, emoji: "" });
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // switch profile: never sets a new one itself — just clears the key so
+  // main.js's boot check renders the gate on reload, same clean pattern as
+  // choosing a profile there.
+  const switchProfile = () => {
+    localStorage.removeItem("mise.activeProfile");
+    location.reload();
+  };
+
   return html`
     <div class="view">
       <div class="hero"><h1>System</h1></div>
@@ -32,6 +55,10 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
       <div class="tile">
         <h2 class="k">App</h2>
         <div class="row">
+          <span class="k">Profile</span>
+          <span class="status dim">${profile ? `${profile.emoji} ${profile.name}` : "…"}</span>
+        </div>
+        <div class="row">
           <span class="k">Shell</span>
           <span class="status ok">running ✓</span>
         </div>
@@ -44,6 +71,9 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
                 ? html`<span class="status bad">unavailable ✗</span>`
                 : html`<span class="status dim">installing…</span>`
           }
+        </div>
+        <div class="actions">
+          <button class="secondary" onClick=${switchProfile}>SWITCH PROFILE</button>
         </div>
       </div>
 

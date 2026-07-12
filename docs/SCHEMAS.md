@@ -23,6 +23,7 @@ ingredients, staple flags, slot-typed plans, derived shopping list; no stock led
 ## File layout (`mise-data`, private)
 
 ```
+profiles.json              every profile that can sign in (ROOT, never scoped — see below)
 recipes/<id>.json         one recipe per file
 pantry.json               staples registry + perishables
 plans/<week>.json         e.g. plans/2026-W28.json
@@ -32,11 +33,41 @@ fitness/workouts.json     split templates + session log
 fitness/daily.json        daily check-ins
 fitness/activities.json   tennis/climbing/hiking sessions (schema reserved — no UI yet)
 meta.json                 app-level state (schema version, last-write info)
+
+profiles/<id>/...         same file set as above, for every profile except "david"
 ```
+
+**Multi-profile scoping** (`app/lib/store.js`): the signed-in profile lives in
+localStorage as `mise.activeProfile` (default `"david"`). David's files stay
+at the data-repo root — his live synced `mise-data` repo is never migrated.
+Every other profile's files live under `profiles/<id>/`, e.g. Mom's shopping
+list is `profiles/mom/shopping.json`, her targets are
+`profiles/mom/fitness/targets.json`. `profiles.json` itself is the one file
+that is NEVER scoped, by any profile — it has to be readable before a
+profile is even chosen.
 
 Schema-exemplar fixtures live in the app repo under `fixtures/` with the same
 shapes; the post-edit hook's drift check reads them. Never commit real user
 data to the app repo.
+
+## Profiles — `profiles.json` (data-repo ROOT, never scoped)
+
+```jsonc
+{
+  "profiles": [
+    { "id": "david", "name": "David", "emoji": "🏋️", "phase": "gain" },
+    { "id": "mom",   "name": "Mom",   "emoji": "🌿", "phase": "loss" }
+  ]
+}
+```
+- `id`: lowercase kebab-case; used verbatim as the `profiles/<id>/` prefix
+  for every file except `"david"`, which stays at the root.
+- `phase` here is a display-only mirror of that profile's own
+  `fitness/targets.json.phase` — shown on the profile-gate button before
+  that profile's own data has loaded.
+- If the file is missing or unreachable, `store.js`'s `readProfiles()` falls
+  back to a single default David profile so a fresh or pre-multi-profile
+  install still boots straight into the app.
 
 ## Recipe — `recipes/<id>.json`
 
@@ -195,8 +226,27 @@ Seeded from the FITNESS.md system; edited rarely.
     "waterLiters": 3.5                  // daily target midpoint
   },
   "adjustmentRule": "Weigh most mornings…",  // plain-text calorie adjustment rule
-  "phase": "gain",                // ? gain | recomp | cut, current training phase
+  "phase": "gain",                // ? gain | loss | recomp | cut, current training phase
   "phaseSince": "2026-07-10",     // ? ISO date the current phase started
+  "mealSlots": ["breakfast", "lunch", "dinner", "smoothie"],
+                                   // ? ordered list of meal slots app/lib/weekbuilder.js's
+                                   //   generateWeek proactively fills/committee-picks per day.
+                                   //   Valid values: breakfast | lunch | dinner | smoothie.
+                                   //   Snack is never listed here — it's always the reactive
+                                   //   calorie/protein top-up pool, filled only as needed.
+                                   //   Absent = ["breakfast", "lunch", "dinner", "smoothie"]
+                                   //   (David's current behavior). A loss-phase profile with
+                                   //   no smoothie (e.g. profiles/mom) lists
+                                   //   ["breakfast", "lunch", "dinner"] so the generator
+                                   //   doesn't force a 4th proactive meal past the calorie
+                                   //   ceiling.
+  "tracks": ["sleep", "weight", "pushups", "water", "supplements", "dailyDozen"],
+                                   // ? ordered list of Home check-in markers this profile
+                                   //   shows (app/views/home.js reads it). Valid values:
+                                   //   sleep | weight | waist | pushups | water |
+                                   //   supplements | dailyDozen. Absent = the full David
+                                   //   list above (back-compat for legacy/pre-multi-
+                                   //   profile installs and the pre-load window).
   "dailyDozen": {                 // ? PER-DAY serving targets, Greger's published Daily Dozen
     "beans": 3, "berries": 1, "otherFruit": 3, "cruciferousVeg": 1,
     "greens": 2, "otherVeg": 2, "flaxseed": 1, "nuts": 1,
@@ -220,6 +270,11 @@ Seeded from the FITNESS.md system; edited rarely.
 
 The `supplementPlan[].id` values are the keys used in `fitness/daily.json`'s
 per-day `supplements` check map.
+
+`app/lib/weight.js`'s `weightTrend(days, todayIso, phase)` reads `phase` to
+pick a verdict band: gain is on-target at +0.25 to +0.75 lb/wk; loss is
+on-target losing 0.5 to 1.25 lb/wk (slower reads too-slow, including flat or
+gaining; faster reads too-fast). `phase` defaults to `"gain"` when omitted.
 
 ## Fitness — `fitness/workouts.json`
 
@@ -272,6 +327,9 @@ One row per day; 10-second morning check-in.
     {
       "date": "2026-07-06",
       "weight": 180.4,                  // ? lb (Task 8 decision); weigh-day mornings only
+      "waist": 34.5,                    // ? inches; weekly cadence by convention, not
+                                         //   enforced — only profiles with "waist" in
+                                         //   targets.tracks show this marker on Home
       "sleepHours": 7.5,                // ?
       "pushups": 60,                    // ? running count through the day
       "water": 3.5,                     // ? LITERS in 0.25 steps (a cup ≈ 0.25 L — David's rule)

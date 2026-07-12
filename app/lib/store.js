@@ -13,6 +13,83 @@ import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 
 const io = { read: readFile, write: writeFile };
 
+/** Fallback the app boots into when profiles.json is missing (fresh
+ *  install) or unreachable — a legacy/pre-multi-profile install still opens
+ *  straight into David's data at the root, unscoped. */
+const DEFAULT_PROFILES = {
+  profiles: [{ id: "david", name: "David", emoji: "🏋️", phase: "gain" }],
+};
+
+/**
+ * The signed-in profile id (Phase: multi-profile). Defaults to "david" so an
+ * unset key (pre-feature localStorage) reads exactly as David always has.
+ * @returns {string}
+ */
+export function activeProfile() {
+  return localStorage.getItem("mise.activeProfile") || "david";
+}
+
+/**
+ * The one scoping chokepoint: David stays at the data-repo root (his live
+ * synced mise-data repo is never migrated); every other profile's files
+ * live under `profiles/<id>/`. `profiles.json` itself is the one path that
+ * is NEVER scoped — it has to be readable before a profile is even chosen.
+ * Exported only so tests can exercise it directly — views never call this;
+ * they always go through read/write/readCollection below.
+ * @param {string} path
+ * @returns {string}
+ */
+export function scoped(path) {
+  if (path === "profiles.json") return path;
+  const p = activeProfile();
+  return p === "david" ? path : `profiles/${p}/${path}`;
+}
+
+/**
+ * Cache-first read of profiles.json used by readProfiles. Offline-first: the
+ * cached file is the source of truth for the gate (it must list every profile
+ * even with no token / no signal). Falls back to the network only when nothing
+ * is cached yet, and caches that result.
+ * @param {string} path
+ * @returns {Promise<{ data: Record<string, unknown>, sha: string } | null>}
+ */
+async function defaultProfilesRead(path) {
+  const key = scoped(path);
+  const rec = await dbGet(key);
+  if (rec) return { data: rec.data, sha: rec.sha ?? "" };
+  try {
+    const remote = await io.read(path);
+    if (remote) {
+      await cacheRemote(key, remote.data, remote.sha);
+      return remote;
+    }
+  } catch {
+    // offline or no token — fall through to the David-only default
+  }
+  return null;
+}
+
+/**
+ * Reads the ROOT profiles.json — every profile chooser (the gate, System's
+ * "switch profile") calls this. Cache-first via defaultProfilesRead. Falls
+ * back to a single default David profile when the file is missing (fresh
+ * install) or unreachable, so a fresh or pre-multi-profile install still boots.
+ * @param {(path: string) => Promise<{ data: Record<string, unknown>, sha: string } | null>} [readFn]
+ * @returns {Promise<{ profiles: Record<string, any>[] }>}
+ */
+export async function readProfiles(readFn = defaultProfilesRead) {
+  try {
+    const remote = await readFn("profiles.json");
+    const profiles = /** @type {any} */ (remote)?.data?.profiles;
+    if (Array.isArray(profiles) && profiles.length > 0) {
+      return /** @type {any} */ (remote).data;
+    }
+  } catch {
+    // offline, no token, or read failure — fall back to David-only below
+  }
+  return DEFAULT_PROFILES;
+}
+
 /** @type {Set<() => void>} */
 const listeners = new Set();
 
@@ -58,7 +135,7 @@ export function initStore() {
  * @returns {Promise<Record<string, unknown> | null>}
  */
 export async function read(path) {
-  const rec = await dbGet(path);
+  const rec = await dbGet(scoped(path));
   void revalidate(path);
   return rec ? rec.data : null;
 }
@@ -68,14 +145,15 @@ export async function read(path) {
  * @returns {Promise<void>}
  */
 async function revalidate(path) {
+  const scopedPath = scoped(path);
   if (!navigator.onLine) return;
-  const rec = await dbGet(path);
+  const rec = await dbGet(scopedPath);
   if (rec?.dirty) return; // local edits win until flushed
   try {
-    const remote = await readFile(path);
+    const remote = await readFile(scopedPath);
     if (!remote) return;
     if (rec && remote.sha === rec.sha) return;
-    await cacheRemote(path, remote.data, remote.sha);
+    await cacheRemote(scopedPath, remote.data, remote.sha);
     emit();
   } catch {
     // offline or no token — cache already served the read
@@ -106,7 +184,8 @@ function cacheRemote(path, data, sha) {
  * @returns {Promise<Record<string, unknown>[]>}
  */
 export async function readCollection(dir) {
-  const prefix = `${dir}/`;
+  const scopedDir = scoped(dir);
+  const prefix = `${scopedDir}/`;
   const cached = (await dbGetAll())
     .filter((r) => r.path.startsWith(prefix))
     .sort((a, b) => a.path.localeCompare(b.path));
@@ -119,10 +198,11 @@ export async function readCollection(dir) {
  * @returns {Promise<void>}
  */
 async function revalidateCollection(dir) {
+  const scopedDir = scoped(dir);
   if (!navigator.onLine) return;
-  const prefix = `${dir}/`;
+  const prefix = `${scopedDir}/`;
   try {
-    const listing = await listDir(dir);
+    const listing = await listDir(scopedDir);
     const cached = (await dbGetAll()).filter((r) => r.path.startsWith(prefix));
     const cachedByPath = new Map(cached.map((r) => [r.path, r]));
     const listed = new Set(listing.map((e) => e.path));
@@ -164,8 +244,9 @@ async function revalidateCollection(dir) {
  * @returns {Promise<void>}
  */
 export async function write(path, data) {
-  await dbUpdate(path, (cur) => ({
-    path,
+  const scopedPath = scoped(path);
+  await dbUpdate(scopedPath, (cur) => ({
+    path: scopedPath,
     data,
     base: cur?.base ?? null,
     sha: cur?.sha ?? null,

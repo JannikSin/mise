@@ -13,6 +13,7 @@ import { initRouter } from "./lib/router.js";
 import { formatSyncTime, isoWeekId, localIsoDate, statusDate } from "./lib/dates.js";
 import { applyScanItems } from "./lib/scan.js";
 import { HomeView } from "./views/home.js";
+import { ProfileGateView } from "./views/profile-gate.js";
 import { TodayView } from "./views/today.js";
 import { CookbookView } from "./views/cookbook.js";
 import { RecipeView, CookView } from "./views/recipe.js";
@@ -649,4 +650,11 @@ function App() {
 }
 
 const root = document.getElementById("app");
-if (root) render(html`<${App} />`, root);
+if (root) {
+  // gate: no profile chosen yet (fresh install, or System's "switch
+  // profile" cleared the key) — render the chooser instead of the app.
+  render(
+    localStorage.getItem("mise.activeProfile") ? html`<${App} />` : html`<${ProfileGateView} />`,
+    root,
+  );
+}

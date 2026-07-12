@@ -110,6 +110,89 @@ test("gaps in weigh-in days do not corrupt the window (counted by weigh-in, not 
   assert.equal(trend.current, 200.5);
 });
 
+// --- loss phase (phase = "loss") ---
+
+test("loss phase, on-target: losing 0.5-1.25 lb/wk", () => {
+  const prior = Array.from({ length: 7 }, (_, i) => ({
+    date: `2026-06-2${i}`,
+    weight: 200,
+  }));
+  const recent = Array.from({ length: 7 }, (_, i) => ({
+    date: `2026-07-0${i + 1}`,
+    weight: 199,
+  }));
+  const trend = weightTrend([...prior, ...recent], "2026-07-07", "loss");
+  assert.equal(trend.lbPerWeek, -1);
+  assert.equal(trend.verdict, "on-target");
+});
+
+test("loss phase, too-slow: losing less than 0.5 lb/wk", () => {
+  const prior = Array.from({ length: 7 }, (_, i) => ({
+    date: `2026-06-2${i}`,
+    weight: 200,
+  }));
+  const recent = Array.from({ length: 7 }, (_, i) => ({
+    date: `2026-07-0${i + 1}`,
+    weight: 199.9,
+  }));
+  const trend = weightTrend([...prior, ...recent], "2026-07-07", "loss");
+  assert.ok(trend.lbPerWeek !== null && trend.lbPerWeek < 0 && trend.lbPerWeek > -0.5);
+  assert.equal(trend.verdict, "too-slow");
+});
+
+test("loss phase, too-slow: flat or gaining also reads too-slow, not too-fast", () => {
+  const prior = Array.from({ length: 7 }, (_, i) => ({
+    date: `2026-06-2${i}`,
+    weight: 200,
+  }));
+  const recent = Array.from({ length: 7 }, (_, i) => ({
+    date: `2026-07-0${i + 1}`,
+    weight: 200.5,
+  }));
+  const trend = weightTrend([...prior, ...recent], "2026-07-07", "loss");
+  assert.equal(trend.lbPerWeek, 0.5);
+  assert.equal(trend.verdict, "too-slow");
+});
+
+test("loss phase, too-fast: losing more than 1.25 lb/wk", () => {
+  const prior = Array.from({ length: 7 }, (_, i) => ({
+    date: `2026-06-2${i}`,
+    weight: 200,
+  }));
+  const recent = Array.from({ length: 7 }, (_, i) => ({
+    date: `2026-07-0${i + 1}`,
+    weight: 197,
+  }));
+  const trend = weightTrend([...prior, ...recent], "2026-07-07", "loss");
+  assert.equal(trend.lbPerWeek, -3);
+  assert.equal(trend.verdict, "too-fast");
+});
+
+test("loss phase, building: fewer than 7 weigh-ins, same as gain", () => {
+  const days = [
+    { date: "2026-07-01", weight: 150 },
+    { date: "2026-07-02", weight: 149.8 },
+  ];
+  const trend = weightTrend(days, "2026-07-02", "loss");
+  assert.equal(trend.verdict, "building");
+});
+
+test("gain phase is unaffected by the phase param (default and explicit agree)", () => {
+  const prior = Array.from({ length: 7 }, (_, i) => ({
+    date: `2026-06-2${i}`,
+    weight: 200,
+  }));
+  const recent = Array.from({ length: 7 }, (_, i) => ({
+    date: `2026-07-0${i + 1}`,
+    weight: 200.5,
+  }));
+  const days = [...prior, ...recent];
+  const withDefault = weightTrend(days, "2026-07-07");
+  const withExplicit = weightTrend(days, "2026-07-07", "gain");
+  assert.deepEqual(withDefault, withExplicit);
+  assert.equal(withDefault.verdict, "on-target");
+});
+
 test("weigh-ins dated after todayIso are ignored (no extrapolation)", () => {
   const days = [
     { date: "2026-07-01", weight: 200 },

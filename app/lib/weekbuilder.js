@@ -650,8 +650,16 @@ export function poolInsufficiency(recipes, dailyDozenTargets) {
 const FLOOR_RATIO = 0.95;
 /** Calorie CEILING multiplier: a little over target is fine, ~9% over is not. */
 const CEILING_RATIO = 1.05;
-const COMMITTEE_SIZES = { dinner: 4, lunch: 3, breakfast: 2, smoothie: 1, snack: 2 };
-const MEAL_ORDER = /** @type {const} */ (["dinner", "lunch", "breakfast", "smoothie", "snack"]);
+const COMMITTEE_SIZES = { dinner: 4, lunch: 3, breakfast: 2, smoothie: 1 };
+/**
+ * Committee-build / proactive-fill priority (dinner = biggest ingredient
+ * mass, decided first). Snack is never in this list — it's always the
+ * reactive top-up pool (macroTopUp, foodGroupFloorPass), pulled from the
+ * full snack pool regardless of targets.mealSlots.
+ */
+const MEAL_PRIORITY = /** @type {const} */ (["dinner", "lunch", "breakfast", "smoothie"]);
+/** Proactively-filled slots when targets.mealSlots is absent — David's exact current behavior. */
+const DEFAULT_MEAL_SLOTS = /** @type {const} */ (["breakfast", "lunch", "dinner", "smoothie"]);
 
 /**
  * @typedef {{
@@ -667,14 +675,20 @@ const MEAL_ORDER = /** @type {const} */ (["dinner", "lunch", "breakfast", "smoot
  */
 
 /**
- * Full-week generation: clears every UNPINNED entry, rebuilds all 7 days x 5
- * slots from scratch. Pinned entries are never touched and seed the greedy
- * scoring (their foods/food-groups count toward "already in play"). Dinner
- * is picked first (biggest ingredient mass), then lunch, breakfast, smoothie,
- * snack — each committee sees the growing week-wide food pool and coverage.
- * The office-lunch-box recipe (if present) hard-pins Tue/Wed/Thu, matching
- * the Sunday-batch routine. Deterministic per (weekId, salt); RE-ROLL is
- * salt+1 over the same pinned base.
+ * Full-week generation: clears every UNPINNED entry, rebuilds 7 days around
+ * the proactively-filled meal slots. Which slots get proactively filled is
+ * profile-driven: `targets.mealSlots` (ordered list) names them; absent
+ * defaults to `["breakfast", "lunch", "dinner", "smoothie"]` (David's exact
+ * current behavior). Snack is never in that list — it's always the reactive
+ * top-up pool (macroTopUp, foodGroupFloorPass), never proactively committee-
+ * picked. Pinned entries are never touched and seed the greedy scoring
+ * (their foods/food-groups count toward "already in play"). Among the listed
+ * slots, dinner is picked first (biggest ingredient mass), then lunch,
+ * breakfast, smoothie — each committee sees the growing week-wide food pool
+ * and coverage. The office-lunch-box recipe (if present) hard-pins Tue/Wed/
+ * Thu when lunch is a proactive slot, matching the Sunday-batch routine.
+ * Deterministic per (weekId, salt); RE-ROLL is salt+1 over the same pinned
+ * base.
  * @param {{
  *   recipes: Record<string, any>[],
  *   targets: Record<string, any> | null,
@@ -734,9 +748,15 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0 
       .map((e) => ({ recipe: byId.get(/** @type {string} */ (e.recipeId)), count: e.servings })),
   );
 
-  /** @type {{ dinner: Record<string, any>[], lunch: Record<string, any>[], breakfast: Record<string, any>[], smoothie: Record<string, any>[], snack: Record<string, any>[] }} */
-  const committees = { dinner: [], lunch: [], breakfast: [], smoothie: [], snack: [] };
-  for (const meal of MEAL_ORDER) {
+  // which slots get proactively filled/committee-picked is profile-driven;
+  // snack is never in this set, it's always the reactive top-up pool
+  const mealSlots = targets?.mealSlots ?? DEFAULT_MEAL_SLOTS;
+  const mealSlotSet = new Set(mealSlots);
+  const mealOrder = MEAL_PRIORITY.filter((m) => mealSlotSet.has(m));
+
+  /** @type {{ dinner: Record<string, any>[], lunch: Record<string, any>[], breakfast: Record<string, any>[], smoothie: Record<string, any>[] }} */
+  const committees = { dinner: [], lunch: [], breakfast: [], smoothie: [] };
+  for (const meal of mealOrder) {
     const committee = pickCommittee(
       pool(meal).filter((r) => !pinnedRecipeIds.has(r.id)),
       {
@@ -750,11 +770,10 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0 
     );
     committees[meal] = committee;
     // accrue coverage at each member's EXPECTED weekly appearances (dinner
-    // repeats twice; cycled meals appear 7/committee-size times; snacks are
-    // top-up only, count once) — otherwise a committee's ~1-serving accrual
-    // against 7x weekly targets makes the gap bonus too weak to discriminate
-    const expected =
-      meal === "dinner" ? 2 : meal === "snack" ? 1 : 7 / Math.max(1, committee.length);
+    // repeats twice; cycled meals appear 7/committee-size times) — otherwise
+    // a committee's ~1-serving accrual against 7x weekly targets makes the
+    // gap bonus too weak to discriminate
+    const expected = meal === "dinner" ? 2 : 7 / Math.max(1, committee.length);
     for (const r of committee) {
       for (const f of foodSlugsOf(r)) weekFoodPool.add(f);
       for (const [k, v] of Object.entries(foodGroupContribution(r, expected))) {
@@ -784,17 +803,27 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0 
   let dinnerCursor = 0;
 
   dates.forEach((date, i) => {
-    fill(date, "breakfast", committees.breakfast[i % Math.max(1, committees.breakfast.length)]);
-    fill(date, "smoothie", committees.smoothie[0]);
+    if (mealSlotSet.has("breakfast")) {
+      fill(date, "breakfast", committees.breakfast[i % Math.max(1, committees.breakfast.length)]);
+    }
+    if (mealSlotSet.has("smoothie")) {
+      fill(date, "smoothie", committees.smoothie[0]);
+    }
     const isOfficeDay = i >= 1 && i <= 3; // Tue/Wed/Thu
-    fill(
-      date,
-      "lunch",
-      isOfficeDay && officeLunch
-        ? officeLunch
-        : (otherLunches[i % Math.max(1, otherLunches.length)] ?? officeLunch ?? committees.lunch[0]),
-    );
-    if (dinnerCursor < dinnerSequence.length && entriesAt(next.entries, date, "dinner").length === 0) {
+    if (mealSlotSet.has("lunch")) {
+      fill(
+        date,
+        "lunch",
+        isOfficeDay && officeLunch
+          ? officeLunch
+          : (otherLunches[i % Math.max(1, otherLunches.length)] ?? officeLunch ?? committees.lunch[0]),
+      );
+    }
+    if (
+      mealSlotSet.has("dinner") &&
+      dinnerCursor < dinnerSequence.length &&
+      entriesAt(next.entries, date, "dinner").length === 0
+    ) {
       fill(date, "dinner", dinnerSequence[dinnerCursor]);
       dinnerCursor++;
     }
