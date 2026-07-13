@@ -6,6 +6,8 @@ import {
   applyJustBought,
   ownItemToPantry,
   roundForPurchase,
+  mergeProfileLists,
+  swapCandidates,
 } from "../app/lib/shopping.js";
 
 test("on-hand pantry staples are subtracted from the derived list by name", () => {
@@ -494,4 +496,82 @@ test("deriveShoppingList rounds AFTER summing across recipes, not per-recipe", (
   const pepper = list.items.find((i) => i.food === "bell pepper");
   assert.equal(pepper.qty, 1);
   assert.equal(pepper.unit, "each");
+});
+
+test("mergeProfileLists sums overlapping items by id and tracks per-profile sources", () => {
+  const david = {
+    items: [
+      { id: "feta-cheese-cup", food: "feta cheese", qty: 1, unit: "cup", section: "dairy", checked: false, manual: false },
+      { id: "chicken-thigh-g", food: "chicken thigh", qty: 900, unit: "g", section: "meat", checked: true, manual: false },
+    ],
+  };
+  const mom = {
+    items: [
+      { id: "feta-cheese-cup", food: "feta cheese", qty: 0.5, unit: "cup", section: "dairy", checked: true, manual: false },
+      { id: "blue-cheese-cup", food: "blue cheese", qty: 0.25, unit: "cup", section: "dairy", checked: false, manual: false },
+    ],
+  };
+  const combined = mergeProfileLists([
+    { profileId: "david", list: david },
+    { profileId: "mom", list: mom },
+  ]);
+
+  const feta = combined.find((i) => i.id === "feta-cheese-cup");
+  assert.equal(feta.qty, 1.5);
+  assert.deepEqual(
+    feta.sources.map((s) => s.profileId).sort(),
+    ["david", "mom"],
+  );
+  // half-bought is not bought: david's source unchecked
+  assert.equal(feta.sources.every((s) => s.checked), false);
+
+  const chicken = combined.find((i) => i.id === "chicken-thigh-g");
+  assert.equal(chicken.sources.length, 1);
+  assert.equal(chicken.sources.every((s) => s.checked), true);
+
+  // sorted section-first like the per-profile list
+  const sections = combined.map((i) => i.section);
+  assert.deepEqual(sections, [...sections].sort());
+});
+
+test("swapCandidates flags single-profile partial-container items with what others already buy", () => {
+  const combined = mergeProfileLists([
+    {
+      profileId: "david",
+      list: {
+        items: [
+          { id: "feta-cheese-cup", food: "feta cheese", qty: 1, unit: "cup", section: "dairy", checked: false, manual: false },
+          { id: "ground-beef-g", food: "ground beef", qty: 400, unit: "g", section: "meat", checked: false, manual: false },
+        ],
+      },
+    },
+    {
+      profileId: "mom",
+      list: {
+        items: [
+          { id: "blue-cheese-cup", food: "blue cheese", qty: 0.25, unit: "cup", section: "dairy", checked: false, manual: false },
+          { id: "chicken-thigh-g", food: "chicken thigh", qty: 500, unit: "g", section: "meat", checked: false, manual: false },
+        ],
+      },
+    },
+  ]);
+  const cands = swapCandidates(combined);
+  // blue cheese: only mom buys it, dairy is partial-container-prone, and
+  // david is already buying feta in the same section -> candidate
+  const blue = cands.find((c) => c.item.id === "blue-cheese-cup");
+  assert.ok(blue);
+  assert.deepEqual(blue.alreadyBuying.map((i) => i.id), ["feta-cheese-cup"]);
+  // meat is a use-it-all section: never suggested
+  assert.equal(cands.some((c) => c.item.section === "meat"), false);
+});
+
+test("swapCandidates stays quiet when there is nothing to pair", () => {
+  const combined = mergeProfileLists([
+    {
+      profileId: "david",
+      list: { items: [{ id: "feta-cheese-cup", food: "feta cheese", qty: 1, unit: "cup", section: "dairy", checked: false, manual: false }] },
+    },
+    { profileId: "mom", list: { items: [] } },
+  ]);
+  assert.deepEqual(swapCandidates(combined), []);
 });

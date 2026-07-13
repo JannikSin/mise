@@ -44,7 +44,25 @@ Every other profile's files live under `profiles/<id>/`, e.g. Mom's shopping
 list is `profiles/mom/shopping.json`, her targets are
 `profiles/mom/fitness/targets.json`. `profiles.json` itself is the one file
 that is NEVER scoped, by any profile — it has to be readable before a
-profile is even chosen.
+profile is even chosen. `read`/`write`/`readCollection` accept `{ raw: true }`
+to skip scoping for the two cross-profile features below; everything else
+stays scoped.
+
+**Recipe bank** (pilot): root `recipes/` is the SHARED bank every profile
+pulls from. A profile's working pool = bank recipes whose optional `phases`
+tag admits the profile's `targets.phase` (absent tag = everyone), overlaid
+with the profile's own `profiles/<id>/recipes/` (same id = the profile's
+adjusted variant wins; own recipes are never phase-filtered). Merge lives in
+`app/lib/plan.js` `mergeRecipePool`; the generator and views only ever see
+the merged pool. An empty `profiles/<id>/recipes/` is a working state — the
+bank covers it.
+
+**Combined household shopping list**: a read-time merge of every profile's
+`shopping.json` (`app/lib/shopping.js` `mergeProfileLists`) shown as the
+EVERYONE tab in List. No third file exists; ticking a combined item writes
+the tick through to each source profile's own list. Swap suggestions
+(`swapCandidates`) flag single-profile items in partial-container sections
+(dairy/produce/spices/other) — report only, recipes are never auto-edited.
 
 Schema-exemplar fixtures live in the app repo under `fixtures/` with the same
 shapes; the post-edit hook's drift check reads them. Never commit real user
@@ -65,6 +83,13 @@ data to the app repo.
 - `phase` here is a display-only mirror of that profile's own
   `fitness/targets.json.phase` — shown on the profile-gate button before
   that profile's own data has loaded.
+- New profiles are created by the gate's ADD PROFILE questionnaire
+  (`app/views/profile-gate.js`): sex/age/height(ft+in)/weight(lb)/activity/
+  goal → `targetsFromQuestionnaire` (`app/lib/fitness.js`, Mifflin-St Jeor
+  × activity ± goal delta) writes a complete
+  `profiles/<id>/fitness/targets.json` and appends to `profiles.json`.
+  Recipes come from the shared bank, so no per-profile recipe seeding is
+  needed.
 - If the file is missing or unreachable, `store.js`'s `readProfiles()` falls
   back to a single default David profile so a fresh or pre-multi-profile
   install still boots straight into the app.
@@ -87,6 +112,12 @@ data to the app repo.
   "tags": ["rice-bowl", "batch-friendly"],
   "difficulty": 1,                      // 1..3
   "rating": 4,                          // ? 1..5, David's own
+  "phases": ["gain"],                   // ? recipe-bank visibility: which targets.phase values
+                                        //   this recipe serves (gain | loss | recomp | cut).
+                                        //   ABSENT = serves every profile. Only tag the
+                                        //   extremes (900-kcal bulk bowls -> ["gain"],
+                                        //   preload soups -> ["loss","cut"]). Profile-local
+                                        //   recipes ignore this field entirely.
   "purpose": ["recovery", "everyday"],  // recovery | pre-activity | long-satiety | sick-day | everyday
   "effort": "assembly",                 // assembly (<15m) | cook (15-30m) | project (30m+)
   "ingredients": [

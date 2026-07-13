@@ -192,6 +192,76 @@ function ceilStep(qty, step) {
 }
 
 /**
+ * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, sources: { profileId: string, checked: boolean }[] }} CombinedItem
+ */
+
+/**
+ * One store trip for the whole household: merge every profile's shopping
+ * list into a single read-time view. Items merge by their unit-aware id,
+ * quantities sum (each source list already rounded up to purchasable
+ * amounts, so the sum stays purchasable), and each merged item remembers
+ * which profiles want it. A combined item reads checked only when EVERY
+ * source has it checked — half-bought is not bought.
+ * @param {{ profileId: string, list: ShoppingList }[]} lists
+ * @returns {CombinedItem[]}
+ */
+export function mergeProfileLists(lists) {
+  /** @type {Map<string, CombinedItem>} */
+  const merged = new Map();
+  for (const { profileId, list } of lists) {
+    for (const item of list.items ?? []) {
+      const existing = merged.get(item.id);
+      if (existing) {
+        existing.qty += item.qty;
+        existing.sources.push({ profileId, checked: item.checked });
+      } else {
+        merged.set(item.id, {
+          id: item.id,
+          food: item.food,
+          qty: item.qty,
+          unit: item.unit,
+          section: item.section,
+          sources: [{ profileId, checked: item.checked }],
+        });
+      }
+    }
+  }
+  const items = [...merged.values()];
+  items.sort((a, b) => a.section.localeCompare(b.section) || a.food.localeCompare(b.food));
+  return items;
+}
+
+/** Sections where a single-profile buy tends to strand most of a container
+ *  (herbs wilt, cheeses mold, dressings die in the fridge door). */
+const PARTIAL_CONTAINER_SECTIONS = new Set(["dairy", "produce", "spices", "other"]);
+
+/**
+ * Harmonizer pilot (council verdict: report, never a rewriter): items only
+ * ONE profile is buying, in partial-container-prone sections, paired with
+ * what the other profiles are already buying in that same section — the
+ * "you're already buying feta for her, his salad could take feta too" label.
+ * Suggestion only; recipes are never auto-edited (a Greger-audited recipe
+ * with a silently swapped cheese is no longer audited).
+ * @param {CombinedItem[]} combined
+ * @returns {{ item: CombinedItem, alreadyBuying: CombinedItem[] }[]}
+ */
+export function swapCandidates(combined) {
+  const out = [];
+  for (const item of combined) {
+    if (item.sources.length !== 1 || !PARTIAL_CONTAINER_SECTIONS.has(item.section)) continue;
+    const alreadyBuying = combined.filter(
+      (other) =>
+        other.section === item.section &&
+        other.id !== item.id &&
+        (other.sources.length > 1 ||
+          other.sources[0]?.profileId !== item.sources[0]?.profileId),
+    );
+    if (alreadyBuying.length > 0) out.push({ item, alreadyBuying });
+  }
+  return out;
+}
+
+/**
  * "I already have this — permanently": a list item becomes (or refreshes) a
  * pantry staple with onHand true and leaves the list. For the found-it-in-
  * the-cupboard case; plain ticking covers "have enough for this week".

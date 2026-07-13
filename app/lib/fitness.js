@@ -171,3 +171,83 @@ export function setTopSet(session, exercise, set) {
       : [...session.exercises, { name: exercise, sets: [set] }],
   };
 }
+
+/**
+ * @typedef {{
+ *   sex: "m" | "f",
+ *   age: number,
+ *   heightFt: number,
+ *   heightIn: number,
+ *   weightLb: number,
+ *   activity: 1 | 2 | 3 | 4 | 5,
+ *   goal: "loss" | "maintain" | "gain"
+ * }} Questionnaire
+ */
+
+/** Standard TDEE activity multipliers, sedentary through very active. */
+const ACTIVITY_MULT = [1.2, 1.375, 1.55, 1.725, 1.9];
+
+/**
+ * A complete fitness/targets.json from the add-profile questionnaire, so a
+ * new household member gets working macro targets without a single hand-set
+ * number. Mifflin-St Jeor BMR (imperial inputs converted internally — this
+ * household shops in Chicagoland, not Lyon) x activity, then a goal delta
+ * (-500 loss / +300 gain). Protein anchors to bodyweight, fat to ~30% of
+ * calories, carbs take the remainder. Greger's Daily Dozen targets are the
+ * published dozen — the same for everyone; only the macro wrapper differs.
+ * @param {Questionnaire} q
+ * @param {string} [todayIso] stamps phaseSince when provided
+ * @returns {Record<string, any>}
+ */
+export function targetsFromQuestionnaire(q, todayIso) {
+  const kg = q.weightLb * 0.45359237;
+  const cm = (q.heightFt * 12 + q.heightIn) * 2.54;
+  const bmr = 10 * kg + 6.25 * cm - 5 * q.age + (q.sex === "m" ? 5 : -161);
+  const tdee = bmr * (ACTIVITY_MULT[q.activity - 1] ?? 1.2);
+  const delta = q.goal === "loss" ? -500 : q.goal === "gain" ? 300 : 0;
+  const calories = Math.max(1200, Math.round((tdee + delta) / 50) * 50);
+  const protein = Math.round(q.weightLb * (q.goal === "gain" ? 1.0 : 0.9));
+  const fat = Math.round((calories * 0.3) / 9);
+  const carbs = Math.round((calories - protein * 4 - fat * 9) / 4);
+  const phase = q.goal === "loss" ? "loss" : q.goal === "gain" ? "gain" : "recomp";
+  return {
+    macros: {
+      calories,
+      caloriesFloor: Math.max(1200, calories - 200),
+      protein,
+      proteinFloor: Math.max(0, protein - 25),
+      fat,
+      carbs,
+      waterLiters: q.sex === "m" ? 3.5 : 2.7,
+    },
+    adjustmentRule:
+      "Weigh most mornings; judge the 7-day average, not the day. Adjust calories by 150-200 only after two flat weeks.",
+    phase,
+    ...(todayIso ? { phaseSince: todayIso } : {}),
+    mealSlots:
+      phase === "gain"
+        ? ["breakfast", "lunch", "dinner", "smoothie"]
+        : ["breakfast", "lunch", "dinner"],
+    tracks:
+      phase === "gain"
+        ? ["sleep", "weight", "pushups", "water", "supplements", "dailyDozen"]
+        : ["sleep", "weight", "waist", "water", "dailyDozen"],
+    dailyDozen: {
+      beans: 3,
+      berries: 1,
+      otherFruit: 3,
+      cruciferousVeg: 1,
+      greens: 2,
+      otherVeg: 2,
+      flaxseed: 1,
+      nuts: 1,
+      spicesHerbs: 1,
+      wholeGrains: 3,
+      beverages: 5,
+    },
+    sleepHoursTarget: 8,
+    priorityStack: ["Sleep", "Protein", "Water", "Everything else"],
+    nonNegotiables: [],
+    supplementPlan: [],
+  };
+}

@@ -131,21 +131,25 @@ export function initStore() {
 /**
  * Cached-first read. Returns the local record immediately (null if never
  * fetched); kicks off a background refresh for clean files when online.
+ * `raw: true` skips profile scoping — the path is used verbatim. Cross-profile
+ * features (combined shopping list, the shared recipe bank) read other
+ * profiles' files this way; everything else stays scoped.
  * @param {string} path
+ * @param {{ raw?: boolean }} [opts]
  * @returns {Promise<Record<string, unknown> | null>}
  */
-export async function read(path) {
-  const rec = await dbGet(scoped(path));
-  void revalidate(path);
+export async function read(path, opts) {
+  const finalPath = opts?.raw ? path : scoped(path);
+  const rec = await dbGet(finalPath);
+  void revalidate(finalPath);
   return rec ? rec.data : null;
 }
 
 /**
- * @param {string} path
+ * @param {string} scopedPath already-final path (caller applied scoping)
  * @returns {Promise<void>}
  */
-async function revalidate(path) {
-  const scopedPath = scoped(path);
+async function revalidate(scopedPath) {
   if (!navigator.onLine) return;
   const rec = await dbGet(scopedPath);
   if (rec?.dirty) return; // local edits win until flushed
@@ -183,22 +187,21 @@ function cacheRemote(path, data, sha) {
  * @param {string} dir
  * @returns {Promise<Record<string, unknown>[]>}
  */
-export async function readCollection(dir) {
-  const scopedDir = scoped(dir);
+export async function readCollection(dir, /** @type {{ raw?: boolean } | undefined} */ opts = undefined) {
+  const scopedDir = opts?.raw ? dir : scoped(dir);
   const prefix = `${scopedDir}/`;
   const cached = (await dbGetAll())
     .filter((r) => r.path.startsWith(prefix))
     .sort((a, b) => a.path.localeCompare(b.path));
-  void revalidateCollection(dir);
+  void revalidateCollection(scopedDir);
   return cached.map((r) => r.data);
 }
 
 /**
- * @param {string} dir
+ * @param {string} scopedDir already-final dir (caller applied scoping)
  * @returns {Promise<void>}
  */
-async function revalidateCollection(dir) {
-  const scopedDir = scoped(dir);
+async function revalidateCollection(scopedDir) {
   if (!navigator.onLine) return;
   const prefix = `${scopedDir}/`;
   try {
@@ -239,12 +242,15 @@ async function revalidateCollection(dir) {
 
 /**
  * Optimistic local write: cached instantly, queued, flushed when possible.
+ * `raw: true` skips profile scoping (see read) — combined-list write-through
+ * ticks update OTHER profiles' shopping files by their full path.
  * @param {string} path
  * @param {Record<string, unknown>} data
+ * @param {{ raw?: boolean }} [opts]
  * @returns {Promise<void>}
  */
-export async function write(path, data) {
-  const scopedPath = scoped(path);
+export async function write(path, data, opts) {
+  const scopedPath = opts?.raw ? path : scoped(path);
   await dbUpdate(scopedPath, (cur) => ({
     path: scopedPath,
     data,

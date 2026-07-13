@@ -742,7 +742,7 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0 
     }),
   );
   /** @type {Record<string, number>} */
-  let coverageSoFar = foodGroupCoverage(
+  const coverageSoFar = foodGroupCoverage(
     pinnedEntries
       .filter((e) => e.recipeId && byId.get(e.recipeId))
       .map((e) => ({ recipe: byId.get(/** @type {string} */ (e.recipeId)), count: e.servings })),

@@ -10,6 +10,7 @@
   "cuisine": "test",
   "tags": ["fixture"],
   "difficulty": 1,
+  "phases": ["gain", "loss", "recomp", "cut"],
   "purpose": ["everyday"],
   "effort": "assembly",
   "ingredients": [

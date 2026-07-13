@@ -8,6 +8,7 @@ import {
   setTopSet,
   formatSets,
   templateForDate,
+  targetsFromQuestionnaire,
 } from "../app/lib/fitness.js";
 
 const SESSIONS = [
@@ -126,4 +127,57 @@ test("templateForDate returns null when schedule is undefined", () => {
 test("templateForDate returns null when the schedule names an id absent from templates", () => {
   const badSchedule = { ...SCHEDULE, mon: "not-a-real-id" };
   assert.equal(templateForDate(badSchedule, TEMPLATES, "2026-07-06"), null);
+});
+
+test("targetsFromQuestionnaire: loss profile gets Mifflin-St Jeor minus 500, 3 meal slots", () => {
+  // 60-year-old woman, 5'4", 160 lb, lightly active, losing:
+  // kg=72.57, cm=162.56, BMR = 10*72.57 + 6.25*162.56 - 5*60 - 161 = 1280.7
+  // TDEE = 1280.7*1.375 = 1761 ; -500 = 1261 ; rounded to 50 -> 1250
+  const t = targetsFromQuestionnaire(
+    { sex: "f", age: 60, heightFt: 5, heightIn: 4, weightLb: 160, activity: 2, goal: "loss" },
+    "2026-07-12",
+  );
+  assert.equal(t.macros.calories, 1250);
+  assert.equal(t.macros.protein, 144); // 0.9 g/lb
+  assert.equal(t.phase, "loss");
+  assert.equal(t.phaseSince, "2026-07-12");
+  assert.deepEqual(t.mealSlots, ["breakfast", "lunch", "dinner"]);
+  assert.ok(t.tracks.includes("waist"));
+  assert.equal(t.macros.caloriesFloor, 1200); // floor clamps at 1200
+  assert.equal(t.dailyDozen.greens, 2); // Daily Dozen identical for everyone
+});
+
+test("targetsFromQuestionnaire: gain profile gets +300, smoothie slot, 1 g/lb protein", () => {
+  const t = targetsFromQuestionnaire({
+    sex: "m",
+    age: 20,
+    heightFt: 6,
+    heightIn: 0,
+    weightLb: 180,
+    activity: 4,
+    goal: "gain",
+  });
+  assert.equal(t.phase, "gain");
+  assert.equal("phaseSince" in t, false);
+  assert.equal(t.macros.protein, 180);
+  assert.deepEqual(t.mealSlots, ["breakfast", "lunch", "dinner", "smoothie"]);
+  // sanity: a 6-foot active 20-year-old bulking eats a lot
+  assert.ok(t.macros.calories > 3000, `calories ${t.macros.calories}`);
+  // macros account for roughly all calories (rounding slack < 100 kcal)
+  const kcalFromMacros = t.macros.protein * 4 + t.macros.fat * 9 + t.macros.carbs * 4;
+  assert.ok(Math.abs(kcalFromMacros - t.macros.calories) < 100);
+});
+
+test("targetsFromQuestionnaire: maintain maps to recomp phase, no delta", () => {
+  const t = targetsFromQuestionnaire({
+    sex: "f",
+    age: 30,
+    heightFt: 5,
+    heightIn: 6,
+    weightLb: 140,
+    activity: 3,
+    goal: "maintain",
+  });
+  assert.equal(t.phase, "recomp");
+  assert.deepEqual(t.mealSlots, ["breakfast", "lunch", "dinner"]);
 });

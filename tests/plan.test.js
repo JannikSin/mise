@@ -11,6 +11,7 @@ import {
   dayTotals,
   togglePinById,
   setPlanLocked,
+  mergeRecipePool,
 } from "../app/lib/plan.js";
 
 test("shiftWeek moves across plain and year-boundary weeks", () => {
@@ -144,6 +145,32 @@ test("setPlanLocked sets/clears locked without touching entries, and is pure", (
 
   const unlocked = setPlanLocked(locked, false);
   assert.equal(unlocked.locked, false);
+});
+
+test("mergeRecipePool: untagged bank serves everyone, phases tag filters, own overrides by id", () => {
+  const bank = [
+    { id: "kofta", nutrition: { calories: 842 } }, // untagged = every profile
+    { id: "bulk-bowl", phases: ["gain"] },
+    { id: "preload-soup", phases: ["loss", "cut"] },
+  ];
+  const own = [{ id: "kofta", nutrition: { calories: 480 } }]; // Mom's adjusted variant
+
+  const momPool = mergeRecipePool(bank, own, "loss");
+  const momIds = momPool.map((r) => r.id).sort();
+  assert.deepEqual(momIds, ["kofta", "preload-soup"]); // bulk-bowl filtered out
+  assert.equal(momPool.find((r) => r.id === "kofta")?.nutrition.calories, 480); // override wins
+
+  const davidPool = mergeRecipePool(bank, [], "gain");
+  assert.deepEqual(davidPool.map((r) => r.id).sort(), ["bulk-bowl", "kofta"]);
+
+  // no phase known yet (targets still loading): nothing filtered, app stays usable
+  assert.equal(mergeRecipePool(bank, [], undefined).length, 3);
+});
+
+test("mergeRecipePool: own recipes are never phase-filtered", () => {
+  const own = [{ id: "my-treat", phases: ["gain"] }];
+  const pool = mergeRecipePool([], own, "loss");
+  assert.deepEqual(pool.map((r) => r.id), ["my-treat"]);
 });
 
 test("dayTotals sums stacked entries in the same slot", () => {

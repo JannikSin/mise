@@ -1,6 +1,8 @@
 import { html } from "htm/preact";
 import { useRef, useState } from "preact/hooks";
 import { scanPhoto } from "../lib/worker.js";
+import { mergeProfileLists, swapCandidates } from "../lib/shopping.js";
+import { activeProfile } from "../lib/store.js";
 
 const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spices", "other"];
 
@@ -22,7 +24,9 @@ const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spice
  *   onToggleLow: (id: string) => void,
  *   onOwnItem: (id: string) => void,
  *   onScanApprove: (items: { name: string, kind: string, qty: string }[]) => void,
- *   onToggleLock: () => void
+ *   onToggleLock: () => void,
+ *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList }[],
+ *   onCombinedToggle: (itemId: string, sources: { profileId: string, checked: boolean }[]) => void
  * }} props
  */
 export function ShoppingView({
@@ -41,8 +45,10 @@ export function ShoppingView({
   onOwnItem,
   onScanApprove,
   onToggleLock,
+  others,
+  onCombinedToggle,
 }) {
-  const [tab, setTab] = useState(/** @type {"list" | "pantry"} */ ("list"));
+  const [tab, setTab] = useState(/** @type {"list" | "pantry" | "combined"} */ ("list"));
   const [manual, setManual] = useState("");
   // camera scan: null | "busy" | { error } | { items, kept: boolean[] }
   const [scan, setScan] = useState(/** @type {any} */ (null));
@@ -73,6 +79,27 @@ export function ShoppingView({
     items: items.filter((i) => i.section === s),
   })).filter((g) => g.items.length > 0);
 
+  // combined household trip: this profile's list + every other profile's,
+  // merged read-time (no third artifact to sync)
+  const me = activeProfile();
+  /** @type {Map<string, string>} */
+  const emojiFor = new Map();
+  emojiFor.set(me, "•");
+  for (const o of others) emojiFor.set(o.profileId, o.emoji);
+  const combined =
+    others.length > 0
+      ? mergeProfileLists([
+          { profileId: me, list: shopping },
+          ...others.map((o) => ({ profileId: o.profileId, list: o.list })),
+        ])
+      : [];
+  const combinedSections = SECTION_ORDER.map((s) => ({
+    section: s,
+    items: combined.filter((i) => i.section === s),
+  })).filter((g) => g.items.length > 0);
+  const candidates = swapCandidates(combined);
+  const sharedCount = combined.filter((i) => i.sources.length > 1).length;
+
   return html`
     <div class="view">
       <div class="hero"><h1>List</h1></div>
@@ -92,6 +119,16 @@ export function ShoppingView({
         >
           PANTRY
         </button>
+        ${
+          others.length > 0 &&
+          html`<button
+            class="chip ${tab === "combined" ? "on" : ""}"
+            aria-pressed=${tab === "combined"}
+            onClick=${() => setTab("combined")}
+          >
+            EVERYONE ${combined.length ? `(${combined.length})` : ""}
+          </button>`
+        }
       </div>
 
       ${
@@ -320,6 +357,65 @@ export function ShoppingView({
               </div>
             `
           }
+        `
+      }
+      ${
+        tab === "combined" &&
+        html`
+          <p class="hint">
+            One trip for the whole household. Quantities are everyone's lists summed; the badges
+            show who wants it. Tick = bought for everyone who wants it (writes to each person's
+            own list). <span class="num">${sharedCount}</span> of${" "}
+            <span class="num">${combined.length}</span> items are already shared.
+          </p>
+          ${
+            candidates.length > 0 &&
+            html`
+              <div class="tile buildreport" role="note">
+                <div class="k">Could share instead of buying twice</div>
+                ${candidates.slice(0, 6).map(
+                  (c) => html`
+                    <div class="d" key=${c.item.id}>
+                      ${emojiFor.get(c.item.sources[0]?.profileId ?? "") ?? "?"} ${c.item.food} —
+                      others already buying: ${c.alreadyBuying.map((i) => i.food).join(", ")}
+                    </div>
+                  `,
+                )}
+                <div class="d hint">
+                  suggestions only — swap the recipe yourself if it makes sense
+                </div>
+              </div>
+            `
+          }
+          ${combinedSections.map(
+            (g) => html`
+              <h2 class="block-title" key=${g.section}>${g.section}</h2>
+              <div class="slots">
+                ${g.items.map((i) => {
+                  const allChecked = i.sources.every((s) => s.checked);
+                  return html`
+                    <div class="checkrow ${allChecked ? "done" : ""}" key=${i.id}>
+                      <button
+                        class="tickarea"
+                        aria-pressed=${allChecked}
+                        onClick=${() => onCombinedToggle(i.id, i.sources)}
+                      >
+                        <span class="box" aria-hidden="true">${allChecked ? "✓" : ""}</span>
+                        <span class="food">
+                          ${i.food}${" "}
+                          <span class="tag"
+                            >${i.sources.map((s) => emojiFor.get(s.profileId) ?? "?").join(" ")}</span
+                          >
+                        </span>
+                        <span class="q num">${i.qty} ${i.unit}</span>
+                      </button>
+                    </div>
+                  `;
+                })}
+              </div>
+            `,
+          )}
+          ${combined.length === 0 && html`<div class="empty">no lists to combine yet</div>`}
         `
       }
     </div>

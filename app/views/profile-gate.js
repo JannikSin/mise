@@ -1,6 +1,8 @@
 import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 import { readProfiles, write } from "../lib/store.js";
+import { targetsFromQuestionnaire } from "../lib/fitness.js";
+import { localIsoDate } from "../lib/dates.js";
 
 /**
  * Full-screen profile chooser: shown by main.js when localStorage's
@@ -8,6 +10,13 @@ import { readProfiles, write } from "../lib/store.js";
  * profile" clears it). Tapping a profile sets the key and reloads — same
  * clean pattern as token entry — so every scoped read/write re-derives from
  * the new value on next boot.
+ *
+ * ADD PROFILE is a questionnaire, not a bare name field: height/weight/age/
+ * activity/goal feed targetsFromQuestionnaire (Mifflin-St Jeor) so the new
+ * profile boots with working macro targets, meal slots, and Daily Dozen —
+ * no Claude session required to onboard a household member. Recipes come
+ * from the shared bank (phases-filtered), so an empty profiles/<id>/recipes/
+ * is a working state, not a broken one.
  * @returns {import("preact").VNode}
  */
 export function ProfileGateView() {
@@ -15,7 +24,14 @@ export function ProfileGateView() {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("");
-  const [phase, setPhase] = useState("gain");
+  const [sex, setSex] = useState(/** @type {"m" | "f"} */ ("f"));
+  const [age, setAge] = useState("");
+  const [heightFt, setHeightFt] = useState("");
+  const [heightIn, setHeightIn] = useState("");
+  const [weightLb, setWeightLb] = useState("");
+  const [activity, setActivity] = useState(2);
+  const [goal, setGoal] = useState(/** @type {"loss" | "maintain" | "gain"} */ ("maintain"));
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -34,21 +50,62 @@ export function ProfileGateView() {
     location.reload();
   };
 
+  const numeric = {
+    age: Number(age),
+    heightFt: Number(heightFt),
+    heightIn: heightIn.trim() === "" ? 0 : Number(heightIn),
+    weightLb: Number(weightLb),
+  };
+  const formValid =
+    name.trim() &&
+    emoji.trim() &&
+    numeric.age >= 10 &&
+    numeric.age <= 100 &&
+    numeric.heightFt >= 3 &&
+    numeric.heightFt <= 7 &&
+    numeric.heightIn >= 0 &&
+    numeric.heightIn < 12 &&
+    numeric.weightLb >= 60 &&
+    numeric.weightLb <= 500;
+
   const addProfile = async () => {
+    if (!formValid || saving) return;
     const trimmedName = name.trim();
-    const trimmedEmoji = emoji.trim();
-    if (!trimmedName || !trimmedEmoji) return;
     const id = trimmedName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "");
     if (!id || profiles.some((p) => p.id === id)) return;
-    const next = { profiles: [...profiles, { id, name: trimmedName, emoji: trimmedEmoji, phase }] };
-    // await the cache write (not the network flush, which queues and
-    // survives fine) so the reload below never races the local record.
+    setSaving(true);
+    const targets = targetsFromQuestionnaire(
+      {
+        sex,
+        age: numeric.age,
+        heightFt: numeric.heightFt,
+        heightIn: numeric.heightIn,
+        weightLb: numeric.weightLb,
+        activity: /** @type {1|2|3|4|5} */ (activity),
+        goal,
+      },
+      localIsoDate(new Date()),
+    );
+    const next = {
+      profiles: [
+        ...profiles,
+        { id, name: trimmedName, emoji: emoji.trim(), phase: targets.phase },
+      ],
+    };
+    // await the cache writes (not the network flush, which queues and
+    // survives fine) so the reload below never races the local records.
+    // Both paths are raw: the gate runs BEFORE a profile is chosen, so
+    // scoping must not apply. profiles.json is never scoped anyway.
+    await write(`profiles/${id}/fitness/targets.json`, targets, { raw: true });
     await write("profiles.json", next);
     choose(id);
   };
+
+  const num = (/** @type {(v: string) => void} */ set) => (/** @type {any} */ e) =>
+    set(e.currentTarget.value.replace(/[^0-9]/g, ""));
 
   return html`
     <div class="view">
@@ -83,17 +140,87 @@ export function ProfileGateView() {
               onInput=${(/** @type {any} */ e) => setEmoji(e.currentTarget.value)}
             />
           </div>
-          <div class="chips wrapchips">
-            <button class="chip ${phase === "gain" ? "on" : ""}" onClick=${() => setPhase("gain")}>
+
+          <h2 class="block-title">about them</h2>
+          <div class="chips" role="group" aria-label="Sex (for calorie math)">
+            <button class="chip ${sex === "f" ? "on" : ""}" onClick=${() => setSex("f")}>
+              female
+            </button>
+            <button class="chip ${sex === "m" ? "on" : ""}" onClick=${() => setSex("m")}>
+              male
+            </button>
+          </div>
+          <div class="token-form">
+            <input
+              aria-label="Age in years"
+              placeholder="age"
+              inputmode="numeric"
+              value=${age}
+              onInput=${num(setAge)}
+            />
+            <input
+              aria-label="Height feet"
+              placeholder="ft"
+              inputmode="numeric"
+              value=${heightFt}
+              onInput=${num(setHeightFt)}
+            />
+            <input
+              aria-label="Height inches"
+              placeholder="in"
+              inputmode="numeric"
+              value=${heightIn}
+              onInput=${num(setHeightIn)}
+            />
+            <input
+              aria-label="Weight in pounds"
+              placeholder="lb"
+              inputmode="numeric"
+              value=${weightLb}
+              onInput=${num(setWeightLb)}
+            />
+          </div>
+
+          <h2 class="block-title">how active</h2>
+          <div class="chips wrapchips" role="group" aria-label="Activity level">
+            ${["desk job", "light", "moderate", "very", "athlete"].map(
+              (label, i) => html`
+                <button
+                  class="chip ${activity === i + 1 ? "on" : ""}"
+                  key=${label}
+                  onClick=${() => setActivity(i + 1)}
+                >
+                  ${label}
+                </button>
+              `,
+            )}
+          </div>
+
+          <h2 class="block-title">goal</h2>
+          <div class="chips" role="group" aria-label="Goal">
+            <button class="chip ${goal === "loss" ? "on" : ""}" onClick=${() => setGoal("loss")}>
+              lose
+            </button>
+            <button
+              class="chip ${goal === "maintain" ? "on" : ""}"
+              onClick=${() => setGoal("maintain")}
+            >
+              maintain
+            </button>
+            <button class="chip ${goal === "gain" ? "on" : ""}" onClick=${() => setGoal("gain")}>
               gain
             </button>
-            <button class="chip ${phase === "loss" ? "on" : ""}" onClick=${() => setPhase("loss")}>
-              loss
+          </div>
+
+          <div class="actions">
+            <button class="primary" onClick=${addProfile} disabled=${!formValid || saving}>
+              ${saving ? "SETTING UP…" : "ADD & OPEN"}
             </button>
           </div>
-          <div class="actions">
-            <button class="primary" onClick=${addProfile}>ADD &amp; OPEN</button>
-          </div>
+          <p class="hint">
+            calories and protein are computed from these answers (Mifflin-St Jeor); recipes come
+            from the shared bank matched to the goal. Everything is adjustable later in SYS.
+          </p>
         </div>
       </details>
     </div>

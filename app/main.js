@@ -6,6 +6,8 @@ import {
   write,
   read,
   readCollection,
+  readProfiles,
+  activeProfile,
   getSyncStatus,
   onSyncChange,
 } from "./lib/store.js";
@@ -39,6 +41,7 @@ import {
   shiftWeek,
   togglePinById,
   setPlanLocked,
+  mergeRecipePool,
   SLOT_KEYS,
 } from "./lib/plan.js";
 import { generateWeek } from "./lib/weekbuilder.js";
@@ -107,13 +110,25 @@ function App() {
     return onSyncChange(() => setSync(getSyncStatus()));
   }, []);
 
-  // recipes: cached-first, refreshed whenever sync activity changes the cache
+  // recipes: cached-first, refreshed whenever sync activity changes the
+  // cache. Recipe-bank pilot: every profile's pool = shared bank (root
+  // recipes/, phases-filtered) + its own scoped recipes (override by id).
+  // For david the two reads are the same directory, so the merge is a no-op.
+  const [bankRecipes, setBankRecipes] = useState(/** @type {Record<string, any>[]} */ ([]));
+  const [ownRecipes, setOwnRecipes] = useState(/** @type {Record<string, any>[]} */ ([]));
   useEffect(() => {
     let alive = true;
     const load = () => {
-      readCollection("recipes").then((r) => {
-        if (alive) setRecipes(r);
+      readCollection("recipes", { raw: true }).then((r) => {
+        if (alive) setBankRecipes(r);
       });
+      if (activeProfile() === "david") {
+        setOwnRecipes([]);
+      } else {
+        readCollection("recipes").then((r) => {
+          if (alive) setOwnRecipes(r);
+        });
+      }
     };
     load();
     const unsub = onSyncChange(load);
@@ -122,6 +137,10 @@ function App() {
       unsub();
     };
   }, [hasToken]);
+
+  useEffect(() => {
+    setRecipes(mergeRecipePool(bankRecipes, ownRecipes, targets?.phase));
+  }, [bankRecipes, ownRecipes, targets]);
 
   // this week's plan: cached-first, refreshed on sync activity
   useEffect(() => {
@@ -188,6 +207,78 @@ function App() {
     setPantry(next);
     void write("pantry.json", next);
   }, []);
+
+  // combined household list: the OTHER profiles' shopping files, read raw
+  // (unscoped) so one person can run the whole family's store trip
+  /** @type {(id: string) => string} */
+  const shoppingPathFor = (id) => (id === "david" ? "shopping.json" : `profiles/${id}/shopping.json`);
+
+  const [otherLists, setOtherLists] = useState(
+    /** @type {{ profileId: string, name: string, emoji: string, list: import("./lib/shopping.js").ShoppingList }[]} */ ([]),
+  );
+  const otherListsRef = useRef(otherLists);
+  otherListsRef.current = otherLists;
+
+  useEffect(() => {
+    let alive = true;
+    const me = activeProfile();
+    const load = () => {
+      readProfiles().then((p) => {
+        const others = p.profiles.filter((pr) => pr.id !== me);
+        if (others.length === 0) return;
+        Promise.all(
+          others.map(async (pr) => ({
+            profileId: pr.id,
+            name: pr.name,
+            emoji: pr.emoji,
+            list: /** @type {any} */ ((await read(shoppingPathFor(pr.id), { raw: true })) ?? { items: [] }),
+          })),
+        ).then((ls) => {
+          if (alive) setOtherLists(ls);
+        });
+      });
+    };
+    load();
+    const unsub = onSyncChange(load);
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [hasToken]);
+
+  // ticking a combined item buys it for EVERYONE who wants it: write through
+  // to every source profile's own list (active via updateShopping, others raw)
+  const handleCombinedToggle = useCallback(
+    (/** @type {string} */ itemId, /** @type {{ profileId: string, checked: boolean }[]} */ sources) => {
+      const me = activeProfile();
+      const target = !sources.every((s) => s.checked);
+      for (const src of sources) {
+        if (src.profileId === me) {
+          const cur = shoppingRef.current;
+          updateShopping({
+            ...cur,
+            items: cur.items.map((i) => (i.id === itemId ? { ...i, checked: target } : i)),
+          });
+        } else {
+          const entry = otherListsRef.current.find((o) => o.profileId === src.profileId);
+          if (!entry) continue;
+          const nextList = {
+            ...entry.list,
+            items: (entry.list.items ?? []).map((i) =>
+              i.id === itemId ? { ...i, checked: target } : i,
+            ),
+          };
+          const nextOthers = otherListsRef.current.map((o) =>
+            o.profileId === src.profileId ? { ...o, list: nextList } : o,
+          );
+          otherListsRef.current = nextOthers;
+          setOtherLists(nextOthers);
+          void write(shoppingPathFor(src.profileId), /** @type {any} */ (nextList), { raw: true });
+        }
+      }
+    },
+    [updateShopping],
+  );
 
   // fitness data: cached-first, refreshed on sync activity
   const [workouts, setWorkouts] = useState(
@@ -390,7 +481,7 @@ function App() {
   const handleDrop = useCallback(
     (/** @type {string} */ date, /** @type {string} */ slot, /** @type {DOMStringMap} */ drag) => {
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
-      if (p.locked && !confirm(LOCK_CONFIRM)) return;
+      if (p.locked && !window.confirm(LOCK_CONFIRM)) return;
       if (drag.drag === "recipe" && drag.recipe) {
         updatePlan(addEntry(p, date, slot, { recipeId: drag.recipe, servings: 1 }));
       } else if (drag.drag === "text" && drag.text) {
@@ -407,7 +498,7 @@ function App() {
   const handleRemove = useCallback(
     (/** @type {string} */ id) => {
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
-      if (p.locked && !confirm(LOCK_CONFIRM)) return;
+      if (p.locked && !window.confirm(LOCK_CONFIRM)) return;
       updatePlan(removeEntryById(p, id));
     },
     [updatePlan],
@@ -471,7 +562,7 @@ function App() {
   const handlePlanAdd = useCallback(
     (/** @type {Record<string, any>} */ recipe, /** @type {string} */ date) => {
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
-      if (p.locked && !confirm(LOCK_CONFIRM)) return null;
+      if (p.locked && !window.confirm(LOCK_CONFIRM)) return null;
       const slot = SLOT_KEYS.includes(recipe.mealType) ? recipe.mealType : "dinner";
       updatePlan(addEntry(p, date, slot, { recipeId: recipe.id, servings: 1 }));
       return slot;
@@ -610,6 +701,8 @@ function App() {
         onOwnItem=${handleOwnItem}
         onScanApprove=${handleScanApprove}
         onToggleLock=${handleToggleLock}
+        others=${otherLists}
+        onCombinedToggle=${handleCombinedToggle}
       />`
     }
     ${
