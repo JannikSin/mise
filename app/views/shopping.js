@@ -1,7 +1,7 @@
 import { html } from "htm/preact";
 import { useRef, useState } from "preact/hooks";
 import { scanPhoto } from "../lib/worker.js";
-import { mergeProfileLists, swapCandidates } from "../lib/shopping.js";
+import { mergeProfileLists, swapCandidates, formatStoreQty } from "../lib/shopping.js";
 import { activeProfile } from "../lib/store.js";
 
 const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spices", "other"];
@@ -26,6 +26,7 @@ const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spice
  *   onScanApprove: (items: { name: string, kind: string, qty: string }[]) => void,
  *   onToggleLock: () => void,
  *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList }[],
+ *   ownEmoji: string,
  *   onCombinedToggle: (itemId: string, sources: { profileId: string, checked: boolean }[]) => void
  * }} props
  */
@@ -46,6 +47,7 @@ export function ShoppingView({
   onScanApprove,
   onToggleLock,
   others,
+  ownEmoji,
   onCombinedToggle,
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry" | "combined"} */ ("list"));
@@ -84,7 +86,7 @@ export function ShoppingView({
   const me = activeProfile();
   /** @type {Map<string, string>} */
   const emojiFor = new Map();
-  emojiFor.set(me, "•");
+  emojiFor.set(me, ownEmoji || "you");
   for (const o of others) emojiFor.set(o.profileId, o.emoji);
   const combined =
     others.length > 0
@@ -155,15 +157,19 @@ export function ShoppingView({
               ${plan?.locked ? "🔓 UNLOCK WEEK" : "🛒 GOING TO THE STORE"}
             </button>
           </div>
+          <p class="hint lockhint">
+            ${
+              plan?.locked
+                ? html`<strong>Week is LOCKED 🔒</strong> — you've shopped for it. Meals can't
+                    change without asking you first.`
+                : html`<strong>Going shopping? Tap 🛒 GOING TO THE STORE first.</strong> It locks
+                    this week's meals so they can't change after you've bought the food.`
+            }
+          </p>
           <p class="hint">
             Aggregates the week's plan, drops pantry staples, groups by aisle. Rebuilt lists keep
             your ticks and manual items. Tick = got it / have enough this week. P+ = already own it
             — moves it to your permanent pantry staples.
-            ${
-              plan?.locked
-                ? " Week is LOCKED — you've shopped for it. GENERATE/RE-ROLL won't run, and changing a meal asks first."
-                : " Heading out to shop? Tap GOING TO THE STORE first so the plan can't change out from under your groceries."
-            }
           </p>
 
           ${sections.map(
@@ -182,7 +188,7 @@ export function ShoppingView({
                         <span class="food"
                           >${i.food}${i.manual ? html` <span class="tag">manual</span>` : ""}</span
                         >
-                        <span class="q num">${i.qty} ${i.unit}</span>
+                        <span class="q num">${formatStoreQty(i.qty, i.unit)}</span>
                       </button>
                       <button
                         class="ownbtn"
@@ -393,21 +399,37 @@ export function ShoppingView({
               <div class="slots">
                 ${g.items.map((i) => {
                   const allChecked = i.sources.every((s) => s.checked);
+                  const someChecked = !allChecked && i.sources.some((s) => s.checked);
+                  const stillNeeds = i.sources
+                    .filter((s) => !s.checked)
+                    .map((s) => emojiFor.get(s.profileId) ?? "?")
+                    .join(" ");
                   return html`
                     <div class="checkrow ${allChecked ? "done" : ""}" key=${i.id}>
                       <button
                         class="tickarea"
                         aria-pressed=${allChecked}
+                        aria-label=${
+                          someChecked
+                            ? `${i.food} — partly bought, still needed for ${stillNeeds}`
+                            : i.food
+                        }
                         onClick=${() => onCombinedToggle(i.id, i.sources)}
                       >
-                        <span class="box" aria-hidden="true">${allChecked ? "✓" : ""}</span>
+                        <span class="box" aria-hidden="true"
+                          >${allChecked ? "✓" : someChecked ? "◐" : ""}</span
+                        >
                         <span class="food">
                           ${i.food}${" "}
                           <span class="tag"
                             >${i.sources.map((s) => emojiFor.get(s.profileId) ?? "?").join(" ")}</span
                           >
+                          ${
+                            someChecked &&
+                            html` <span class="tag">still needs ${stillNeeds}</span>`
+                          }
                         </span>
-                        <span class="q num">${i.qty} ${i.unit}</span>
+                        <span class="q num">${formatStoreQty(i.qty, i.unit)}</span>
                       </button>
                     </div>
                   `;

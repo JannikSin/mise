@@ -181,3 +181,19 @@ test("targetsFromQuestionnaire: maintain maps to recomp phase, no delta", () => 
   assert.equal(t.phase, "recomp");
   assert.deepEqual(t.mealSlots, ["breakfast", "lunch", "dinner"]);
 });
+
+test("targetsFromQuestionnaire: carbs never go negative for a heavy loss profile", () => {
+  const t = targetsFromQuestionnaire({
+    sex: "f",
+    age: 60,
+    heightFt: 5,
+    heightIn: 0,
+    weightLb: 320,
+    activity: 1,
+    goal: "loss",
+  });
+  assert.ok(t.macros.carbs >= 0, `carbs ${t.macros.carbs}`);
+  assert.ok(t.macros.fat >= 20, `fat floor ${t.macros.fat}`);
+  const kcal = t.macros.protein * 4 + t.macros.fat * 9 + t.macros.carbs * 4;
+  assert.ok(kcal <= t.macros.calories + 100, `macros ${kcal} vs calories ${t.macros.calories}`);
+});

@@ -139,7 +139,9 @@ function App() {
   }, [hasToken]);
 
   useEffect(() => {
-    setRecipes(mergeRecipePool(bankRecipes, ownRecipes, targets?.phase));
+    setRecipes(
+      mergeRecipePool(bankRecipes, ownRecipes, targets?.phase, targets?.avoidIngredients),
+    );
   }, [bankRecipes, ownRecipes, targets]);
 
   // this week's plan: cached-first, refreshed on sync activity
@@ -218,12 +220,15 @@ function App() {
   );
   const otherListsRef = useRef(otherLists);
   otherListsRef.current = otherLists;
+  const [ownEmoji, setOwnEmoji] = useState("");
 
   useEffect(() => {
     let alive = true;
     const me = activeProfile();
     const load = () => {
       readProfiles().then((p) => {
+        const self = p.profiles.find((pr) => pr.id === me);
+        if (alive && self?.emoji) setOwnEmoji(self.emoji);
         const others = p.profiles.filter((pr) => pr.id !== me);
         if (others.length === 0) return;
         Promise.all(
@@ -529,6 +534,10 @@ function App() {
   const buildStateRef = useRef({ salt: 0 });
 
   const handleGenerateWeek = useCallback(() => {
+    // body-level guard, not just the disabled button: this is the single
+    // most destructive path (clears every unpinned entry + overwrites the
+    // shopping list) and the one that caused the shopped-week wipe incident
+    if (/** @type {import("./lib/plan.js").Plan} */ (planRef.current).locked) return;
     const bs = buildStateRef.current;
     bs.salt++;
     const result = generateWeek({
@@ -702,6 +711,7 @@ function App() {
         onScanApprove=${handleScanApprove}
         onToggleLock=${handleToggleLock}
         others=${otherLists}
+        ownEmoji=${ownEmoji}
         onCombinedToggle=${handleCombinedToggle}
       />`
     }

@@ -207,8 +207,14 @@ export function targetsFromQuestionnaire(q, todayIso) {
   const delta = q.goal === "loss" ? -500 : q.goal === "gain" ? 300 : 0;
   const calories = Math.max(1200, Math.round((tdee + delta) / 50) * 50);
   const protein = Math.round(q.weightLb * (q.goal === "gain" ? 1.0 : 0.9));
-  const fat = Math.round((calories * 0.3) / 9);
-  const carbs = Math.round((calories - protein * 4 - fat * 9) / 4);
+  // heavy bodyweights at a loss deficit can push protein+fat past the
+  // calorie budget — carbs must never go negative, so fat yields first
+  const proteinKcal = protein * 4;
+  const fat = Math.max(
+    20,
+    Math.min(Math.round((calories * 0.3) / 9), Math.floor((calories - proteinKcal) / 9)),
+  );
+  const carbs = Math.max(0, Math.round((calories - proteinKcal - fat * 9) / 4));
   const phase = q.goal === "loss" ? "loss" : q.goal === "gain" ? "gain" : "recomp";
   return {
     macros: {

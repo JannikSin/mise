@@ -43,16 +43,30 @@ export function recipesById(recipes) {
  * means the profile's adjusted variant wins (e.g. Mom's 480-kcal kofta over
  * the bank's 842-kcal one) — and are never phase-filtered: if you made it
  * for yourself, it's yours.
+ * Bank recipes are also screened against the profile's `avoidIngredients`
+ * (targets.json): case-insensitive substring match on ingredient food names,
+ * so "onion" excludes "red onion" and "green onion" too. Own recipes are
+ * exempt — they were authored for this profile and already respect its
+ * rules (Mom's 58 were hand-swept for onion; David's bank recipes were not,
+ * which is exactly why this screen exists).
  * @param {Record<string, any>[]} bank recipes/ at the data-repo root
  * @param {Record<string, any>[]} own the profile's scoped recipes/ (empty for david — his own ARE the bank)
  * @param {string | undefined} phase the profile's targets.phase
+ * @param {string[]} [avoid] the profile's targets.avoidIngredients
  * @returns {Record<string, any>[]}
  */
-export function mergeRecipePool(bank, own, phase) {
+export function mergeRecipePool(bank, own, phase, avoid) {
+  const terms = (avoid ?? []).map((t) => t.toLowerCase()).filter(Boolean);
+  const containsAvoided = (/** @type {Record<string, any>} */ r) =>
+    (r.ingredients ?? []).some((/** @type {any} */ ing) => {
+      const food = String(ing.food ?? "").toLowerCase();
+      return terms.some((t) => food.includes(t));
+    });
   /** @type {Map<string, Record<string, any>>} */
   const byId = new Map();
   for (const r of bank) {
     if (Array.isArray(r.phases) && phase && !r.phases.includes(phase)) continue;
+    if (terms.length > 0 && containsAvoided(r)) continue;
     byId.set(r.id, r);
   }
   for (const r of own) byId.set(r.id, r);

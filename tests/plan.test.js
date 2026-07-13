@@ -186,3 +186,16 @@ test("dayTotals sums stacked entries in the same slot", () => {
   ];
   assert.deepEqual(dayTotals(entries, recipes, "2026-07-06"), { calories: 1105, protein: 89 });
 });
+
+test("mergeRecipePool: avoidIngredients screens bank recipes by substring, own recipes exempt", () => {
+  const bank = [
+    { id: "doner", ingredients: [{ food: "red onion" }, { food: "chicken thigh" }] },
+    { id: "soup", ingredients: [{ food: "Onion" }, { food: "carrot" }] }, // case-insensitive
+    { id: "clean-bowl", ingredients: [{ food: "chicken breast" }, { food: "rice" }] },
+  ];
+  const own = [{ id: "moms-tagine", ingredients: [{ food: "pearl onion" }] }]; // hers, untouched
+  const pool = mergeRecipePool(bank, own, "loss", ["onion", "shallot"]);
+  assert.deepEqual(pool.map((r) => r.id).sort(), ["clean-bowl", "moms-tagine"]);
+  // no avoid list = no screening (back-compat)
+  assert.equal(mergeRecipePool(bank, [], "loss").length, 3);
+});

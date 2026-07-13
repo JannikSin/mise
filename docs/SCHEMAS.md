@@ -50,12 +50,31 @@ stays scoped.
 
 **Recipe bank** (pilot): root `recipes/` is the SHARED bank every profile
 pulls from. A profile's working pool = bank recipes whose optional `phases`
-tag admits the profile's `targets.phase` (absent tag = everyone), overlaid
-with the profile's own `profiles/<id>/recipes/` (same id = the profile's
-adjusted variant wins; own recipes are never phase-filtered). Merge lives in
-`app/lib/plan.js` `mergeRecipePool`; the generator and views only ever see
-the merged pool. An empty `profiles/<id>/recipes/` is a working state — the
-bank covers it.
+tag admits the profile's `targets.phase` (absent tag = everyone) AND that
+pass the profile's `targets.avoidIngredients` screen (case-insensitive
+substring match on ingredient food names — "onion" also excludes "red
+onion"), overlaid with the profile's own `profiles/<id>/recipes/` (same id
+= the profile's adjusted variant wins; own recipes are never phase-filtered
+or ingredient-screened — they were authored for that profile). Merge lives
+in `app/lib/plan.js` `mergeRecipePool`; the generator and views only ever
+see the merged pool. An empty `profiles/<id>/recipes/` is a working state —
+the bank covers it.
+
+**Shadow duplicates (2026-07-12 migration, DO NOT "clean up" blindly):**
+`profiles/mom/recipes/` holds 29 files byte-identical to bank copies (her
+29 unique recipes were adopted INTO the bank but her originals were kept).
+They are LOAD-BEARING backward compatibility: any device still running
+pre-bank app code reads only the profile directory and would lose those
+recipes if the duplicates were deleted. Delete them only after every device
+has post-bank code, and only with David's explicit OK. Her other 29 files
+are REAL loss-adjusted variants (different nutrition), not duplicates —
+diff against the bank before touching anything.
+
+**Week lock rollout caveat:** a device running pre-lock app code neither
+sees nor respects `plan.locked` — its GENERATE can still wipe a locked
+week's entries through the id-keyed merge while `locked: true` survives.
+Refresh every device after deploying the lock. New code guards in the
+handler body, not just the disabled button.
 
 **Combined household shopping list**: a read-time merge of every profile's
 `shopping.json` (`app/lib/shopping.js` `mergeProfileLists`) shown as the
@@ -231,6 +250,11 @@ Derived (aggregate week's ingredients → merge duplicates → subtract pantry
 `onHand` staples → group by section). Check-state and manual items persist.
 Displayed `qty`/`unit` are rounded up to a purchasable amount (whole counts,
 sensible gram/ml/kg/L/cup/tbsp/tsp/lb/oz steps) after summing, not before.
+STORED quantities stay metric and authoritative; the List and EVERYONE tabs
+display a store-shelf conversion on top ("1.98 lb (900 g)") via
+`toStoreUnits`/`formatStoreQty` in app/lib/shopping.js — a faithful convert
+of the already-purchasable metric value, never re-rounded onto an imperial
+grid (which would make the two numbers disagree or under-buy).
 
 ```jsonc
 {
@@ -267,8 +291,19 @@ Seeded from the FITNESS.md system; edited rarely.
     "waterLiters": 3.5                  // daily target midpoint
   },
   "adjustmentRule": "Weigh most mornings…",  // plain-text calorie adjustment rule
-  "phase": "gain",                // ? gain | loss | recomp | cut, current training phase
+  "phase": "gain",                // ? gain | loss | recomp | cut, current training phase.
+                                  //   The add-profile questionnaire only ever emits
+                                  //   gain | loss | recomp; "cut" is hand-set later — a
+                                  //   bank recipe tagged phases:["cut"] serves nobody
+                                  //   until a profile is manually moved to cut.
   "phaseSince": "2026-07-10",     // ? ISO date the current phase started
+  "avoidIngredients": ["onion", "shallot"],
+                                  // ? hard ingredient exclusions for this profile.
+                                  //   Case-insensitive SUBSTRING match against bank
+                                  //   recipe ingredient food names in mergeRecipePool
+                                  //   ("onion" also blocks "red onion"). The profile's
+                                  //   OWN recipes are exempt (authored to its rules).
+                                  //   Absent = no screening.
   "mealSlots": ["breakfast", "lunch", "dinner", "smoothie"],
                                    // ? ordered list of meal slots app/lib/weekbuilder.js's
                                    //   generateWeek proactively fills/committee-picks per day.

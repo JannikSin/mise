@@ -218,6 +218,10 @@ export function ProfileGateView() {
             </button>
           </div>
           <p class="hint">
+            ADD lights up when everything is filled in: name, emoji, age 10-100, height 3-7 ft
+            (inches 0-11), weight 60-500 lb.
+          </p>
+          <p class="hint">
             calories and protein are computed from these answers (Mifflin-St Jeor); recipes come
             from the shared bank matched to the goal. Everything is adjustable later in SYS.
           </p>

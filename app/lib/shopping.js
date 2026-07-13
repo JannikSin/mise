@@ -192,6 +192,50 @@ function ceilStep(qty, step) {
 }
 
 /**
+ * DISPLAY-ONLY conversion of a metric quantity to what a US shopper reads
+ * on a store shelf. The stored quantity stays metric and authoritative
+ * (roundForPurchase already made it purchasable); this is a FAITHFUL
+ * convert — never re-stepped, never re-rounded onto an imperial grid, so
+ * the imperial number and its metric parenthetical always agree ("1.76 lb
+ * (800 g)", not the lie "1.80 lb (800 g)") and can never under-buy.
+ * Returns null for units a US shopper already reads natively (cup, tbsp,
+ * each, can, ...) — callers render those unchanged.
+ * @param {number} qty
+ * @param {string} unit
+ * @returns {{ qty: number, unit: string } | null}
+ */
+export function toStoreUnits(qty, unit) {
+  const u = unit.toLowerCase().trim();
+  const round1 = (/** @type {number} */ n) => Math.round(n * 10) / 10;
+  const round2 = (/** @type {number} */ n) => Math.round(n * 100) / 100;
+  if (u === "g") {
+    if (qty >= 400) return { qty: round2(qty / 453.59237), unit: "lb" };
+    return { qty: round1(qty / 28.349523), unit: "oz" };
+  }
+  if (u === "kg") return { qty: round2((qty * 1000) / 453.59237), unit: "lb" };
+  if (u === "ml") {
+    if (qty >= 946) return { qty: round2(qty / 946.352946), unit: "qt" };
+    return { qty: round1(qty / 29.5735296), unit: "fl oz" };
+  }
+  if (u === "l") return { qty: round2((qty * 1000) / 946.352946), unit: "qt" };
+  return null;
+}
+
+/**
+ * Store-shelf display string for a list row: imperial first, metric kept
+ * in parentheses as the authority ("1.76 lb (800 g)"); native-US units
+ * pass through untouched ("3 cup").
+ * @param {number} qty
+ * @param {string} unit
+ * @returns {string}
+ */
+export function formatStoreQty(qty, unit) {
+  const conv = toStoreUnits(qty, unit);
+  if (!conv) return `${qty} ${unit}`;
+  return `${conv.qty} ${conv.unit} (${qty} ${unit})`;
+}
+
+/**
  * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, sources: { profileId: string, checked: boolean }[] }} CombinedItem
  */
 

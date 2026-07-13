@@ -8,6 +8,8 @@ import {
   roundForPurchase,
   mergeProfileLists,
   swapCandidates,
+  toStoreUnits,
+  formatStoreQty,
 } from "../app/lib/shopping.js";
 
 test("on-hand pantry staples are subtracted from the derived list by name", () => {
@@ -574,4 +576,26 @@ test("swapCandidates stays quiet when there is nothing to pair", () => {
     { profileId: "mom", list: { items: [] } },
   ]);
   assert.deepEqual(swapCandidates(combined), []);
+});
+
+test("toStoreUnits converts faithfully — never re-stepped, imperial always agrees with metric", () => {
+  // 800 g is already purchasable; display must be the faithful 1.76 lb, not a re-ceiled 1.80 lb
+  assert.deepEqual(toStoreUnits(800, "g"), { qty: 1.76, unit: "lb" });
+  assert.deepEqual(toStoreUnits(900, "g"), { qty: 1.98, unit: "lb" });
+  assert.deepEqual(toStoreUnits(200, "g"), { qty: 7.1, unit: "oz" });
+  assert.deepEqual(toStoreUnits(399, "g"), { qty: 14.1, unit: "oz" });
+  assert.deepEqual(toStoreUnits(400, "g"), { qty: 0.88, unit: "lb" });
+  assert.deepEqual(toStoreUnits(1.8, "kg"), { qty: 3.97, unit: "lb" });
+  assert.deepEqual(toStoreUnits(500, "ml"), { qty: 16.9, unit: "fl oz" });
+  assert.deepEqual(toStoreUnits(1, "l"), { qty: 1.06, unit: "qt" });
+  // native-US units pass through untouched
+  assert.equal(toStoreUnits(3, "cup"), null);
+  assert.equal(toStoreUnits(2, "each"), null);
+  assert.equal(toStoreUnits(1, "can"), null);
+});
+
+test("formatStoreQty shows imperial first with the authoritative metric in parens", () => {
+  assert.equal(formatStoreQty(900, "g"), "1.98 lb (900 g)");
+  assert.equal(formatStoreQty(75, "g"), "2.6 oz (75 g)");
+  assert.equal(formatStoreQty(3, "cup"), "3 cup");
 });
