@@ -1,11 +1,14 @@
 import { html } from "htm/preact";
+import { useState } from "preact/hooks";
 import { localIsoDate, parseLocalIso } from "../lib/dates.js";
-import { recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
+import { datesOfWeek, recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 
 /**
- * Cook view: today's planned meals in full (moved out of Home), each
+ * Cook view: a day's planned meals in full (moved out of Home), each
  * tapping through to its recipe, plus a link out to the full recipe
- * library.
+ * library. Defaults to today, and the ‹ › arrows page through the week's
+ * other days so meals can be pre-cooked ahead ("flip to Monday, prep its
+ * breakfast and lunch, flip to Tuesday, ...").
  * @param {{
  *   recipes: Record<string, any>[],
  *   plan: { week: string, entries: Record<string, any>[] },
@@ -16,8 +19,22 @@ import { recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 export function TodayView({ recipes, plan, hasToken, loading }) {
   const byId = recipesById(recipes);
   const today = localIsoDate(new Date());
+  const weekDates = datesOfWeek(plan.week);
+  const todayIdx = weekDates.indexOf(today);
+  // day being viewed, as an index into the week's Mon..Sun dates; today when
+  // today is in the shown week, else Monday
+  const [dayIdx, setDayIdx] = useState(todayIdx >= 0 ? todayIdx : 0);
+  const selectedDate = weekDates[Math.min(dayIdx, weekDates.length - 1)] ?? today;
+  const isToday = selectedDate === today;
+  const dayLabel = isToday
+    ? "Today"
+    : parseLocalIso(selectedDate).toLocaleDateString([], { weekday: "long" });
+  const daySub = parseLocalIso(selectedDate).toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+  });
   const todayEntries = plan.entries
-    .filter((e) => e.date === today)
+    .filter((e) => e.date === selectedDate)
     .sort((a, b) => SLOT_KEYS.indexOf(a.slot) - SLOT_KEYS.indexOf(b.slot));
 
   // 7b: Sunday batch-prep block — every recipe in THIS week's plan with
@@ -46,9 +63,37 @@ export function TodayView({ recipes, plan, hasToken, loading }) {
 
   return html`
     <div class="view">
-      <div class="hero"><h1>Cook</h1></div>
+      <div class="hero weeknav">
+        <button
+          class="wk"
+          aria-label="Previous day"
+          onClick=${() => setDayIdx(Math.max(0, dayIdx - 1))}
+          disabled=${dayIdx <= 0}
+        >
+          ‹
+        </button>
+        <div class="wkmid">
+          <h1>Cook</h1>
+          <div class="sub num">${dayLabel} · ${daySub}</div>
+        </div>
+        <button
+          class="wk"
+          aria-label="Next day"
+          onClick=${() => setDayIdx(Math.min(weekDates.length - 1, dayIdx + 1))}
+          disabled=${dayIdx >= weekDates.length - 1}
+        >
+          ›
+        </button>
+      </div>
 
-      <h2 class="block-title">Today's meals</h2>
+      <h2 class="block-title">${isToday ? "Today's meals" : `${dayLabel}'s meals`}</h2>
+      ${
+        !isToday &&
+        html`<p class="hint">
+          planning ahead — these are ${dayLabel}'s meals, tap one to open the recipe and pre-cook
+          what you can. <button class="chip" onClick=${() => setDayIdx(todayIdx >= 0 ? todayIdx : 0)}>back to today</button>
+        </p>`
+      }
       ${
         loading
           ? html`<p class="hint">loading…</p>`
@@ -56,7 +101,8 @@ export function TodayView({ recipes, plan, hasToken, loading }) {
             ? html`<p class="hint">
                 ${
                   hasToken
-                    ? html`nothing planned for today — <a href="#/plan">open PLAN</a>`
+                    ? html`nothing planned for ${isToday ? "today" : dayLabel} —${" "}
+                        <a href="#/plan">open PLAN</a>`
                     : "no recipes yet — connect your token in SYS"
                 }
               </p>`
