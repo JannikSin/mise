@@ -10,6 +10,7 @@ import {
   entriesAt,
   dayTotals,
   togglePinById,
+  setPlanLocked,
 } from "../app/lib/plan.js";
 
 test("shiftWeek moves across plain and year-boundary weeks", () => {
@@ -78,6 +79,13 @@ test("moveEntry reassigns date+slot, keeping id and content", () => {
   });
 });
 
+test("normalizePlan preserves locked across a read-refresh (regression: was silently dropped)", () => {
+  const raw = { week: "2026-W28", locked: true, entries: [] };
+  assert.equal(normalizePlan(raw, "2026-W28").locked, true);
+  assert.equal(normalizePlan({ week: "2026-W28", locked: false, entries: [] }, "2026-W28").locked, false);
+  assert.equal("locked" in normalizePlan({ week: "2026-W28", entries: [] }, "2026-W28"), false);
+});
+
 test("normalizePlan builds an empty plan and assigns ids to legacy entries", () => {
   assert.deepEqual(normalizePlan(null, "2026-W28"), { week: "2026-W28", entries: [] });
   const legacy = {
@@ -123,6 +131,19 @@ test("togglePinById flips pinned on the matching entry and leaves others untouch
 
   const unpinned = togglePinById(pinned, a.id);
   assert.equal(unpinned.entries.find((e) => e.id === a.id)?.pinned, false);
+});
+
+test("setPlanLocked sets/clears locked without touching entries, and is pure", () => {
+  let plan = { week: "2026-W28", entries: [] };
+  plan = addEntry(plan, "2026-07-06", "dinner", { recipeId: "beef", servings: 1 });
+
+  const locked = setPlanLocked(plan, true);
+  assert.equal(locked.locked, true);
+  assert.deepEqual(locked.entries, plan.entries);
+  assert.equal(plan.locked, undefined); // pure: original untouched
+
+  const unlocked = setPlanLocked(locked, false);
+  assert.equal(unlocked.locked, false);
 });
 
 test("dayTotals sums stacked entries in the same slot", () => {

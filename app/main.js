@@ -38,6 +38,7 @@ import {
   recipesById,
   shiftWeek,
   togglePinById,
+  setPlanLocked,
   SLOT_KEYS,
 } from "./lib/plan.js";
 import { generateWeek } from "./lib/weekbuilder.js";
@@ -381,9 +382,15 @@ function App() {
     [],
   );
 
+  // locked week: destructive edits (add/remove/move) ask first, since the
+  // meals may already be shopped for; pin/unpin never changes what's cooked
+  // so it's left ungated
+  const LOCK_CONFIRM = "This week is locked — you've shopped for it. Change this meal anyway?";
+
   const handleDrop = useCallback(
     (/** @type {string} */ date, /** @type {string} */ slot, /** @type {DOMStringMap} */ drag) => {
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      if (p.locked && !confirm(LOCK_CONFIRM)) return;
       if (drag.drag === "recipe" && drag.recipe) {
         updatePlan(addEntry(p, date, slot, { recipeId: drag.recipe, servings: 1 }));
       } else if (drag.drag === "text" && drag.text) {
@@ -399,9 +406,9 @@ function App() {
 
   const handleRemove = useCallback(
     (/** @type {string} */ id) => {
-      updatePlan(
-        removeEntryById(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), id),
-      );
+      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      if (p.locked && !confirm(LOCK_CONFIRM)) return;
+      updatePlan(removeEntryById(p, id));
     },
     [updatePlan],
   );
@@ -412,6 +419,11 @@ function App() {
     },
     [updatePlan],
   );
+
+  const handleToggleLock = useCallback(() => {
+    const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+    updatePlan(setPlanLocked(p, !p.locked));
+  }, [updatePlan]);
 
   /** Add straight from the cookbook: slot inferred from the recipe's
    *  mealType; returns the slot so the row can confirm where it landed. */
@@ -458,13 +470,10 @@ function App() {
 
   const handlePlanAdd = useCallback(
     (/** @type {Record<string, any>} */ recipe, /** @type {string} */ date) => {
+      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      if (p.locked && !confirm(LOCK_CONFIRM)) return null;
       const slot = SLOT_KEYS.includes(recipe.mealType) ? recipe.mealType : "dinner";
-      updatePlan(
-        addEntry(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), date, slot, {
-          recipeId: recipe.id,
-          servings: 1,
-        }),
-      );
+      updatePlan(addEntry(p, date, slot, { recipeId: recipe.id, servings: 1 }));
       return slot;
     },
     [updatePlan],
@@ -588,6 +597,7 @@ function App() {
       html`<${ShoppingView}
         shopping=${shopping}
         pantry=${pantry}
+        plan=${plan}
         weekId=${weekId}
         hasToken=${hasToken}
         repo=${repo}
@@ -599,6 +609,7 @@ function App() {
         onToggleLow=${handleToggleLow}
         onOwnItem=${handleOwnItem}
         onScanApprove=${handleScanApprove}
+        onToggleLock=${handleToggleLock}
       />`
     }
     ${

@@ -13,7 +13,7 @@ const DAY_LABELS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
  *   recipe: Record<string, any>,
  *   why?: string,
  *   weekId?: string,
- *   onPlan?: (recipe: Record<string, any>, date: string) => string
+ *   onPlan?: (recipe: Record<string, any>, date: string) => string | null
  * }} props
  */
 export function RecipeRow({ recipe, why, weekId, onPlan }) {
@@ -67,6 +67,7 @@ export function RecipeRow({ recipe, why, weekId, onPlan }) {
                   key=${date}
                   onClick=${() => {
                     const slot = /** @type {NonNullable<typeof onPlan>} */ (onPlan)(recipe, date);
+                    if (!slot) return; // locked week, user declined the confirm
                     setPicking(false);
                     setAddedTo(`${DAY_LABELS[i]} · ${slot}`);
                     plusRef.current?.focus();

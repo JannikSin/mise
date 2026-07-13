@@ -1112,6 +1112,12 @@ summary.block-title {
   outline-offset: 2px;
 }
 
+.lockbtn.on {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: rgba(255, 178, 36, 0.1);
+}
+
 /* ---- fitness ---- */
 
 .lift {

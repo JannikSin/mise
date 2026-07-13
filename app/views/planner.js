@@ -99,12 +99,24 @@ export function PlannerView({
       <div class="actions">
         <button
           class="ask"
-          aria-label=${rebuilt ? "Re-roll the generated week" : "Generate my week automatically"}
+          aria-label=${
+            plan.locked
+              ? "Locked — unlock from the List tab to regenerate"
+              : rebuilt
+                ? "Re-roll the generated week"
+                : "Generate my week automatically"
+          }
           onClick=${onGenerateWeek}
-          disabled=${recipes.length === 0}
+          disabled=${recipes.length === 0 || Boolean(plan.locked)}
         >
           ${rebuilt ? "RE-ROLL WEEK" : "✦ GENERATE MY WEEK"}
-          <small>overlapping ingredients → fewer, bulkier buys · pinned entries are kept</small>
+          <small>
+            ${
+              plan.locked
+                ? "🔒 locked — you shopped for this week. Unlock on the List tab to change it."
+                : "overlapping ingredients → fewer, bulkier buys · pinned entries are kept"
+            }
+          </small>
         </button>
       </div>
       ${

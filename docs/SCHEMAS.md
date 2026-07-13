@@ -169,6 +169,7 @@ even the same slot — merge without losing either entry.
 ```jsonc
 {
   "week": "2026-W28",
+  "locked": false,     // ? true = you've shopped for this week; see below
   "entries": [
     {
       "id": "b3e29f01",                 // unique in the file; merge key
@@ -183,6 +184,15 @@ even the same slot — merge without losing either entry.
 }
 ```
 Absent `pinned` = unpinned (default behavior today, unchanged for existing data).
+
+`locked` (whole-plan, not per-entry) guards against the week's meals silently
+changing after groceries are already bought: toggled from the List view's
+"GOING TO THE STORE" button (app/views/shopping.js). While `true`, GENERATE MY
+WEEK / RE-ROLL WEEK refuse to run (button disabled), and adding, removing, or
+moving an entry asks for confirmation first (app/main.js `handleDrop`,
+`handleRemove`, `handlePlanAdd`) — pin/unpin is unaffected since it never
+changes what's cooked. Absent `locked` = unlocked (default, unchanged for
+existing data).
 
 ## Shopping list — `shopping.json`
 

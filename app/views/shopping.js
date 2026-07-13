@@ -10,6 +10,7 @@ const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spice
  * @param {{
  *   shopping: import("../lib/shopping.js").ShoppingList,
  *   pantry: Record<string, any>,
+ *   plan: import("../lib/plan.js").Plan,
  *   weekId: string,
  *   hasToken: boolean,
  *   repo: Record<string, any> | null,
@@ -20,12 +21,14 @@ const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spice
  *   onJustBought: () => void,
  *   onToggleLow: (id: string) => void,
  *   onOwnItem: (id: string) => void,
- *   onScanApprove: (items: { name: string, kind: string, qty: string }[]) => void
+ *   onScanApprove: (items: { name: string, kind: string, qty: string }[]) => void,
+ *   onToggleLock: () => void
  * }} props
  */
 export function ShoppingView({
   shopping,
   pantry,
+  plan,
   weekId,
   hasToken,
   repo,
@@ -37,6 +40,7 @@ export function ShoppingView({
   onToggleLow,
   onOwnItem,
   onScanApprove,
+  onToggleLock,
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry"} */ ("list"));
   const [manual, setManual] = useState("");
@@ -101,11 +105,28 @@ export function ShoppingView({
                 ADD TO PANTRY (${checkedCount}) <span aria-hidden="true">→</span>
               </button>`
             }
+            <button
+              class="secondary lockbtn ${plan?.locked ? "on" : ""}"
+              aria-pressed=${Boolean(plan?.locked)}
+              aria-label=${
+                plan?.locked
+                  ? "Unlock the week — allow the plan to change again"
+                  : "Going to the store — lock this week's plan so it can't silently change"
+              }
+              onClick=${onToggleLock}
+            >
+              ${plan?.locked ? "🔓 UNLOCK WEEK" : "🛒 GOING TO THE STORE"}
+            </button>
           </div>
           <p class="hint">
             Aggregates the week's plan, drops pantry staples, groups by aisle. Rebuilt lists keep
             your ticks and manual items. Tick = got it / have enough this week. P+ = already own it
             — moves it to your permanent pantry staples.
+            ${
+              plan?.locked
+                ? " Week is LOCKED — you've shopped for it. GENERATE/RE-ROLL won't run, and changing a meal asks first."
+                : " Heading out to shop? Tap GOING TO THE STORE first so the plan can't change out from under your groceries."
+            }
           </p>
 
           ${sections.map(

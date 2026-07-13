@@ -5,10 +5,13 @@ import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
  * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean }} PlanEntry
- * @typedef {{ week: string, entries: PlanEntry[] }} Plan
+ * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean }} Plan
  */
 // pinned is optional; absent = unpinned (today's default, unchanged). true =
 // GENERATE WEEK must never clear or overwrite this entry (app/lib/weekbuilder.js).
+// locked is optional; absent = unlocked (today's default, unchanged). true =
+// you've already shopped for this week — GENERATE WEEK/RE-ROLL WEEK refuse to
+// run and individual edits (add/remove/move) ask for confirmation first.
 
 /** The valid slot keys, in display order (docs/SCHEMAS.md plan section). */
 export const SLOT_KEYS = ["breakfast", "lunch", "dinner", "smoothie", "snack"];
@@ -141,6 +144,16 @@ export function togglePinById(plan, id) {
 }
 
 /**
+ * Set or clear the whole-week lock. Pure.
+ * @param {Plan} plan
+ * @param {boolean} locked
+ * @returns {Plan}
+ */
+export function setPlanLocked(plan, locked) {
+  return { ...plan, locked };
+}
+
+/**
  * Shape a freshly-read (or absent) plan file: guarantees week + entries and
  * self-heals pre-id legacy entries by assigning ids (persisted on next write).
  * @param {Record<string, any> | null} raw
@@ -153,6 +166,7 @@ export function normalizePlan(raw, weekId) {
   const twinCounts = new Map();
   return {
     week: typeof raw.week === "string" ? raw.week : weekId,
+    ...(raw.locked !== undefined ? { locked: Boolean(raw.locked) } : {}),
     entries: raw.entries.map((/** @type {any} */ e) => {
       if (typeof e.id === "string") return e;
       const contentKey = `${e.date}|${e.slot}|${e.recipeId ?? ""}|${e.freeText ?? ""}|${e.servings}`;
