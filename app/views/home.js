@@ -66,6 +66,7 @@ function waistTrend(days, todayIso) {
  *   workouts: { templates: Record<string, any>[], sessions: Record<string, any>[], schedule?: Record<string, string | null> },
  *   today: string,
  *   loading: boolean,
+ *   trainingEnabled: boolean,
  *   onPatchDay: (patch: Record<string, any>) => void
  * }} props
  */
@@ -79,6 +80,7 @@ export function HomeView({
   workouts,
   today,
   loading,
+  trainingEnabled,
   onPatchDay,
 }) {
   const day = daily.days.find((d) => d.date === today) ?? { date: today };
@@ -130,6 +132,7 @@ export function HomeView({
           <span class="m num">›</span>
         </a>
         ${
+          trainingEnabled &&
           workoutLabel &&
           html`<a class="todayrow" href="#/train">
             <span class="t">Train</span>

@@ -2,7 +2,7 @@ import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 import { DATA_REPO, tokenAgeDays, TOKEN_WARN_AGE_DAYS } from "../lib/github.js";
 import { formatSyncTime } from "../lib/dates.js";
-import { activeProfile, readProfiles } from "../lib/store.js";
+import { activeProfile, readProfiles, write } from "../lib/store.js";
 
 /**
  * System status view: app health, sync queue, data-repo checks, token entry.
@@ -22,17 +22,37 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
   const ageDays = tokenAgeDays();
   const renewSoon = hasToken && ageDays != null && ageDays >= TOKEN_WARN_AGE_DAYS;
 
-  const [profile, setProfile] = useState(/** @type {Record<string, any> | null} */ (null));
+  // full list, not just the active profile: the training toggle below writes
+  // the whole profiles.json back, so the other profiles must be preserved
+  const [allProfiles, setAllProfiles] = useState(
+    /** @type {Record<string, any>[] | null} */ (null),
+  );
   useEffect(() => {
     let alive = true;
-    const id = activeProfile();
     readProfiles().then((p) => {
-      if (alive) setProfile(p.profiles.find((x) => x.id === id) ?? { id, name: id, emoji: "" });
+      if (alive) setAllProfiles(p.profiles);
     });
     return () => {
       alive = false;
     };
   }, []);
+  const me = activeProfile();
+  const profile = allProfiles
+    ? (allProfiles.find((x) => x.id === me) ?? { id: me, name: me, emoji: "" })
+    : null;
+  const trainingOn = profile?.trainingEnabled !== false;
+
+  // per-profile training gate (profiles.json trainingEnabled, absent = true).
+  // If the active profile isn't in the file yet (fresh-install fallback), it
+  // gets appended so the choice actually persists.
+  const toggleTraining = () => {
+    if (!allProfiles || !profile) return;
+    const next = allProfiles.some((x) => x.id === me)
+      ? allProfiles.map((x) => (x.id === me ? { ...x, trainingEnabled: !trainingOn } : x))
+      : [...allProfiles, { ...profile, trainingEnabled: !trainingOn }];
+    setAllProfiles(next);
+    void write("profiles.json", { profiles: next });
+  };
 
   // switch profile: never sets a new one itself — just clears the key so
   // main.js's boot check renders the gate on reload, same clean pattern as
@@ -59,6 +79,10 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
           <span class="status dim">${profile ? `${profile.emoji} ${profile.name}` : "…"}</span>
         </div>
         <div class="row">
+          <span class="k">Training</span>
+          <span class="status ${trainingOn ? "ok" : "dim"}">${trainingOn ? "on" : "off"}</span>
+        </div>
+        <div class="row">
           <span class="k">Shell</span>
           <span class="status ok">running ✓</span>
         </div>
@@ -74,7 +98,14 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
         </div>
         <div class="actions">
           <button class="secondary" onClick=${switchProfile}>SWITCH PROFILE</button>
+          <button class="secondary" onClick=${toggleTraining} disabled=${!profile}>
+            ${trainingOn ? "TURN TRAINING OFF" : "TURN TRAINING ON"}
+          </button>
         </div>
+        <p class="hint">
+          training off hides the Train tab, Home's Train row, and workout tracking for this profile
+          only.
+        </p>
       </div>
 
       <div class="tile">

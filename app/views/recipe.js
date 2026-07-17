@@ -1,18 +1,33 @@
 import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 
+// ?from=<key> in the recipe hash → where the backlink returns; unknown or
+// absent keys fall back to the cookbook (the historical behavior)
+const ORIGINS = /** @type {Record<string, { hash: string, label: string }>} */ ({
+  today: { hash: "#/today", label: "← TODAY" },
+  remedies: { hash: "#/remedies", label: "← REMEDIES" },
+});
+const DEFAULT_ORIGIN = { hash: "#/cookbook", label: "← COOKBOOK" };
+
+/** @param {string | undefined} from */
+const originOf = (from) => (from && ORIGINS[from]) || DEFAULT_ORIGIN;
+
+/** @param {string | undefined} from */
+const fromSuffix = (from) => (from && ORIGINS[from] ? `?from=${encodeURIComponent(from)}` : "");
+
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string }} props
  */
-export function RecipeView({ recipe, loading }) {
+export function RecipeView({ recipe, loading, from }) {
+  const origin = originOf(from);
   if (!recipe)
     return html`<div class="empty">
-      ${loading ? "loading…" : "recipe not found"} — <a href="#/cookbook">back to cookbook</a>
+      ${loading ? "loading…" : "recipe not found"} — <a href=${origin.hash}>go back</a>
     </div>`;
   const n = recipe.nutrition ?? {};
   return html`
     <div class="view detail">
-      <a class="backlink" href="#/cookbook">← COOKBOOK</a>
+      <a class="backlink" href=${origin.hash}>${origin.label}</a>
       <h1>${recipe.name}</h1>
       <div class="meta num">
         ${recipe.totalTime}m · serves ${recipe.servings} · ${recipe.effort}
@@ -42,7 +57,8 @@ export function RecipeView({ recipe, loading }) {
       <div class="actions">
         <button
           class="ask"
-          onClick=${() => (location.hash = `#/recipe/${encodeURIComponent(recipe.id)}/cook`)}
+          onClick=${() =>
+            (location.hash = `#/recipe/${encodeURIComponent(recipe.id)}/cook${fromSuffix(from)}`)}
         >
           COOK MODE
           <small>big text · step by step</small>
@@ -97,9 +113,9 @@ export function RecipeView({ recipe, loading }) {
 
 /**
  * Full-screen cooking mode: one big step at a time, screen kept awake.
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string }} props
  */
-export function CookView({ recipe, loading }) {
+export function CookView({ recipe, loading, from }) {
   const [step, setStep] = useState(0);
   useEffect(() => {
     /** @type {any} */
@@ -124,7 +140,9 @@ export function CookView({ recipe, loading }) {
     </div>`;
   const steps = recipe.instructions ?? [];
   const last = steps.length - 1;
-  const back = `#/recipe/${encodeURIComponent(recipe.id)}`;
+  // exit lands back on the recipe, keeping its ?from= so the backlink there
+  // still points at the tab that started the whole flow
+  const back = `#/recipe/${encodeURIComponent(recipe.id)}${fromSuffix(from)}`;
 
   return html`
     <div class="cook">

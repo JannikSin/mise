@@ -63,7 +63,7 @@ const TABS = [
 
 function App() {
   const [route, setRoute] = useState(
-    /** @type {{ view: string, id?: string }} */ ({ view: "home" }),
+    /** @type {{ view: string, id?: string, from?: string }} */ ({ view: "home" }),
   );
   const [online, setOnline] = useState(navigator.onLine);
   /** @type {[RepoStatus | null, (s: RepoStatus | null) => void]} */
@@ -139,9 +139,7 @@ function App() {
   }, [hasToken]);
 
   useEffect(() => {
-    setRecipes(
-      mergeRecipePool(bankRecipes, ownRecipes, targets?.phase, targets?.avoidIngredients),
-    );
+    setRecipes(mergeRecipePool(bankRecipes, ownRecipes, targets?.phase, targets?.avoidIngredients));
   }, [bankRecipes, ownRecipes, targets]);
 
   // this week's plan: cached-first, refreshed on sync activity
@@ -213,7 +211,8 @@ function App() {
   // combined household list: the OTHER profiles' shopping files, read raw
   // (unscoped) so one person can run the whole family's store trip
   /** @type {(id: string) => string} */
-  const shoppingPathFor = (id) => (id === "david" ? "shopping.json" : `profiles/${id}/shopping.json`);
+  const shoppingPathFor = (id) =>
+    id === "david" ? "shopping.json" : `profiles/${id}/shopping.json`;
 
   const [otherLists, setOtherLists] = useState(
     /** @type {{ profileId: string, name: string, emoji: string, list: import("./lib/shopping.js").ShoppingList }[]} */ ([]),
@@ -221,6 +220,9 @@ function App() {
   const otherListsRef = useRef(otherLists);
   otherListsRef.current = otherLists;
   const [ownEmoji, setOwnEmoji] = useState("");
+  // per-profile training gate (profiles.json trainingEnabled, absent = true):
+  // hides the Train tab, Home's Train row, and the #/train route
+  const [trainingEnabled, setTrainingEnabled] = useState(true);
 
   useEffect(() => {
     let alive = true;
@@ -229,6 +231,7 @@ function App() {
       readProfiles().then((p) => {
         const self = p.profiles.find((pr) => pr.id === me);
         if (alive && self?.emoji) setOwnEmoji(self.emoji);
+        if (alive) setTrainingEnabled(self?.trainingEnabled !== false);
         const others = p.profiles.filter((pr) => pr.id !== me);
         if (others.length === 0) return;
         Promise.all(
@@ -236,7 +239,9 @@ function App() {
             profileId: pr.id,
             name: pr.name,
             emoji: pr.emoji,
-            list: /** @type {any} */ ((await read(shoppingPathFor(pr.id), { raw: true })) ?? { items: [] }),
+            list: /** @type {any} */ (
+              (await read(shoppingPathFor(pr.id), { raw: true })) ?? { items: [] }
+            ),
           })),
         ).then((ls) => {
           if (alive) setOtherLists(ls);
@@ -254,7 +259,10 @@ function App() {
   // ticking a combined item buys it for EVERYONE who wants it: write through
   // to every source profile's own list (active via updateShopping, others raw)
   const handleCombinedToggle = useCallback(
-    (/** @type {string} */ itemId, /** @type {{ profileId: string, checked: boolean }[]} */ sources) => {
+    (
+      /** @type {string} */ itemId,
+      /** @type {{ profileId: string, checked: boolean }[]} */ sources,
+    ) => {
       const me = activeProfile();
       const target = !sources.every((s) => s.checked);
       for (const src of sources) {
@@ -616,7 +624,12 @@ function App() {
 
   if (route.view === "cook") {
     // key: hook state (current step) must reset when the recipe changes
-    return html`<${CookView} key=${route.id} recipe=${recipeById(route.id)} loading=${loading} />`;
+    return html`<${CookView}
+      key=${route.id}
+      recipe=${recipeById(route.id)}
+      loading=${loading}
+      from=${route.from}
+    />`;
   }
 
   const now = new Date();
@@ -654,6 +667,7 @@ function App() {
         workouts=${workouts}
         today=${localIsoDate(now)}
         loading=${!fitnessLoaded}
+        trainingEnabled=${trainingEnabled}
         onPatchDay=${handlePatchDay}
       />`
     }
@@ -690,7 +704,7 @@ function App() {
     }
     ${
       route.view === "recipe" &&
-      html`<${RecipeView} recipe=${recipeById(route.id)} loading=${loading} />`
+      html`<${RecipeView} recipe=${recipeById(route.id)} loading=${loading} from=${route.from} />`
     }
     ${
       route.view === "list" &&
@@ -721,6 +735,16 @@ function App() {
     }
     ${
       route.view === "train" &&
+      !trainingEnabled &&
+      html`<div class="view">
+        <div class="empty">
+          training is disabled in this profile — turn it on in <a href="#/system">SYS</a>
+        </div>
+      </div>`
+    }
+    ${
+      route.view === "train" &&
+      trainingEnabled &&
       html`<${FitnessView}
         workouts=${workouts}
         targets=${targets}
@@ -748,7 +772,7 @@ function App() {
     }
 
     <nav class="tabbar">
-      ${TABS.map(
+      ${TABS.filter((t) => trainingEnabled || t.view !== "train").map(
         (t) => html`
           <a
             class=${route.view === t.view ? "active" : ""}

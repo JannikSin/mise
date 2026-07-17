@@ -54,7 +54,12 @@ export function TodayView({ recipes, plan, hasToken, loading }) {
       sundayComponents.push({ id: recipe.id, name: recipe.name, text: bp.sundayComponent });
     }
     if (bp.weekdayAssembly) {
-      weekdayAssembly.push({ id: entry.id, date: entry.date, name: recipe.name, text: bp.weekdayAssembly });
+      weekdayAssembly.push({
+        id: entry.id,
+        date: entry.date,
+        name: recipe.name,
+        text: bp.weekdayAssembly,
+      });
     }
   }
   weekdayAssembly.sort((a, b) => a.date.localeCompare(b.date));
@@ -91,7 +96,10 @@ export function TodayView({ recipes, plan, hasToken, loading }) {
         !isToday &&
         html`<p class="hint">
           planning ahead — these are ${dayLabel}'s meals, tap one to open the recipe and pre-cook
-          what you can. <button class="chip" onClick=${() => setDayIdx(todayIdx >= 0 ? todayIdx : 0)}>back to today</button>
+          what you can.
+          <button class="chip" onClick=${() => setDayIdx(todayIdx >= 0 ? todayIdx : 0)}>
+            back to today
+          </button>
         </p>`
       }
       ${
@@ -119,7 +127,11 @@ export function TodayView({ recipes, plan, hasToken, loading }) {
                     `;
                   }
                   return html`
-                    <a class="todayrow" href="#/recipe/${entry.recipeId}" key=${entry.id}>
+                    <a
+                      class="todayrow"
+                      href="#/recipe/${encodeURIComponent(entry.recipeId)}?from=today"
+                      key=${entry.id}
+                    >
                       <span class="t">${label}</span>
                       <span class="n">${recipe.name}</span>
                       <span class="m num"
@@ -137,18 +149,20 @@ export function TodayView({ recipes, plan, hasToken, loading }) {
             Batch prep <span class="hint">${sundayComponents.length} to prep, tap to open</span>
           </summary>
           ${sundayComponents.map(
-            (r) => html`<div class="batch" key=${r.id}>
-              <div class="k">Sunday · ${r.name}</div>
-              ${r.text}
-            </div>`,
+            (r) =>
+              html`<div class="batch" key=${r.id}>
+                <div class="k">Sunday · ${r.name}</div>
+                ${r.text}
+              </div>`,
           )}
           ${weekdayAssembly.map(
-            (w) => html`<div class="batch" key=${w.id}>
-              <div class="k">
-                ${parseLocalIso(w.date).toLocaleDateString([], { weekday: "short" })} · ${w.name}
-              </div>
-              ${w.text}
-            </div>`,
+            (w) =>
+              html`<div class="batch" key=${w.id}>
+                <div class="k">
+                  ${parseLocalIso(w.date).toLocaleDateString([], { weekday: "short" })} · ${w.name}
+                </div>
+                ${w.text}
+              </div>`,
           )}
         </details>`
       }

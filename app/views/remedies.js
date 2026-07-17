@@ -103,7 +103,7 @@ export function RemediesView({ recipes, hasToken, repo }) {
                   const r = byId.get(id);
                   return html`
                     <div class="slot" key=${id}>
-                      <a class="slotlink" href="#/recipe/${encodeURIComponent(id)}">
+                      <a class="slotlink" href="#/recipe/${encodeURIComponent(id)}?from=remedies">
                         <span class="name">${r ? r.name : id}</span>
                         ${
                           r &&

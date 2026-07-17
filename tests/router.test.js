@@ -37,6 +37,20 @@ test("ids are URL-decoded", () => {
   assert.deepEqual(parseRoute("#/recipe/a%20b"), { view: "recipe", id: "a b" });
 });
 
+test("?from= origin is carried on recipe and cook routes, omitted when absent", () => {
+  assert.deepEqual(parseRoute("#/recipe/x?from=today"), {
+    view: "recipe",
+    id: "x",
+    from: "today",
+  });
+  assert.deepEqual(parseRoute("#/recipe/x/cook?from=remedies"), {
+    view: "cook",
+    id: "x",
+    from: "remedies",
+  });
+  assert.deepEqual(parseRoute("#/recipe/x?from="), { view: "recipe", id: "x" });
+});
+
 test("unknown routes fall back to home", () => {
   assert.deepEqual(parseRoute("#/nope"), { view: "home" });
   assert.deepEqual(parseRoute("#/recipe"), { view: "home" });

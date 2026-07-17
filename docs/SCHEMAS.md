@@ -93,12 +93,18 @@ data to the app repo.
 {
   "profiles": [
     { "id": "david", "name": "David", "emoji": "🏋️", "phase": "gain" },
-    { "id": "mom",   "name": "Mom",   "emoji": "🌿", "phase": "loss" }
-  ]
+    { "id": "mom", "name": "Mom", "emoji": "🌿", "phase": "loss", "trainingEnabled": false },
+  ],
 }
 ```
+
 - `id`: lowercase kebab-case; used verbatim as the `profiles/<id>/` prefix
   for every file except `"david"`, which stays at the root.
+- `trainingEnabled?`: boolean, absent = `true`. When `false`, the app hides the
+  Train tab, Home's Train row, and the `#/train` route for that profile
+  (`app/main.js`, `app\views\home.js`). Asked as a yes/no in the gate's ADD
+  PROFILE questionnaire; toggled later from the SYS App tile
+  (`app\views\system.js`), which rewrites this file.
 - `phase` here is a display-only mirror of that profile's own
   `fitness/targets.json.phase` — shown on the profile-gate button before
   that profile's own data has loaded.
@@ -120,64 +126,65 @@ data to the app repo.
   "id": "chicken-bulgogi-bowl",
   "name": "Chicken Bulgogi Bowl",
   "description": "Weeknight bulgogi over rice with quick-pickled cucumber.",
-  "sourceUrl": "https://…",            // ? where it was researched from
+  "sourceUrl": "https://…", // ? where it was researched from
   "image": "images/chicken-bulgogi.jpg", // ? repo-relative path
   "servings": 4,
-  "prepTime": 15,                       // minutes
-  "cookTime": 12,                       // minutes
-  "totalTime": 27,                      // minutes
-  "mealType": "dinner",                 // breakfast | lunch | dinner | smoothie | snack
+  "prepTime": 15, // minutes
+  "cookTime": 12, // minutes
+  "totalTime": 27, // minutes
+  "mealType": "dinner", // breakfast | lunch | dinner | smoothie | snack
   "cuisine": "korean",
   "tags": ["rice-bowl", "batch-friendly"],
-  "difficulty": 1,                      // 1..3
-  "rating": 4,                          // ? 1..5, David's own
-  "phases": ["gain"],                   // ? recipe-bank visibility: which targets.phase values
-                                        //   this recipe serves (gain | loss | recomp | cut).
-                                        //   ABSENT = serves every profile. Only tag the
-                                        //   extremes (900-kcal bulk bowls -> ["gain"],
-                                        //   preload soups -> ["loss","cut"]). Profile-local
-                                        //   recipes ignore this field entirely.
-  "purpose": ["recovery", "everyday"],  // recovery | pre-activity | long-satiety | sick-day | everyday
-  "effort": "assembly",                 // assembly (<15m) | cook (15-30m) | project (30m+)
+  "difficulty": 1, // 1..3
+  "rating": 4, // ? 1..5, David's own
+  "phases": ["gain"], // ? recipe-bank visibility: which targets.phase values
+  //   this recipe serves (gain | loss | recomp | cut).
+  //   ABSENT = serves every profile. Only tag the
+  //   extremes (900-kcal bulk bowls -> ["gain"],
+  //   preload soups -> ["loss","cut"]). Profile-local
+  //   recipes ignore this field entirely.
+  "purpose": ["recovery", "everyday"], // recovery | pre-activity | long-satiety | sick-day | everyday
+  "effort": "assembly", // assembly (<15m) | cook (15-30m) | project (30m+)
   "ingredients": [
     {
       "qty": 500,
       "unit": "g",
       "food": "chicken thigh",
-      "note": "boneless, thin-sliced",  // ?
-      "optional": false,                // ? default false
-      "staple": false                   // ? true = assume on hand, excluded from shopping
-    }
+      "note": "boneless, thin-sliced", // ?
+      "optional": false, // ? default false
+      "staple": false, // ? true = assume on hand, excluded from shopping
+    },
   ],
   "instructions": [{ "step": 1, "text": "Slice chicken thin against the grain." }],
   "nutrition": {
-    "calories": 640,                    // per serving
-    "protein": 52,                      // grams per serving
+    "calories": 640, // per serving
+    "protein": 52, // grams per serving
     "carbs": 61,
     "fat": 18,
-    "method": "estimated"               // estimated | usda-spot-checked
+    "method": "estimated", // estimated | usda-spot-checked
   },
-  "foodGroups": {                // ? Daily Dozen servings this recipe provides per serving
-    "beans": 1,                  // legumes/tofu/tempeh/edamame, ~0.5 cup cooked = 1
+  "foodGroups": {
+    // ? Daily Dozen servings this recipe provides per serving
+    "beans": 1, // legumes/tofu/tempeh/edamame, ~0.5 cup cooked = 1
     "berries": 0,
     "otherFruit": 0.5,
-    "cruciferousVeg": 0,         // broccoli, cabbage, kale, etc.
+    "cruciferousVeg": 0, // broccoli, cabbage, kale, etc.
     "greens": 1,
     "otherVeg": 1,
     "flaxseed": 0,
     "nuts": 0.5,
-    "spicesHerbs": 1,            // meaningful culinary use, not a pinch garnish
+    "spicesHerbs": 1, // meaningful culinary use, not a pinch garnish
     "wholeGrains": 2,
-    "beverages": 0,               // green tea etc; plain water excluded
-    "method": "estimated"         // estimated | book-verified
+    "beverages": 0, // green tea etc; plain water excluded
+    "method": "estimated", // estimated | book-verified
   },
   "batchPrep": {
-    "sundayComponent": "Marinate + cook protein; rice in cooker.",  // ?
-    "weekdayAssembly": "Reheat, top, pickle. 10 min."               // ?
+    "sundayComponent": "Marinate + cook protein; rice in cooker.", // ?
+    "weekdayAssembly": "Reheat, top, pickle. 10 min.", // ?
   },
   "timesCooked": 3,
-  "lastCooked": "2026-06-28",           // ?
-  "lessons": ["Double the marinade — it carries the bowl."]
+  "lastCooked": "2026-06-28", // ?
+  "lessons": ["Double the marinade — it carries the bowl."],
 }
 ```
 
@@ -191,21 +198,21 @@ Two tiers, deliberately lightweight (no decrement-on-cook ledger, ever).
     {
       "id": "cayenne",
       "name": "Cayenne",
-      "section": "spices",              // store section, see Shopping
+      "section": "spices", // store section, see Shopping
       "onHand": true,
-      "runningLow": false,              // one tap → re-adds to shopping list
-      "premium": false                  // ? true = special occasions (saffron, porcini)
-    }
+      "runningLow": false, // one tap → re-adds to shopping list
+      "premium": false, // ? true = special occasions (saffron, porcini)
+    },
   ],
   "perishables": [
     {
       "food": "half cabbage",
-      "qty": "0.5 head",                // ? free string, human-scale
+      "qty": "0.5 head", // ? free string, human-scale
       "added": "2026-07-04",
-      "expires": "2026-07-11",          // ?
-      "useSoon": true                   // ? surfaces in recipe recommendations
-    }
-  ]
+      "expires": "2026-07-11", // ?
+      "useSoon": true, // ? surfaces in recipe recommendations
+    },
+  ],
 }
 ```
 
@@ -219,20 +226,21 @@ even the same slot — merge without losing either entry.
 ```jsonc
 {
   "week": "2026-W28",
-  "locked": false,     // ? true = you've shopped for this week; see below
+  "locked": false, // ? true = you've shopped for this week; see below
   "entries": [
     {
-      "id": "b3e29f01",                 // unique in the file; merge key
+      "id": "b3e29f01", // unique in the file; merge key
       "date": "2026-07-06",
-      "slot": "dinner",                 // breakfast | lunch | dinner | smoothie | snack
+      "slot": "dinner", // breakfast | lunch | dinner | smoothie | snack
       "recipeId": "chicken-bulgogi-bowl", // exactly one of recipeId | freeText
-      "freeText": "leftovers",          // e.g. "leftovers", "eating out"
+      "freeText": "leftovers", // e.g. "leftovers", "eating out"
       "servings": 2,
-      "pinned": false   // ? true = GENERATE WEEK must never clear or overwrite this entry
-    }
-  ]
+      "pinned": false, // ? true = GENERATE WEEK must never clear or overwrite this entry
+    },
+  ],
 }
 ```
+
 Absent `pinned` = unpinned (default behavior today, unchanged for existing data).
 
 `locked` (whole-plan, not per-entry) guards against the week's meals silently
@@ -258,19 +266,19 @@ grid (which would make the two numbers disagree or under-buy).
 
 ```jsonc
 {
-  "generatedFrom": "2026-W28",          // ? week the list was derived from
+  "generatedFrom": "2026-W28", // ? week the list was derived from
   "items": [
     {
       "id": "chicken-thigh",
       "food": "chicken thigh",
       "qty": 1000,
       "unit": "g",
-      "section": "meat",                // produce | meat | dairy | dry-goods | frozen | spices | other
+      "section": "meat", // produce | meat | dairy | dry-goods | frozen | spices | other
       "checked": false,
-      "manual": false,                  // true = David added by hand, survives regeneration
-      "fromRecipes": ["chicken-bulgogi-bowl"] // ?
-    }
-  ]
+      "manual": false, // true = David added by hand, survives regeneration
+      "fromRecipes": ["chicken-bulgogi-bowl"], // ?
+    },
+  ],
 }
 ```
 
@@ -284,63 +292,72 @@ Seeded from the FITNESS.md system; edited rarely.
   "macros": {
     "calories": 3700,
     "caloriesFloor": 3500,
-    "protein": 210,                     // grams
+    "protein": 210, // grams
     "proteinFloor": 185,
-    "fat": 100,                         // ? grams
-    "carbs": 490,                       // ? grams
-    "waterLiters": 3.5                  // daily target midpoint
+    "fat": 100, // ? grams
+    "carbs": 490, // ? grams
+    "waterLiters": 3.5, // daily target midpoint
   },
-  "adjustmentRule": "Weigh most mornings…",  // plain-text calorie adjustment rule
-  "phase": "gain",                // ? gain | loss | recomp | cut, current training phase.
-                                  //   The add-profile questionnaire only ever emits
-                                  //   gain | loss | recomp; "cut" is hand-set later — a
-                                  //   bank recipe tagged phases:["cut"] serves nobody
-                                  //   until a profile is manually moved to cut.
-  "phaseSince": "2026-07-10",     // ? ISO date the current phase started
+  "adjustmentRule": "Weigh most mornings…", // plain-text calorie adjustment rule
+  "phase": "gain", // ? gain | loss | recomp | cut, current training phase.
+  //   The add-profile questionnaire only ever emits
+  //   gain | loss | recomp; "cut" is hand-set later — a
+  //   bank recipe tagged phases:["cut"] serves nobody
+  //   until a profile is manually moved to cut.
+  "phaseSince": "2026-07-10", // ? ISO date the current phase started
   "avoidIngredients": ["onion", "shallot"],
-                                  // ? hard ingredient exclusions for this profile.
-                                  //   Case-insensitive SUBSTRING match against bank
-                                  //   recipe ingredient food names in mergeRecipePool
-                                  //   ("onion" also blocks "red onion"). The profile's
-                                  //   OWN recipes are exempt (authored to its rules).
-                                  //   Absent = no screening.
+  // ? hard ingredient exclusions for this profile.
+  //   Case-insensitive SUBSTRING match against bank
+  //   recipe ingredient food names in mergeRecipePool
+  //   ("onion" also blocks "red onion"). The profile's
+  //   OWN recipes are exempt (authored to its rules).
+  //   Absent = no screening.
   "mealSlots": ["breakfast", "lunch", "dinner", "smoothie"],
-                                   // ? ordered list of meal slots app/lib/weekbuilder.js's
-                                   //   generateWeek proactively fills/committee-picks per day.
-                                   //   Valid values: breakfast | lunch | dinner | smoothie.
-                                   //   Snack is never listed here — it's always the reactive
-                                   //   calorie/protein top-up pool, filled only as needed.
-                                   //   Absent = ["breakfast", "lunch", "dinner", "smoothie"]
-                                   //   (David's current behavior). A loss-phase profile with
-                                   //   no smoothie (e.g. profiles/mom) lists
-                                   //   ["breakfast", "lunch", "dinner"] so the generator
-                                   //   doesn't force a 4th proactive meal past the calorie
-                                   //   ceiling.
+  // ? ordered list of meal slots app/lib/weekbuilder.js's
+  //   generateWeek proactively fills/committee-picks per day.
+  //   Valid values: breakfast | lunch | dinner | smoothie.
+  //   Snack is never listed here — it's always the reactive
+  //   calorie/protein top-up pool, filled only as needed.
+  //   Absent = ["breakfast", "lunch", "dinner", "smoothie"]
+  //   (David's current behavior). A loss-phase profile with
+  //   no smoothie (e.g. profiles/mom) lists
+  //   ["breakfast", "lunch", "dinner"] so the generator
+  //   doesn't force a 4th proactive meal past the calorie
+  //   ceiling.
   "tracks": ["sleep", "weight", "pushups", "water", "supplements", "dailyDozen"],
-                                   // ? ordered list of Home check-in markers this profile
-                                   //   shows (app/views/home.js reads it). Valid values:
-                                   //   sleep | weight | waist | pushups | water |
-                                   //   supplements | dailyDozen. Absent = the full David
-                                   //   list above (back-compat for legacy/pre-multi-
-                                   //   profile installs and the pre-load window).
-  "dailyDozen": {                 // ? PER-DAY serving targets, Greger's published Daily Dozen
-    "beans": 3, "berries": 1, "otherFruit": 3, "cruciferousVeg": 1,
-    "greens": 2, "otherVeg": 2, "flaxseed": 1, "nuts": 1,
-    "spicesHerbs": 1, "wholeGrains": 3, "beverages": 5
+  // ? ordered list of Home check-in markers this profile
+  //   shows (app/views/home.js reads it). Valid values:
+  //   sleep | weight | waist | pushups | water |
+  //   supplements | dailyDozen. Absent = the full David
+  //   list above (back-compat for legacy/pre-multi-
+  //   profile installs and the pre-load window).
+  "dailyDozen": {
+    // ? PER-DAY serving targets, Greger's published Daily Dozen
+    "beans": 3,
+    "berries": 1,
+    "otherFruit": 3,
+    "cruciferousVeg": 1,
+    "greens": 2,
+    "otherVeg": 2,
+    "flaxseed": 1,
+    "nuts": 1,
+    "spicesHerbs": 1,
+    "wholeGrains": 3,
+    "beverages": 5,
   },
   "sleepHoursTarget": 8,
   "pushupsPerDay": 200,
   "priorityStack": ["Sleep", "Protein", "Training", "Water", "Everything else"],
-  "nonNegotiables": ["1 L water on waking", "…"],  // daily checklist source
+  "nonNegotiables": ["1 L water on waking", "…"], // daily checklist source
   "supplementPlan": [
     {
       "id": "creatine",
       "name": "Creatine monohydrate",
       "dose": "5g",
       "timing": "daily, in smoothie",
-      "notes": ""                       // ?
-    }
-  ]
+      "notes": "", // ?
+    },
+  ],
 }
 ```
 
@@ -362,34 +379,44 @@ compatibility with any historical multi-set sessions, and
 ```jsonc
 {
   "_scheduleNote": "PLACEHOLDER mapping of existing templates, awaiting Be fit vault 3-day split", // ?
-  "schedule": {                   // ? weekday -> templateId, fixed rotation (zero split-picking)
-    "mon": "lower-a", "tue": "pull-a", "wed": "push-a",
-    "thu": "pull-b", "fri": "lower-b", "sat": "push-b",
-    "sun": null                   // null = rest day
+  "schedule": {
+    // ? weekday -> templateId, fixed rotation (zero split-picking)
+    "mon": "lower-a",
+    "tue": "pull-a",
+    "wed": "push-a",
+    "thu": "pull-b",
+    "fri": "lower-b",
+    "sat": "push-b",
+    "sun": null, // null = rest day
   },
   "templates": [
     {
       "id": "upper-a",
       "name": "Upper A",
       "exercises": [
-        { "name": "Bench Press", "targetSets": 4, "targetReps": "6-8", "note": "Heavy. Primary overload lift." } // note ?
-      ]
-    }
+        {
+          "name": "Bench Press",
+          "targetSets": 4,
+          "targetReps": "6-8",
+          "note": "Heavy. Primary overload lift.",
+        }, // note ?
+      ],
+    },
   ],
   "sessions": [
     {
-      "id": "a1b2c3d4",                 // unique in the file; merge key (multiple sessions/day allowed)
+      "id": "a1b2c3d4", // unique in the file; merge key (multiple sessions/day allowed)
       "date": "2026-07-05",
-      "templateId": "upper-a",          // ? sessions can be freeform
+      "templateId": "upper-a", // ? sessions can be freeform
       "exercises": [
         {
           "name": "Bench Press",
-          "sets": [{ "weight": 80, "reps": 8 }]  // weight in lb (Task 8 decision); 0 = bodyweight
-        }
+          "sets": [{ "weight": 80, "reps": 8 }], // weight in lb (Task 8 decision); 0 = bodyweight
+        },
       ],
-      "notes": "Felt strong; slept 8h."  // ?
-    }
-  ]
+      "notes": "Felt strong; slept 8h.", // ?
+    },
+  ],
 }
 ```
 
@@ -402,28 +429,30 @@ One row per day; 10-second morning check-in.
   "days": [
     {
       "date": "2026-07-06",
-      "weight": 180.4,                  // ? lb (Task 8 decision); weigh-day mornings only
-      "waist": 34.5,                    // ? inches; weekly cadence by convention, not
-                                         //   enforced — only profiles with "waist" in
-                                         //   targets.tracks show this marker on Home
-      "sleepHours": 7.5,                // ?
-      "pushups": 60,                    // ? running count through the day
-      "water": 3.5,                     // ? LITERS in 0.25 steps (a cup ≈ 0.25 L — David's rule)
+      "weight": 180.4, // ? lb (Task 8 decision); weigh-day mornings only
+      "waist": 34.5, // ? inches; weekly cadence by convention, not
+      //   enforced — only profiles with "waist" in
+      //   targets.tracks show this marker on Home
+      "sleepHours": 7.5, // ?
+      "pushups": 60, // ? running count through the day
+      "water": 3.5, // ? LITERS in 0.25 steps (a cup ≈ 0.25 L — David's rule)
       "supplements": { "creatine": true, "magnesium": true, "multi": false, "fishOil": true },
-      "calories": 3350,                 // ? auto-filled from day's plan, adjustable
-      "protein": 205,                   // ? grams
-      "dozen": {                        // ? hand-tracked Daily Dozen servings, David checks
-                                         //   these off himself — recipes can't reliably deliver
-                                         //   beverages/greens/other fruit/other veg alone
-        "beverages": 3,                 // number of servings logged today, default 0
+      "calories": 3350, // ? auto-filled from day's plan, adjustable
+      "protein": 205, // ? grams
+      "dozen": {
+        // ? hand-tracked Daily Dozen servings, David checks
+        //   these off himself — recipes can't reliably deliver
+        //   beverages/greens/other fruit/other veg alone
+        "beverages": 3, // number of servings logged today, default 0
         "greens": 1,
         "otherFruit": 2,
-        "otherVeg": 1
-      }
-    }
-  ]
+        "otherVeg": 1,
+      },
+    },
+  ],
 }
 ```
+
 `dozen`'s keys are a subset of `fitness/targets.json`'s `dailyDozen` keys — the categories
 recipes alone can't cover (directive: David logs these by hand each morning/day; the
 `generateWeek` build report already covers the recipe-deliverable categories via
@@ -439,13 +468,13 @@ fast-follow; the purpose-recommendation hook is the reason `time` exists).
   "activities": [
     {
       "date": "2026-07-06",
-      "type": "tennis",                 // tennis | climbing | hiking | other
-      "time": "18:00",                  // ? local HH:MM, feeds purpose recommendations
-      "durationMin": 90,                // ?
-      "intensity": 2,                   // ? 1..3
-      "notes": ""                       // ?
-    }
-  ]
+      "type": "tennis", // tennis | climbing | hiking | other
+      "time": "18:00", // ? local HH:MM, feeds purpose recommendations
+      "durationMin": 90, // ?
+      "intensity": 2, // ? 1..3
+      "notes": "", // ?
+    },
+  ],
 }
 ```
 
@@ -453,7 +482,7 @@ fast-follow; the purpose-recommendation hook is the reason `time` exists).
 
 ```jsonc
 {
-  "schemaVersion": 1,                   // bump on breaking schema change
-  "lastWrite": { "device": "iphone", "at": "2026-07-06T18:20:11Z" } // ? debugging aid
+  "schemaVersion": 1, // bump on breaking schema change
+  "lastWrite": { "device": "iphone", "at": "2026-07-06T18:20:11Z" }, // ? debugging aid
 }
 ```

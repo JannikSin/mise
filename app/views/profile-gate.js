@@ -31,6 +31,7 @@ export function ProfileGateView() {
   const [weightLb, setWeightLb] = useState("");
   const [activity, setActivity] = useState(2);
   const [goal, setGoal] = useState(/** @type {"loss" | "maintain" | "gain"} */ ("maintain"));
+  const [training, setTraining] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -92,7 +93,13 @@ export function ProfileGateView() {
     const next = {
       profiles: [
         ...profiles,
-        { id, name: trimmedName, emoji: emoji.trim(), phase: targets.phase },
+        {
+          id,
+          name: trimmedName,
+          emoji: emoji.trim(),
+          phase: targets.phase,
+          trainingEnabled: training,
+        },
       ],
     };
     // await the cache writes (not the network flush, which queues and
@@ -211,6 +218,17 @@ export function ProfileGateView() {
               gain
             </button>
           </div>
+
+          <h2 class="block-title">training features?</h2>
+          <div class="chips" role="group" aria-label="Do you want training features?">
+            <button class="chip ${training ? "on" : ""}" onClick=${() => setTraining(true)}>
+              yes
+            </button>
+            <button class="chip ${!training ? "on" : ""}" onClick=${() => setTraining(false)}>
+              no
+            </button>
+          </div>
+          <p class="hint">no hides the Train tab and workout tracking — flip it later in SYS.</p>
 
           <div class="actions">
             <button class="primary" onClick=${addProfile} disabled=${!formValid || saving}>
