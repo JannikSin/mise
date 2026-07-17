@@ -72,17 +72,43 @@ function overlapWith(recipe, foods) {
 }
 
 /**
+ * How many of `needles` match the recipe's non-staple foods, by the same
+ * bidirectional-substring rule useSoon uses ("mushroom" matches "cremini
+ * mushroom" and vice-versa). Shared by the use-soon pantry bonus and the
+ * survey-v2 dislike penalty.
  * @param {Record<string, any>} recipe
- * @param {string[]} useSoonFoods
+ * @param {string[]} needles
  */
-function useSoonHits(recipe, useSoonFoods) {
+function foodMatchCount(recipe, needles) {
   const foods = [...foodSlugsOf(recipe)];
   let n = 0;
-  for (const soon of useSoonFoods) {
-    const s = slug(String(soon));
-    if (foods.some((f) => s.includes(f) || f.includes(s))) n++;
+  for (const needle of needles) {
+    const s = slug(String(needle));
+    if (s && foods.some((f) => s.includes(f) || f.includes(s))) n++;
   }
   return n;
+}
+
+/**
+ * Whether a breakfast recipe matches a requested style (survey-v2 Q17). Uses
+ * explicit sweet/savory/grab-and-go tags where present, falling back to a
+ * foodGroups/effort heuristic for untagged legacy breakfasts.
+ * @param {Record<string, any>} r
+ * @param {string} style
+ * @returns {boolean}
+ */
+function matchesBreakfastStyle(r, style) {
+  const tags = r.tags ?? [];
+  const fg = r.foodGroups ?? {};
+  const fruit = (Number(fg.berries) || 0) + (Number(fg.otherFruit) || 0);
+  if (style === "sweet") return tags.includes("sweet") || fruit > 0.5;
+  if (style === "savory") {
+    return tags.includes("savory") || ((Number(fg.beans) || 0) + (Number(fg.otherVeg) || 0) > 0.5 && fruit === 0);
+  }
+  if (style === "grab-and-go") {
+    return tags.some((/** @type {string} */ t) => ["grab-and-go", "make-ahead", "blend-and-go"].includes(t)) || r.effort === "assembly";
+  }
+  return false;
 }
 
 /**
@@ -149,6 +175,12 @@ export function foodGroupGapBonus(recipe, coverageSoFar, targets) {
  * foodGroupGapBonus against the running Daily Dozen coverage, protein
  * density, use-soon pantry bonus, and salted jitter for RE-ROLL variety.
  * Effort:"project" recipes (weekend-only) are never eligible.
+ * Survey-v2 taste WEIGHTS (never filters — a weight can't empty a pool):
+ * disliked-ingredient recipes lose ties (`dislikeIngredients`), loved/avoided
+ * cuisines nudge (`cuisinePrefs`), a tight `budget` rewards the "cheap" tag +
+ * beans and doubles the ingredient-overlap dial so the week converges on
+ * fewer distinct items, and `breakfastStyle` (breakfast committee only)
+ * rewards a style match.
  * @param {Record<string, any>[]} candidates
  * @param {{
  *   size?: number,
@@ -156,7 +188,11 @@ export function foodGroupGapBonus(recipe, coverageSoFar, targets) {
  *   useSoonFoods?: string[],
  *   weekFoodPool?: Set<string>,
  *   coverageSoFar?: Record<string, number>,
- *   dailyDozenTargets?: Record<string, number>
+ *   dailyDozenTargets?: Record<string, number>,
+ *   dislikeIngredients?: string[],
+ *   cuisinePrefs?: { loved: string[], avoided: string[] },
+ *   budget?: "tight" | "normal" | "loose",
+ *   breakfastStyle?: string
  * }} [opts]
  * @returns {Record<string, any>[]}
  */
@@ -168,13 +204,40 @@ export function pickCommittee(candidates, opts = {}) {
   const weekFoodPool = opts.weekFoodPool ?? new Set();
   const coverageSoFar = opts.coverageSoFar ?? {};
   const dailyDozenTargets = opts.dailyDozenTargets ?? {};
+  const dislikes = opts.dislikeIngredients ?? [];
+  const loved = new Set(opts.cuisinePrefs?.loved ?? []);
+  const avoided = new Set(opts.cuisinePrefs?.avoided ?? []);
+  const tight = opts.budget === "tight";
+  const breakfastStyle = opts.breakfastStyle;
+  // survey-v2 Q18: tight budget doubles the ingredient-overlap dial (the
+  // existing core of committee scoring) so weeks converge on fewer shop items.
+  const overlapWeight = tight ? 2 : 1;
   if (size === 0) return [];
 
   const jitter = (/** @type {Record<string, any>} */ r) => (hash(`${r.id}|${salt}`) % 997) / 9970;
+  const tasteBonus = (/** @type {Record<string, any>} */ r) => {
+    let b = 0;
+    b += foodMatchCount(r, dislikes) * -2;
+    if (loved.has(r.cuisine)) b += 1;
+    if (avoided.has(r.cuisine)) b += -3;
+    if (tight) {
+      // survey-v2 Q18 budget WEIGHT. This is a real proxy, not invented
+      // prices: the "cheap" tag is author-set and beans are the bank's
+      // cheapest protein. ponytail: per-recipe price data (a future
+      // receipt-scanning feature keyed by targets.stores) plugs in HERE —
+      // replace the tag/beans proxy with an actual cost term once
+      // recipe.priceEstimate (or a per-store price map) exists.
+      if ((r.tags ?? []).includes("cheap")) b += 1;
+      b += (Number(r.foodGroups?.beans) || 0) * 0.5;
+    }
+    if (breakfastStyle && matchesBreakfastStyle(r, breakfastStyle)) b += 1.5;
+    return b;
+  };
   const bonus = (/** @type {Record<string, any>} */ r) =>
-    useSoonHits(r, useSoon) * 3 +
+    foodMatchCount(r, useSoon) * 3 +
     (r.nutrition?.protein ?? 0) / 200 +
     foodGroupGapBonus(r, coverageSoFar, dailyDozenTargets) * 2 +
+    tasteBonus(r) +
     jitter(r);
 
   // seed: most "connected" candidate to the week pool so far; if nothing has
@@ -186,7 +249,7 @@ export function pickCommittee(candidates, opts = {}) {
   let best = null;
   let bestScore = -Infinity;
   for (const c of candidates) {
-    const score = overlapWith(c, seedTarget) + bonus(c);
+    const score = overlapWith(c, seedTarget) * overlapWeight + bonus(c);
     if (score > bestScore) {
       bestScore = score;
       best = c;
@@ -201,7 +264,7 @@ export function pickCommittee(candidates, opts = {}) {
     let nextScore = -Infinity;
     for (const c of candidates) {
       if (committee.includes(c)) continue;
-      const score = overlapWith(c, committeeFoods) + bonus(c);
+      const score = overlapWith(c, committeeFoods) * overlapWeight + bonus(c);
       if (score > nextScore) {
         nextScore = score;
         next = c;
@@ -382,9 +445,12 @@ export function foodGroupFloorPass(plan, pool, recipesById, floors) {
  * @param {Record<string, any>[]} snackPool
  * @param {Map<string, any>} recipesById
  * @param {{ calories: number, protein: number }} floors
+ * @param {number} [maxSnackStacks] survey-v2 Q11 snackAppetite cap: 3 for a
+ *   grazer (default, today's behavior), 1 for a "three-squares" eater (the
+ *   portion-bump lever, tried first, then does more of the work)
  * @returns {import("./plan.js").Plan}
  */
-export function macroTopUp(plan, snackPool, recipesById, floors) {
+export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks = 3) {
   const pool = snackPool.filter((r) => r.effort !== "project");
   const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
   if (dates.length === 0) return plan;
@@ -433,7 +499,7 @@ export function macroTopUp(plan, snackPool, recipesById, floors) {
     // never past the 2x per-entry cap; once the best pick is maxed the next
     // stack tries the next-best DISTINCT snack instead of stalling out.
     const maxedOut = new Set();
-    for (let stacked = 0; stacked < 3; stacked++) {
+    for (let stacked = 0; stacked < maxSnackStacks; stacked++) {
       const s = shortOf(date);
       if (!s.any) break;
       const pick = bestFor(s.protein, maxedOut);
@@ -670,7 +736,8 @@ const DEFAULT_MEAL_SLOTS = /** @type {const} */ (["breakfast", "lunch", "dinner"
  *   foodGroupGaps: { date: string, group: string, have: number, target: number }[],
  *   foodGroupGapsWeekly: { group: string, have: number, target: number }[],
  *   poolInsufficient: { reason: string, suggestion: string }[],
- *   calorieOverDays: { date: string, calories: number, ceiling: number }[]
+ *   calorieOverDays: { date: string, calories: number, ceiling: number }[],
+ *   timeBudgetRelaxed: string[]
  * }} WeekReport
  */
 
@@ -705,7 +772,30 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0 
   const useSoonFoods = (pantry.perishables ?? [])
     .filter((/** @type {any} */ p) => p.useSoon)
     .map((/** @type {any} */ p) => String(p.food));
-  const pool = (/** @type {string} */ meal) => recipes.filter((r) => r.mealType === meal);
+
+  // survey-v2 FILTERS applied at pool level (Q12 time, Q15 skill, Q16 gear).
+  // maxWeeknightMinutes caps only dinner/lunch (breakfast/smoothie/snack are
+  // near-universally quick); maxDifficulty and equipment apply to every pool.
+  const maxMinutes = targets?.maxWeeknightMinutes;
+  const maxDifficulty = targets?.maxDifficulty;
+  const haveEquipment = targets?.equipment; // what the profile HAS; absent = has everything
+  const lacksGear = (/** @type {Record<string, any>} */ r) =>
+    Array.isArray(haveEquipment) && (r.equipment ?? []).some((/** @type {string} */ e) => !haveEquipment.includes(e));
+  /** @type {string[]} slots where the time cap emptied the pool and was relaxed (Q12 honest-failure) */
+  const timeBudgetRelaxed = [];
+  const pool = (/** @type {string} */ meal) => {
+    let list = recipes.filter((r) => r.mealType === meal);
+    if (Array.isArray(haveEquipment)) list = list.filter((r) => !lacksGear(r));
+    if (maxDifficulty != null) list = list.filter((r) => (r.difficulty ?? 1) <= maxDifficulty);
+    if (maxMinutes != null && (meal === "dinner" || meal === "lunch")) {
+      const capped = list.filter((r) => (r.totalTime ?? 0) <= maxMinutes);
+      // honest-failure: a cap that leaves fewer than 2 candidates is ignored
+      // for this slot and reported plainly, never silently fudged.
+      if (capped.length >= 2) list = capped;
+      else if (!timeBudgetRelaxed.includes(meal)) timeBudgetRelaxed.push(meal);
+    }
+    return list;
+  };
 
   // Step 1: clear every unpinned entry; pinned entries are the only
   // pre-existing content the rest of generation builds around
@@ -766,6 +856,10 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0 
         weekFoodPool,
         coverageSoFar,
         dailyDozenTargets: dailyDozenWeekly,
+        dislikeIngredients: targets?.dislikeIngredients,
+        cuisinePrefs: targets?.cuisinePrefs,
+        budget: targets?.budget,
+        breakfastStyle: meal === "breakfast" ? targets?.breakfastStyle : undefined,
       },
     );
     committees[meal] = committee;
@@ -841,7 +935,7 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0 
   // so it needs every real snack candidate available (2026-07-10 gain-phase
   // bump: the higher 3700/3500 floor needs more headroom than a 2-recipe
   // committee reliably provides).
-  next = macroTopUp(next, pool("snack"), byId, floors);
+  next = macroTopUp(next, pool("snack"), byId, floors, targets?.snackAppetite === "meals" ? 1 : 3);
 
   // Step 4.5: calorie CEILING trim, run LAST. The two passes above only ever
   // ADD servings, so days routinely overshoot the target by 5-9%; this trims
@@ -888,6 +982,7 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0 
       foodGroupGapsWeekly: gaps.weekly,
       poolInsufficient,
       calorieOverDays,
+      timeBudgetRelaxed,
     },
   };
 }

@@ -1,7 +1,7 @@
 import { html } from "htm/preact";
 import { useRef, useState } from "preact/hooks";
 import { scanPhoto } from "../lib/worker.js";
-import { mergeProfileLists, swapCandidates, formatStoreQty } from "../lib/shopping.js";
+import { mergeProfileLists, swapCandidates, formatStoreQty, tripOf } from "../lib/shopping.js";
 import { activeProfile } from "../lib/store.js";
 
 const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spices", "other"];
@@ -27,7 +27,8 @@ const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spice
  *   onToggleLock: () => void,
  *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList }[],
  *   ownEmoji: string,
- *   onCombinedToggle: (itemId: string, sources: { profileId: string, checked: boolean }[]) => void
+ *   onCombinedToggle: (itemId: string, sources: { profileId: string, checked: boolean }[]) => void,
+ *   shopsPerWeek?: number
  * }} props
  */
 export function ShoppingView({
@@ -49,6 +50,7 @@ export function ShoppingView({
   others,
   ownEmoji,
   onCombinedToggle,
+  shopsPerWeek = 1,
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry" | "combined"} */ ("list"));
   const [manual, setManual] = useState("");
@@ -80,6 +82,16 @@ export function ShoppingView({
     section: s,
     items: items.filter((i) => i.section === s),
   })).filter((g) => g.items.length > 0);
+
+  // survey-v2 David-ask #3: split the list into shopping trips when the
+  // profile shops more than once a week. One trip = today's single list.
+  const trips =
+    shopsPerWeek >= 2
+      ? [
+          { key: "pantry", label: "Trip · pantry & bulk", groups: sections.filter((g) => tripOf(g.section) === "pantry") },
+          { key: "fresh", label: "Trip · fresh", groups: sections.filter((g) => tripOf(g.section) === "fresh") },
+        ].filter((t) => t.groups.length > 0)
+      : [{ key: "all", label: "", groups: sections }];
 
   // combined household trip: this profile's list + every other profile's,
   // merged read-time (no third artifact to sync)
@@ -172,31 +184,40 @@ export function ShoppingView({
             — moves it to your permanent pantry staples.
           </p>
 
-          ${sections.map(
-            (g) => html`
-              <h2 class="block-title" key=${g.section}>${g.section}</h2>
-              <div class="slots">
-                ${g.items.map(
-                  (i) => html`
-                    <div class="checkrow ${i.checked ? "done" : ""}" key=${i.id}>
-                      <button
-                        class="tickarea"
-                        aria-pressed=${i.checked}
-                        onClick=${() => onToggleItem(i.id)}
-                      >
-                        <span class="box" aria-hidden="true">${i.checked ? "✓" : ""}</span>
-                        <span class="food"
-                          >${i.food}${i.manual ? html` <span class="tag">manual</span>` : ""}</span
-                        >
-                        <span class="q num">${formatStoreQty(i.qty, i.unit)}</span>
-                      </button>
-                      <button
-                        class="ownbtn"
-                        aria-label="Already have ${i.food} — move to pantry staples"
-                        onClick=${() => onOwnItem(i.id)}
-                      >
-                        P+
-                      </button>
+          ${trips.map(
+            (trip) => html`
+              <div key=${trip.key}>
+                ${trip.label && html`<h2 class="block-title trip-title">${trip.label}</h2>`}
+                ${trip.groups.map(
+                  (g) => html`
+                    <h2 class="block-title" key=${g.section}>${g.section}</h2>
+                    <div class="slots">
+                      ${g.items.map(
+                        (i) => html`
+                          <div class="checkrow ${i.checked ? "done" : ""}" key=${i.id}>
+                            <button
+                              class="tickarea"
+                              aria-pressed=${i.checked}
+                              onClick=${() => onToggleItem(i.id)}
+                            >
+                              <span class="box" aria-hidden="true">${i.checked ? "✓" : ""}</span>
+                              <span class="food"
+                                >${i.food}${i.manual
+                                  ? html` <span class="tag">manual</span>`
+                                  : ""}</span
+                              >
+                              <span class="q num">${formatStoreQty(i.qty, i.unit)}</span>
+                            </button>
+                            <button
+                              class="ownbtn"
+                              aria-label="Already have ${i.food} — move to pantry staples"
+                              onClick=${() => onOwnItem(i.id)}
+                            >
+                              P+
+                            </button>
+                          </div>
+                        `,
+                      )}
                     </div>
                   `,
                 )}

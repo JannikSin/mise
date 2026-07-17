@@ -184,6 +184,68 @@ export function setTopSet(session, exercise, set) {
  * }} Questionnaire
  */
 
+/**
+ * The optional survey-v2 answers (sections 2 and 3). All progressive: every
+ * field has a safe default, so a profile that stops after section 1 still
+ * gets a working targets.json. See docs/survey-v2-design.md.
+ * @typedef {{
+ *   diet?: "omnivore" | "pescatarian" | "vegetarian" | "vegan",
+ *   allergens?: string[],
+ *   allergensFreeText?: string,
+ *   skipBreakfast?: boolean,
+ *   smoothie?: boolean,
+ *   snackAppetite?: "grazer" | "meals",
+ *   maxWeeknightMinutes?: number,
+ *   dislikeIngredients?: string[],
+ *   cuisinePrefs?: { loved: string[], avoided: string[] },
+ *   maxDifficulty?: 1 | 2 | 3,
+ *   equipment?: string[],
+ *   breakfastStyle?: "sweet" | "savory" | "grab-and-go" | "surprise",
+ *   budget?: "tight" | "normal" | "loose",
+ *   stores?: string[],
+ *   shopsPerWeek?: number
+ * }} SurveyPrefs
+ */
+
+/**
+ * Allergen preset id -> the ingredient-name substrings it expands to, appended
+ * to targets.avoidIngredients (survey-v2 Q10). Shared by the profile gate and
+ * SYS so both render the same chips and expand the same way. Deliberately
+ * broad: allergy handling wants false positives over false negatives.
+ * @type {Record<string, string[]>}
+ */
+export const ALLERGEN_TERMS = {
+  nuts: ["almond", "walnut", "cashew", "pecan", "pistachio", "hazelnut", "macadamia", "nut butter"],
+  peanuts: ["peanut"],
+  gluten: ["wheat", "pasta", "bread", "couscous", "farro", "orzo", "pita", "flour", "noodle", "barley", "bulgur", "soy sauce", "panko", "seitan", "cracker"],
+  dairy: ["milk", "yogurt", "cheese", "whey", "butter", "cream", "feta", "halloumi", "cottage", "parmesan", "kefir", "ghee"],
+  eggs: ["egg"],
+  soy: ["soy", "tofu", "tempeh", "edamame", "miso"],
+  shellfish: ["shrimp", "prawn", "crab", "lobster", "scallop", "clam", "mussel", "oyster"],
+  fish: ["salmon", "tuna", "cod", "anchovy", "sardine", "mackerel", "tilapia", "halibut", "trout", "fish sauce", "dashi"],
+  sesame: ["sesame", "tahini"],
+};
+
+/**
+ * Expand chosen allergen preset ids plus a free-text "anything else" string
+ * into a deduped avoidIngredients term list (survey-v2 Q10). Free-text terms
+ * append verbatim (lowercased, trimmed).
+ * @param {string[]} [allergens] preset ids
+ * @param {string} [freeText] comma-separated extra terms
+ * @returns {string[]}
+ */
+export function avoidTermsFromAllergens(allergens, freeText) {
+  const out = new Set();
+  for (const id of allergens ?? []) {
+    for (const term of ALLERGEN_TERMS[id] ?? []) out.add(term);
+  }
+  for (const t of (freeText ?? "").split(",")) {
+    const term = t.trim().toLowerCase();
+    if (term) out.add(term);
+  }
+  return [...out];
+}
+
 /** Standard TDEE activity multipliers, sedentary through very active. */
 const ACTIVITY_MULT = [1.2, 1.375, 1.55, 1.725, 1.9];
 
@@ -195,11 +257,17 @@ const ACTIVITY_MULT = [1.2, 1.375, 1.55, 1.725, 1.9];
  * (-500 loss / +300 gain). Protein anchors to bodyweight, fat to ~30% of
  * calories, carbs take the remainder. Greger's Daily Dozen targets are the
  * published dozen — the same for everyone; only the macro wrapper differs.
+ * The optional `prefs` bundle (survey-v2 sections 2-3) layers taste/diet/
+ * budget answers on top; every field is progressive with a safe default, so
+ * an empty `prefs` reproduces the pre-survey targets exactly. Each field maps
+ * to a real generation mechanism (see docs/survey-v2-design.md); fields left
+ * at their default are OMITTED from the output per SCHEMAS.md (absent != null).
  * @param {Questionnaire} q
  * @param {string} [todayIso] stamps phaseSince when provided
+ * @param {SurveyPrefs} [prefs] optional survey-v2 answers
  * @returns {Record<string, any>}
  */
-export function targetsFromQuestionnaire(q, todayIso) {
+export function targetsFromQuestionnaire(q, todayIso, prefs = {}) {
   const kg = q.weightLb * 0.45359237;
   const cm = (q.heightFt * 12 + q.heightIn) * 2.54;
   const bmr = 10 * kg + 6.25 * cm - 5 * q.age + (q.sex === "m" ? 5 : -161);
@@ -216,6 +284,20 @@ export function targetsFromQuestionnaire(q, todayIso) {
   );
   const carbs = Math.max(0, Math.round((calories - proteinKcal - fat * 9) / 4));
   const phase = q.goal === "loss" ? "loss" : q.goal === "gain" ? "gain" : "recomp";
+
+  // Meal slots (survey-v2 Q11): base three, drop breakfast if skipped, add
+  // smoothie when wanted AND a blender is on hand (Q16 special case — a
+  // smoothie slot with no blender is a slot the profile can never cook).
+  const hasBlender = !prefs.equipment || prefs.equipment.includes("blender");
+  const wantSmoothie = prefs.smoothie ?? phase === "gain";
+  const mealSlots = ["breakfast", "lunch", "dinner"]
+    .filter((s) => !(s === "breakfast" && prefs.skipBreakfast))
+    .concat(wantSmoothie && hasBlender ? ["smoothie"] : []);
+
+  const avoidIngredients = avoidTermsFromAllergens(prefs.allergens, prefs.allergensFreeText);
+  const cuisineLoved = prefs.cuisinePrefs?.loved ?? [];
+  const cuisineAvoided = prefs.cuisinePrefs?.avoided ?? [];
+
   return {
     macros: {
       calories,
@@ -230,10 +312,26 @@ export function targetsFromQuestionnaire(q, todayIso) {
       "Weigh most mornings; judge the 7-day average, not the day. Adjust calories by 150-200 only after two flat weeks.",
     phase,
     ...(todayIso ? { phaseSince: todayIso } : {}),
-    mealSlots:
-      phase === "gain"
-        ? ["breakfast", "lunch", "dinner", "smoothie"]
-        : ["breakfast", "lunch", "dinner"],
+    // survey-v2 answers, each omitted when it equals its safe default so the
+    // file stays lean and "absent = default" holds (SCHEMAS.md).
+    ...(prefs.diet && prefs.diet !== "omnivore" ? { diet: prefs.diet } : {}),
+    ...(prefs.allergens?.length ? { allergens: prefs.allergens } : {}),
+    ...(avoidIngredients.length ? { avoidIngredients } : {}),
+    ...(prefs.snackAppetite === "meals" ? { snackAppetite: "meals" } : {}),
+    ...(prefs.maxWeeknightMinutes ? { maxWeeknightMinutes: prefs.maxWeeknightMinutes } : {}),
+    ...(prefs.dislikeIngredients?.length ? { dislikeIngredients: prefs.dislikeIngredients } : {}),
+    ...(cuisineLoved.length || cuisineAvoided.length
+      ? { cuisinePrefs: { loved: cuisineLoved, avoided: cuisineAvoided } }
+      : {}),
+    ...(prefs.maxDifficulty && prefs.maxDifficulty < 3 ? { maxDifficulty: prefs.maxDifficulty } : {}),
+    ...(prefs.equipment ? { equipment: prefs.equipment } : {}),
+    ...(prefs.breakfastStyle && prefs.breakfastStyle !== "surprise"
+      ? { breakfastStyle: prefs.breakfastStyle }
+      : {}),
+    ...(prefs.budget && prefs.budget !== "normal" ? { budget: prefs.budget } : {}),
+    ...(prefs.stores?.length ? { stores: prefs.stores } : {}),
+    ...(prefs.shopsPerWeek && prefs.shopsPerWeek > 1 ? { shopsPerWeek: prefs.shopsPerWeek } : {}),
+    mealSlots,
     tracks:
       phase === "gain"
         ? ["sleep", "weight", "pushups", "water", "supplements", "dailyDozen"]

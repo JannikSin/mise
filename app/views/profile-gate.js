@@ -19,6 +19,21 @@ import { localIsoDate } from "../lib/dates.js";
  * is a working state, not a broken one.
  * @returns {import("preact").VNode}
  */
+/** Allergen preset ids — must match ALLERGEN_TERMS keys in app/lib/fitness.js. */
+const ALLERGEN_PRESETS = ["nuts", "peanuts", "gluten", "dairy", "eggs", "soy", "shellfish", "fish", "sesame"];
+/** Trackable kitchen equipment (survey-v2 Q16); absent from profile = has everything. */
+const EQUIPMENT = ["blender", "oven", "rice cooker", "food processor", "freezer"];
+/** Chip grid for cuisine loves/avoids (survey-v2 Q14) — the bank's common cuisines. */
+const CUISINES = ["american", "italian", "japanese", "chinese", "korean", "mexican", "indian", "mediterranean", "middle-eastern", "french", "thai"];
+
+/** Split a comma-separated free-text field into a trimmed, non-empty list. */
+function splitList(/** @type {string} */ s) {
+  return s
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
 export function ProfileGateView() {
   const [profiles, setProfiles] = useState(/** @type {Record<string, any>[]} */ ([]));
   const [loading, setLoading] = useState(true);
@@ -33,6 +48,44 @@ export function ProfileGateView() {
   const [goal, setGoal] = useState(/** @type {"loss" | "maintain" | "gain"} */ ("maintain"));
   const [training, setTraining] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // survey-v2 section 2 (required, but every answer has a safe default)
+  const [diet, setDiet] = useState(
+    /** @type {"omnivore" | "pescatarian" | "vegetarian" | "vegan"} */ ("omnivore"),
+  );
+  const [allergens, setAllergens] = useState(/** @type {string[]} */ ([]));
+  const [allergensFreeText, setAllergensFreeText] = useState("");
+  const [skipBreakfast, setSkipBreakfast] = useState(false);
+  const [smoothie, setSmoothie] = useState(true);
+  const [snackAppetite, setSnackAppetite] = useState(/** @type {"grazer" | "meals"} */ ("grazer"));
+  const [maxWeeknightMinutes, setMaxWeeknightMinutes] = useState(/** @type {number | null} */ (null));
+
+  // survey-v2 section 3 (optional, skippable)
+  const [dislikes, setDislikes] = useState("");
+  const [cuisinePrefs, setCuisinePrefs] = useState(
+    /** @type {Record<string, "loved" | "avoided">} */ ({}),
+  );
+  const [maxDifficulty, setMaxDifficulty] = useState(/** @type {1 | 2 | 3} */ (3));
+  const [equipment, setEquipment] = useState(/** @type {string[]} */ ([...EQUIPMENT]));
+  const [breakfastStyle, setBreakfastStyle] = useState(
+    /** @type {"sweet" | "savory" | "grab-and-go" | "surprise"} */ ("surprise"),
+  );
+  const [budget, setBudget] = useState(/** @type {"tight" | "normal" | "loose"} */ ("normal"));
+  const [stores, setStores] = useState("");
+  const [shopsPerWeek, setShopsPerWeek] = useState(1);
+
+  const toggleIn = (/** @type {string[]} */ list, /** @type {string} */ v) =>
+    list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
+  const cycleCuisine = (/** @type {string} */ c) =>
+    setCuisinePrefs((prev) => {
+      const next = { ...prev };
+      if (!next[c]) {
+        if (Object.values(next).filter((v) => v === "loved").length >= 3) return prev; // max 3 loves
+        next[c] = "loved";
+      } else if (next[c] === "loved") next[c] = "avoided";
+      else delete next[c];
+      return next;
+    });
 
   useEffect(() => {
     let alive = true;
@@ -78,6 +131,9 @@ export function ProfileGateView() {
       .replace(/^-+|-+$/g, "");
     if (!id || profiles.some((p) => p.id === id)) return;
     setSaving(true);
+    const loved = Object.keys(cuisinePrefs).filter((c) => cuisinePrefs[c] === "loved");
+    const avoided = Object.keys(cuisinePrefs).filter((c) => cuisinePrefs[c] === "avoided");
+    const equipAll = EQUIPMENT.every((e) => equipment.includes(e));
     const targets = targetsFromQuestionnaire(
       {
         sex,
@@ -89,6 +145,24 @@ export function ProfileGateView() {
         goal,
       },
       localIsoDate(new Date()),
+      {
+        diet,
+        allergens,
+        allergensFreeText,
+        skipBreakfast,
+        smoothie,
+        snackAppetite,
+        ...(maxWeeknightMinutes ? { maxWeeknightMinutes } : {}),
+        dislikeIngredients: splitList(dislikes),
+        cuisinePrefs: { loved, avoided },
+        maxDifficulty,
+        // absent = has everything; only record a real limitation
+        ...(equipAll ? {} : { equipment }),
+        breakfastStyle,
+        budget,
+        stores: splitList(stores),
+        shopsPerWeek,
+      },
     );
     const next = {
       profiles: [
@@ -219,6 +293,101 @@ export function ProfileGateView() {
             </button>
           </div>
 
+          <h2 class="block-title">what they eat</h2>
+          <div class="chips wrapchips" role="group" aria-label="Dietary pattern">
+            ${["omnivore", "pescatarian", "vegetarian", "vegan"].map(
+              (d) => html`
+                <button
+                  class="chip ${diet === d ? "on" : ""}"
+                  key=${d}
+                  onClick=${() => setDiet(/** @type {any} */ (d))}
+                >
+                  ${d}
+                </button>
+              `,
+            )}
+          </div>
+
+          <h2 class="block-title">allergies & hard no's</h2>
+          <div class="chips wrapchips" role="group" aria-label="Allergies to avoid">
+            ${ALLERGEN_PRESETS.map(
+              (a) => html`
+                <button
+                  class="chip ${allergens.includes(a) ? "on" : ""}"
+                  key=${a}
+                  aria-pressed=${allergens.includes(a)}
+                  onClick=${() => setAllergens(toggleIn(allergens, a))}
+                >
+                  ${a}
+                </button>
+              `,
+            )}
+          </div>
+          <input
+            aria-label="Anything else to avoid, comma separated"
+            placeholder="anything else? e.g. cilantro, mushrooms"
+            value=${allergensFreeText}
+            onInput=${(/** @type {any} */ e) => setAllergensFreeText(e.currentTarget.value)}
+          />
+
+          <h2 class="block-title">meals a day</h2>
+          <div class="chips wrapchips" role="group" aria-label="Meals per day">
+            <button
+              class="chip ${skipBreakfast ? "" : "on"}"
+              aria-pressed=${!skipBreakfast}
+              onClick=${() => setSkipBreakfast(false)}
+            >
+              eat breakfast
+            </button>
+            <button
+              class="chip ${skipBreakfast ? "on" : ""}"
+              aria-pressed=${skipBreakfast}
+              onClick=${() => setSkipBreakfast(true)}
+            >
+              skip breakfast
+            </button>
+            <button
+              class="chip ${smoothie ? "on" : ""}"
+              aria-pressed=${smoothie}
+              onClick=${() => setSmoothie(!smoothie)}
+            >
+              daily smoothie
+            </button>
+          </div>
+          <div class="chips" role="group" aria-label="Snacking style">
+            <button
+              class="chip ${snackAppetite === "grazer" ? "on" : ""}"
+              onClick=${() => setSnackAppetite("grazer")}
+            >
+              grazer
+            </button>
+            <button
+              class="chip ${snackAppetite === "meals" ? "on" : ""}"
+              onClick=${() => setSnackAppetite("meals")}
+            >
+              three squares
+            </button>
+          </div>
+
+          <h2 class="block-title">weeknight time</h2>
+          <div class="chips" role="group" aria-label="Weeknight time budget">
+            ${[
+              { label: "15 min", v: 15 },
+              { label: "30 min", v: 30 },
+              { label: "45+ min", v: null },
+            ].map(
+              (o) => html`
+                <button
+                  class="chip ${maxWeeknightMinutes === o.v ? "on" : ""}"
+                  key=${o.label}
+                  onClick=${() => setMaxWeeknightMinutes(o.v)}
+                >
+                  ${o.label}
+                </button>
+              `,
+            )}
+          </div>
+
           <h2 class="block-title">training features?</h2>
           <div class="chips" role="group" aria-label="Do you want training features?">
             <button class="chip ${training ? "on" : ""}" onClick=${() => setTraining(true)}>
@@ -229,6 +398,131 @@ export function ProfileGateView() {
             </button>
           </div>
           <p class="hint">no hides the Train tab and workout tracking — flip it later in SYS.</p>
+
+          <details class="survey-optional">
+            <summary class="block-title">make it yours (optional)</summary>
+
+            <h2 class="block-title">foods to skip</h2>
+            <input
+              aria-label="Dislikes, comma separated"
+              placeholder="dislikes, comma separated"
+              value=${dislikes}
+              onInput=${(/** @type {any} */ e) => setDislikes(e.currentTarget.value)}
+            />
+            <p class="hint">softer than an allergy — these lose ties, never vanish entirely.</p>
+
+            <h2 class="block-title">cuisines (tap = love, tap again = avoid)</h2>
+            <div class="chips wrapchips" role="group" aria-label="Cuisine preferences">
+              ${CUISINES.map(
+                (c) => html`
+                  <button
+                    class="chip ${cuisinePrefs[c] === "loved"
+                      ? "on"
+                      : cuisinePrefs[c] === "avoided"
+                        ? "off"
+                        : ""}"
+                    key=${c}
+                    onClick=${() => cycleCuisine(c)}
+                  >
+                    ${cuisinePrefs[c] === "loved" ? "♥ " : cuisinePrefs[c] === "avoided" ? "✕ " : ""}${c}
+                  </button>
+                `,
+              )}
+            </div>
+
+            <h2 class="block-title">cooking skill</h2>
+            <div class="chips" role="group" aria-label="Cooking skill">
+              ${[
+                { label: "beginner", v: 1 },
+                { label: "comfortable", v: 2 },
+                { label: "confident", v: 3 },
+              ].map(
+                (o) => html`
+                  <button
+                    class="chip ${maxDifficulty === o.v ? "on" : ""}"
+                    key=${o.label}
+                    onClick=${() => setMaxDifficulty(/** @type {any} */ (o.v))}
+                  >
+                    ${o.label}
+                  </button>
+                `,
+              )}
+            </div>
+
+            <h2 class="block-title">kitchen gear (tap what they have)</h2>
+            <div class="chips wrapchips" role="group" aria-label="Kitchen equipment">
+              ${EQUIPMENT.map(
+                (eq) => html`
+                  <button
+                    class="chip ${equipment.includes(eq) ? "on" : ""}"
+                    key=${eq}
+                    aria-pressed=${equipment.includes(eq)}
+                    onClick=${() => setEquipment(toggleIn(equipment, eq))}
+                  >
+                    ${eq}
+                  </button>
+                `,
+              )}
+            </div>
+
+            <h2 class="block-title">breakfast style</h2>
+            <div class="chips wrapchips" role="group" aria-label="Breakfast style">
+              ${["sweet", "savory", "grab-and-go", "surprise"].map(
+                (s) => html`
+                  <button
+                    class="chip ${breakfastStyle === s ? "on" : ""}"
+                    key=${s}
+                    onClick=${() => setBreakfastStyle(/** @type {any} */ (s))}
+                  >
+                    ${s}
+                  </button>
+                `,
+              )}
+            </div>
+
+            <h2 class="block-title">budget</h2>
+            <div class="chips" role="group" aria-label="Budget sensitivity">
+              ${[
+                { label: "tight", v: "tight" },
+                { label: "normal", v: "normal" },
+                { label: "not fussy", v: "loose" },
+              ].map(
+                (o) => html`
+                  <button
+                    class="chip ${budget === o.v ? "on" : ""}"
+                    key=${o.v}
+                    onClick=${() => setBudget(/** @type {any} */ (o.v))}
+                  >
+                    ${o.label}
+                  </button>
+                `,
+              )}
+            </div>
+
+            <h2 class="block-title">stores they shop</h2>
+            <input
+              aria-label="Stores, comma separated"
+              placeholder="stores, e.g. Mariano's, Aldi"
+              value=${stores}
+              onInput=${(/** @type {any} */ e) => setStores(e.currentTarget.value)}
+            />
+
+            <h2 class="block-title">shopping trips a week</h2>
+            <div class="chips" role="group" aria-label="Shopping trips per week">
+              ${[1, 2, 3].map(
+                (n) => html`
+                  <button
+                    class="chip ${shopsPerWeek === n ? "on" : ""}"
+                    key=${n}
+                    onClick=${() => setShopsPerWeek(n)}
+                  >
+                    ${n}${n > 1 ? " trips" : " trip"}
+                  </button>
+                `,
+              )}
+            </div>
+            <p class="hint">2+ splits the list into a pantry run and a fresh run.</p>
+          </details>
 
           <div class="actions">
             <button class="primary" onClick=${addProfile} disabled=${!formValid || saving}>

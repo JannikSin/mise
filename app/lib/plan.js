@@ -36,6 +36,55 @@ export function recipesById(recipes) {
 }
 
 /**
+ * Keyword classes over NON-optional ingredient food names, used by `dietOf`
+ * to classify an untagged legacy recipe's dietary pattern (survey-v2 Q9). A
+ * recipe carrying a {"vegan","vegetarian","pescatarian"} tag short-circuits
+ * the classifier; this is only the fallback for the untagged legacy bank.
+ * "butter" intentionally lives in DAIRY per the design — the plant recipes it
+ * would false-positive (peanut/almond butter) all carry the vegan tag, so the
+ * short-circuit protects them before the classifier ever runs.
+ */
+const DIET_KEYWORDS = {
+  meat: ["chicken", "beef", "turkey", "pork", "lamb", "kofta", "sausage", "bacon", "ham", "prosciutto", "veal", "duck", "bulgogi", "meatball"],
+  fish: ["salmon", "tuna", "cod", "shrimp", "anchovy", "dashi", "sardine", "mackerel", "crab", "prawn", "fish sauce", "tilapia", "halibut", "trout"],
+  dairy: ["milk", "yogurt", "cheese", "whey", "butter", "feta", "halloumi", "cottage", "parmesan", "cream", "kefir", "ghee"],
+  egg: ["egg"],
+};
+
+/** Which recipe classifications each profile diet admits (strictest last). */
+const DIET_ADMITS = {
+  omnivore: new Set(["omnivore", "pescatarian", "vegetarian", "vegan"]),
+  pescatarian: new Set(["pescatarian", "vegetarian", "vegan"]),
+  vegetarian: new Set(["vegetarian", "vegan"]),
+  vegan: new Set(["vegan"]),
+};
+
+/**
+ * Classify a recipe's dietary pattern (survey-v2 Q9 FILTER). A diet tag wins;
+ * otherwise keyword classes over non-optional ingredient names decide, in
+ * decreasing strictness: any MEAT -> omnivore, else any FISH -> pescatarian,
+ * else any DAIRY/EGG -> vegetarian, else vegan. optional:true ingredients are
+ * skipped so "add ground turkey if you want" never disqualifies a plant chili.
+ * @param {Record<string, any>} recipe
+ * @returns {"omnivore" | "pescatarian" | "vegetarian" | "vegan"}
+ */
+export function dietOf(recipe) {
+  const tag = (recipe.tags ?? []).find(
+    (/** @type {string} */ t) => t === "vegan" || t === "vegetarian" || t === "pescatarian",
+  );
+  if (tag) return tag;
+  const foods = (recipe.ingredients ?? [])
+    .filter((/** @type {any} */ ing) => !ing.optional)
+    .map((/** @type {any} */ ing) => String(ing.food ?? "").toLowerCase());
+  const has = (/** @type {string[]} */ list) =>
+    foods.some((/** @type {string} */ f) => list.some((k) => f.includes(k)));
+  if (has(DIET_KEYWORDS.meat)) return "omnivore";
+  if (has(DIET_KEYWORDS.fish)) return "pescatarian";
+  if (has(DIET_KEYWORDS.dairy) || has(DIET_KEYWORDS.egg)) return "vegetarian";
+  return "vegan";
+}
+
+/**
  * A profile's working recipe pool from the shared bank plus its own recipes
  * (recipe-bank pilot). Bank recipes tagged with `phases` only serve profiles
  * in one of those phases; an untagged bank recipe serves everyone. A
@@ -43,29 +92,36 @@ export function recipesById(recipes) {
  * means the profile's adjusted variant wins (e.g. Mom's 480-kcal kofta over
  * the bank's 842-kcal one) — and are never phase-filtered: if you made it
  * for yourself, it's yours.
- * Bank recipes are also screened against the profile's `avoidIngredients`
- * (targets.json): case-insensitive substring match on ingredient food names,
- * so "onion" excludes "red onion" and "green onion" too. Own recipes are
- * exempt — they were authored for this profile and already respect its
- * rules (Mom's 58 were hand-swept for onion; David's bank recipes were not,
- * which is exactly why this screen exists).
+ * Bank recipes are also screened against the profile's `diet` (survey-v2 Q9,
+ * a FILTER: serving beef to a vegetarian is a trust-ending bug) and its
+ * `avoidIngredients` (targets.json): case-insensitive substring match on
+ * ingredient food names, so "onion" excludes "red onion" and "green onion"
+ * too. The avoid screen SKIPS optional:true ingredients — an optional yogurt
+ * topping must not drop a recipe from a dairy-free pool. Own recipes are
+ * exempt from both — they were authored for this profile and already respect
+ * its rules (Mom's 58 were hand-swept for onion; David's bank recipes were
+ * not, which is exactly why this screen exists).
  * @param {Record<string, any>[]} bank recipes/ at the data-repo root
  * @param {Record<string, any>[]} own the profile's scoped recipes/ (empty for david — his own ARE the bank)
  * @param {string | undefined} phase the profile's targets.phase
  * @param {string[]} [avoid] the profile's targets.avoidIngredients
+ * @param {string} [diet] the profile's targets.diet (absent = omnivore, no diet filter)
  * @returns {Record<string, any>[]}
  */
-export function mergeRecipePool(bank, own, phase, avoid) {
+export function mergeRecipePool(bank, own, phase, avoid, diet) {
   const terms = (avoid ?? []).map((t) => t.toLowerCase()).filter(Boolean);
   const containsAvoided = (/** @type {Record<string, any>} */ r) =>
     (r.ingredients ?? []).some((/** @type {any} */ ing) => {
+      if (ing.optional) return false; // optional ingredients never trigger the avoid screen
       const food = String(ing.food ?? "").toLowerCase();
       return terms.some((t) => food.includes(t));
     });
+  const admits = diet && diet !== "omnivore" ? DIET_ADMITS[/** @type {keyof typeof DIET_ADMITS} */ (diet)] : null;
   /** @type {Map<string, Record<string, any>>} */
   const byId = new Map();
   for (const r of bank) {
     if (Array.isArray(r.phases) && phase && !r.phases.includes(phase)) continue;
+    if (admits && !admits.has(dietOf(r))) continue;
     if (terms.length > 0 && containsAvoided(r)) continue;
     byId.set(r.id, r);
   }

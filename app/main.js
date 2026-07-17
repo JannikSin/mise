@@ -139,7 +139,9 @@ function App() {
   }, [hasToken]);
 
   useEffect(() => {
-    setRecipes(mergeRecipePool(bankRecipes, ownRecipes, targets?.phase, targets?.avoidIngredients));
+    setRecipes(
+      mergeRecipePool(bankRecipes, ownRecipes, targets?.phase, targets?.avoidIngredients, targets?.diet),
+    );
   }, [bankRecipes, ownRecipes, targets]);
 
   // this week's plan: cached-first, refreshed on sync activity
@@ -727,6 +729,7 @@ function App() {
         others=${otherLists}
         ownEmoji=${ownEmoji}
         onCombinedToggle=${handleCombinedToggle}
+        shopsPerWeek=${targets?.shopsPerWeek ?? 1}
       />`
     }
     ${

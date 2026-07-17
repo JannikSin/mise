@@ -25,6 +25,22 @@ const SECTIONS = [
 ];
 
 /**
+ * Which shopping trip a store section belongs to when a profile shops more
+ * than once a week (survey-v2 David-ask #3, targets.shopsPerWeek > 1): a
+ * shelf-stable "pantry" run (dry-goods, frozen, spices, other — buy in bulk,
+ * less often) versus a "fresh" run (produce, meat, dairy — buy close to when
+ * you cook). Shops-per-week of 1 ignores this entirely and shows one list.
+ * ponytail: a true N-trip split (perishability windows, per-store routing
+ * keyed to targets.stores, balancing item counts) is the fuller version; this
+ * two-bucket tag is the simplest thing that lets the list render per-trip.
+ * @param {string} section
+ * @returns {"pantry" | "fresh"}
+ */
+export function tripOf(section) {
+  return section === "produce" || section === "meat" || section === "dairy" ? "fresh" : "pantry";
+}
+
+/**
  * @param {string} food
  * @returns {string}
  */

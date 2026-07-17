@@ -735,3 +735,66 @@ test("generateWeek: every day lands within the calorie floor and ceiling against
     }
   }
 });
+
+test("survey-v2: disliked ingredients lose ties but never empty the pool", () => {
+  const liked = r("liked", "dinner", ["tofu", "rice"]);
+  const disliked = r("disliked", "dinner", ["mushroom", "rice"]);
+  const one = pickCommittee([liked, disliked], {
+    size: 1,
+    salt: 0,
+    dislikeIngredients: ["mushroom"],
+  });
+  assert.equal(one[0].id, "liked"); // penalty keeps the disliked recipe out of a size-1 pick
+  const two = pickCommittee([liked, disliked], {
+    size: 2,
+    salt: 0,
+    dislikeIngredients: ["mushroom"],
+  });
+  assert.equal(two.length, 2); // a weight can never filter a recipe out entirely
+});
+
+test("survey-v2: loved cuisine wins a tie, avoided cuisine loses", () => {
+  const italian = { ...r("pasta", "dinner", ["tomato", "basil"]), cuisine: "italian" };
+  const korean = { ...r("bibimbap", "dinner", ["gochujang", "spinach"]), cuisine: "korean" };
+  const pick = pickCommittee([italian, korean], {
+    size: 1,
+    salt: 0,
+    cuisinePrefs: { loved: ["italian"], avoided: ["korean"] },
+  });
+  assert.equal(pick[0].id, "pasta");
+});
+
+test("survey-v2: maxWeeknightMinutes empties dinner pool -> relaxed and reported", () => {
+  const { report } = generateWeek({
+    recipes: ALL, // every dinner is 20 min
+    targets: { ...TARGETS, maxWeeknightMinutes: 10 },
+    pantry: {},
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+  });
+  assert.ok(report.timeBudgetRelaxed.includes("dinner"));
+});
+
+test("survey-v2: a satisfiable time cap filters slow dinners without relaxing", () => {
+  const quick = [
+    { ...r("q1", "dinner", ["tofu", "rice"]), totalTime: 8 },
+    { ...r("q2", "dinner", ["tofu", "beans"]), totalTime: 8 },
+    { ...r("slow", "dinner", ["steak", "fries"]), totalTime: 40 },
+    BREAKFAST,
+    SMOOTHIE,
+    LUNCH,
+    SNACK,
+  ];
+  const { plan, report } = generateWeek({
+    recipes: quick,
+    targets: { ...TARGETS, maxWeeknightMinutes: 15 },
+    pantry: {},
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+  });
+  assert.equal(report.timeBudgetRelaxed.includes("dinner"), false);
+  const dinnerIds = new Set(
+    plan.entries.filter((e) => e.slot === "dinner").map((e) => e.recipeId),
+  );
+  assert.equal(dinnerIds.has("slow"), false); // the 40-minute dinner is filtered out
+});

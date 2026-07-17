@@ -493,6 +493,14 @@ summary.block-title {
   background: var(--signal-08);
 }
 
+/* avoided-cuisine state (survey-v2 Q14: tap once = love/on, twice = avoid) */
+.chip.off {
+  border-color: var(--muted, #666);
+  color: var(--muted, #888);
+  opacity: 0.6;
+  text-decoration: line-through;
+}
+
 /* ---- recipe detail ---- */
 
 .backlink {

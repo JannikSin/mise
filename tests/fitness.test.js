@@ -9,6 +9,7 @@ import {
   formatSets,
   templateForDate,
   targetsFromQuestionnaire,
+  avoidTermsFromAllergens,
 } from "../app/lib/fitness.js";
 
 const SESSIONS = [
@@ -196,4 +197,75 @@ test("targetsFromQuestionnaire: carbs never go negative for a heavy loss profile
   assert.ok(t.macros.fat >= 20, `fat floor ${t.macros.fat}`);
   const kcal = t.macros.protein * 4 + t.macros.fat * 9 + t.macros.carbs * 4;
   assert.ok(kcal <= t.macros.calories + 100, `macros ${kcal} vs calories ${t.macros.calories}`);
+});
+
+test("avoidTermsFromAllergens: presets expand and dedupe, free-text appends verbatim", () => {
+  const terms = avoidTermsFromAllergens(["dairy", "nuts"], "Cilantro, mushrooms");
+  assert.ok(terms.includes("cheese")); // from dairy
+  assert.ok(terms.includes("almond")); // from nuts
+  assert.ok(terms.includes("cilantro")); // free-text, lowercased/trimmed
+  assert.ok(terms.includes("mushrooms"));
+  // "butter" is in the dairy list once, no dupes even if two presets share it
+  assert.equal(terms.filter((t) => t === "butter").length, 1);
+  assert.deepEqual(avoidTermsFromAllergens(), []); // absent = empty
+});
+
+const BASE_Q = { sex: "f", age: 30, heightFt: 5, heightIn: 6, weightLb: 140, activity: 3, goal: "maintain" };
+
+test("targetsFromQuestionnaire: empty prefs reproduce the pre-survey shape (no new keys)", () => {
+  const t = targetsFromQuestionnaire(BASE_Q, "2026-07-17", {});
+  for (const k of ["diet", "allergens", "avoidIngredients", "snackAppetite", "maxWeeknightMinutes", "dislikeIngredients", "cuisinePrefs", "maxDifficulty", "equipment", "breakfastStyle", "budget", "stores", "shopsPerWeek"]) {
+    assert.equal(k in t, false, `unexpected key ${k} at default`);
+  }
+});
+
+test("targetsFromQuestionnaire: survey prefs map to targets fields, defaults omitted", () => {
+  const t = targetsFromQuestionnaire(BASE_Q, "2026-07-17", {
+    diet: "vegan",
+    allergens: ["gluten"],
+    allergensFreeText: "mushrooms",
+    skipBreakfast: true,
+    smoothie: true,
+    snackAppetite: "meals",
+    maxWeeknightMinutes: 30,
+    dislikeIngredients: ["olives"],
+    cuisinePrefs: { loved: ["italian"], avoided: ["korean"] },
+    maxDifficulty: 2,
+    equipment: ["oven", "rice cooker"], // no blender
+    breakfastStyle: "savory",
+    budget: "tight",
+    stores: ["Aldi"],
+    shopsPerWeek: 2,
+  });
+  assert.equal(t.diet, "vegan");
+  assert.deepEqual(t.allergens, ["gluten"]);
+  assert.ok(t.avoidIngredients.includes("wheat")); // gluten preset
+  assert.ok(t.avoidIngredients.includes("mushrooms")); // free-text
+  assert.equal(t.snackAppetite, "meals");
+  assert.equal(t.maxWeeknightMinutes, 30);
+  assert.deepEqual(t.dislikeIngredients, ["olives"]);
+  assert.deepEqual(t.cuisinePrefs, { loved: ["italian"], avoided: ["korean"] });
+  assert.equal(t.maxDifficulty, 2);
+  assert.deepEqual(t.equipment, ["oven", "rice cooker"]);
+  assert.equal(t.breakfastStyle, "savory");
+  assert.equal(t.budget, "tight");
+  assert.deepEqual(t.stores, ["Aldi"]);
+  assert.equal(t.shopsPerWeek, 2);
+  // breakfast skipped and no blender -> no breakfast, no smoothie slot
+  assert.deepEqual(t.mealSlots, ["lunch", "dinner"]);
+});
+
+test("targetsFromQuestionnaire: default-valued prefs stay omitted (lean file)", () => {
+  const t = targetsFromQuestionnaire(BASE_Q, "2026-07-17", {
+    diet: "omnivore",
+    allergens: [],
+    snackAppetite: "grazer",
+    maxDifficulty: 3,
+    budget: "normal",
+    shopsPerWeek: 1,
+    cuisinePrefs: { loved: [], avoided: [] },
+  });
+  for (const k of ["diet", "allergens", "snackAppetite", "maxDifficulty", "budget", "shopsPerWeek", "cuisinePrefs"]) {
+    assert.equal(k in t, false, `default ${k} should be omitted`);
+  }
 });

@@ -10,7 +10,18 @@ import {
   swapCandidates,
   toStoreUnits,
   formatStoreQty,
+  tripOf,
 } from "../app/lib/shopping.js";
+
+test("tripOf: perishable sections are the fresh trip, shelf-stable the pantry trip", () => {
+  assert.equal(tripOf("produce"), "fresh");
+  assert.equal(tripOf("meat"), "fresh");
+  assert.equal(tripOf("dairy"), "fresh");
+  assert.equal(tripOf("dry-goods"), "pantry");
+  assert.equal(tripOf("frozen"), "pantry");
+  assert.equal(tripOf("spices"), "pantry");
+  assert.equal(tripOf("other"), "pantry");
+});
 
 test("on-hand pantry staples are subtracted from the derived list by name", () => {
   const recipes = new Map([

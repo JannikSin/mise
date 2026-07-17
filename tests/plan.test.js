@@ -12,6 +12,7 @@ import {
   togglePinById,
   setPlanLocked,
   mergeRecipePool,
+  dietOf,
 } from "../app/lib/plan.js";
 
 test("shiftWeek moves across plain and year-boundary weeks", () => {
@@ -198,4 +199,64 @@ test("mergeRecipePool: avoidIngredients screens bank recipes by substring, own r
   assert.deepEqual(pool.map((r) => r.id).sort(), ["clean-bowl", "moms-tagine"]);
   // no avoid list = no screening (back-compat)
   assert.equal(mergeRecipePool(bank, [], "loss").length, 3);
+});
+
+test("mergeRecipePool: avoid screen skips optional ingredients (gap-analysis fix)", () => {
+  const bank = [
+    // near-vegan chili whose only dairy is an OPTIONAL yogurt topping — must
+    // survive a dairy-free screen (this is the bug the gap analysis flagged)
+    {
+      id: "plant-chili",
+      ingredients: [
+        { food: "black beans" },
+        { food: "yogurt", optional: true },
+        { food: "ground turkey", optional: true },
+      ],
+    },
+    // required cheese: correctly excluded
+    { id: "cheesy-bake", ingredients: [{ food: "cheddar cheese" }] },
+  ];
+  const pool = mergeRecipePool(bank, [], undefined, ["yogurt", "cheese"]);
+  assert.deepEqual(
+    pool.map((r) => r.id),
+    ["plant-chili"],
+  );
+});
+
+test("dietOf: tag short-circuits, else keyword classes over non-optional ingredients", () => {
+  assert.equal(dietOf({ tags: ["vegan", "gluten-free"], ingredients: [{ food: "cheese" }] }), "vegan");
+  assert.equal(dietOf({ ingredients: [{ food: "chicken thigh" }] }), "omnivore");
+  assert.equal(dietOf({ ingredients: [{ food: "wild salmon" }, { food: "rice" }] }), "pescatarian");
+  assert.equal(dietOf({ ingredients: [{ food: "feta cheese" }, { food: "tomato" }] }), "vegetarian");
+  assert.equal(dietOf({ ingredients: [{ food: "black beans" }, { food: "brown rice" }] }), "vegan");
+  // optional meat does not disqualify an otherwise-vegan recipe
+  assert.equal(
+    dietOf({ ingredients: [{ food: "lentils" }, { food: "ground turkey", optional: true }] }),
+    "vegan",
+  );
+});
+
+test("mergeRecipePool: diet filter removes recipes the profile's diet won't admit", () => {
+  const bank = [
+    { id: "beef-bowl", ingredients: [{ food: "beef" }] }, // omnivore
+    { id: "salmon-bowl", ingredients: [{ food: "salmon" }] }, // pescatarian
+    { id: "feta-salad", ingredients: [{ food: "feta cheese" }] }, // vegetarian
+    { id: "bean-chili", ingredients: [{ food: "black beans" }] }, // vegan
+  ];
+  assert.deepEqual(
+    mergeRecipePool(bank, [], undefined, [], "vegan").map((r) => r.id).sort(),
+    ["bean-chili"],
+  );
+  assert.deepEqual(
+    mergeRecipePool(bank, [], undefined, [], "vegetarian").map((r) => r.id).sort(),
+    ["bean-chili", "feta-salad"],
+  );
+  assert.deepEqual(
+    mergeRecipePool(bank, [], undefined, [], "pescatarian").map((r) => r.id).sort(),
+    ["bean-chili", "feta-salad", "salmon-bowl"],
+  );
+  // omnivore (or absent) admits everything, own recipes always exempt
+  assert.equal(mergeRecipePool(bank, [], undefined, [], "omnivore").length, 4);
+  const own = [{ id: "beef-bowl", ingredients: [{ food: "beef" }] }];
+  assert.ok(mergeRecipePool(bank, own, undefined, [], "vegan").some((r) => r.id === "beef-bowl"));
 });

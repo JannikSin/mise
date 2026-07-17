@@ -136,6 +136,12 @@ data to the app repo.
   "cuisine": "korean",
   "tags": ["rice-bowl", "batch-friendly"],
   "difficulty": 1, // 1..3
+  "equipment": ["blender"], // ? gear this recipe NEEDS beyond a stovetop and
+  //   a knife (survey-v2 Q16 FILTER). ABSENT = stovetop only.
+  //   Values: blender | oven | rice cooker | food processor |
+  //   freezer. A profile whose targets.equipment lacks any listed
+  //   item won't be auto-planned this recipe. Backfill only obvious
+  //   cases (smoothies need "blender").
   "rating": 4, // ? 1..5, David's own
   "phases": ["gain"], // ? recipe-bank visibility: which targets.phase values
   //   this recipe serves (gain | loss | recomp | cut).
@@ -324,6 +330,58 @@ Seeded from the FITNESS.md system; edited rarely.
   //   ["breakfast", "lunch", "dinner"] so the generator
   //   doesn't force a 4th proactive meal past the calorie
   //   ceiling.
+
+  // ---- survey-v2 onboarding answers (docs/survey-v2-design.md) ----
+  // All optional; every field ABSENT = its safe default (no filter, no
+  // weight). Written by the add-profile questionnaire via
+  // targetsFromQuestionnaire (app/lib/fitness.js), editable later in SYS.
+  "diet": "vegan", // ? enum omnivore | pescatarian | vegetarian | vegan.
+  //   ABSENT = omnivore. FILTER in mergeRecipePool
+  //   (app/lib/plan.js dietOf): removes bank recipes whose
+  //   classification the diet doesn't admit. Own recipes exempt.
+  "allergens": ["dairy", "gluten"], // ? preset ids the gate chips expand into
+  //   avoidIngredients; kept so SYS re-renders the chips. Preset
+  //   ids: nuts | peanuts | gluten | dairy | eggs | soy |
+  //   shellfish | fish | sesame (ALLERGEN_TERMS in fitness.js).
+  "snackAppetite": "meals", // ? enum grazer | meals. ABSENT = grazer.
+  //   Caps macroTopUp snack stacking per day: grazer 3 (today's
+  //   behavior), meals 1 (portion bumps do more of the work).
+  "maxWeeknightMinutes": 30, // ? number. ABSENT = no cap. FILTER in
+  //   generateWeek's pool(): drops recipes with totalTime over the
+  //   cap from DINNER/LUNCH candidacy only. Honest-failure: a cap
+  //   that empties a committee below 2 is relaxed for that slot and
+  //   reported in WeekReport.timeBudgetRelaxed.
+  "dislikeIngredients": ["mushroom", "olives"], // ? string array. ABSENT = none.
+  //   WEIGHT (-2 per match) in pickCommittee bonus(): loses ties,
+  //   never filters — a thin pool can't afford to hard-drop these.
+  "cuisinePrefs": { "loved": ["italian"], "avoided": ["korean"] }, // ? ABSENT = neutral.
+  //   WEIGHT in bonus(): +1 loved cuisine, -3 avoided. Max 3 loves.
+  "maxDifficulty": 2, // ? 1 | 2 | 3. ABSENT = 3 (no filter). FILTER in
+  //   pool(): drops recipes with difficulty over the cap from
+  //   proactive-slot candidacy (still visible in the Cookbook).
+  "equipment": ["oven", "rice cooker"], // ? string array of gear the profile
+  //   HAS. ABSENT = assume everything. FILTER in pool(): drops
+  //   recipes whose `equipment` need isn't covered. No blender also
+  //   drops "smoothie" from mealSlots at questionnaire time. Values:
+  //   blender | oven | rice cooker | food processor | freezer.
+  "breakfastStyle": "savory", // ? enum sweet | savory | grab-and-go | surprise.
+  //   ABSENT = surprise (no weight). WEIGHT (+1.5 on style match) in
+  //   bonus(), applied to the breakfast committee only.
+  "budget": "tight", // ? enum tight | normal | loose. ABSENT = normal.
+  //   WEIGHT (tight only): +1 for the "cheap" tag, +0.5*foodGroups.
+  //   beans, and doubles the ingredient-overlap dial so the week
+  //   converges on fewer distinct shop items. No per-recipe price
+  //   data exists yet — a future receipt-scanning feature (keyed by
+  //   `stores`) plugs a real cost term in at pickCommittee's budget
+  //   block (see the ponytail: hook there).
+  "stores": ["Mariano's", "Aldi"], // ? string array of store names. CAPTURED
+  //   ONLY today — the future key for per-store price data from
+  //   receipt scanning. No mechanism consumes it yet.
+  "shopsPerWeek": 2, // ? integer, ABSENT = 1. 1 = single weekly list
+  //   (unchanged). >1 splits the List view into a pantry/bulk trip
+  //   and a fresh trip (app/lib/shopping.js tripOf, app/views/
+  //   shopping.js). Read by main.js -> ShoppingView.
+
   "tracks": ["sleep", "weight", "pushups", "water", "supplements", "dailyDozen"],
   // ? ordered list of Home check-in markers this profile
   //   shows (app/views/home.js reads it). Valid values:
