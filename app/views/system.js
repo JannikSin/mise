@@ -54,6 +54,29 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
     void write("profiles.json", { profiles: next });
   };
 
+  // household (profiles.json household, absent = "home"): which grocery trip
+  // this profile's list merges into. Editable so a member can move for a week
+  // (Laurie visiting joins "home", then moves back to hers).
+  const [householdDraft, setHouseholdDraft] = useState(/** @type {string | null} */ (null));
+  const household = /** @type {string} */ (profile?.household ?? "home");
+  const householdShown = householdDraft ?? household;
+  const saveHousehold = () => {
+    if (!allProfiles || !profile) return;
+    const clean = householdShown.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+    const patch = (/** @type {Record<string, any>} */ x) => {
+      const rest = { ...x };
+      // "home" (or blank) is the default: store as absent, not as a string
+      delete rest.household;
+      return clean && clean !== "home" ? { ...rest, household: clean } : rest;
+    };
+    const next = allProfiles.some((x) => x.id === me)
+      ? allProfiles.map((x) => (x.id === me ? patch(x) : x))
+      : [...allProfiles, patch(profile)];
+    setAllProfiles(next);
+    setHouseholdDraft(null);
+    void write("profiles.json", { profiles: next });
+  };
+
   // switch profile: never sets a new one itself — just clears the key so
   // main.js's boot check renders the gate on reload, same clean pattern as
   // choosing a profile there.
@@ -105,6 +128,27 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
         <p class="hint">
           training off hides the Train tab, Home's Train row, and workout tracking for this profile
           only.
+        </p>
+        <div class="row">
+          <span class="k">Household</span>
+          <input
+            aria-label="Household this profile shops with"
+            value=${householdShown}
+            onInput=${(/** @type {any} */ e) => setHouseholdDraft(e.currentTarget.value)}
+          />
+        </div>
+        <div class="actions">
+          <button
+            class="secondary"
+            onClick=${saveHousehold}
+            disabled=${!profile || householdDraft === null || householdShown.trim() === household}
+          >
+            MOVE HOUSEHOLD
+          </button>
+        </div>
+        <p class="hint">
+          profiles in the same household share the EVERYONE grocery trip. Move someone here for a
+          visit week, move them back after.
         </p>
       </div>
 

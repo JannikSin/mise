@@ -256,6 +256,20 @@ export function formatStoreQty(qty, unit) {
  */
 
 /**
+ * The other profiles whose lists join this profile's EVERYONE trip: same
+ * `household` only (profiles.json, absent = "home" — every pre-household
+ * profile keeps merging exactly as before). A profile alone in its
+ * household gets an empty list, which also hides the EVERYONE tab.
+ * @param {Record<string, any>[]} profiles profiles.json entries
+ * @param {string} meId active profile id
+ * @returns {Record<string, any>[]}
+ */
+export function householdOthers(profiles, meId) {
+  const mine = profiles.find((p) => p.id === meId)?.household ?? "home";
+  return profiles.filter((p) => p.id !== meId && (p.household ?? "home") === mine);
+}
+
+/**
  * One store trip for the whole household: merge every profile's shopping
  * list into a single read-time view. Items merge by their unit-aware id,
  * quantities sum (each source list already rounded up to purchasable

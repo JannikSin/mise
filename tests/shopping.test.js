@@ -6,6 +6,7 @@ import {
   applyJustBought,
   ownItemToPantry,
   roundForPurchase,
+  householdOthers,
   mergeProfileLists,
   swapCandidates,
   toStoreUnits,
@@ -609,4 +610,19 @@ test("formatStoreQty shows imperial first with the authoritative metric in paren
   assert.equal(formatStoreQty(900, "g"), "1.98 lb (900 g)");
   assert.equal(formatStoreQty(75, "g"), "2.6 oz (75 g)");
   assert.equal(formatStoreQty(3, "cup"), "3 cup");
+});
+
+test("householdOthers merges only same-household profiles, absent household = home", () => {
+  const profiles = [
+    { id: "david", name: "David" }, // no household -> "home"
+    { id: "mom", name: "Mom" }, // no household -> "home"
+    { id: "laurie", name: "Laurie", household: "laurie" },
+  ];
+  // pre-household behavior preserved: david still sees mom, and only mom
+  assert.deepEqual(householdOthers(profiles, "david").map((p) => p.id), ["mom"]);
+  assert.deepEqual(householdOthers(profiles, "mom").map((p) => p.id), ["david"]);
+  // laurie is alone in her household -> no EVERYONE tab
+  assert.deepEqual(householdOthers(profiles, "laurie"), []);
+  // an unknown active id defaults to "home" rather than crashing
+  assert.deepEqual(householdOthers(profiles, "ghost").map((p) => p.id), ["david", "mom"]);
 });

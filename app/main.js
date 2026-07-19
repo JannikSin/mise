@@ -28,6 +28,7 @@ import { upsertDay } from "./lib/fitness.js";
 import {
   deriveShoppingList,
   applyJustBought,
+  householdOthers,
   ownItemToPantry,
   sectionOf,
   slug,
@@ -234,8 +235,13 @@ function App() {
         const self = p.profiles.find((pr) => pr.id === me);
         if (alive && self?.emoji) setOwnEmoji(self.emoji);
         if (alive) setTrainingEnabled(self?.trainingEnabled !== false);
-        const others = p.profiles.filter((pr) => pr.id !== me);
-        if (others.length === 0) return;
+        // same household only: Laurie's solo-apartment list never mixes
+        // into the home EVERYONE trip (and vice versa)
+        const others = householdOthers(p.profiles, me);
+        if (others.length === 0) {
+          if (alive) setOtherLists([]);
+          return;
+        }
         Promise.all(
           others.map(async (pr) => ({
             profileId: pr.id,
