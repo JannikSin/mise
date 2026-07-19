@@ -623,6 +623,7 @@ function App() {
       weekId: weekRef.current,
       plan: /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
       salt: bs.salt,
+      recentRecipeIds: recentRecipeIdsRef.current,
     });
     updatePlan(result.plan);
     setBuildReport(result.report);
@@ -643,6 +644,26 @@ function App() {
     buildStateRef.current = { salt: 0 };
     setBuildReport(null);
   }, [weekId]);
+
+  // recipes used in the previous two weeks — generation penalizes them so
+  // consecutive weeks ROTATE instead of re-picking the same favorites. Loaded
+  // per week from the prior plan files; empty (no penalty) when they're absent.
+  const recentRecipeIdsRef = useRef(/** @type {string[]} */ ([]));
+  useEffect(() => {
+    let alive = true;
+    const prior = [shiftWeek(weekId, -1), shiftWeek(weekId, -2)];
+    Promise.all(prior.map((w) => read(`plans/${w}.json`).catch(() => null))).then((plans) => {
+      if (!alive) return;
+      const ids = new Set();
+      for (const p of plans) {
+        for (const e of /** @type {any} */ (p)?.entries ?? []) if (e.recipeId) ids.add(e.recipeId);
+      }
+      recentRecipeIdsRef.current = [...ids];
+    });
+    return () => {
+      alive = false;
+    };
+  }, [weekId, hasToken]);
 
   const handlePlanAdd = useCallback(
     (/** @type {Record<string, any>} */ recipe, /** @type {string} */ date) => {

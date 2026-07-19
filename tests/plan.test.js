@@ -274,3 +274,19 @@ test("pickCommittee: tiredOf foods lose ties softly (penalized but not banned)",
   // penalty must at least not crash and still return both
   assert.equal(pickCommittee(candidates, { size: 2 }).length, 2);
 });
+
+test("pickCommittee: recentRecipeIds rotate the week away from last week's picks", async () => {
+  const { pickCommittee } = await import("../app/lib/weekbuilder.js");
+  const candidates = [
+    { id: "last-week-fav", cuisine: "korean", effort: "cook", nutrition: { protein: 30 }, foodGroups: {}, ingredients: [{ food: "tofu" }] },
+    { id: "fresh-option", cuisine: "mexican", effort: "cook", nutrition: { protein: 30 }, foodGroups: {}, ingredients: [{ food: "black beans" }] },
+  ];
+  // last-week-fav has EQUAL/better protein but was cooked last week -> penalized, fresh seeds first
+  const c = pickCommittee(candidates, { size: 2, recentRecipeIds: new Set(["last-week-fav"]) });
+  assert.equal(c[0].id, "fresh-option");
+  // accepts a plain array too
+  const c2 = pickCommittee(candidates, { size: 2, recentRecipeIds: ["last-week-fav"] });
+  assert.equal(c2[0].id, "fresh-option");
+  // no recent set -> penalty gone, both still returned
+  assert.equal(pickCommittee(candidates, { size: 2 }).length, 2);
+});

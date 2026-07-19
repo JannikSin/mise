@@ -191,6 +191,7 @@ export function foodGroupGapBonus(recipe, coverageSoFar, targets) {
  *   dailyDozenTargets?: Record<string, number>,
  *   dislikeIngredients?: string[],
  *   tiredOf?: string[],
+ *   recentRecipeIds?: Set<string> | string[],
  *   cuisinePrefs?: { loved: string[], avoided: string[] },
  *   budget?: "tight" | "normal" | "loose",
  *   breakfastStyle?: string
@@ -210,6 +211,11 @@ export function pickCommittee(candidates, opts = {}) {
   // a dislike: a mild tie-loser so the week drifts toward variety without ever
   // banning the food outright.
   const tiredOf = opts.tiredOf ?? [];
+  // recipes cooked in the last week or two: a real penalty so consecutive
+  // weeks ROTATE (David is fine eating one dish all week, but wants next week
+  // to look different). Strong enough to lose to any fresh option, soft enough
+  // that a thin pool can still fall back to a repeat rather than fail.
+  const recent = opts.recentRecipeIds instanceof Set ? opts.recentRecipeIds : new Set(opts.recentRecipeIds ?? []);
   const loved = new Set(opts.cuisinePrefs?.loved ?? []);
   const avoided = new Set(opts.cuisinePrefs?.avoided ?? []);
   const tight = opts.budget === "tight";
@@ -244,6 +250,7 @@ export function pickCommittee(candidates, opts = {}) {
     (r.nutrition?.protein ?? 0) / 200 +
     foodGroupGapBonus(r, coverageSoFar, dailyDozenTargets) * 2 +
     tasteBonus(r) +
+    (recent.has(r.id) ? -2.5 : 0) +
     jitter(r);
 
   // seed: most "connected" candidate to the week pool so far; if nothing has
@@ -768,11 +775,13 @@ const DEFAULT_MEAL_SLOTS = /** @type {const} */ (["breakfast", "lunch", "dinner"
  *   pantry: Record<string, any>,
  *   weekId: string,
  *   plan: import("./plan.js").Plan,
- *   salt?: number
+ *   salt?: number,
+ *   recentRecipeIds?: string[]
  * }} args
  * @returns {{ plan: import("./plan.js").Plan, report: WeekReport }}
  */
-export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0 }) {
+export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0, recentRecipeIds = [] }) {
+  const recentSet = new Set(recentRecipeIds);
   const dates = datesOfWeek(weekId);
   const byId = recipesById(recipes);
   const useSoonFoods = (pantry.perishables ?? [])
@@ -864,6 +873,7 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0 
         dailyDozenTargets: dailyDozenWeekly,
         dislikeIngredients: targets?.dislikeIngredients,
         tiredOf: targets?.tiredOf,
+        recentRecipeIds: recentSet,
         cuisinePrefs: targets?.cuisinePrefs,
         budget: targets?.budget,
         breakfastStyle: meal === "breakfast" ? targets?.breakfastStyle : undefined,
