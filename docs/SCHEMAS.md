@@ -130,6 +130,40 @@ data to the app repo.
   back to a single default David profile so a fresh or pre-multi-profile
   install still boots straight into the app.
 
+## Vitals — `profiles/<id>/health/vitals.json` (per-profile, scoped)
+
+Read-only Apple Watch / Apple Health mirror for the Vitals dashboard
+(`app/views/vitals.js`, route `#/vitals`, linked from Home). **The app never
+writes this file.** A PWA cannot read HealthKit, so an Apple Shortcuts
+automation on the phone posts the data (via the GitHub Contents API with the
+same PAT, or a future Worker write endpoint). An absent or empty file is the
+normal pre-connection state, not an error.
+
+```jsonc
+{
+  "days": [
+    {
+      "date": "2026-07-18", // ISO; one row per day
+      "steps": 8432, // ? whole steps
+      "distanceMi": 3.7, // ? walking+running miles
+      "activeKcal": 512, // ? active energy burned
+      "restingHR": 58, // ? resting heart rate, bpm
+      "hrvMs": 46, // ? heart-rate variability (SDNN), ms
+      "sleepHours": 7.4, // ? asleep hours
+      "vo2max": 44.2, // ? cardio fitness, ml/kg/min (updates rarely)
+    },
+  ],
+  "ekg": [
+    { "date": "2026-07-15", "result": "Sinus Rhythm", "avgBpm": 61 }, // ? Apple Watch ECG app
+  ],
+}
+```
+
+Every day-field is optional: a watch that never records HRV just omits it and
+the dashboard hides that tile (`latestWith` returns null). Sparklines skip
+days missing the field rather than plotting a zero. The Shortcut may append or
+replace the whole `days` array; the app only reads.
+
 ## Prices — `prices.json` (data-repo ROOT, shared reference, read raw)
 
 Store price catalogue for shopping-cost estimates. Not yet read by any app

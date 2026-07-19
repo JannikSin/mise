@@ -24,6 +24,7 @@ import { PlannerView } from "./views/planner.js";
 import { ShoppingView } from "./views/shopping.js";
 import { FitnessView } from "./views/fitness.js";
 import { RemediesView } from "./views/remedies.js";
+import { VitalsView } from "./views/vitals.js";
 import { upsertDay } from "./lib/fitness.js";
 import {
   deriveShoppingList,
@@ -174,6 +175,8 @@ function App() {
   const [priceCatalogue, setPriceCatalogue] = useState(
     /** @type {import("./lib/prices.js").PriceCatalogue | null} */ (null),
   );
+  const [vitals, setVitals] = useState(/** @type {import("./lib/vitals.js").Vitals | null} */ (null));
+  const [vitalsLoaded, setVitalsLoaded] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -189,6 +192,13 @@ function App() {
       // shared price catalogue (data-repo root, never profile-scoped)
       read("prices.json", { raw: true }).then((p) => {
         if (alive && p) setPriceCatalogue(/** @type {any} */ (p));
+      });
+      // Apple Watch vitals (per-profile, scoped): posted by the phone
+      // Shortcuts automation, read-only here. Absent = not connected yet.
+      read("health/vitals.json").then((v) => {
+        if (!alive) return;
+        if (v) setVitals(/** @type {any} */ (v));
+        setVitalsLoaded(true);
       });
     };
     load();
@@ -774,6 +784,10 @@ function App() {
     ${
       route.view === "remedies" &&
       html`<${RemediesView} recipes=${recipes} hasToken=${hasToken} repo=${repo} />`
+    }
+    ${
+      route.view === "vitals" &&
+      html`<${VitalsView} vitals=${vitals} loading=${!vitalsLoaded} hasToken=${hasToken} />`
     }
     ${
       route.view === "train" &&

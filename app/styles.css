@@ -1707,3 +1707,29 @@ button.primary:focus-visible,
     }
   }
 }
+
+/* Vitals dashboard (Apple Watch mirror) */
+.vital-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.tile.vital {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tile.vital .v {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+.tile.vital .unit {
+  font-size: 0.8rem;
+  opacity: 0.6;
+  font-weight: 400;
+}
+.vital-spark {
+  color: var(--accent, #6fcf7f);
+  opacity: 0.85;
+  margin: 2px 0;
+}

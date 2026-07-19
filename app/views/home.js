@@ -322,6 +322,7 @@ export function HomeView({
       </div>
 
       <a class="secondary linkbtn remedy" href="#/remedies">feeling off? → remedies</a>
+      <a class="secondary linkbtn" href="#/vitals">vitals (Apple Watch) →</a>
     </div>
   `;
 }

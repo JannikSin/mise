@@ -1,0 +1,14 @@
+{
+  "days": [
+    { "date": "2026-07-12", "steps": 6120, "distanceMi": 2.7, "activeKcal": 410, "restingHR": 60, "hrvMs": 41, "sleepHours": 6.9 },
+    { "date": "2026-07-13", "steps": 9840, "distanceMi": 4.4, "activeKcal": 588, "restingHR": 59, "hrvMs": 44, "sleepHours": 7.6 },
+    { "date": "2026-07-14", "steps": 7305, "distanceMi": 3.2, "activeKcal": 470, "restingHR": 58, "hrvMs": 47, "sleepHours": 7.2, "vo2max": 44.1 },
+    { "date": "2026-07-15", "steps": 11020, "distanceMi": 5.1, "activeKcal": 645, "restingHR": 57, "hrvMs": 52, "sleepHours": 8.1 },
+    { "date": "2026-07-16", "steps": 5580, "distanceMi": 2.4, "activeKcal": 388, "restingHR": 60, "hrvMs": 43, "sleepHours": 6.5 },
+    { "date": "2026-07-17", "steps": 8760, "distanceMi": 3.9, "activeKcal": 540, "restingHR": 58, "hrvMs": 48, "sleepHours": 7.8 },
+    { "date": "2026-07-18", "steps": 8432, "distanceMi": 3.7, "activeKcal": 512, "restingHR": 58, "hrvMs": 46, "sleepHours": 7.4 }
+  ],
+  "ekg": [
+    { "date": "2026-07-15", "result": "Sinus Rhythm", "avgBpm": 61 }
+  ]
+}

@@ -20,6 +20,7 @@ export function parseRoute(hash) {
     case "list":
     case "train":
     case "remedies":
+    case "vitals":
       return { view: head };
     case "recipe": {
       if (!id) return { view: "home" };
