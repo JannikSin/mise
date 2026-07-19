@@ -8,6 +8,9 @@ import {
   parseToolUse,
   validateScanItems,
   validateReceiptItems,
+  buildOnboardRequest,
+  parseOnboardResponse,
+  validateOnboardProfile,
   validateProtocol,
   allowRequest,
 } from "../worker/src/lib.js";
@@ -125,5 +128,50 @@ test("validateReceiptItems keeps priced food lines, drops junk and non-positive 
       { name: "black beans", price: 1.09, size: "15.5 oz" },
       { name: "bananas", price: 0.23, size: "" },
     ],
+  );
+});
+
+test("buildOnboardRequest primes the system with known survey answers, maps roles", () => {
+  const req = buildOnboardRequest({
+    messages: [{ role: "user", content: "hi" }, { role: "assistant", content: "hello" }],
+    survey: { name: "Sam", goal: "gain" },
+    model: "claude-sonnet-5",
+  });
+  assert.ok(req.system.includes("Sam"), "survey folded into system");
+  assert.equal(req.tools[0].name, "record_profile");
+  assert.equal(req.messages[1].role, "assistant");
+});
+
+test("parseOnboardResponse returns text as reply, tool call as profile", () => {
+  // a question turn
+  const q = parseOnboardResponse({ content: [{ type: "text", text: "What's your goal?" }] });
+  assert.equal(q.reply, "What's your goal?");
+  assert.equal(q.profile, null);
+  // a finished turn with a valid profile
+  const done = parseOnboardResponse({
+    content: [
+      {
+        type: "tool_use",
+        name: "record_profile",
+        input: { name: "Sam", emoji: "🏃", sex: "m", age: 30, heightFt: 5, heightIn: 10, weightLb: 170, activity: 3, goal: "maintain" },
+      },
+    ],
+  });
+  assert.equal(done.reply, "");
+  assert.equal(done.profile.name, "Sam");
+  assert.equal(done.profile.activity, 3);
+  assert.equal(done.profile.leftoverTolerance, "some"); // default applied
+});
+
+test("validateOnboardProfile rejects incomplete required fields", () => {
+  // missing weight -> null (not done yet)
+  assert.equal(
+    validateOnboardProfile({ name: "X", sex: "m", age: 30, heightFt: 5, heightIn: 10, activity: 2, goal: "gain" }),
+    null,
+  );
+  // bad goal -> null
+  assert.equal(
+    validateOnboardProfile({ name: "X", sex: "m", age: 30, heightFt: 5, heightIn: 10, weightLb: 170, activity: 2, goal: "bulk" }),
+    null,
   );
 });

@@ -1,8 +1,10 @@
 import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 import { readProfiles, write } from "../lib/store.js";
+import { getToken } from "../lib/github.js";
 import { targetsFromQuestionnaire } from "../lib/fitness.js";
 import { localIsoDate } from "../lib/dates.js";
+import { OnboardView } from "./onboard.js";
 
 /**
  * Full-screen profile chooser: shown by main.js when localStorage's
@@ -48,6 +50,7 @@ export function ProfileGateView() {
   const [goal, setGoal] = useState(/** @type {"loss" | "maintain" | "gain"} */ ("maintain"));
   const [training, setTraining] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [chatMode, setChatMode] = useState(false);
 
   // survey-v2 section 2 (required, but every answer has a safe default)
   const [diet, setDiet] = useState(
@@ -212,6 +215,32 @@ export function ProfileGateView() {
   const num = (/** @type {(v: string) => void} */ set) => (/** @type {any} */ e) =>
     set(e.currentTarget.value.replace(/[^0-9]/g, ""));
 
+  // whatever the user typed on the survey is handed to the chat onboarder as
+  // already-known context, so the conversation only fills the gaps.
+  const surveyContext = () => ({
+    ...(name.trim() ? { name: name.trim() } : {}),
+    ...(emoji.trim() ? { emoji: emoji.trim() } : {}),
+    ...(household.trim() ? { household: household.trim() } : {}),
+    ...(usState.trim() ? { state: usState.trim().toUpperCase() } : {}),
+    ...(age ? { age: Number(age) } : {}),
+    ...(heightFt ? { heightFt: Number(heightFt) } : {}),
+    ...(weightLb ? { weightLb: Number(weightLb) } : {}),
+    sex,
+    goal,
+    diet,
+    ...(splitList(tiredOf).length ? { tiredOf: splitList(tiredOf) } : {}),
+    ...(splitList(dislikes).length ? { dislikeIngredients: splitList(dislikes) } : {}),
+  });
+
+  if (chatMode) {
+    return html`
+      <div class="view">
+        <button class="secondary linkbtn" onClick=${() => setChatMode(false)}>← back to the survey</button>
+        <${OnboardView} survey=${surveyContext()} hasToken=${Boolean(getToken())} />
+      </div>
+    `;
+  }
+
   return html`
     <div class="view">
       <div class="hero">
@@ -228,9 +257,15 @@ export function ProfileGateView() {
           `,
         )}
       </div>
+      <button class="secondary linkbtn" onClick=${() => setChatMode(true)}>
+        prefer to chat? set up by conversation →
+      </button>
       <details>
         <summary class="block-title">+ add profile</summary>
         <div class="tile">
+          <p class="hint">
+            fill what you like here, or tap "set up by conversation" above and answer a few questions.
+          </p>
           <div class="token-form">
             <input
               aria-label="Profile name"

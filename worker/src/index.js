@@ -11,8 +11,10 @@ import {
   corsFor,
   buildScanRequest,
   buildReceiptRequest,
+  buildOnboardRequest,
   buildRemedyRequest,
   parseToolUse,
+  parseOnboardResponse,
   validateScanItems,
   validateReceiptItems,
   validateProtocol,
@@ -102,7 +104,7 @@ export default {
     }
     if (!cors) return json(403, { error: "origin not allowed" }, {});
     const url = new URL(request.url);
-    if (request.method !== "POST" || !["/scan", "/receipt", "/remedy"].includes(url.pathname)) {
+    if (request.method !== "POST" || !["/scan", "/receipt", "/onboard", "/remedy"].includes(url.pathname)) {
       return json(404, { error: "not found" }, cors);
     }
 
@@ -156,6 +158,16 @@ export default {
           env.ANTHROPIC_API_KEY,
         );
         return json(200, validateReceiptItems(parseToolUse(resp, "record_receipt")), cors);
+      }
+      if (url.pathname === "/onboard") {
+        const messages = Array.isArray(body.messages) ? body.messages.slice(-40) : [];
+        const survey = typeof body.survey === "object" && body.survey ? body.survey : {};
+        if (messages.length === 0) return json(400, { error: "messages required" }, cors);
+        const resp = await callAnthropic(
+          buildOnboardRequest({ messages, survey, model: env.SCAN_MODEL ?? DEFAULT_MODEL }),
+          env.ANTHROPIC_API_KEY,
+        );
+        return json(200, parseOnboardResponse(resp), cors);
       }
       // /remedy
       const text = typeof body.text === "string" ? body.text.trim().slice(0, 2000) : "";

@@ -1733,3 +1733,38 @@ button.primary:focus-visible,
   opacity: 0.85;
   margin: 2px 0;
 }
+
+/* Chat onboarder */
+.chat-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+.bubble {
+  max-width: 82%;
+  padding: 10px 12px;
+  border-radius: 14px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+.bubble.assistant {
+  align-self: flex-start;
+  background: var(--panel, #16181d);
+  border: 1px solid var(--line, #262a31);
+  border-bottom-left-radius: 4px;
+}
+.bubble.user {
+  align-self: flex-end;
+  background: var(--accent, #6fcf7f);
+  color: #0c0e12;
+  border-bottom-right-radius: 4px;
+}
+.bubble.dim {
+  opacity: 0.5;
+}
+.chat-input {
+  margin-top: 8px;
+}

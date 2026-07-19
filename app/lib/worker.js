@@ -88,6 +88,23 @@ export async function scanReceipt(file) {
 }
 
 /**
+ * One turn of the chat onboarder. Sends the running message history plus the
+ * partial gate survey; gets back either the assistant's next question
+ * (`reply`) or a finished raw profile (`profile`, ready for
+ * targetsFromQuestionnaire). Gated on the Worker AI key like the scans.
+ * @param {{ role: string, content: string }[]} messages
+ * @param {Record<string, any>} survey
+ * @returns {Promise<{ reply: string, profile: Record<string, any> | null }>}
+ */
+export async function onboardTurn(messages, survey) {
+  const data = await post("/onboard", { messages, survey });
+  return {
+    reply: typeof data.reply === "string" ? data.reply : "",
+    profile: data.profile && typeof data.profile === "object" ? data.profile : null,
+  };
+}
+
+/**
  * Free-text symptoms → protocol in the rules-engine shape.
  * @param {string} text
  * @returns {Promise<{ teas: string[], foods: string[], avoid: string[], notes: string[] }>}
