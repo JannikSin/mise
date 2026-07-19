@@ -260,3 +260,17 @@ test("mergeRecipePool: diet filter removes recipes the profile's diet won't admi
   const own = [{ id: "beef-bowl", ingredients: [{ food: "beef" }] }];
   assert.ok(mergeRecipePool(bank, own, undefined, [], "vegan").some((r) => r.id === "beef-bowl"));
 });
+
+test("pickCommittee: tiredOf foods lose ties softly (penalized but not banned)", async () => {
+  const { pickCommittee } = await import("../app/lib/weekbuilder.js");
+  const candidates = [
+    { id: "pasta-bowl", cuisine: "italian", effort: "cook", nutrition: { protein: 20 }, foodGroups: {}, ingredients: [{ food: "pasta" }] },
+    { id: "bean-bowl", cuisine: "mexican", effort: "cook", nutrition: { protein: 20 }, foodGroups: {}, ingredients: [{ food: "black beans" }] },
+  ];
+  // with pasta in tiredOf, the bean bowl should seed the committee first
+  const c = pickCommittee(candidates, { size: 2, tiredOf: ["pasta"] });
+  assert.equal(c[0].id, "bean-bowl");
+  // without it, the tie breaks the other way is not guaranteed, but the
+  // penalty must at least not crash and still return both
+  assert.equal(pickCommittee(candidates, { size: 2 }).length, 2);
+});

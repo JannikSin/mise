@@ -214,9 +214,32 @@ const BASE_Q = { sex: "f", age: 30, heightFt: 5, heightIn: 6, weightLb: 140, act
 
 test("targetsFromQuestionnaire: empty prefs reproduce the pre-survey shape (no new keys)", () => {
   const t = targetsFromQuestionnaire(BASE_Q, "2026-07-17", {});
-  for (const k of ["diet", "allergens", "avoidIngredients", "snackAppetite", "maxWeeknightMinutes", "dislikeIngredients", "cuisinePrefs", "maxDifficulty", "equipment", "breakfastStyle", "budget", "stores", "shopsPerWeek"]) {
+  for (const k of ["diet", "allergens", "avoidIngredients", "snackAppetite", "maxWeeknightMinutes", "dislikeIngredients", "cuisinePrefs", "maxDifficulty", "equipment", "breakfastStyle", "budget", "stores", "shopsPerWeek", "tiredOf", "region", "leftoverTolerance", "packsLunch", "lunchMicrowave"]) {
     assert.equal(k in t, false, `unexpected key ${k} at default`);
   }
+});
+
+test("targetsFromQuestionnaire: richer-survey fields map through, defaults omitted", () => {
+  const t = targetsFromQuestionnaire(BASE_Q, "2026-07-17", {
+    tiredOf: ["pasta", "stir-fry"],
+    state: "IL",
+    leftoverTolerance: "lots",
+    packsLunch: true,
+    lunchMicrowave: true,
+  });
+  assert.deepEqual(t.tiredOf, ["pasta", "stir-fry"]);
+  assert.deepEqual(t.region, { country: "USA", state: "IL" });
+  assert.equal(t.leftoverTolerance, "lots");
+  assert.equal(t.packsLunch, true);
+  assert.equal(t.lunchMicrowave, true);
+  // "some" is the default leftover tolerance -> omitted; no state -> no region
+  const d = targetsFromQuestionnaire(BASE_Q, "2026-07-17", { leftoverTolerance: "some", packsLunch: false });
+  assert.equal("leftoverTolerance" in d, false);
+  assert.equal("region" in d, false);
+  assert.equal("packsLunch" in d, false);
+  // microwave only recorded when packsLunch is true
+  const nolunch = targetsFromQuestionnaire(BASE_Q, "2026-07-17", { packsLunch: false, lunchMicrowave: true });
+  assert.equal("lunchMicrowave" in nolunch, false);
 });
 
 test("targetsFromQuestionnaire: survey prefs map to targets fields, defaults omitted", () => {

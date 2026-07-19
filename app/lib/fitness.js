@@ -203,7 +203,12 @@ export function setTopSet(session, exercise, set) {
  *   breakfastStyle?: "sweet" | "savory" | "grab-and-go" | "surprise",
  *   budget?: "tight" | "normal" | "loose",
  *   stores?: string[],
- *   shopsPerWeek?: number
+ *   shopsPerWeek?: number,
+ *   tiredOf?: string[],
+ *   state?: string,
+ *   leftoverTolerance?: "none" | "some" | "lots",
+ *   packsLunch?: boolean,
+ *   lunchMicrowave?: boolean
  * }} SurveyPrefs
  */
 
@@ -331,6 +336,17 @@ export function targetsFromQuestionnaire(q, todayIso, prefs = {}) {
     ...(prefs.budget && prefs.budget !== "normal" ? { budget: prefs.budget } : {}),
     ...(prefs.stores?.length ? { stores: prefs.stores } : {}),
     ...(prefs.shopsPerWeek && prefs.shopsPerWeek > 1 ? { shopsPerWeek: prefs.shopsPerWeek } : {}),
+    // "eaten too much of lately": soft variety penalty in weekbuilder.
+    ...(prefs.tiredOf?.length ? { tiredOf: prefs.tiredOf } : {}),
+    // where they buy groceries: drives the List trip's grocery sales tax.
+    ...(prefs.state ? { region: { country: "USA", state: prefs.state } } : {}),
+    // captured for the generator's leftover scheduling and the chat onboarder,
+    // absent = the safe default (some leftovers OK).
+    ...(prefs.leftoverTolerance && prefs.leftoverTolerance !== "some"
+      ? { leftoverTolerance: prefs.leftoverTolerance }
+      : {}),
+    ...(prefs.packsLunch ? { packsLunch: true } : {}),
+    ...(prefs.packsLunch && prefs.lunchMicrowave ? { lunchMicrowave: true } : {}),
     mealSlots,
     tracks:
       phase === "gain"

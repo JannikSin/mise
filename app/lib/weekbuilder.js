@@ -190,6 +190,7 @@ export function foodGroupGapBonus(recipe, coverageSoFar, targets) {
  *   coverageSoFar?: Record<string, number>,
  *   dailyDozenTargets?: Record<string, number>,
  *   dislikeIngredients?: string[],
+ *   tiredOf?: string[],
  *   cuisinePrefs?: { loved: string[], avoided: string[] },
  *   budget?: "tight" | "normal" | "loose",
  *   breakfastStyle?: string
@@ -205,6 +206,10 @@ export function pickCommittee(candidates, opts = {}) {
   const coverageSoFar = opts.coverageSoFar ?? {};
   const dailyDozenTargets = opts.dailyDozenTargets ?? {};
   const dislikes = opts.dislikeIngredients ?? [];
+  // "eaten too much of lately" (survey: break the year-long rut). Softer than
+  // a dislike: a mild tie-loser so the week drifts toward variety without ever
+  // banning the food outright.
+  const tiredOf = opts.tiredOf ?? [];
   const loved = new Set(opts.cuisinePrefs?.loved ?? []);
   const avoided = new Set(opts.cuisinePrefs?.avoided ?? []);
   const tight = opts.budget === "tight";
@@ -218,6 +223,7 @@ export function pickCommittee(candidates, opts = {}) {
   const tasteBonus = (/** @type {Record<string, any>} */ r) => {
     let b = 0;
     b += foodMatchCount(r, dislikes) * -2;
+    b += foodMatchCount(r, tiredOf) * -1;
     if (loved.has(r.cuisine)) b += 1;
     if (avoided.has(r.cuisine)) b += -3;
     if (tight) {
@@ -857,6 +863,7 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0 
         coverageSoFar,
         dailyDozenTargets: dailyDozenWeekly,
         dislikeIngredients: targets?.dislikeIngredients,
+        tiredOf: targets?.tiredOf,
         cuisinePrefs: targets?.cuisinePrefs,
         budget: targets?.budget,
         breakfastStyle: meal === "breakfast" ? targets?.breakfastStyle : undefined,

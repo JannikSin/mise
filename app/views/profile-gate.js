@@ -73,6 +73,15 @@ export function ProfileGateView() {
   const [budget, setBudget] = useState(/** @type {"tight" | "normal" | "loose"} */ ("normal"));
   const [stores, setStores] = useState("");
   const [shopsPerWeek, setShopsPerWeek] = useState(1);
+  // richer-survey additions (2026-07-19): shorten the chat onboarder to pennies
+  const [household, setHousehold] = useState("home");
+  const [usState, setUsState] = useState("");
+  const [tiredOf, setTiredOf] = useState("");
+  const [leftoverTolerance, setLeftoverTolerance] = useState(
+    /** @type {"none" | "some" | "lots"} */ ("some"),
+  );
+  const [packsLunch, setPacksLunch] = useState(false);
+  const [lunchMicrowave, setLunchMicrowave] = useState(false);
 
   const toggleIn = (/** @type {string[]} */ list, /** @type {string} */ v) =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
@@ -162,6 +171,11 @@ export function ProfileGateView() {
         budget,
         stores: splitList(stores),
         shopsPerWeek,
+        tiredOf: splitList(tiredOf),
+        state: usState.trim().toUpperCase().slice(0, 2),
+        leftoverTolerance,
+        packsLunch,
+        lunchMicrowave,
       },
     );
     const next = {
@@ -173,6 +187,16 @@ export function ProfileGateView() {
           emoji: emoji.trim(),
           phase: targets.phase,
           trainingEnabled: training,
+          // "home" (or blank) is the default: store as absent, not a string
+          ...(household.trim() && household.trim().toLowerCase() !== "home"
+            ? {
+                household: household
+                  .trim()
+                  .toLowerCase()
+                  .replace(/[^a-z0-9-]+/g, "-")
+                  .replace(/^-+|-+$/g, ""),
+              }
+            : {}),
         },
       ],
     };
@@ -221,6 +245,24 @@ export function ProfileGateView() {
               onInput=${(/** @type {any} */ e) => setEmoji(e.currentTarget.value)}
             />
           </div>
+          <div class="token-form">
+            <input
+              aria-label="Household (who they grocery-shop with)"
+              placeholder="household (e.g. home)"
+              value=${household}
+              onInput=${(/** @type {any} */ e) => setHousehold(e.currentTarget.value)}
+            />
+            <input
+              aria-label="US state (2 letters, for grocery tax)"
+              placeholder="state (IL)"
+              maxlength="2"
+              value=${usState}
+              onInput=${(/** @type {any} */ e) => setUsState(e.currentTarget.value.toUpperCase())}
+            />
+          </div>
+          <p class="hint">
+            same household = one shared grocery trip. State sets the List's grocery tax.
+          </p>
 
           <h2 class="block-title">about them</h2>
           <div class="chips" role="group" aria-label="Sex (for calorie math)">
@@ -401,6 +443,60 @@ export function ProfileGateView() {
 
           <details class="survey-optional">
             <summary class="block-title">make it yours (optional)</summary>
+
+            <h2 class="block-title">eaten too much of lately</h2>
+            <input
+              aria-label="Foods eaten too much of lately, comma separated"
+              placeholder="in a rut? e.g. pasta, stir-fry, chicken"
+              value=${tiredOf}
+              onInput=${(/** @type {any} */ e) => setTiredOf(e.currentTarget.value)}
+            />
+            <p class="hint">these lose ties softly, so the week drifts toward variety without banning them.</p>
+
+            <h2 class="block-title">leftovers</h2>
+            <div class="chips" role="group" aria-label="Leftover tolerance">
+              ${[
+                { label: "avoid them", v: "none" },
+                { label: "some are fine", v: "some" },
+                { label: "love batch-cooking", v: "lots" },
+              ].map(
+                (o) => html`
+                  <button
+                    class="chip ${leftoverTolerance === o.v ? "on" : ""}"
+                    key=${o.v}
+                    onClick=${() => setLeftoverTolerance(/** @type {any} */ (o.v))}
+                  >
+                    ${o.label}
+                  </button>
+                `,
+              )}
+            </div>
+
+            <h2 class="block-title">lunch</h2>
+            <div class="chips wrapchips" role="group" aria-label="Lunch situation">
+              <button
+                class="chip ${packsLunch ? "on" : ""}"
+                aria-pressed=${packsLunch}
+                onClick=${() => setPacksLunch(!packsLunch)}
+              >
+                pack it for work/school
+              </button>
+              ${
+                packsLunch &&
+                html`<button
+                  class="chip ${lunchMicrowave ? "on" : ""}"
+                  aria-pressed=${lunchMicrowave}
+                  onClick=${() => setLunchMicrowave(!lunchMicrowave)}
+                >
+                  microwave there
+                </button>`
+              }
+            </div>
+            ${
+              packsLunch &&
+              !lunchMicrowave &&
+              html`<p class="hint">no microwave = lunches favor cold-packable meals.</p>`
+            }
 
             <h2 class="block-title">foods to skip</h2>
             <input

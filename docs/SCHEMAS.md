@@ -383,6 +383,15 @@ Seeded from the FITNESS.md system; edited rarely.
   // ? where this profile buys groceries, for sales tax on the List
   //   trip total (app/lib/prices.js GROCERY_TAX_RATE by state;
   //   absent field, unknown state, or country != "USA" = 0%).
+  "tiredOf": ["pasta", "stir-fry"],
+  // ? foods eaten too much of lately (survey "in a rut?"). SOFT variety
+  //   penalty in weekbuilder pickCommittee (-1 per match, vs dislike's
+  //   -2): loses ties, never banned. Absent = no penalty.
+  "leftoverTolerance": "lots", // ? none | some | lots. Absent = some.
+  //   Captured for leftover scheduling + the chat onboarder's context.
+  "packsLunch": true, // ? packs lunch for work/school. Absent = false.
+  "lunchMicrowave": false, // ? has a microwave at work (only meaningful
+  //   when packsLunch). Absent/false + packsLunch = favor cold-packable.
   "mealSlots": ["breakfast", "lunch", "dinner", "smoothie"],
   // ? ordered list of meal slots app/lib/weekbuilder.js's
   //   generateWeek proactively fills/committee-picks per day.
