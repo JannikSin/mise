@@ -2,7 +2,16 @@ import { html } from "htm/preact";
 import { useRef, useState } from "preact/hooks";
 import { scanPhoto } from "../lib/worker.js";
 import { mergeProfileLists, swapCandidates, formatStoreQty, tripOf } from "../lib/shopping.js";
+import { itemCost, rankStores, taxRateFor } from "../lib/prices.js";
 import { activeProfile } from "../lib/store.js";
+
+/** Catalogue store slug → shopper-facing name. */
+const STORE_NAMES = /** @type {Record<string, string>} */ ({
+  "trader-joes": "Trader Joe's",
+  marianos: "Mariano's",
+  "jewel-osco": "Jewel-Osco",
+  costco: "Costco",
+});
 
 const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spices", "other"];
 
@@ -28,7 +37,10 @@ const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spice
  *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList }[],
  *   ownEmoji: string,
  *   onCombinedToggle: (itemId: string, sources: { profileId: string, checked: boolean }[]) => void,
- *   shopsPerWeek?: number
+ *   shopsPerWeek?: number,
+ *   prices?: import("../lib/prices.js").PriceCatalogue | null,
+ *   region?: { country?: string, state?: string },
+ *   storeSlug?: string
  * }} props
  */
 export function ShoppingView({
@@ -51,6 +63,9 @@ export function ShoppingView({
   ownEmoji,
   onCombinedToggle,
   shopsPerWeek = 1,
+  prices = null,
+  region = undefined,
+  storeSlug = "",
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry" | "combined"} */ ("list"));
   const [manual, setManual] = useState("");
@@ -113,6 +128,20 @@ export function ShoppingView({
   })).filter((g) => g.items.length > 0);
   const candidates = swapCandidates(combined);
   const sharedCount = combined.filter((i) => i.sources.length > 1).length;
+
+  // price estimates (prices.json catalogue): chips per row at the profile's
+  // own store, trip totals + grocery tax below the list, honest store ranking
+  const ranked = prices ? rankStores(items, prices, region) : [];
+  const homeStore =
+    storeSlug && ranked.some((r) => r.store === storeSlug)
+      ? storeSlug
+      : (ranked[0]?.store ?? "");
+  const homeSummary = ranked.find((r) => r.store === homeStore)?.summary ?? null;
+  const bestStore = ranked[0] ?? null;
+  const priceTag = (/** @type {any} */ item) => {
+    const c = prices && homeStore ? itemCost(item, prices, homeStore) : null;
+    return c ? html`<span class="q num">$${c.cost.toFixed(2)}${c.estimate ? "~" : ""}</span>` : "";
+  };
 
   return html`
     <div class="view">
@@ -207,6 +236,7 @@ export function ShoppingView({
                                   : ""}</span
                               >
                               <span class="q num">${formatStoreQty(i.qty, i.unit)}</span>
+                              ${priceTag(i)}
                             </button>
                             <button
                               class="ownbtn"
@@ -224,6 +254,44 @@ export function ShoppingView({
               </div>
             `,
           )}
+          ${
+            homeSummary &&
+            items.length > 0 &&
+            html`
+              <div class="tile">
+                <div class="row">
+                  <span class="k">Est. ${STORE_NAMES[homeStore] ?? homeStore} trip</span>
+                  <span class="status num">$${homeSummary.subtotal.toFixed(2)}</span>
+                </div>
+                ${
+                  homeSummary.tax > 0 &&
+                  html`<div class="row">
+                    <span class="k">grocery tax ${(taxRateFor(region) * 100).toFixed(1)}%</span>
+                    <span class="status num">$${homeSummary.tax.toFixed(2)}</span>
+                  </div>`
+                }
+                <div class="row">
+                  <span class="k">Total</span>
+                  <span class="status num">$${homeSummary.total.toFixed(2)}</span>
+                </div>
+                <p class="hint">
+                  ${homeSummary.priced} of ${items.length} rows priced${
+                    homeSummary.estimates > 0 ? `, ${homeSummary.estimates} are estimates (~)` : ""
+                  }${homeSummary.unpriced > 0 ? " — unpriced rows cost extra on top" : ""}.
+                </p>
+                ${
+                  bestStore &&
+                  ranked.length > 1 &&
+                  (bestStore.store === homeStore
+                    ? html`<p class="hint">cheapest well-covered store for this basket ✓</p>`
+                    : html`<p class="hint">
+                        cheaper basket: ${STORE_NAMES[bestStore.store] ?? bestStore.store} est.
+                        $${bestStore.summary.total.toFixed(2)}
+                      </p>`)
+                }
+              </div>
+            `
+          }
           ${
             items.length === 0 &&
             html`<div class="empty">

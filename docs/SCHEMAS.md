@@ -137,8 +137,14 @@ code — reference data maintained by Claude sessions (researched 2026-07-18,
 Chicagoland). Entries: `{ id, name, prices: { <store-slug>: { price, size,
 estimate? } } }` with `updated`, `region`, `stores` at the top. `estimate:
 true` = derived/recent estimate, absent = tracker-confirmed shelf price. A
-store absent from an item's `prices` = not reliably stocked there. Future
-integration: shopping list rows show an estimated trip total per store.
+store absent from an item's `prices` = not reliably stocked there.
+Integration (`app/lib/prices.js`, read raw in `app/main.js`): the List view
+shows a price chip per row (matched by word overlap ≥ 0.6 against name/id,
+`~` = estimate), and a trip-total tile (subtotal + grocery tax from
+`targets.region` + honest coverage line + cheapest-well-covered-store
+ranking that never lets a store missing half the basket "win"). Chips price
+at the profile's first `targets.stores` entry, slugified; fallback is the
+cheapest covered store.
 
 ## Recipe — `recipes/<id>.json`
 
@@ -339,6 +345,10 @@ Seeded from the FITNESS.md system; edited rarely.
   //   ("onion" also blocks "red onion"). The profile's
   //   OWN recipes are exempt (authored to its rules).
   //   Absent = no screening.
+  "region": { "country": "USA", "state": "IL" },
+  // ? where this profile buys groceries, for sales tax on the List
+  //   trip total (app/lib/prices.js GROCERY_TAX_RATE by state;
+  //   absent field, unknown state, or country != "USA" = 0%).
   "mealSlots": ["breakfast", "lunch", "dinner", "smoothie"],
   // ? ordered list of meal slots app/lib/weekbuilder.js's
   //   generateWeek proactively fills/committee-picks per day.

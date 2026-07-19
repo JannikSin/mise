@@ -170,6 +170,9 @@ function App() {
   );
 
   const [listLoaded, setListLoaded] = useState(false);
+  const [priceCatalogue, setPriceCatalogue] = useState(
+    /** @type {import("./lib/prices.js").PriceCatalogue | null} */ (null),
+  );
 
   useEffect(() => {
     let alive = true;
@@ -181,6 +184,10 @@ function App() {
       });
       read("pantry.json").then((p) => {
         if (alive && p) setPantry(p);
+      });
+      // shared price catalogue (data-repo root, never profile-scoped)
+      read("prices.json", { raw: true }).then((p) => {
+        if (alive && p) setPriceCatalogue(/** @type {any} */ (p));
       });
     };
     load();
@@ -736,6 +743,13 @@ function App() {
         ownEmoji=${ownEmoji}
         onCombinedToggle=${handleCombinedToggle}
         shopsPerWeek=${targets?.shopsPerWeek ?? 1}
+        prices=${priceCatalogue}
+        region=${targets?.region}
+        storeSlug=${(targets?.stores?.[0] ?? "")
+          .toLowerCase()
+          .replace(/'/g, "")
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "")}
       />`
     }
     ${
