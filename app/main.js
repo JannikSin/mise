@@ -31,6 +31,8 @@ import {
   applyJustBought,
   householdOthers,
   ownItemToPantry,
+  expirePerishables,
+  removeFromPantry,
   sectionOf,
   slug,
 } from "./lib/shopping.js";
@@ -187,7 +189,16 @@ function App() {
         setListLoaded(true);
       });
       read("pantry.json").then((p) => {
-        if (alive && p) setPantry(p);
+        if (!alive || !p) return;
+        // drop perishables past their shelf life on the way in (a 2-week-old
+        // bag of spinach or a week-old chicken breast leaves on its own); if
+        // anything expired, persist the trimmed pantry
+        const { pantry: fresh, expired } = expirePerishables(p, localIsoDate(new Date()));
+        setPantry(fresh);
+        if (expired.length > 0) {
+          pantryRef.current = fresh;
+          void write("pantry.json", fresh);
+        }
       });
       // shared price catalogue (data-repo root, never profile-scoped)
       read("prices.json", { raw: true }).then((p) => {
@@ -228,6 +239,20 @@ function App() {
     setPantry(next);
     void write("pantry.json", next);
   }, []);
+
+  // hard reset the list: wipe items AND the carried-over ticks/manual adds
+  // from the last trip, so BUILD repopulates from a clean slate
+  const handleClearList = useCallback(() => {
+    updateShopping({ items: [] });
+  }, [updateShopping]);
+
+  // remove a pantry entry outright (mis-added chicken, a staple you dropped)
+  const handleRemovePantry = useCallback(
+    (/** @type {"staple" | "perishable"} */ kind, /** @type {string | number} */ key) => {
+      updatePantry(removeFromPantry(pantryRef.current, kind, key));
+    },
+    [updatePantry],
+  );
 
   // combined household list: the OTHER profiles' shopping files, read raw
   // (unscoped) so one person can run the whole family's store trip
@@ -780,6 +805,8 @@ function App() {
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-+|-+$/g, "")}
         onReceiptApprove=${handleReceiptApprove}
+        onClearList=${handleClearList}
+        onRemovePantry=${handleRemovePantry}
       />`
     }
     ${

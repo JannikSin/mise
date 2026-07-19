@@ -5,6 +5,9 @@ import {
   sectionOf,
   applyJustBought,
   ownItemToPantry,
+  expirePerishables,
+  removeFromPantry,
+  shelfLifeDays,
   roundForPurchase,
   householdOthers,
   mergeProfileLists,
@@ -625,4 +628,39 @@ test("householdOthers merges only same-household profiles, absent household = ho
   assert.deepEqual(householdOthers(profiles, "laurie"), []);
   // an unknown active id defaults to "home" rather than crashing
   assert.deepEqual(householdOthers(profiles, "ghost").map((p) => p.id), ["david", "mom"]);
+});
+
+test("shelfLifeDays maps foods to reasonable windows, default 14", () => {
+  assert.equal(shelfLifeDays("chicken breast"), 4);
+  assert.equal(shelfLifeDays("baby spinach"), 6);
+  assert.equal(shelfLifeDays("salmon fillet"), 3);
+  assert.equal(shelfLifeDays("firm tofu"), 8);
+  assert.equal(shelfLifeDays("eggs"), 28);
+  assert.equal(shelfLifeDays("dragonfruit"), 14); // unknown default
+});
+
+test("expirePerishables drops only items past shelf life, keeps dateless ones", () => {
+  const pantry = {
+    perishables: [
+      { food: "spinach", added: "2026-07-01" }, // 18 days old, 6-day life -> gone
+      { food: "chicken breast", added: "2026-07-17" }, // 2 days old, 4-day life -> keep
+      { food: "eggs", added: "2026-07-01" }, // 18 days, 28-day life -> keep
+      { food: "mystery leftovers" }, // no date -> keep
+    ],
+  };
+  const { pantry: out, expired } = expirePerishables(pantry, "2026-07-19");
+  assert.deepEqual(expired, ["spinach"]);
+  assert.deepEqual(out.perishables.map((p) => p.food), ["chicken breast", "eggs", "mystery leftovers"]);
+  // nothing expired -> same object back (no needless write)
+  const none = expirePerishables({ perishables: [{ food: "eggs", added: "2026-07-18" }] }, "2026-07-19");
+  assert.equal(none.expired.length, 0);
+});
+
+test("removeFromPantry deletes a staple by id and a perishable by index", () => {
+  const pantry = {
+    staples: [{ id: "salt", name: "Salt" }, { id: "oil", name: "Oil" }],
+    perishables: [{ food: "spinach" }, { food: "chicken" }],
+  };
+  assert.deepEqual(removeFromPantry(pantry, "staple", "salt").staples.map((s) => s.id), ["oil"]);
+  assert.deepEqual(removeFromPantry(pantry, "perishable", 0).perishables.map((p) => p.food), ["chicken"]);
 });

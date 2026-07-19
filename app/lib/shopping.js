@@ -336,6 +336,83 @@ export function swapCandidates(combined) {
 }
 
 /**
+ * Days a bought perishable is assumed good in the fridge, by food keyword.
+ * First match wins. Deliberately conservative so nothing edible vanishes too
+ * early, but a two-week-old bag of spinach or a week-old chicken breast does
+ * leave on its own. Staples never expire (they're the other tier).
+ * @type {[RegExp, number][]}
+ */
+const PERISHABLE_SHELF_DAYS = [
+  [/\b(salmon|tuna|cod|tilapia|shrimp|prawn|scallop|fish|seafood)\b/, 3],
+  [/\b(chicken|turkey|pork|beef|lamb|mince|steak|thigh|breast|ground)\b/, 4],
+  [/\b(spinach|lettuce|arugula|greens|kale|herb|cilantro|parsley|basil|berries|berry)\b/, 6],
+  [/\b(broccoli|cauliflower|cucumber|tomato|pepper|mushroom|zucchini|avocado|asparagus)\b/, 8],
+  [/\b(tofu|tempeh|hummus)\b/, 8],
+  [/\b(milk|yogurt|kefir|cream|cottage)\b/, 10],
+  [/\b(carrot|onion|potato|cabbage|apple|citrus|lemon|lime|orange)\b/, 18],
+  [/\b(egg|eggs|cheese)\b/, 28],
+];
+
+/**
+ * Shelf life in days for a perishable food name (default 14 for anything
+ * unrecognized — long enough not to nuke a mystery item prematurely).
+ * @param {string} food
+ * @returns {number}
+ */
+export function shelfLifeDays(food) {
+  const f = (food ?? "").toLowerCase();
+  for (const [re, days] of PERISHABLE_SHELF_DAYS) if (re.test(f)) return days;
+  return 14;
+}
+
+/**
+ * Drop perishables whose `added` date plus their shelf life is before today.
+ * Perishables with no `added` date are kept (we can't judge them). Returns the
+ * updated pantry and the names dropped, so the UI can say what left.
+ * @param {Record<string, any>} pantry
+ * @param {string} todayIso
+ * @returns {{ pantry: Record<string, any>, expired: string[] }}
+ */
+export function expirePerishables(pantry, todayIso) {
+  const today = new Date(`${todayIso}T00:00:00`);
+  /** @type {string[]} */
+  const expired = [];
+  const kept = (pantry.perishables ?? []).filter((/** @type {any} */ p) => {
+    if (!p.added) return true;
+    const gone = new Date(`${p.added}T00:00:00`);
+    gone.setDate(gone.getDate() + shelfLifeDays(p.food));
+    if (gone < today) {
+      expired.push(p.food);
+      return false;
+    }
+    return true;
+  });
+  if (expired.length === 0) return { pantry, expired };
+  return { pantry: { ...pantry, perishables: kept }, expired };
+}
+
+/**
+ * Remove a pantry entry outright (mis-added chicken, a staple you no longer
+ * keep). `kind` picks the tier; staples match by id, perishables by index
+ * (they have no stable id).
+ * @param {Record<string, any>} pantry
+ * @param {"staple" | "perishable"} kind
+ * @param {string | number} key staple id, or perishable array index
+ * @returns {Record<string, any>}
+ */
+export function removeFromPantry(pantry, kind, key) {
+  if (kind === "staple") {
+    return { ...pantry, staples: (pantry.staples ?? []).filter((/** @type {any} */ s) => s.id !== key) };
+  }
+  return {
+    ...pantry,
+    perishables: (pantry.perishables ?? []).filter(
+      (/** @type {any} */ _p, /** @type {number} */ i) => i !== key,
+    ),
+  };
+}
+
+/**
  * "I already have this — permanently": a list item becomes (or refreshes) a
  * pantry staple with onHand true and leaves the list. For the found-it-in-
  * the-cupboard case; plain ticking covers "have enough for this week".

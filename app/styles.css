@@ -1781,3 +1781,24 @@ button.primary:focus-visible,
   font-size: 0.95rem;
   line-height: 1.35;
 }
+
+/* List/pantry additions */
+.q.num.nopr { opacity: 0.4; font-style: italic; }
+.rmbtn {
+  background: none;
+  border: none;
+  color: var(--muted, #7a8290);
+  font-size: 1rem;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.rmbtn:hover { color: var(--bad, #e06a6a); }
+button.linktext {
+  background: none;
+  border: none;
+  color: var(--accent, #6fcf7f);
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}

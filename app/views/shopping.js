@@ -11,6 +11,7 @@ const STORE_NAMES = /** @type {Record<string, string>} */ ({
   marianos: "Mariano's",
   "jewel-osco": "Jewel-Osco",
   costco: "Costco",
+  aldi: "Aldi",
 });
 
 const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spices", "other"];
@@ -41,7 +42,9 @@ const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spice
  *   prices?: import("../lib/prices.js").PriceCatalogue | null,
  *   region?: { country?: string, state?: string },
  *   storeSlug?: string,
- *   onReceiptApprove?: (store: string, lines: { name: string, price: number, size: string }[]) => void
+ *   onReceiptApprove?: (store: string, lines: { name: string, price: number, size: string }[]) => void,
+ *   onClearList?: () => void,
+ *   onRemovePantry?: (kind: "staple" | "perishable", key: string | number) => void
  * }} props
  */
 export function ShoppingView({
@@ -68,6 +71,8 @@ export function ShoppingView({
   region = undefined,
   storeSlug = "",
   onReceiptApprove = undefined,
+  onClearList = undefined,
+  onRemovePantry = undefined,
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry" | "combined"} */ ("list"));
   const [manual, setManual] = useState("");
@@ -162,16 +167,32 @@ export function ShoppingView({
 
   // price estimates (prices.json catalogue): chips per row at the profile's
   // own store, trip totals + grocery tax below the list, honest store ranking
+  // store to price against: the shopper PICKS it per trip (they might go to
+  // Aldi one week, Mariano's the next), defaulting to the profile's usual
+  // store but never locked to it. Persisted per profile in localStorage.
+  const storeKey = `mise.priceStore.${activeProfile()}`;
+  const [pickedStore, setPickedStore] = useState(
+    /** @type {string} */ (localStorage.getItem(storeKey) || ""),
+  );
+  const chooseStore = (/** @type {string} */ s) => {
+    setPickedStore(s);
+    localStorage.setItem(storeKey, s);
+  };
+  const allStores = prices?.stores ?? [];
   const ranked = prices ? rankStores(items, prices, region) : [];
   const homeStore =
-    storeSlug && ranked.some((r) => r.store === storeSlug)
-      ? storeSlug
-      : (ranked[0]?.store ?? "");
-  const homeSummary = ranked.find((r) => r.store === homeStore)?.summary ?? null;
+    (pickedStore && allStores.includes(pickedStore) && pickedStore) ||
+    (storeSlug && allStores.includes(storeSlug) && storeSlug) ||
+    ranked[0]?.store ||
+    "";
+  const homeSummary = homeStore ? tripTotal(items, prices, homeStore, region) : null;
   const bestStore = ranked[0] ?? null;
   const priceTag = (/** @type {any} */ item) => {
-    const c = prices && homeStore ? itemCost(item, prices, homeStore) : null;
-    return c ? html`<span class="q num">$${c.cost.toFixed(2)}${c.estimate ? "~" : ""}</span>` : "";
+    if (!prices || !homeStore) return "";
+    const c = itemCost(item, prices, homeStore);
+    return c
+      ? html`<span class="q num">$${c.cost.toFixed(2)}${c.estimate ? "~" : ""}</span>`
+      : html`<span class="q num nopr">no price</span>`;
   };
   // the whole household's one trip, priced: combined items already carry
   // {food, qty, unit}, so tripTotal works on them directly
@@ -320,6 +341,25 @@ export function ShoppingView({
             >
               ${plan?.locked ? "🔓 UNLOCK WEEK" : "🛒 GOING TO THE STORE"}
             </button>
+            ${
+              items.length > 0 &&
+              onClearList &&
+              html`<button
+                class="secondary"
+                aria-label="Clear the whole list, including old ticks and manual items"
+                onClick=${() => {
+                  if (
+                    globalThis.confirm(
+                      "Clear the entire list? Old checked items and manual adds go too. Rebuild it with BUILD.",
+                    )
+                  ) {
+                    onClearList();
+                  }
+                }}
+              >
+                🗑 CLEAR LIST
+              </button>`
+            }
           </div>
           <p class="hint lockhint">
             ${
@@ -382,6 +422,20 @@ export function ShoppingView({
             items.length > 0 &&
             html`
               <div class="tile">
+                <div class="chips wrapchips" role="group" aria-label="Which store to price against">
+                  ${allStores.map(
+                    (s) => html`
+                      <button
+                        class="chip ${homeStore === s ? "on" : ""}"
+                        key=${s}
+                        aria-pressed=${homeStore === s}
+                        onClick=${() => chooseStore(s)}
+                      >
+                        ${STORE_NAMES[s] ?? s}
+                      </button>
+                    `,
+                  )}
+                </div>
                 <div class="row">
                   <span class="k">Est. ${STORE_NAMES[homeStore] ?? homeStore} trip</span>
                   <span class="status num">$${homeSummary.subtotal.toFixed(2)}</span>
@@ -408,8 +462,10 @@ export function ShoppingView({
                   (bestStore.store === homeStore
                     ? html`<p class="hint">cheapest well-covered store for this basket ✓</p>`
                     : html`<p class="hint">
-                        cheaper basket: ${STORE_NAMES[bestStore.store] ?? bestStore.store} est.
-                        $${bestStore.summary.total.toFixed(2)}
+                        <button class="linktext" onClick=${() => chooseStore(bestStore.store)}>
+                          ${STORE_NAMES[bestStore.store] ?? bestStore.store} is cheaper: est.
+                          $${bestStore.summary.total.toFixed(2)} — tap to switch
+                        </button>
                       </p>`)
                 }
                 ${prices && onReceiptApprove && receiptControl()}
@@ -556,6 +612,16 @@ export function ShoppingView({
                   >
                     LOW${s.runningLow ? html` <span aria-hidden="true">✓</span>` : ""}
                   </button>
+                  ${
+                    onRemovePantry &&
+                    html`<button
+                      class="rmbtn"
+                      aria-label="Remove ${s.name} from the pantry"
+                      onClick=${() => onRemovePantry("staple", s.id)}
+                    >
+                      ✕
+                    </button>`
+                  }
                 </div>
               `,
             )}
@@ -570,6 +636,16 @@ export function ShoppingView({
                     <div class="checkrow static" key=${i}>
                       <span class="food">${p.food}</span>
                       <span class="q num">${p.qty ?? ""} · ${p.added}</span>
+                      ${
+                        onRemovePantry &&
+                        html`<button
+                          class="rmbtn"
+                          aria-label="Remove ${p.food} from the pantry"
+                          onClick=${() => onRemovePantry("perishable", i)}
+                        >
+                          ✕
+                        </button>`
+                      }
                     </div>
                   `,
                 )}
