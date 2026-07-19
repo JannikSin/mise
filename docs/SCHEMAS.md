@@ -130,6 +130,16 @@ data to the app repo.
   back to a single default David profile so a fresh or pre-multi-profile
   install still boots straight into the app.
 
+## Prices — `prices.json` (data-repo ROOT, shared reference, read raw)
+
+Store price catalogue for shopping-cost estimates. Not yet read by any app
+code — reference data maintained by Claude sessions (researched 2026-07-18,
+Chicagoland). Entries: `{ id, name, prices: { <store-slug>: { price, size,
+estimate? } } }` with `updated`, `region`, `stores` at the top. `estimate:
+true` = derived/recent estimate, absent = tracker-confirmed shelf price. A
+store absent from an item's `prices` = not reliably stocked there. Future
+integration: shopping list rows show an estimated trip total per store.
+
 ## Recipe — `recipes/<id>.json`
 
 ```jsonc
