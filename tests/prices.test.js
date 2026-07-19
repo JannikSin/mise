@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { matchPrice, itemCost, tripTotal, rankStores, taxRateFor } from "../app/lib/prices.js";
+import {
+  matchPrice,
+  itemCost,
+  tripTotal,
+  rankStores,
+  taxRateFor,
+  applyReceipt,
+  storeSlugFromReceipt,
+} from "../app/lib/prices.js";
 
 const CATALOGUE = {
   stores: ["trader-joes", "marianos"],
@@ -68,4 +76,40 @@ test("rankStores only compares stores matching the best coverage", () => {
   const ranked = rankStores(items, CATALOGUE, { country: "USA", state: "IL" });
   // marianos prices only 1 of 2 rows -> excluded, TJ (2 rows) wins by coverage
   assert.deepEqual(ranked.map((r) => r.store), ["trader-joes"]);
+});
+
+test("storeSlugFromReceipt maps printed store names, null when unknown", () => {
+  const known = ["trader-joes", "marianos", "jewel-osco", "costco"];
+  assert.equal(storeSlugFromReceipt("TRADER JOE'S #703", known), "trader-joes");
+  assert.equal(storeSlugFromReceipt("Mariano's Fresh Market", known), "marianos");
+  assert.equal(storeSlugFromReceipt("JEWEL OSCO", known), "jewel-osco");
+  assert.equal(storeSlugFromReceipt("Whole Foods", known), null);
+  assert.equal(storeSlugFromReceipt("", known), null);
+});
+
+test("applyReceipt overwrites matched store prices as confirmed, reports unmatched", () => {
+  const cat = {
+    stores: ["trader-joes"],
+    items: [
+      { id: "black-beans-can", name: "black beans (can)", prices: { "trader-joes": { price: 0.99, size: "15 oz", estimate: true } } },
+      { id: "olive-oil-evoo", name: "extra virgin olive oil", prices: { "trader-joes": { price: 10.99, size: "1 L" } } },
+    ],
+  };
+  const lines = [
+    { name: "black beans", price: 1.09, size: "15.5 oz" },
+    { name: "mystery artisan cheese", price: 6.5, size: "" },
+  ];
+  const { catalogue, applied, unmatched } = applyReceipt(cat, "trader-joes", lines, "2026-07-19");
+  // matched line: price updated, size updated, estimate flag GONE (confirmed)
+  const beans = catalogue.items.find((i) => i.id === "black-beans-can");
+  assert.equal(beans.prices["trader-joes"].price, 1.09);
+  assert.equal(beans.prices["trader-joes"].size, "15.5 oz");
+  assert.equal(beans.prices["trader-joes"].estimate, undefined);
+  // unmatched line never invents a catalogue row
+  assert.equal(catalogue.items.length, 2);
+  assert.deepEqual(applied.map((a) => a.matchedId), ["black-beans-can"]);
+  assert.deepEqual(unmatched.map((u) => u.name), ["mystery artisan cheese"]);
+  assert.equal(catalogue.updated, "2026-07-19");
+  // original catalogue not mutated
+  assert.equal(cat.items[0].prices["trader-joes"].price, 0.99);
 });

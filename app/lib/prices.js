@@ -137,6 +137,71 @@ export function tripTotal(items, catalogue, store, region) {
   };
 }
 
+/** Receipt store-name text → catalogue store slug. */
+const STORE_ALIASES = /** @type {Record<string, string>} */ ({
+  "trader joe": "trader-joes",
+  "trader joe's": "trader-joes",
+  mariano: "marianos",
+  "mariano's": "marianos",
+  jewel: "jewel-osco",
+  "jewel-osco": "jewel-osco",
+  "jewel osco": "jewel-osco",
+  costco: "costco",
+});
+
+/**
+ * Best catalogue store slug for a receipt's printed store name (substring
+ * match on the alias table). Null when nothing recognizable, so the caller
+ * can ask the user which store it was.
+ * @param {string} storeText
+ * @param {string[]} knownStores catalogue.stores
+ * @returns {string | null}
+ */
+export function storeSlugFromReceipt(storeText, knownStores) {
+  const t = (storeText ?? "").toLowerCase();
+  for (const [alias, slug] of Object.entries(STORE_ALIASES)) {
+    if (t.includes(alias) && knownStores.includes(slug)) return slug;
+  }
+  return null;
+}
+
+/**
+ * Merge a reviewed receipt into the catalogue: for one store, each receipt
+ * line either updates an existing item's price (matched by word overlap) as
+ * a CONFIRMED price (estimate flag cleared), or is skipped if it matches
+ * nothing (we never invent catalogue rows from a receipt — a receipt names
+ * "ORG BLK BEAN" that we cannot safely map, so confirmed-only-on-match keeps
+ * the catalogue clean). Returns a new catalogue plus a per-line report.
+ * @param {PriceCatalogue} catalogue
+ * @param {string} store slug
+ * @param {{ name: string, price: number, size?: string }[]} lines
+ * @param {string} updatedIso today, for catalogue.updated
+ * @returns {{ catalogue: PriceCatalogue, applied: { name: string, matchedId: string, price: number }[], unmatched: { name: string, price: number }[] }}
+ */
+export function applyReceipt(catalogue, store, lines, updatedIso) {
+  const items = (catalogue.items ?? []).map((i) => ({ ...i, prices: { ...i.prices } }));
+  const applied = [];
+  const unmatched = [];
+  for (const line of lines) {
+    const match = matchPrice(line.name, items);
+    if (!match) {
+      unmatched.push({ name: line.name, price: line.price });
+      continue;
+    }
+    match.prices[store] = {
+      price: Math.round(line.price * 100) / 100,
+      ...(line.size ? { size: line.size } : match.prices[store]?.size ? { size: match.prices[store].size } : {}),
+      // a real receipt is the confirmed price: drop the estimate flag
+    };
+    applied.push({ name: line.name, matchedId: match.id, price: line.price });
+  }
+  return {
+    catalogue: { ...catalogue, items, ...(updatedIso ? { updated: updatedIso } : {}) },
+    applied,
+    unmatched,
+  };
+}
+
 /**
  * Which catalogue store runs this list cheapest, honestly: only stores that
  * price at least as many rows as the best-covered store are compared (a

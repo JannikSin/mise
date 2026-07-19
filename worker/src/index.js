@@ -10,9 +10,11 @@
 import {
   corsFor,
   buildScanRequest,
+  buildReceiptRequest,
   buildRemedyRequest,
   parseToolUse,
   validateScanItems,
+  validateReceiptItems,
   validateProtocol,
   allowRequest,
 } from "./lib.js";
@@ -100,7 +102,7 @@ export default {
     }
     if (!cors) return json(403, { error: "origin not allowed" }, {});
     const url = new URL(request.url);
-    if (request.method !== "POST" || !["/scan", "/remedy"].includes(url.pathname)) {
+    if (request.method !== "POST" || !["/scan", "/receipt", "/remedy"].includes(url.pathname)) {
       return json(404, { error: "not found" }, cors);
     }
 
@@ -142,6 +144,18 @@ export default {
           env.ANTHROPIC_API_KEY,
         );
         return json(200, { items: validateScanItems(parseToolUse(resp, "record_items")) }, cors);
+      }
+      if (url.pathname === "/receipt") {
+        const image = typeof body.image === "string" ? body.image : "";
+        const mediaType = ["image/jpeg", "image/png", "image/webp"].includes(body.mediaType)
+          ? body.mediaType
+          : "";
+        if (!image || !mediaType) return json(400, { error: "image + mediaType required" }, cors);
+        const resp = await callAnthropic(
+          buildReceiptRequest({ image, mediaType, model: env.SCAN_MODEL ?? DEFAULT_MODEL }),
+          env.ANTHROPIC_API_KEY,
+        );
+        return json(200, validateReceiptItems(parseToolUse(resp, "record_receipt")), cors);
       }
       // /remedy
       const text = typeof body.text === "string" ? body.text.trim().slice(0, 2000) : "";

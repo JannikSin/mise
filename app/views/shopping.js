@@ -1,8 +1,8 @@
 import { html } from "htm/preact";
 import { useRef, useState } from "preact/hooks";
-import { scanPhoto } from "../lib/worker.js";
+import { scanPhoto, scanReceipt } from "../lib/worker.js";
 import { mergeProfileLists, swapCandidates, formatStoreQty, tripOf } from "../lib/shopping.js";
-import { itemCost, rankStores, taxRateFor } from "../lib/prices.js";
+import { itemCost, rankStores, taxRateFor, tripTotal, storeSlugFromReceipt } from "../lib/prices.js";
 import { activeProfile } from "../lib/store.js";
 
 /** Catalogue store slug → shopper-facing name. */
@@ -40,7 +40,8 @@ const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spice
  *   shopsPerWeek?: number,
  *   prices?: import("../lib/prices.js").PriceCatalogue | null,
  *   region?: { country?: string, state?: string },
- *   storeSlug?: string
+ *   storeSlug?: string,
+ *   onReceiptApprove?: (store: string, lines: { name: string, price: number, size: string }[]) => void
  * }} props
  */
 export function ShoppingView({
@@ -66,12 +67,42 @@ export function ShoppingView({
   prices = null,
   region = undefined,
   storeSlug = "",
+  onReceiptApprove = undefined,
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry" | "combined"} */ ("list"));
   const [manual, setManual] = useState("");
   // camera scan: null | "busy" | { error } | { items, kept: boolean[] }
   const [scan, setScan] = useState(/** @type {any} */ (null));
   const fileRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+  // receipt scan (price freshness loop): null | "busy" | { error } | { notice }
+  //   | { store, lines: [{name, price, size}], kept: bool[] }
+  const [receipt, setReceipt] = useState(/** @type {any} */ (null));
+  const receiptRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+
+  const onReceiptPicked = async (/** @type {{ currentTarget: HTMLInputElement }} */ e) => {
+    const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = "";
+    if (!file || receipt === "busy") return;
+    setReceipt("busy");
+    try {
+      const { store, items: lines } = await scanReceipt(file);
+      if (lines.length === 0) {
+        setReceipt({ notice: "no priced lines read — try a flatter, brighter shot" });
+        return;
+      }
+      const detected = storeSlugFromReceipt(store, prices?.stores ?? []);
+      setReceipt({ store: detected ?? storeSlug ?? "", lines, kept: lines.map(() => true) });
+    } catch (err) {
+      setReceipt({ error: err instanceof Error ? err.message : "receipt scan failed" });
+    }
+  };
+
+  const approveReceipt = () => {
+    if (!receipt?.lines || !receipt.store || !onReceiptApprove) return;
+    const chosen = receipt.lines.filter((/** @type {any} */ _l, /** @type {number} */ i) => receipt.kept[i]);
+    if (chosen.length) onReceiptApprove(receipt.store, chosen);
+    setReceipt({ notice: `updated ${chosen.length} prices — thanks, the catalogue is fresher now` });
+  };
 
   const onPhotoPicked = async (/** @type {{ currentTarget: HTMLInputElement }} */ e) => {
     const file = e.currentTarget.files?.[0];
@@ -142,6 +173,98 @@ export function ShoppingView({
     const c = prices && homeStore ? itemCost(item, prices, homeStore) : null;
     return c ? html`<span class="q num">$${c.cost.toFixed(2)}${c.estimate ? "~" : ""}</span>` : "";
   };
+  // the whole household's one trip, priced: combined items already carry
+  // {food, qty, unit}, so tripTotal works on them directly
+  const combinedSummary =
+    prices && homeStore && combined.length > 0
+      ? tripTotal(combined, prices, homeStore, region)
+      : null;
+
+  // receipt → catalogue freshness loop: photograph a receipt, review the
+  // parsed lines and store, apply the real prices over the estimates.
+  const receiptControl = () => html`
+    <div class="receipt-loop">
+      <input
+        ref=${receiptRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        style="display:none"
+        onChange=${onReceiptPicked}
+      />
+      ${
+        (receipt === null || receipt?.notice || receipt?.error) &&
+        html`<button
+          class="secondary"
+          disabled=${tokenBlocked}
+          onClick=${() => receiptRef.current?.click()}
+        >
+          📷 update prices from a receipt
+        </button>`
+      }
+      ${receipt === "busy" && html`<p class="hint">reading the receipt…</p>`}
+      ${receipt?.notice && html`<p class="hint">${receipt.notice}</p>`}
+      ${
+        receipt?.error &&
+        html`<p class="hint">
+          ${receipt.error}${tokenBlocked ? "" : " (needs the app's AI key set — same as pantry scan)"}
+        </p>`
+      }
+      ${
+        receipt?.lines &&
+        html`
+          <div class="tile">
+            <div class="row">
+              <span class="k">which store?</span>
+            </div>
+            <div class="chips wrapchips" role="group" aria-label="Receipt store">
+              ${(prices?.stores ?? []).map(
+                (s) => html`
+                  <button
+                    class="chip ${receipt.store === s ? "on" : ""}"
+                    key=${s}
+                    onClick=${() => setReceipt({ ...receipt, store: s })}
+                  >
+                    ${STORE_NAMES[s] ?? s}
+                  </button>
+                `,
+              )}
+            </div>
+            <p class="hint">tick the lines to save, then apply. Only lines that match a tracked item update.</p>
+            <div class="slots">
+              ${receipt.lines.map(
+                (/** @type {any} */ l, /** @type {number} */ idx) => html`
+                  <div class="checkrow ${receipt.kept[idx] ? "" : "off"}" key=${idx}>
+                    <button
+                      class="tickarea"
+                      aria-pressed=${receipt.kept[idx]}
+                      onClick=${() =>
+                        setReceipt({
+                          ...receipt,
+                          kept: receipt.kept.map((/** @type {boolean} */ k, /** @type {number} */ j) =>
+                            j === idx ? !k : k,
+                          ),
+                        })}
+                    >
+                      <span class="box" aria-hidden="true">${receipt.kept[idx] ? "✓" : ""}</span>
+                      <span class="food">${l.name}${l.size ? html` <span class="tag">${l.size}</span>` : ""}</span>
+                      <span class="q num">$${Number(l.price).toFixed(2)}</span>
+                    </button>
+                  </div>
+                `,
+              )}
+            </div>
+            <div class="actions wrap">
+              <button class="primary" onClick=${approveReceipt} disabled=${!receipt.store}>
+                APPLY TO ${(STORE_NAMES[receipt.store] ?? receipt.store ?? "").toUpperCase()}
+              </button>
+              <button class="secondary" onClick=${() => setReceipt(null)}>cancel</button>
+            </div>
+          </div>
+        `
+      }
+    </div>
+  `;
 
   return html`
     <div class="view">
@@ -289,6 +412,7 @@ export function ShoppingView({
                         $${bestStore.summary.total.toFixed(2)}
                       </p>`)
                 }
+                ${prices && onReceiptApprove && receiptControl()}
               </div>
             `
           }
@@ -519,6 +643,7 @@ export function ShoppingView({
                           }
                         </span>
                         <span class="q num">${formatStoreQty(i.qty, i.unit)}</span>
+                        ${priceTag(i)}
                       </button>
                     </div>
                   `;
@@ -526,6 +651,36 @@ export function ShoppingView({
               </div>
             `,
           )}
+          ${
+            combinedSummary &&
+            html`
+              <div class="tile">
+                <div class="row">
+                  <span class="k">Est. ${STORE_NAMES[homeStore] ?? homeStore} household trip</span>
+                  <span class="status num">$${combinedSummary.subtotal.toFixed(2)}</span>
+                </div>
+                ${
+                  combinedSummary.tax > 0 &&
+                  html`<div class="row">
+                    <span class="k">grocery tax ${(taxRateFor(region) * 100).toFixed(1)}%</span>
+                    <span class="status num">$${combinedSummary.tax.toFixed(2)}</span>
+                  </div>`
+                }
+                <div class="row">
+                  <span class="k">Total</span>
+                  <span class="status num">$${combinedSummary.total.toFixed(2)}</span>
+                </div>
+                <p class="hint">
+                  the whole household's one trip. ${combinedSummary.priced} of ${combined.length}
+                  rows priced${
+                    combinedSummary.estimates > 0
+                      ? `, ${combinedSummary.estimates} are estimates (~)`
+                      : ""
+                  }${combinedSummary.unpriced > 0 ? " — unpriced rows cost extra on top" : ""}.
+                </p>
+              </div>
+            `
+          }
           ${combined.length === 0 && html`<div class="empty">no lists to combine yet</div>`}
         `
       }

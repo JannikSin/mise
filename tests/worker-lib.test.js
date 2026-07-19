@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import {
   corsFor,
   buildScanRequest,
+  buildReceiptRequest,
   buildRemedyRequest,
   parseToolUse,
   validateScanItems,
+  validateReceiptItems,
   validateProtocol,
   allowRequest,
 } from "../worker/src/lib.js";
@@ -96,4 +98,32 @@ test("validateProtocol keeps only string arrays under the caps", () => {
   assert.deepEqual(p.foods, []);
   assert.deepEqual(p.avoid, []);
   assert.equal(p.notes.length, 12, "notes capped");
+});
+
+test("buildReceiptRequest forces the record_receipt tool with the image", () => {
+  const req = buildReceiptRequest({ image: "abc", mediaType: "image/jpeg", model: "claude-sonnet-5" });
+  assert.equal(req.tool_choice.name, "record_receipt");
+  assert.equal(req.messages[0].content[0].source.data, "abc");
+});
+
+test("validateReceiptItems keeps priced food lines, drops junk and non-positive prices", () => {
+  const out = validateReceiptItems({
+    store: "  TRADER JOE'S #703  ",
+    items: [
+      { name: "black beans", price: 1.09, size: "15.5 oz" },
+      { name: "bananas", price: 0.23 },
+      { name: "coupon", price: -2 }, // discount line dropped
+      { name: "", price: 5 }, // no name dropped
+      { name: "tax", price: 0 }, // zero price dropped
+      { junk: true },
+    ],
+  });
+  assert.equal(out.store, "TRADER JOE'S #703");
+  assert.deepEqual(
+    out.items,
+    [
+      { name: "black beans", price: 1.09, size: "15.5 oz" },
+      { name: "bananas", price: 0.23, size: "" },
+    ],
+  );
 });

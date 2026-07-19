@@ -72,6 +72,22 @@ export async function scanPhoto(file) {
 }
 
 /**
+ * Grocery-receipt photo → the store and its priced food lines, for the
+ * price-catalogue freshness loop. Same downscale + auth path as the pantry
+ * scan; returns empty when the model finds nothing.
+ * @param {File | Blob} file
+ * @returns {Promise<{ store: string, items: { name: string, price: number, size: string }[] }>}
+ */
+export async function scanReceipt(file) {
+  const { image, mediaType } = await downscalePhoto(file);
+  const data = await post("/receipt", { image, mediaType });
+  return {
+    store: typeof data.store === "string" ? data.store : "",
+    items: Array.isArray(data.items) ? data.items : [],
+  };
+}
+
+/**
  * Free-text symptoms → protocol in the rules-engine shape.
  * @param {string} text
  * @returns {Promise<{ teas: string[], foods: string[], avoid: string[], notes: string[] }>}

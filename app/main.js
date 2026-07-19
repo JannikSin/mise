@@ -33,6 +33,7 @@ import {
   sectionOf,
   slug,
 } from "./lib/shopping.js";
+import { applyReceipt } from "./lib/prices.js";
 import {
   addEntry,
   removeEntryById,
@@ -270,6 +271,23 @@ function App() {
       unsub();
     };
   }, [hasToken]);
+
+  // receipt → catalogue freshness loop: merge the reviewed receipt lines into
+  // the shared prices.json (raw, root file) and persist. Real receipt prices
+  // overwrite the estimates for that store.
+  const handleReceiptApprove = useCallback(
+    (
+      /** @type {string} */ store,
+      /** @type {{ name: string, price: number, size: string }[]} */ lines,
+    ) => {
+      const cat = priceCatalogue;
+      if (!cat) return;
+      const { catalogue: next } = applyReceipt(cat, store, lines, localIsoDate(new Date()));
+      setPriceCatalogue(next);
+      void write("prices.json", /** @type {any} */ (next), { raw: true });
+    },
+    [priceCatalogue],
+  );
 
   // ticking a combined item buys it for EVERYONE who wants it: write through
   // to every source profile's own list (active via updateShopping, others raw)
@@ -750,6 +768,7 @@ function App() {
           .replace(/'/g, "")
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-+|-+$/g, "")}
+        onReceiptApprove=${handleReceiptApprove}
       />`
     }
     ${

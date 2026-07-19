@@ -77,6 +77,62 @@ export function buildScanRequest({ image, mediaType, model }) {
   };
 }
 
+const RECEIPT_TOOL = {
+  name: "record_receipt",
+  description: "Record the store and every priced line item on a grocery receipt.",
+  input_schema: {
+    type: "object",
+    properties: {
+      store: {
+        type: "string",
+        description: "store name printed on the receipt if visible, e.g. 'Trader Joe's', else ''",
+      },
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "generic food name, brand off, e.g. 'black beans'" },
+            price: { type: "number", description: "the line's dollar price as a number, e.g. 1.99" },
+            size: { type: "string", description: "package size if printed, e.g. '15 oz', else ''" },
+          },
+          required: ["name", "price"],
+        },
+      },
+    },
+    required: ["store", "items"],
+  },
+};
+
+const RECEIPT_SYSTEM =
+  "You read grocery receipts for a personal price tracker. Record the store " +
+  "name and every FOOD line with its price as a number. Use a short generic " +
+  "food name (brand off). Skip non-food lines, taxes, totals, discounts, and " +
+  "loyalty rows. If a size is printed on the line, include it, else leave it blank.";
+
+/**
+ * Anthropic Messages request body for a grocery-receipt scan.
+ * @param {{ image: string, mediaType: string, model: string }} args
+ */
+export function buildReceiptRequest({ image, mediaType, model }) {
+  return {
+    model,
+    max_tokens: 2048,
+    system: RECEIPT_SYSTEM,
+    tools: [RECEIPT_TOOL],
+    tool_choice: { type: "tool", name: "record_receipt" },
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: mediaType, data: image } },
+          { type: "text", text: "Read the store and every priced food line on this receipt." },
+        ],
+      },
+    ],
+  };
+}
+
 const REMEDY_TOOL = {
   name: "record_protocol",
   description: "Record the kitchen remedy protocol.",
@@ -170,6 +226,28 @@ export function validateScanItems(input) {
     out.push({ name, kind, qty });
   }
   return out;
+}
+
+/**
+ * Sanitize receipt output: a store string plus priced food lines. Junk and
+ * non-positive prices dropped, strings capped, list length bounded.
+ * @param {Record<string, any> | null} input
+ * @returns {{ store: string, items: { name: string, price: number, size: string }[] }}
+ */
+export function validateReceiptItems(input) {
+  const store = typeof input?.store === "string" ? input.store.trim().slice(0, 60) : "";
+  const raw = Array.isArray(input?.items) ? input.items : [];
+  const out = [];
+  for (const it of raw) {
+    if (out.length >= 120) break;
+    if (typeof it !== "object" || it === null) continue;
+    const name = typeof it.name === "string" ? it.name.trim().slice(0, 80) : "";
+    const price = typeof it.price === "number" && it.price > 0 ? Math.round(it.price * 100) / 100 : 0;
+    if (!name || !price) continue;
+    const size = typeof it.size === "string" ? it.size.trim().slice(0, 40) : "";
+    out.push({ name, price, size });
+  }
+  return { store, items: out };
 }
 
 /**
