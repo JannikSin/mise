@@ -66,7 +66,7 @@ const TABS = [
 
 function App() {
   const [route, setRoute] = useState(
-    /** @type {{ view: string, id?: string, from?: string }} */ ({ view: "home" }),
+    /** @type {{ view: string, id?: string, from?: string, servings?: number }} */ ({ view: "home" }),
   );
   const [online, setOnline] = useState(navigator.onLine);
   /** @type {[RepoStatus | null, (s: RepoStatus | null) => void]} */
@@ -672,6 +672,7 @@ function App() {
       recipe=${recipeById(route.id)}
       loading=${loading}
       from=${route.from}
+      servings=${route.servings}
     />`;
   }
 
@@ -747,7 +748,7 @@ function App() {
     }
     ${
       route.view === "recipe" &&
-      html`<${RecipeView} recipe=${recipeById(route.id)} loading=${loading} from=${route.from} />`
+      html`<${RecipeView} recipe=${recipeById(route.id)} loading=${loading} from=${route.from} servings=${route.servings} />`
     }
     ${
       route.view === "list" &&

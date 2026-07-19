@@ -1,5 +1,6 @@
 import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
+import { cookPlan } from "../lib/portions.js";
 
 // ?from=<key> in the recipe hash → where the backlink returns; unknown or
 // absent keys fall back to the cookbook (the historical behavior)
@@ -12,25 +13,42 @@ const DEFAULT_ORIGIN = { hash: "#/cookbook", label: "← COOKBOOK" };
 /** @param {string | undefined} from */
 const originOf = (from) => (from && ORIGINS[from]) || DEFAULT_ORIGIN;
 
-/** @param {string | undefined} from */
-const fromSuffix = (from) => (from && ORIGINS[from] ? `?from=${encodeURIComponent(from)}` : "");
+/**
+ * Query suffix carrying the backlink origin AND the planned portion through to
+ * Cook mode, so cooking stays scaled to the meal.
+ * @param {string | undefined} from
+ * @param {number} [servings]
+ */
+const cookSuffix = (from, servings) => {
+  const parts = [];
+  if (from && ORIGINS[from]) parts.push(`from=${encodeURIComponent(from)}`);
+  if (servings && servings > 0) parts.push(`servings=${servings}`);
+  return parts.length ? `?${parts.join("&")}` : "";
+};
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number }} props
  */
-export function RecipeView({ recipe, loading, from }) {
+export function RecipeView({ recipe, loading, from, servings }) {
   const origin = originOf(from);
   if (!recipe)
     return html`<div class="empty">
       ${loading ? "loading…" : "recipe not found"} — <a href=${origin.hash}>go back</a>
     </div>`;
   const n = recipe.nutrition ?? {};
+  // portion-aware: cook exactly what the plan says to eat, not the whole
+  // recipe (the fix for cooking a serves-2 dish and eating both portions)
+  const plan = cookPlan(recipe, servings);
   return html`
     <div class="view detail">
       <a class="backlink" href=${origin.hash}>${origin.label}</a>
       <h1>${recipe.name}</h1>
       <div class="meta num">
-        ${recipe.totalTime}m · serves ${recipe.servings} · ${recipe.effort}
+        ${recipe.totalTime}m ·${" "}
+        ${plan.mode === "single"
+          ? html`cooking ${plan.cookServings} of ${recipe.servings}`
+          : html`serves ${recipe.servings}`}
+        · ${recipe.effort}
         ${(recipe.purpose ?? []).map((/** @type {string} */ p) => html`<span class="tag ${p}">${p === "pre-activity" ? "pre-act" : p}</span>`)}
       </div>
       <p class="hint">${recipe.description}</p>
@@ -54,11 +72,19 @@ export function RecipeView({ recipe, loading, from }) {
         </div>
       </div>
 
+      ${
+        plan.note &&
+        html`<div class="tile portion ${plan.mode}" role="note">
+          <div class="k">${plan.mode === "batch" ? "🍲 batch — save the extra" : plan.mode === "single" ? "🍽️ cooking your portion" : "portion"}</div>
+          <div class="d">${plan.note}</div>
+        </div>`
+      }
+
       <div class="actions">
         <button
           class="ask"
           onClick=${() =>
-            (location.hash = `#/recipe/${encodeURIComponent(recipe.id)}/cook${fromSuffix(from)}`)}
+            (location.hash = `#/recipe/${encodeURIComponent(recipe.id)}/cook${cookSuffix(from, servings)}`)}
         >
           COOK MODE
           <small>big text · step by step</small>
@@ -87,7 +113,7 @@ export function RecipeView({ recipe, loading, from }) {
 
       <h2 class="block-title">Ingredients</h2>
       <div>
-        ${(recipe.ingredients ?? []).map(
+        ${plan.ingredients.map(
           (/** @type {Record<string, any>} */ i) => html`
             <div class="ing ${i.staple ? "staple" : ""}">
               <span>
@@ -113,9 +139,9 @@ export function RecipeView({ recipe, loading, from }) {
 
 /**
  * Full-screen cooking mode: one big step at a time, screen kept awake.
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number }} props
  */
-export function CookView({ recipe, loading, from }) {
+export function CookView({ recipe, loading, from, servings }) {
   const [step, setStep] = useState(0);
   useEffect(() => {
     /** @type {any} */
@@ -140,9 +166,10 @@ export function CookView({ recipe, loading, from }) {
     </div>`;
   const steps = recipe.instructions ?? [];
   const last = steps.length - 1;
-  // exit lands back on the recipe, keeping its ?from= so the backlink there
-  // still points at the tab that started the whole flow
-  const back = `#/recipe/${encodeURIComponent(recipe.id)}${fromSuffix(from)}`;
+  const plan = cookPlan(recipe, servings);
+  // exit lands back on the recipe, keeping ?from= AND the portion so the
+  // recipe there stays scaled to the same meal
+  const back = `#/recipe/${encodeURIComponent(recipe.id)}${cookSuffix(from, servings)}`;
 
   return html`
     <div class="cook">
@@ -151,6 +178,11 @@ export function CookView({ recipe, loading, from }) {
         <a class="exit" href=${back}>✕ EXIT</a>
       </div>
       <div class="counter num">STEP ${step + 1}/${steps.length}</div>
+      ${
+        step === 0 &&
+        plan.note &&
+        html`<div class="cook-portion">${plan.note}</div>`
+      }
       <div class="steptext">${steps[step]?.text}</div>
       <div class="nav">
         <button onClick=${() => setStep(Math.max(0, step - 1))} disabled=${step === 0}>

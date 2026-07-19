@@ -2,7 +2,7 @@
 
 /**
  * @param {string} hash
- * @returns {{ view: string, id?: string, from?: string }}
+ * @returns {{ view: string, id?: string, from?: string, servings?: number }}
  */
 export function parseRoute(hash) {
   // optional ?from=<origin> query (e.g. #/recipe/x?from=today) tells the
@@ -30,10 +30,13 @@ export function parseRoute(hash) {
       } catch {
         return { view: "home" }; // malformed percent-sequence in the hash
       }
-      /** @type {{ view: string, id: string, from?: string }} */
+      /** @type {{ view: string, id: string, from?: string, servings?: number }} */
       const route = { view: sub === "cook" ? "cook" : "recipe", id: decoded };
-      const from = new URLSearchParams(query).get("from");
+      const params = new URLSearchParams(query);
+      const from = params.get("from");
       if (from) route.from = from;
+      const servings = Number(params.get("servings"));
+      if (servings > 0) route.servings = servings;
       return route;
     }
     default:
@@ -43,7 +46,7 @@ export function parseRoute(hash) {
 
 /**
  * Subscribe to route changes; fires immediately with the current route.
- * @param {(route: { view: string, id?: string, from?: string }) => void} onChange
+ * @param {(route: { view: string, id?: string, from?: string, servings?: number }) => void} onChange
  */
 export function initRouter(onChange) {
   const fire = () => onChange(parseRoute(location.hash));

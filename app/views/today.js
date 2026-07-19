@@ -129,7 +129,7 @@ export function TodayView({ recipes, plan, hasToken, loading }) {
                   return html`
                     <a
                       class="todayrow"
-                      href="#/recipe/${encodeURIComponent(entry.recipeId)}?from=today"
+                      href="#/recipe/${encodeURIComponent(entry.recipeId)}?from=today&servings=${entry.servings ?? 1}"
                       key=${entry.id}
                     >
                       <span class="t">${label}</span>
