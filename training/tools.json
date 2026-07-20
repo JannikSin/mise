@@ -1,0 +1,60 @@
+{
+  "convention": "The assistant invokes a tool by replying with EXACTLY one fenced json block containing {\"tool\": <name>, \"args\": {...}} and nothing else. The serving layer enforces this shape with constrained decoding; these definitions are the single source of truth for both training traces and the runtime harness.",
+  "tools": [
+    {
+      "name": "get_plan",
+      "description": "Read a week's plan JSON. Use before answering any question about what is planned.",
+      "args": { "week": "ISO week id like 2026-W30" }
+    },
+    {
+      "name": "add_to_plan",
+      "description": "Add a recipe to a slot. Never overwrites; entries stack.",
+      "args": { "week": "ISO week id", "date": "YYYY-MM-DD", "slot": "breakfast|lunch|dinner|smoothie|snack", "recipeId": "recipe id", "servings": "number" }
+    },
+    {
+      "name": "remove_from_plan",
+      "description": "Remove one plan entry by its id.",
+      "args": { "week": "ISO week id", "entryId": "entry id" }
+    },
+    {
+      "name": "toggle_slot_out",
+      "description": "Mark a slot as eating out (free lunch, restaurant dinner) or undo it. The app computes the macro credit itself.",
+      "args": { "week": "ISO week id", "date": "YYYY-MM-DD", "slot": "breakfast|lunch|dinner|smoothie|snack" }
+    },
+    {
+      "name": "get_recipe",
+      "description": "Read one recipe's full JSON by id.",
+      "args": { "recipeId": "recipe id" }
+    },
+    {
+      "name": "save_recipe_edit",
+      "description": "Persist an edited recipe JSON for the active profile (profile-scoped override; the shared bank is never mutated). The full recipe object must be provided; the app validates schema and rejects missing fields.",
+      "args": { "recipe": "complete recipe JSON object" }
+    },
+    {
+      "name": "get_pantry",
+      "description": "Read the pantry (staples + perishables with added dates).",
+      "args": {}
+    },
+    {
+      "name": "get_shopping_list",
+      "description": "Read the current derived shopping list.",
+      "args": {}
+    },
+    {
+      "name": "greger_audit",
+      "description": "Ask the Greger nutrition sub-agent to audit a recipe or answer an is-this-healthy question. ALWAYS defer nutrition verdicts to this tool instead of answering from memory.",
+      "args": { "question": "the nutrition question", "recipeId": "optional recipe id for context" }
+    },
+    {
+      "name": "parse_receipt",
+      "description": "Send a receipt photo to the vision model; returns store + priced line items.",
+      "args": { "imageRef": "attachment reference" }
+    },
+    {
+      "name": "scan_shelf",
+      "description": "Send a fridge/pantry photo to the vision model; returns recognized items for user approval.",
+      "args": { "imageRef": "attachment reference" }
+    }
+  ]
+}
