@@ -1033,6 +1033,22 @@ summary.block-title {
   font-weight: normal;
 }
 
+/* ---- weekly buffer snack ---- */
+
+.buffer .bufferrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.buffer .bufcount {
+  min-width: 24px;
+  text-align: center;
+  font-size: 16px;
+}
+
 /* ---- shopping list ---- */
 
 .checkrow {

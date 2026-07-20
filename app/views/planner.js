@@ -213,6 +213,19 @@ export function PlannerView({
         `
       }
 
+      ${
+        plan.buffer &&
+        byId.get(plan.buffer.recipeId) &&
+        html`<div class="tile buffer">
+          <div class="k">🧺 weekly buffer snack</div>
+          <div class="d num">
+            ${byId.get(plan.buffer.recipeId).name} · ${plan.buffer.portions} portions batched Sunday
+            · ~${byId.get(plan.buffer.recipeId).nutrition?.calories} kcal ·
+            ${byId.get(plan.buffer.recipeId).nutrition?.protein}P each · tally on COOK
+          </div>
+        </div>`
+      }
+
       <div class="chips" role="group" aria-label="Filter tray by meal">
         ${SLOTS.map(
           ({ key, label, full }) => html`

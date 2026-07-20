@@ -9,14 +9,20 @@ import { datesOfWeek, recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
  * library. Defaults to today, and the ‹ › arrows page through the week's
  * other days so meals can be pre-cooked ahead ("flip to Monday, prep its
  * breakfast and lunch, flip to Tuesday, ...").
+ * Also hosts the weekly BUFFER snack tally: the one batch-prepped fridge
+ * stand-by GENERATE picks per week (plan.buffer), with a per-day counter
+ * stored in the daily check-in log — hunger gets a measured answer, not an
+ * unplanned raid.
  * @param {{
  *   recipes: Record<string, any>[],
- *   plan: { week: string, entries: Record<string, any>[] },
+ *   plan: import("../lib/plan.js").Plan,
+ *   daily: { days?: Record<string, any>[] },
+ *   onPatchDay: (patch: Record<string, any>) => void,
  *   hasToken: boolean,
  *   loading: boolean
  * }} props
  */
-export function TodayView({ recipes, plan, hasToken, loading }) {
+export function TodayView({ recipes, plan, daily, onPatchDay, hasToken, loading }) {
   const byId = recipesById(recipes);
   const today = localIsoDate(new Date());
   const weekDates = datesOfWeek(plan.week);
@@ -65,6 +71,17 @@ export function TodayView({ recipes, plan, hasToken, loading }) {
   weekdayAssembly.sort((a, b) => a.date.localeCompare(b.date));
   const hasBatchPrep = sundayComponents.length > 0 || weekdayAssembly.length > 0;
   const isSunday = parseLocalIso(today).getDay() === 0;
+
+  // weekly buffer snack: recipe, today's tally, and how much of the batch
+  // the week has already eaten (sum of every day's counter)
+  const bufferRecipe = plan.buffer ? byId.get(plan.buffer.recipeId) : null;
+  const days = daily?.days ?? [];
+  const bufferToday = days.find((d) => d.date === today)?.buffer ?? 0;
+  const bufferWeek = weekDates.reduce(
+    (s, d) => s + (days.find((x) => x.date === d)?.buffer ?? 0),
+    0,
+  );
+  const bufferLeft = Math.max(0, (plan.buffer?.portions ?? 0) - bufferWeek);
 
   return html`
     <div class="view">
@@ -131,7 +148,7 @@ export function TodayView({ recipes, plan, hasToken, loading }) {
                   return html`
                     <a
                       class="todayrow"
-                      href="#/recipe/${encodeURIComponent(entry.recipeId)}?from=today&servings=${entry.servings ?? 1}"
+                      href="#/recipe/${encodeURIComponent(entry.recipeId ?? "")}?from=today&servings=${entry.servings ?? 1}"
                       key=${entry.id}
                     >
                       <span class="t">${label}</span>
@@ -143,6 +160,52 @@ export function TodayView({ recipes, plan, hasToken, loading }) {
                   `;
                 })}
               </div>`
+      }
+      ${
+        bufferRecipe &&
+        html`<div class="tile buffer">
+          <div class="k">🧺 WEEKLY BUFFER · still hungry? this, measured</div>
+          <a
+            class="todayrow"
+            href="#/recipe/${encodeURIComponent(bufferRecipe.id)}?from=today&servings=1"
+          >
+            <span class="n">${bufferRecipe.name}</span>
+            <span class="m num"
+              >${bufferRecipe.nutrition?.calories} · ${bufferRecipe.nutrition?.protein}P / portion
+              ›</span
+            >
+          </a>
+          <div class="bufferrow">
+            <span class="d num">${bufferLeft} of ${plan.buffer?.portions ?? 0} portions left this week</span>
+            ${
+              isToday
+                ? html`
+                    <button
+                      class="wk"
+                      aria-label="Remove one buffer portion from today"
+                      disabled=${bufferToday <= 0}
+                      onClick=${() => onPatchDay({ buffer: Math.max(0, bufferToday - 1) })}
+                    >
+                      −
+                    </button>
+                    <span class="num bufcount" aria-label="Buffer portions eaten today"
+                      >${bufferToday}</span
+                    >
+                    <button
+                      class="wk"
+                      aria-label="Log one buffer portion eaten today"
+                      onClick=${() => onPatchDay({ buffer: bufferToday + 1 })}
+                    >
+                      +
+                    </button>
+                    <span class="d num">
+                      today ${bufferToday > 0 ? `· +${bufferToday * (bufferRecipe.nutrition?.calories ?? 0)} kcal` : ""}
+                    </span>
+                  `
+                : html`<span class="d">log portions on the day itself</span>`
+            }
+          </div>
+        </div>`
       }
       ${
         hasBatchPrep &&

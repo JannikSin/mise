@@ -82,7 +82,13 @@ export function deriveShoppingList(plan, recipesById, pantry, previous) {
       .flatMap((/** @type {any} */ s) => [s.id, slug(s.name)]),
   );
 
-  for (const entry of plan.entries) {
+  // the weekly buffer snack shops exactly like a planned entry: its batch is
+  // `portions` servings of the recipe
+  const toShop = [
+    ...plan.entries,
+    ...(plan.buffer ? [{ recipeId: plan.buffer.recipeId, servings: plan.buffer.portions }] : []),
+  ];
+  for (const entry of toShop) {
     if (!entry.recipeId) continue;
     const recipe = recipesById.get(entry.recipeId);
     if (!recipe) continue;

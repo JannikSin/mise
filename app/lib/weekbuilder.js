@@ -985,6 +985,50 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0,
     groupFloors: dailyGroupFloors,
   });
 
+  // Step 4.7: weekly BUFFER snack (David, 2026-07-20) — ONE batch-prepped,
+  // measured fridge stand-by for the whole week, the answer to "still hungry"
+  // that isn't an unplanned raid. Criteria per the Greger consult
+  // (2026-07-20): batchable is a PREREQUISITE, not a bonus (a snack with no
+  // batch story can't sit in the fridge all week) — but an empty batchable
+  // pool degrades honestly to the full snack pool rather than skipping the
+  // buffer. Scoring: protein per portion AND per calorie (the buffer does
+  // double duty toward the protein target), a phase-keyed calorie band
+  // (gain wants ~250-400 kcal so the snack MOVES the day, not a 90-kcal
+  // appetite-killer plate; other phases band lower), whole-plant Daily
+  // Dozen mass (satiety with the fiber bundled in), zero-prep assembly
+  // effort, ingredient overlap with the week (tight list), salted jitter
+  // (RE-ROLL varies it). 7 portions: one per day available, eating fewer is
+  // the point. Deterministic like everything else here.
+  const BUFFER_PLANT_GROUPS = ["greens", "cruciferousVeg", "otherVeg", "beans", "nuts", "berries", "otherFruit"];
+  const BATCH_TAGS = ["make-ahead", "batch-friendly", "meal-prep"];
+  const snackPool = pool("snack");
+  const batchable = snackPool.filter(
+    (r) => (r.tags ?? []).some((/** @type {string} */ t) => BATCH_TAGS.includes(t)) || r.batchPrep?.sundayComponent,
+  );
+  const bufferCandidates = batchable.length > 0 ? batchable : snackPool;
+  const [bandLo, bandHi] = targets?.phase === "gain" ? [250, 400] : [120, 300];
+  let bufferPick = null;
+  let bufferScore = -Infinity;
+  for (const r of bufferCandidates) {
+    const n = r.nutrition ?? {};
+    const cal = n.calories ?? 0;
+    const plantMass = BUFFER_PLANT_GROUPS.reduce((s, g) => s + (Number(r.foodGroups?.[g]) || 0), 0);
+    const bandMiss = cal < bandLo ? (bandLo - cal) / 100 : cal > bandHi ? (cal - bandHi) / 100 : 0;
+    const score =
+      (n.protein ?? 0) / 10 +
+      ((n.protein ?? 0) / Math.max(1, cal)) * 100 * 0.4 +
+      plantMass * 1.5 +
+      (r.effort === "assembly" ? 1 : 0) -
+      bandMiss * 1.5 +
+      overlapWith(r, weekFoodPool) * 0.5 +
+      (hash(`${r.id}|${salt}|buffer`) % 997) / 9970;
+    if (score > bufferScore) {
+      bufferScore = score;
+      bufferPick = r;
+    }
+  }
+  if (bufferPick) next = { ...next, buffer: { recipeId: bufferPick.id, portions: 7 } };
+
   // Step 5: report, never fudge — short days are judged against the floors
   // but reported against the real goals. Eating-out days participate like
   // any other day: their assumed credit is in dayTotals, so a shortfall or

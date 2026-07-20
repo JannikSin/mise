@@ -361,3 +361,13 @@ test("pickCommittee: recentRecipeIds rotate the week away from last week's picks
   // no recent set -> penalty gone, both still returned
   assert.equal(pickCommittee(candidates, { size: 2 }).length, 2);
 });
+
+test("normalizePlan preserves buffer across a read-refresh", () => {
+  const raw = {
+    week: "2026-W28",
+    entries: [],
+    buffer: { recipeId: "bean-tub", portions: 7 },
+  };
+  assert.deepEqual(normalizePlan(raw, "2026-W28").buffer, { recipeId: "bean-tub", portions: 7 });
+  assert.equal(normalizePlan({ week: "2026-W28", entries: [] }, "2026-W28").buffer, undefined);
+});

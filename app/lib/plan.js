@@ -5,8 +5,14 @@ import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
  * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, estCalories?: number, estProtein?: number }} PlanEntry
- * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean }} Plan
+ * @typedef {{ recipeId: string, portions: number }} PlanBuffer
+ * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, buffer?: PlanBuffer }} Plan
  */
+// buffer is optional; absent = no weekly buffer (pre-buffer data, unchanged).
+// It names ONE batch-prepped snack recipe for the whole week — the measured
+// fridge stand-by for any moment of extra hunger — plus how many portions the
+// Sunday batch makes. Chosen by GENERATE WEEK, shopped by deriveShoppingList,
+// tallied per day on the Today view (fitness/daily.json `buffer` count).
 // pinned is optional; absent = unpinned (today's default, unchanged). true =
 // GENERATE WEEK must never clear or overwrite this entry (app/lib/weekbuilder.js).
 // locked is optional; absent = unlocked (today's default, unchanged). true =
@@ -364,6 +370,9 @@ export function normalizePlan(raw, weekId) {
   return {
     week: typeof raw.week === "string" ? raw.week : weekId,
     ...(raw.locked !== undefined ? { locked: Boolean(raw.locked) } : {}),
+    ...(raw.buffer && typeof raw.buffer.recipeId === "string"
+      ? { buffer: { recipeId: raw.buffer.recipeId, portions: Number(raw.buffer.portions) || 0 } }
+      : {}),
     entries: raw.entries.map((/** @type {any} */ e) => {
       if (typeof e.id === "string") return e;
       const contentKey = `${e.date}|${e.slot}|${e.recipeId ?? ""}|${e.freeText ?? ""}|${e.servings}`;

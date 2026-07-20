@@ -818,7 +818,14 @@ function App() {
     }
     ${
       route.view === "today" &&
-      html`<${TodayView} recipes=${recipes} plan=${plan} hasToken=${hasToken} loading=${loading} />`
+      html`<${TodayView}
+        recipes=${recipes}
+        plan=${plan}
+        daily=${dailyLog}
+        onPatchDay=${handlePatchDay}
+        hasToken=${hasToken}
+        loading=${loading}
+      />`
     }
     ${
       route.view === "cookbook" &&

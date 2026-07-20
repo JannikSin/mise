@@ -664,3 +664,25 @@ test("removeFromPantry deletes a staple by id and a perishable by index", () => 
   assert.deepEqual(removeFromPantry(pantry, "staple", "salt").staples.map((s) => s.id), ["oil"]);
   assert.deepEqual(removeFromPantry(pantry, "perishable", 0).perishables.map((p) => p.food), ["chicken"]);
 });
+
+test("deriveShoppingList shops the weekly buffer batch like a planned entry", () => {
+  const recipes = new Map([
+    [
+      "bean-tub",
+      {
+        id: "bean-tub",
+        servings: 6,
+        ingredients: [{ qty: 3, unit: "can", food: "black beans", staple: false }],
+      },
+    ],
+  ]);
+  const plan = {
+    week: "2026-W28",
+    entries: [],
+    buffer: { recipeId: "bean-tub", portions: 6 },
+  };
+  const list = deriveShoppingList(plan, recipes, { staples: [], perishables: [] });
+  const row = list.items.find((i) => i.food === "black beans");
+  assert.ok(row, "buffer ingredients must land on the list");
+  assert.equal(row.qty, 3); // 6 portions of a serves-6 batch = the full recipe
+});

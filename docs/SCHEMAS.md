@@ -294,6 +294,7 @@ even the same slot — merge without losing either entry.
 {
   "week": "2026-W28",
   "locked": false, // ? true = you've shopped for this week; see below
+  "buffer": { "recipeId": "smoky-three-bean-edamame-protein-salad", "portions": 7 }, // ? see below
   "entries": [
     {
       "id": "b3e29f01", // unique in the file; merge key
@@ -329,6 +330,16 @@ ceiling trim, meters, and shortfall reports all treat an out day like any
 other day. Entries missing the estimate (pre-estimate data) are backfilled
 from the live pool at the next GENERATE. The build report lists out slots
 under `outDays` with their assumed totals (app/lib/weekbuilder.js).
+
+`buffer` (whole-plan, optional; absent = no weekly buffer, unchanged for
+existing data) names the week's BUFFER SNACK: one batch-prepped, measured
+fridge stand-by (per the 2026-07-20 Greger consult: batchable snacks only,
+phase-keyed calorie band, protein-dense). Chosen by GENERATE WEEK
+(deterministic, re-rolls with the salt), its batch (`portions` servings) is
+added to the derived shopping list like a planned entry. Portions eaten are
+tallied per day on the Cook view into `fitness/daily.json` day rows as a
+`buffer` count (a plain number, absent = 0) — display-only, it never feeds
+plan `dayTotals`.
 
 `locked` (whole-plan, not per-entry) guards against the week's meals silently
 changing after groceries are already bought: toggled from the List view's

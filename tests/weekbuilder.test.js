@@ -214,6 +214,41 @@ test("generateWeek leaves an eating-out slot alone, credits its assumed macros, 
   assert.ok(plan.entries.some((e) => e.date === MONDAY_W29 && e.slot === "lunch"));
 });
 
+test("generateWeek picks a weekly buffer snack, preferring batchable protein-dense picks", () => {
+  const batchSnack = {
+    ...r("bean-tub", "snack", ["black beans", "bell pepper"], {
+      protein: 16,
+      calories: 290,
+      foodGroups: { beans: 1.5, otherVeg: 0.5 },
+    }),
+    tags: ["make-ahead"],
+    effort: "assembly",
+  };
+  const { plan } = generateWeek({
+    recipes: [...ALL, batchSnack],
+    targets: { ...TARGETS, phase: "gain" },
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  // the only batchable snack wins outright (batchable is a prerequisite
+  // filter, so the plain cheese snack is not even a candidate)
+  assert.deepEqual(plan.buffer, { recipeId: "bean-tub", portions: 7 });
+});
+
+test("generateWeek still picks a buffer from an all-unbatchable snack pool (honest degrade)", () => {
+  const { plan } = generateWeek({
+    recipes: ALL, // only snack is "cheese", no batch tags
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  assert.equal(plan.buffer?.recipeId, "cheese");
+});
+
 test("generateWeek fills every slot and caps dinner repeats at 2", () => {
   const existing = {
     week: "2026-W29",
