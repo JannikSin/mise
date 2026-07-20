@@ -269,25 +269,42 @@ function App() {
     });
   }, []);
 
+  // undo toast (roadmap G3): destructive actions restore with one tap for
+  // 5 seconds instead of interrogating first — more forgiving than a
+  // confirm, per the 2026-07-12 Tribunal. One toast at a time; a new one
+  // replaces the old (the old restore is simply gone, same as timing out).
+  const [undoToast, setUndoToast] = useState(
+    /** @type {{ message: string, restore: () => void } | null} */ (null),
+  );
+  useEffect(() => {
+    if (!undoToast) return;
+    const t = setTimeout(() => setUndoToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [undoToast]);
+
   // hard reset the list: wipe items AND the carried-over ticks/manual adds
-  // from the last trip, so BUILD repopulates from a clean slate. The confirm
-  // lives here (not in the view) so every confirm in the app flows through
-  // the one in-app modal.
-  const handleClearList = useCallback(async () => {
-    if (
-      !(await askConfirm(
-        "Clear the entire list? Old checked items and manual adds go too. Rebuild it with BUILD.",
-      ))
-    ) {
-      return;
-    }
+  // from the last trip, so BUILD repopulates from a clean slate. No confirm:
+  // the undo toast is the safety net (G3 — forgiveness beats interrogation).
+  const handleClearList = useCallback(() => {
+    const prev = shoppingRef.current;
+    if ((prev.items ?? []).length === 0) return;
     updateShopping({ items: [] });
-  }, [updateShopping, askConfirm]);
+    setUndoToast({ message: "list cleared", restore: () => updateShopping(prev) });
+  }, [updateShopping]);
 
   // remove a pantry entry outright (mis-added chicken, a staple you dropped)
   const handleRemovePantry = useCallback(
     (/** @type {"staple" | "perishable"} */ kind, /** @type {string | number} */ key) => {
-      updatePantry(removeFromPantry(pantryRef.current, kind, key));
+      const prev = pantryRef.current;
+      const gone =
+        kind === "staple"
+          ? (prev.staples ?? []).find((/** @type {any} */ s) => s.id === key)?.name
+          : (prev.perishables ?? [])[/** @type {number} */ (key)]?.food;
+      updatePantry(removeFromPantry(prev, kind, key));
+      setUndoToast({
+        message: `removed ${gone ?? "item"}`,
+        restore: () => updatePantry(prev),
+      });
     },
     [updatePantry],
   );
@@ -989,6 +1006,21 @@ function App() {
       )}
     </nav>
     ${confirmAsk && html`<${ConfirmModal} message=${confirmAsk.message} onResolve=${settleConfirm} />`}
+    ${
+      undoToast &&
+      html`<div class="toast" role="status">
+        <span>${undoToast.message}</span>
+        <button
+          class="toast-undo"
+          onClick=${() => {
+            undoToast.restore();
+            setUndoToast(null);
+          }}
+        >
+          UNDO
+        </button>
+      </div>`
+    }
   `;
 }
 

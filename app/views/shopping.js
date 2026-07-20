@@ -6,6 +6,39 @@ import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 import { itemCost, rankStores, taxRateFor, tripTotal, storeSlugFromReceipt } from "../lib/prices.js";
 import { activeProfile } from "../lib/store.js";
 
+/**
+ * Food-safety reference (roadmap D3): static, offline, no AI. Fridge rows
+ * mirror the shelf-life table that drives auto-expiry and the "good til"
+ * dates (app/lib/shopping.js PERISHABLE_SHELF_DAYS) — change one, change
+ * the other. Freezer/danger-sign guidance follows USDA/FoodSafety.gov
+ * consumer rules.
+ */
+const FOOD_SAFETY = {
+  temps: [
+    "fridge at or below 40°F (4°C) · freezer at 0°F (-18°C)",
+    "danger zone 40-140°F: max 2 hours out, 1 hour above 90°F",
+    "reheat leftovers to 165°F (74°C) · leftovers keep 3-4 days in the fridge",
+  ],
+  rows: [
+    { food: "Fish, shrimp, seafood (raw)", fridge: "1-3 days", freezer: "3-8 months", rule: "cook or freeze within 2 days" },
+    { food: "Chicken, turkey, ground meat (raw)", fridge: "1-4 days", freezer: "3-4 months", rule: "cook or freeze within 1-2 days" },
+    { food: "Beef, pork steaks/roasts (raw)", fridge: "3-5 days", freezer: "4-12 months", rule: "" },
+    { food: "Leafy greens, fresh herbs, berries", fridge: "3-6 days", freezer: "greens/berries freeze OK, herbs in oil", rule: "" },
+    { food: "Broccoli, peppers, cucumber, mushrooms, tofu", fridge: "5-8 days", freezer: "blanch veg first", rule: "" },
+    { food: "Milk, yogurt, cottage cheese", fridge: "7-10 days after opening", freezer: "not recommended", rule: "" },
+    { food: "Carrots, cabbage, apples, citrus, potatoes", fridge: "2-3 weeks", freezer: "—", rule: "potatoes/onions prefer a cool pantry" },
+    { food: "Eggs (in shell), hard cheese", fridge: "3-5 weeks / 3-4 weeks opened", freezer: "eggs out of shell only", rule: "" },
+  ],
+  danger: [
+    "smell: sour, ammonia, or sulfur = bin it",
+    "slime on meat, fish, or deli = bin it",
+    "gray/green tint on meat, dull sunken eyes on fish = bin it",
+    "mold on soft foods (berries, yogurt, bread, soft cheese) = bin the whole thing; hard cheese can be cut 1 inch around",
+    "bulging or hissing cans/jars = bin, never taste",
+    "when in doubt, throw it out — no meal is worth 3 days of food poisoning",
+  ],
+};
+
 /** Catalogue store slug → shopper-facing name. */
 const STORE_NAMES = /** @type {Record<string, string>} */ ({
   "trader-joes": "Trader Joe's",
@@ -656,6 +689,42 @@ export function ShoppingView({
               </div>
             `
           }
+          <details class="foodsafety">
+            <summary class="block-title">
+              🧊 Food safety <span class="hint">shelf lives, danger signs, temps</span>
+            </summary>
+            <p class="hint">
+              These windows drive the pantry's auto-expiry and "good til" dates. Freezer times are
+              for quality; frozen food stays safe indefinitely at 0°F.
+            </p>
+            ${FOOD_SAFETY.temps.map((t) => html`<p class="hint num">🌡 ${t}</p>`)}
+            <div class="tablewrap">
+              <table class="safetytable">
+                <thead>
+                  <tr>
+                    <th>Food</th>
+                    <th>Fridge</th>
+                    <th>Freezer</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${FOOD_SAFETY.rows.map(
+                    (r) => html`
+                      <tr key=${r.food}>
+                        <td>${r.food}${r.rule && html`<div class="hint">${r.rule}</div>`}</td>
+                        <td class="num">${r.fridge}</td>
+                        <td class="num">${r.freezer}</td>
+                      </tr>
+                    `,
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <p class="hint"><strong>Bin it when:</strong></p>
+            <ul class="dangerlist">
+              ${FOOD_SAFETY.danger.map((d) => html`<li key=${d}>${d}</li>`)}
+            </ul>
+          </details>
         `
       }
       ${

@@ -58,6 +58,7 @@ export function VitalsView({ vitals, loading, hasToken }) {
 
   return html`
     <div class="view">
+      <a class="backlink" href="#/">← HOME</a>
       <div class="hero"><h1>Vitals</h1></div>
       ${loading && html`<p class="hint">loading…</p>`}
       ${

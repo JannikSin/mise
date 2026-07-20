@@ -30,6 +30,7 @@ export function CookbookView({ recipes, hasToken, weekId, onPlan }) {
 
   return html`
     <div class="view">
+      <a class="backlink" href="#/today">← COOK</a>
       <div class="hero">
         <h1>Cookbook <span class="num">${recipes.length}</span></h1>
       </div>

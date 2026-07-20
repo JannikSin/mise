@@ -1033,6 +1033,80 @@ summary.block-title {
   font-weight: normal;
 }
 
+/* ---- food safety guide (D3) ---- */
+
+.foodsafety {
+  margin-top: 18px;
+}
+
+.foodsafety summary {
+  cursor: pointer;
+}
+
+.foodsafety .tablewrap {
+  overflow-x: auto;
+}
+
+.safetytable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.safetytable th,
+.safetytable td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line-strong);
+  vertical-align: top;
+}
+
+.safetytable th {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+}
+
+.dangerlist {
+  margin: 6px 0 10px;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.dangerlist li {
+  margin-bottom: 4px;
+}
+
+/* ---- undo toast (G3) ---- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 10px 16px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+
+.toast-undo {
+  min-height: 44px;
+  border: none;
+  background: none;
+  color: var(--signal);
+  font-family: var(--mono);
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
 /* ---- pantry freshness (D1) ---- */
 
 .usesoon {
