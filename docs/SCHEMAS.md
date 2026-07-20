@@ -271,7 +271,22 @@ cheapest covered store.
 }
 ```
 
-## Pantry — `pantry.json`
+## Pantry — `households/<household>/pantry.json` (B2, 2026-07-21)
+
+HOUSEHOLD-SHARED: one kitchen, one fridge, one pantry file, keyed by the
+active profile's `household` slug (absent = `"home"`, so the default file is
+`households/home/pantry.json`). Everyone in the household reads and writes
+the same file; moving household in SYS re-points a profile to that
+household's pantry on the next load (B3), because the path derives from
+profiles.json every time. Always read/written raw, never profile-scoped
+(`pantryPathFor` in app/lib/shopping.js).
+
+LEGACY: pre-B2 pantries lived per-profile at `pantry.json` (David at root,
+others under `profiles/<id>/`). New code falls back to that path when the
+household file is absent and seeds the household file from it once; devices
+still running pre-B2 code keep using the legacy path until they update, so
+expect a brief divergence window on mixed versions, resolved in favor of the
+household file the first time every device is current.
 
 Two tiers, deliberately lightweight (no decrement-on-cook ledger, ever).
 

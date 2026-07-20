@@ -271,8 +271,32 @@ export function formatStoreQty(qty, unit) {
  * @returns {Record<string, any>[]}
  */
 export function householdOthers(profiles, meId) {
-  const mine = profiles.find((p) => p.id === meId)?.household ?? "home";
+  const mine = householdOf(profiles, meId);
   return profiles.filter((p) => p.id !== meId && (p.household ?? "home") === mine);
+}
+
+/**
+ * The active profile's household slug (absent = "home"), the key both the
+ * EVERYONE trip and the shared pantry hang off.
+ * @param {Record<string, any>[]} profiles profiles.json entries
+ * @param {string} meId active profile id
+ * @returns {string}
+ */
+export function householdOf(profiles, meId) {
+  return profiles.find((p) => p.id === meId)?.household ?? "home";
+}
+
+/**
+ * Where a household's SHARED pantry lives (B2, 2026-07-21): one kitchen,
+ * one fridge, one pantry file — everyone in the household reads and writes
+ * the same one, and moving household (B3) re-points you automatically
+ * because the path derives from profiles.json. Always read/written raw
+ * (never profile-scoped).
+ * @param {string} household
+ * @returns {string}
+ */
+export function pantryPathFor(household) {
+  return `households/${household || "home"}/pantry.json`;
 }
 
 /**

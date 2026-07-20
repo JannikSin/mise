@@ -12,6 +12,8 @@ import {
   shelfLifeDays,
   roundForPurchase,
   householdOthers,
+  householdOf,
+  pantryPathFor,
   mergeProfileLists,
   swapCandidates,
   toStoreUnits,
@@ -721,4 +723,23 @@ test("withAutoUseSoon flags perishables in their last 3 days, preserves manual f
   assert.equal(out.perishables[3].useSoon, undefined);
   // input not mutated
   assert.equal(pantry.perishables[1].useSoon, undefined);
+});
+
+test("householdOf and pantryPathFor: household keys the shared pantry (B2)", () => {
+  const profiles = [
+    { id: "david" },
+    { id: "mom" },
+    { id: "laurie", household: "laurie-apt" },
+  ];
+  assert.equal(householdOf(profiles, "david"), "home");
+  assert.equal(householdOf(profiles, "laurie"), "laurie-apt");
+  assert.equal(householdOf(profiles, "ghost"), "home"); // unknown id = default
+  assert.equal(pantryPathFor("home"), "households/home/pantry.json");
+  assert.equal(pantryPathFor("laurie-apt"), "households/laurie-apt/pantry.json");
+  assert.equal(pantryPathFor(""), "households/home/pantry.json");
+  // one household = one file: david and mom resolve to the SAME pantry
+  assert.equal(
+    pantryPathFor(householdOf(profiles, "david")),
+    pantryPathFor(householdOf(profiles, "mom")),
+  );
 });

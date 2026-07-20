@@ -31,6 +31,8 @@ import {
   deriveShoppingList,
   applyJustBought,
   householdOthers,
+  householdOf,
+  pantryPathFor,
   ownItemToPantry,
   expirePerishables,
   withAutoUseSoon,
@@ -195,18 +197,41 @@ function App() {
         if (s) setShopping(/** @type {any} */ (s));
         setListLoaded(true);
       });
-      read("pantry.json").then((p) => {
-        if (!alive || !p) return;
+      // pantry is HOUSEHOLD-shared (B2): one kitchen, one fridge, one file at
+      // households/<h>/pantry.json. The path derives from profiles.json every
+      // load, so moving household in SYS re-points you on the next sync tick
+      // (B3). Pre-B2 per-profile pantries are read as a fallback and seeded
+      // into the household file once, so no data is lost and old devices
+      // keep limping on the legacy path until they update.
+      void (async () => {
+        const prof = await readProfiles();
+        if (!alive) return;
+        const path = pantryPathFor(householdOf(prof.profiles, activeProfile()));
+        pantryPathRef.current = path;
+        let src = /** @type {Record<string, any> | null} */ (await read(path, { raw: true }));
+        if (!alive) return;
+        if (!src) {
+          const legacy = /** @type {Record<string, any> | null} */ (await read("pantry.json"));
+          if (!alive) return;
+          if (
+            legacy &&
+            ((legacy.staples ?? []).length > 0 || (legacy.perishables ?? []).length > 0)
+          ) {
+            src = legacy;
+            void write(path, legacy, { raw: true });
+          }
+        }
+        if (!src) return;
         // drop perishables past their shelf life on the way in (a 2-week-old
         // bag of spinach or a week-old chicken breast leaves on its own); if
         // anything expired, persist the trimmed pantry
-        const { pantry: fresh, expired } = expirePerishables(p, localIsoDate(new Date()));
+        const { pantry: fresh, expired } = expirePerishables(src, localIsoDate(new Date()));
         setPantry(fresh);
         if (expired.length > 0) {
           pantryRef.current = fresh;
-          void write("pantry.json", fresh);
+          void write(path, fresh, { raw: true });
         }
-      });
+      })();
       // shared price catalogue (data-repo root, never profile-scoped)
       read("prices.json", { raw: true }).then((p) => {
         if (alive && p) setPriceCatalogue(/** @type {any} */ (p));
@@ -231,6 +256,8 @@ function App() {
   shoppingRef.current = shopping;
   const pantryRef = useRef(pantry);
   pantryRef.current = pantry;
+  // resolved households/<h>/pantry.json once profiles load; null until then
+  const pantryPathRef = useRef(/** @type {string | null} */ (null));
 
   const updateShopping = useCallback(
     (/** @type {import("./lib/shopping.js").ShoppingList} */ next) => {
@@ -244,7 +271,11 @@ function App() {
   const updatePantry = useCallback((/** @type {Record<string, any>} */ next) => {
     pantryRef.current = next;
     setPantry(next);
-    void write("pantry.json", next);
+    const path = pantryPathRef.current;
+    // household path once known (B2); legacy per-profile path only in the
+    // narrow window before profiles resolve
+    if (path) void write(path, next, { raw: true });
+    else void write("pantry.json", next);
   }, []);
 
   // in-app confirm (roadmap A2): one modal at the App root replaces every

@@ -183,8 +183,9 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
           </button>
         </div>
         <p class="hint">
-          profiles in the same household share the EVERYONE grocery trip. Move someone here for a
-          visit week, move them back after.
+          profiles in the same household share the EVERYONE grocery trip AND the pantry (one
+          kitchen, one fridge). Moving household also switches you to that household's pantry.
+          Move someone here for a visit week, move them back after.
         </p>
         <div class="row">
           <span class="k">Family</span>
