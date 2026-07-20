@@ -304,6 +304,8 @@ even the same slot — merge without losing either entry.
       "servings": 2,
       "pinned": false, // ? true = GENERATE WEEK must never clear or overwrite this entry
       "out": false, // ? true = eating-out placeholder (see below)
+      "estCalories": 595, // ? out entries only: assumed macros of the restaurant meal
+      "estProtein": 34, // ? (slotMacroEstimate: pool average for the slot x 0.85 undershoot)
     },
   ],
 }
@@ -314,12 +316,19 @@ Absent `pinned` = unpinned (default behavior today, unchanged for existing data)
 `out` (per-entry, optional; absent = normal entry) marks an EATING-OUT
 placeholder — a free lunch, a restaurant dinner. Created by the slot's OUT
 toggle in the planner (or by dragging the "eating out" tray chip), it is
-always written with `pinned: true` and `freeText: "eating out"`, so with no
-special-casing anywhere downstream: GENERATE/RE-ROLL never clears or refills
-the slot, the shopping list ignores it (freeText has no ingredients), and day
-macros count it as 0. The generator additionally waives that DAY's macro
-floors/ceiling (no snack-stacking to replace a restaurant meal) and reports it
-under `outDays` instead of the shortfall lines (app/lib/weekbuilder.js).
+always written with `pinned: true` and `freeText: "eating out"`, so
+GENERATE/RE-ROLL never clears or refills the slot and the shopping list
+ignores it (freeText has no ingredients). Unlike other freeText, an out entry
+carries `estCalories`/`estProtein` — the ASSUMED macros of the restaurant
+meal, computed at toggle time as the profile pool's average for that meal
+type times a deliberate 0.85 undershoot (you don't know the restaurant
+portion in advance; crediting slightly low lets the generator close the small
+remainder with a skippable snack instead of planning the day around calories
+that may not arrive). `dayTotals` counts the credit, so floors, top-up,
+ceiling trim, meters, and shortfall reports all treat an out day like any
+other day. Entries missing the estimate (pre-estimate data) are backfilled
+from the live pool at the next GENERATE. The build report lists out slots
+under `outDays` with their assumed totals (app/lib/weekbuilder.js).
 
 `locked` (whole-plan, not per-entry) guards against the week's meals silently
 changing after groceries are already bought: toggled from the List view's

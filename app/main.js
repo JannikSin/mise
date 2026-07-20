@@ -49,6 +49,7 @@ import {
   outEntryAt,
   entriesAt,
   OUT_TEXT,
+  slotMacroEstimate,
   setPlanLocked,
   mergeRecipePool,
   SLOT_KEYS,
@@ -570,7 +571,9 @@ function App() {
       // the "eating out" tray chip behaves exactly like the slot's OUT
       // toggle: pinned placeholder, clears the slot, survives re-roll
       if (drag.drag === "text" && drag.text === OUT_TEXT) {
-        if (!outEntryAt(p.entries, date, slot)) updatePlan(toggleSlotOut(p, date, slot));
+        if (!outEntryAt(p.entries, date, slot)) {
+          updatePlan(toggleSlotOut(p, date, slot, slotMacroEstimate(recipesRef.current, slot)));
+        }
         return;
       }
       // dropping real food into an eating-out slot means plans changed —
@@ -621,7 +624,7 @@ function App() {
           : "Eating out instead? The planned meal in this slot will be removed.";
         if (!window.confirm(msg)) return;
       }
-      const next = toggleSlotOut(p, date, slot);
+      const next = toggleSlotOut(p, date, slot, slotMacroEstimate(recipesRef.current, slot));
       updatePlan(next);
       // keep an already-built list truthful: the out meal's ingredients must
       // not linger as things to buy. Locked weeks are exempt (the lock's

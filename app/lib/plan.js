@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, estCalories?: number, estProtein?: number }} PlanEntry
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean }} Plan
  */
 // pinned is optional; absent = unpinned (today's default, unchanged). true =
@@ -15,8 +15,11 @@ import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 // out is optional; absent = a normal entry. true = this slot is an
 // EATING-OUT placeholder (free lunch, restaurant dinner): always paired with
 // pinned:true so GENERATE WEEK leaves the slot alone, carries freeText so
-// every view renders it, and — being freeText — contributes nothing to the
-// shopping list or day macros.
+// every view renders it, and, being freeText, contributes nothing to the
+// shopping list. estCalories/estProtein carry the restaurant meal's ASSUMED
+// macros (slotMacroEstimate: pool average x an undershoot factor), counted by
+// dayTotals so the rest of the day is planned around a realistic day total
+// instead of a fictional 0-calorie dinner.
 
 /** The valid slot keys, in display order (docs/SCHEMAS.md plan section). */
 export const SLOT_KEYS = ["breakfast", "lunch", "dinner", "smoothie", "snack"];
@@ -246,6 +249,52 @@ export function togglePinById(plan, id) {
 export const OUT_TEXT = "eating out";
 
 /**
+ * Deliberate UNDERSHOOT on the eating-out macro estimate (David's call,
+ * 2026-07-20): you don't know what the restaurant serves until you've eaten
+ * it, so credit slightly less than average and let the generator's snack
+ * top-up close the small remaining gap — a snack you can skip if dinner ran
+ * big beats a day planned around calories that never arrived.
+ */
+const OUT_ESTIMATE_RATIO = 0.85;
+
+/**
+ * Fallback per-slot estimates for an empty recipe pool (fresh profile,
+ * recipes not loaded): rough shares of a ~3400 kcal day, same shape the
+ * pool average would produce.
+ */
+const OUT_FALLBACK = {
+  breakfast: { calories: 600, protein: 30 },
+  lunch: { calories: 800, protein: 40 },
+  dinner: { calories: 900, protein: 45 },
+  smoothie: { calories: 650, protein: 40 },
+  snack: { calories: 250, protein: 15 },
+};
+
+/**
+ * The macro credit an eating-out slot is assumed to deliver: the profile
+ * pool's average calories/protein for that meal type, times the undershoot
+ * ratio. Falls back to a fixed per-slot table when the pool has no recipes
+ * of that type.
+ * @param {Record<string, any>[]} recipes the profile's recipe pool
+ * @param {string} slot
+ * @returns {{ estCalories: number, estProtein: number }}
+ */
+export function slotMacroEstimate(recipes, slot) {
+  const pool = recipes.filter((r) => r.mealType === slot && (r.nutrition?.calories ?? 0) > 0);
+  const base =
+    pool.length > 0
+      ? {
+          calories: pool.reduce((s, r) => s + (r.nutrition?.calories ?? 0), 0) / pool.length,
+          protein: pool.reduce((s, r) => s + (r.nutrition?.protein ?? 0), 0) / pool.length,
+        }
+      : (OUT_FALLBACK[/** @type {keyof typeof OUT_FALLBACK} */ (slot)] ?? OUT_FALLBACK.dinner);
+  return {
+    estCalories: Math.round((base.calories * OUT_ESTIMATE_RATIO) / 5) * 5,
+    estProtein: Math.round(base.protein * OUT_ESTIMATE_RATIO),
+  };
+}
+
+/**
  * The eating-out placeholder entry at date+slot, if any.
  * @param {PlanEntry[]} entries
  * @param {string} date
@@ -265,9 +314,12 @@ export function outEntryAt(entries, date, slot) {
  * @param {Plan} plan
  * @param {string} date
  * @param {string} slot
+ * @param {{ estCalories: number, estProtein: number }} [est] assumed macros
+ *   for the restaurant meal (slotMacroEstimate); omit for a 0-credit
+ *   placeholder (backfilled at the next GENERATE from the live pool)
  * @returns {Plan}
  */
-export function toggleSlotOut(plan, date, slot) {
+export function toggleSlotOut(plan, date, slot, est) {
   const existing = outEntryAt(plan.entries, date, slot);
   if (existing) {
     // remove EVERY placeholder in the slot, not just the first: two devices
@@ -284,6 +336,7 @@ export function toggleSlotOut(plan, date, slot) {
     servings: 1,
     pinned: true,
     out: true,
+    ...(est ?? {}),
   });
 }
 
@@ -332,7 +385,9 @@ export function entriesAt(entries, date, slot) {
 }
 
 /**
- * Planned calories/protein for one day. freeText and unknown recipes count 0.
+ * Planned calories/protein for one day. freeText and unknown recipes count 0,
+ * EXCEPT an eating-out placeholder, which counts its assumed estCalories/
+ * estProtein — the restaurant meal is real food, just not shopped or cooked.
  * @param {PlanEntry[]} entries
  * @param {Map<string, any>} recipesById
  * @param {string} date
@@ -342,7 +397,13 @@ export function dayTotals(entries, recipesById, date) {
   let calories = 0;
   let protein = 0;
   for (const e of entries) {
-    if (e.date !== date || !e.recipeId) continue;
+    if (e.date !== date) continue;
+    if (e.out) {
+      calories += e.estCalories ?? 0;
+      protein += e.estProtein ?? 0;
+      continue;
+    }
+    if (!e.recipeId) continue;
     const n = recipesById.get(e.recipeId)?.nutrition;
     if (!n) continue;
     calories += (n.calories ?? 0) * e.servings;

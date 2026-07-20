@@ -12,6 +12,7 @@ import {
   togglePinById,
   toggleSlotOut,
   outEntryAt,
+  slotMacroEstimate,
   OUT_TEXT,
   setPlanLocked,
   mergeRecipePool,
@@ -45,6 +46,32 @@ test("toggleSlotOut a second time removes the placeholder and leaves the slot em
   plan = toggleSlotOut(plan, "2026-07-06", "dinner");
   const back = toggleSlotOut(plan, "2026-07-06", "dinner");
   assert.equal(entriesAt(back.entries, "2026-07-06", "dinner").length, 0);
+});
+
+test("slotMacroEstimate credits the slot's pool average with the 0.85 undershoot", () => {
+  const recipes = [
+    { id: "a", mealType: "dinner", nutrition: { calories: 800, protein: 50 } },
+    { id: "b", mealType: "dinner", nutrition: { calories: 600, protein: 30 } },
+    { id: "c", mealType: "lunch", nutrition: { calories: 999, protein: 99 } },
+  ];
+  const est = slotMacroEstimate(recipes, "dinner");
+  // avg 700 kcal x 0.85 = 595 (rounded to 5), avg 40g x 0.85 = 34
+  assert.equal(est.estCalories, 595);
+  assert.equal(est.estProtein, 34);
+  // empty pool falls back to the fixed table, never 0
+  assert.ok(slotMacroEstimate([], "dinner").estCalories > 0);
+});
+
+test("toggleSlotOut carries the estimate and dayTotals counts it", () => {
+  let plan = { week: "2026-W28", entries: [] };
+  plan = addEntry(plan, "2026-07-06", "lunch", { recipeId: "lunchbox", servings: 1 });
+  plan = toggleSlotOut(plan, "2026-07-06", "dinner", { estCalories: 595, estProtein: 34 });
+  const out = outEntryAt(plan.entries, "2026-07-06", "dinner");
+  assert.equal(out?.estCalories, 595);
+  const byId = new Map([["lunchbox", { nutrition: { calories: 800, protein: 60 } }]]);
+  const totals = dayTotals(plan.entries, byId, "2026-07-06");
+  assert.equal(totals.calories, 800 + 595);
+  assert.equal(totals.protein, 60 + 34);
 });
 
 test("toggleSlotOut off-path clears merge-twin placeholders in one tap", () => {

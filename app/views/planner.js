@@ -190,10 +190,10 @@ export function PlannerView({
                     (o) =>
                       `${parseLocalIso(o.date).toLocaleDateString([], { weekday: "short" })} ${o.slots
                         .map((s) => SLOT_META[s]?.label ?? s)
-                        .join("+")}`,
+                        .join("+")} ~${o.estCalories} kcal assumed`,
                   )
                   .join(" · ")}
-                · not shopped, macro targets waived those days
+                · not shopped, rest of the day planned around it
               </div>`
             }
             ${
@@ -266,11 +266,11 @@ export function PlannerView({
         const totals = dayTotals(/** @type {any} */ (plan.entries), byId, date);
         const kcalPct = Math.min(100, Math.round((totals.calories / kcalTarget) * 100));
         const pPct = Math.min(100, Math.round((totals.protein / proteinTarget) * 100));
-        // an eating-out day is EXPECTED to fall short of planned macros — the
-        // rest comes from the restaurant, so the warn styling stays off
+        // out slots carry an assumed macro credit (dayTotals counts it), so
+        // the meters and warn styling stay honest without special-casing
         const dayOut = SLOTS.some(({ key }) => outEntryAt(plan.entries, date, key));
-        const kcalOk = dayOut || totals.calories / kcalTarget >= 0.9;
-        const pOk = dayOut || totals.protein / proteinTarget >= 0.9;
+        const kcalOk = totals.calories / kcalTarget >= 0.9;
+        const pOk = totals.protein / proteinTarget >= 0.9;
         return html`
           <section class="day" key=${date}>
             <h2 class="block-title">
@@ -311,7 +311,17 @@ export function PlannerView({
                 return html`
                   <div class="slotrow ${outEntry ? "isout" : ""}" data-drop data-date=${date} data-slot=${key} key=${key}>
                     <span class="t" aria-label=${full}>${label}</span>
-                    ${outEntry && html`<span class="outslot">🍴 eating out · not planned, not re-rolled</span>`}
+                    ${
+                      outEntry &&
+                      html`<span class="outslot">
+                        🍴 eating out
+                        ${
+                          outEntry.estCalories != null
+                            ? html` · <span class="num">~${outEntry.estCalories} kcal · ${outEntry.estProtein}P assumed</span>`
+                            : " · not planned, not re-rolled"
+                        }
+                      </span>`
+                    }
                     ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">—</span>`}
                     ${
                       // real entries render even next to a placeholder: a

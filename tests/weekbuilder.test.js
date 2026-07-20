@@ -14,7 +14,7 @@ import {
   ENFORCED_DAILY_GROUPS,
   generateWeek,
 } from "../app/lib/weekbuilder.js";
-import { recipesById } from "../app/lib/plan.js";
+import { dayTotals, recipesById } from "../app/lib/plan.js";
 
 const EMPTY_FOOD_GROUPS = {
   beans: 0,
@@ -170,7 +170,8 @@ test("generateWeek clears unpinned entries and preserves pinned ones", () => {
   assert.equal(mondayDinners[0].id, "pinned-keep");
 });
 
-test("generateWeek leaves an eating-out slot alone, waives that day's macros, and reports it", () => {
+test("generateWeek leaves an eating-out slot alone, credits its assumed macros, and reports it", () => {
+  // arrives WITHOUT an estimate (pre-estimate data) — generate must backfill
   const outEntry = {
     id: "out-1",
     date: MONDAY_W29,
@@ -188,23 +189,27 @@ test("generateWeek leaves an eating-out slot alone, waives that day's macros, an
     plan: { week: "2026-W29", entries: [outEntry] },
     salt: 0,
   });
-  // the placeholder survives and the slot is never refilled
+  // the placeholder survives, is never refilled, and got its estimate
+  // backfilled from the dinner pool (all 700 kcal x 0.85 = 595)
   const mondayDinner = plan.entries.filter((e) => e.date === MONDAY_W29 && e.slot === "dinner");
   assert.equal(mondayDinner.length, 1);
   assert.equal(mondayDinner[0].id, "out-1");
-  // no snack-stacking to replace the restaurant meal: Monday gets NO snack
-  // entries even though the day is far below the calorie floor without dinner
-  assert.ok(!plan.entries.some((e) => e.date === MONDAY_W29 && e.slot === "snack"));
-  // Monday is reported as an out day, not a macro shortfall
-  assert.deepEqual(report.outDays, [{ date: MONDAY_W29, slots: ["dinner"] }]);
-  assert.ok(!report.proteinShortDays.some((d) => d.date === MONDAY_W29));
+  assert.equal(mondayDinner[0].estCalories, 595);
+  // the credit counts toward the day, so the floor passes plan the REST of
+  // the day around it instead of snack-stacking a fictional 900-kcal hole:
+  // Monday clears the calorie floor and is not reported short
+  const byId = recipesById(ALL);
+  const totals = dayTotals(plan.entries, byId, MONDAY_W29);
+  assert.ok(totals.calories >= 3400 * 0.95, `Monday ${totals.calories} kcal below floor`);
   assert.ok(!report.calorieShortDays.some((d) => d.date === MONDAY_W29));
-  assert.ok(!report.calorieOverDays.some((d) => d.date === MONDAY_W29));
-  // every OTHER day still gets a dinner
+  // Monday is reported as an out day with its assumed totals
+  assert.equal(report.outDays.length, 1);
+  assert.equal(report.outDays[0].date, MONDAY_W29);
+  assert.deepEqual(report.outDays[0].slots, ["dinner"]);
+  assert.equal(report.outDays[0].estCalories, 595);
+  // every OTHER day still gets a dinner, and Monday's other slots still fill
   const otherDays = plan.entries.filter((e) => e.slot === "dinner" && e.date !== MONDAY_W29);
   assert.equal(otherDays.length, 6);
-  // partial-out day: the OTHER slots on Monday are still committee-filled —
-  // only the macro floor/top-up/trim enforcement is waived for the day
   assert.ok(plan.entries.some((e) => e.date === MONDAY_W29 && e.slot === "breakfast"));
   assert.ok(plan.entries.some((e) => e.date === MONDAY_W29 && e.slot === "lunch"));
 });
