@@ -148,8 +148,18 @@ export async function patchProfiles(
 /** @type {Set<() => void>} */
 const listeners = new Set();
 
-/** @type {{ loading: boolean, pending: number, conflicts: number, lastSyncAt: string | null, flushing: boolean }} */
-const status = { loading: true, pending: 0, conflicts: 0, lastSyncAt: null, flushing: false };
+/** @type {{ loading: boolean, pending: number, conflicts: number, lastSyncAt: string | null, flushing: boolean, lastError: string | null }} */
+const status = {
+  loading: true,
+  pending: 0,
+  conflicts: 0,
+  lastSyncAt: null,
+  flushing: false,
+  // A5: why the last flush stopped, in words a user can act on. null = the
+  // last pass pushed clean. Queued-but-failing writes used to be invisible
+  // unless you opened SYS and read the pending count.
+  lastError: null,
+};
 
 export function getSyncStatus() {
   return { ...status };
@@ -179,6 +189,12 @@ export function initStore() {
   window.addEventListener("online", () => {
     void flush();
   });
+  // A5: a flush that died on a transient error used to leave writes queued
+  // until the NEXT user write happened to retrigger it — retry on a slow
+  // heartbeat instead so "queued forever while online" can't happen silently
+  setInterval(() => {
+    if (status.pending > 0 && !status.flushing) void flush();
+  }, 60_000);
   void recount();
   void flush();
 }
@@ -346,12 +362,20 @@ async function flush() {
         // dirty; only base/sha advance (afterPushRecord decides)
         await dbUpdate(rec.path, (cur) => afterPushRecord(cur ?? rec, pushed, rec.rev));
         status.lastSyncAt = new Date().toISOString();
+        status.lastError = null;
       } catch (e) {
         if (e instanceof ConflictError) {
           status.conflicts++;
           continue; // stays dirty; next flush retries the merge
         }
-        break; // network/auth failure — stop, everything stays queued
+        // network/auth failure — stop, everything stays queued, and SAY WHY
+        // (A5): a 401/403 means the token is the problem and waiting won't
+        // fix it; anything else is reachability and the heartbeat retries.
+        const msg = e instanceof Error ? e.message : String(e);
+        status.lastError = /HTTP 40[13]/.test(msg)
+          ? "GitHub rejected the token (renew it in SYS)"
+          : "can't reach GitHub right now (auto-retrying)";
+        break;
       }
     }
   } finally {

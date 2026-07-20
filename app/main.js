@@ -883,13 +883,21 @@ function App() {
 
     <div class="statusline">
       <span>${statusDate(now)} · WK-${isoWeekId(now).split("-W")[1]}</span>
-      <span class="sync ${effectiveOnline ? "" : "off"}">
+      <span class="sync ${effectiveOnline ? (sync.pending > 0 && sync.lastError ? "warn" : "") : "off"}">
         ${
-          effectiveOnline
-            ? sync.lastSyncAt
-              ? `SYNCED ${formatSyncTime(sync.lastSyncAt)}`
-              : "ONLINE"
-            : "OFFLINE"
+          // A5: queued-but-failing writes announce themselves here instead of
+          // hiding behind a healthy-looking SYNCED/ONLINE label
+          !effectiveOnline
+            ? sync.pending > 0
+              ? `OFFLINE · ${sync.pending} QUEUED`
+              : "OFFLINE"
+            : sync.pending > 0 && sync.lastError
+              ? `⚠ ${sync.pending} UNSAVED`
+              : sync.flushing && sync.pending > 0
+                ? `SAVING ${sync.pending}…`
+                : sync.lastSyncAt
+                  ? `SYNCED ${formatSyncTime(sync.lastSyncAt)}`
+                  : "ONLINE"
         }
       </span>
     </div>

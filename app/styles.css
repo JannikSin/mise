@@ -93,6 +93,14 @@ body {
   content: "○";
 }
 
+.statusline .sync.warn {
+  color: var(--amber);
+}
+
+.statusline .sync.warn::before {
+  content: "◐";
+}
+
 /* ---- hero + primary CTA ---- */
 
 .hero {

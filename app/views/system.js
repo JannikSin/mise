@@ -233,6 +233,14 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
                   >`
           }
         </div>
+        ${
+          sync.lastError &&
+          sync.pending > 0 &&
+          html`<div class="row">
+            <span class="k">Last push error</span>
+            <span class="status warn">${sync.lastError}</span>
+          </div>`
+        }
         <div class="row">
           <span class="k">Conflicts</span>
           ${
