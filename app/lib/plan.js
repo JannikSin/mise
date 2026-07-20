@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, freePass?: boolean }} PlanEntry
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean }} Plan
  */
 // pinned is optional; absent = unpinned (today's default, unchanged). true =
@@ -12,6 +12,12 @@ import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 // locked is optional; absent = unlocked (today's default, unchanged). true =
 // you've already shopped for this week — GENERATE WEEK/RE-ROLL WEEK refuse to
 // run and individual edits (add/remove/move) ask for confirmation first.
+// freePass is optional; absent = normal (today's default, unchanged). true =
+// a meal provided elsewhere (work lunch, eating out, a pre-made trip meal) —
+// GENERATE WEEK/RE-ROLL never fill this date+slot and it carries no recipeId,
+// so shopping.js's existing recipeId-only aggregation already skips it. Set
+// via setFreePass, always alongside pinned:true for the same never-cleared
+// protection real pins get.
 
 /** The valid slot keys, in display order (docs/SCHEMAS.md plan section). */
 export const SLOT_KEYS = ["breakfast", "lunch", "dinner", "smoothie", "snack"];
@@ -282,7 +288,32 @@ export function entriesAt(entries, date, slot) {
 }
 
 /**
- * Planned calories/protein for one day. freeText and unknown recipes count 0.
+ * Assumed average nutrition for a meal slot — a free-pass entry has no
+ * recipe (the meal was provided elsewhere), so its calorie/protein
+ * contribution is estimated as the average of whatever the recipe bank
+ * offers for that slot, rather than counted as zero (docs/SCHEMAS.md:
+ * "assume average for whatever it replaces").
+ * @param {Map<string, any>} recipesById
+ * @param {string} slot
+ * @returns {{ calories: number, protein: number }}
+ */
+export function slotAverageNutrition(recipesById, slot) {
+  const matches = [...recipesById.values()].filter((r) => r.mealType === slot && r.nutrition);
+  if (matches.length === 0) return { calories: 0, protein: 0 };
+  const sum = matches.reduce(
+    (acc, r) => ({
+      calories: acc.calories + (r.nutrition.calories ?? 0),
+      protein: acc.protein + (r.nutrition.protein ?? 0),
+    }),
+    { calories: 0, protein: 0 },
+  );
+  return { calories: sum.calories / matches.length, protein: sum.protein / matches.length };
+}
+
+/**
+ * Planned calories/protein for one day. freeText and unknown recipes count 0;
+ * a freePass entry counts the slot's assumed average instead (see
+ * slotAverageNutrition) so a free-pass day doesn't read as a false deficit.
  * @param {PlanEntry[]} entries
  * @param {Map<string, any>} recipesById
  * @param {string} date
@@ -292,11 +323,57 @@ export function dayTotals(entries, recipesById, date) {
   let calories = 0;
   let protein = 0;
   for (const e of entries) {
-    if (e.date !== date || !e.recipeId) continue;
+    if (e.date !== date) continue;
+    if (e.freePass) {
+      const avg = slotAverageNutrition(recipesById, e.slot);
+      calories += avg.calories * (e.servings ?? 1);
+      protein += avg.protein * (e.servings ?? 1);
+      continue;
+    }
+    if (!e.recipeId) continue;
     const n = recipesById.get(e.recipeId)?.nutrition;
     if (!n) continue;
     calories += (n.calories ?? 0) * e.servings;
     protein += (n.protein ?? 0) * e.servings;
   }
   return { calories, protein };
+}
+
+/**
+ * Whether a date+slot currently holds a free-pass placeholder.
+ * @param {PlanEntry[]} entries
+ * @param {string} date
+ * @param {string} slot
+ * @returns {boolean}
+ */
+export function isFreePass(entries, date, slot) {
+  return entries.some((e) => e.date === date && e.slot === slot && e.freePass);
+}
+
+/**
+ * Toggle whether a date+slot is a free pass. Turning it ON clears whatever
+ * was there (the outside meal replaces it entirely) and plants one
+ * placeholder entry with no recipeId — shopping.js's existing
+ * `if (!entry.recipeId) continue` already excludes it from the list — and
+ * `pinned: true`, the same never-cleared protection GENERATE WEEK gives real
+ * pins (app/lib/weekbuilder.js's unpinned-clear step). Turning it OFF removes
+ * the placeholder so the slot is open to generation/manual add again. Pure.
+ * @param {Plan} plan
+ * @param {string} date
+ * @param {string} slot
+ * @param {boolean} freePass
+ * @returns {Plan}
+ */
+export function setFreePass(plan, date, slot, freePass) {
+  if (freePass) {
+    const kept = plan.entries.filter((e) => !(e.date === date && e.slot === slot));
+    return {
+      ...plan,
+      entries: [...kept, { id: genId(), date, slot, freePass: true, pinned: true, servings: 1 }],
+    };
+  }
+  return {
+    ...plan,
+    entries: plan.entries.filter((e) => !(e.date === date && e.slot === slot && e.freePass)),
+  };
 }

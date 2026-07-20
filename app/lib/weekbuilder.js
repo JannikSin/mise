@@ -14,7 +14,7 @@
 // structurally cannot reach a target (no candidate contributes at all) is
 // called out with a plain-English suggestion.
 
-import { addEntry, dayTotals, datesOfWeek, entriesAt, recipesById } from "./plan.js";
+import { addEntry, dayTotals, datesOfWeek, entriesAt, isFreePass, recipesById } from "./plan.js";
 import { slug } from "./shopping.js";
 
 /** deterministic 32-bit FNV-1a — the builder's only randomness source */
@@ -413,6 +413,11 @@ export function foodGroupFloorPass(plan, pool, recipesById, floors) {
       }
       if (dayGroupTotal(next.entries, recipesById, date, group) >= floor) continue;
 
+      // a free-pass'd snack slot must stay blank — leave the day short and
+      // let foodGroupGaps report it honestly, same as a pool with no
+      // contributing recipe at all
+      if (isFreePass(next.entries, date, "snack")) continue;
+
       // lever 2: portions alone couldn't close it — add ONE recipe that
       // contributes the group, preferring overlap with the week's food pool
       // so the shopping list stays tight (matches pickCommittee's seeding)
@@ -511,6 +516,8 @@ export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks 
     // snack bumps the existing entry's servings, never a duplicate row, and
     // never past the 2x per-entry cap; once the best pick is maxed the next
     // stack tries the next-best DISTINCT snack instead of stalling out.
+    // A free-pass'd snack slot stays blank — no stacking, day left short.
+    if (isFreePass(next.entries, date, "snack")) continue;
     const maxedOut = new Set();
     for (let stacked = 0; stacked < maxSnackStacks; stacked++) {
       const s = shortOf(date);

@@ -47,6 +47,9 @@ import {
   togglePinById,
   setPlanLocked,
   mergeRecipePool,
+  setFreePass,
+  isFreePass,
+  entriesAt,
   SLOT_KEYS,
 } from "./lib/plan.js";
 import { generateWeek } from "./lib/weekbuilder.js";
@@ -68,7 +71,9 @@ const TABS = [
 
 function App() {
   const [route, setRoute] = useState(
-    /** @type {{ view: string, id?: string, from?: string, servings?: number }} */ ({ view: "home" }),
+    /** @type {{ view: string, id?: string, from?: string, servings?: number }} */ ({
+      view: "home",
+    }),
   );
   const [online, setOnline] = useState(navigator.onLine);
   /** @type {[RepoStatus | null, (s: RepoStatus | null) => void]} */
@@ -145,7 +150,13 @@ function App() {
 
   useEffect(() => {
     setRecipes(
-      mergeRecipePool(bankRecipes, ownRecipes, targets?.phase, targets?.avoidIngredients, targets?.diet),
+      mergeRecipePool(
+        bankRecipes,
+        ownRecipes,
+        targets?.phase,
+        targets?.avoidIngredients,
+        targets?.diet,
+      ),
     );
   }, [bankRecipes, ownRecipes, targets]);
 
@@ -177,7 +188,9 @@ function App() {
   const [priceCatalogue, setPriceCatalogue] = useState(
     /** @type {import("./lib/prices.js").PriceCatalogue | null} */ (null),
   );
-  const [vitals, setVitals] = useState(/** @type {import("./lib/vitals.js").Vitals | null} */ (null));
+  const [vitals, setVitals] = useState(
+    /** @type {import("./lib/vitals.js").Vitals | null} */ (null),
+  );
   const [vitalsLoaded, setVitalsLoaded] = useState(false);
 
   useEffect(() => {
@@ -558,19 +571,24 @@ function App() {
   // meals may already be shopped for; pin/unpin never changes what's cooked
   // so it's left ungated
   const LOCK_CONFIRM = "This week is locked — you've shopped for it. Change this meal anyway?";
+  const FREE_PASS_CONFIRM =
+    "This slot already has a meal planned — clear it and mark as a free pass?";
 
   const handleDrop = useCallback(
     (/** @type {string} */ date, /** @type {string} */ slot, /** @type {DOMStringMap} */ drag) => {
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       if (p.locked && !window.confirm(LOCK_CONFIRM)) return;
+      // a manual drop onto a free-pass'd slot means the outside meal fell
+      // through — clear the placeholder so the drop lands normally
+      const base = isFreePass(p.entries, date, slot) ? setFreePass(p, date, slot, false) : p;
       if (drag.drag === "recipe" && drag.recipe) {
-        updatePlan(addEntry(p, date, slot, { recipeId: drag.recipe, servings: 1 }));
+        updatePlan(addEntry(base, date, slot, { recipeId: drag.recipe, servings: 1 }));
       } else if (drag.drag === "text" && drag.text) {
-        updatePlan(addEntry(p, date, slot, { freeText: drag.text, servings: 1 }));
+        updatePlan(addEntry(base, date, slot, { freeText: drag.text, servings: 1 }));
       } else if (drag.drag === "move" && drag.id) {
         const src = p.entries.find((e) => e.id === drag.id);
         if (!src || (src.date === date && src.slot === slot)) return;
-        updatePlan(moveEntry(p, drag.id, date, slot));
+        updatePlan(moveEntry(base, drag.id, date, slot));
       }
     },
     [updatePlan],
@@ -588,6 +606,24 @@ function App() {
   const handleTogglePin = useCallback(
     (/** @type {string} */ id) => {
       updatePlan(togglePinById(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), id));
+    },
+    [updatePlan],
+  );
+
+  const handleToggleFreePass = useCallback(
+    (/** @type {string} */ date, /** @type {string} */ slot, /** @type {boolean} */ freePass) => {
+      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      if (p.locked && !window.confirm(LOCK_CONFIRM)) return;
+      // turning a slot INTO a free pass clears whatever was planned there —
+      // ask first, same spirit as the locked-week destructive-edit gate
+      if (
+        freePass &&
+        entriesAt(p.entries, date, slot).length > 0 &&
+        !window.confirm(FREE_PASS_CONFIRM)
+      ) {
+        return;
+      }
+      updatePlan(setFreePass(p, date, slot, freePass));
     },
     [updatePlan],
   );
@@ -670,7 +706,10 @@ function App() {
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       if (p.locked && !window.confirm(LOCK_CONFIRM)) return null;
       const slot = SLOT_KEYS.includes(recipe.mealType) ? recipe.mealType : "dinner";
-      updatePlan(addEntry(p, date, slot, { recipeId: recipe.id, servings: 1 }));
+      // adding from the cookbook onto a free-pass'd slot: the outside meal
+      // fell through, clear the placeholder so the add lands normally
+      const base = isFreePass(p.entries, date, slot) ? setFreePass(p, date, slot, false) : p;
+      updatePlan(addEntry(base, date, slot, { recipeId: recipe.id, servings: 1 }));
       return slot;
     },
     [updatePlan],
@@ -787,6 +826,7 @@ function App() {
         onDropInto=${handleDrop}
         onRemove=${handleRemove}
         onTogglePin=${handleTogglePin}
+        onToggleFreePass=${handleToggleFreePass}
         onGenerateWeek=${handleGenerateWeek}
         buildReport=${buildReport}
         rebuilt=${buildReport !== null}
@@ -794,7 +834,12 @@ function App() {
     }
     ${
       route.view === "recipe" &&
-      html`<${RecipeView} recipe=${recipeById(route.id)} loading=${loading} from=${route.from} servings=${route.servings} />`
+      html`<${RecipeView}
+        recipe=${recipeById(route.id)}
+        loading=${loading}
+        from=${route.from}
+        servings=${route.servings}
+      />`
     }
     ${
       route.view === "list" &&

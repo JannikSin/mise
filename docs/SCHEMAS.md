@@ -303,12 +303,35 @@ even the same slot — merge without losing either entry.
       "freeText": "leftovers", // e.g. "leftovers", "eating out"
       "servings": 2,
       "pinned": false, // ? true = GENERATE WEEK must never clear or overwrite this entry
+      "freePass": false, // ? true = meal provided elsewhere (work lunch, eating
+      // out, a pre-made trip meal) — see below
     },
   ],
 }
 ```
 
 Absent `pinned` = unpinned (default behavior today, unchanged for existing data).
+
+Absent `freePass` = normal (default, unchanged for existing data). `true` marks a
+date+slot as a free pass — a meal you didn't cook and won't be buying for
+(work lunch, eating out, a trip). Set via `app/lib/plan.js`'s `setFreePass`,
+which replaces whatever was in that date+slot with ONE placeholder entry
+carrying `freePass: true`, `pinned: true` (so GENERATE MY WEEK / RE-ROLL
+WEEK's unpinned-clear step never wipes it — same protection a real pin gets)
+and no `recipeId`/`freeText`. Because it carries no `recipeId`,
+`app/lib/shopping.js`'s `deriveShoppingList` already skips it via its
+existing `if (!entry.recipeId) continue` — no shopping-list code changed.
+`app/lib/weekbuilder.js`'s slot-fill step already no-ops on an occupied slot,
+so a free-pass'd breakfast/lunch/dinner/smoothie is naturally never
+generated into; the snack-stacking levers in `macroTopUp` and
+`foodGroupFloorPass` (which otherwise unconditionally add to that day's
+"snack" slot) carry an explicit `isFreePass` guard for the same reason.
+`app/lib/plan.js`'s `dayTotals` counts a free-pass entry as
+`slotAverageNutrition` — the recipe bank's average calories/protein for that
+meal slot — rather than zero, so a free-pass day's calorie/protein meters
+don't read a false deficit. Manually dropping or adding a recipe onto a
+free-pass'd slot (`app/main.js`'s `handleDrop`/`handlePlanAdd`) clears the
+placeholder first, so the manual entry lands normally.
 
 `locked` (whole-plan, not per-entry) guards against the week's meals silently
 changing after groceries are already bought: toggled from the List view's

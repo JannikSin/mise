@@ -5,6 +5,7 @@ import {
   datesOfWeek,
   dayTotals,
   entriesAt,
+  isFreePass,
   recipesById,
   SLOT_KEYS,
   SLOT_META,
@@ -30,7 +31,10 @@ function monthDay(isoDate) {
  * tray into a slot; drag a filled slot to another slot to move it; ✕ removes,
  * PIN protects an entry from GENERATE MY WEEK / RE-ROLL WEEK. GENERATE MY
  * WEEK clears and rebuilds every unpinned entry across all 7 days; a second
- * tap is a RE-ROLL over the same pinned base.
+ * tap is a RE-ROLL over the same pinned base. Each slot also carries a FREE
+ * PASS checkbox, checked (normal) by default: unchecking it marks a meal
+ * provided elsewhere (work lunch, eating out, a trip) — GENERATE/RE-ROLL
+ * leave that slot blank and the shopping list never buys for it.
  * Known gap (accepted for Phase 1, fast-follow planned): add is drag-only —
  * no keyboard/switch-control path yet; remove is a plain button.
  * @param {{
@@ -44,6 +48,7 @@ function monthDay(isoDate) {
  *   onDropInto: (date: string, slot: string, drag: DOMStringMap) => void,
  *   onRemove: (id: string) => void,
  *   onTogglePin: (id: string) => void,
+ *   onToggleFreePass: (date: string, slot: string, freePass: boolean) => void,
  *   onGenerateWeek: () => void,
  *   buildReport: import("../lib/weekbuilder.js").WeekReport | null,
  *   rebuilt: boolean
@@ -60,6 +65,7 @@ export function PlannerView({
   onDropInto,
   onRemove,
   onTogglePin,
+  onToggleFreePass,
   onGenerateWeek,
   buildReport,
   rebuilt,
@@ -281,54 +287,87 @@ export function PlannerView({
             <div class="slotgrid">
               ${SLOTS.map(({ key, label, full }) => {
                 const stacked = entriesAt(plan.entries, date, key);
+                const freePass = isFreePass(plan.entries, date, key);
                 return html`
-                  <div class="slotrow" data-drop data-date=${date} data-slot=${key} key=${key}>
+                  <div
+                    class="slotrow ${freePass ? "freepass" : ""}"
+                    data-drop
+                    data-date=${date}
+                    data-slot=${key}
+                    key=${key}
+                  >
                     <span class="t" aria-label=${full}>${label}</span>
+                    <label class="fptoggle">
+                      <input
+                        type="checkbox"
+                        checked=${!freePass}
+                        aria-label="${full} on ${monthDay(date)}: ${
+                          freePass
+                            ? "currently a free pass — check to roll this meal normally"
+                            : "rolls normally — uncheck for a free pass (meal provided elsewhere)"
+                        }"
+                        onClick=${(/** @type {MouseEvent} */ e) => {
+                          // a native checkbox flips its own .checked BEFORE
+                          // this handler runs; preventDefault keeps it fully
+                          // controlled by freePass so a cancelled confirm
+                          // (locked week / clearing a filled slot) can never
+                          // leave the box showing the wrong state
+                          e.preventDefault();
+                          onToggleFreePass(date, key, !freePass);
+                        }}
+                      />
+                    </label>
                     ${
-                      stacked.length === 0
-                        ? html`<span class="emptyslot">—</span>`
-                        : html`<div class="stack">
-                            ${stacked.map((entry) => {
-                              const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
-                              const name = recipe ? recipe.name : entry.freeText;
-                              return html`
-                                <div class="stackline" key=${entry.id}>
-                                  <div class="fill drag-chip" data-drag="move" data-id=${entry.id}>
-                                    <span class="grip" aria-hidden="true">⠿</span>
-                                    <span class="chipbody">
-                                      <span class="n">${name}</span>
-                                      ${
-                                        recipe &&
-                                        html`<span class="m num"
-                                          >${recipe.nutrition?.calories} ·
-                                          ${recipe.nutrition?.protein}P</span
-                                        >`
+                      freePass
+                        ? html`<span class="emptyslot freepasstag">FREE PASS</span>`
+                        : stacked.length === 0
+                          ? html`<span class="emptyslot">—</span>`
+                          : html`<div class="stack">
+                              ${stacked.map((entry) => {
+                                const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
+                                const name = recipe ? recipe.name : entry.freeText;
+                                return html`
+                                  <div class="stackline" key=${entry.id}>
+                                    <div
+                                      class="fill drag-chip"
+                                      data-drag="move"
+                                      data-id=${entry.id}
+                                    >
+                                      <span class="grip" aria-hidden="true">⠿</span>
+                                      <span class="chipbody">
+                                        <span class="n">${name}</span>
+                                        ${
+                                          recipe &&
+                                          html`<span class="m num"
+                                            >${recipe.nutrition?.calories} ·
+                                            ${recipe.nutrition?.protein}P</span
+                                          >`
+                                        }
+                                      </span>
+                                    </div>
+                                    <button
+                                      class="pin ${entry.pinned ? "on" : ""}"
+                                      aria-pressed=${Boolean(entry.pinned)}
+                                      aria-label=${
+                                        entry.pinned
+                                          ? `Unpin ${name} — GENERATE WEEK may replace it`
+                                          : `Pin ${name} — GENERATE WEEK will keep it`
                                       }
-                                    </span>
+                                      onClick=${() => onTogglePin(entry.id)}
+                                    >
+                                      PIN
+                                    </button>
+                                    <button
+                                      class="rm"
+                                      aria-label="Remove ${name} from ${label}"
+                                      onClick=${() => onRemove(entry.id)}
+                                    >
+                                      ✕
+                                    </button>
                                   </div>
-                                  <button
-                                    class="pin ${entry.pinned ? "on" : ""}"
-                                    aria-pressed=${Boolean(entry.pinned)}
-                                    aria-label=${
-                                      entry.pinned
-                                        ? `Unpin ${name} — GENERATE WEEK may replace it`
-                                        : `Pin ${name} — GENERATE WEEK will keep it`
-                                    }
-                                    onClick=${() => onTogglePin(entry.id)}
-                                  >
-                                    PIN
-                                  </button>
-                                  <button
-                                    class="rm"
-                                    aria-label="Remove ${name} from ${label}"
-                                    onClick=${() => onRemove(entry.id)}
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
-                              `;
-                            })}
-                          </div>`
+                                `;
+                              })}
+                            </div>`
                     }
                   </div>
                 `;
