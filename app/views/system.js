@@ -15,10 +15,11 @@ import { activeProfile, readProfiles, write } from "../lib/store.js";
  *   draft: string,
  *   onDraft: (v: string) => void,
  *   onSaveToken: () => void,
- *   onTestWrite: () => void
+ *   onTestWrite: () => void,
+ *   onExport: () => void
  * }} props
  */
-export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveToken, onTestWrite }) {
+export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveToken, onTestWrite, onExport }) {
   const ageDays = tokenAgeDays();
   const renewSoon = hasToken && ageDays != null && ageDays >= TOKEN_WARN_AGE_DAYS;
 
@@ -193,6 +194,13 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
         <p class="hint">
           Writes a timestamp to meta.json in the data repo. Works offline — it queues and pushes
           when signal returns.
+        </p>
+        <div class="actions">
+          <button class="secondary" onClick=${onExport}>⬇ EXPORT MY DATA</button>
+        </div>
+        <p class="hint">
+          Downloads this profile's data (targets, pantry, list, plans, logs, own recipes) as one
+          JSON file — your offline backup, works from the local cache even without signal.
         </p>
       </div>
 

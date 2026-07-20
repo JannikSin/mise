@@ -33,6 +33,8 @@ and gets merged at training time on the Mac, never committed here.
 | V1 receipts (vision) | Receipt photo → structured line items | capture loop: every receipt-scan APPROVAL in the app saves (image, corrected JSON) to mise-data/training/receipts/ | phase 2, needs worker change |
 | V2 pantry shelf (vision) | Fridge/shelf photo → item list + freshness guesses | same loop on SCAN SHELF approvals | phase 2 |
 | V3 expiry dates (vision) | Printed date crops → ISO date | photograph 50-100 real package dates | phase 2 |
+| V4 unpack scan (vision) | ONE photo of a full shopping unpack (~20 items) → every item identified + every visible expiry date read, single confirm screen | detector finds items/date regions, crops route to identity (VLM) or date (OCR); each user correction on the confirm screen is a training pair | phase 2, the convenience target |
+| V5 fridge-to-recipe | Fridge photo → inventory → "what can I make" recipe fit to the profile's targets, expiring items first | composition of V2 + greger_audit + week gap report; roadmap C3 | phase 3 |
 
 The vision tracks fine-tune the vision model (Qwen3-VL class) separately via
 mlx-vlm LoRA; 100-300 approved receipt pairs is a realistic first corpus and

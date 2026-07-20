@@ -803,6 +803,48 @@ function App() {
     runCheck();
   };
 
+  // G1 data backup: bundle the active profile's files into one downloadable
+  // JSON. Reads go through the normal cached-first store, so the export works
+  // offline and never needs its own network path. The shared recipe bank is
+  // deliberately excluded — it lives in mise-data's git history; this is the
+  // personal-data lifeboat.
+  const handleExport = useCallback(async () => {
+    const profileId = activeProfile();
+    const now = new Date();
+    const weekNow = isoWeekId(now);
+    /** @type {Record<string, any>} */
+    const files = {};
+    const grab = async (/** @type {string} */ path, /** @type {any} */ opts = undefined) => {
+      files[path] = await read(path, opts).catch(() => null);
+    };
+    await Promise.all([
+      grab("targets.json"),
+      grab("pantry.json"),
+      grab("shopping.json"),
+      grab("fitness/daily.json"),
+      grab("fitness/workouts.json"),
+      grab("health/vitals.json"),
+      ...[-2, -1, 0, 1].map((d) => grab(`plans/${shiftWeek(weekNow, d)}.json`)),
+    ]);
+    const ownRecipes = profileId === "david" ? [] : await readCollection("recipes").catch(() => []);
+    const payload = {
+      app: `${APP.name} ${APP.version}`,
+      exportedAt: now.toISOString(),
+      profile: profileId,
+      files,
+      ownRecipes,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `mise-export-${profileId}-${localIsoDate(now)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }, []);
+
   const testWrite = () => {
     const device = /iPhone|iPad/.test(navigator.userAgent) ? "iphone" : "laptop";
     void write("meta.json", {
@@ -989,6 +1031,7 @@ function App() {
         onDraft=${setDraft}
         onSaveToken=${saveToken}
         onTestWrite=${testWrite}
+        onExport=${handleExport}
       />`
     }
 
