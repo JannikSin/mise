@@ -848,8 +848,13 @@ function App() {
     const grab = async (/** @type {string} */ path, /** @type {any} */ opts = undefined) => {
       files[path] = await read(path, opts).catch(() => null);
     };
+    // pantry moved to the household path (B2) — export the live file, and
+    // the legacy per-profile one only as a labeled extra if it still exists
+    const prof = await readProfiles();
+    const hhPantry = pantryPathFor(householdOf(prof.profiles, profileId));
     await Promise.all([
       grab("targets.json"),
+      grab(hhPantry, { raw: true }),
       grab("pantry.json"),
       grab("shopping.json"),
       grab("fitness/daily.json"),
