@@ -993,6 +993,46 @@ summary.block-title {
   outline-offset: 2px;
 }
 
+.slotrow .outbtn {
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  border-radius: 10px;
+}
+
+.slotrow .outbtn.on {
+  color: var(--signal);
+}
+
+.slotrow .outbtn:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
+}
+
+.slotrow.isout {
+  border-style: solid;
+  opacity: 0.75;
+}
+
+.slotrow .outslot {
+  flex: 1;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.block-title .outday {
+  color: var(--dim);
+  font-weight: normal;
+}
+
 /* ---- shopping list ---- */
 
 .checkrow {

@@ -10,10 +10,54 @@ import {
   entriesAt,
   dayTotals,
   togglePinById,
+  toggleSlotOut,
+  outEntryAt,
+  OUT_TEXT,
   setPlanLocked,
   mergeRecipePool,
   dietOf,
 } from "../app/lib/plan.js";
+
+test("toggleSlotOut replaces the slot's entries with one pinned eating-out placeholder", () => {
+  let plan = { week: "2026-W28", entries: [] };
+  plan = addEntry(plan, "2026-07-06", "dinner", { recipeId: "beef", servings: 1 });
+  plan = addEntry(plan, "2026-07-06", "dinner", { recipeId: "congee", servings: 1 });
+  plan = addEntry(plan, "2026-07-06", "lunch", { recipeId: "lunchbox", servings: 1 });
+
+  const out = toggleSlotOut(plan, "2026-07-06", "dinner");
+  const dinner = entriesAt(out.entries, "2026-07-06", "dinner");
+  assert.equal(dinner.length, 1);
+  assert.equal(dinner[0].freeText, OUT_TEXT);
+  assert.equal(dinner[0].pinned, true);
+  assert.equal(dinner[0].out, true);
+  assert.equal(dinner[0].recipeId, undefined);
+  // other slots untouched
+  assert.equal(entriesAt(out.entries, "2026-07-06", "lunch").length, 1);
+  // outEntryAt finds it, and only it
+  assert.equal(outEntryAt(out.entries, "2026-07-06", "dinner")?.id, dinner[0].id);
+  assert.equal(outEntryAt(out.entries, "2026-07-06", "lunch"), undefined);
+  // original plan not mutated
+  assert.equal(entriesAt(plan.entries, "2026-07-06", "dinner").length, 2);
+});
+
+test("toggleSlotOut a second time removes the placeholder and leaves the slot empty", () => {
+  let plan = { week: "2026-W28", entries: [] };
+  plan = toggleSlotOut(plan, "2026-07-06", "dinner");
+  const back = toggleSlotOut(plan, "2026-07-06", "dinner");
+  assert.equal(entriesAt(back.entries, "2026-07-06", "dinner").length, 0);
+});
+
+test("toggleSlotOut off-path clears merge-twin placeholders in one tap", () => {
+  // two devices marked the same slot out, then merged: twin placeholders
+  // with distinct ids — one off-toggle must remove BOTH, or the slot stays
+  // stuck reading "out"
+  let plan = { week: "2026-W28", entries: [] };
+  plan = toggleSlotOut(plan, "2026-07-06", "dinner");
+  const twin = { ...plan.entries[0], id: "twin-from-merge" };
+  plan = { ...plan, entries: [...plan.entries, twin] };
+  const back = toggleSlotOut(plan, "2026-07-06", "dinner");
+  assert.equal(entriesAt(back.entries, "2026-07-06", "dinner").length, 0);
+});
 
 test("shiftWeek moves across plain and year-boundary weeks", () => {
   assert.equal(shiftWeek("2026-W28", 1), "2026-W29");

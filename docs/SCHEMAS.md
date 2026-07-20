@@ -303,12 +303,23 @@ even the same slot — merge without losing either entry.
       "freeText": "leftovers", // e.g. "leftovers", "eating out"
       "servings": 2,
       "pinned": false, // ? true = GENERATE WEEK must never clear or overwrite this entry
+      "out": false, // ? true = eating-out placeholder (see below)
     },
   ],
 }
 ```
 
 Absent `pinned` = unpinned (default behavior today, unchanged for existing data).
+
+`out` (per-entry, optional; absent = normal entry) marks an EATING-OUT
+placeholder — a free lunch, a restaurant dinner. Created by the slot's OUT
+toggle in the planner (or by dragging the "eating out" tray chip), it is
+always written with `pinned: true` and `freeText: "eating out"`, so with no
+special-casing anywhere downstream: GENERATE/RE-ROLL never clears or refills
+the slot, the shopping list ignores it (freeText has no ingredients), and day
+macros count it as 0. The generator additionally waives that DAY's macro
+floors/ceiling (no snack-stacking to replace a restaurant meal) and reports it
+under `outDays` instead of the shortfall lines (app/lib/weekbuilder.js).
 
 `locked` (whole-plan, not per-entry) guards against the week's meals silently
 changing after groceries are already bought: toggled from the List view's

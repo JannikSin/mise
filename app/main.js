@@ -45,6 +45,10 @@ import {
   recipesById,
   shiftWeek,
   togglePinById,
+  toggleSlotOut,
+  outEntryAt,
+  entriesAt,
+  OUT_TEXT,
   setPlanLocked,
   mergeRecipePool,
   SLOT_KEYS,
@@ -563,14 +567,24 @@ function App() {
     (/** @type {string} */ date, /** @type {string} */ slot, /** @type {DOMStringMap} */ drag) => {
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       if (p.locked && !window.confirm(LOCK_CONFIRM)) return;
+      // the "eating out" tray chip behaves exactly like the slot's OUT
+      // toggle: pinned placeholder, clears the slot, survives re-roll
+      if (drag.drag === "text" && drag.text === OUT_TEXT) {
+        if (!outEntryAt(p.entries, date, slot)) updatePlan(toggleSlotOut(p, date, slot));
+        return;
+      }
+      // dropping real food into an eating-out slot means plans changed —
+      // the placeholder yields to the meal
+      const out = outEntryAt(p.entries, date, slot);
+      const base = out ? removeEntryById(p, out.id) : p;
       if (drag.drag === "recipe" && drag.recipe) {
-        updatePlan(addEntry(p, date, slot, { recipeId: drag.recipe, servings: 1 }));
+        updatePlan(addEntry(base, date, slot, { recipeId: drag.recipe, servings: 1 }));
       } else if (drag.drag === "text" && drag.text) {
-        updatePlan(addEntry(p, date, slot, { freeText: drag.text, servings: 1 }));
+        updatePlan(addEntry(base, date, slot, { freeText: drag.text, servings: 1 }));
       } else if (drag.drag === "move" && drag.id) {
-        const src = p.entries.find((e) => e.id === drag.id);
+        const src = base.entries.find((e) => e.id === drag.id);
         if (!src || (src.date === date && src.slot === slot)) return;
-        updatePlan(moveEntry(p, drag.id, date, slot));
+        updatePlan(moveEntry(base, drag.id, date, slot));
       }
     },
     [updatePlan],
@@ -590,6 +604,41 @@ function App() {
       updatePlan(togglePinById(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), id));
     },
     [updatePlan],
+  );
+
+  const handleToggleOut = useCallback(
+    (/** @type {string} */ date, /** @type {string} */ slot) => {
+      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      // marking a filled slot OUT deletes its planned meal (pins included) —
+      // one 44px tap, and un-toggling brings back an EMPTY slot, not the
+      // meal. So a filled slot always asks first; a locked (already shopped)
+      // week asks with the sterner wording. Turning OUT back off just
+      // empties the slot and never needs a gate.
+      const marking = !outEntryAt(p.entries, date, slot);
+      if (marking && entriesAt(p.entries, date, slot).length > 0) {
+        const msg = p.locked
+          ? LOCK_CONFIRM
+          : "Eating out instead? The planned meal in this slot will be removed.";
+        if (!window.confirm(msg)) return;
+      }
+      const next = toggleSlotOut(p, date, slot);
+      updatePlan(next);
+      // keep an already-built list truthful: the out meal's ingredients must
+      // not linger as things to buy. Locked weeks are exempt (the lock's
+      // whole point is a list that stops moving), and an empty list stays
+      // empty — toggling OUT never builds a list David didn't ask for.
+      if (!p.locked && shoppingRef.current.items.length > 0) {
+        updateShopping(
+          deriveShoppingList(
+            next,
+            recipesById(recipesRef.current),
+            pantryRef.current,
+            shoppingRef.current,
+          ),
+        );
+      }
+    },
+    [updatePlan, updateShopping],
   );
 
   const handleToggleLock = useCallback(() => {
@@ -670,7 +719,10 @@ function App() {
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       if (p.locked && !window.confirm(LOCK_CONFIRM)) return null;
       const slot = SLOT_KEYS.includes(recipe.mealType) ? recipe.mealType : "dinner";
-      updatePlan(addEntry(p, date, slot, { recipeId: recipe.id, servings: 1 }));
+      // planning real food into an eating-out slot: the placeholder yields
+      const out = outEntryAt(p.entries, date, slot);
+      const base = out ? removeEntryById(p, out.id) : p;
+      updatePlan(addEntry(base, date, slot, { recipeId: recipe.id, servings: 1 }));
       return slot;
     },
     [updatePlan],
@@ -787,6 +839,7 @@ function App() {
         onDropInto=${handleDrop}
         onRemove=${handleRemove}
         onTogglePin=${handleTogglePin}
+        onToggleOut=${handleToggleOut}
         onGenerateWeek=${handleGenerateWeek}
         buildReport=${buildReport}
         rebuilt=${buildReport !== null}

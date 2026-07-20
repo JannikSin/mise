@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean }} PlanEntry
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean }} Plan
  */
 // pinned is optional; absent = unpinned (today's default, unchanged). true =
@@ -12,6 +12,11 @@ import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 // locked is optional; absent = unlocked (today's default, unchanged). true =
 // you've already shopped for this week — GENERATE WEEK/RE-ROLL WEEK refuse to
 // run and individual edits (add/remove/move) ask for confirmation first.
+// out is optional; absent = a normal entry. true = this slot is an
+// EATING-OUT placeholder (free lunch, restaurant dinner): always paired with
+// pinned:true so GENERATE WEEK leaves the slot alone, carries freeText so
+// every view renders it, and — being freeText — contributes nothing to the
+// shopping list or day macros.
 
 /** The valid slot keys, in display order (docs/SCHEMAS.md plan section). */
 export const SLOT_KEYS = ["breakfast", "lunch", "dinner", "smoothie", "snack"];
@@ -194,7 +199,7 @@ function legacyId(e, twinIndex) {
  * @param {Plan} plan
  * @param {string} date
  * @param {string} slot
- * @param {{ recipeId?: string, freeText?: string, servings: number }} content
+ * @param {{ recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean }} content
  * @returns {Plan}
  */
 export function addEntry(plan, date, slot, content) {
@@ -235,6 +240,51 @@ export function togglePinById(plan, id) {
     ...plan,
     entries: plan.entries.map((e) => (e.id === id ? { ...e, pinned: !e.pinned } : e)),
   };
+}
+
+/** The eating-out placeholder a slot's OUT toggle creates. */
+export const OUT_TEXT = "eating out";
+
+/**
+ * The eating-out placeholder entry at date+slot, if any.
+ * @param {PlanEntry[]} entries
+ * @param {string} date
+ * @param {string} slot
+ * @returns {PlanEntry | undefined}
+ */
+export function outEntryAt(entries, date, slot) {
+  return entries.find((e) => e.date === date && e.slot === slot && e.out);
+}
+
+/**
+ * Flip a slot's eating-out state. OFF→ON (marking out): every entry in the
+ * slot is replaced by one pinned placeholder — the whole point is "get rid of
+ * the planned meal, don't shop for it, don't re-roll it". ON→OFF: the
+ * placeholder is removed and the slot is empty again (drag or GENERATE fills
+ * it). Pure.
+ * @param {Plan} plan
+ * @param {string} date
+ * @param {string} slot
+ * @returns {Plan}
+ */
+export function toggleSlotOut(plan, date, slot) {
+  const existing = outEntryAt(plan.entries, date, slot);
+  if (existing) {
+    // remove EVERY placeholder in the slot, not just the first: two devices
+    // marking the same slot out then merging leaves twins, and an off-toggle
+    // that removed only one would leave the slot stuck reading "out"
+    return {
+      ...plan,
+      entries: plan.entries.filter((e) => !(e.date === date && e.slot === slot && e.out)),
+    };
+  }
+  const kept = plan.entries.filter((e) => !(e.date === date && e.slot === slot));
+  return addEntry({ ...plan, entries: kept }, date, slot, {
+    freeText: OUT_TEXT,
+    servings: 1,
+    pinned: true,
+    out: true,
+  });
 }
 
 /**

@@ -5,6 +5,8 @@ import {
   datesOfWeek,
   dayTotals,
   entriesAt,
+  outEntryAt,
+  OUT_TEXT,
   recipesById,
   SLOT_KEYS,
   SLOT_META,
@@ -13,7 +15,9 @@ import { parseLocalIso, statusDate } from "../lib/dates.js";
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
-const FREE_TEXT = ["leftovers", "eating out"];
+// OUT_TEXT by reference, not a copied literal: main.js routes a dropped chip
+// with exactly that text through the slot's OUT toggle
+const FREE_TEXT = ["leftovers", OUT_TEXT];
 
 /**
  * @param {string} isoDate
@@ -44,6 +48,7 @@ function monthDay(isoDate) {
  *   onDropInto: (date: string, slot: string, drag: DOMStringMap) => void,
  *   onRemove: (id: string) => void,
  *   onTogglePin: (id: string) => void,
+ *   onToggleOut: (date: string, slot: string) => void,
  *   onGenerateWeek: () => void,
  *   buildReport: import("../lib/weekbuilder.js").WeekReport | null,
  *   rebuilt: boolean
@@ -60,6 +65,7 @@ export function PlannerView({
   onDropInto,
   onRemove,
   onTogglePin,
+  onToggleOut,
   onGenerateWeek,
   buildReport,
   rebuilt,
@@ -176,6 +182,21 @@ export function PlannerView({
               </div>`
             }
             ${
+              (buildReport.outDays ?? []).length > 0 &&
+              html`<div class="d num">
+                🍴 eating out:${" "}
+                ${buildReport.outDays
+                  .map(
+                    (o) =>
+                      `${parseLocalIso(o.date).toLocaleDateString([], { weekday: "short" })} ${o.slots
+                        .map((s) => SLOT_META[s]?.label ?? s)
+                        .join("+")}`,
+                  )
+                  .join(" · ")}
+                · not shopped, macro targets waived those days
+              </div>`
+            }
+            ${
               buildReport.calorieOverDays.length > 0 &&
               html`<div class="d num">
                 day over calorie ceiling:${" "}
@@ -245,11 +266,16 @@ export function PlannerView({
         const totals = dayTotals(/** @type {any} */ (plan.entries), byId, date);
         const kcalPct = Math.min(100, Math.round((totals.calories / kcalTarget) * 100));
         const pPct = Math.min(100, Math.round((totals.protein / proteinTarget) * 100));
-        const kcalOk = totals.calories / kcalTarget >= 0.9;
-        const pOk = totals.protein / proteinTarget >= 0.9;
+        // an eating-out day is EXPECTED to fall short of planned macros — the
+        // rest comes from the restaurant, so the warn styling stays off
+        const dayOut = SLOTS.some(({ key }) => outEntryAt(plan.entries, date, key));
+        const kcalOk = dayOut || totals.calories / kcalTarget >= 0.9;
+        const pOk = dayOut || totals.protein / proteinTarget >= 0.9;
         return html`
           <section class="day" key=${date}>
-            <h2 class="block-title">${statusDate(parseLocalIso(date))}</h2>
+            <h2 class="block-title">
+              ${statusDate(parseLocalIso(date))}${dayOut && html`<span class="outday"> · 🍴 out</span>`}
+            </h2>
             <div class="meters">
               <div class="meterline ${kcalOk ? "" : "warn"}">
                 <span class="k num">${totals.calories} / ${kcalTarget} kcal</span>
@@ -280,14 +306,19 @@ export function PlannerView({
             </div>
             <div class="slotgrid">
               ${SLOTS.map(({ key, label, full }) => {
-                const stacked = entriesAt(plan.entries, date, key);
+                const outEntry = outEntryAt(plan.entries, date, key);
+                const stacked = entriesAt(plan.entries, date, key).filter((e) => !e.out);
                 return html`
-                  <div class="slotrow" data-drop data-date=${date} data-slot=${key} key=${key}>
+                  <div class="slotrow ${outEntry ? "isout" : ""}" data-drop data-date=${date} data-slot=${key} key=${key}>
                     <span class="t" aria-label=${full}>${label}</span>
+                    ${outEntry && html`<span class="outslot">🍴 eating out · not planned, not re-rolled</span>`}
+                    ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">—</span>`}
                     ${
-                      stacked.length === 0
-                        ? html`<span class="emptyslot">—</span>`
-                        : html`<div class="stack">
+                      // real entries render even next to a placeholder: a
+                      // two-device merge can resurrect a meal into an out
+                      // slot, and hiding it would leave it silently shopped
+                      stacked.length > 0 &&
+                      html`<div class="stack">
                             ${stacked.map((entry) => {
                               const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
                               const name = recipe ? recipe.name : entry.freeText;
@@ -330,6 +361,18 @@ export function PlannerView({
                             })}
                           </div>`
                     }
+                    <button
+                      class="outbtn ${outEntry ? "on" : ""}"
+                      aria-pressed=${Boolean(outEntry)}
+                      aria-label=${
+                        outEntry
+                          ? `${full} ${monthDay(date)} is eating out, tap to plan a meal again`
+                          : `Mark ${full} ${monthDay(date)} as eating out: clears the slot, nothing shopped or re-rolled`
+                      }
+                      onClick=${() => onToggleOut(date, key)}
+                    >
+                      🍴 OUT
+                    </button>
                   </div>
                 `;
               })}

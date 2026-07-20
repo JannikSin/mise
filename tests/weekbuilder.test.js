@@ -170,6 +170,45 @@ test("generateWeek clears unpinned entries and preserves pinned ones", () => {
   assert.equal(mondayDinners[0].id, "pinned-keep");
 });
 
+test("generateWeek leaves an eating-out slot alone, waives that day's macros, and reports it", () => {
+  const outEntry = {
+    id: "out-1",
+    date: MONDAY_W29,
+    slot: "dinner",
+    freeText: "eating out",
+    servings: 1,
+    pinned: true,
+    out: true,
+  };
+  const { plan, report } = generateWeek({
+    recipes: ALL,
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [outEntry] },
+    salt: 0,
+  });
+  // the placeholder survives and the slot is never refilled
+  const mondayDinner = plan.entries.filter((e) => e.date === MONDAY_W29 && e.slot === "dinner");
+  assert.equal(mondayDinner.length, 1);
+  assert.equal(mondayDinner[0].id, "out-1");
+  // no snack-stacking to replace the restaurant meal: Monday gets NO snack
+  // entries even though the day is far below the calorie floor without dinner
+  assert.ok(!plan.entries.some((e) => e.date === MONDAY_W29 && e.slot === "snack"));
+  // Monday is reported as an out day, not a macro shortfall
+  assert.deepEqual(report.outDays, [{ date: MONDAY_W29, slots: ["dinner"] }]);
+  assert.ok(!report.proteinShortDays.some((d) => d.date === MONDAY_W29));
+  assert.ok(!report.calorieShortDays.some((d) => d.date === MONDAY_W29));
+  assert.ok(!report.calorieOverDays.some((d) => d.date === MONDAY_W29));
+  // every OTHER day still gets a dinner
+  const otherDays = plan.entries.filter((e) => e.slot === "dinner" && e.date !== MONDAY_W29);
+  assert.equal(otherDays.length, 6);
+  // partial-out day: the OTHER slots on Monday are still committee-filled —
+  // only the macro floor/top-up/trim enforcement is waived for the day
+  assert.ok(plan.entries.some((e) => e.date === MONDAY_W29 && e.slot === "breakfast"));
+  assert.ok(plan.entries.some((e) => e.date === MONDAY_W29 && e.slot === "lunch"));
+});
+
 test("generateWeek fills every slot and caps dinner repeats at 2", () => {
   const existing = {
     week: "2026-W29",

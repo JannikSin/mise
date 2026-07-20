@@ -368,14 +368,16 @@ function dayGroupTotal(entries, recipesById, date, group) {
  * @param {Record<string, any>[]} pool
  * @param {Map<string, any>} recipesById
  * @param {Record<string, number>} floors
+ * @param {Set<string>} [skipDates] eating-out days — never topped up
  * @returns {import("./plan.js").Plan}
  */
-export function foodGroupFloorPass(plan, pool, recipesById, floors) {
+export function foodGroupFloorPass(plan, pool, recipesById, floors, skipDates = new Set()) {
   const candidates = pool.filter((r) => r.effort !== "project");
   const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
   let next = plan;
 
   for (const date of dates) {
+    if (skipDates.has(date)) continue;
     for (const [group, floor] of Object.entries(floors)) {
       if (!floor) continue;
       if (dayGroupTotal(next.entries, recipesById, date, group) >= floor) continue;
@@ -461,11 +463,13 @@ export function foodGroupFloorPass(plan, pool, recipesById, floors) {
  * @param {number} [maxSnackStacks] survey-v2 Q11 snackAppetite cap: 3 for a
  *   grazer (default, today's behavior), 1 for a "three-squares" eater (the
  *   portion-bump lever, tried first, then does more of the work)
+ * @param {Set<string>} [skipDates] eating-out days — the missing meal comes
+ *   from a restaurant, so the top-up must NOT snack-stack to replace it
  * @returns {import("./plan.js").Plan}
  */
-export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks = 3) {
+export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks = 3, skipDates = new Set()) {
   const pool = snackPool.filter((r) => r.effort !== "project");
-  const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
+  const dates = [...new Set(plan.entries.map((e) => e.date))].sort().filter((d) => !skipDates.has(d));
   if (dates.length === 0) return plan;
 
   const bestFor = (/** @type {boolean} */ needProtein, /** @type {Set<string>} */ exclude) =>
@@ -581,10 +585,12 @@ function breaksFloor(entries, recipesById, date, bounds) {
  *   proteinFloor: number,
  *   groupFloors: Record<string, number>
  * }} bounds
+ * @param {Set<string>} [skipDates] eating-out days — floors are waived there,
+ *   so a trim judged against them would be meaningless
  * @returns {import("./plan.js").Plan}
  */
-export function calorieTrimPass(plan, recipesById, bounds) {
-  const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
+export function calorieTrimPass(plan, recipesById, bounds, skipDates = new Set()) {
+  const dates = [...new Set(plan.entries.map((e) => e.date))].sort().filter((d) => !skipDates.has(d));
   let next = plan;
 
   const tierOf = (/** @type {import("./plan.js").PlanEntry} */ e) => {
@@ -750,7 +756,8 @@ const DEFAULT_MEAL_SLOTS = /** @type {const} */ (["breakfast", "lunch", "dinner"
  *   foodGroupGapsWeekly: { group: string, have: number, target: number }[],
  *   poolInsufficient: { reason: string, suggestion: string }[],
  *   calorieOverDays: { date: string, calories: number, ceiling: number }[],
- *   timeBudgetRelaxed: string[]
+ *   timeBudgetRelaxed: string[],
+ *   outDays: { date: string, slots: string[] }[]
  * }} WeekReport
  */
 
@@ -816,6 +823,19 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0,
   // pre-existing content the rest of generation builds around
   const pinnedEntries = plan.entries.filter((e) => e.pinned);
   let next = { ...plan, week: weekId, entries: pinnedEntries };
+
+  // eating-out placeholders (slot OUT toggle, always pinned so they just
+  // survived the clear): those days' missing calories come from a restaurant,
+  // so every floor/top-up/trim pass and macro report skips them — topping a
+  // free-lunch day up with 3 snacks would be planning food nobody eats
+  const outDays = [...new Set(pinnedEntries.filter((e) => e.out).map((e) => e.date))]
+    .sort()
+    .map((date) => ({
+      date,
+      slots: pinnedEntries.filter((e) => e.out && e.date === date).map((e) => e.slot),
+    }));
+  const outDateSet = new Set(outDays.map((d) => d.date));
+  const reportDates = dates.filter((d) => !outDateSet.has(d));
 
   const proteinTarget = targets?.macros?.protein ?? 210;
   const caloriesTarget = targets?.macros?.calories ?? 3400;
@@ -944,7 +964,7 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0,
   // 2026-07-10 Opus audit) — must run BEFORE macroTopUp so the calorie/
   // protein top-up sees each day's post-floor totals, not the other way
   // around.
-  next = foodGroupFloorPass(next, pool("snack"), byId, dailyGroupFloors);
+  next = foodGroupFloorPass(next, pool("snack"), byId, dailyGroupFloors, outDateSet);
 
   // Step 4: macro top-up (calories + protein). Uses the FULL snack pool, not
   // just the ingredient-overlap committee: the committee optimizes for a
@@ -952,28 +972,42 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0,
   // so it needs every real snack candidate available (2026-07-10 gain-phase
   // bump: the higher 3700/3500 floor needs more headroom than a 2-recipe
   // committee reliably provides).
-  next = macroTopUp(next, pool("snack"), byId, floors, targets?.snackAppetite === "meals" ? 1 : 3);
+  next = macroTopUp(
+    next,
+    pool("snack"),
+    byId,
+    floors,
+    targets?.snackAppetite === "meals" ? 1 : 3,
+    outDateSet,
+  );
 
   // Step 4.5: calorie CEILING trim, run LAST. The two passes above only ever
   // ADD servings, so days routinely overshoot the target by 5-9%; this trims
   // back down without breaking any floor those passes just secured.
   const calorieCeiling = caloriesTarget * CEILING_RATIO;
-  next = calorieTrimPass(next, byId, {
-    calorieCeiling,
-    calorieFloor: floors.calories,
-    proteinFloor: floors.protein,
-    groupFloors: dailyGroupFloors,
-  });
+  next = calorieTrimPass(
+    next,
+    byId,
+    {
+      calorieCeiling,
+      calorieFloor: floors.calories,
+      proteinFloor: floors.protein,
+      groupFloors: dailyGroupFloors,
+    },
+    outDateSet,
+  );
 
   // Step 5: report, never fudge — short days are judged against the floors
-  // but reported against the real goals
-  const { proteinShortDays, calorieShortDays } = macroShortfalls(next, byId, dates, floors, {
+  // but reported against the real goals. Eating-out days are excluded from
+  // every macro/gap line (their floors are waived, not missed) and reported
+  // as outDays instead.
+  const { proteinShortDays, calorieShortDays } = macroShortfalls(next, byId, reportDates, floors, {
     protein: proteinTarget,
     calories: caloriesTarget,
   });
-  const gaps = foodGroupGapsReport(next.entries, byId, dates, dailyDozenPerDay);
+  const gaps = foodGroupGapsReport(next.entries, byId, reportDates, dailyDozenPerDay);
   const poolInsufficient = poolInsufficiency(recipes, dailyDozenPerDay);
-  const calorieOverDays = dates
+  const calorieOverDays = reportDates
     .map((date) => ({ date, calories: dayTotals(next.entries, byId, date).calories }))
     .filter((d) => d.calories > calorieCeiling)
     .map((d) => ({ ...d, ceiling: calorieCeiling }));
@@ -1000,6 +1034,7 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0,
       poolInsufficient,
       calorieOverDays,
       timeBudgetRelaxed,
+      outDays,
     },
   };
 }

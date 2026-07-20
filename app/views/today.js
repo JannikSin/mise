@@ -122,7 +122,9 @@ export function TodayView({ recipes, plan, hasToken, loading }) {
                     return html`
                       <div class="todayrow" key=${entry.id}>
                         <span class="t">${label}</span>
-                        <span class="n">${entry.freeText ?? "…"}</span>
+                        <span class="n">
+                          ${entry.out ? "🍴 eating out · nothing to cook" : (entry.freeText ?? "…")}
+                        </span>
                       </div>
                     `;
                   }
