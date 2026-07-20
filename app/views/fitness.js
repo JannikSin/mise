@@ -9,6 +9,7 @@ import {
   setTopSet,
   templateForDate,
 } from "../lib/fitness.js";
+import { IntervalTimer } from "./interval-timer.js";
 
 const SEGMENTS = ["train", "log", "targets"];
 const PRIMARY_LIFTS = ["Squat", "Bench Press", "Deadlift or Barbell Row", "Overhead Press"];
@@ -345,6 +346,7 @@ export function FitnessView({
               </div>
             `
           }
+          <${IntervalTimer} />
         `
       }
       ${

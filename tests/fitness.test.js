@@ -10,6 +10,7 @@ import {
   templateForDate,
   targetsFromQuestionnaire,
   avoidTermsFromAllergens,
+  intervalPhaseAt,
 } from "../app/lib/fitness.js";
 
 const SESSIONS = [
@@ -291,4 +292,20 @@ test("targetsFromQuestionnaire: default-valued prefs stay omitted (lean file)", 
   for (const k of ["diet", "allergens", "snackAppetite", "maxDifficulty", "budget", "shopsPerWeek", "cuisinePrefs"]) {
     assert.equal(k in t, false, `default ${k} should be omitted`);
   }
+});
+
+test("intervalPhaseAt walks work→rest per round, no trailing rest, then done", () => {
+  // 60 on / 60 off / 3 rounds = 60+60+60+60+60 = 300s total
+  assert.deepEqual(intervalPhaseAt(0, 60, 60, 3), { phase: "work", round: 1, remaining: 60 });
+  assert.deepEqual(intervalPhaseAt(59, 60, 60, 3), { phase: "work", round: 1, remaining: 1 });
+  assert.deepEqual(intervalPhaseAt(60, 60, 60, 3), { phase: "rest", round: 1, remaining: 60 });
+  assert.deepEqual(intervalPhaseAt(120, 60, 60, 3), { phase: "work", round: 2, remaining: 60 });
+  assert.deepEqual(intervalPhaseAt(299, 60, 60, 3), { phase: "work", round: 3, remaining: 1 });
+  // total elapsed = done (round 3's work ends at 300; its "rest" never happens)
+  assert.equal(intervalPhaseAt(300, 60, 60, 3).phase, "done");
+  // zero-rest circuits: rounds run back to back
+  assert.deepEqual(intervalPhaseAt(45, 30, 0, 4), { phase: "work", round: 2, remaining: 15 });
+  // degenerate inputs are done immediately, never NaN
+  assert.equal(intervalPhaseAt(0, 0, 60, 3).phase, "done");
+  assert.equal(intervalPhaseAt(0, 60, 60, 0).phase, "done");
 });

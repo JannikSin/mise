@@ -1033,6 +1033,96 @@ summary.block-title {
   font-weight: normal;
 }
 
+/* ---- interval timer (F1) ---- */
+
+.intervaltimer {
+  margin-top: 18px;
+}
+
+.intervaltimer summary {
+  cursor: pointer;
+}
+
+.tconfig {
+  display: flex;
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.tfield {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tfield .k {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+}
+
+.tfield input {
+  width: 100%;
+  min-height: 44px;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  color: inherit;
+  font-family: var(--mono);
+  font-size: 16px;
+  padding: 0 10px;
+}
+
+.tface {
+  text-align: center;
+  padding: 18px 0 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 14px;
+}
+
+.tface.work {
+  border-color: var(--signal);
+  border-style: solid;
+}
+
+.tface.rest {
+  border-color: var(--recover);
+  border-style: solid;
+}
+
+.tphase {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--dim);
+}
+
+.tface.work .tphase {
+  color: var(--signal);
+}
+
+.tface.rest .tphase {
+  color: var(--recover);
+}
+
+.tclock {
+  font-size: 56px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.tactions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.tactions button {
+  flex: 1;
+}
+
 /* ---- food safety guide (D3) ---- */
 
 .foodsafety {

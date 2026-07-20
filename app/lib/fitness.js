@@ -110,6 +110,30 @@ export function upsertDay(daily, date, patch) {
 }
 
 /**
+ * Where an interval-timer session stands after `elapsed` whole seconds:
+ * which phase (work/rest/done), which round (1-based), and seconds left in
+ * the current phase. The last round has no trailing rest — a set you never
+ * come back from isn't rest, it's done. Pure; the view owns the clock.
+ * @param {number} elapsed whole seconds since start
+ * @param {number} work work-phase seconds
+ * @param {number} rest rest-phase seconds
+ * @param {number} rounds total rounds
+ * @returns {{ phase: "work" | "rest" | "done", round: number, remaining: number }}
+ */
+export function intervalPhaseAt(elapsed, work, rest, rounds) {
+  const cycle = work + rest;
+  const total = rounds * work + Math.max(0, rounds - 1) * rest;
+  if (elapsed >= total || rounds <= 0 || work <= 0) {
+    return { phase: "done", round: rounds, remaining: 0 };
+  }
+  const round = Math.min(rounds, Math.floor(elapsed / cycle) + 1);
+  const inCycle = elapsed % cycle;
+  return inCycle < work
+    ? { phase: "work", round, remaining: work - inCycle }
+    : { phase: "rest", round, remaining: cycle - inCycle };
+}
+
+/**
  * A day counts toward the streak when sleep is logged, pushups hit the
  * target, water (liters) hits the target, and every supplement in the plan
  * is ticked. Water counts in liters — David's rule: a cup is ~250ml, a
