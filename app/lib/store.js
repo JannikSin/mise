@@ -87,7 +87,62 @@ export async function readProfiles(readFn = defaultProfilesRead) {
   } catch {
     // offline, no token, or read failure — fall back to David-only below
   }
-  return DEFAULT_PROFILES;
+  // fallback: true tells choosers this is the built-in default, NOT the real
+  // list — they must say so ("your other profiles are safe, reconnect") and
+  // must never write a whole-array replacement built from it (see
+  // patchProfiles; that write is what erased a profile on 2026-07-20).
+  return /** @type {{ profiles: Record<string, any>[], fallback?: boolean }} */ ({
+    ...DEFAULT_PROFILES,
+    fallback: true,
+  });
+}
+
+/**
+ * The one safe WRITE path for profiles.json (G2). Loads the REAL list
+ * (cache first, then network), applies `fn`, writes the result — so a
+ * mutation can only ever be expressed against the true current profiles,
+ * never against the David-only fallback. Returns false (writing nothing)
+ * when the real list cannot be established:
+ *  - network error / no token and nothing cached → refuse (the file may
+ *    hold profiles this device has never seen);
+ *  - confirmed 404 (fresh data repo) → allowed only with allowSeed, which
+ *    the profile-creation flows pass — creating the first profile on a
+ *    brand-new repo is the one legitimate from-scratch write.
+ * The io params exist for tests only; views call it bare.
+ * @param {(profiles: Record<string, any>[]) => Record<string, any>[]} fn
+ * @param {{
+ *   allowSeed?: boolean,
+ *   readCached?: (path: string) => Promise<{ data: Record<string, unknown>, sha: string } | null>,
+ *   readRemote?: (path: string) => Promise<{ data: Record<string, unknown>, sha: string } | null>,
+ *   writeFn?: (path: string, data: Record<string, unknown>) => Promise<unknown>
+ * }} [opts]
+ * @returns {Promise<boolean>} true = written (or queued), false = refused
+ */
+export async function patchProfiles(
+  fn,
+  { allowSeed = false, readCached = defaultProfilesRead, readRemote = io.read, writeFn = write } = {},
+) {
+  const cached = await readCached("profiles.json");
+  const cachedList = /** @type {any} */ (cached)?.data?.profiles;
+  if (Array.isArray(cachedList) && cachedList.length > 0) {
+    await writeFn("profiles.json", { profiles: fn([...cachedList]) });
+    return true;
+  }
+  // nothing usable cached: ask the network directly so "file absent" (safe
+  // to seed) is distinguishable from "unreachable" (refuse)
+  try {
+    const remote = await readRemote("profiles.json");
+    const remoteList = /** @type {any} */ (remote)?.data?.profiles;
+    if (Array.isArray(remoteList) && remoteList.length > 0) {
+      await writeFn("profiles.json", { profiles: fn([...remoteList]) });
+      return true;
+    }
+    if (!allowSeed) return false;
+    await writeFn("profiles.json", { profiles: fn([]) });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** @type {Set<() => void>} */

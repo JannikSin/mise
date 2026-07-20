@@ -11,7 +11,7 @@ globalThis.localStorage = /** @type {any} */ ({
   removeItem: (/** @type {string} */ k) => kv.delete(k),
 });
 
-const { activeProfile, scoped, readProfiles } = await import("../app/lib/store.js");
+const { activeProfile, scoped, readProfiles, patchProfiles } = await import("../app/lib/store.js");
 
 test("activeProfile defaults to david when the key is unset", () => {
   kv.clear();
@@ -47,6 +47,9 @@ test("readProfiles falls back to a default David profile when the file is missin
   const result = await readProfiles(missing);
   assert.deepEqual(result, {
     profiles: [{ id: "david", name: "David", emoji: "🏋️", phase: "gain" }],
+    // the marker choosers use to say "this is the built-in default, not the
+    // real list" — and that patchProfiles-based writers refuse to build on
+    fallback: true,
   });
 });
 
@@ -78,4 +81,59 @@ test("readProfiles returns the file's profiles when present", async () => {
   const result = await readProfiles(found);
   assert.equal(result.profiles.length, 2);
   assert.equal(result.profiles[1].id, "mom");
+});
+
+test("patchProfiles patches the REAL list, never the caller's snapshot", async () => {
+  // remote knows laurie; the caller's device might not — the patch must
+  // land on the full list (the 2026-07-20 clobber regression)
+  const real = { profiles: [{ id: "david" }, { id: "laurie" }] };
+  /** @type {any[]} */
+  const writes = [];
+  const ok = await patchProfiles((list) => [...list, { id: "mom" }], {
+    readCached: async () => ({ data: real, sha: "x" }),
+    writeFn: async (path, data) => writes.push([path, data]),
+  });
+  assert.equal(ok, true);
+  assert.deepEqual(
+    writes[0][1].profiles.map((/** @type {any} */ p) => p.id),
+    ["david", "laurie", "mom"],
+  );
+});
+
+test("patchProfiles REFUSES when the list can't be established (offline, nothing cached)", async () => {
+  /** @type {any[]} */
+  const writes = [];
+  const ok = await patchProfiles((list) => [...list, { id: "new" }], {
+    readCached: async () => null,
+    readRemote: async () => {
+      throw new Error("offline");
+    },
+    writeFn: async (path, data) => writes.push([path, data]),
+  });
+  assert.equal(ok, false);
+  assert.equal(writes.length, 0); // nothing written = nothing clobbered
+});
+
+test("patchProfiles seeds a confirmed-fresh repo only with allowSeed", async () => {
+  const io404 = {
+    readCached: async () => null,
+    readRemote: async () => null, // github readFile returns null on 404
+  };
+  /** @type {any[]} */
+  const writes = [];
+  const refused = await patchProfiles((list) => [...list, { id: "first" }], {
+    ...io404,
+    writeFn: async (path, data) => writes.push([path, data]),
+  });
+  assert.equal(refused, false);
+  const seeded = await patchProfiles((list) => [...list, { id: "first" }], {
+    ...io404,
+    allowSeed: true,
+    writeFn: async (path, data) => writes.push([path, data]),
+  });
+  assert.equal(seeded, true);
+  assert.deepEqual(
+    writes[0][1].profiles.map((/** @type {any} */ p) => p.id),
+    ["first"],
+  );
 });

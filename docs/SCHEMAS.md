@@ -116,9 +116,25 @@ data to the app repo.
   which normalizes to lowercase-kebab and stores `"home"`/blank as absent.
   Moving is deliberately cheap so a visiting member can join a household for
   a week and move back.
+- `family?`: string (lowercase-kebab), absent = ungrouped. The TOP-LEVEL
+  grouping (2026-07-21): family is who a person IS, household is who they
+  grocery-shop with right now. The profile gate groups its chooser by family
+  once two or more distinct families exist; households remain the movable
+  unit under SYS. Asked in the gate questionnaire, editable from SYS ("SET
+  FAMILY"). Existing profiles without the field behave exactly as before.
 - `phase` here is a display-only mirror of that profile's own
   `fitness/targets.json.phase` — shown on the profile-gate button before
   that profile's own data has loaded.
+- **Writing this file (G2, 2026-07-21): every mutation goes through
+  `patchProfiles` in `app/lib/store.js`**, which loads the REAL current list
+  (cache, then network) and applies an id-targeted patch. It REFUSES to write
+  when the list can't be established, because a whole-array replacement built
+  from the David-only fallback is exactly the bug that erased a profile on
+  2026-07-20: any device that hadn't synced would clobber every profile it
+  didn't know about via the SYS toggles or ADD PROFILE. `allowSeed` (passed
+  only by the two profile-creation flows) permits the from-scratch write on a
+  confirmed-404 fresh data repo. Choosers display `readProfiles().fallback`
+  honestly instead of silently showing the default list.
 - New profiles are created by the gate's ADD PROFILE questionnaire
   (`app/views/profile-gate.js`): sex/age/height(ft+in)/weight(lb)/activity/
   goal → `targetsFromQuestionnaire` (`app/lib/fitness.js`, Mifflin-St Jeor
@@ -423,6 +439,9 @@ Seeded from the FITNESS.md system; edited rarely.
   "packsLunch": true, // ? packs lunch for work/school. Absent = false.
   "lunchMicrowave": false, // ? has a microwave at work (only meaningful
   //   when packsLunch). Absent/false + packsLunch = favor cold-packable.
+  "mealsOutPerWeek": 2, // ? typical restaurant/dining-hall/free meals a week
+  //   (gate survey 2026-07-21). Absent = rarely (0). Read by the assistant
+  //   and future OUT-slot expectations; no generator behavior yet.
   "mealSlots": ["breakfast", "lunch", "dinner", "smoothie"],
   // ? ordered list of meal slots app/lib/weekbuilder.js's
   //   generateWeek proactively fills/committee-picks per day.

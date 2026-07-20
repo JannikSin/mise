@@ -232,7 +232,8 @@ export function setTopSet(session, exercise, set) {
  *   state?: string,
  *   leftoverTolerance?: "none" | "some" | "lots",
  *   packsLunch?: boolean,
- *   lunchMicrowave?: boolean
+ *   lunchMicrowave?: boolean,
+ *   mealsOutPerWeek?: number
  * }} SurveyPrefs
  */
 
@@ -371,6 +372,9 @@ export function targetsFromQuestionnaire(q, todayIso, prefs = {}) {
       : {}),
     ...(prefs.packsLunch ? { packsLunch: true } : {}),
     ...(prefs.packsLunch && prefs.lunchMicrowave ? { lunchMicrowave: true } : {}),
+    // typical restaurant/free meals a week: read by the assistant and the
+    // planner's OUT-slot expectations, absent = rarely (0)
+    ...(prefs.mealsOutPerWeek ? { mealsOutPerWeek: prefs.mealsOutPerWeek } : {}),
     mealSlots,
     tracks:
       phase === "gain"

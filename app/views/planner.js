@@ -41,6 +41,7 @@ function monthDay(isoDate) {
  *   recipes: Record<string, any>[],
  *   plan: import("../lib/plan.js").Plan,
  *   targets: Record<string, any> | null,
+ *   poolReport: { counts: Record<string, number>, warnings: string[] } | null,
  *   hasToken: boolean,
  *   loading: boolean,
  *   weekId: string,
@@ -58,6 +59,7 @@ export function PlannerView({
   recipes,
   plan,
   targets,
+  poolReport,
   hasToken,
   loading,
   weekId,
@@ -213,6 +215,18 @@ export function PlannerView({
         `
       }
 
+      ${
+        // pool-adequacy warnings (new/edited profiles): the bank may simply
+        // lack recipes for this profile's filters or calorie tier — say so
+        // here, where the mystery of repeats would otherwise surface
+        poolReport &&
+        poolReport.warnings.length > 0 &&
+        html`<div class="tile" role="status">
+          <div class="k">⚠ recipe pool check</div>
+          ${poolReport.warnings.map((w) => html`<div class="d num redflag" key=${w}>${w}</div>`)}
+          <div class="d">fix: add recipes to the bank that fit this profile's diet/phase, or relax its filters in SYS.</div>
+        </div>`
+      }
       ${
         plan.buffer &&
         byId.get(plan.buffer.recipeId) &&

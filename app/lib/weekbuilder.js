@@ -741,6 +741,58 @@ const MEAL_PRIORITY = /** @type {const} */ (["dinner", "lunch", "breakfast", "sm
 const DEFAULT_MEAL_SLOTS = /** @type {const} */ (["breakfast", "lunch", "dinner", "smoothie"]);
 
 /**
+ * Whether a profile's (already merged/filtered) recipe pool can actually
+ * feed its targets — the "new 4000 kcal track-season profile" problem: the
+ * bank may simply lack enough recipes of the right type/size, and that
+ * should be said OUT LOUD instead of discovered as a mystery of repeats
+ * and snack-stacking. Checks two things per the generator's real rules:
+ * committee depth per proactive slot (repeats explode below it) and an
+ * optimistic best-case day (every slot's biggest recipe at the 2x serving
+ * cap + 3 stacked snacks) against the calorie target.
+ * @param {Record<string, any>[]} recipes the profile's merged pool
+ * @param {Record<string, any> | null} targets
+ * @returns {{ counts: Record<string, number>, warnings: string[] }}
+ */
+export function poolAdequacy(recipes, targets) {
+  const usable = recipes.filter((r) => r.effort !== "project");
+  const mealSlots = /** @type {string[]} */ (targets?.mealSlots ?? [...DEFAULT_MEAL_SLOTS]);
+  /** @type {Record<string, number>} */
+  const counts = {};
+  /** @type {string[]} */
+  const warnings = [];
+  const needs = /** @type {Record<string, number>} */ ({ ...COMMITTEE_SIZES, snack: 2 });
+  for (const slot of [...mealSlots, "snack"]) {
+    const pool = usable.filter((r) => r.mealType === slot);
+    counts[slot] = pool.length;
+    const need = needs[slot] ?? 1;
+    if (pool.length < need) {
+      warnings.push(
+        `only ${pool.length} ${slot} recipe${pool.length === 1 ? "" : "s"} fit this profile (wants ${need}+) — expect repeats until more are added`,
+      );
+    }
+  }
+  const caloriesTarget = targets?.macros?.calories;
+  if (caloriesTarget) {
+    const maxCal = (/** @type {string} */ slot) =>
+      Math.max(0, ...usable.filter((r) => r.mealType === slot).map((r) => r.nutrition?.calories ?? 0));
+    // optimistic ceiling: biggest recipe per proactive slot at the 2x
+    // serving cap, plus macroTopUp's 3 snack stacks at 2x
+    const bestDay =
+      mealSlots.reduce((s, slot) => s + maxCal(slot) * 2, 0) + maxCal("snack") * 2 * 3;
+    if (bestDay < caloriesTarget) {
+      warnings.push(
+        `even the biggest possible day (~${Math.round(bestDay)} kcal) can't reach the ${caloriesTarget} kcal target — the bank needs bigger or more recipes for this phase`,
+      );
+    } else if (bestDay < caloriesTarget * 1.2) {
+      warnings.push(
+        `the ${caloriesTarget} kcal target is reachable but tight (best case ~${Math.round(bestDay)}) — most days will lean on portion bumps and snack stacking`,
+      );
+    }
+  }
+  return { counts, warnings };
+}
+
+/**
  * @typedef {{
  *   shared: { food: string, count: number }[],
  *   distinctItems: number,

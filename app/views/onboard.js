@@ -1,7 +1,7 @@
 import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { onboardTurn } from "../lib/worker.js";
-import { readProfiles, write } from "../lib/store.js";
+import { readProfiles, patchProfiles, write } from "../lib/store.js";
 import { targetsFromQuestionnaire } from "../lib/fitness.js";
 import { localIsoDate } from "../lib/dates.js";
 
@@ -56,9 +56,25 @@ async function finalizeProfile(p, existing) {
     ...(p.household && p.household.toLowerCase() !== "home"
       ? { household: p.household.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") }
       : {}),
+    ...(p.family
+      ? { family: String(p.family).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") }
+      : {}),
   };
   await write(`profiles/${id}/fitness/targets.json`, targets, { raw: true });
-  await write("profiles.json", { profiles: [...existing, entry] });
+  // G2: append against the REAL list via the safe path — never a whole-array
+  // replacement from this component's snapshot (that's the clobber bug)
+  let duped = false;
+  const ok = await patchProfiles(
+    (list) => {
+      if (list.some((x) => x.id === id)) {
+        duped = true;
+        return list;
+      }
+      return [...list, entry];
+    },
+    { allowSeed: true },
+  );
+  if (!ok || duped) return null;
   return id;
 }
 

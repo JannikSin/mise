@@ -56,7 +56,7 @@ import {
   mergeRecipePool,
   SLOT_KEYS,
 } from "./lib/plan.js";
-import { generateWeek } from "./lib/weekbuilder.js";
+import { generateWeek, poolAdequacy } from "./lib/weekbuilder.js";
 
 export const APP = { name: "Mise", version: "0.3.0" };
 
@@ -937,6 +937,7 @@ function App() {
         recipes=${recipes}
         plan=${plan}
         targets=${targets}
+        poolReport=${recipes.length > 0 ? poolAdequacy(recipes, targets) : null}
         hasToken=${hasToken}
         loading=${loading}
         weekId=${weekId}

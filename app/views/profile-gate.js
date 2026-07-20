@@ -1,6 +1,6 @@
 import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
-import { readProfiles, write } from "../lib/store.js";
+import { readProfiles, patchProfiles, write } from "../lib/store.js";
 import { getToken } from "../lib/github.js";
 import { targetsFromQuestionnaire } from "../lib/fitness.js";
 import { localIsoDate } from "../lib/dates.js";
@@ -39,6 +39,8 @@ function splitList(/** @type {string} */ s) {
 export function ProfileGateView() {
   const [profiles, setProfiles] = useState(/** @type {Record<string, any>[]} */ ([]));
   const [loading, setLoading] = useState(true);
+  const [fallback, setFallback] = useState(false);
+  const [saveErr, setSaveErr] = useState("");
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("");
   const [sex, setSex] = useState(/** @type {"m" | "f"} */ ("f"));
@@ -78,6 +80,12 @@ export function ProfileGateView() {
   const [shopsPerWeek, setShopsPerWeek] = useState(1);
   // richer-survey additions (2026-07-19): shorten the chat onboarder to pennies
   const [household, setHousehold] = useState("home");
+  // family layer (2026-07-21): family = who you ARE (the gate groups by it);
+  // household = who you shop with right now (movable in SYS)
+  const [family, setFamily] = useState("");
+  // typical restaurant/free meals per week — pre-fills nothing yet, but the
+  // assistant and the OUT-slot suggestions will read it (targets.mealsOutPerWeek)
+  const [mealsOut, setMealsOut] = useState(0);
   const [usState, setUsState] = useState("");
   const [tiredOf, setTiredOf] = useState("");
   const [leftoverTolerance, setLeftoverTolerance] = useState(
@@ -104,6 +112,7 @@ export function ProfileGateView() {
     readProfiles().then((p) => {
       if (!alive) return;
       setProfiles(p.profiles);
+      setFallback(Boolean(/** @type {any} */ (p).fallback));
       setLoading(false);
     });
     return () => {
@@ -143,6 +152,7 @@ export function ProfileGateView() {
       .replace(/^-+|-+$/g, "");
     if (!id || profiles.some((p) => p.id === id)) return;
     setSaving(true);
+    setSaveErr("");
     const loved = Object.keys(cuisinePrefs).filter((c) => cuisinePrefs[c] === "loved");
     const avoided = Object.keys(cuisinePrefs).filter((c) => cuisinePrefs[c] === "avoided");
     const equipAll = EQUIPMENT.every((e) => equipment.includes(e));
@@ -179,36 +189,58 @@ export function ProfileGateView() {
         leftoverTolerance,
         packsLunch,
         lunchMicrowave,
+        ...(mealsOut > 0 ? { mealsOutPerWeek: mealsOut } : {}),
       },
     );
-    const next = {
-      profiles: [
-        ...profiles,
-        {
-          id,
-          name: trimmedName,
-          emoji: emoji.trim(),
-          phase: targets.phase,
-          trainingEnabled: training,
-          // "home" (or blank) is the default: store as absent, not a string
-          ...(household.trim() && household.trim().toLowerCase() !== "home"
-            ? {
-                household: household
-                  .trim()
-                  .toLowerCase()
-                  .replace(/[^a-z0-9-]+/g, "-")
-                  .replace(/^-+|-+$/g, ""),
-              }
-            : {}),
-        },
-      ],
+    const slugify = (/** @type {string} */ s) =>
+      s
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    const entry = {
+      id,
+      name: trimmedName,
+      emoji: emoji.trim(),
+      phase: targets.phase,
+      trainingEnabled: training,
+      // "home" (or blank) is the default: store as absent, not a string
+      ...(household.trim() && household.trim().toLowerCase() !== "home"
+        ? { household: slugify(household) }
+        : {}),
+      ...(family.trim() ? { family: slugify(family) } : {}),
     };
     // await the cache writes (not the network flush, which queues and
     // survives fine) so the reload below never races the local records.
     // Both paths are raw: the gate runs BEFORE a profile is chosen, so
     // scoping must not apply. profiles.json is never scoped anyway.
     await write(`profiles/${id}/fitness/targets.json`, targets, { raw: true });
-    await write("profiles.json", next);
+    // G2: append against the REAL list, never this component's snapshot —
+    // a device that hadn't synced used to erase every profile it didn't
+    // know about right here. allowSeed covers the genuinely-fresh repo.
+    let duped = false;
+    const ok = await patchProfiles(
+      (list) => {
+        if (list.some((p) => p.id === id)) {
+          duped = true;
+          return list;
+        }
+        return [...list, entry];
+      },
+      { allowSeed: true },
+    );
+    if (!ok) {
+      setSaving(false);
+      setSaveErr(
+        "couldn't load the existing profile list (offline or token not set), so nothing was written: creating now could erase profiles this device hasn't seen. Get online once, then retry.",
+      );
+      return;
+    }
+    if (duped) {
+      setSaving(false);
+      setSaveErr(`a profile with the id "${id}" already exists, pick a different name.`);
+      return;
+    }
     choose(id);
   };
 
@@ -248,15 +280,47 @@ export function ProfileGateView() {
         <div class="sub">who's checking in?</div>
       </div>
       ${loading && html`<p class="hint">loading profiles…</p>`}
-      <div class="slots">
-        ${profiles.map(
-          (p) => html`
-            <button class="ask" key=${p.id} onClick=${() => choose(p.id)}>
-              ${p.emoji} ${p.name}
-            </button>
-          `,
-        )}
-      </div>
+      ${
+        fallback &&
+        !loading &&
+        html`<p class="hint">
+          ⚠ couldn't load the profile list (offline or token not set), so this is the built-in
+          default. Any other profiles still exist and are safe; they'll appear once this device
+          syncs.
+        </p>`
+      }
+      ${
+        // family = the top-level grouping (David's structure, 2026-07-21):
+        // people belong to a family; households are the movable shopping
+        // unit inside SYS. Headers only appear once 2+ families exist.
+        (() => {
+          const famOf = (/** @type {Record<string, any>} */ p) => p.family ?? "";
+          const fams = [...new Set(profiles.map(famOf))];
+          const showHeaders = fams.filter(Boolean).length > 0 && fams.length > 1;
+          const block = (/** @type {Record<string, any>[]} */ list) => html`
+            <div class="slots">
+              ${list.map(
+                (p) => html`
+                  <button class="ask" key=${p.id} onClick=${() => choose(p.id)}>
+                    ${p.emoji} ${p.name}
+                  </button>
+                `,
+              )}
+            </div>
+          `;
+          if (!showHeaders) return block(profiles);
+          return fams
+            .sort((a, b) => (a || "zz").localeCompare(b || "zz"))
+            .map(
+              (f) => html`
+                <div key=${f || "none"}>
+                  <h2 class="block-title">${f ? f.toUpperCase() : "EVERYONE ELSE"}</h2>
+                  ${block(profiles.filter((p) => famOf(p) === f))}
+                </div>
+              `,
+            );
+        })()
+      }
       <button class="secondary linkbtn" onClick=${() => setChatMode(true)}>
         prefer to chat? set up by conversation →
       </button>
@@ -282,6 +346,12 @@ export function ProfileGateView() {
           </div>
           <div class="token-form">
             <input
+              aria-label="Family this person belongs to"
+              placeholder="family (e.g. taranowski)"
+              value=${family}
+              onInput=${(/** @type {any} */ e) => setFamily(e.currentTarget.value)}
+            />
+            <input
               aria-label="Household (who they grocery-shop with)"
               placeholder="household (e.g. home)"
               value=${household}
@@ -296,7 +366,8 @@ export function ProfileGateView() {
             />
           </div>
           <p class="hint">
-            same household = one shared grocery trip. State sets the List's grocery tax.
+            family is who they ARE (the chooser groups by it); household is who they grocery-shop
+            with right now, movable any time in SYS. State sets the List's grocery tax.
           </p>
 
           <h2 class="block-title">about them</h2>
@@ -445,6 +516,30 @@ export function ProfileGateView() {
               three squares
             </button>
           </div>
+
+          <h2 class="block-title">meals out per week</h2>
+          <div class="chips" role="group" aria-label="Typical restaurant or free meals per week">
+            ${[
+              { label: "rarely", v: 0 },
+              { label: "1-2", v: 2 },
+              { label: "3-5", v: 4 },
+              { label: "most days", v: 7 },
+            ].map(
+              (o) => html`
+                <button
+                  class="chip ${mealsOut === o.v ? "on" : ""}"
+                  key=${o.label}
+                  onClick=${() => setMealsOut(o.v)}
+                >
+                  ${o.label}
+                </button>
+              `,
+            )}
+          </div>
+          <p class="hint">
+            restaurant, dining hall, free work lunches: the planner's 🍴 OUT slots and the
+            assistant use this to expect them.
+          </p>
 
           <h2 class="block-title">weeknight time</h2>
           <div class="chips" role="group" aria-label="Weeknight time budget">
@@ -660,6 +755,7 @@ export function ProfileGateView() {
               ${saving ? "SETTING UP…" : "ADD & OPEN"}
             </button>
           </div>
+          ${saveErr && html`<p class="hint">⚠ ${saveErr}</p>`}
           <p class="hint">
             ADD lights up when everything is filled in: name, emoji, age 10-100, height 3-7 ft
             (inches 0-11), weight 60-500 lb.

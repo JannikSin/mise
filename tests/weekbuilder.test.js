@@ -9,6 +9,7 @@ import {
   foodGroupCoverage,
   foodGroupGapBonus,
   poolInsufficiency,
+  poolAdequacy,
   foodGroupFloorPass,
   calorieTrimPass,
   ENFORCED_DAILY_GROUPS,
@@ -876,4 +877,29 @@ test("survey-v2: a satisfiable time cap filters slow dinners without relaxing", 
     plan.entries.filter((e) => e.slot === "dinner").map((e) => e.recipeId),
   );
   assert.equal(dinnerIds.has("slow"), false); // the 40-minute dinner is filtered out
+});
+
+test("poolAdequacy flags thin slots and unreachable calorie targets honestly", () => {
+  // pool: 1 dinner (700), 1 breakfast (800), 1 smoothie (700), 1 lunch (800), 1 snack (205)
+  const thin = [CHICKEN_A, BREAKFAST, SMOOTHIE, LUNCH, SNACK];
+  const { counts, warnings } = poolAdequacy(thin, { macros: { calories: 4000 } });
+  assert.equal(counts.dinner, 1);
+  // dinner wants a committee of 4, lunch 3, breakfast 2, snack 2
+  assert.ok(warnings.some((w) => w.includes("dinner")));
+  assert.ok(warnings.some((w) => w.includes("lunch")));
+  // best case: (800+800+700+700)*2 + 205*2*3 = 7230 >= 4000*1.2, so no calorie warning
+  assert.ok(!warnings.some((w) => w.includes("kcal target")));
+  // a 4000-kcal profile with only tiny recipes IS called out as unreachable
+  const tiny = [
+    r("small-din", "dinner", ["x"], { calories: 300, protein: 20 }),
+    r("small-snk", "snack", ["y"], { calories: 100, protein: 5 }),
+  ];
+  const short = poolAdequacy(tiny, { macros: { calories: 4000 } });
+  assert.ok(short.warnings.some((w) => w.includes("can't reach the 4000 kcal target")));
+  // respects targets.mealSlots (a no-smoothie profile isn't warned about smoothies)
+  const noSmoothie = poolAdequacy(thin, {
+    macros: { calories: 2000 },
+    mealSlots: ["breakfast", "lunch", "dinner"],
+  });
+  assert.ok(!noSmoothie.warnings.some((w) => w.includes("smoothie")));
 });
