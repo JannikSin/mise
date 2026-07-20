@@ -1,7 +1,8 @@
 import { html } from "htm/preact";
 import { useRef, useState } from "preact/hooks";
 import { scanPhoto, scanReceipt } from "../lib/worker.js";
-import { mergeProfileLists, swapCandidates, formatStoreQty, tripOf } from "../lib/shopping.js";
+import { mergeProfileLists, perishableStatus, swapCandidates, formatStoreQty, tripOf } from "../lib/shopping.js";
+import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 import { itemCost, rankStores, taxRateFor, tripTotal, storeSlugFromReceipt } from "../lib/prices.js";
 import { activeProfile } from "../lib/store.js";
 
@@ -624,10 +625,20 @@ export function ShoppingView({
               <h2 class="block-title">Perishables</h2>
               <div class="slots">
                 ${(pantry.perishables ?? []).map(
-                  (/** @type {Record<string, any>} */ p, /** @type {number} */ i) => html`
+                  (/** @type {Record<string, any>} */ p, /** @type {number} */ i) => {
+                    const { goodUntil, daysLeft } = perishableStatus(p, localIsoDate(new Date()));
+                    return html`
                     <div class="checkrow static" key=${i}>
-                      <span class="food">${p.food}</span>
-                      <span class="q num">${p.qty ?? ""} · ${p.added}</span>
+                      <span class="food">
+                        ${p.food}${(p.useSoon || (daysLeft != null && daysLeft <= 2)) && html` <span class="usesoon">use soon</span>`}
+                      </span>
+                      <span class="q num ${daysLeft != null && daysLeft <= 2 ? "expiring" : ""}">
+                        ${
+                          goodUntil
+                            ? `good til ${parseLocalIso(goodUntil).toLocaleDateString([], { month: "short", day: "numeric" })} · ${daysLeft}d`
+                            : `${p.qty ?? ""} · no date`
+                        }
+                      </span>
                       ${
                         onRemovePantry &&
                         html`<button
@@ -639,7 +650,8 @@ export function ShoppingView({
                         </button>`
                       }
                     </div>
-                  `,
+                  `;
+                  },
                 )}
               </div>
             `

@@ -372,6 +372,44 @@ export function shelfLifeDays(food) {
 }
 
 /**
+ * A perishable's freshness window: the last day it's assumed good and how
+ * many days remain (0 = last day today). Null fields when the item has no
+ * `added` date — we can't judge what we can't date.
+ * @param {Record<string, any>} p pantry perishable
+ * @param {string} todayIso
+ * @returns {{ goodUntil: string | null, daysLeft: number | null }}
+ */
+export function perishableStatus(p, todayIso) {
+  if (!p.added) return { goodUntil: null, daysLeft: null };
+  const until = new Date(`${p.added}T00:00:00`);
+  until.setDate(until.getDate() + shelfLifeDays(p.food));
+  const today = new Date(`${todayIso}T00:00:00`);
+  const daysLeft = Math.round((until.getTime() - today.getTime()) / 86400000);
+  const y = until.getFullYear();
+  const m = String(until.getMonth() + 1).padStart(2, "0");
+  const d = String(until.getDate()).padStart(2, "0");
+  return { goodUntil: `${y}-${m}-${d}`, daysLeft };
+}
+
+/**
+ * Auto-flag `useSoon` on any perishable within its last 3 days, so the week
+ * generator favors recipes that cook the expiring food first — without David
+ * hand-flagging anything. Manual useSoon flags are preserved; the input is
+ * never mutated.
+ * @param {Record<string, any>} pantry
+ * @param {string} todayIso
+ * @returns {Record<string, any>}
+ */
+export function withAutoUseSoon(pantry, todayIso) {
+  const perishables = (pantry.perishables ?? []).map((/** @type {any} */ p) => {
+    if (p.useSoon) return p;
+    const { daysLeft } = perishableStatus(p, todayIso);
+    return daysLeft != null && daysLeft <= 3 ? { ...p, useSoon: true } : p;
+  });
+  return { ...pantry, perishables };
+}
+
+/**
  * Drop perishables whose `added` date plus their shelf life is before today.
  * Perishables with no `added` date are kept (we can't judge them). Returns the
  * updated pantry and the names dropped, so the UI can say what left.

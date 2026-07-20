@@ -6,6 +6,8 @@ import {
   applyJustBought,
   ownItemToPantry,
   expirePerishables,
+  perishableStatus,
+  withAutoUseSoon,
   removeFromPantry,
   shelfLifeDays,
   roundForPurchase,
@@ -685,4 +687,38 @@ test("deriveShoppingList shops the weekly buffer batch like a planned entry", ()
   const row = list.items.find((i) => i.food === "black beans");
   assert.ok(row, "buffer ingredients must land on the list");
   assert.equal(row.qty, 3); // 6 portions of a serves-6 batch = the full recipe
+});
+
+test("perishableStatus computes good-until and days left from the shelf-life table", () => {
+  // spinach = 6 days shelf life
+  const s = perishableStatus({ food: "spinach", added: "2026-07-18" }, "2026-07-20");
+  assert.equal(s.goodUntil, "2026-07-24");
+  assert.equal(s.daysLeft, 4);
+  // last day = 0 days left, not expired
+  const last = perishableStatus({ food: "salmon", added: "2026-07-17" }, "2026-07-20");
+  assert.equal(last.daysLeft, 0);
+  // no added date = unjudgeable
+  assert.deepEqual(perishableStatus({ food: "mystery" }, "2026-07-20"), {
+    goodUntil: null,
+    daysLeft: null,
+  });
+});
+
+test("withAutoUseSoon flags perishables in their last 3 days, preserves manual flags, never mutates", () => {
+  const pantry = {
+    staples: [],
+    perishables: [
+      { food: "spinach", added: "2026-07-18" }, // 4d left — not flagged
+      { food: "chicken breast", added: "2026-07-18" }, // 2d left — flagged
+      { food: "carrot", added: "2026-07-19", useSoon: true }, // manual flag kept
+      { food: "mystery" }, // no date — untouched
+    ],
+  };
+  const out = withAutoUseSoon(pantry, "2026-07-20");
+  assert.equal(out.perishables[0].useSoon, undefined);
+  assert.equal(out.perishables[1].useSoon, true);
+  assert.equal(out.perishables[2].useSoon, true);
+  assert.equal(out.perishables[3].useSoon, undefined);
+  // input not mutated
+  assert.equal(pantry.perishables[1].useSoon, undefined);
 });

@@ -2,6 +2,7 @@ import { html } from "htm/preact";
 import { useState } from "preact/hooks";
 import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 import { datesOfWeek, recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
+import { perishableStatus } from "../lib/shopping.js";
 
 /**
  * Cook view: a day's planned meals in full (moved out of Home), each
@@ -17,12 +18,13 @@ import { datesOfWeek, recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
  *   recipes: Record<string, any>[],
  *   plan: import("../lib/plan.js").Plan,
  *   daily: { days?: Record<string, any>[] },
+ *   pantry: Record<string, any>,
  *   onPatchDay: (patch: Record<string, any>) => void,
  *   hasToken: boolean,
  *   loading: boolean
  * }} props
  */
-export function TodayView({ recipes, plan, daily, onPatchDay, hasToken, loading }) {
+export function TodayView({ recipes, plan, daily, pantry, onPatchDay, hasToken, loading }) {
   const byId = recipesById(recipes);
   const today = localIsoDate(new Date());
   const weekDates = datesOfWeek(plan.week);
@@ -83,6 +85,13 @@ export function TodayView({ recipes, plan, daily, onPatchDay, hasToken, loading 
   );
   const bufferLeft = Math.max(0, (plan.buffer?.portions ?? 0) - bufferWeek);
 
+  // perishables in their last 2 days (or hand-flagged useSoon): cook these
+  // first — the pantry auto-expiry will bin them otherwise
+  const useSoon = (pantry?.perishables ?? [])
+    .map((/** @type {Record<string, any>} */ p) => ({ ...p, ...perishableStatus(p, today) }))
+    .filter((/** @type {any} */ p) => p.useSoon || (p.daysLeft != null && p.daysLeft <= 2))
+    .sort((/** @type {any} */ a, /** @type {any} */ b) => (a.daysLeft ?? 99) - (b.daysLeft ?? 99));
+
   return html`
     <div class="view">
       <div class="hero weeknav">
@@ -107,6 +116,21 @@ export function TodayView({ recipes, plan, daily, onPatchDay, hasToken, loading 
           ›
         </button>
       </div>
+
+      ${
+        useSoon.length > 0 &&
+        html`<div class="tile usesoontile">
+          <div class="k">🕒 USE SOON · cook these first or lose them</div>
+          <div class="d num">
+            ${useSoon
+              .map(
+                (/** @type {any} */ p) =>
+                  `${p.food}${p.daysLeft != null ? ` (${p.daysLeft <= 0 ? "today" : `${p.daysLeft}d`})` : ""}`,
+              )
+              .join(" · ")}
+          </div>
+        </div>`
+      }
 
       <h2 class="block-title">${isToday ? "Today's meals" : `${dayLabel}'s meals`}</h2>
       ${

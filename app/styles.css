@@ -1033,6 +1033,27 @@ summary.block-title {
   font-weight: normal;
 }
 
+/* ---- pantry freshness (D1) ---- */
+
+.usesoon {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--recover);
+  border: 1px solid var(--recover);
+  border-radius: 6px;
+  padding: 1px 5px;
+  vertical-align: middle;
+}
+
+.q.expiring {
+  color: var(--recover);
+}
+
+.usesoontile .d {
+  color: var(--recover);
+}
+
 /* ---- in-app confirm modal (A2: replaces window.confirm) ---- */
 
 .modal-overlay {

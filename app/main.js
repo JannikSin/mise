@@ -33,6 +33,7 @@ import {
   householdOthers,
   ownItemToPantry,
   expirePerishables,
+  withAutoUseSoon,
   removeFromPantry,
   sectionOf,
   slug,
@@ -703,7 +704,9 @@ function App() {
     const result = generateWeek({
       recipes: recipesRef.current,
       targets: targetsRef.current,
-      pantry: pantryRef.current,
+      // expiring-soon perishables are auto-flagged useSoon so the committees
+      // favor recipes that cook them before they leave on their own
+      pantry: withAutoUseSoon(pantryRef.current, localIsoDate(new Date())),
       weekId: weekRef.current,
       plan: /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
       salt: bs.salt,
@@ -854,6 +857,7 @@ function App() {
         recipes=${recipes}
         plan=${plan}
         daily=${dailyLog}
+        pantry=${pantry}
         onPatchDay=${handlePatchDay}
         hasToken=${hasToken}
         loading=${loading}
