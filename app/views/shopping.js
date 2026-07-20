@@ -347,15 +347,7 @@ export function ShoppingView({
               html`<button
                 class="secondary"
                 aria-label="Clear the whole list, including old ticks and manual items"
-                onClick=${() => {
-                  if (
-                    globalThis.confirm(
-                      "Clear the entire list? Old checked items and manual adds go too. Rebuild it with BUILD.",
-                    )
-                  ) {
-                    onClearList();
-                  }
-                }}
+                onClick=${onClearList}
               >
                 🗑 CLEAR LIST
               </button>`

@@ -1033,6 +1033,61 @@ summary.block-title {
   font-weight: normal;
 }
 
+/* ---- in-app confirm modal (A2: replaces window.confirm) ---- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  padding: 18px;
+  max-width: 420px;
+  width: 100%;
+}
+
+.modal-msg {
+  margin: 0 0 14px;
+  line-height: 1.45;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.modal-btn {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: none;
+  color: var(--dim);
+  font-family: var(--mono);
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.modal-btn.ok {
+  color: var(--signal);
+  border-color: var(--signal);
+}
+
+.modal-btn:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
+}
+
 /* ---- weekly buffer snack ---- */
 
 .buffer .bufferrow {

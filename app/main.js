@@ -25,6 +25,7 @@ import { ShoppingView } from "./views/shopping.js";
 import { FitnessView } from "./views/fitness.js";
 import { RemediesView } from "./views/remedies.js";
 import { VitalsView } from "./views/vitals.js";
+import { ConfirmModal } from "./views/confirm-modal.js";
 import { upsertDay } from "./lib/fitness.js";
 import {
   deriveShoppingList,
@@ -245,11 +246,42 @@ function App() {
     void write("pantry.json", next);
   }, []);
 
+  // in-app confirm (roadmap A2): one modal at the App root replaces every
+  // window.confirm. askConfirm(message) resolves true on OK, false on
+  // CANCEL/Escape/overlay tap; only one question can be pending at a time
+  // (a second ask while one is open auto-cancels the first).
+  const [confirmAsk, setConfirmAsk] = useState(
+    /** @type {{ message: string, resolve: (ok: boolean) => void } | null} */ (null),
+  );
+  const askConfirm = useCallback((/** @type {string} */ message) => {
+    return new Promise((/** @type {(ok: boolean) => void} */ resolve) => {
+      setConfirmAsk((prev) => {
+        prev?.resolve(false);
+        return { message, resolve };
+      });
+    });
+  }, []);
+  const settleConfirm = useCallback((/** @type {boolean} */ ok) => {
+    setConfirmAsk((prev) => {
+      prev?.resolve(ok);
+      return null;
+    });
+  }, []);
+
   // hard reset the list: wipe items AND the carried-over ticks/manual adds
-  // from the last trip, so BUILD repopulates from a clean slate
-  const handleClearList = useCallback(() => {
+  // from the last trip, so BUILD repopulates from a clean slate. The confirm
+  // lives here (not in the view) so every confirm in the app flows through
+  // the one in-app modal.
+  const handleClearList = useCallback(async () => {
+    if (
+      !(await askConfirm(
+        "Clear the entire list? Old checked items and manual adds go too. Rebuild it with BUILD.",
+      ))
+    ) {
+      return;
+    }
     updateShopping({ items: [] });
-  }, [updateShopping]);
+  }, [updateShopping, askConfirm]);
 
   // remove a pantry entry outright (mis-added chicken, a staple you dropped)
   const handleRemovePantry = useCallback(
@@ -562,12 +594,12 @@ function App() {
   // locked week: destructive edits (add/remove/move) ask first, since the
   // meals may already be shopped for; pin/unpin never changes what's cooked
   // so it's left ungated
-  const LOCK_CONFIRM = "This week is locked — you've shopped for it. Change this meal anyway?";
+  const LOCK_CONFIRM = "This week is locked, you've shopped for it. Change this meal anyway?";
 
   const handleDrop = useCallback(
-    (/** @type {string} */ date, /** @type {string} */ slot, /** @type {DOMStringMap} */ drag) => {
+    async (/** @type {string} */ date, /** @type {string} */ slot, /** @type {DOMStringMap} */ drag) => {
+      if (/** @type {import("./lib/plan.js").Plan} */ (planRef.current).locked && !(await askConfirm(LOCK_CONFIRM))) return;
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
-      if (p.locked && !window.confirm(LOCK_CONFIRM)) return;
       // the "eating out" tray chip behaves exactly like the slot's OUT
       // toggle: pinned placeholder, clears the slot, survives re-roll
       if (drag.drag === "text" && drag.text === OUT_TEXT) {
@@ -590,16 +622,15 @@ function App() {
         updatePlan(moveEntry(base, drag.id, date, slot));
       }
     },
-    [updatePlan],
+    [updatePlan, askConfirm],
   );
 
   const handleRemove = useCallback(
-    (/** @type {string} */ id) => {
-      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
-      if (p.locked && !window.confirm(LOCK_CONFIRM)) return;
-      updatePlan(removeEntryById(p, id));
+    async (/** @type {string} */ id) => {
+      if (/** @type {import("./lib/plan.js").Plan} */ (planRef.current).locked && !(await askConfirm(LOCK_CONFIRM))) return;
+      updatePlan(removeEntryById(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), id));
     },
-    [updatePlan],
+    [updatePlan, askConfirm],
   );
 
   const handleTogglePin = useCallback(
@@ -610,8 +641,8 @@ function App() {
   );
 
   const handleToggleOut = useCallback(
-    (/** @type {string} */ date, /** @type {string} */ slot) => {
-      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+    async (/** @type {string} */ date, /** @type {string} */ slot) => {
+      let p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       // marking a filled slot OUT deletes its planned meal (pins included) —
       // one 44px tap, and un-toggling brings back an EMPTY slot, not the
       // meal. So a filled slot always asks first; a locked (already shopped)
@@ -622,7 +653,8 @@ function App() {
         const msg = p.locked
           ? LOCK_CONFIRM
           : "Eating out instead? The planned meal in this slot will be removed.";
-        if (!window.confirm(msg)) return;
+        if (!(await askConfirm(msg))) return;
+        p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       }
       const next = toggleSlotOut(p, date, slot, slotMacroEstimate(recipesRef.current, slot));
       updatePlan(next);
@@ -641,7 +673,7 @@ function App() {
         );
       }
     },
-    [updatePlan, updateShopping],
+    [updatePlan, updateShopping, askConfirm],
   );
 
   const handleToggleLock = useCallback(() => {
@@ -718,9 +750,9 @@ function App() {
   }, [weekId, hasToken]);
 
   const handlePlanAdd = useCallback(
-    (/** @type {Record<string, any>} */ recipe, /** @type {string} */ date) => {
+    async (/** @type {Record<string, any>} */ recipe, /** @type {string} */ date) => {
+      if (/** @type {import("./lib/plan.js").Plan} */ (planRef.current).locked && !(await askConfirm(LOCK_CONFIRM))) return null;
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
-      if (p.locked && !window.confirm(LOCK_CONFIRM)) return null;
       const slot = SLOT_KEYS.includes(recipe.mealType) ? recipe.mealType : "dinner";
       // planning real food into an eating-out slot: the placeholder yields
       const out = outEntryAt(p.entries, date, slot);
@@ -728,7 +760,7 @@ function App() {
       updatePlan(addEntry(base, date, slot, { recipeId: recipe.id, servings: 1 }));
       return slot;
     },
-    [updatePlan],
+    [updatePlan, askConfirm],
   );
 
   // generation guard: a slow older check must never overwrite a newer result
@@ -952,6 +984,7 @@ function App() {
         `,
       )}
     </nav>
+    ${confirmAsk && html`<${ConfirmModal} message=${confirmAsk.message} onResolve=${settleConfirm} />`}
   `;
 }
 
