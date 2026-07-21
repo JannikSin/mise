@@ -1,4 +1,4 @@
-# Day-Aware Weeks — Design
+# Day-Aware Weeks, Design
 
 Date: 2026-07-21. Approved by David in session (catch-up batch option chosen).
 
@@ -7,14 +7,14 @@ Date: 2026-07-21. Approved by David in session (catch-up batch option chosen).
 The app knows today's date (Today view) but that knowledge is not enacted:
 
 1. GENERATE MY WEEK / RE-ROLL builds all 7 days, Mon–Sun, even when the week
-   is underway. A Wednesday re-roll rewrites Monday and Tuesday — days already
+   is underway. A Wednesday re-roll rewrites Monday and Tuesday, days already
    eaten.
 2. The shopping list shops for meals already eaten.
 3. Sunday batch-prep guidance renders after its Sunday has passed, so starting
    a week on Tuesday reads as "do this last Sunday", which is confusing.
 4. Existing quirk: the prep Sunday for a Mon–Sun week is the day BEFORE that
    week's Monday. On Sunday the Today view auto-opens the batch block of the
-   week that ends that day — the wrong week. You batch for NEXT week.
+   week that ends that day, the wrong week. You batch for NEXT week.
 
 ## Terms
 
@@ -31,7 +31,7 @@ The app knows today's date (Today view) but that knowledge is not enacted:
 ### Generator (`app/lib/weekbuilder.js`)
 
 `generateWeek` gains `today` (optional string; absent = current behavior,
-full week — keeps tests and future-week generation unchanged).
+full week, keeps tests and future-week generation unchanged).
 
 - Entries on past dates survive untouched, exactly like pinned entries. They
   are not cleared, not re-filled, and do not seed committee coverage or the
@@ -53,7 +53,7 @@ portions.
 
 ### Planner view (`app/views/planner.js`)
 
-Past-day columns: dimmed, "EATEN" tag, read-only — no drag target, no ✕, no
+Past-day columns: dimmed, "EATEN" tag, read-only, no drag target, no ✕, no
 pin, no OUT toggle. Generate button subtext names the live span when mid-week
 ("plans Wed–Sun"). Only the current week ever has past days; future weeks
 render unchanged.
@@ -63,12 +63,12 @@ render unchanged.
 Three states, decided by today vs the shown week's prep Sunday:
 
 1. **Prep Sunday ahead or today** (future week, or it IS that Sunday):
-   current behavior — "Sunday batch", auto-open on the Sunday itself.
+   current behavior, "Sunday batch", auto-open on the Sunday itself.
 2. **Week underway** (Mon–Sat of the shown week): header becomes
-   "Catch-up batch — tonight or next chance", same component list, not
+   "Catch-up batch, tonight or next chance", same component list, not
    auto-opened.
 3. **Sunday, viewing the current week**: the block shows NEXT week's plan
-   components ("Sunday batch — next week"), because that is the week being
+   components ("Sunday batch, next week"), because that is the week being
    batched for. Next week's plan is loaded read-only for this; if it has no
    entries yet, the block says so and points at Plan.
 
@@ -84,7 +84,7 @@ is generator behavior, not a new flag.
 ## Phase-next (explicitly not built now)
 
 Recording actuals for past days: David wants to eventually log rough real
-intake (protein/calories) for past days, because weekly totals matter — a
+intake (protein/calories) for past days, because weekly totals matter, a
 light Monday can be compensated later in the week and vice versa. Landing
 zone when built: per-day fields on `fitness/daily.json` days[] (alongside the
 existing `buffer` counter), and a weekly-balance mode where remaining-day
@@ -100,7 +100,7 @@ pre-built for it.
 
 ## Tests
 
-- `weekbuilder.test.js`: with `today` mid-week — past entries preserved
+- `weekbuilder.test.js`: with `today` mid-week, past entries preserved
   verbatim, no fills on past dates, report silent on past dates, buffer
   portions = live count, absent `today` = unchanged full-week behavior.
 - `shopping.test.js`: `fromDate` skips earlier entries; absent = unchanged.
