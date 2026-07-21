@@ -17,7 +17,14 @@ import {
   setPlanLocked,
   mergeRecipePool,
   dietOf,
+  prepSundayOf,
 } from "../app/lib/plan.js";
+
+test("prepSundayOf is the day before the week's Monday", () => {
+  assert.equal(prepSundayOf("2026-W30"), "2026-07-19");
+  assert.equal(prepSundayOf("2026-W01"), "2025-12-28");
+  assert.equal(prepSundayOf("nonsense"), "");
+});
 
 test("toggleSlotOut replaces the slot's entries with one pinned eating-out placeholder", () => {
   let plan = { week: "2026-W28", entries: [] };

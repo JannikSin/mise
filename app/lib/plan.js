@@ -166,6 +166,20 @@ export function datesOfWeek(weekId) {
 }
 
 /**
+ * The prep Sunday for a week: the day BEFORE its Monday (Sunday-batch
+ * routine). Belongs to the previous ISO week by definition.
+ * @param {string} weekId
+ * @returns {string}
+ */
+export function prepSundayOf(weekId) {
+  const monday = datesOfWeek(weekId)[0];
+  if (!monday) return "";
+  const d = parseLocalIso(monday);
+  d.setDate(d.getDate() - 1);
+  return localIsoDate(d);
+}
+
+/**
  * ISO week id shifted by n weeks — derived from datesOfWeek/isoWeekId so the
  * week-1 math lives in exactly one place.
  * @param {string} weekId
