@@ -526,6 +526,7 @@ function App() {
         byId,
         pantryRef.current,
         shoppingRef.current,
+        localIsoDate(new Date()),
       ),
     );
   }, [updateShopping]);
@@ -718,6 +719,7 @@ function App() {
             recipesById(recipesRef.current),
             pantryRef.current,
             shoppingRef.current,
+            localIsoDate(new Date()),
           ),
         );
       }
@@ -759,6 +761,10 @@ function App() {
       plan: /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
       salt: bs.salt,
       recentRecipeIds: recentRecipeIdsRef.current,
+      // day-aware: past days of the current week survive and are not
+      // re-planned; a future week is untouched by this (all its dates are
+      // ahead of today)
+      today: localIsoDate(new Date()),
     });
     updatePlan(result.plan);
     setBuildReport(result.report);
@@ -770,6 +776,7 @@ function App() {
         recipesById(recipesRef.current),
         pantryRef.current,
         shoppingRef.current,
+        localIsoDate(new Date()),
       ),
     );
   }, [updatePlan, updateShopping]);
@@ -783,6 +790,24 @@ function App() {
   // recipes used in the previous two weeks — generation penalizes them so
   // consecutive weeks ROTATE instead of re-picking the same favorites. Loaded
   // per week from the prior plan files; empty (no penalty) when they're absent.
+  // next week's plan, read-only: the Today view's Sunday batch block preps
+  // for the week AHEAD, so on Sunday it lists next week's components
+  const [nextPlan, setNextPlan] = useState(
+    /** @type {import("./lib/plan.js").Plan | null} */ (null),
+  );
+  useEffect(() => {
+    let alive = true;
+    const nextWeek = shiftWeek(weekId, 1);
+    read(`plans/${nextWeek}.json`)
+      .catch(() => null)
+      .then((p) => {
+        if (alive) setNextPlan(normalizePlan(/** @type {any} */ (p), nextWeek));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [weekId, hasToken]);
+
   const recentRecipeIdsRef = useRef(/** @type {string[]} */ ([]));
   useEffect(() => {
     let alive = true;
@@ -959,6 +984,7 @@ function App() {
       html`<${TodayView}
         recipes=${recipes}
         plan=${plan}
+        nextPlan=${nextPlan}
         daily=${dailyLog}
         pantry=${pantry}
         onPatchDay=${handlePatchDay}
@@ -985,6 +1011,7 @@ function App() {
         hasToken=${hasToken}
         loading=${loading}
         weekId=${weekId}
+        todayIso=${localIsoDate(new Date())}
         onWeek=${handleWeekNav}
         onDropInto=${handleDrop}
         onRemove=${handleRemove}

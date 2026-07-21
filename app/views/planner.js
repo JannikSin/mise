@@ -45,6 +45,7 @@ function monthDay(isoDate) {
  *   hasToken: boolean,
  *   loading: boolean,
  *   weekId: string,
+ *   todayIso: string,
  *   onWeek: (delta: number) => void,
  *   onDropInto: (date: string, slot: string, drag: DOMStringMap) => void,
  *   onRemove: (id: string) => void,
@@ -63,6 +64,7 @@ export function PlannerView({
   hasToken,
   loading,
   weekId,
+  todayIso,
   onWeek,
   onDropInto,
   onRemove,
@@ -79,16 +81,24 @@ export function PlannerView({
   // mid-gesture, regardless of parent re-renders
   const dropRef = useRef(onDropInto);
   dropRef.current = onDropInto;
+  const todayRef = useRef(todayIso);
+  todayRef.current = todayIso;
 
   const byId = recipesById(recipes);
   const dates = datesOfWeek(weekId);
   const kcalTarget = targets?.macros?.calories ?? 3400;
   const proteinTarget = targets?.macros?.protein ?? 210;
+  // a past day is read-only: already eaten, never a drop target, never
+  // re-rolled (generateWeek leaves it alone). Only the current week has any.
+  const isPast = (/** @type {string} */ d) => Boolean(todayRef.current) && d < todayRef.current;
+  const firstLive = dates.find((d) => !isPast(d));
+  const midWeek = firstLive != null && dates.some((d) => isPast(d));
 
   useEffect(() => {
     if (!rootRef.current) return;
     return initDrag(rootRef.current, (drag, drop) => {
       if (!drop.date || !drop.slot) return;
+      if (isPast(drop.date)) return; // belt+suspenders: past rows carry no data-drop
       dropRef.current(drop.date, drop.slot, drag);
     });
   }, []);
@@ -122,7 +132,9 @@ export function PlannerView({
             ${
               plan.locked
                 ? "🔒 locked — you shopped for this week. Unlock on the List tab to change it."
-                : "overlapping ingredients → fewer, bulkier buys · pinned entries are kept"
+                : midWeek
+                  ? `plans ${parseLocalIso(/** @type {string} */ (firstLive)).toLocaleDateString([], { weekday: "short" })}–Sun · earlier days already eaten · pinned entries are kept`
+                  : "overlapping ingredients → fewer, bulkier buys · pinned entries are kept"
             }
           </small>
         </button>
@@ -290,6 +302,7 @@ export function PlannerView({
       </p>
 
       ${dates.map((date) => {
+        const past = isPast(date);
         const totals = dayTotals(/** @type {any} */ (plan.entries), byId, date);
         const kcalPct = Math.min(100, Math.round((totals.calories / kcalTarget) * 100));
         const pPct = Math.min(100, Math.round((totals.protein / proteinTarget) * 100));
@@ -299,9 +312,9 @@ export function PlannerView({
         const kcalOk = totals.calories / kcalTarget >= 0.9;
         const pOk = totals.protein / proteinTarget >= 0.9;
         return html`
-          <section class="day" key=${date}>
+          <section class="day ${past ? "past" : ""}" key=${date}>
             <h2 class="block-title">
-              ${statusDate(parseLocalIso(date))}${dayOut && html`<span class="outday"> · 🍴 out</span>`}
+              ${statusDate(parseLocalIso(date))}${past && html`<span class="eaten">✓ eaten</span>`}${dayOut && html`<span class="outday"> · 🍴 out</span>`}
             </h2>
             <div class="meters">
               <div class="meterline ${kcalOk ? "" : "warn"}">
@@ -335,6 +348,40 @@ export function PlannerView({
               ${SLOTS.map(({ key, label, full }) => {
                 const outEntry = outEntryAt(plan.entries, date, key);
                 const stacked = entriesAt(plan.entries, date, key).filter((e) => !e.out);
+                if (past) {
+                  // read-only: what was eaten, nothing draggable, no controls
+                  return html`
+                    <div class="slotrow" key=${key}>
+                      <span class="t" aria-label=${full}>${label}</span>
+                      ${outEntry && html`<span class="outslot">🍴 ate out</span>`}
+                      ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">—</span>`}
+                      ${
+                        stacked.length > 0 &&
+                        html`<div class="stack">
+                          ${stacked.map((entry) => {
+                            const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
+                            return html`
+                              <div class="stackline" key=${entry.id}>
+                                <div class="fill">
+                                  <span class="chipbody">
+                                    <span class="n">${recipe ? recipe.name : entry.freeText}</span>
+                                    ${
+                                      recipe &&
+                                      html`<span class="m num"
+                                        >${recipe.nutrition?.calories} ·
+                                        ${recipe.nutrition?.protein}P</span
+                                      >`
+                                    }
+                                  </span>
+                                </div>
+                              </div>
+                            `;
+                          })}
+                        </div>`
+                      }
+                    </div>
+                  `;
+                }
                 return html`
                   <div class="slotrow ${outEntry ? "isout" : ""}" data-drop data-date=${date} data-slot=${key} key=${key}>
                     <span class="t" aria-label=${full}>${label}</span>

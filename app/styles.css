@@ -861,6 +861,24 @@ summary.block-title {
   margin-bottom: 6px;
 }
 
+/* a past day of the current week: already eaten, read-only, visually parked */
+.day.past {
+  opacity: 0.45;
+  filter: saturate(0.4);
+}
+
+.block-title .eaten {
+  margin-left: 8px;
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 5px;
+  vertical-align: 1px;
+}
+
 .meters {
   display: grid;
   grid-template-columns: 1fr 1fr;
