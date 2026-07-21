@@ -44,7 +44,8 @@ test("new perishable lands with today's date; existing one is not duplicated", (
   assert.equal(next.perishables.filter((p) => p.food.toLowerCase() === "half cabbage").length, 1);
   const milk = next.perishables.find((p) => p.food === "milk");
   assert.ok(typeof milk.id === "string" && milk.id.length > 0); // P1: stable id at creation
-  const { id: _id, ...rest } = milk;
+  const rest = { ...milk };
+  delete rest.id;
   assert.deepEqual(rest, { food: "milk", qty: "1L", added: "2026-07-06", useSoon: false });
 });
 

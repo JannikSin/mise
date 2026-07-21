@@ -737,21 +737,21 @@ export function ShoppingView({
                         </span>
                         <span class="q num ${daysLeft != null && daysLeft <= 2 ? "expiring" : ""}">
                           ${
-                          goodUntil
-                            ? `good til ${parseLocalIso(goodUntil).toLocaleDateString([], { month: "short", day: "numeric" })} · ${daysLeft}d`
-                            : `${p.qty ?? ""} · no date`
-                        }
+                            goodUntil
+                              ? `good til ${parseLocalIso(goodUntil).toLocaleDateString([], { month: "short", day: "numeric" })} · ${daysLeft}d`
+                              : `${p.qty ?? ""} · no date`
+                          }
                         </span>
                         ${
-                        onRemovePantry &&
-                        html`<button
-                          class="rmbtn"
-                          aria-label="Remove ${p.food} from the pantry"
-                          onClick=${() => onRemovePantry("perishable", p.id)}
-                        >
-                          ✕
-                        </button>`
-                      }
+                          onRemovePantry &&
+                          html`<button
+                            class="rmbtn"
+                            aria-label="Remove ${p.food} from the pantry"
+                            onClick=${() => onRemovePantry("perishable", p.id)}
+                          >
+                            ✕
+                          </button>`
+                        }
                       </div>
                     `;
                   },
