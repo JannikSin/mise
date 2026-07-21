@@ -25,7 +25,16 @@ import { perishableStatus } from "../lib/shopping.js";
  *   loading: boolean
  * }} props
  */
-export function TodayView({ recipes, plan, nextPlan, daily, pantry, onPatchDay, hasToken, loading }) {
+export function TodayView({
+  recipes,
+  plan,
+  nextPlan,
+  daily,
+  pantry,
+  onPatchDay,
+  hasToken,
+  loading,
+}) {
   const byId = recipesById(recipes);
   const today = localIsoDate(new Date());
   const weekDates = datesOfWeek(plan.week);
@@ -216,7 +225,9 @@ export function TodayView({ recipes, plan, nextPlan, daily, pantry, onPatchDay, 
             >
           </a>
           <div class="bufferrow">
-            <span class="d num">${bufferLeft} of ${plan.buffer?.portions ?? 0} portions left this week</span>
+            <span class="d num"
+              >${bufferLeft} of ${plan.buffer?.portions ?? 0} portions left this week</span
+            >
             ${
               isToday
                 ? html`
@@ -239,7 +250,8 @@ export function TodayView({ recipes, plan, nextPlan, daily, pantry, onPatchDay, 
                       +
                     </button>
                     <span class="d num">
-                      today ${bufferToday > 0 ? `· +${bufferToday * (bufferRecipe.nutrition?.calories ?? 0)} kcal` : ""}
+                      today
+                      ${bufferToday > 0 ? `· +${bufferToday * (bufferRecipe.nutrition?.calories ?? 0)} kcal` : ""}
                     </span>
                   `
                 : html`<span class="d">log portions on the day itself</span>`

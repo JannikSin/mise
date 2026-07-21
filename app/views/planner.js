@@ -230,7 +230,6 @@ export function PlannerView({
           </div>
         `
       }
-
       ${
         // pool-adequacy warnings (new/edited profiles): the bank may simply
         // lack recipes for this profile's filters or calorie tier — say so
@@ -240,7 +239,10 @@ export function PlannerView({
         html`<div class="tile" role="status">
           <div class="k">⚠ recipe pool check</div>
           ${poolReport.warnings.map((w) => html`<div class="d num redflag" key=${w}>${w}</div>`)}
-          <div class="d">fix: add recipes to the bank that fit this profile's diet/phase, or relax its filters in SYS.</div>
+          <div class="d">
+            fix: add recipes to the bank that fit this profile's diet/phase, or relax its filters in
+            SYS.
+          </div>
         </div>`
       }
       ${
@@ -249,8 +251,9 @@ export function PlannerView({
         html`<div class="tile buffer">
           <div class="k">🧺 weekly buffer snack</div>
           <div class="d num">
-            ${byId.get(plan.buffer.recipeId).name} · ${plan.buffer.portions} portions batched Sunday
-            · ~${byId.get(plan.buffer.recipeId).nutrition?.calories} kcal ·
+            ${byId.get(plan.buffer.recipeId).name} · ${plan.buffer.portions} portions
+            ${midWeek ? "batched at next chance" : "batched Sunday"} ·
+            ~${byId.get(plan.buffer.recipeId).nutrition?.calories} kcal ·
             ${byId.get(plan.buffer.recipeId).nutrition?.protein}P each · tally on COOK
           </div>
         </div>`
@@ -366,7 +369,7 @@ export function PlannerView({
                             const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
                             return html`
                               <div class="stackline" key=${entry.id}>
-                                <div class="fill">
+                                <div class="fill drag-chip">
                                   <span class="chipbody">
                                     <span class="n">${recipe ? recipe.name : entry.freeText}</span>
                                     ${
@@ -387,7 +390,13 @@ export function PlannerView({
                   `;
                 }
                 return html`
-                  <div class="slotrow ${outEntry ? "isout" : ""}" data-drop data-date=${date} data-slot=${key} key=${key}>
+                  <div
+                    class="slotrow ${outEntry ? "isout" : ""}"
+                    data-drop
+                    data-date=${date}
+                    data-slot=${key}
+                    key=${key}
+                  >
                     <span class="t" aria-label=${full}>${label}</span>
                     ${
                       outEntry &&
@@ -395,7 +404,11 @@ export function PlannerView({
                         🍴 eating out
                         ${
                           outEntry.estCalories != null
-                            ? html` · <span class="num">~${outEntry.estCalories} kcal · ${outEntry.estProtein}P assumed</span>`
+                            ? html` ·
+                                <span class="num"
+                                  >~${outEntry.estCalories} kcal · ${outEntry.estProtein}P
+                                  assumed</span
+                                >`
                             : " · not planned, not re-rolled"
                         }
                       </span>`
@@ -407,7 +420,7 @@ export function PlannerView({
                       // slot, and hiding it would leave it silently shopped
                       stacked.length > 0 &&
                       html`<div class="stack">
-                            ${stacked.map((entry) => {
+                        ${stacked.map((entry) => {
                               const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
                               const name = recipe ? recipe.name : entry.freeText;
                               return html`
@@ -447,7 +460,7 @@ export function PlannerView({
                                 </div>
                               `;
                             })}
-                          </div>`
+                      </div>`
                     }
                     <button
                       class="outbtn ${outEntry ? "on" : ""}"
