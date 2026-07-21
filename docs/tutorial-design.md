@@ -1,9 +1,12 @@
 # Guided Tour (Tutorial), Design v3
 
-Date: 2026-07-21. Status: council-reviewed, then reshaped by David's call
-(see Phase 1 below): ONE tour, offered once at a profile's first login,
-replayable from SYS, nothing living on the individual pages. Phase 1 drafted,
-not yet built.
+Date: 2026-07-21. Status: SHIPPED (commits c284c21 + e83d6d7). Council-reviewed,
+reshaped by David's call (see Phase 1 below): ONE tour, offered once at a
+profile's first login, replayable from SYS, nothing living on the individual
+pages. Built, reviewer-fixed (2 code + 6 UI findings), live-verified in
+Chrome. Outstanding: a run-through on David's physical iPhone (scroll
+behavior under the overlay is intercepted touchmove, believed iOS-safe, but
+the council's rule stands: watch it on the real phone).
 
 ## Problem
 
