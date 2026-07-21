@@ -28,10 +28,36 @@ if (!m) {
   process.exit(1);
 }
 
-// staged sw.js already carrying a version change = nothing to do
+const v = (/** @type {string} */ s) => s.match(/mise-shell-v(\d+)/)?.[1];
+/** HEAD:sw.js, or null when it doesn't exist yet (brand-new file / no HEAD) */
+const headSw = (() => {
+  try {
+    return git(["show", "HEAD:sw.js"]);
+  } catch {
+    return null;
+  }
+})();
+// sw.js new in this very commit: it ships whatever version it carries
+if (headSw === null) process.exit(0);
+
 if (staged.includes("sw.js")) {
-  const v = (/** @type {string} */ s) => s.match(/mise-shell-v(\d+)/)?.[1];
-  if (v(git(["show", ":sw.js"])) !== v(git(["show", "HEAD:sw.js"]))) process.exit(0);
+  // staged copy already carries a version change = nothing to do
+  if (v(git(["show", ":sw.js"])) !== v(headSw)) process.exit(0);
+  // partial staging: bumping the working tree would silently fold unstaged
+  // sw.js edits into the commit — refuse and let the human sort it out
+  if (git(["show", ":sw.js"]) !== sw) {
+    console.error(
+      "bump-sw-version: sw.js is partially staged; bump CACHE_VERSION yourself and re-stage",
+    );
+    process.exit(1);
+  }
+} else if (headSw !== sw) {
+  // sw.js not staged but the working tree differs from HEAD: a bump+add here
+  // would sweep those unstaged edits into the commit — refuse
+  console.error(
+    "bump-sw-version: sw.js has unstaged edits; stage or stash them, then commit again",
+  );
+  process.exit(1);
 }
 
 const next = Number(m[1]) + 1;

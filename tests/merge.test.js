@@ -192,3 +192,13 @@ test("arrays without a usable key are treated atomically: local wins on conflict
   const remote = { tags: ["a", "r"] };
   assert.deepEqual(mergeFieldWise(base, local, remote), { tags: ["a", "l"] });
 });
+
+test("create race: a keyed array NEW on both sides unions instead of dropping one side", () => {
+  // first concurrent writes to a fresh household pantry: base has no
+  // perishables field at all — remote's rows must survive
+  const base = {};
+  const local = { perishables: [{ id: "a", food: "spinach" }] };
+  const remote = { perishables: [{ id: "b", food: "berries" }] };
+  const merged = mergeFieldWise(base, local, remote);
+  assert.deepEqual(merged.perishables.map((p) => p.id).sort(), ["a", "b"]);
+});

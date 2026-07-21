@@ -51,8 +51,12 @@ function mergeValue(bv, lv, rv) {
   // delete-vs-edit: the edit wins, both directions (matches keyed-array rule)
   if (lv === undefined) return rv;
   if (rv === undefined) return lv;
-  if (Array.isArray(bv) && Array.isArray(lv) && Array.isArray(rv)) {
-    const merged = mergeKeyedArrays(bv, lv, rv);
+  // base may not have the field at all (two devices CREATING the same keyed
+  // array concurrently, e.g. the first writes to a fresh household pantry) —
+  // an empty base means nothing was ever deleted, so the union is correct.
+  // Requiring Array.isArray(bv) here once dropped a whole side's perishables.
+  if (Array.isArray(lv) && Array.isArray(rv)) {
+    const merged = mergeKeyedArrays(Array.isArray(bv) ? bv : [], lv, rv);
     if (merged !== null) return merged;
   }
   if (isPlainObject(lv) && isPlainObject(rv)) {
