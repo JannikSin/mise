@@ -113,7 +113,10 @@ data to the app repo.
   (`app/main.js`, `app\views\home.js`). Asked as a yes/no in the gate's ADD
   PROFILE questionnaire; toggled later from the SYS App tile
   (`app\views\system.js`), which rewrites this file.
-- `household?`: string, absent = `"home"`. Groups profiles into one grocery
+- `household?`: string, absent = `"home"`. **User-facing name: HOUSE (S1,
+  2026-07-21)** — every label and hint says "house" (a physical kitchen);
+  the storage field and the `households/` path keep this legacy name
+  deliberately, zero data migration. Groups profiles into one grocery
   trip: the List view's EVERYONE tab merges only profiles that share the
   active profile's household (`app/lib/shopping.js` `householdOthers`, wired
   in `app/main.js`). A profile alone in its household (e.g. Laurie in her own

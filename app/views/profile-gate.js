@@ -22,11 +22,33 @@ import { OnboardView } from "./onboard.js";
  * @returns {import("preact").VNode}
  */
 /** Allergen preset ids — must match ALLERGEN_TERMS keys in app/lib/fitness.js. */
-const ALLERGEN_PRESETS = ["nuts", "peanuts", "gluten", "dairy", "eggs", "soy", "shellfish", "fish", "sesame"];
+const ALLERGEN_PRESETS = [
+  "nuts",
+  "peanuts",
+  "gluten",
+  "dairy",
+  "eggs",
+  "soy",
+  "shellfish",
+  "fish",
+  "sesame",
+];
 /** Trackable kitchen equipment (survey-v2 Q16); absent from profile = has everything. */
 const EQUIPMENT = ["blender", "oven", "rice cooker", "food processor", "freezer"];
 /** Chip grid for cuisine loves/avoids (survey-v2 Q14) — the bank's common cuisines. */
-const CUISINES = ["american", "italian", "japanese", "chinese", "korean", "mexican", "indian", "mediterranean", "middle-eastern", "french", "thai"];
+const CUISINES = [
+  "american",
+  "italian",
+  "japanese",
+  "chinese",
+  "korean",
+  "mexican",
+  "indian",
+  "mediterranean",
+  "middle-eastern",
+  "french",
+  "thai",
+];
 
 /** Split a comma-separated free-text field into a trimmed, non-empty list. */
 function splitList(/** @type {string} */ s) {
@@ -63,7 +85,9 @@ export function ProfileGateView() {
   const [skipBreakfast, setSkipBreakfast] = useState(false);
   const [smoothie, setSmoothie] = useState(true);
   const [snackAppetite, setSnackAppetite] = useState(/** @type {"grazer" | "meals"} */ ("grazer"));
-  const [maxWeeknightMinutes, setMaxWeeknightMinutes] = useState(/** @type {number | null} */ (null));
+  const [maxWeeknightMinutes, setMaxWeeknightMinutes] = useState(
+    /** @type {number | null} */ (null),
+  );
 
   // survey-v2 section 3 (optional, skippable)
   const [dislikes, setDislikes] = useState("");
@@ -267,7 +291,9 @@ export function ProfileGateView() {
   if (chatMode) {
     return html`
       <div class="view">
-        <button class="secondary linkbtn" onClick=${() => setChatMode(false)}>← back to the survey</button>
+        <button class="secondary linkbtn" onClick=${() => setChatMode(false)}>
+          ← back to the survey
+        </button>
         <${OnboardView} survey=${surveyContext()} hasToken=${Boolean(getToken())} />
       </div>
     `;
@@ -328,7 +354,8 @@ export function ProfileGateView() {
         <summary class="block-title">+ add profile</summary>
         <div class="tile">
           <p class="hint">
-            fill what you like here, or tap "set up by conversation" above and answer a few questions.
+            fill what you like here, or tap "set up by conversation" above and answer a few
+            questions.
           </p>
           <div class="token-form">
             <input
@@ -352,8 +379,8 @@ export function ProfileGateView() {
               onInput=${(/** @type {any} */ e) => setFamily(e.currentTarget.value)}
             />
             <input
-              aria-label="Household (who they grocery-shop with)"
-              placeholder="household (e.g. home)"
+              aria-label="House (the kitchen they cook and shop from)"
+              placeholder="house (e.g. home)"
               value=${household}
               onInput=${(/** @type {any} */ e) => setHousehold(e.currentTarget.value)}
             />
@@ -366,8 +393,8 @@ export function ProfileGateView() {
             />
           </div>
           <p class="hint">
-            family is who they ARE (the chooser groups by it); household is who they grocery-shop
-            with right now, movable any time in SYS. State sets the List's grocery tax.
+            family is who they ARE (the chooser groups by it); a house is the kitchen they cook and
+            shop with right now, movable any time in SYS. State sets the List's grocery tax.
           </p>
 
           <h2 class="block-title">about them</h2>
@@ -537,8 +564,8 @@ export function ProfileGateView() {
             )}
           </div>
           <p class="hint">
-            restaurant, dining hall, free work lunches: the planner's 🍴 OUT slots and the
-            assistant use this to expect them.
+            restaurant, dining hall, free work lunches: the planner's 🍴 OUT slots and the assistant
+            use this to expect them.
           </p>
 
           <h2 class="block-title">weeknight time</h2>
@@ -581,7 +608,9 @@ export function ProfileGateView() {
               value=${tiredOf}
               onInput=${(/** @type {any} */ e) => setTiredOf(e.currentTarget.value)}
             />
-            <p class="hint">these lose ties softly, so the week drifts toward variety without banning them.</p>
+            <p class="hint">
+              these lose ties softly, so the week drifts toward variety without banning them.
+            </p>
 
             <h2 class="block-title">leftovers</h2>
             <div class="chips" role="group" aria-label="Leftover tolerance">
@@ -642,11 +671,13 @@ export function ProfileGateView() {
               ${CUISINES.map(
                 (c) => html`
                   <button
-                    class="chip ${cuisinePrefs[c] === "loved"
-                      ? "on"
-                      : cuisinePrefs[c] === "avoided"
-                        ? "off"
-                        : ""}"
+                    class="chip ${
+                      cuisinePrefs[c] === "loved"
+                        ? "on"
+                        : cuisinePrefs[c] === "avoided"
+                          ? "off"
+                          : ""
+                    }"
                     key=${c}
                     onClick=${() => cycleCuisine(c)}
                   >

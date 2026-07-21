@@ -185,9 +185,9 @@ export function SystemView({
           only.
         </p>
         <div class="row">
-          <span class="k">Household</span>
+          <span class="k">House</span>
           <input
-            aria-label="Household this profile shops with"
+            aria-label="House this profile cooks and shops from"
             value=${householdShown}
             onInput=${(/** @type {any} */ e) => setHouseholdDraft(e.currentTarget.value)}
           />
@@ -198,13 +198,13 @@ export function SystemView({
             onClick=${saveHousehold}
             disabled=${!profile || householdDraft === null || householdShown.trim() === household}
           >
-            MOVE HOUSEHOLD
+            MOVE HOUSE
           </button>
         </div>
         <p class="hint">
-          profiles in the same household share the EVERYONE grocery trip AND the pantry (one
-          kitchen, one fridge). Moving household also switches you to that household's pantry. Move
-          someone here for a visit week, move them back after.
+          a house is a physical kitchen: everyone in the same house shares the EVERYONE grocery trip
+          AND the pantry (one kitchen, one fridge). Moving house also switches you to that house's
+          pantry. Move someone for a visit week, move them back after.
         </p>
         <div class="row">
           <span class="k">Family</span>
@@ -225,8 +225,8 @@ export function SystemView({
           </button>
         </div>
         <p class="hint">
-          family is who you ARE, household is who you shop with right now. The profile chooser
-          groups people by family; households can change week to week.
+          family is who you ARE, a house is the kitchen you cook and shop from right now. The
+          profile chooser groups people by family; houses can change week to week.
         </p>
         ${
           profilesFallback &&

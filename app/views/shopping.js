@@ -801,8 +801,8 @@ export function ShoppingView({
         tab === "combined" &&
         html`
           <p class="hint">
-            One trip for the whole household. Quantities are everyone's lists summed; the badges
-            show who wants it. Tick = bought for everyone who wants it (writes to each person's own
+            One trip for the whole house. Quantities are everyone's lists summed; the badges show
+            who wants it. Tick = bought for everyone who wants it (writes to each person's own
             list). <span class="num">${sharedCount}</span> of${" "}
             <span class="num">${combined.length}</span> items are already shared.
           </p>
@@ -876,7 +876,7 @@ export function ShoppingView({
             html`
               <div class="tile">
                 <div class="row">
-                  <span class="k">Est. ${STORE_NAMES[homeStore] ?? homeStore} household trip</span>
+                  <span class="k">Est. ${STORE_NAMES[homeStore] ?? homeStore} house trip</span>
                   <span class="status num">$${combinedSummary.subtotal.toFixed(2)}</span>
                 </div>
                 ${
@@ -891,8 +891,7 @@ export function ShoppingView({
                   <span class="status num">$${combinedSummary.total.toFixed(2)}</span>
                 </div>
                 <p class="hint">
-                  the whole household's one trip. ${combinedSummary.priced} of ${combined.length}
-                  rows
+                  the whole house's one trip. ${combinedSummary.priced} of ${combined.length} rows
                   priced${
                     combinedSummary.estimates > 0
                       ? `, ${combinedSummary.estimates} are estimates (~)`

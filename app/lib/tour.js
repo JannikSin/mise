@@ -96,8 +96,8 @@ export const TOUR_STEPS = [
   {
     route: "#/list",
     selector: ".chips",
-    title: "Pantry and household",
-    text: "PANTRY holds what you own: ticked groceries flow in via ADD TO PANTRY, P+ marks things you already had. EVERYONE merges your household's lists into one trip.",
+    title: "Pantry and house",
+    text: "PANTRY holds what you own: ticked groceries flow in via ADD TO PANTRY, P+ marks things you already had. EVERYONE merges your house's lists into one trip.",
   },
   {
     route: "#/train",
@@ -115,7 +115,7 @@ export const TOUR_STEPS = [
     route: "#/system",
     selector: ".tourrow",
     title: "SYS is the control room",
-    text: "Token, profiles, household moves, data export, and this tour again, right here, any time.",
+    text: "Token, profiles, house moves, data export, and this tour again, right here, any time.",
   },
 ];
 
