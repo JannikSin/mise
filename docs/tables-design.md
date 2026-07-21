@@ -140,9 +140,12 @@ raw path (not profile-scoped), same access pattern as the household pantry.
 6. **Retention (Red Team LOW; Lawyer must-fix).** Derivation ignores tables
    dated more than 14 days past; any table CRUD write prunes them from the
    file. Policy documented in SCHEMAS.md with the schema.
-7. **Per-seat status (Historian).** Seats carry
+7. **Per-seat status (Historian; Red Team pass-2 closure).** Seats carry
    `status?: "in" | "skipped"` (absent = in), the PARTSTAT lesson: skipping
-   is explicit schema state, not inferred absence. A table edit that
+   is explicit schema state, not inferred absence. A seat with
+   `status: "skipped"` derives NOTHING — no pin, no macros, same as a diet
+   conflict — and the cook's shopping pseudo-entry sums NON-skipped seats
+   only. Declining actually declines, everywhere. A table edit that
    changes recipe/date/slot keeps seats and servings (servings are a
    function of person+slot, not of the recipe) — decided here so it is not
    discovered as a bug later.
