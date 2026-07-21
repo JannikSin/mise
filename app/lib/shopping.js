@@ -65,9 +65,13 @@ export function slug(food) {
  * @param {Map<string, any>} recipesById
  * @param {Record<string, any>} pantry
  * @param {ShoppingList | null} [previous]
+ * @param {string} [fromDate] skip entries dated before this local YYYY-MM-DD —
+ *   you cannot shop for a meal you already ate. Absent = whole week. The
+ *   buffer pseudo-entry has no date and always shops (its portions are
+ *   already scaled to remaining days by generateWeek).
  * @returns {ShoppingList}
  */
-export function deriveShoppingList(plan, recipesById, pantry, previous) {
+export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate) {
   /** @type {Map<string, ShoppingItem>} */
   const merged = new Map();
 
@@ -90,6 +94,7 @@ export function deriveShoppingList(plan, recipesById, pantry, previous) {
   ];
   for (const entry of toShop) {
     if (!entry.recipeId) continue;
+    if (fromDate && "date" in entry && entry.date < fromDate) continue;
     const recipe = recipesById.get(entry.recipeId);
     if (!recipe) continue;
     const perServing = entry.servings / (recipe.servings || 1);

@@ -77,6 +77,32 @@ test("on-hand pantry staples are subtracted from the derived list by name", () =
   assert.ok(list.items.find((i) => i.food === "arborio rice"));
 });
 
+test("fromDate skips entries already eaten; buffer still shops", () => {
+  const recipes = new Map([
+    ["oats", { id: "oats", servings: 1, ingredients: [{ qty: 80, unit: "g", food: "rolled oats" }] }],
+    ["stew", { id: "stew", servings: 1, ingredients: [{ qty: 1, unit: "can", food: "chickpeas" }] }],
+    ["bites", { id: "bites", servings: 1, ingredients: [{ qty: 50, unit: "g", food: "dates" }] }],
+  ]);
+  const plan = {
+    week: "2026-W30",
+    entries: [
+      { id: "m", date: "2026-07-20", slot: "breakfast", recipeId: "oats", servings: 1 },
+      { id: "w", date: "2026-07-22", slot: "dinner", recipeId: "stew", servings: 1 },
+    ],
+    buffer: { recipeId: "bites", portions: 5 },
+  };
+  const pantry = { staples: [], perishables: [] };
+
+  const midWeek = deriveShoppingList(plan, recipes, pantry, null, "2026-07-21");
+  assert.equal(midWeek.items.find((i) => i.food === "rolled oats"), undefined);
+  assert.ok(midWeek.items.find((i) => i.food === "chickpeas"));
+  assert.ok(midWeek.items.find((i) => i.food === "dates"));
+
+  // absent fromDate = whole week, unchanged behavior
+  const full = deriveShoppingList(plan, recipes, pantry);
+  assert.ok(full.items.find((i) => i.food === "rolled oats"));
+});
+
 test("ownItemToPantry removes ALL list rows of that food, any unit", () => {
   const shopping = {
     generatedFrom: "2026-W28",
