@@ -2174,8 +2174,20 @@ button.linktext {
   background: var(--panel);
   border: 1px solid var(--line-strong);
   border-radius: 14px;
-  padding: 14px 16px calc(12px + env(safe-area-inset-bottom) * 0);
+  padding: 14px 16px 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+}
+
+/* tall target with no room above or below: card sits on the bottom edge
+   (the cutout is clipped in the component so they never intersect) */
+.tour-card.pinned {
+  bottom: calc(16px + env(safe-area-inset-bottom));
+}
+
+.tour-card:focus {
+  outline: none;
 }
 
 .tour-dots {
@@ -2210,6 +2222,11 @@ button.linktext {
   min-width: 64px;
 }
 
+/* END TOUR is destructive: parked far left, away from BACK/NEXT thumbs */
+.tour-btns .endbtn {
+  margin-right: auto;
+}
+
 .tour-offer {
   position: fixed;
   left: 16px;
@@ -2223,6 +2240,17 @@ button.linktext {
   border-radius: 14px;
   padding: 14px 16px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+/* the flex block-title suppresses the native disclosure triangle, so the
+   summary needs its own open/closed cue or it reads as a dead header */
+.whatlist > summary::before {
+  content: "▸";
+  color: var(--signal);
+}
+
+.whatlist[open] > summary::before {
+  content: "▾";
 }
 
 .whatlist .whatitem {

@@ -22,6 +22,7 @@ export function TourOverlay({ startStep, onProgress, onEnd }) {
   const [step, setStep] = useState(Math.min(Math.max(startStep, 0), TOUR_STEPS.length - 1));
   const [rect, setRect] = useState(/** @type {DOMRect | null} */ (null));
   const dirRef = useRef(1);
+  const cardRef = useRef(/** @type {HTMLElement | null} */ (null));
   const s = /** @type {import("../lib/tour.js").TourStep} */ (TOUR_STEPS[step]);
 
   const go = (/** @type {number} */ next, /** @type {number} */ dir) => {
@@ -41,12 +42,17 @@ export function TourOverlay({ startStep, onProgress, onEnd }) {
       if (!alive) return;
       const el = document.querySelector(s.selector);
       if (!el) {
-        // the view may still be mounting after the route change; the element
-        // may also legitimately not exist right now — then skip the step
-        if (tries++ < 8) return void setTimeout(measure, 60);
+        // the view may still be mounting after the route change (a slow
+        // first plan fetch takes a moment); the element may also
+        // legitimately not exist right now — then skip the step
+        if (tries++ < 15) return void setTimeout(measure, 100);
         const next = step + dirRef.current;
-        if (next < 0 || next >= TOUR_STEPS.length) onEnd("done", step + 1);
-        else setStep(next);
+        // walking off the FRONT (BACK through missing steps) is an abandoned
+        // run, not a finished one — "done" here would suppress every future
+        // offer for a user who saw almost nothing
+        if (next < 0) return onEnd("bailed", step + 1);
+        if (next >= TOUR_STEPS.length) return onEnd("done", step + 1);
+        setStep(next);
         return;
       }
       el.scrollIntoView({ block: "center" });
@@ -68,9 +74,49 @@ export function TourOverlay({ startStep, onProgress, onEnd }) {
     };
   }, [step]);
 
+  // focus follows the card on every step: aria-modal without a focus move
+  // strands screen-reader users outside the dialog, and the refocus is what
+  // re-announces each step's label
+  useEffect(() => {
+    if (rect) cardRef.current?.focus();
+  }, [step, rect === null]);
+
   const block = (/** @type {Event} */ e) => e.preventDefault();
-  // card above the target when the target sits in the lower half
-  const cardBelow = !rect || rect.top + rect.height / 2 < window.innerHeight / 2;
+  const onKey = (/** @type {KeyboardEvent} */ e) => {
+    if (e.key === "Escape") return onEnd("bailed", step + 1);
+    if (e.key !== "Tab") return;
+    // three-button focus trap: Tab never reaches the dimmed page behind
+    const btns = [.../** @type {HTMLElement} */ (e.currentTarget).querySelectorAll("button")];
+    const i = btns.indexOf(/** @type {any} */ (document.activeElement));
+    e.preventDefault();
+    const next = e.shiftKey
+      ? i <= 0
+        ? btns.length - 1
+        : i - 1
+      : i < 0 || i === btns.length - 1
+        ? 0
+        : i + 1;
+    btns[next]?.focus();
+  };
+
+  // card placement: whichever side of the target has room for a full card;
+  // neither side (tall target) pins the card to the bottom edge and the
+  // cutout is clipped so spotlight and card never intersect
+  const vh = window.innerHeight;
+  const CARD_ROOM = 280;
+  const placement = !rect
+    ? { cls: "pinned", style: "" }
+    : vh - rect.bottom >= CARD_ROOM
+      ? { cls: "below", style: `top:${rect.bottom + 14}px` }
+      : rect.top >= CARD_ROOM
+        ? { cls: "above", style: `bottom:${vh - rect.top + 14}px` }
+        : { cls: "pinned", style: "" };
+  const cutTop = rect ? rect.top - 6 : 0;
+  const cutHeight = rect
+    ? placement.cls === "pinned"
+      ? Math.max(56, Math.min(rect.height + 12, vh - CARD_ROOM - cutTop))
+      : rect.height + 12
+    : 0;
 
   return html`
     <div
@@ -80,23 +126,23 @@ export function TourOverlay({ startStep, onProgress, onEnd }) {
       aria-label="Guided tour, step ${step + 1} of ${TOUR_STEPS.length}"
       onTouchMove=${block}
       onWheel=${block}
+      onKeyDown=${onKey}
     >
       ${
         rect &&
         html`<div
           class="tour-cutout"
-          style=${`top:${rect.top - 6}px;left:${rect.left - 6}px;width:${rect.width + 12}px;height:${rect.height + 12}px`}
+          style=${`top:${cutTop}px;left:${rect.left - 6}px;width:${rect.width + 12}px;height:${cutHeight}px`}
         ></div>`
       }
-      <div
-        class="tour-card ${cardBelow ? "below" : "above"}"
-        style=${rect ? (cardBelow ? `top:${Math.min(rect.bottom + 14, window.innerHeight - 220)}px` : `bottom:${window.innerHeight - rect.top + 14}px`) : "top:40%"}
-      >
+      <div class="tour-card ${placement.cls}" style=${placement.style} tabindex="-1" ref=${cardRef}>
         <div class="tour-dots num" aria-hidden="true">${step + 1} / ${TOUR_STEPS.length}</div>
         <div class="tour-title">${s.title}</div>
         <div class="tour-text">${s.text}</div>
         <div class="tour-btns">
-          <button class="secondary" onClick=${() => onEnd("bailed", step + 1)}>END</button>
+          <button class="secondary endbtn" onClick=${() => onEnd("bailed", step + 1)}>
+            END TOUR
+          </button>
           ${step > 0 && html`<button class="secondary" onClick=${() => go(step - 1, -1)}>BACK</button>`}
           <button class="primary" onClick=${() => go(step + 1, 1)}>
             ${step === TOUR_STEPS.length - 1 ? "DONE" : "NEXT"}
@@ -118,7 +164,7 @@ export function TourOverlay({ startStep, onProgress, onEnd }) {
  */
 export function TourOffer({ resumeStep, onStart, onDismiss }) {
   return html`
-    <div class="tour-offer" role="dialog" aria-label="Tour offer">
+    <div class="tour-offer" role="region" aria-label="Tour offer">
       <div class="tour-title">${resumeStep ? "Finish the tour?" : "New here?"}</div>
       <div class="tour-text">
         ${

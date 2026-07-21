@@ -20,17 +20,22 @@ test("every tour step has a valid route, a title, and phone-sized text", () => {
 });
 
 // The zero-dep drift guard (no DOM in node:test): every class token a step's
-// selector relies on must appear in view source. A rename that would strand
-// a tour step fails here, not silently in a user's hand.
-test("every tour selector's class tokens exist in view source", () => {
+// selector relies on must appear where markup actually declares classes — a
+// class="..." attribute, or a quoted string literal (conditional classes like
+// `past ? "past" : ""`). A bare substring scan would false-pass on English
+// words ("ask", "day") living in unrelated prose or identifiers.
+test("every tour selector's class tokens are declared in view markup", () => {
+  const inClassAttr = (/** @type {string} */ n) =>
+    new RegExp(`class="[^"]*\\b${n}\\b`).test(viewSource);
+  const asQuotedLiteral = (/** @type {string} */ n) => viewSource.includes(`"${n}"`);
   for (const s of TOUR_STEPS) {
     const classes = s.selector.match(/\.[a-z-]+/g) ?? [];
     assert.ok(classes.length > 0, `selector has no class tokens: ${s.selector}`);
     for (const c of classes) {
       const name = c.slice(1);
       assert.ok(
-        viewSource.includes(name),
-        `class "${name}" (step "${s.title}") not found in any view source`,
+        inClassAttr(name) || asQuotedLiteral(name),
+        `class "${name}" (step "${s.title}") not declared in any view's markup`,
       );
     }
   }

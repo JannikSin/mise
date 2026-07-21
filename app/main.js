@@ -966,8 +966,9 @@ function App() {
   );
   const [tourOpen, setTourOpen] = useState(/** @type {{ startStep: number } | null} */ (null));
   const [tourOfferHidden, setTourOfferHidden] = useState(false);
-  const tourResumeStep =
-    tourRecord?.status === "bailed" && tourRecord.lastStep > 1 ? tourRecord.lastStep : null;
+  // ANY bailed record offers resume — a lastStep threshold here once wedged
+  // the offer shut forever for someone who tapped END on the first step
+  const tourResumeStep = tourRecord?.status === "bailed" ? Math.max(1, tourRecord.lastStep) : null;
   const tourOfferVisible =
     Boolean(tourProfileId) &&
     !tourOpen &&
