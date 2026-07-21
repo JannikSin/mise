@@ -11,11 +11,7 @@ const PANTRY = {
 };
 
 test("staple item refreshes an existing staple instead of duplicating", () => {
-  const next = applyScanItems(
-    PANTRY,
-    [{ name: "rice", kind: "staple", qty: "" }],
-    "2026-07-06",
-  );
+  const next = applyScanItems(PANTRY, [{ name: "rice", kind: "staple", qty: "" }], "2026-07-06");
   const rice = next.staples.filter((s) => s.id === "rice");
   assert.equal(rice.length, 1);
   assert.equal(rice[0].onHand, true, "seen in the photo = on hand");
@@ -23,7 +19,11 @@ test("staple item refreshes an existing staple instead of duplicating", () => {
 });
 
 test("new staple is added with a derived id and section", () => {
-  const next = applyScanItems(PANTRY, [{ name: "Olive Oil", kind: "staple", qty: "" }], "2026-07-06");
+  const next = applyScanItems(
+    PANTRY,
+    [{ name: "Olive Oil", kind: "staple", qty: "" }],
+    "2026-07-06",
+  );
   const oil = next.staples.find((s) => s.id === "olive-oil");
   assert.ok(oil);
   assert.equal(oil.name, "Olive Oil");
@@ -43,7 +43,9 @@ test("new perishable lands with today's date; existing one is not duplicated", (
   );
   assert.equal(next.perishables.filter((p) => p.food.toLowerCase() === "half cabbage").length, 1);
   const milk = next.perishables.find((p) => p.food === "milk");
-  assert.deepEqual(milk, { food: "milk", qty: "1L", added: "2026-07-06", useSoon: false });
+  assert.ok(typeof milk.id === "string" && milk.id.length > 0); // P1: stable id at creation
+  const { id: _id, ...rest } = milk;
+  assert.deepEqual(rest, { food: "milk", qty: "1L", added: "2026-07-06", useSoon: false });
 });
 
 test("does not mutate the input pantry and tolerates missing arrays", () => {

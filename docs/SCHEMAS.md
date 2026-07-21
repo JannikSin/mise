@@ -94,7 +94,14 @@ data to the app repo.
   "profiles": [
     { "id": "david", "name": "David", "emoji": "🏋️", "phase": "gain" },
     { "id": "mom", "name": "Mom", "emoji": "🌿", "phase": "loss", "trainingEnabled": false },
-    { "id": "laurie", "name": "Laurie", "emoji": "🥑", "phase": "recomp", "trainingEnabled": false, "household": "laurie" },
+    {
+      "id": "laurie",
+      "name": "Laurie",
+      "emoji": "🥑",
+      "phase": "recomp",
+      "trainingEnabled": false,
+      "household": "laurie",
+    },
   ],
 }
 ```
@@ -304,6 +311,10 @@ Two tiers, deliberately lightweight (no decrement-on-cook ledger, ever).
   ],
   "perishables": [
     {
+      "id": "a1b2c3d4", // stable id (P1): removal + 409 merges key on it, never on
+      // array position. Assigned at creation; pre-P1 rows self-heal a
+      // DETERMINISTIC id on read (FNV over food|added|qty + twin index, so two
+      // devices healing the same household pantry agree), persisted next write.
       "food": "half cabbage",
       "qty": "0.5 head", // ? free string, human-scale
       "added": "2026-07-04",

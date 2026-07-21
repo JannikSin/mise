@@ -37,6 +37,7 @@ import {
   pantryPathFor,
   ownItemToPantry,
   expirePerishables,
+  normalizePantry,
   withAutoUseSoon,
   removeFromPantry,
   sectionOf,
@@ -236,8 +237,12 @@ function App() {
         if (!src) return;
         // drop perishables past their shelf life on the way in (a 2-week-old
         // bag of spinach or a week-old chicken breast leaves on its own); if
-        // anything expired, persist the trimmed pantry
-        const { pantry: fresh, expired } = expirePerishables(src, localIsoDate(new Date()));
+        // anything expired, persist the trimmed pantry. normalizePantry first:
+        // pre-P1 perishables self-heal stable ids (persisted on next write)
+        const { pantry: fresh, expired } = expirePerishables(
+          normalizePantry(src),
+          localIsoDate(new Date()),
+        );
         setPantry(fresh);
         if (expired.length > 0) {
           pantryRef.current = fresh;
@@ -337,12 +342,12 @@ function App() {
 
   // remove a pantry entry outright (mis-added chicken, a staple you dropped)
   const handleRemovePantry = useCallback(
-    (/** @type {"staple" | "perishable"} */ kind, /** @type {string | number} */ key) => {
+    (/** @type {"staple" | "perishable"} */ kind, /** @type {string} */ key) => {
       const prev = pantryRef.current;
       const gone =
         kind === "staple"
           ? (prev.staples ?? []).find((/** @type {any} */ s) => s.id === key)?.name
-          : (prev.perishables ?? [])[/** @type {number} */ (key)]?.food;
+          : (prev.perishables ?? []).find((/** @type {any} */ p) => p.id === key)?.food;
       updatePantry(removeFromPantry(prev, kind, key));
       setUndoToast({
         message: `removed ${gone ?? "item"}`,

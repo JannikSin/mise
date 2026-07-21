@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   deriveShoppingList,
+  normalizePantry,
   sectionOf,
   applyJustBought,
   ownItemToPantry,
@@ -79,8 +80,14 @@ test("on-hand pantry staples are subtracted from the derived list by name", () =
 
 test("fromDate skips entries already eaten; buffer still shops", () => {
   const recipes = new Map([
-    ["oats", { id: "oats", servings: 1, ingredients: [{ qty: 80, unit: "g", food: "rolled oats" }] }],
-    ["stew", { id: "stew", servings: 1, ingredients: [{ qty: 1, unit: "can", food: "chickpeas" }] }],
+    [
+      "oats",
+      { id: "oats", servings: 1, ingredients: [{ qty: 80, unit: "g", food: "rolled oats" }] },
+    ],
+    [
+      "stew",
+      { id: "stew", servings: 1, ingredients: [{ qty: 1, unit: "can", food: "chickpeas" }] },
+    ],
     ["bites", { id: "bites", servings: 1, ingredients: [{ qty: 50, unit: "g", food: "dates" }] }],
   ]);
   const plan = {
@@ -94,7 +101,10 @@ test("fromDate skips entries already eaten; buffer still shops", () => {
   const pantry = { staples: [], perishables: [] };
 
   const midWeek = deriveShoppingList(plan, recipes, pantry, null, "2026-07-21");
-  assert.equal(midWeek.items.find((i) => i.food === "rolled oats"), undefined);
+  assert.equal(
+    midWeek.items.find((i) => i.food === "rolled oats"),
+    undefined,
+  );
   assert.ok(midWeek.items.find((i) => i.food === "chickpeas"));
   assert.ok(midWeek.items.find((i) => i.food === "dates"));
 
@@ -548,14 +558,46 @@ test("deriveShoppingList rounds AFTER summing across recipes, not per-recipe", (
 test("mergeProfileLists sums overlapping items by id and tracks per-profile sources", () => {
   const david = {
     items: [
-      { id: "feta-cheese-cup", food: "feta cheese", qty: 1, unit: "cup", section: "dairy", checked: false, manual: false },
-      { id: "chicken-thigh-g", food: "chicken thigh", qty: 900, unit: "g", section: "meat", checked: true, manual: false },
+      {
+        id: "feta-cheese-cup",
+        food: "feta cheese",
+        qty: 1,
+        unit: "cup",
+        section: "dairy",
+        checked: false,
+        manual: false,
+      },
+      {
+        id: "chicken-thigh-g",
+        food: "chicken thigh",
+        qty: 900,
+        unit: "g",
+        section: "meat",
+        checked: true,
+        manual: false,
+      },
     ],
   };
   const mom = {
     items: [
-      { id: "feta-cheese-cup", food: "feta cheese", qty: 0.5, unit: "cup", section: "dairy", checked: true, manual: false },
-      { id: "blue-cheese-cup", food: "blue cheese", qty: 0.25, unit: "cup", section: "dairy", checked: false, manual: false },
+      {
+        id: "feta-cheese-cup",
+        food: "feta cheese",
+        qty: 0.5,
+        unit: "cup",
+        section: "dairy",
+        checked: true,
+        manual: false,
+      },
+      {
+        id: "blue-cheese-cup",
+        food: "blue cheese",
+        qty: 0.25,
+        unit: "cup",
+        section: "dairy",
+        checked: false,
+        manual: false,
+      },
     ],
   };
   const combined = mergeProfileLists([
@@ -565,16 +607,19 @@ test("mergeProfileLists sums overlapping items by id and tracks per-profile sour
 
   const feta = combined.find((i) => i.id === "feta-cheese-cup");
   assert.equal(feta.qty, 1.5);
-  assert.deepEqual(
-    feta.sources.map((s) => s.profileId).sort(),
-    ["david", "mom"],
-  );
+  assert.deepEqual(feta.sources.map((s) => s.profileId).sort(), ["david", "mom"]);
   // half-bought is not bought: david's source unchecked
-  assert.equal(feta.sources.every((s) => s.checked), false);
+  assert.equal(
+    feta.sources.every((s) => s.checked),
+    false,
+  );
 
   const chicken = combined.find((i) => i.id === "chicken-thigh-g");
   assert.equal(chicken.sources.length, 1);
-  assert.equal(chicken.sources.every((s) => s.checked), true);
+  assert.equal(
+    chicken.sources.every((s) => s.checked),
+    true,
+  );
 
   // sorted section-first like the per-profile list
   const sections = combined.map((i) => i.section);
@@ -587,8 +632,24 @@ test("swapCandidates flags single-profile partial-container items with what othe
       profileId: "david",
       list: {
         items: [
-          { id: "feta-cheese-cup", food: "feta cheese", qty: 1, unit: "cup", section: "dairy", checked: false, manual: false },
-          { id: "ground-beef-g", food: "ground beef", qty: 400, unit: "g", section: "meat", checked: false, manual: false },
+          {
+            id: "feta-cheese-cup",
+            food: "feta cheese",
+            qty: 1,
+            unit: "cup",
+            section: "dairy",
+            checked: false,
+            manual: false,
+          },
+          {
+            id: "ground-beef-g",
+            food: "ground beef",
+            qty: 400,
+            unit: "g",
+            section: "meat",
+            checked: false,
+            manual: false,
+          },
         ],
       },
     },
@@ -596,8 +657,24 @@ test("swapCandidates flags single-profile partial-container items with what othe
       profileId: "mom",
       list: {
         items: [
-          { id: "blue-cheese-cup", food: "blue cheese", qty: 0.25, unit: "cup", section: "dairy", checked: false, manual: false },
-          { id: "chicken-thigh-g", food: "chicken thigh", qty: 500, unit: "g", section: "meat", checked: false, manual: false },
+          {
+            id: "blue-cheese-cup",
+            food: "blue cheese",
+            qty: 0.25,
+            unit: "cup",
+            section: "dairy",
+            checked: false,
+            manual: false,
+          },
+          {
+            id: "chicken-thigh-g",
+            food: "chicken thigh",
+            qty: 500,
+            unit: "g",
+            section: "meat",
+            checked: false,
+            manual: false,
+          },
         ],
       },
     },
@@ -607,16 +684,34 @@ test("swapCandidates flags single-profile partial-container items with what othe
   // david is already buying feta in the same section -> candidate
   const blue = cands.find((c) => c.item.id === "blue-cheese-cup");
   assert.ok(blue);
-  assert.deepEqual(blue.alreadyBuying.map((i) => i.id), ["feta-cheese-cup"]);
+  assert.deepEqual(
+    blue.alreadyBuying.map((i) => i.id),
+    ["feta-cheese-cup"],
+  );
   // meat is a use-it-all section: never suggested
-  assert.equal(cands.some((c) => c.item.section === "meat"), false);
+  assert.equal(
+    cands.some((c) => c.item.section === "meat"),
+    false,
+  );
 });
 
 test("swapCandidates stays quiet when there is nothing to pair", () => {
   const combined = mergeProfileLists([
     {
       profileId: "david",
-      list: { items: [{ id: "feta-cheese-cup", food: "feta cheese", qty: 1, unit: "cup", section: "dairy", checked: false, manual: false }] },
+      list: {
+        items: [
+          {
+            id: "feta-cheese-cup",
+            food: "feta cheese",
+            qty: 1,
+            unit: "cup",
+            section: "dairy",
+            checked: false,
+            manual: false,
+          },
+        ],
+      },
     },
     { profileId: "mom", list: { items: [] } },
   ]);
@@ -652,12 +747,21 @@ test("householdOthers merges only same-household profiles, absent household = ho
     { id: "laurie", name: "Laurie", household: "laurie" },
   ];
   // pre-household behavior preserved: david still sees mom, and only mom
-  assert.deepEqual(householdOthers(profiles, "david").map((p) => p.id), ["mom"]);
-  assert.deepEqual(householdOthers(profiles, "mom").map((p) => p.id), ["david"]);
+  assert.deepEqual(
+    householdOthers(profiles, "david").map((p) => p.id),
+    ["mom"],
+  );
+  assert.deepEqual(
+    householdOthers(profiles, "mom").map((p) => p.id),
+    ["david"],
+  );
   // laurie is alone in her household -> no EVERYONE tab
   assert.deepEqual(householdOthers(profiles, "laurie"), []);
   // an unknown active id defaults to "home" rather than crashing
-  assert.deepEqual(householdOthers(profiles, "ghost").map((p) => p.id), ["david", "mom"]);
+  assert.deepEqual(
+    householdOthers(profiles, "ghost").map((p) => p.id),
+    ["david", "mom"],
+  );
 });
 
 test("shelfLifeDays maps foods to reasonable windows, default 14", () => {
@@ -680,19 +784,74 @@ test("expirePerishables drops only items past shelf life, keeps dateless ones", 
   };
   const { pantry: out, expired } = expirePerishables(pantry, "2026-07-19");
   assert.deepEqual(expired, ["spinach"]);
-  assert.deepEqual(out.perishables.map((p) => p.food), ["chicken breast", "eggs", "mystery leftovers"]);
+  assert.deepEqual(
+    out.perishables.map((p) => p.food),
+    ["chicken breast", "eggs", "mystery leftovers"],
+  );
   // nothing expired -> same object back (no needless write)
-  const none = expirePerishables({ perishables: [{ food: "eggs", added: "2026-07-18" }] }, "2026-07-19");
+  const none = expirePerishables(
+    { perishables: [{ food: "eggs", added: "2026-07-18" }] },
+    "2026-07-19",
+  );
   assert.equal(none.expired.length, 0);
 });
 
-test("removeFromPantry deletes a staple by id and a perishable by index", () => {
+test("removeFromPantry deletes staples and perishables by id", () => {
   const pantry = {
-    staples: [{ id: "salt", name: "Salt" }, { id: "oil", name: "Oil" }],
-    perishables: [{ food: "spinach" }, { food: "chicken" }],
+    staples: [
+      { id: "salt", name: "Salt" },
+      { id: "oil", name: "Oil" },
+    ],
+    perishables: [
+      { id: "p1", food: "spinach" },
+      { id: "p2", food: "chicken" },
+    ],
   };
-  assert.deepEqual(removeFromPantry(pantry, "staple", "salt").staples.map((s) => s.id), ["oil"]);
-  assert.deepEqual(removeFromPantry(pantry, "perishable", 0).perishables.map((p) => p.food), ["chicken"]);
+  assert.deepEqual(
+    removeFromPantry(pantry, "staple", "salt").staples.map((s) => s.id),
+    ["oil"],
+  );
+  assert.deepEqual(
+    removeFromPantry(pantry, "perishable", "p1").perishables.map((p) => p.food),
+    ["chicken"],
+  );
+});
+
+test("normalizePantry self-heals stable perishable ids, deterministically", () => {
+  const pantry = {
+    staples: [],
+    perishables: [
+      { food: "spinach", added: "2026-07-20", qty: "1 bag" },
+      { food: "spinach", added: "2026-07-20", qty: "1 bag" }, // identical twin
+      { id: "keep", food: "chicken", added: "2026-07-19" },
+    ],
+  };
+  const a = normalizePantry(pantry);
+  const b = normalizePantry(pantry); // a second device healing the same file
+  assert.ok(a.perishables.every((p) => typeof p.id === "string" && p.id.length > 0));
+  // twins get DISTINCT ids; two independent heals agree exactly
+  assert.notEqual(a.perishables[0].id, a.perishables[1].id);
+  assert.deepEqual(
+    a.perishables.map((p) => p.id),
+    b.perishables.map((p) => p.id),
+  );
+  // an existing id is never rewritten
+  assert.equal(a.perishables[2].id, "keep");
+  // already-healed pantry passes through untouched (same reference)
+  assert.equal(normalizePantry(a), a);
+});
+
+test("applyJustBought gives new perishables unique ids", () => {
+  const shopping = {
+    items: [
+      { id: "spinach-g", food: "spinach", qty: 200, unit: "g", section: "produce", checked: true },
+      { id: "berries-g", food: "berries", qty: 300, unit: "g", section: "produce", checked: true },
+    ],
+  };
+  const { pantry } = applyJustBought(shopping, { staples: [], perishables: [] }, "2026-07-21");
+  const ids = pantry.perishables.map((p) => p.id);
+  assert.ok(ids.every((i) => typeof i === "string" && i.length > 0));
+  assert.equal(new Set(ids).size, ids.length);
 });
 
 test("deriveShoppingList shops the weekly buffer batch like a planned entry", () => {
@@ -752,11 +911,7 @@ test("withAutoUseSoon flags perishables in their last 3 days, preserves manual f
 });
 
 test("householdOf and pantryPathFor: household keys the shared pantry (B2)", () => {
-  const profiles = [
-    { id: "david" },
-    { id: "mom" },
-    { id: "laurie", household: "laurie-apt" },
-  ];
+  const profiles = [{ id: "david" }, { id: "mom" }, { id: "laurie", household: "laurie-apt" }];
   assert.equal(householdOf(profiles, "david"), "home");
   assert.equal(householdOf(profiles, "laurie"), "laurie-apt");
   assert.equal(householdOf(profiles, "ghost"), "home"); // unknown id = default

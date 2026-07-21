@@ -30,7 +30,13 @@ export function applyScanItems(pantry, items, todayIso) {
       // don't pile up duplicates
       const key = slug(name);
       if (perishables.some((p) => slug(String(p.food)) === key)) continue;
-      perishables.push({ food: name, qty: item.qty ?? "", added: todayIso, useSoon: false });
+      perishables.push({
+        id: crypto.randomUUID().slice(0, 8),
+        food: name,
+        qty: item.qty ?? "",
+        added: todayIso,
+        useSoon: false,
+      });
     }
   }
   return { ...pantry, staples, perishables };

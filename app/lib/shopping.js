@@ -362,8 +362,7 @@ export function swapCandidates(combined) {
       (other) =>
         other.section === item.section &&
         other.id !== item.id &&
-        (other.sources.length > 1 ||
-          other.sources[0]?.profileId !== item.sources[0]?.profileId),
+        (other.sources.length > 1 || other.sources[0]?.profileId !== item.sources[0]?.profileId),
     );
     if (alreadyBuying.length > 0) out.push({ item, alreadyBuying });
   }
@@ -464,24 +463,75 @@ export function expirePerishables(pantry, todayIso) {
   return { pantry: { ...pantry, perishables: kept }, expired };
 }
 
+/** @returns {string} unique-per-device perishable id */
+function perishableId() {
+  return crypto.randomUUID().slice(0, 8);
+}
+
+/**
+ * Deterministic id for a legacy (pre-id) perishable: two devices
+ * independently self-healing the same household pantry MUST agree on ids,
+ * or the id-keyed 409 merge would duplicate rows and resurrect deletions.
+ * FNV-1a over stable content plus the index among identical twins — the
+ * same scheme plan.js uses for legacy entries.
+ * @param {Record<string, any>} p
+ * @param {number} twinIndex
+ * @returns {string}
+ */
+function legacyPerishableId(p, twinIndex) {
+  const s = `${p.food ?? ""}|${p.added ?? ""}|${p.qty ?? ""}|${twinIndex}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `l${h.toString(16).padStart(8, "0")}`;
+}
+
+/**
+ * Self-heal a pantry read from disk: every perishable gets a stable id
+ * (persisted on the next write, like plan.js legacy entries). Ids are what
+ * make household-shared pantries merge safely — staples always had them,
+ * perishables were removed BY INDEX and merged positionally, so two people
+ * editing the same fridge could mis-target or duplicate rows on a 409.
+ * @param {Record<string, any>} pantry
+ * @returns {Record<string, any>}
+ */
+export function normalizePantry(pantry) {
+  const perishables = pantry.perishables ?? [];
+  if (perishables.every((/** @type {any} */ p) => typeof p.id === "string")) return pantry;
+  /** @type {Map<string, number>} */
+  const twinCounts = new Map();
+  return {
+    ...pantry,
+    perishables: perishables.map((/** @type {any} */ p) => {
+      if (typeof p.id === "string") return p;
+      const contentKey = `${p.food ?? ""}|${p.added ?? ""}|${p.qty ?? ""}`;
+      const twinIndex = twinCounts.get(contentKey) ?? 0;
+      twinCounts.set(contentKey, twinIndex + 1);
+      return { ...p, id: legacyPerishableId(p, twinIndex) };
+    }),
+  };
+}
+
 /**
  * Remove a pantry entry outright (mis-added chicken, a staple you no longer
- * keep). `kind` picks the tier; staples match by id, perishables by index
- * (they have no stable id).
+ * keep). `kind` picks the tier; both match by id.
  * @param {Record<string, any>} pantry
  * @param {"staple" | "perishable"} kind
- * @param {string | number} key staple id, or perishable array index
+ * @param {string} key the entry's id
  * @returns {Record<string, any>}
  */
 export function removeFromPantry(pantry, kind, key) {
   if (kind === "staple") {
-    return { ...pantry, staples: (pantry.staples ?? []).filter((/** @type {any} */ s) => s.id !== key) };
+    return {
+      ...pantry,
+      staples: (pantry.staples ?? []).filter((/** @type {any} */ s) => s.id !== key),
+    };
   }
   return {
     ...pantry,
-    perishables: (pantry.perishables ?? []).filter(
-      (/** @type {any} */ _p, /** @type {number} */ i) => i !== key,
-    ),
+    perishables: (pantry.perishables ?? []).filter((/** @type {any} */ p) => p.id !== key),
   };
 }
 
@@ -536,7 +586,7 @@ export function applyJustBought(shopping, pantry, today) {
   const stapleSlugs = new Set(staples.map((/** @type {any} */ s) => slug(s.name)));
   const newPerishables = bought
     .filter((b) => !stapleIds.has(b.id) && !stapleSlugs.has(slug(b.food)))
-    .map((b) => ({ food: b.food, qty: `${b.qty} ${b.unit}`, added: today }));
+    .map((b) => ({ id: perishableId(), food: b.food, qty: `${b.qty} ${b.unit}`, added: today }));
   return {
     shopping: { ...shopping, items: shopping.items.filter((i) => !i.checked) },
     pantry: {

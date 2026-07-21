@@ -1,9 +1,21 @@
 import { html } from "htm/preact";
 import { useRef, useState } from "preact/hooks";
 import { scanPhoto, scanReceipt } from "../lib/worker.js";
-import { mergeProfileLists, perishableStatus, swapCandidates, formatStoreQty, tripOf } from "../lib/shopping.js";
+import {
+  mergeProfileLists,
+  perishableStatus,
+  swapCandidates,
+  formatStoreQty,
+  tripOf,
+} from "../lib/shopping.js";
 import { localIsoDate, parseLocalIso } from "../lib/dates.js";
-import { itemCost, rankStores, taxRateFor, tripTotal, storeSlugFromReceipt } from "../lib/prices.js";
+import {
+  itemCost,
+  rankStores,
+  taxRateFor,
+  tripTotal,
+  storeSlugFromReceipt,
+} from "../lib/prices.js";
 import { activeProfile } from "../lib/store.js";
 
 /**
@@ -20,14 +32,54 @@ const FOOD_SAFETY = {
     "reheat leftovers to 165°F (74°C) · leftovers keep 3-4 days in the fridge",
   ],
   rows: [
-    { food: "Fish, shrimp, seafood (raw)", fridge: "1-3 days", freezer: "3-8 months", rule: "cook or freeze within 2 days" },
-    { food: "Chicken, turkey, ground meat (raw)", fridge: "1-4 days", freezer: "3-4 months", rule: "cook or freeze within 1-2 days" },
-    { food: "Beef, pork steaks/roasts (raw)", fridge: "3-5 days", freezer: "4-12 months", rule: "" },
-    { food: "Leafy greens, fresh herbs, berries", fridge: "3-6 days", freezer: "greens/berries freeze OK, herbs in oil", rule: "" },
-    { food: "Broccoli, peppers, cucumber, mushrooms, tofu", fridge: "5-8 days", freezer: "blanch veg first", rule: "" },
-    { food: "Milk, yogurt, cottage cheese", fridge: "7-10 days after opening", freezer: "not recommended", rule: "" },
-    { food: "Carrots, cabbage, apples, citrus, potatoes", fridge: "2-3 weeks", freezer: "—", rule: "potatoes/onions prefer a cool pantry" },
-    { food: "Eggs (in shell), hard cheese", fridge: "3-5 weeks / 3-4 weeks opened", freezer: "eggs out of shell only", rule: "" },
+    {
+      food: "Fish, shrimp, seafood (raw)",
+      fridge: "1-3 days",
+      freezer: "3-8 months",
+      rule: "cook or freeze within 2 days",
+    },
+    {
+      food: "Chicken, turkey, ground meat (raw)",
+      fridge: "1-4 days",
+      freezer: "3-4 months",
+      rule: "cook or freeze within 1-2 days",
+    },
+    {
+      food: "Beef, pork steaks/roasts (raw)",
+      fridge: "3-5 days",
+      freezer: "4-12 months",
+      rule: "",
+    },
+    {
+      food: "Leafy greens, fresh herbs, berries",
+      fridge: "3-6 days",
+      freezer: "greens/berries freeze OK, herbs in oil",
+      rule: "",
+    },
+    {
+      food: "Broccoli, peppers, cucumber, mushrooms, tofu",
+      fridge: "5-8 days",
+      freezer: "blanch veg first",
+      rule: "",
+    },
+    {
+      food: "Milk, yogurt, cottage cheese",
+      fridge: "7-10 days after opening",
+      freezer: "not recommended",
+      rule: "",
+    },
+    {
+      food: "Carrots, cabbage, apples, citrus, potatoes",
+      fridge: "2-3 weeks",
+      freezer: "—",
+      rule: "potatoes/onions prefer a cool pantry",
+    },
+    {
+      food: "Eggs (in shell), hard cheese",
+      fridge: "3-5 weeks / 3-4 weeks opened",
+      freezer: "eggs out of shell only",
+      rule: "",
+    },
   ],
   danger: [
     "smell: sour, ammonia, or sulfur = bin it",
@@ -78,7 +130,7 @@ const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spice
  *   storeSlug?: string,
  *   onReceiptApprove?: (store: string, lines: { name: string, price: number, size: string }[]) => void,
  *   onClearList?: () => void,
- *   onRemovePantry?: (kind: "staple" | "perishable", key: string | number) => void
+ *   onRemovePantry?: (kind: "staple" | "perishable", key: string) => void
  * }} props
  */
 export function ShoppingView({
@@ -138,9 +190,13 @@ export function ShoppingView({
 
   const approveReceipt = () => {
     if (!receipt?.lines || !receipt.store || !onReceiptApprove) return;
-    const chosen = receipt.lines.filter((/** @type {any} */ _l, /** @type {number} */ i) => receipt.kept[i]);
+    const chosen = receipt.lines.filter(
+      (/** @type {any} */ _l, /** @type {number} */ i) => receipt.kept[i],
+    );
     if (chosen.length) onReceiptApprove(receipt.store, chosen);
-    setReceipt({ notice: `updated ${chosen.length} prices — thanks, the catalogue is fresher now` });
+    setReceipt({
+      notice: `updated ${chosen.length} prices — thanks, the catalogue is fresher now`,
+    });
   };
 
   const onPhotoPicked = async (/** @type {{ currentTarget: HTMLInputElement }} */ e) => {
@@ -173,8 +229,16 @@ export function ShoppingView({
   const trips =
     shopsPerWeek >= 2
       ? [
-          { key: "pantry", label: "Trip · pantry & bulk", groups: sections.filter((g) => tripOf(g.section) === "pantry") },
-          { key: "fresh", label: "Trip · fresh", groups: sections.filter((g) => tripOf(g.section) === "fresh") },
+          {
+            key: "pantry",
+            label: "Trip · pantry & bulk",
+            groups: sections.filter((g) => tripOf(g.section) === "pantry"),
+          },
+          {
+            key: "fresh",
+            label: "Trip · fresh",
+            groups: sections.filter((g) => tripOf(g.section) === "fresh"),
+          },
         ].filter((t) => t.groups.length > 0)
       : [{ key: "all", label: "", groups: sections }];
 
@@ -285,7 +349,9 @@ export function ShoppingView({
                 `,
               )}
             </div>
-            <p class="hint">tick the lines to save, then apply. Only lines that match a tracked item update.</p>
+            <p class="hint">
+              tick the lines to save, then apply. Only lines that match a tracked item update.
+            </p>
             <div class="slots">
               ${receipt.lines.map(
                 (/** @type {any} */ l, /** @type {number} */ idx) => html`
@@ -296,13 +362,16 @@ export function ShoppingView({
                       onClick=${() =>
                         setReceipt({
                           ...receipt,
-                          kept: receipt.kept.map((/** @type {boolean} */ k, /** @type {number} */ j) =>
-                            j === idx ? !k : k,
+                          kept: receipt.kept.map(
+                            (/** @type {boolean} */ k, /** @type {number} */ j) =>
+                              j === idx ? !k : k,
                           ),
                         })}
                     >
                       <span class="box" aria-hidden="true">${receipt.kept[idx] ? "✓" : ""}</span>
-                      <span class="food">${l.name}${l.size ? html` <span class="tag">${l.size}</span>` : ""}</span>
+                      <span class="food"
+                        >${l.name}${l.size ? html` <span class="tag">${l.size}</span>` : ""}</span
+                      >
                       <span class="q num">$${Number(l.price).toFixed(2)}</span>
                     </button>
                   </div>
@@ -420,9 +489,9 @@ export function ShoppingView({
                             >
                               <span class="box" aria-hidden="true">${i.checked ? "✓" : ""}</span>
                               <span class="food"
-                                >${i.food}${i.manual
-                                  ? html` <span class="tag">manual</span>`
-                                  : ""}</span
+                                >${i.food}${
+                                  i.manual ? html` <span class="tag">manual</span>` : ""
+                                }</span
                               >
                               <span class="q num">${formatStoreQty(i.qty, i.unit)}</span>
                               ${priceTag(i)}
@@ -478,7 +547,8 @@ export function ShoppingView({
                   <span class="status num">$${homeSummary.total.toFixed(2)}</span>
                 </div>
                 <p class="hint">
-                  ${homeSummary.priced} of ${items.length} rows priced${
+                  ${homeSummary.priced} of ${items.length} rows
+                  priced${
                     homeSummary.estimates > 0 ? `, ${homeSummary.estimates} are estimates (~)` : ""
                   }${homeSummary.unpriced > 0 ? " — unpriced rows cost extra on top" : ""}.
                 </p>
@@ -661,29 +731,29 @@ export function ShoppingView({
                   (/** @type {Record<string, any>} */ p, /** @type {number} */ i) => {
                     const { goodUntil, daysLeft } = perishableStatus(p, localIsoDate(new Date()));
                     return html`
-                    <div class="checkrow static" key=${i}>
-                      <span class="food">
-                        ${p.food}${(p.useSoon || (daysLeft != null && daysLeft <= 2)) && html` <span class="usesoon">use soon</span>`}
-                      </span>
-                      <span class="q num ${daysLeft != null && daysLeft <= 2 ? "expiring" : ""}">
-                        ${
+                      <div class="checkrow static" key=${p.id ?? i}>
+                        <span class="food">
+                          ${p.food}${(p.useSoon || (daysLeft != null && daysLeft <= 2)) && html` <span class="usesoon">use soon</span>`}
+                        </span>
+                        <span class="q num ${daysLeft != null && daysLeft <= 2 ? "expiring" : ""}">
+                          ${
                           goodUntil
                             ? `good til ${parseLocalIso(goodUntil).toLocaleDateString([], { month: "short", day: "numeric" })} · ${daysLeft}d`
                             : `${p.qty ?? ""} · no date`
                         }
-                      </span>
-                      ${
+                        </span>
+                        ${
                         onRemovePantry &&
                         html`<button
                           class="rmbtn"
                           aria-label="Remove ${p.food} from the pantry"
-                          onClick=${() => onRemovePantry("perishable", i)}
+                          onClick=${() => onRemovePantry("perishable", p.id)}
                         >
                           ✕
                         </button>`
                       }
-                    </div>
-                  `;
+                      </div>
+                    `;
                   },
                 )}
               </div>
@@ -732,8 +802,8 @@ export function ShoppingView({
         html`
           <p class="hint">
             One trip for the whole household. Quantities are everyone's lists summed; the badges
-            show who wants it. Tick = bought for everyone who wants it (writes to each person's
-            own list). <span class="num">${sharedCount}</span> of${" "}
+            show who wants it. Tick = bought for everyone who wants it (writes to each person's own
+            list). <span class="num">${sharedCount}</span> of${" "}
             <span class="num">${combined.length}</span> items are already shared.
           </p>
           ${
@@ -741,14 +811,16 @@ export function ShoppingView({
             html`
               <div class="tile buildreport" role="note">
                 <div class="k">Could share instead of buying twice</div>
-                ${candidates.slice(0, 6).map(
-                  (c) => html`
-                    <div class="d" key=${c.item.id}>
-                      ${emojiFor.get(c.item.sources[0]?.profileId ?? "") ?? "?"} ${c.item.food} —
-                      others already buying: ${c.alreadyBuying.map((i) => i.food).join(", ")}
-                    </div>
-                  `,
-                )}
+                ${candidates
+                  .slice(0, 6)
+                  .map(
+                    (c) => html`
+                      <div class="d" key=${c.item.id}>
+                        ${emojiFor.get(c.item.sources[0]?.profileId ?? "") ?? "?"} ${c.item.food} —
+                        others already buying: ${c.alreadyBuying.map((i) => i.food).join(", ")}
+                      </div>
+                    `,
+                  )}
                 <div class="d hint">
                   suggestions only — swap the recipe yourself if it makes sense
                 </div>
@@ -787,8 +859,7 @@ export function ShoppingView({
                             >${i.sources.map((s) => emojiFor.get(s.profileId) ?? "?").join(" ")}</span
                           >
                           ${
-                            someChecked &&
-                            html` <span class="tag">still needs ${stillNeeds}</span>`
+                            someChecked && html` <span class="tag">still needs ${stillNeeds}</span>`
                           }
                         </span>
                         <span class="q num">${formatStoreQty(i.qty, i.unit)}</span>
@@ -821,7 +892,8 @@ export function ShoppingView({
                 </div>
                 <p class="hint">
                   the whole household's one trip. ${combinedSummary.priced} of ${combined.length}
-                  rows priced${
+                  rows
+                  priced${
                     combinedSummary.estimates > 0
                       ? `, ${combinedSummary.estimates} are estimates (~)`
                       : ""
