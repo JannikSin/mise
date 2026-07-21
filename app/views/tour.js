@@ -11,7 +11,9 @@ import { TOUR_STEPS } from "../lib/tour.js";
  * the iOS-safe choice: programmatic scrollIntoView between steps keeps
  * working and Safari's fixed-body scroll-restore bug never comes up.
  * A step whose element is missing after the route settles (empty week, no
- * report yet) auto-skips in the direction of travel, never a card at (0,0).
+ * report yet) auto-skips in the direction of travel — and until a step's
+ * element is FOUND, no card renders at all, so a skip is invisible instead
+ * of a card that flashes up and yanks itself away mid-read.
  * @param {{
  *   startStep: number,
  *   onProgress: (step: number) => void,
@@ -38,32 +40,67 @@ export function TourOverlay({ startStep, onProgress, onEnd }) {
     if (location.hash !== s.route) location.hash = s.route;
     setRect(null);
     let tries = 0;
-    const measure = () => {
+    /** @type {DOMRect | null} */
+    let last = null;
+    const changed = (/** @type {DOMRect} */ r) =>
+      !last ||
+      Math.abs(r.top - last.top) > 1 ||
+      Math.abs(r.left - last.left) > 1 ||
+      Math.abs(r.height - last.height) > 1 ||
+      Math.abs(r.width - last.width) > 1;
+    // iOS settles scrollIntoView over several frames and layout can keep
+    // shifting after fonts/tiles land — a single one-shot measurement puts
+    // the cutout where the button WAS. Track the element for the whole
+    // step lifetime and move the cutout whenever it drifts.
+    const track = (/** @type {Element} */ el) => {
+      const tick = () => {
+        if (!alive) return;
+        const cur = document.querySelector(s.selector);
+        if (cur) {
+          const r = cur.getBoundingClientRect();
+          if (changed(r)) {
+            last = r;
+            setRect(r);
+          }
+        }
+        setTimeout(tick, 200);
+      };
+      // a target taller than the viewport minus the card zone scrolls to
+      // the TOP so the visible spotlight covers as much of it as possible
+      // above the bottom-pinned card
+      const tall = el.getBoundingClientRect().height > window.innerHeight - 300;
+      el.scrollIntoView({ block: tall ? "start" : "center" });
+      // setTimeout, never requestAnimationFrame: browsers freeze rAF in
+      // occluded/backgrounded tabs and iOS throttles it mid-scroll, which
+      // left the tour stuck on the dim layer with no card at all
+      setTimeout(tick, 50);
+    };
+    const find = () => {
       if (!alive) return;
       const el = document.querySelector(s.selector);
-      if (!el) {
-        // the view may still be mounting after the route change (a slow
-        // first plan fetch takes a moment); the element may also
-        // legitimately not exist right now — then skip the step
-        if (tries++ < 15) return void setTimeout(measure, 100);
-        const next = step + dirRef.current;
-        // walking off the FRONT (BACK through missing steps) is an abandoned
-        // run, not a finished one — "done" here would suppress every future
-        // offer for a user who saw almost nothing
-        if (next < 0) return onEnd("bailed", step + 1);
-        if (next >= TOUR_STEPS.length) return onEnd("done", step + 1);
-        setStep(next);
-        return;
-      }
-      el.scrollIntoView({ block: "center" });
-      requestAnimationFrame(() => {
-        if (alive) setRect(el.getBoundingClientRect());
-      });
+      if (el) return track(el);
+      // nothing rendered yet (view mounting) or genuinely absent (no build
+      // report before a generate): retry briefly, then skip. No card has
+      // rendered, so the skip is invisible.
+      if (tries++ < 10) return void setTimeout(find, 100);
+      const next = step + dirRef.current;
+      // walking off the FRONT (BACK through missing steps) is an abandoned
+      // run, not a finished one — "done" here would suppress every future
+      // offer for a user who saw almost nothing
+      if (next < 0) return onEnd("bailed", step + 1);
+      if (next >= TOUR_STEPS.length) return onEnd("done", step + 1);
+      setStep(next);
     };
-    measure();
+    find();
     const remeasure = () => {
       const el = document.querySelector(s.selector);
-      if (el) setRect(el.getBoundingClientRect());
+      if (el) {
+        const r = el.getBoundingClientRect();
+        if (changed(r)) {
+          last = r;
+          setRect(r);
+        }
+      }
     };
     window.addEventListener("resize", remeasure);
     window.addEventListener("scroll", remeasure, true);
@@ -129,26 +166,37 @@ export function TourOverlay({ startStep, onProgress, onEnd }) {
       onKeyDown=${onKey}
     >
       ${
+        rect
+          ? html`<div
+              class="tour-cutout"
+              style=${`top:${cutTop}px;left:${rect.left - 6}px;width:${rect.width + 12}px;height:${cutHeight}px`}
+            ></div>`
+          : html`<div class="tour-dim"></div>`
+      }
+      ${
+        // no card until the target is found and measured: an unresolved step
+        // must skip invisibly, never flash a card and yank it away mid-read
         rect &&
         html`<div
-          class="tour-cutout"
-          style=${`top:${cutTop}px;left:${rect.left - 6}px;width:${rect.width + 12}px;height:${cutHeight}px`}
-        ></div>`
+          class="tour-card ${placement.cls}"
+          style=${placement.style}
+          tabindex="-1"
+          ref=${cardRef}
+        >
+          <div class="tour-dots num" aria-hidden="true">${step + 1} / ${TOUR_STEPS.length}</div>
+          <div class="tour-title">${s.title}</div>
+          <div class="tour-text">${s.text}</div>
+          <div class="tour-btns">
+            <button class="secondary endbtn" onClick=${() => onEnd("bailed", step + 1)}>
+              END TOUR
+            </button>
+            ${step > 0 && html`<button class="secondary" onClick=${() => go(step - 1, -1)}>BACK</button>`}
+            <button class="primary" onClick=${() => go(step + 1, 1)}>
+              ${step === TOUR_STEPS.length - 1 ? "DONE" : "NEXT"}
+            </button>
+          </div>
+        </div>`
       }
-      <div class="tour-card ${placement.cls}" style=${placement.style} tabindex="-1" ref=${cardRef}>
-        <div class="tour-dots num" aria-hidden="true">${step + 1} / ${TOUR_STEPS.length}</div>
-        <div class="tour-title">${s.title}</div>
-        <div class="tour-text">${s.text}</div>
-        <div class="tour-btns">
-          <button class="secondary endbtn" onClick=${() => onEnd("bailed", step + 1)}>
-            END TOUR
-          </button>
-          ${step > 0 && html`<button class="secondary" onClick=${() => go(step - 1, -1)}>BACK</button>`}
-          <button class="primary" onClick=${() => go(step + 1, 1)}>
-            ${step === TOUR_STEPS.length - 1 ? "DONE" : "NEXT"}
-          </button>
-        </div>
-      </div>
     </div>
   `;
 }

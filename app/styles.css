@@ -2151,6 +2151,15 @@ button.linktext {
   z-index: 120;
 }
 
+/* uniform dim while a step's target is still being located: keeps the
+   backdrop steady so an invisible auto-skip never flashes the page bright */
+.tour-dim {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 6, 7, 0.78);
+  pointer-events: none;
+}
+
 /* the spotlight: one element whose oversized shadow dims everything else */
 .tour-cutout {
   position: fixed;
