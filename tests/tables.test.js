@@ -7,6 +7,8 @@ import {
   removeTable,
   patchSeat,
   pruneTables,
+  stripTableEntries,
+  mergeViewPlan,
 } from "../app/lib/tables.js";
 import { recipeConflicts, mergeRecipePool } from "../app/lib/plan.js";
 import { mergeFieldWise } from "../app/lib/merge.js";
@@ -224,4 +226,115 @@ test("recipeConflicts refactor: mergeRecipePool still screens identically", () =
   assert.equal(pool.length, 0);
   const pool2 = mergeRecipePool([KEBAB], [], undefined, [], undefined);
   assert.equal(pool2.length, 1);
+});
+
+test("stripTableEntries removes ANY entry carrying a table property, even a falsy id", () => {
+  const entries = [
+    { id: "a", date: "2026-07-24", slot: "dinner", recipeId: "x", servings: 1 },
+    { id: "t", date: "2026-07-24", slot: "lunch", table: "", freeText: "poisoned", servings: 1 },
+    { id: "t2", date: "2026-07-25", slot: "dinner", table: "ok", servings: 1 },
+  ];
+  assert.deepEqual(
+    stripTableEntries(entries).map((e) => e.id),
+    ["a"],
+  );
+});
+
+test("mergeViewPlan: displaces unpinned, keeps pinned/OUT, clamps to week, spares past days", () => {
+  const weekDates = [
+    "2026-07-20",
+    "2026-07-21",
+    "2026-07-22",
+    "2026-07-23",
+    "2026-07-24",
+    "2026-07-25",
+    "2026-07-26",
+  ];
+  const plan = {
+    week: "2026-W30",
+    entries: [
+      { id: "u", date: "2026-07-24", slot: "dinner", recipeId: "x", servings: 1 }, // displaced
+      { id: "p", date: "2026-07-24", slot: "lunch", recipeId: "y", servings: 1, pinned: true },
+      { id: "past", date: "2026-07-20", slot: "dinner", recipeId: "z", servings: 1 }, // past: spared
+    ],
+  };
+  const tableEntries = [
+    { id: "table-1", table: "1", date: "2026-07-24", slot: "dinner", servings: 1, pinned: true },
+    { id: "table-2", table: "2", date: "2026-07-20", slot: "dinner", servings: 1, pinned: true },
+    { id: "table-3", table: "3", date: "2026-08-15", slot: "dinner", servings: 1, pinned: true }, // out of week
+  ];
+  const { plan: view, displaced } = mergeViewPlan(plan, tableEntries, weekDates, "2026-07-22");
+  const ids = view.entries.map((e) => e.id);
+  assert.ok(!ids.includes("u")); // displaced
+  assert.ok(ids.includes("p")); // pinned kept
+  assert.ok(ids.includes("past")); // past never displaced (generate would delete history)
+  assert.ok(ids.includes("table-1") && ids.includes("table-2"));
+  assert.ok(!ids.includes("table-3")); // week clamp: no cross-week ghost days
+  assert.equal(displaced, true);
+});
+
+test("a poisoned table with an empty id derives nothing", () => {
+  const r = deriveTables([{ house: "home", events: { tables: [table({ id: "" })] } }], ctx());
+  assert.equal(r.entries.length, 0);
+});
+
+test("seat flood: unknown-profile seats never cook, never inflate the sum", () => {
+  const seats = [{ id: "david", servings: 1 }];
+  for (let i = 0; i < 50; i++) seats.push({ id: `ghost${i}`, servings: 10 });
+  const r = deriveTables([{ house: "home", events: { tables: [table({ seats })] } }], ctx());
+  assert.deepEqual(r.cookExtras, [{ recipeId: "kebab", date: "2026-07-24", servings: 1 }]);
+  // and a ghost-only first seat cannot void the cook role
+  const r2 = deriveTables(
+    [
+      {
+        house: "home",
+        events: {
+          tables: [
+            table({
+              seats: [
+                { id: "zzz", servings: 1 },
+                { id: "david", servings: 1 },
+              ],
+            }),
+          ],
+        },
+      },
+    ],
+    ctx(),
+  );
+  assert.equal(r2.cookExtras.length, 1);
+});
+
+test("a table on a non-bank recipe surfaces as a conflict, never a silent no-op", () => {
+  const r = deriveTables(
+    [{ house: "home", events: { tables: [table({ recipeId: "moms-own-thing" })] } }],
+    ctx(),
+  );
+  assert.equal(r.entries.length, 0);
+  assert.deepEqual(r.conflicts[0].reasons, ["recipe not in the shared bank"]);
+});
+
+test("derived entries carry viewRecipeId and the cook's batch total", () => {
+  const { entries } = deriveTables([{ house: "home", events: { tables: [table()] } }], ctx());
+  assert.equal(entries[0].viewRecipeId, "kebab");
+  assert.equal(entries[0].cookTotal, 2.5); // david cooks: 1.5 + 1
+  const momView = deriveTables(
+    [{ house: "home", events: { tables: [table()] } }],
+    ctx({ profileId: "mom" }),
+  );
+  assert.equal(momView.entries[0].cookTotal, undefined); // mom is not the cook
+});
+
+test("patchSeat whitelists fields: id and junk keys never land", () => {
+  const ev = { tables: [table()] };
+  const out = patchSeat(ev, "t1", "david", { id: "mom", junk: true, servings: 2 }, TODAY);
+  const seat = out.tables[0].seats[0];
+  assert.equal(seat.id, "david");
+  assert.equal(seat.junk, undefined);
+  assert.equal(seat.servings, 2);
+});
+
+test("normalizeEvents carries an unbuilt brigades key through untouched", () => {
+  const ev = normalizeEvents({ tables: [], brigades: [{ id: "b1" }] });
+  assert.deepEqual(ev.brigades, [{ id: "b1" }]);
 });

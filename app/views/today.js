@@ -18,6 +18,7 @@ import { perishableStatus } from "../lib/shopping.js";
  *   recipes: Record<string, any>[],
  *   plan: import("../lib/plan.js").Plan,
  *   tableConflicts: { table: import("../lib/tables.js").TableEvent, reasons: string[] }[],
+ *   tableStale: boolean,
  *   nextPlan: import("../lib/plan.js").Plan | null,
  *   daily: { days?: Record<string, any>[] },
  *   pantry: Record<string, any>,
@@ -30,6 +31,7 @@ export function TodayView({
   recipes,
   plan,
   tableConflicts,
+  tableStale,
   nextPlan,
   daily,
   pantry,
@@ -184,7 +186,10 @@ export function TodayView({
               </p>`
             : html`<div class="todaylist">
                 ${todayEntries.map((entry) => {
-                  const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
+                  // viewRecipeId: a table entry's dish, linkable here without
+                  // ever entering the shopping/dayTotals recipeId paths
+                  const rid = entry.recipeId ?? entry.viewRecipeId;
+                  const recipe = rid ? byId.get(rid) : null;
                   const label = SLOT_META[entry.slot]?.label ?? entry.slot;
                   if (!recipe) {
                     return html`
@@ -205,11 +210,14 @@ export function TodayView({
                   return html`
                     <a
                       class="todayrow"
-                      href="#/recipe/${encodeURIComponent(entry.recipeId ?? "")}?from=today&servings=${entry.servings ?? 1}"
+                      href="#/recipe/${encodeURIComponent(rid ?? "")}?from=today&servings=${entry.cookTotal ?? entry.servings ?? 1}"
                       key=${entry.id}
                     >
                       <span class="t">${label}</span>
-                      <span class="n">${recipe.name}</span>
+                      <span class="n">
+                        ${recipe.name}${entry.table && html` <span class="usesoon">table</span>`}
+                        ${entry.cookTotal && html` <span class="usesoon">cook ×${entry.cookTotal} total</span>`}
+                      </span>
                       <span class="m num"
                         >${recipe.nutrition?.calories} · ${recipe.nutrition?.protein}P ›</span
                       >
@@ -221,8 +229,11 @@ export function TodayView({
       ${
         todayEntries.some((e) => e.table) &&
         html`<p class="hint">
-          🍽 a shared table is fixed for ${isToday ? "today" : dayLabel} — the other meals were
-          planned around it so your day still lands on target.
+          ${
+            tableStale
+              ? "🍽 a table landed after this week was planned — RE-ROLL on Plan to adjust the day and rebuild the list."
+              : `🍽 a shared table is fixed for ${isToday ? "today" : dayLabel} — the other meals were planned around it so your day still lands on target.`
+          }
         </p>`
       }
       ${

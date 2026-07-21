@@ -2301,6 +2301,27 @@ button.linktext {
   flex: 1;
 }
 
+.tableform .row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tableform .row .tickarea {
+  flex: 1 1 160px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.tableform .row .tickarea:focus-within {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
 .seatservings {
   width: 72px;
   min-height: 44px;

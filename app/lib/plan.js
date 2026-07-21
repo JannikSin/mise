@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, estCalories?: number, estProtein?: number }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, buffer?: PlanBuffer }} Plan
  */
@@ -471,8 +471,9 @@ export function entriesAt(entries, date, slot) {
 
 /**
  * Planned calories/protein for one day. freeText and unknown recipes count 0,
- * EXCEPT an eating-out placeholder, which counts its assumed estCalories/
- * estProtein — the restaurant meal is real food, just not shopped or cooked.
+ * EXCEPT an eating-out placeholder OR a derived table entry, which count
+ * their est fields — the meal is real food, just not cooked from this
+ * profile's own pool.
  * @param {PlanEntry[]} entries
  * @param {Map<string, any>} recipesById
  * @param {string} date

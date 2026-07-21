@@ -12,6 +12,7 @@ import {
   SLOT_META,
 } from "../lib/plan.js";
 import { parseLocalIso, statusDate } from "../lib/dates.js";
+import { SERVINGS_MIN, SERVINGS_MAX } from "../lib/tables.js";
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
@@ -59,6 +60,8 @@ function monthDay(isoDate) {
  *   me: string,
  *   tableConflicts: { table: import("../lib/tables.js").TableEvent, reasons: string[] }[],
  *   tableCollisions: import("../lib/tables.js").TableEvent[],
+ *   tableStale: boolean,
+ *   bankRecipes: Record<string, any>[],
  *   onCreateTable: (t: { name: string, date: string, slot: string, recipeId: string, seats: import("../lib/tables.js").Seat[] }) => void,
  *   onRemoveTable: (house: string, id: string) => void,
  *   onPatchSeat: (house: string, tableId: string, patch: Partial<import("../lib/tables.js").Seat>) => void,
@@ -87,6 +90,8 @@ export function PlannerView({
   me,
   tableConflicts,
   tableCollisions,
+  tableStale,
+  bankRecipes,
   onCreateTable,
   onRemoveTable,
   onPatchSeat,
@@ -133,13 +138,14 @@ export function PlannerView({
     /** @type {Record<string, { in: boolean, servings: number }>} */
     const seats = {};
     for (const p of profiles ?? []) seats[p.id] = { in: p.id === me, servings: 1 };
-    const firstDinner = recipes.find((r) => r.mealType === "dinner");
+    const bank = bankRecipes ?? [];
+    const firstDinner = bank.find((r) => r.mealType === "dinner");
     setSeatWarnings({});
     setTableForm({
       name: "",
       date: dates.find((d) => !isPast(d)) ?? dates[0] ?? "",
       slot: "dinner",
-      recipeId: firstDinner?.id ?? recipes[0]?.id ?? "",
+      recipeId: firstDinner?.id ?? bank[0]?.id ?? "",
       seats,
     });
   };
@@ -340,6 +346,13 @@ export function PlannerView({
 
       <h2 class="block-title">Tables</h2>
       ${
+        tableStale &&
+        html`<p class="hint">
+          ⚠ a table landed after this week was generated — RE-ROLL to plan the day around it and
+          rebuild the list.
+        </p>`
+      }
+      ${
         myTables.length === 0 &&
         !tableForm &&
         html`<p class="hint">
@@ -364,6 +377,10 @@ export function PlannerView({
                   (s) => `${nameOf(s.id)} ×${s.servings}${s.status === "skipped" ? " (out)" : ""}`,
                 )
                 .join(" · ")}
+              · cook total
+              ×${(t.seats ?? [])
+                .filter((s) => s.status !== "skipped")
+                .reduce((sum, s) => sum + (Number(s.servings) || 0), 0)}
             </div>
             ${
               conflicted &&
@@ -374,8 +391,8 @@ export function PlannerView({
             ${
               collisionIds.has(t.id) &&
               html`<div class="d num redflag">
-                your ${SLOT_META[t.slot]?.full ?? t.slot} that day is already planned — re-roll or
-                remove it to sit at this table
+                your ${SLOT_META[t.slot]?.full ?? t.slot} that day is pinned or marked OUT — unpin
+                or clear it to sit at this table
               </div>`
             }
             <div class="actions wrap">
@@ -441,7 +458,11 @@ export function PlannerView({
                 onInput=${(/** @type {any} */ e) =>
                   setTableForm({ ...tableForm, recipeId: e.currentTarget.value })}
               >
-                ${recipes.map((r) => html`<option value=${r.id}>${r.name}</option>`)}
+                ${
+                  /* bank only: a table on someone's personal recipe variant
+                     has no honest macros for the other seats */
+                  (bankRecipes ?? []).map((r) => html`<option value=${r.id}>${r.name}</option>`)
+                }
               </select>
               ${(profiles ?? []).map((p) => {
                 const seat = tableForm.seats[p.id] ?? { in: false, servings: 1 };
@@ -471,14 +492,14 @@ export function PlannerView({
                     ${
                       seat.in &&
                       html`<input
-                        class="num seatservings"
-                        type="number"
-                        min="0.5"
-                        max="10"
-                        step="0.5"
-                        aria-label="Servings for ${p.name ?? p.id}"
-                        value=${seat.servings}
-                        onInput=${(/** @type {any} */ e) =>
+                          class="num seatservings"
+                          type="number"
+                          min=${SERVINGS_MIN}
+                          max=${SERVINGS_MAX}
+                          step="0.5"
+                          aria-label="Servings for ${p.name ?? p.id}"
+                          value=${seat.servings}
+                          onInput=${(/** @type {any} */ e) =>
                           setTableForm({
                             ...tableForm,
                             seats: {
@@ -486,7 +507,7 @@ export function PlannerView({
                               [p.id]: { ...seat, servings: Number(e.currentTarget.value) || 1 },
                             },
                           })}
-                      />`
+                        /><span class="hint num">servings</span>`
                     }
                   </div>
                 `;
@@ -495,10 +516,6 @@ export function PlannerView({
                 <button class="secondary" onClick=${() => setTableForm(null)}>CANCEL</button>
                 <button class="primary" onClick=${submitTable}>SET TABLE</button>
               </div>
-              <p class="hint">
-                the cook at the table's house shops the whole batch; guests get the meal credited
-                with real macros and buy nothing. Servings are per person.
-              </p>
             </div>`
       }
 

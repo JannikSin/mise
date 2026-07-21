@@ -57,6 +57,7 @@ import {
   entriesAt,
   OUT_TEXT,
   slotMacroEstimate,
+  datesOfWeek,
   setPlanLocked,
   mergeRecipePool,
   recipeConflicts,
@@ -67,6 +68,8 @@ import {
   normalizeEvents,
   eventsPathFor,
   deriveTables,
+  mergeViewPlan,
+  stripTableEntries,
   addTable,
   removeTable,
   patchSeat,
@@ -611,7 +614,7 @@ function App() {
     const byId = recipesById(recipesRef.current);
     updateShopping(
       deriveShoppingList(
-        withCookExtras(/** @type {import("./lib/plan.js").Plan} */ (viewPlanRef.current)),
+        withCookExtras(/** @type {import("./lib/plan.js").Plan} */ (planRef.current)),
         byId,
         pantryRef.current,
         shoppingRef.current,
@@ -871,9 +874,7 @@ function App() {
       // ahead of today)
       today: localIsoDate(new Date()),
     });
-    // the Engineer seam's ONE strip point: derived table entries must
-    // never reach plans/<week>.json
-    updatePlan({ ...result.plan, entries: result.plan.entries.filter((e) => !e.table) });
+    updatePlan(result.plan); // updatePlan strips derived table entries itself
     setBuildReport(result.report);
     // 7a: auto-populate the shopping list from the freshly generated plan,
     // not the stale planRef, so List is correct the instant Plan finishes
@@ -1085,7 +1086,6 @@ function App() {
       const profilesById = new Map(allProfiles.map((p) => [p.id, p]));
       return deriveTables(houseEvents, {
         profileId: me,
-        myHouse: /** @type {string} */ (profilesById.get(me)?.household ?? "home"),
         diet: targets?.diet,
         avoid: targets?.avoidIngredients,
         bankById: recipesById(bankRecipes),
@@ -1097,16 +1097,20 @@ function App() {
       return { entries: [], conflicts: [], collisions: [], cookExtras: [] };
     }
   }, [houseEvents, allProfiles, targets, bankRecipes, plan, me]);
-  const viewPlan = useMemo(() => {
-    // a derived table entry DISPLACES any unpinned own entry in its slot
-    // from the view (the next generate clears it for real); pinned/OUT own
-    // entries instead win the collision inside deriveTables
-    const claimed = new Set(tableDerived.entries.map((e) => `${e.date}|${e.slot}`));
-    const kept = plan.entries.filter(
-      (e) => e.pinned || e.out || !claimed.has(`${e.date}|${e.slot}`),
-    );
-    return { ...plan, entries: [...kept, ...tableDerived.entries] };
-  }, [plan, tableDerived]);
+  const merged = useMemo(
+    () =>
+      mergeViewPlan(
+        /** @type {import("./lib/plan.js").Plan} */ (plan),
+        tableDerived.entries,
+        datesOfWeek(plan.week),
+        localIsoDate(new Date()),
+      ),
+    [plan, tableDerived],
+  );
+  const viewPlan = merged.plan;
+  // a table landed AFTER this week was generated: the view displaced a meal
+  // but snacks/portions were sized around the old one — say so until re-roll
+  const tableStale = merged.displaced;
   const viewPlanRef = useRef(viewPlan);
   viewPlanRef.current = viewPlan;
   const tableDerivedRef = useRef(tableDerived);
@@ -1154,6 +1158,7 @@ function App() {
 
   const handleRemoveTable = useCallback(
     (/** @type {string} */ house, /** @type {string} */ id) => {
+      if (house !== myHouseOf()) return; // amendment 5: foreign houses are read-only
       const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
       if (!cur) return;
       writeHouseEvents(house, removeTable(cur, id, localIsoDate(new Date())));
@@ -1169,7 +1174,7 @@ function App() {
     ) => {
       const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
       if (!cur) return;
-      writeHouseEvents(house, patchSeat(cur, tableId, me, patch));
+      writeHouseEvents(house, patchSeat(cur, tableId, me, patch, localIsoDate(new Date())));
     },
     [writeHouseEvents],
   );
@@ -1263,6 +1268,7 @@ function App() {
         recipes=${recipes}
         plan=${viewPlan}
         tableConflicts=${tableDerived.conflicts}
+        tableStale=${tableStale}
         nextPlan=${nextPlan}
         daily=${dailyLog}
         pantry=${pantry}
@@ -1304,6 +1310,8 @@ function App() {
         me=${me}
         tableConflicts=${tableDerived.conflicts}
         tableCollisions=${tableDerived.collisions}
+        tableStale=${tableStale}
+        bankRecipes=${bankRecipes}
         onCreateTable=${handleCreateTable}
         onRemoveTable=${handleRemoveTable}
         onPatchSeat=${handlePatchSeat}

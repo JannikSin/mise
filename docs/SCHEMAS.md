@@ -372,7 +372,14 @@ Rules (binding, from the Tribunal gate):
   seat's entry is est-macro only (nothing to buy).
 - A profile's own entry at the same date+slot wins over the table entry.
 - Retention: derivation ignores tables >14 days past; every CRUD write
-  prunes them.
+  (add, remove, seat patch) prunes them, malformed dates included.
+- The cook's shopping sum counts every known non-skipped seat, INCLUDING
+  seats whose own diet screen conflicts (a conflict is per-reader; the cook
+  cannot know a guest's screen) — the cook may knowingly over-shop by that
+  seat's portion.
+- Derived entries additionally carry `viewRecipeId` (Cook-view recipe link)
+  and, for the cook only, `cookTotal` (the batch total to cook). Both are
+  DERIVED-ONLY fields: they exist in memory, never in any stored file.
 
 ## Meal plan — `plans/<week>.json`
 
