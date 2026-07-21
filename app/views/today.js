@@ -64,6 +64,10 @@ export function TodayView({ recipes, plan, nextPlan, daily, pantry, onPatchDay, 
   const weekdayAssembly = [];
   for (const entry of batchEntries) {
     if (!entry.recipeId) continue;
+    // mid-week, an already-eaten day contributes nothing: no assembly note,
+    // and no catch-up component for a dish with no remaining day to eat it
+    // (a recipe also planned on a live day is still caught by that entry)
+    if (catchUp && entry.date < today) continue;
     const recipe = byId.get(entry.recipeId);
     const bp = recipe?.batchPrep;
     if (!bp) continue;
@@ -71,8 +75,7 @@ export function TodayView({ recipes, plan, nextPlan, daily, pantry, onPatchDay, 
       seenSunday.add(recipe.id);
       sundayComponents.push({ id: recipe.id, name: recipe.name, text: bp.sundayComponent });
     }
-    // mid-week, an assembly note for a day already eaten is noise
-    if (bp.weekdayAssembly && !(catchUp && entry.date < today)) {
+    if (bp.weekdayAssembly) {
       weekdayAssembly.push({
         id: entry.id,
         date: entry.date,
@@ -255,16 +258,24 @@ export function TodayView({ recipes, plan, nextPlan, daily, pantry, onPatchDay, 
                 batchForNext
                   ? `for next week · ${sundayComponents.length} to prep`
                   : catchUp
-                    ? "Sunday passed: batch tonight or next chance"
+                    ? `Sunday passed · ${sundayComponents.length} to catch up, tap to open`
                     : `${sundayComponents.length} to prep, tap to open`
               }
             </span>
           </summary>
           ${
+            // three distinct Sunday states: still fetching next week's plan,
+            // genuinely no plan yet, and a plan whose recipes need no batching
             batchForNext &&
             !hasBatchPrep &&
             html`<div class="batch">
-              No plan for next week yet. Generate it on the Plan tab, then batch from here.
+              ${
+                nextPlan == null
+                  ? "loading next week…"
+                  : nextPlan.entries.length === 0
+                    ? "No plan for next week yet. Generate it on the Plan tab, then batch from here."
+                    : "Nothing in next week's plan needs batching."
+              }
             </div>`
           }
           ${sundayComponents.map(

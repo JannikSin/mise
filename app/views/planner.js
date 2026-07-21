@@ -125,16 +125,20 @@ export function PlannerView({
                 : "Generate my week automatically"
           }
           onClick=${onGenerateWeek}
-          disabled=${recipes.length === 0 || Boolean(plan.locked)}
+          disabled=${recipes.length === 0 || Boolean(plan.locked) || firstLive == null}
         >
           ${rebuilt ? "RE-ROLL WEEK" : "✦ GENERATE MY WEEK"}
           <small>
             ${
               plan.locked
                 ? "🔒 locked — you shopped for this week. Unlock on the List tab to change it."
-                : midWeek
-                  ? `plans ${parseLocalIso(/** @type {string} */ (firstLive)).toLocaleDateString([], { weekday: "short" })}–Sun · earlier days already eaten · pinned entries are kept`
-                  : "overlapping ingredients → fewer, bulkier buys · pinned entries are kept"
+                : firstLive == null
+                  ? "this week is over, nothing left to plan"
+                  : midWeek
+                    ? firstLive === dates[6]
+                      ? "plans today only · earlier days already eaten · pinned entries are kept"
+                      : `plans ${parseLocalIso(firstLive).toLocaleDateString([], { weekday: "short" })}–Sun · earlier days already eaten · pinned entries are kept`
+                    : "overlapping ingredients → fewer, bulkier buys · pinned entries are kept"
             }
           </small>
         </button>

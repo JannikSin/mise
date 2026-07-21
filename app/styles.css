@@ -861,22 +861,26 @@ summary.block-title {
   margin-bottom: 6px;
 }
 
-/* a past day of the current week: already eaten, read-only, visually parked */
+/* a past day of the current week: already eaten, read-only, visually parked.
+   0.65 not lower: recipe names must stay AA-readable through the opacity */
 .day.past {
-  opacity: 0.45;
+  opacity: 0.65;
   filter: saturate(0.4);
 }
 
+/* past rows are not drop targets — drop the dashed drop-affordance border */
+.day.past .slotrow {
+  border-style: solid;
+}
+
 .block-title .eaten {
-  margin-left: 8px;
-  font-size: 8.5px;
+  font-size: 9.5px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--dim);
+  color: var(--text);
   border: 1px solid var(--line);
   border-radius: 3px;
   padding: 1px 5px;
-  vertical-align: 1px;
 }
 
 .meters {
