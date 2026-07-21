@@ -829,13 +829,20 @@ export function poolAdequacy(recipes, targets) {
  *   weekId: string,
  *   plan: import("./plan.js").Plan,
  *   salt?: number,
- *   recentRecipeIds?: string[]
- * }} args
+ *   recentRecipeIds?: string[],
+ *   today?: string
+ * }} args `today` (local YYYY-MM-DD) makes generation day-aware: dates
+ *   strictly before it are PAST — their entries survive verbatim (pinned or
+ *   not), nothing new is filled there, no pass resizes them, no report line
+ *   mentions them, and weekly targets + buffer portions scale to the live
+ *   days that remain. Absent = full 7-day behavior (future weeks, tests).
  * @returns {{ plan: import("./plan.js").Plan, report: WeekReport }}
  */
-export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0, recentRecipeIds = [] }) {
+export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0, recentRecipeIds = [], today }) {
   const recentSet = new Set(recentRecipeIds);
   const dates = datesOfWeek(weekId);
+  const isPast = (/** @type {string} */ d) => Boolean(today) && d < /** @type {string} */ (today);
+  const liveDates = dates.filter((d) => !isPast(d));
   const byId = recipesById(recipes);
   const useSoonFoods = (pantry.perishables ?? [])
     .filter((/** @type {any} */ p) => p.useSoon)
@@ -872,8 +879,13 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0,
   // they arrived without one (pre-estimate data, hand edits): the credit is
   // what lets every floor/top-up/trim pass plan the REST of the day around
   // a realistic total instead of snack-stacking a fictional 900-kcal hole.
+  // Past-day entries are set aside UNTOUCHED and merged back at the end:
+  // the floor/top-up/trim passes derive their date lists from plan.entries,
+  // so keeping past entries out of the working plan is what keeps every
+  // pass (and the report) off days already eaten.
+  const pastEntries = plan.entries.filter((e) => isPast(e.date));
   const pinnedEntries = plan.entries
-    .filter((e) => e.pinned)
+    .filter((e) => e.pinned && !isPast(e.date))
     .map((e) => (e.out && e.estCalories == null ? { ...e, ...slotMacroEstimate(recipes, e.slot) } : e));
   let next = { ...plan, week: weekId, entries: pinnedEntries };
 
@@ -896,7 +908,7 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0,
   // greedy committee scoring accumulates at week-level for efficiency (R1);
   // the REPORT is still computed per day from the actual generated plan
   const dailyDozenWeekly = Object.fromEntries(
-    Object.entries(dailyDozenPerDay).map(([k, v]) => [k, Number(v) * 7]),
+    Object.entries(dailyDozenPerDay).map(([k, v]) => [k, Number(v) * liveDates.length]),
   );
   // only the ENFORCED_DAILY_GROUPS get a per-day floor pass; groups absent
   // from targets.dailyDozen are silently skipped, never invented
@@ -986,6 +998,7 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0,
   let dinnerCursor = 0;
 
   dates.forEach((date, i) => {
+    if (isPast(date)) return; // day already eaten — index i keeps office days weekday-true
     if (mealSlotSet.has("breakfast")) {
       fill(date, "breakfast", committees.breakfast[i % Math.max(1, committees.breakfast.length)]);
     }
@@ -1079,19 +1092,24 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0,
       bufferPick = r;
     }
   }
-  if (bufferPick) next = { ...next, buffer: { recipeId: bufferPick.id, portions: 7 } };
+  // portions = one per LIVE day (7 on a fresh week); a mid-week re-roll
+  // rescales the batch to the days that remain. A fully-past week keeps its
+  // existing buffer untouched.
+  if (bufferPick && liveDates.length > 0) {
+    next = { ...next, buffer: { recipeId: bufferPick.id, portions: liveDates.length } };
+  }
 
   // Step 5: report, never fudge — short days are judged against the floors
   // but reported against the real goals. Eating-out days participate like
   // any other day: their assumed credit is in dayTotals, so a shortfall or
   // overage line about one is real, not an artifact of a 0-calorie slot.
-  const { proteinShortDays, calorieShortDays } = macroShortfalls(next, byId, dates, floors, {
+  const { proteinShortDays, calorieShortDays } = macroShortfalls(next, byId, liveDates, floors, {
     protein: proteinTarget,
     calories: caloriesTarget,
   });
-  const gaps = foodGroupGapsReport(next.entries, byId, dates, dailyDozenPerDay);
+  const gaps = foodGroupGapsReport(next.entries, byId, liveDates, dailyDozenPerDay);
   const poolInsufficient = poolInsufficiency(recipes, dailyDozenPerDay);
-  const calorieOverDays = dates
+  const calorieOverDays = liveDates
     .map((date) => ({ date, calories: dayTotals(next.entries, byId, date).calories }))
     .filter((d) => d.calories > calorieCeiling)
     .map((d) => ({ ...d, ceiling: calorieCeiling }));
@@ -1105,6 +1123,10 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0,
     if (r) usedRecipes.set(r.id, r);
   }
   const overlap = overlapReport([...usedRecipes.values()]);
+
+  // merge the untouched past days back in — after the report, so every
+  // report line (shared, shortfalls, gaps) speaks only about live days
+  if (pastEntries.length > 0) next = { ...next, entries: [...pastEntries, ...next.entries] };
 
   return {
     plan: next,

@@ -215,6 +215,97 @@ test("generateWeek leaves an eating-out slot alone, credits its assumed macros, 
   assert.ok(plan.entries.some((e) => e.date === MONDAY_W29 && e.slot === "lunch"));
 });
 
+test("generateWeek with today mid-week: past days survive verbatim, only live days are planned", () => {
+  const wednesday = "2026-07-15"; // W29 runs Mon 07-13 .. Sun 07-19
+  const existing = {
+    week: "2026-W29",
+    entries: [
+      // Monday: unpinned and already eaten — must survive the re-roll untouched
+      { id: "mon-eaten", date: "2026-07-13", slot: "dinner", recipeId: "kofta", servings: 1.5 },
+      // Tuesday: same, different slot
+      { id: "tue-eaten", date: "2026-07-14", slot: "lunch", recipeId: "lunchbox", servings: 1 },
+      // Wednesday (today): unpinned and LIVE — a normal re-roll clears it
+      { id: "wed-live", date: wednesday, slot: "dinner", recipeId: "kofta", servings: 1 },
+    ],
+  };
+  const { plan, report } = generateWeek({
+    recipes: ALL,
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: existing,
+    salt: 0,
+    today: wednesday,
+  });
+
+  // past entries preserved with identical content, pinned or not
+  const mon = plan.entries.find((e) => e.id === "mon-eaten");
+  const tue = plan.entries.find((e) => e.id === "tue-eaten");
+  assert.deepEqual(mon, existing.entries[0]);
+  assert.deepEqual(tue, existing.entries[1]);
+  // no generated entry lands on a past date
+  const pastGenerated = plan.entries.filter(
+    (e) => e.date < wednesday && e.id !== "mon-eaten" && e.id !== "tue-eaten",
+  );
+  assert.deepEqual(pastGenerated, []);
+  // today itself is live: the unpinned entry was cleared and the day replanned
+  assert.ok(!plan.entries.some((e) => e.id === "wed-live"));
+  assert.ok(plan.entries.some((e) => e.date === wednesday && e.slot === "dinner"));
+  // every live day is fully planned
+  for (const date of ["2026-07-15", "2026-07-16", "2026-07-17", "2026-07-18", "2026-07-19"]) {
+    assert.ok(plan.entries.some((e) => e.date === date && e.slot === "dinner"), `dinner ${date}`);
+    assert.ok(plan.entries.some((e) => e.date === date && e.slot === "breakfast"), `breakfast ${date}`);
+  }
+  // the report never mentions a past date
+  const reportDates = [
+    ...report.proteinShortDays.map((d) => d.date),
+    ...report.calorieShortDays.map((d) => d.date),
+    ...report.foodGroupGaps.map((d) => d.date),
+    ...report.calorieOverDays.map((d) => d.date),
+    ...report.outDays.map((d) => d.date),
+  ];
+  assert.ok(reportDates.every((d) => d >= wednesday), `stale report dates: ${reportDates}`);
+  // buffer batch scales to the 5 live days
+  assert.equal(plan.buffer?.portions, 5);
+});
+
+test("generateWeek with today on Monday or absent behaves identically (regression)", () => {
+  const args = {
+    recipes: ALL,
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  };
+  const absent = generateWeek(args);
+  const monday = generateWeek({ ...args, today: MONDAY_W29 });
+  const key = (/** @type {any} */ e) => `${e.date}|${e.slot}|${e.recipeId}|${e.servings}`;
+  assert.deepEqual(monday.plan.entries.map(key).sort(), absent.plan.entries.map(key).sort());
+  assert.deepEqual(monday.plan.buffer, absent.plan.buffer);
+});
+
+test("generateWeek on a fully past week changes nothing and reports nothing", () => {
+  const existing = {
+    week: "2026-W29",
+    entries: [{ id: "old", date: "2026-07-14", slot: "dinner", recipeId: "kofta", servings: 1 }],
+    buffer: { recipeId: "cheese", portions: 7 },
+  };
+  const { plan, report } = generateWeek({
+    recipes: ALL,
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: existing,
+    salt: 0,
+    today: "2026-07-21", // the Tuesday after W29 ended
+  });
+  assert.deepEqual(plan.entries, existing.entries);
+  assert.deepEqual(plan.buffer, existing.buffer);
+  assert.deepEqual(report.proteinShortDays, []);
+  assert.deepEqual(report.calorieShortDays, []);
+});
+
 test("generateWeek picks a weekly buffer snack, preferring batchable protein-dense picks", () => {
   const batchSnack = {
     ...r("bean-tub", "snack", ["black beans", "bell pepper"], {
