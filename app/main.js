@@ -117,6 +117,19 @@ function App() {
       setSw("failed");
       return;
     }
+    // P4: when a deploy's new SW takes over (skipWaiting+claim fire
+    // controllerchange), reload once so the page never keeps running a
+    // half-old module graph — the stale-mix that used to need two hard
+    // reloads. Guard: only when a controller existed before (an update,
+    // not the very first install) and only once.
+    if (navigator.serviceWorker.controller) {
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (reloaded) return;
+        reloaded = true;
+        location.reload();
+      });
+    }
     navigator.serviceWorker
       .register("./sw.js")
       .then(() => navigator.serviceWorker.ready)
