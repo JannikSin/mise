@@ -134,23 +134,41 @@ export function intervalPhaseAt(elapsed, work, rest, rounds) {
 }
 
 /**
- * A day counts toward the streak when sleep is logged, pushups hit the
- * target, water (liters) hits the target, and every supplement in the plan
- * is ticked. Water counts in liters — David's rule: a cup is ~250ml, a
- * bottle is 1L (unit resolved 2026-07-06).
+ * A day counts toward the streak when every marker the PROFILE ACTUALLY
+ * TRACKS is met (K1: the old rule hard-required David's pushups/water/
+ * supplements, so a profile without those tracks could never streak):
+ * sleep logged, pushups at target, water (liters) at target, every planned
+ * supplement ticked — each checked only when its track is on. Water counts
+ * in liters — David's rule: a cup is ~250ml, a bottle is 1L (2026-07-06).
+ * A profile tracking none of the streak markers never qualifies (a streak
+ * of unconditional days would be meaningless).
  * @param {Record<string, any> | undefined} day
  * @param {string[]} supplementIds
  * @param {number} pushupTarget
  * @param {number} waterTargetLiters
+ * @param {string[]} [tracks] the profile's targets.tracks; absent = David's
+ *   full legacy set (exact pre-K1 behavior)
  * @returns {boolean}
  */
-export function dayQualifies(day, supplementIds, pushupTarget, waterTargetLiters) {
+export function dayQualifies(
+  day,
+  supplementIds,
+  pushupTarget,
+  waterTargetLiters,
+  tracks = ["sleep", "weight", "pushups", "water", "supplements", "dailyDozen"],
+) {
   if (!day) return false;
-  if (typeof day.sleepHours !== "number" || day.sleepHours <= 0) return false;
-  if ((day.pushups ?? 0) < pushupTarget) return false;
-  if ((day.water ?? 0) < waterTargetLiters) return false;
-  const supp = day.supplements ?? {};
-  return supplementIds.every((id) => supp[id] === true);
+  const streakTracks = ["sleep", "pushups", "water", "supplements"];
+  if (!streakTracks.some((t) => tracks.includes(t))) return false;
+  if (tracks.includes("sleep") && (typeof day.sleepHours !== "number" || day.sleepHours <= 0))
+    return false;
+  if (tracks.includes("pushups") && (day.pushups ?? 0) < pushupTarget) return false;
+  if (tracks.includes("water") && (day.water ?? 0) < waterTargetLiters) return false;
+  if (tracks.includes("supplements")) {
+    const supp = day.supplements ?? {};
+    if (!supplementIds.every((id) => supp[id] === true)) return false;
+  }
+  return true;
 }
 
 /**
@@ -161,12 +179,27 @@ export function dayQualifies(day, supplementIds, pushupTarget, waterTargetLiters
  * @param {number} pushupTarget
  * @param {number} waterTargetLiters
  * @param {string} todayIso
+ * @param {string[]} [tracks] the profile's targets.tracks; absent = David's
+ *   full legacy set (exact pre-K1 behavior)
  * @returns {number}
  */
-export function computeStreak(days, supplementIds, pushupTarget, waterTargetLiters, todayIso) {
+export function computeStreak(
+  days,
+  supplementIds,
+  pushupTarget,
+  waterTargetLiters,
+  todayIso,
+  tracks = ["sleep", "weight", "pushups", "water", "supplements", "dailyDozen"],
+) {
   const byDate = new Map(days.map((d) => [d.date, d]));
   const qualifies = (/** @type {Date} */ d) =>
-    dayQualifies(byDate.get(localIsoDate(d)), supplementIds, pushupTarget, waterTargetLiters);
+    dayQualifies(
+      byDate.get(localIsoDate(d)),
+      supplementIds,
+      pushupTarget,
+      waterTargetLiters,
+      tracks,
+    );
   const cursor = parseLocalIso(todayIso);
   if (!qualifies(cursor)) cursor.setDate(cursor.getDate() - 1); // today still open
   let streak = 0;
@@ -247,12 +280,53 @@ export function setTopSet(session, exercise, set) {
 export const ALLERGEN_TERMS = {
   nuts: ["almond", "walnut", "cashew", "pecan", "pistachio", "hazelnut", "macadamia", "nut butter"],
   peanuts: ["peanut"],
-  gluten: ["wheat", "pasta", "bread", "couscous", "farro", "orzo", "pita", "flour", "noodle", "barley", "bulgur", "soy sauce", "panko", "seitan", "cracker"],
-  dairy: ["milk", "yogurt", "cheese", "whey", "butter", "cream", "feta", "halloumi", "cottage", "parmesan", "kefir", "ghee"],
+  gluten: [
+    "wheat",
+    "pasta",
+    "bread",
+    "couscous",
+    "farro",
+    "orzo",
+    "pita",
+    "flour",
+    "noodle",
+    "barley",
+    "bulgur",
+    "soy sauce",
+    "panko",
+    "seitan",
+    "cracker",
+  ],
+  dairy: [
+    "milk",
+    "yogurt",
+    "cheese",
+    "whey",
+    "butter",
+    "cream",
+    "feta",
+    "halloumi",
+    "cottage",
+    "parmesan",
+    "kefir",
+    "ghee",
+  ],
   eggs: ["egg"],
   soy: ["soy", "tofu", "tempeh", "edamame", "miso"],
   shellfish: ["shrimp", "prawn", "crab", "lobster", "scallop", "clam", "mussel", "oyster"],
-  fish: ["salmon", "tuna", "cod", "anchovy", "sardine", "mackerel", "tilapia", "halibut", "trout", "fish sauce", "dashi"],
+  fish: [
+    "salmon",
+    "tuna",
+    "cod",
+    "anchovy",
+    "sardine",
+    "mackerel",
+    "tilapia",
+    "halibut",
+    "trout",
+    "fish sauce",
+    "dashi",
+  ],
   sesame: ["sesame", "tahini"],
 };
 
@@ -353,7 +427,9 @@ export function targetsFromQuestionnaire(q, todayIso, prefs = {}) {
     ...(cuisineLoved.length || cuisineAvoided.length
       ? { cuisinePrefs: { loved: cuisineLoved, avoided: cuisineAvoided } }
       : {}),
-    ...(prefs.maxDifficulty && prefs.maxDifficulty < 3 ? { maxDifficulty: prefs.maxDifficulty } : {}),
+    ...(prefs.maxDifficulty && prefs.maxDifficulty < 3
+      ? { maxDifficulty: prefs.maxDifficulty }
+      : {}),
     ...(prefs.equipment ? { equipment: prefs.equipment } : {}),
     ...(prefs.breakfastStyle && prefs.breakfastStyle !== "surprise"
       ? { breakfastStyle: prefs.breakfastStyle }

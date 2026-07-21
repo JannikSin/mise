@@ -51,3 +51,27 @@ test("no qualifying days = 0", () => {
     0,
   );
 });
+
+test("K1: streak only checks the markers the profile actually tracks", () => {
+  // Mom-style profile: sleep + water only, no pushups, no supplements
+  const momTracks = ["sleep", "weight", "water", "dailyDozen"];
+  const momDay = { date: "x", sleepHours: 7, water: 2.0 };
+  assert.equal(dayQualifies(momDay, [], 200, 2.0, momTracks), true);
+  // her missing pushups never disqualify her
+  assert.equal(dayQualifies({ ...momDay, pushups: 0 }, [], 200, 2.0, momTracks), true);
+  // but HER tracked water still must hit target
+  assert.equal(dayQualifies({ ...momDay, water: 1.0 }, [], 200, 2.0, momTracks), false);
+  // a profile tracking no streak markers never qualifies
+  assert.equal(dayQualifies(momDay, [], 200, 2.0, ["weight", "dailyDozen"]), false);
+  // absent tracks = David's full legacy rule, unchanged
+  assert.equal(dayQualifies(momDay, [], 200, 2.0), false); // no pushups logged
+});
+
+test("K1: computeStreak counts a sleep-only profile's run", () => {
+  const days = [
+    { date: "2026-07-19", sleepHours: 8 },
+    { date: "2026-07-20", sleepHours: 7 },
+    { date: "2026-07-21", sleepHours: 6.5 },
+  ];
+  assert.equal(computeStreak(days, [], 200, 3.5, "2026-07-21", ["sleep"]), 3);
+});

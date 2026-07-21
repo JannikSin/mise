@@ -105,9 +105,6 @@ export function HomeView({
   const scheduledTemplate = templateForDate(workouts.schedule, workouts.templates, today);
   const workoutLabel = !hasSchedule ? null : (scheduledTemplate?.name ?? "rest day");
 
-  // ponytail: Streak below still assumes David's markers (pushups/water/
-  // supplements) regardless of tracks; a phase-aware streak definition is a
-  // fast-follow if mom wants one.
   return html`
     <div class="view">
       <div class="hero">
@@ -305,21 +302,36 @@ export function HomeView({
         html`<h2 class="block-title">Daily Dozen</h2>
           <${DozenTally} day=${day} targets=${targets} onPatchDay=${onPatchDay} />`
       }
-      <h2 class="block-title">Streak</h2>
-      <div class="tile streaktile">
-        <div class="v num">
-          ${computeStreak(
-            /** @type {any} */ (daily.days),
-            (targets?.supplementPlan ?? []).map((/** @type {any} */ s) => s.id),
-            targets?.pushupsPerDay ?? 200,
-            targets?.macros?.waterLiters ?? 3.5,
-            today,
-          )}<small> day streak</small>
-        </div>
-        <div class="d">
-          a day counts: sleep logged · pushups done · water done · all supplements ✓
-        </div>
-      </div>
+      ${
+        // K1: streak is track-aware — the tile only renders for profiles
+        // tracking at least one streak marker, and the rule line names THEIR
+        // markers, not David's
+        ["sleep", "pushups", "water", "supplements"].some((t) => tracks.includes(t)) &&
+        html`<h2 class="block-title">Streak</h2>
+          <div class="tile streaktile">
+            <div class="v num">
+              ${computeStreak(
+                /** @type {any} */ (daily.days),
+                (targets?.supplementPlan ?? []).map((/** @type {any} */ s) => s.id),
+                targets?.pushupsPerDay ?? 200,
+                targets?.macros?.waterLiters ?? 3.5,
+                today,
+                tracks,
+              )}<small> day streak</small>
+            </div>
+            <div class="d">
+              a day counts:${" "}
+              ${[
+                tracks.includes("sleep") && "sleep logged",
+                tracks.includes("pushups") && "pushups done",
+                tracks.includes("water") && "water done",
+                tracks.includes("supplements") && "all supplements ✓",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+          </div>`
+      }
 
       <a class="secondary linkbtn remedy" href="#/remedies">feeling off? → remedies</a>
       <a class="secondary linkbtn" href="#/vitals">vitals (Apple Watch) →</a>
