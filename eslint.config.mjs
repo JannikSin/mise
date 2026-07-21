@@ -81,4 +81,11 @@ export default [
       "prefer-const": "error",
     },
   },
+  {
+    // dev-only node scripts (git hooks, installers) — node globals, not browser
+    files: ["tools/**/*.mjs"],
+    languageOptions: {
+      globals: { process: "readonly", console: "readonly" },
+    },
+  },
 ];
