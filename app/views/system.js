@@ -3,6 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import { DATA_REPO, tokenAgeDays, TOKEN_WARN_AGE_DAYS } from "../lib/github.js";
 import { formatSyncTime } from "../lib/dates.js";
 import { activeProfile, readProfiles, patchProfiles } from "../lib/store.js";
+import { TOUR_STEPS, TOUR_TABS } from "../lib/tour.js";
 
 /**
  * System status view: app health, sync queue, data-repo checks, token entry.
@@ -16,10 +17,24 @@ import { activeProfile, readProfiles, patchProfiles } from "../lib/store.js";
  *   onDraft: (v: string) => void,
  *   onSaveToken: () => void,
  *   onTestWrite: () => void,
- *   onExport: () => void
+ *   onExport: () => void,
+ *   onReplayTour: () => void,
+ *   tourState: import("../lib/tour.js").TourState | null
  * }} props
  */
-export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveToken, onTestWrite, onExport }) {
+export function SystemView({
+  sw,
+  sync,
+  repo,
+  hasToken,
+  draft,
+  onDraft,
+  onSaveToken,
+  onTestWrite,
+  onExport,
+  onReplayTour,
+  tourState,
+}) {
   const ageDays = tokenAgeDays();
   const renewSoon = hasToken && ageDays != null && ageDays >= TOKEN_WARN_AGE_DAYS;
 
@@ -66,9 +81,7 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
       return false;
     }
     setProfileErr("");
-    setAllProfiles((cur) =>
-      cur ? cur.map((x) => (x.id === me ? patch(x) : x)) : cur,
-    );
+    setAllProfiles((cur) => (cur ? cur.map((x) => (x.id === me ? patch(x) : x)) : cur));
     return true;
   };
 
@@ -84,7 +97,10 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
   const household = /** @type {string} */ (profile?.household ?? "home");
   const householdShown = householdDraft ?? household;
   const saveHousehold = () => {
-    const clean = householdShown.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+    const clean = householdShown
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-");
     void applyPatch((x) => {
       const rest = { ...x };
       // "home" (or blank) is the default: store as absent, not as a string
@@ -103,7 +119,10 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
   const family = /** @type {string} */ (profile?.family ?? "");
   const familyShown = familyDraft ?? family;
   const saveFamily = () => {
-    const clean = familyShown.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+    const clean = familyShown
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-");
     void applyPatch((x) => {
       const rest = { ...x };
       delete rest.family;
@@ -184,8 +203,8 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
         </div>
         <p class="hint">
           profiles in the same household share the EVERYONE grocery trip AND the pantry (one
-          kitchen, one fridge). Moving household also switches you to that household's pantry.
-          Move someone here for a visit week, move them back after.
+          kitchen, one fridge). Moving household also switches you to that household's pantry. Move
+          someone here for a visit week, move them back after.
         </p>
         <div class="row">
           <span class="k">Family</span>
@@ -212,12 +231,43 @@ export function SystemView({ sw, sync, repo, hasToken, draft, onDraft, onSaveTok
         ${
           profilesFallback &&
           html`<p class="hint">
-            ⚠ profile list couldn't load (offline or token not set), showing the built-in
-            default. Other profiles still exist and are safe; profile edits are blocked until the
-            real list loads.
+            ⚠ profile list couldn't load (offline or token not set), showing the built-in default.
+            Other profiles still exist and are safe; profile edits are blocked until the real list
+            loads.
           </p>`
         }
         ${profileErr && html`<p class="hint">⚠ ${profileErr}</p>`}
+      </div>
+
+      <div class="tile">
+        <h2 class="k">Tour</h2>
+        <div class="row tourrow">
+          <span class="k">Guided tour</span>
+          <button class="secondary" onClick=${onReplayTour}>REPLAY THE TOUR</button>
+        </div>
+        ${
+          tourState &&
+          html`<p class="hint num">
+            last run:
+            ${tourState.status === "done" ? "finished" : `reached step ${tourState.lastStep} of ${TOUR_STEPS.length}`}
+          </p>`
+        }
+        <details class="whatlist">
+          <summary class="block-title">What everything does</summary>
+          ${Object.entries(TOUR_TABS).map(
+            ([route, tab]) => html`
+              <div class="batch" key=${route}>
+                <div class="k">${tab}</div>
+                ${TOUR_STEPS.filter((st) => st.route === route).map(
+                  (st) =>
+                    html`<div class="whatitem" key=${st.selector}>
+                      <b>${st.title}.</b> ${st.text}
+                    </div>`,
+                )}
+              </div>
+            `,
+          )}
+        </details>
       </div>
 
       <div class="tile">

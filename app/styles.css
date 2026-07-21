@@ -2140,3 +2140,97 @@ button.linktext {
   cursor: pointer;
   text-align: left;
 }
+
+/* ---- guided tour (docs/tutorial-design.md v3) ---- */
+
+/* full-screen layer; children carry the visuals. touch/wheel are blocked in
+   the component so the page behind never scrolls out from under a cutout */
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+}
+
+/* the spotlight: one element whose oversized shadow dims everything else */
+.tour-cutout {
+  position: fixed;
+  border-radius: 14px;
+  box-shadow: 0 0 0 9999px rgba(4, 6, 7, 0.78);
+  border: 1px solid var(--signal);
+  pointer-events: none;
+  transition:
+    top 0.25s ease,
+    left 0.25s ease,
+    width 0.25s ease,
+    height 0.25s ease;
+}
+
+.tour-card {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  padding: 14px 16px calc(12px + env(safe-area-inset-bottom) * 0);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.tour-dots {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--dim);
+  letter-spacing: 0.16em;
+}
+
+.tour-title {
+  font-size: 16px;
+  font-weight: 800;
+  margin-top: 4px;
+}
+
+.tour-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  margin-top: 6px;
+}
+
+.tour-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tour-btns button {
+  min-height: 44px;
+  min-width: 64px;
+}
+
+.tour-offer {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  max-width: 480px;
+  margin: 0 auto;
+  z-index: 110;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.whatlist .whatitem {
+  font-size: 12.5px;
+  line-height: 1.45;
+  margin-top: 6px;
+}
+
+.whatlist .whatitem b {
+  font-weight: 700;
+}

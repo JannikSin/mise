@@ -20,6 +20,8 @@ import { TodayView } from "./views/today.js";
 import { CookbookView } from "./views/cookbook.js";
 import { RecipeView, CookView } from "./views/recipe.js";
 import { SystemView } from "./views/system.js";
+import { TourOverlay, TourOffer } from "./views/tour.js";
+import { readTourState, writeTourState } from "./lib/tour.js";
 import { PlannerView } from "./views/planner.js";
 import { ShoppingView } from "./views/shopping.js";
 import { FitnessView } from "./views/fitness.js";
@@ -77,7 +79,9 @@ const TABS = [
 
 function App() {
   const [route, setRoute] = useState(
-    /** @type {{ view: string, id?: string, from?: string, servings?: number }} */ ({ view: "home" }),
+    /** @type {{ view: string, id?: string, from?: string, servings?: number }} */ ({
+      view: "home",
+    }),
   );
   const [online, setOnline] = useState(navigator.onLine);
   /** @type {[RepoStatus | null, (s: RepoStatus | null) => void]} */
@@ -154,7 +158,13 @@ function App() {
 
   useEffect(() => {
     setRecipes(
-      mergeRecipePool(bankRecipes, ownRecipes, targets?.phase, targets?.avoidIngredients, targets?.diet),
+      mergeRecipePool(
+        bankRecipes,
+        ownRecipes,
+        targets?.phase,
+        targets?.avoidIngredients,
+        targets?.diet,
+      ),
     );
   }, [bankRecipes, ownRecipes, targets]);
 
@@ -186,7 +196,9 @@ function App() {
   const [priceCatalogue, setPriceCatalogue] = useState(
     /** @type {import("./lib/prices.js").PriceCatalogue | null} */ (null),
   );
-  const [vitals, setVitals] = useState(/** @type {import("./lib/vitals.js").Vitals | null} */ (null));
+  const [vitals, setVitals] = useState(
+    /** @type {import("./lib/vitals.js").Vitals | null} */ (null),
+  );
   const [vitalsLoaded, setVitalsLoaded] = useState(false);
 
   useEffect(() => {
@@ -659,8 +671,16 @@ function App() {
   const LOCK_CONFIRM = "This week is locked, you've shopped for it. Change this meal anyway?";
 
   const handleDrop = useCallback(
-    async (/** @type {string} */ date, /** @type {string} */ slot, /** @type {DOMStringMap} */ drag) => {
-      if (/** @type {import("./lib/plan.js").Plan} */ (planRef.current).locked && !(await askConfirm(LOCK_CONFIRM))) return;
+    async (
+      /** @type {string} */ date,
+      /** @type {string} */ slot,
+      /** @type {DOMStringMap} */ drag,
+    ) => {
+      if (
+        /** @type {import("./lib/plan.js").Plan} */ (planRef.current).locked &&
+        !(await askConfirm(LOCK_CONFIRM))
+      )
+        return;
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       // the "eating out" tray chip behaves exactly like the slot's OUT
       // toggle: pinned placeholder, clears the slot, survives re-roll
@@ -689,8 +709,14 @@ function App() {
 
   const handleRemove = useCallback(
     async (/** @type {string} */ id) => {
-      if (/** @type {import("./lib/plan.js").Plan} */ (planRef.current).locked && !(await askConfirm(LOCK_CONFIRM))) return;
-      updatePlan(removeEntryById(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), id));
+      if (
+        /** @type {import("./lib/plan.js").Plan} */ (planRef.current).locked &&
+        !(await askConfirm(LOCK_CONFIRM))
+      )
+        return;
+      updatePlan(
+        removeEntryById(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), id),
+      );
     },
     [updatePlan, askConfirm],
   );
@@ -839,7 +865,11 @@ function App() {
 
   const handlePlanAdd = useCallback(
     async (/** @type {Record<string, any>} */ recipe, /** @type {string} */ date) => {
-      if (/** @type {import("./lib/plan.js").Plan} */ (planRef.current).locked && !(await askConfirm(LOCK_CONFIRM))) return null;
+      if (
+        /** @type {import("./lib/plan.js").Plan} */ (planRef.current).locked &&
+        !(await askConfirm(LOCK_CONFIRM))
+      )
+        return null;
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       const slot = SLOT_KEYS.includes(recipe.mealType) ? recipe.mealType : "dinner";
       // planning real food into an eating-out slot: the placeholder yields
@@ -926,6 +956,56 @@ function App() {
     });
   };
 
+  // guided tour (docs/tutorial-design.md v3): offered once at a profile's
+  // first login on this device, resumable after an interruption, replayable
+  // from SYS. Progress persists per step so an app-kill mid-run leaves an
+  // honest { bailed, lastStep } record (the bail-point measurement).
+  const tourProfileId = activeProfile() ?? "";
+  const [tourRecord, setTourRecord] = useState(() =>
+    tourProfileId ? readTourState(tourProfileId) : null,
+  );
+  const [tourOpen, setTourOpen] = useState(/** @type {{ startStep: number } | null} */ (null));
+  const [tourOfferHidden, setTourOfferHidden] = useState(false);
+  const tourResumeStep =
+    tourRecord?.status === "bailed" && tourRecord.lastStep > 1 ? tourRecord.lastStep : null;
+  const tourOfferVisible =
+    Boolean(tourProfileId) &&
+    !tourOpen &&
+    !tourOfferHidden &&
+    (tourRecord === null || tourResumeStep !== null);
+  const saveTour = useCallback(
+    (/** @type {import("./lib/tour.js").TourState} */ state) => {
+      if (!tourProfileId) return;
+      writeTourState(tourProfileId, state);
+      setTourRecord(state);
+    },
+    [tourProfileId],
+  );
+  const handleTourStart = useCallback(() => {
+    setTourOfferHidden(true);
+    setTourOpen({ startStep: tourResumeStep !== null ? tourResumeStep - 1 : 0 });
+  }, [tourResumeStep]);
+  const handleTourDismiss = useCallback(() => {
+    setTourOfferHidden(true);
+    saveTour({ status: "skipped", lastStep: tourRecord?.lastStep ?? 0 });
+  }, [saveTour, tourRecord]);
+  const handleTourEnd = useCallback(
+    (/** @type {"done" | "bailed"} */ status, /** @type {number} */ lastStep) => {
+      setTourOpen(null);
+      setTourOfferHidden(true); // ended by hand: don't re-offer this session
+      saveTour({ status, lastStep });
+    },
+    [saveTour],
+  );
+  const handleTourProgress = useCallback(
+    (/** @type {number} */ step) => saveTour({ status: "bailed", lastStep: step + 1 }),
+    [saveTour],
+  );
+  const handleReplayTour = useCallback(() => {
+    setTourOfferHidden(true);
+    setTourOpen({ startStep: 0 });
+  }, []);
+
   const publicAlarm = repo?.privacy === "PUBLIC";
   // header and probe results must never disagree: offline if either says so
   const effectiveOnline = online && (repo ? repo.reachable : true);
@@ -956,7 +1036,9 @@ function App() {
 
     <div class="statusline">
       <span>${statusDate(now)} · WK-${isoWeekId(now).split("-W")[1]}</span>
-      <span class="sync ${effectiveOnline ? (sync.pending > 0 && sync.lastError ? "warn" : "") : "off"}">
+      <span
+        class="sync ${effectiveOnline ? (sync.pending > 0 && sync.lastError ? "warn" : "") : "off"}"
+      >
         ${
           // A5: queued-but-failing writes announce themselves here instead of
           // hiding behind a healthy-looking SYNCED/ONLINE label
@@ -1036,7 +1118,12 @@ function App() {
     }
     ${
       route.view === "recipe" &&
-      html`<${RecipeView} recipe=${recipeById(route.id)} loading=${loading} from=${route.from} servings=${route.servings} />`
+      html`<${RecipeView}
+        recipe=${recipeById(route.id)}
+        loading=${loading}
+        from=${route.from}
+        servings=${route.servings}
+      />`
     }
     ${
       route.view === "list" &&
@@ -1116,6 +1203,8 @@ function App() {
         onSaveToken=${saveToken}
         onTestWrite=${testWrite}
         onExport=${handleExport}
+        onReplayTour=${handleReplayTour}
+        tourState=${tourRecord}
       />`
     }
 
@@ -1133,6 +1222,23 @@ function App() {
       )}
     </nav>
     ${confirmAsk && html`<${ConfirmModal} message=${confirmAsk.message} onResolve=${settleConfirm} />`}
+    ${
+      tourOfferVisible &&
+      !loading &&
+      html`<${TourOffer}
+        resumeStep=${tourResumeStep}
+        onStart=${handleTourStart}
+        onDismiss=${handleTourDismiss}
+      />`
+    }
+    ${
+      tourOpen &&
+      html`<${TourOverlay}
+        startStep=${tourOpen.startStep}
+        onProgress=${handleTourProgress}
+        onEnd=${handleTourEnd}
+      />`
+    }
     ${
       undoToast &&
       html`<div class="toast" role="status">
