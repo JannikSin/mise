@@ -7,10 +7,7 @@
 //   - vendor/, fonts, icons (version-pinned, replaced wholesale):
 //     CACHE-FIRST — immutable until a deploy changes CACHE_VERSION.
 //   - GitHub API: never intercepted (the data layer owns freshness).
-// Bump CACHE_VERSION on deploys that change vendor/icon files; app-code
-// changes no longer need it for freshness, only for precache hygiene.
-
-// P4: bumped AUTOMATICALLY by the pre-commit hook (tools/bump-sw-version.mjs)
+// P4: CACHE_VERSION is bumped AUTOMATICALLY by the pre-commit hook (tools/bump-sw-version.mjs)
 // whenever a commit touches app code — a deploy therefore always ships a
 // byte-different sw.js, the browser installs it (skipWaiting+claim), and
 // main.js reloads once on controllerchange so no load ever runs a half-old
