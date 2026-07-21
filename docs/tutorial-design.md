@@ -1,6 +1,9 @@
-# Guided Tour (Tutorial), Design v2 (post-council)
+# Guided Tour (Tutorial), Design v3
 
-Date: 2026-07-21. Status: council-reviewed, staged plan below awaits David's go. Not yet built.
+Date: 2026-07-21. Status: council-reviewed, then reshaped by David's call
+(see Phase 1 below): ONE tour, offered once at a profile's first login,
+replayable from SYS, nothing living on the individual pages. Phase 1 drafted,
+not yet built.
 
 ## Problem
 
@@ -29,19 +32,94 @@ future-David-after-a-month has to rediscover the system by poking it.
 - Interruption: a PWA gets backgrounded mid-tour (call, force-quit). Per-tab mini-tours mostly dissolve this; remaining rule is resume-at-step from the same localStorage record.
 - Maintenance ownership: who updates steps when views change? Answer: the selector test IS the enforcement; a view change that breaks a step breaks CI.
 
-## Staged plan v2
+## David's call (2026-07-21, supersedes the council's per-tab trigger)
 
-**Phase 1, ship first (low risk, ~1 session):**
-1. `app/lib/tour.js`: exported `TOUR_STEPS` array `{ tab, selector, title, text, gate? }`, grouped by tab. Content covers every button and capability (the full inventory from v1's step list).
-2. SYS gains a "what everything does" section rendered from `TOUR_STEPS`, grouped by tab. This is the manual; it cannot drift from the tour because it IS the tour data.
-3. Label sweep: any control whose tour text is just a decoded name (e.g. what "P+" means) gets the fix applied to the control itself instead of a tour card.
-4. Test: for each view, mount with fixture data and assert every step selector resolves.
+A tour is a first-week thing, not a living UI feature. So: no per-page
+triggers, no per-tab first-visit offers, no "?" buttons taking up space.
+Exactly two entry points:
 
-**Phase 2, per-tab mini-tours (after a real-iPhone scroll-lock spike):**
-1. `app/views/tour.js` overlay: cutout via getBoundingClientRect, recompute on resize/scroll, card never covers target, 44px buttons, auto-skip on missing element after mount.
-2. Trigger: first visit to each tab offers that tab's 3-6 step mini-tour (dismiss = never again for that tab). Replay-per-tab rows in SYS.
-3. `localStorage["mise:tour"]`: per-tab state `{ done, lastStep }` for resume and bail-point measurement.
-4. Overlay steps only for genuinely spatial things (drop zones, pin, OUT, lock, buffer tile, batch block); everything else lives in the Phase 1 list only.
+1. **First login of a new profile** on a device: one offer, take it or
+   dismiss it, never asked again.
+2. **A "replay tour" row in SYS** for whenever you want it back.
+
+The council's mechanics survive (selector test, resume, bail-point counter,
+iPhone scroll-lock spike, static list as free by-product); only the
+trigger model changed.
+
+## Phase 1 (drafted, awaiting go)
+
+**One linear tour, ~16 steps, target under 2 minutes.** Walks every tab in
+living order: Cook, Plan, List, Train, Home, SYS.
+
+### Entry points
+- After the profile gate resolves on a device where
+  `localStorage["mise.tour.<profileId>"]` is unset: a small offer card over
+  the Home view. "New here? 2-minute tour of every button." TAKE THE TOUR /
+  SKIP. Either answer writes the key; the offer never repeats. New profile
+  via onboarding counts as first login (survey first, then the offer, so
+  the tour points at a real week, not an empty shell).
+- SYS row "replay the tour", always available, reruns from step 1.
+
+### State
+`localStorage["mise.tour.<profileId>"] = { status: "skipped" | "done" | "bailed", lastStep: n }`.
+Device-local like other UI state, no data-repo writes. `lastStep` doubles as
+the bail-point measurement the council asked for: SYS shows it quietly under
+the replay row ("last run reached step 9 of 16"), so we learn where real
+users give up before arguing about step counts.
+Interruption (backgrounded PWA, phone call): reopening the app with a tour
+`status` unset-but-`lastStep`-present offers RESUME at that step, once.
+
+### The 16 steps (v1 content, exact list)
+Format per step: highlighted element, one title, one or two sentences max.
+
+COOK (1) today's meal rows: tap one to open its recipe, portions already
+scaled. (2) day pager arrows: flip ahead to pre-cook tomorrow. (3) buffer
+card: the week's batch-prepped "still hungry" answer, tally portions here.
+(4) batch-prep block: what to cook ahead and when, day-aware.
+PLAN (5) GENERATE MY WEEK: one tap plans the whole week around your targets;
+tap again to re-roll. Mid-week it only replans the days you haven't eaten.
+(6) build report tile: what the week shares, what to watch. (7) drag tray:
+drag any recipe into any slot; chips filter by meal. (8) PIN: locks an entry
+so generate never replaces it. (9) 🍴 OUT: eating out; nothing shopped,
+macros credited honestly. (10) past days: dimmed and marked eaten, the app
+never rewrites history.
+LIST (11) BUILD LIST: turns the week into a priced grocery list, minus what
+your pantry already has. (12) JUST BOUGHT and P+: checked items flow into
+the pantry; P+ says "I already own this". (13) trips: fresh vs pantry
+split, store picker prices the trip.
+TRAIN (14) today's workout + the interval timer.
+HOME (15) morning check-in: weight, energy, the day's plan at a glance.
+SYS (16) token, profiles, household, export, and this tour again, ends
+pointing at the replay row it lives under.
+
+Steps auto-skip when their element is absent (empty week, no token yet):
+skip silently forward, never a floating card at (0,0).
+
+### Mechanics (unchanged from v2)
+- `app/lib/tour.js`: exported `TOUR_STEPS` `{ route, selector, title, text }`
+  plain data, importable elsewhere.
+- `app/views/tour.js`: overlay with backdrop + cutout via
+  getBoundingClientRect, recompute on resize/scroll, scroll target into view
+  first, card never covers its target, 44px NEXT / BACK / SKIP, progress
+  dots. Route changes via location.hash, measure after mount, auto-skip on
+  missing element.
+- SYS also renders the static "what everything does" list from the same
+  TOUR_STEPS data (free manual, cannot drift).
+- Test: mount each view with fixtures, assert every selector resolves.
+- Zero deps, strict CSP, offline-fine, read-only (points at buttons, never
+  presses them).
+
+### Build order
+1. iPhone scroll-lock spike FIRST (the council's one hard risk): fixed
+   backdrop + body scroll lock + unlock, on the real phone, before any step
+   content exists.
+2. TOUR_STEPS data + SYS static list + selector test.
+3. Overlay + offer card + SYS replay row.
+4. Playwright walkthrough + live iPhone run-through of all 16 steps.
+
+## Phase 2 (parked, only if Phase 1 proves insufficient)
+Label sweep for controls whose tour text is just a decoded name; contextual
+one-line hints for genuinely confusing moments. Nothing else planned.
 
 ## Constraints (unchanged)
 
