@@ -518,6 +518,18 @@ function App() {
   const recipesRef = useRef(recipes);
   recipesRef.current = recipes;
 
+  /**
+   * fromDate for deriveShoppingList: only the CURRENT calendar week filters
+   * already-eaten days. A past week must derive in full (undefined), or its
+   * every entry would be filtered and a stray build from a browsed-back week
+   * would wipe the one global shopping list. Future weeks are unaffected
+   * either way.
+   * @param {string} week
+   * @returns {string | undefined}
+   */
+  const todayIfCurrentWeek = (week) =>
+    week === isoWeekId(new Date()) ? localIsoDate(new Date()) : undefined;
+
   const handleBuildList = useCallback(() => {
     const byId = recipesById(recipesRef.current);
     updateShopping(
@@ -526,7 +538,7 @@ function App() {
         byId,
         pantryRef.current,
         shoppingRef.current,
-        localIsoDate(new Date()),
+        todayIfCurrentWeek(/** @type {any} */ (planRef.current).week),
       ),
     );
   }, [updateShopping]);
@@ -719,7 +731,7 @@ function App() {
             recipesById(recipesRef.current),
             pantryRef.current,
             shoppingRef.current,
-            localIsoDate(new Date()),
+            todayIfCurrentWeek(next.week),
           ),
         );
       }
@@ -776,7 +788,7 @@ function App() {
         recipesById(recipesRef.current),
         pantryRef.current,
         shoppingRef.current,
-        localIsoDate(new Date()),
+        todayIfCurrentWeek(result.plan.week),
       ),
     );
   }, [updatePlan, updateShopping]);
