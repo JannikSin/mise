@@ -97,7 +97,7 @@ export function RecipeView({ recipe, loading, from, servings }) {
           ${
             recipe.batchPrep.sundayComponent &&
             html`<div>
-              <div class="k">Sunday batch</div>
+              <div class="k">Batch prep</div>
               ${recipe.batchPrep.sundayComponent}
             </div>`
           }

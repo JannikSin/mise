@@ -1,7 +1,7 @@
 import { html } from "htm/preact";
 import { useState } from "preact/hooks";
 import { localIsoDate, parseLocalIso } from "../lib/dates.js";
-import { datesOfWeek, recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
+import { datesOfWeek, prepSundayOf, recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { perishableStatus } from "../lib/shopping.js";
 
 /**
@@ -17,6 +17,7 @@ import { perishableStatus } from "../lib/shopping.js";
  * @param {{
  *   recipes: Record<string, any>[],
  *   plan: import("../lib/plan.js").Plan,
+ *   nextPlan: import("../lib/plan.js").Plan | null,
  *   daily: { days?: Record<string, any>[] },
  *   pantry: Record<string, any>,
  *   onPatchDay: (patch: Record<string, any>) => void,
@@ -24,7 +25,7 @@ import { perishableStatus } from "../lib/shopping.js";
  *   loading: boolean
  * }} props
  */
-export function TodayView({ recipes, plan, daily, pantry, onPatchDay, hasToken, loading }) {
+export function TodayView({ recipes, plan, nextPlan, daily, pantry, onPatchDay, hasToken, loading }) {
   const byId = recipesById(recipes);
   const today = localIsoDate(new Date());
   const weekDates = datesOfWeek(plan.week);
@@ -45,14 +46,23 @@ export function TodayView({ recipes, plan, daily, pantry, onPatchDay, hasToken, 
     .filter((e) => e.date === selectedDate)
     .sort((a, b) => SLOT_KEYS.indexOf(a.slot) - SLOT_KEYS.indexOf(b.slot));
 
-  // 7b: Sunday batch-prep block — every recipe in THIS week's plan with
-  // batchPrep data. sundayComponent is deduped by recipe (cook it once,
-  // regardless of how many days it's stacked on); weekdayAssembly is kept
-  // per planned day since the reheat note is about that day, not the dish.
+  // 7b: batch-prep block, day-aware (docs/day-aware-weeks-design.md). The
+  // block always describes the week you can still batch FOR: the shown week
+  // while its prep Sunday is ahead ("Sunday batch") or while it's underway
+  // ("catch-up": that Sunday already passed), and on the shown week's own
+  // closing Sunday the NEXT week — that evening's cooking preps the week
+  // ahead, not the week ending tonight. A fully past week shows nothing.
+  // sundayComponent is deduped by recipe (cook it once, regardless of how
+  // many days it's stacked on); weekdayAssembly is kept per planned day
+  // since the reheat note is about that day, not the dish.
+  const batchForNext = today === weekDates[6];
+  const pastWeek = !batchForNext && today > (weekDates[6] ?? "");
+  const catchUp = !batchForNext && !pastWeek && today >= (weekDates[0] ?? "");
+  const batchEntries = batchForNext ? (nextPlan?.entries ?? []) : plan.entries;
   const seenSunday = new Set();
   const sundayComponents = [];
   const weekdayAssembly = [];
-  for (const entry of plan.entries) {
+  for (const entry of batchEntries) {
     if (!entry.recipeId) continue;
     const recipe = byId.get(entry.recipeId);
     const bp = recipe?.batchPrep;
@@ -61,7 +71,8 @@ export function TodayView({ recipes, plan, daily, pantry, onPatchDay, hasToken, 
       seenSunday.add(recipe.id);
       sundayComponents.push({ id: recipe.id, name: recipe.name, text: bp.sundayComponent });
     }
-    if (bp.weekdayAssembly) {
+    // mid-week, an assembly note for a day already eaten is noise
+    if (bp.weekdayAssembly && !(catchUp && entry.date < today)) {
       weekdayAssembly.push({
         id: entry.id,
         date: entry.date,
@@ -72,7 +83,9 @@ export function TodayView({ recipes, plan, daily, pantry, onPatchDay, hasToken, 
   }
   weekdayAssembly.sort((a, b) => a.date.localeCompare(b.date));
   const hasBatchPrep = sundayComponents.length > 0 || weekdayAssembly.length > 0;
-  const isSunday = parseLocalIso(today).getDay() === 0;
+  // auto-open when the batching is TODAY: next week's on the closing Sunday,
+  // or the shown future week's on its own prep Sunday
+  const openBatch = batchForNext || today === prepSundayOf(plan.week);
 
   // weekly buffer snack: recipe, today's tally, and how much of the batch
   // the week has already eaten (sum of every day's counter)
@@ -232,15 +245,32 @@ export function TodayView({ recipes, plan, daily, pantry, onPatchDay, hasToken, 
         </div>`
       }
       ${
-        hasBatchPrep &&
-        html`<details class="batchprep" open=${isSunday}>
+        !pastWeek &&
+        (hasBatchPrep || batchForNext) &&
+        html`<details class="batchprep" open=${openBatch}>
           <summary class="block-title">
-            Batch prep <span class="hint">${sundayComponents.length} to prep, tap to open</span>
+            Batch prep${" "}
+            <span class="hint">
+              ${
+                batchForNext
+                  ? `for next week · ${sundayComponents.length} to prep`
+                  : catchUp
+                    ? "Sunday passed: batch tonight or next chance"
+                    : `${sundayComponents.length} to prep, tap to open`
+              }
+            </span>
           </summary>
+          ${
+            batchForNext &&
+            !hasBatchPrep &&
+            html`<div class="batch">
+              No plan for next week yet. Generate it on the Plan tab, then batch from here.
+            </div>`
+          }
           ${sundayComponents.map(
             (r) =>
               html`<div class="batch" key=${r.id}>
-                <div class="k">Sunday · ${r.name}</div>
+                <div class="k">${catchUp ? "Catch-up" : "Sunday"} · ${r.name}</div>
                 ${r.text}
               </div>`,
           )}
