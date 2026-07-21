@@ -611,7 +611,7 @@ function App() {
     const byId = recipesById(recipesRef.current);
     updateShopping(
       deriveShoppingList(
-        withCookExtras(/** @type {import("./lib/plan.js").Plan} */ (planRef.current)),
+        withCookExtras(/** @type {import("./lib/plan.js").Plan} */ (viewPlanRef.current)),
         byId,
         pantryRef.current,
         shoppingRef.current,
@@ -1097,10 +1097,16 @@ function App() {
       return { entries: [], conflicts: [], collisions: [], cookExtras: [] };
     }
   }, [houseEvents, allProfiles, targets, bankRecipes, plan, me]);
-  const viewPlan = useMemo(
-    () => ({ ...plan, entries: [...plan.entries, ...tableDerived.entries] }),
-    [plan, tableDerived],
-  );
+  const viewPlan = useMemo(() => {
+    // a derived table entry DISPLACES any unpinned own entry in its slot
+    // from the view (the next generate clears it for real); pinned/OUT own
+    // entries instead win the collision inside deriveTables
+    const claimed = new Set(tableDerived.entries.map((e) => `${e.date}|${e.slot}`));
+    const kept = plan.entries.filter(
+      (e) => e.pinned || e.out || !claimed.has(`${e.date}|${e.slot}`),
+    );
+    return { ...plan, entries: [...kept, ...tableDerived.entries] };
+  }, [plan, tableDerived]);
   const viewPlanRef = useRef(viewPlan);
   viewPlanRef.current = viewPlan;
   const tableDerivedRef = useRef(tableDerived);
@@ -1297,6 +1303,7 @@ function App() {
         profiles=${allProfiles}
         me=${me}
         tableConflicts=${tableDerived.conflicts}
+        tableCollisions=${tableDerived.collisions}
         onCreateTable=${handleCreateTable}
         onRemoveTable=${handleRemoveTable}
         onPatchSeat=${handlePatchSeat}

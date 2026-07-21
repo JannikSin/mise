@@ -120,13 +120,26 @@ test("skipped seats derive nothing and are excluded from the cook's sum", () => 
   assert.deepEqual(momView.cookExtras, [{ recipeId: "kebab", date: "2026-07-24", servings: 1 }]);
 });
 
-test("my own entry at the slot wins; the table entry reports a collision", () => {
+test("my own PINNED entry at the slot wins; the table entry reports a collision", () => {
+  const r = deriveTables(
+    [{ house: "home", events: { tables: [table()] } }],
+    ctx({
+      ownEntries: [
+        { date: "2026-07-24", slot: "dinner", recipeId: "x", servings: 1, pinned: true },
+      ],
+    }),
+  );
+  assert.equal(r.entries.length, 0);
+  assert.equal(r.collisions.length, 1);
+});
+
+test("an unpinned generated meal never blocks a table (it gets displaced instead)", () => {
   const r = deriveTables(
     [{ house: "home", events: { tables: [table()] } }],
     ctx({ ownEntries: [{ date: "2026-07-24", slot: "dinner", recipeId: "x", servings: 1 }] }),
   );
-  assert.equal(r.entries.length, 0);
-  assert.equal(r.collisions.length, 1);
+  assert.equal(r.entries.length, 1);
+  assert.equal(r.collisions.length, 0);
 });
 
 test("trust boundary: garbage tables are skipped individually, servings clamp", () => {

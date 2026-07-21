@@ -58,6 +58,7 @@ function monthDay(isoDate) {
  *   profiles: Record<string, any>[],
  *   me: string,
  *   tableConflicts: { table: import("../lib/tables.js").TableEvent, reasons: string[] }[],
+ *   tableCollisions: import("../lib/tables.js").TableEvent[],
  *   onCreateTable: (t: { name: string, date: string, slot: string, recipeId: string, seats: import("../lib/tables.js").Seat[] }) => void,
  *   onRemoveTable: (house: string, id: string) => void,
  *   onPatchSeat: (house: string, tableId: string, patch: Partial<import("../lib/tables.js").Seat>) => void,
@@ -85,6 +86,7 @@ export function PlannerView({
   profiles,
   me,
   tableConflicts,
+  tableCollisions,
   onCreateTable,
   onRemoveTable,
   onPatchSeat,
@@ -116,6 +118,7 @@ export function PlannerView({
       .map((t) => ({ house, t })),
   );
   const conflictIds = new Set((tableConflicts ?? []).map((c) => c.table.id));
+  const collisionIds = new Set((tableCollisions ?? []).map((t) => t.id));
   const nameOf = (/** @type {string} */ id) =>
     (profiles ?? []).find((p) => p.id === id)?.name ?? id;
 
@@ -366,6 +369,13 @@ export function PlannerView({
               conflicted &&
               html`<div class="d num redflag">
                 ⚠ conflicts with your diet list — not added to your plan
+              </div>`
+            }
+            ${
+              collisionIds.has(t.id) &&
+              html`<div class="d num redflag">
+                your ${SLOT_META[t.slot]?.full ?? t.slot} that day is already planned — re-roll or
+                remove it to sit at this table
               </div>`
             }
             <div class="actions wrap">
@@ -681,22 +691,22 @@ export function PlannerView({
                                 <span class="chipbody">
                                   <span class="n">${name}</span>
                                   ${
-                                        recipe &&
-                                        html`<span class="m num"
-                                          >${recipe.nutrition?.calories} ·
-                                          ${recipe.nutrition?.protein}P</span
-                                        >`
-                                      }
+                                    recipe &&
+                                    html`<span class="m num"
+                                      >${recipe.nutrition?.calories} ·
+                                      ${recipe.nutrition?.protein}P</span
+                                    >`
+                                  }
                                 </span>
                               </div>
                               <button
                                 class="pin ${entry.pinned ? "on" : ""}"
                                 aria-pressed=${Boolean(entry.pinned)}
                                 aria-label=${
-                                      entry.pinned
-                                        ? `Unpin ${name} — GENERATE WEEK may replace it`
-                                        : `Pin ${name} — GENERATE WEEK will keep it`
-                                    }
+                                  entry.pinned
+                                    ? `Unpin ${name} — GENERATE WEEK may replace it`
+                                    : `Pin ${name} — GENERATE WEEK will keep it`
+                                }
                                 onClick=${() => onTogglePin(entry.id)}
                               >
                                 PIN

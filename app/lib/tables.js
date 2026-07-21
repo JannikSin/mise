@@ -112,7 +112,13 @@ export function deriveTables(houses, ctx) {
   const collisions = [];
   /** @type {{ recipeId: string, date: string, servings: number }[]} */
   const cookExtras = [];
-  const takenSlots = new Set(ctx.ownEntries.map((e) => `${e.date}|${e.slot}`));
+  // collision = only DELIBERATE own entries (pinned or OUT), per amendment
+  // 4: "pinning your own meal is how a guest declines". A generated unpinned
+  // meal never blocks a table — the view displaces it and the next generate
+  // clears it.
+  const takenSlots = new Set(
+    ctx.ownEntries.filter((e) => e.pinned || e.out).map((e) => `${e.date}|${e.slot}`),
+  );
   /** slots already filled by an earlier valid table (one pin per slot) */
   const derivedSlots = new Set();
   const horizon = new Date(`${ctx.today}T12:00:00`);
