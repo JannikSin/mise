@@ -27,8 +27,8 @@
 **Interfaces:**
 - Produces: `prepSundayOf(weekId: string): string`, local ISO date of the day before the week's Monday.
 
-- [ ] Test: `prepSundayOf("2026-W30")` === `"2026-07-19"`; `prepSundayOf("2026-W01")` crosses the year (`"2025-12-28"`).
-- [ ] Implement:
+- [x] Test: `prepSundayOf("2026-W30")` === `"2026-07-19"`; `prepSundayOf("2026-W01")` crosses the year (`"2025-12-28"`).
+- [x] Implement:
 
 ```js
 export function prepSundayOf(weekId) {
@@ -40,7 +40,7 @@ export function prepSundayOf(weekId) {
 }
 ```
 
-- [ ] `node --test tests/plan.test.js` green. Commit.
+- [x] `node --test tests/plan.test.js` green. Commit.
 
 ### Task 2: deriveShoppingList fromDate
 
@@ -51,9 +51,9 @@ export function prepSundayOf(weekId) {
 **Interfaces:**
 - Produces: `deriveShoppingList(plan, recipesById, pantry, previous, fromDate?)`, entries with `entry.date < fromDate` skipped; buffer unaffected; absent fromDate = today's behavior.
 
-- [ ] Test: plan with Mon+Wed entries, `fromDate` = Tue → only Wed's ingredients; absent fromDate → both.
-- [ ] Implement: in the `toShop` loop, `if (fromDate && entry.date && entry.date < fromDate) continue;` (buffer pseudo-entry has no date, passes through).
-- [ ] Tests green. Commit.
+- [x] Test: plan with Mon+Wed entries, `fromDate` = Tue → only Wed's ingredients; absent fromDate → both.
+- [x] Implement: in the `toShop` loop, `if (fromDate && entry.date && entry.date < fromDate) continue;` (buffer pseudo-entry has no date, passes through).
+- [x] Tests green. Commit.
 
 ### Task 3: generateWeek today param
 
@@ -83,35 +83,35 @@ const pinnedEntries = plan.entries.filter((e) => liveSet.has(e.date) && e.pinned
 - `macroShortfalls(next, byId, liveDates, ...)`, `calorieOverDays` over `liveDates`, `foodGroupGapsReport(..., liveDates, ...)`.
 - Final: `next = { ...next, entries: [...pastEntries, ...next.entries] }` after the report is computed (report reflects live days only).
 
-- [ ] Tests (fixed weekId + fixed `today` mid-week, e.g. week dates[2]):
+- [x] Tests (fixed weekId + fixed `today` mid-week, e.g. week dates[2]):
   - past entries preserved verbatim (same ids/servings), including unpinned ones;
   - no generated entry lands on a past date;
   - report mentions no past date;
   - `buffer.portions === liveDates.length`;
   - `today` on Monday or absent → identical output to current behavior (regression);
   - `today` after the week → plan unchanged, empty report fills.
-- [ ] Tests green (existing weekbuilder tests unmodified). Commit.
+- [x] Tests green (existing weekbuilder tests unmodified). Commit.
 
 ### Task 4: main.js wiring
 
 **Files:**
 - Modify: `app/main.js` (handleGenerateWeek ~752, handleBuildList ~521, handleToggleOut ~714, view props)
 
-- [ ] Pass `today: localIsoDate(new Date())` to `generateWeek`.
-- [ ] Pass `localIsoDate(new Date())` as `fromDate` to all three `deriveShoppingList` call sites (harmless for future weeks: no dates filtered).
-- [ ] Load next week's plan for the Today view batch block: effect keyed on `[weekId, hasToken]` reading `plans/${shiftWeek(weekId, 1)}.json` (same pattern as recentRecipeIds effect), normalized via `normalizePlan`, passed to TodayView as `nextPlan`.
-- [ ] Pass `todayIso` prop to PlannerView.
-- [ ] Typecheck green. Commit (with Task 5/6 if views land together).
+- [x] Pass `today: localIsoDate(new Date())` to `generateWeek`.
+- [x] Pass `localIsoDate(new Date())` as `fromDate` to all three `deriveShoppingList` call sites (harmless for future weeks: no dates filtered).
+- [x] Load next week's plan for the Today view batch block: effect keyed on `[weekId, hasToken]` reading `plans/${shiftWeek(weekId, 1)}.json` (same pattern as recentRecipeIds effect), normalized via `normalizePlan`, passed to TodayView as `nextPlan`.
+- [x] Pass `todayIso` prop to PlannerView.
+- [x] Typecheck green. Commit (with Task 5/6 if views land together).
 
 ### Task 5: PlannerView past-day lockout
 
 **Files:**
 - Modify: `app/views/planner.js`, `app/styles.css`
 
-- [ ] `todayIso` prop. Per-day column: `const past = date < todayIso;`
-- [ ] Past columns: class `past` (dimmed via CSS `opacity` + desaturation), "EATEN" tag in the day header when the day has entries, no drag targets (guard in drop callback: `if (drop.date < todayIso) return;`), no ✕ / pin / OUT buttons rendered.
-- [ ] Generate button subtext mid-week: "plans Wed–Sun · pinned entries are kept" (first live weekday–Sun), unchanged when the full week is live.
-- [ ] Playwright/manual check via fixtures. Commit.
+- [x] `todayIso` prop. Per-day column: `const past = date < todayIso;`
+- [x] Past columns: class `past` (dimmed via CSS `opacity` + desaturation), "EATEN" tag in the day header when the day has entries, no drag targets (guard in drop callback: `if (drop.date < todayIso) return;`), no ✕ / pin / OUT buttons rendered.
+- [x] Generate button subtext mid-week: "plans Wed–Sun · pinned entries are kept" (first live weekday–Sun), unchanged when the full week is live.
+- [x] Playwright/manual check via fixtures. Commit.
 
 ### Task 6: Batch-block states + recipe label
 
@@ -125,13 +125,13 @@ Batch block state machine (shown week W, `monday = weekDates[0]`, `sunday = week
 3. `today === sunday` (Sunday, current week shown): components computed from `nextPlan` entries; header "Sunday batch, next week", auto-open; empty nextPlan → "No plan for next week yet, generate it on the Plan tab."
 4. `today > sunday` (past week shown): block hidden.
 
-- [ ] Implement state machine; `weekdayAssembly` filtered to `date >= today` when week underway.
-- [ ] recipe.js label "Sunday batch" → "Batch prep".
-- [ ] Playwright walkthrough of states (mock date via fixture weeks: view future week, current week, flip weeks on the nav). Commit.
+- [x] Implement state machine; `weekdayAssembly` filtered to `date >= today` when week underway.
+- [x] recipe.js label "Sunday batch" → "Batch prep".
+- [x] Playwright walkthrough of states (mock date via fixture weeks: view future week, current week, flip weeks on the nav). Commit.
 
 ### Task 7: Verification pipeline
 
-- [ ] Full `node --test` run green; `tsc` (jsconfig checkJs) green; lint/format hooks green.
-- [ ] Reviewer subagents: code-reviewer + ui-reviewer (views touched). No security-relevant surface (no token/data-access changes) → security-reviewer skipped, stated here.
-- [ ] Playwright MCP: load app with fixtures, exercise mid-week generate, past-day lockout, list build, batch states. Screenshots.
-- [ ] Final commit; update docs/day-aware-weeks-design.md status line if anything shifted.
+- [x] Full `node --test` run green; `tsc` (jsconfig checkJs) green; lint/format hooks green.
+- [x] Reviewer subagents: code-reviewer + ui-reviewer (views touched). No security-relevant surface (no token/data-access changes) → security-reviewer skipped, stated here.
+- [x] Playwright MCP: load app with fixtures, exercise mid-week generate, past-day lockout, list build, batch states. Screenshots.
+- [x] Final commit; update docs/day-aware-weeks-design.md status line if anything shifted.
