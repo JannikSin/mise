@@ -16,16 +16,16 @@ test("latestWith returns the newest day carrying the field, null when none", () 
 });
 
 test("series is oldest-first, skips days missing the field, caps at n", () => {
-  assert.deepEqual(
-    series(DAYS, "hrvMs", 5),
-    [
-      { date: "2026-07-16", value: 43 },
-      { date: "2026-07-18", value: 46 },
-    ],
-  );
+  assert.deepEqual(series(DAYS, "hrvMs", 5), [
+    { date: "2026-07-16", value: 43 },
+    { date: "2026-07-18", value: 46 },
+  ]);
   // 07-17 has no hrv, so it is absent (no phantom zero)
   assert.equal(series(DAYS, "steps", 2).length, 2);
-  assert.deepEqual(series(DAYS, "steps", 2).map((p) => p.value), [8760, 8432]);
+  assert.deepEqual(
+    series(DAYS, "steps", 2).map((p) => p.value),
+    [8760, 8432],
+  );
 });
 
 test("average rounds and handles empty", () => {

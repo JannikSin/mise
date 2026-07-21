@@ -13,11 +13,37 @@ import {
 const CATALOGUE = {
   stores: ["trader-joes", "marianos"],
   items: [
-    { id: "black-beans-can", name: "black beans (can)", prices: { "trader-joes": { price: 0.99, size: "15.5 oz" }, marianos: { price: 0.99, size: "15.25 oz", estimate: true } } },
-    { id: "olive-oil-evoo", name: "extra virgin olive oil", prices: { "trader-joes": { price: 10.99, size: "1 L" } } },
-    { id: "salt-fine", name: "fine salt", prices: { "trader-joes": { price: 1.99, size: "26.5 oz" } } },
-    { id: "peanut-butter-no-salt", name: "peanut butter, no salt added", prices: { "trader-joes": { price: 2.49, size: "16 oz" } } },
-    { id: "sweet-potatoes", name: "sweet potatoes", prices: { "trader-joes": { price: 0.99, size: "each" }, marianos: { price: 1.29, size: "per lb", estimate: true } } },
+    {
+      id: "black-beans-can",
+      name: "black beans (can)",
+      prices: {
+        "trader-joes": { price: 0.99, size: "15.5 oz" },
+        marianos: { price: 0.99, size: "15.25 oz", estimate: true },
+      },
+    },
+    {
+      id: "olive-oil-evoo",
+      name: "extra virgin olive oil",
+      prices: { "trader-joes": { price: 10.99, size: "1 L" } },
+    },
+    {
+      id: "salt-fine",
+      name: "fine salt",
+      prices: { "trader-joes": { price: 1.99, size: "26.5 oz" } },
+    },
+    {
+      id: "peanut-butter-no-salt",
+      name: "peanut butter, no salt added",
+      prices: { "trader-joes": { price: 2.49, size: "16 oz" } },
+    },
+    {
+      id: "sweet-potatoes",
+      name: "sweet potatoes",
+      prices: {
+        "trader-joes": { price: 0.99, size: "each" },
+        marianos: { price: 1.29, size: "per lb", estimate: true },
+      },
+    },
   ],
 };
 
@@ -27,24 +53,42 @@ test("matchPrice matches by word overlap, id slug is a synonym channel", () => {
   assert.equal(matchPrice("olive oil (500 ml)", CATALOGUE.items)?.id, "olive-oil-evoo");
   // stop words dropped: "no salt added" PB must not steal the plain salt row
   assert.equal(matchPrice("fine salt", CATALOGUE.items)?.id, "salt-fine");
-  assert.equal(matchPrice("peanut butter, no salt added (jar)", CATALOGUE.items)?.id, "peanut-butter-no-salt");
+  assert.equal(
+    matchPrice("peanut butter, no salt added (jar)", CATALOGUE.items)?.id,
+    "peanut-butter-no-salt",
+  );
   assert.equal(matchPrice("dragon fruit", CATALOGUE.items), null);
 });
 
 test("itemCost multiplies counted units and per-lb prices, single price otherwise", () => {
-  assert.deepEqual(itemCost({ food: "black beans (15 oz can)", qty: 2, unit: "cans" }, CATALOGUE, "trader-joes"), {
-    cost: 1.98,
-    estimate: false,
-    size: "15.5 oz",
-  });
+  assert.deepEqual(
+    itemCost({ food: "black beans (15 oz can)", qty: 2, unit: "cans" }, CATALOGUE, "trader-joes"),
+    {
+      cost: 1.98,
+      estimate: false,
+      size: "15.5 oz",
+    },
+  );
   // each × qty
-  assert.equal(itemCost({ food: "sweet potatoes", qty: 3, unit: "each" }, CATALOGUE, "trader-joes")?.cost, 2.97);
+  assert.equal(
+    itemCost({ food: "sweet potatoes", qty: 3, unit: "each" }, CATALOGUE, "trader-joes")?.cost,
+    2.97,
+  );
   // per-lb catalogue price × lb qty
-  assert.equal(itemCost({ food: "sweet potatoes", qty: 1.5, unit: "lb" }, CATALOGUE, "marianos")?.cost, 1.94);
+  assert.equal(
+    itemCost({ food: "sweet potatoes", qty: 1.5, unit: "lb" }, CATALOGUE, "marianos")?.cost,
+    1.94,
+  );
   // non-counted unit, non-per-lb price: one package regardless of qty
-  assert.equal(itemCost({ food: "olive oil (500 ml)", qty: 1, unit: "each" }, CATALOGUE, "trader-joes")?.cost, 10.99);
+  assert.equal(
+    itemCost({ food: "olive oil (500 ml)", qty: 1, unit: "each" }, CATALOGUE, "trader-joes")?.cost,
+    10.99,
+  );
   // store not stocking the item
-  assert.equal(itemCost({ food: "olive oil (500 ml)", qty: 1, unit: "each" }, CATALOGUE, "marianos"), null);
+  assert.equal(
+    itemCost({ food: "olive oil (500 ml)", qty: 1, unit: "each" }, CATALOGUE, "marianos"),
+    null,
+  );
 });
 
 test("tripTotal sums priced rows, applies regional grocery tax, counts unpriced honestly", () => {
@@ -75,7 +119,10 @@ test("rankStores only compares stores matching the best coverage", () => {
   ];
   const ranked = rankStores(items, CATALOGUE, { country: "USA", state: "IL" });
   // marianos prices only 1 of 2 rows -> excluded, TJ (2 rows) wins by coverage
-  assert.deepEqual(ranked.map((r) => r.store), ["trader-joes"]);
+  assert.deepEqual(
+    ranked.map((r) => r.store),
+    ["trader-joes"],
+  );
 });
 
 test("storeSlugFromReceipt maps printed store names, null when unknown", () => {
@@ -91,8 +138,16 @@ test("applyReceipt overwrites matched store prices as confirmed, reports unmatch
   const cat = {
     stores: ["trader-joes"],
     items: [
-      { id: "black-beans-can", name: "black beans (can)", prices: { "trader-joes": { price: 0.99, size: "15 oz", estimate: true } } },
-      { id: "olive-oil-evoo", name: "extra virgin olive oil", prices: { "trader-joes": { price: 10.99, size: "1 L" } } },
+      {
+        id: "black-beans-can",
+        name: "black beans (can)",
+        prices: { "trader-joes": { price: 0.99, size: "15 oz", estimate: true } },
+      },
+      {
+        id: "olive-oil-evoo",
+        name: "extra virgin olive oil",
+        prices: { "trader-joes": { price: 10.99, size: "1 L" } },
+      },
     ],
   };
   const lines = [
@@ -107,8 +162,14 @@ test("applyReceipt overwrites matched store prices as confirmed, reports unmatch
   assert.equal(beans.prices["trader-joes"].estimate, undefined);
   // unmatched line never invents a catalogue row
   assert.equal(catalogue.items.length, 2);
-  assert.deepEqual(applied.map((a) => a.matchedId), ["black-beans-can"]);
-  assert.deepEqual(unmatched.map((u) => u.name), ["mystery artisan cheese"]);
+  assert.deepEqual(
+    applied.map((a) => a.matchedId),
+    ["black-beans-can"],
+  );
+  assert.deepEqual(
+    unmatched.map((u) => u.name),
+    ["mystery artisan cheese"],
+  );
   assert.equal(catalogue.updated, "2026-07-19");
   // original catalogue not mutated
   assert.equal(cat.items[0].prices["trader-joes"].price, 0.99);

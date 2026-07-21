@@ -45,9 +45,11 @@ export function RecipeView({ recipe, loading, from, servings }) {
       <h1>${recipe.name}</h1>
       <div class="meta num">
         ${recipe.totalTime}m ·${" "}
-        ${plan.mode === "single"
-          ? html`cooking ${plan.cookServings} of ${recipe.servings}`
-          : html`serves ${recipe.servings}`}
+        ${
+          plan.mode === "single"
+            ? html`cooking ${plan.cookServings} of ${recipe.servings}`
+            : html`serves ${recipe.servings}`
+        }
         · ${recipe.effort}
         ${(recipe.purpose ?? []).map((/** @type {string} */ p) => html`<span class="tag ${p}">${p === "pre-activity" ? "pre-act" : p}</span>`)}
       </div>
@@ -75,7 +77,9 @@ export function RecipeView({ recipe, loading, from, servings }) {
       ${
         plan.note &&
         html`<div class="tile portion ${plan.mode}" role="note">
-          <div class="k">${plan.mode === "batch" ? "🍲 batch — save the extra" : plan.mode === "single" ? "🍽️ cooking your portion" : "portion"}</div>
+          <div class="k">
+            ${plan.mode === "batch" ? "🍲 batch — save the extra" : plan.mode === "single" ? "🍽️ cooking your portion" : "portion"}
+          </div>
           <div class="d">${plan.note}</div>
         </div>`
       }
@@ -178,11 +182,7 @@ export function CookView({ recipe, loading, from, servings }) {
         <a class="exit" href=${back}>✕ EXIT</a>
       </div>
       <div class="counter num">STEP ${step + 1}/${steps.length}</div>
-      ${
-        step === 0 &&
-        plan.note &&
-        html`<div class="cook-portion">${plan.note}</div>`
-      }
+      ${step === 0 && plan.note && html`<div class="cook-portion">${plan.note}</div>`}
       <div class="steptext">${steps[step]?.text}</div>
       <div class="nav">
         <button onClick=${() => setStep(Math.max(0, step - 1))} disabled=${step === 0}>

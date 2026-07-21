@@ -328,6 +328,52 @@ Two tiers, deliberately lightweight (no decrement-on-cook ledger, ever).
 }
 ```
 
+## Tables (shared meals) — `households/<h>/events.json`
+
+One shared meal = a TABLE (docs/tables-design.md, Tribunal-gated). The file
+lives with the house (raw path, like the house pantry); the house is the
+path, no houseId field. Every profile's app DERIVES virtual pinned plan
+entries from every house's tables at read time — derived entries carry
+`table: <id>` and are NEVER persisted into a plan file (main.js strips them
+before every plan write).
+
+```jsonc
+{
+  "tables": [
+    {
+      "id": "a1b2c3d4",
+      "name": "Family dinner",
+      "date": "2026-07-24",
+      "slot": "dinner", // plan slot keys
+      "recipeId": "doner-style-kebab-bowl", // must resolve in the BANK
+      "seats": [
+        // seat id = profileId — id-keyed so concurrent seat edits merge
+        { "id": "david", "servings": 1.5 },
+        { "id": "mom", "servings": 1, "status": "skipped" }, // ? absent = in
+      ],
+    },
+  ],
+}
+```
+
+Rules (binding, from the Tribunal gate):
+
+- Derivation validates every table individually (date shape, known slot,
+  recipe resolves, servings clamped 0.5-10) and skips invalid ones; the
+  whole derive degrades to "no tables" on any failure.
+- The recipe is screened against every seat's `diet`/`avoidIngredients`
+  with the same `recipeConflicts` predicate the pool filter uses — at
+  creation (inline seat warnings) AND at every derivation (conflict =
+  banner, no pin, no macros).
+- A seat with `status: "skipped"` derives nothing and is excluded from the
+  cook's shopping sum.
+- The COOK = first non-skipped seat whose profile's house is the table's
+  house; only their list derivation shops the summed servings; every other
+  seat's entry is est-macro only (nothing to buy).
+- A profile's own entry at the same date+slot wins over the table entry.
+- Retention: derivation ignores tables >14 days past; every CRUD write
+  prunes them.
+
 ## Meal plan — `plans/<week>.json`
 
 Entries carry a unique `id` and multiple entries may STACK in the same

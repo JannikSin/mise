@@ -30,7 +30,18 @@ export function isBatchRecipe(recipe) {
 export function scaleQty(qty, unit, ratio) {
   const scaled = qty * ratio;
   const u = (unit ?? "").toLowerCase().trim();
-  const countable = ["egg", "eggs", "clove", "cloves", "can", "cans", "pita", "pitas", "slice", "slices"];
+  const countable = [
+    "egg",
+    "eggs",
+    "clove",
+    "cloves",
+    "can",
+    "cans",
+    "pita",
+    "pitas",
+    "slice",
+    "slices",
+  ];
   if (countable.includes(u)) {
     // round to the nearest 0.5, but never vanish a real ingredient to 0
     const r = Math.round(scaled * 2) / 2;

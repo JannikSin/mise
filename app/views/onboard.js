@@ -54,10 +54,20 @@ async function finalizeProfile(p, existing) {
     phase: targets.phase,
     trainingEnabled: p.trainingEnabled !== false,
     ...(p.household && p.household.toLowerCase() !== "home"
-      ? { household: p.household.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") }
+      ? {
+          household: p.household
+            .toLowerCase()
+            .replace(/[^a-z0-9-]+/g, "-")
+            .replace(/^-+|-+$/g, ""),
+        }
       : {}),
     ...(p.family
-      ? { family: String(p.family).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") }
+      ? {
+          family: String(p.family)
+            .toLowerCase()
+            .replace(/[^a-z0-9-]+/g, "-")
+            .replace(/^-+|-+$/g, ""),
+        }
       : {}),
   };
   await write(`profiles/${id}/fitness/targets.json`, targets, { raw: true });
@@ -142,7 +152,10 @@ export function OnboardView({ survey = {}, hasToken }) {
           setBusy(false);
           return;
         }
-        setMsgs([...next, { role: "assistant", content: `All set, ${r.profile.name}. Opening your Mise…` }]);
+        setMsgs([
+          ...next,
+          { role: "assistant", content: `All set, ${r.profile.name}. Opening your Mise…` },
+        ]);
         localStorage.setItem("mise.activeProfile", id);
         setTimeout(() => location.reload(), 800);
         return;
@@ -171,9 +184,7 @@ export function OnboardView({ survey = {}, hasToken }) {
           <div class="chat-scroll" ref=${scroller}>
             ${msgs
               .filter((m, i) => !(i === 0 && m.role === "user"))
-              .map(
-                (m, i) => html`<div class="bubble ${m.role}" key=${i}>${m.content}</div>`,
-              )}
+              .map((m, i) => html`<div class="bubble ${m.role}" key=${i}>${m.content}</div>`)}
             ${busy && html`<div class="bubble assistant dim">…</div>`}
           </div>
           ${error && html`<p class="hint">${error}</p>`}
@@ -190,7 +201,9 @@ export function OnboardView({ survey = {}, hasToken }) {
               SEND
             </button>
           </div>
-          <p class="hint">answers you gave on the survey are already known — this just fills the gaps.</p>
+          <p class="hint">
+            answers you gave on the survey are already known — this just fills the gaps.
+          </p>
         `
       }
     </div>

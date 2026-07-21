@@ -151,7 +151,14 @@ test("generateWeek clears unpinned entries and preserves pinned ones", () => {
   const existing = {
     week: "2026-W29",
     entries: [
-      { id: "pinned-keep", date: MONDAY_W29, slot: "dinner", recipeId: "kofta", servings: 1, pinned: true },
+      {
+        id: "pinned-keep",
+        date: MONDAY_W29,
+        slot: "dinner",
+        recipeId: "kofta",
+        servings: 1,
+        pinned: true,
+      },
       { id: "unpinned-gone", date: MONDAY_W29, slot: "lunch", recipeId: "lunchbox", servings: 1 },
     ],
   };
@@ -253,8 +260,14 @@ test("generateWeek with today mid-week: past days survive verbatim, only live da
   assert.ok(plan.entries.some((e) => e.date === wednesday && e.slot === "dinner"));
   // every live day is fully planned
   for (const date of ["2026-07-15", "2026-07-16", "2026-07-17", "2026-07-18", "2026-07-19"]) {
-    assert.ok(plan.entries.some((e) => e.date === date && e.slot === "dinner"), `dinner ${date}`);
-    assert.ok(plan.entries.some((e) => e.date === date && e.slot === "breakfast"), `breakfast ${date}`);
+    assert.ok(
+      plan.entries.some((e) => e.date === date && e.slot === "dinner"),
+      `dinner ${date}`,
+    );
+    assert.ok(
+      plan.entries.some((e) => e.date === date && e.slot === "breakfast"),
+      `breakfast ${date}`,
+    );
   }
   // the report never mentions a past date
   const reportDates = [
@@ -264,7 +277,10 @@ test("generateWeek with today mid-week: past days survive verbatim, only live da
     ...report.calorieOverDays.map((d) => d.date),
     ...report.outDays.map((d) => d.date),
   ];
-  assert.ok(reportDates.every((d) => d >= wednesday), `stale report dates: ${reportDates}`);
+  assert.ok(
+    reportDates.every((d) => d >= wednesday),
+    `stale report dates: ${reportDates}`,
+  );
   // buffer batch scales to the 5 live days
   assert.equal(plan.buffer?.portions, 5);
 });
@@ -344,7 +360,16 @@ test("generateWeek still picks a buffer from an all-unbatchable snack pool (hone
 test("generateWeek fills every slot and caps dinner repeats at 2", () => {
   const existing = {
     week: "2026-W29",
-    entries: [{ id: "keep", date: MONDAY_W29, slot: "dinner", recipeId: "kofta", servings: 1, pinned: true }],
+    entries: [
+      {
+        id: "keep",
+        date: MONDAY_W29,
+        slot: "dinner",
+        recipeId: "kofta",
+        servings: 1,
+        pinned: true,
+      },
+    ],
   };
   const { plan, report } = generateWeek({
     recipes: ALL,
@@ -410,7 +435,14 @@ test("re-roll (salt+1) preserves pins and produces a different unpinned assignme
   const base = {
     week: "2026-W29",
     entries: [
-      { id: "pin1", date: MONDAY_W29, slot: "dinner", recipeId: "shawarma", servings: 1, pinned: true },
+      {
+        id: "pin1",
+        date: MONDAY_W29,
+        slot: "dinner",
+        recipeId: "shawarma",
+        servings: 1,
+        pinned: true,
+      },
     ],
   };
   const args = {
@@ -425,8 +457,14 @@ test("re-roll (salt+1) preserves pins and produces a different unpinned assignme
   assert.ok(r2.plan.entries.some((e) => e.id === "pin1"));
 
   const unpinnedKey = (e) => `${e.date}|${e.slot}|${e.recipeId}`;
-  const unpinned1 = r1.plan.entries.filter((e) => !e.pinned).map(unpinnedKey).sort();
-  const unpinned2 = r2.plan.entries.filter((e) => !e.pinned).map(unpinnedKey).sort();
+  const unpinned1 = r1.plan.entries
+    .filter((e) => !e.pinned)
+    .map(unpinnedKey)
+    .sort();
+  const unpinned2 = r2.plan.entries
+    .filter((e) => !e.pinned)
+    .map(unpinnedKey)
+    .sort();
   assert.notDeepEqual(unpinned1, unpinned2);
 });
 
@@ -532,7 +570,14 @@ test("a pinned dinner's recipe is never re-picked: it appears only as the pin", 
   const pinned = {
     week: "2026-W29",
     entries: [
-      { id: "pin1", date: MONDAY_W29, slot: "dinner", recipeId: "shawarma", servings: 1, pinned: true },
+      {
+        id: "pin1",
+        date: MONDAY_W29,
+        slot: "dinner",
+        recipeId: "shawarma",
+        servings: 1,
+        pinned: true,
+      },
     ],
   };
   const { plan } = generateWeek({
@@ -602,7 +647,11 @@ test("foodGroupFloorPass adds a greens item only when portion bumps cannot close
   const byId = recipesById([lowGreensDinner, greensSnack]);
   const result = foodGroupFloorPass(plan, [greensSnack], byId, { greens: 2 });
   const dinner = result.entries.find((e) => e.id === "e1");
-  assert.equal(dinner.servings, 2, "portion lever maxes out at the 2x cap: 0.5 x 2 = 1.0, still short");
+  assert.equal(
+    dinner.servings,
+    2,
+    "portion lever maxes out at the 2x cap: 0.5 x 2 = 1.0, still short",
+  );
   const added = result.entries.filter((e) => e.id !== "e1");
   assert.equal(added.length, 1, "exactly one new entry added");
   assert.equal(added[0].recipeId, "greens-snack");
@@ -722,7 +771,14 @@ test("calorieTrimPass never touches pinned entries", () => {
   const plan = {
     week: "2026-W29",
     entries: [
-      { id: "p1", date: MON, slot: "dinner", recipeId: "pinned-trim-dinner", servings: 1, pinned: true },
+      {
+        id: "p1",
+        date: MON,
+        slot: "dinner",
+        recipeId: "pinned-trim-dinner",
+        servings: 1,
+        pinned: true,
+      },
       { id: "s1", date: MON, slot: "snack", recipeId: "trim-snack-2", servings: 2 },
     ],
   };
@@ -735,7 +791,11 @@ test("calorieTrimPass never touches pinned entries", () => {
   });
   const pin = result.entries.find((e) => e.id === "p1");
   const snack = result.entries.find((e) => e.id === "s1");
-  assert.equal(pin.servings, 1, "pinned dinner is never resized, even though it's the biggest contributor");
+  assert.equal(
+    pin.servings,
+    1,
+    "pinned dinner is never resized, even though it's the biggest contributor",
+  );
   assert.equal(snack.servings, 1.5, "unpinned snack absorbs the trim instead");
 });
 
@@ -759,8 +819,16 @@ test("calorieTrimPass reports calorieOverDays when no legal trim exists", () => 
     assert.equal(d.calories, 1200);
     assert.equal(d.ceiling, 1050, "1000 x CEILING_RATIO(1.05)");
   }
-  assert.deepEqual(report.proteinShortDays, [], "protein floor (179.55) is comfortably cleared at 180");
-  assert.deepEqual(report.calorieShortDays, [], "calorie floor (950) is comfortably cleared at 1200");
+  assert.deepEqual(
+    report.proteinShortDays,
+    [],
+    "protein floor (179.55) is comfortably cleared at 180",
+  );
+  assert.deepEqual(
+    report.calorieShortDays,
+    [],
+    "calorie floor (950) is comfortably cleared at 1200",
+  );
 });
 
 test("generateWeek fills only the mealSlots listed in targets", () => {
@@ -964,9 +1032,7 @@ test("survey-v2: a satisfiable time cap filters slow dinners without relaxing", 
     plan: { week: "2026-W29", entries: [] },
   });
   assert.equal(report.timeBudgetRelaxed.includes("dinner"), false);
-  const dinnerIds = new Set(
-    plan.entries.filter((e) => e.slot === "dinner").map((e) => e.recipeId),
-  );
+  const dinnerIds = new Set(plan.entries.filter((e) => e.slot === "dinner").map((e) => e.recipeId));
   assert.equal(dinnerIds.has("slow"), false); // the 40-minute dinner is filtered out
 });
 

@@ -66,7 +66,10 @@ export function RecipeRow({ recipe, why, weekId, onPlan }) {
                   class="chip"
                   key=${date}
                   onClick=${async () => {
-                    const slot = await /** @type {NonNullable<typeof onPlan>} */ (onPlan)(recipe, date);
+                    const slot = await /** @type {NonNullable<typeof onPlan>} */ (onPlan)(
+                      recipe,
+                      date,
+                    );
                     if (!slot) return; // locked week, user declined the confirm
                     setPicking(false);
                     setAddedTo(`${DAY_LABELS[i]} · ${slot}`);

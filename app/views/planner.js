@@ -53,7 +53,15 @@ function monthDay(isoDate) {
  *   onToggleOut: (date: string, slot: string) => void,
  *   onGenerateWeek: () => void,
  *   buildReport: import("../lib/weekbuilder.js").WeekReport | null,
- *   rebuilt: boolean
+ *   rebuilt: boolean,
+ *   houseEvents: { house: string, events: import("../lib/tables.js").HouseEvents }[],
+ *   profiles: Record<string, any>[],
+ *   me: string,
+ *   tableConflicts: { table: import("../lib/tables.js").TableEvent, reasons: string[] }[],
+ *   onCreateTable: (t: { name: string, date: string, slot: string, recipeId: string, seats: import("../lib/tables.js").Seat[] }) => void,
+ *   onRemoveTable: (house: string, id: string) => void,
+ *   onPatchSeat: (house: string, tableId: string, patch: Partial<import("../lib/tables.js").Seat>) => void,
+ *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>
  * }} props
  */
 export function PlannerView({
@@ -73,6 +81,14 @@ export function PlannerView({
   onGenerateWeek,
   buildReport,
   rebuilt,
+  houseEvents,
+  profiles,
+  me,
+  tableConflicts,
+  onCreateTable,
+  onRemoveTable,
+  onPatchSeat,
+  onSeatScreen,
 }) {
   const rootRef = useRef(/** @type {HTMLElement | null} */ (null));
   // tray meal filter: at ~50 recipes an unfiltered tray is unusable (David)
@@ -86,6 +102,66 @@ export function PlannerView({
 
   const byId = recipesById(recipes);
   const dates = datesOfWeek(weekId);
+  const weekSet = new Set(dates);
+  const myHouse = /** @type {string} */ (
+    (profiles ?? []).find((p) => p.id === me)?.household ?? "home"
+  );
+  // every table relevant to me this week: I'm seated, or it's at my house
+  const myTables = (houseEvents ?? []).flatMap(({ house, events }) =>
+    events.tables
+      .filter(
+        (t) =>
+          weekSet.has(t.date) && (house === myHouse || (t.seats ?? []).some((s) => s.id === me)),
+      )
+      .map((t) => ({ house, t })),
+  );
+  const conflictIds = new Set((tableConflicts ?? []).map((c) => c.table.id));
+  const nameOf = (/** @type {string} */ id) =>
+    (profiles ?? []).find((p) => p.id === id)?.name ?? id;
+
+  // CREATE TABLE form state
+  const [tableForm, setTableForm] = useState(
+    /** @type {null | { name: string, date: string, slot: string, recipeId: string, seats: Record<string, { in: boolean, servings: number }> }} */ (
+      null
+    ),
+  );
+  const [seatWarnings, setSeatWarnings] = useState(/** @type {Record<string, string[]>} */ ({}));
+  const openTableForm = () => {
+    /** @type {Record<string, { in: boolean, servings: number }>} */
+    const seats = {};
+    for (const p of profiles ?? []) seats[p.id] = { in: p.id === me, servings: 1 };
+    const firstDinner = recipes.find((r) => r.mealType === "dinner");
+    setSeatWarnings({});
+    setTableForm({
+      name: "",
+      date: dates.find((d) => !isPast(d)) ?? dates[0] ?? "",
+      slot: "dinner",
+      recipeId: firstDinner?.id ?? recipes[0]?.id ?? "",
+      seats,
+    });
+  };
+  const screenRecipe = (/** @type {string} */ recipeId) => {
+    setSeatWarnings({});
+    void onSeatScreen(recipeId).then(setSeatWarnings);
+  };
+  useEffect(() => {
+    if (tableForm?.recipeId) screenRecipe(tableForm.recipeId);
+  }, [tableForm?.recipeId]);
+  const submitTable = () => {
+    if (!tableForm || !tableForm.recipeId || !tableForm.date) return;
+    const seats = Object.entries(tableForm.seats)
+      .filter(([, v]) => v.in)
+      .map(([id, v]) => ({ id, servings: v.servings }));
+    if (seats.length === 0) return;
+    onCreateTable({
+      name: tableForm.name.trim() || "Table",
+      date: tableForm.date,
+      slot: tableForm.slot,
+      recipeId: tableForm.recipeId,
+      seats,
+    });
+    setTableForm(null);
+  };
   const kcalTarget = targets?.macros?.calories ?? 3400;
   const proteinTarget = targets?.macros?.protein ?? 210;
   // a past day is read-only: already eaten, never a drop target, never
@@ -259,6 +335,163 @@ export function PlannerView({
         </div>`
       }
 
+      <h2 class="block-title">Tables</h2>
+      ${
+        myTables.length === 0 &&
+        !tableForm &&
+        html`<p class="hint">
+          a table is one shared meal: pick a recipe, seat people, everyone eats the same dish at
+          their own portion and their day replans around it.
+        </p>`
+      }
+      ${myTables.map(({ house, t }) => {
+        const mySeat = (t.seats ?? []).find((s) => s.id === me);
+        const skipped = mySeat?.status === "skipped";
+        const conflicted = conflictIds.has(t.id);
+        return html`
+          <div class="tile tablecard ${skipped ? "skipped" : ""}" key=${t.id}>
+            <div class="k">
+              🍽 ${t.name} · ${parseLocalIso(t.date).toLocaleDateString([], { weekday: "short" })}
+              ${SLOT_META[t.slot]?.label ?? t.slot} · ${byId.get(t.recipeId)?.name ?? t.recipeId}
+              ${house !== myHouse && html` · at ${house}`}
+            </div>
+            <div class="d num">
+              ${(t.seats ?? [])
+                .map(
+                  (s) => `${nameOf(s.id)} ×${s.servings}${s.status === "skipped" ? " (out)" : ""}`,
+                )
+                .join(" · ")}
+            </div>
+            ${
+              conflicted &&
+              html`<div class="d num redflag">
+                ⚠ conflicts with your diet list — not added to your plan
+              </div>`
+            }
+            <div class="actions wrap">
+              ${
+                mySeat &&
+                html`<button
+                  class="secondary"
+                  onClick=${() => onPatchSeat(house, t.id, { status: skipped ? "in" : "skipped" })}
+                >
+                  ${skipped ? "REJOIN" : "SKIP MINE"}
+                </button>`
+              }
+              ${
+                house === myHouse &&
+                html`<button class="secondary" onClick=${() => onRemoveTable(house, t.id)}>
+                  CANCEL TABLE
+                </button>`
+              }
+            </div>
+          </div>
+        `;
+      })}
+      ${
+        !tableForm
+          ? html`<div class="actions">
+              <button class="secondary" onClick=${openTableForm}>+ SET A TABLE</button>
+            </div>`
+          : html`<div class="tile tableform">
+              <div class="k">Set a table</div>
+              <input
+                aria-label="Table name"
+                placeholder="e.g. family dinner"
+                value=${tableForm.name}
+                onInput=${(/** @type {any} */ e) =>
+                  setTableForm({ ...tableForm, name: e.currentTarget.value })}
+              />
+              <div class="row">
+                <select
+                  aria-label="Day"
+                  value=${tableForm.date}
+                  onInput=${(/** @type {any} */ e) =>
+                    setTableForm({ ...tableForm, date: e.currentTarget.value })}
+                >
+                  ${dates.map(
+                    (d) =>
+                      html`<option value=${d} disabled=${isPast(d)}>
+                        ${parseLocalIso(d).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                      </option>`,
+                  )}
+                </select>
+                <select
+                  aria-label="Meal slot"
+                  value=${tableForm.slot}
+                  onInput=${(/** @type {any} */ e) =>
+                    setTableForm({ ...tableForm, slot: e.currentTarget.value })}
+                >
+                  ${SLOTS.map(({ key, full }) => html`<option value=${key}>${full}</option>`)}
+                </select>
+              </div>
+              <select
+                aria-label="Recipe everyone shares"
+                value=${tableForm.recipeId}
+                onInput=${(/** @type {any} */ e) =>
+                  setTableForm({ ...tableForm, recipeId: e.currentTarget.value })}
+              >
+                ${recipes.map((r) => html`<option value=${r.id}>${r.name}</option>`)}
+              </select>
+              ${(profiles ?? []).map((p) => {
+                const seat = tableForm.seats[p.id] ?? { in: false, servings: 1 };
+                const warns = seatWarnings[p.id] ?? [];
+                return html`
+                  <div class="row" key=${p.id}>
+                    <label class="tickarea">
+                      <input
+                        type="checkbox"
+                        checked=${seat.in}
+                        onInput=${(/** @type {any} */ e) =>
+                          setTableForm({
+                            ...tableForm,
+                            seats: {
+                              ...tableForm.seats,
+                              [p.id]: { ...seat, in: e.currentTarget.checked },
+                            },
+                          })}
+                      />
+                      ${p.emoji ?? ""} ${p.name ?? p.id}
+                      ${
+                        seat.in &&
+                        warns.length > 0 &&
+                        html`<span class="usesoon">⚠ ${warns.join(", ")}</span>`
+                      }
+                    </label>
+                    ${
+                      seat.in &&
+                      html`<input
+                        class="num seatservings"
+                        type="number"
+                        min="0.5"
+                        max="10"
+                        step="0.5"
+                        aria-label="Servings for ${p.name ?? p.id}"
+                        value=${seat.servings}
+                        onInput=${(/** @type {any} */ e) =>
+                          setTableForm({
+                            ...tableForm,
+                            seats: {
+                              ...tableForm.seats,
+                              [p.id]: { ...seat, servings: Number(e.currentTarget.value) || 1 },
+                            },
+                          })}
+                      />`
+                    }
+                  </div>
+                `;
+              })}
+              <div class="actions">
+                <button class="secondary" onClick=${() => setTableForm(null)}>CANCEL</button>
+                <button class="primary" onClick=${submitTable}>SET TABLE</button>
+              </div>
+              <p class="hint">
+                the cook at the table's house shops the whole batch; guests get the meal credited
+                with real macros and buy nothing. Servings are per person.
+              </p>
+            </div>`
+      }
+
       <div class="chips" role="group" aria-label="Filter tray by meal">
         ${SLOTS.map(
           ({ key, label, full }) => html`
@@ -316,12 +549,13 @@ export function PlannerView({
         // out slots carry an assumed macro credit (dayTotals counts it), so
         // the meters and warn styling stay honest without special-casing
         const dayOut = SLOTS.some(({ key }) => outEntryAt(plan.entries, date, key));
+        const dayTable = plan.entries.find((e) => e.date === date && e.table);
         const kcalOk = totals.calories / kcalTarget >= 0.9;
         const pOk = totals.protein / proteinTarget >= 0.9;
         return html`
           <section class="day ${past ? "past" : ""}" key=${date}>
             <h2 class="block-title">
-              ${statusDate(parseLocalIso(date))}${past && html`<span class="eaten">✓ eaten</span>`}${dayOut && html`<span class="outday"> · 🍴 out</span>`}
+              ${statusDate(parseLocalIso(date))}${past && html`<span class="eaten">✓ eaten</span>`}${dayOut && html`<span class="outday"> · 🍴 out</span>`}${dayTable && html`<span class="outday"> · adjusted around ${dayTable.freeText}</span>`}
             </h2>
             <div class="meters">
               <div class="meterline ${kcalOk ? "" : "warn"}">
@@ -421,45 +655,62 @@ export function PlannerView({
                       stacked.length > 0 &&
                       html`<div class="stack">
                         ${stacked.map((entry) => {
-                              const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
-                              const name = recipe ? recipe.name : entry.freeText;
-                              return html`
-                                <div class="stackline" key=${entry.id}>
-                                  <div class="fill drag-chip" data-drag="move" data-id=${entry.id}>
-                                    <span class="grip" aria-hidden="true">⠿</span>
-                                    <span class="chipbody">
-                                      <span class="n">${name}</span>
-                                      ${
+                          const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
+                          const name = recipe ? recipe.name : entry.freeText;
+                          if (entry.table) {
+                            // derived table entry: lives in the house's
+                            // events.json, not this plan — read-only here,
+                            // managed from the Tables section above
+                            return html`
+                              <div class="stackline" key=${entry.id}>
+                                <div class="fill drag-chip">
+                                  <span class="chipbody">
+                                    <span class="n">${name}</span>
+                                    <span class="m num">
+                                      ~${entry.estCalories} · ${entry.estProtein}P · table
+                                    </span>
+                                  </span>
+                                </div>
+                              </div>
+                            `;
+                          }
+                          return html`
+                            <div class="stackline" key=${entry.id}>
+                              <div class="fill drag-chip" data-drag="move" data-id=${entry.id}>
+                                <span class="grip" aria-hidden="true">⠿</span>
+                                <span class="chipbody">
+                                  <span class="n">${name}</span>
+                                  ${
                                         recipe &&
                                         html`<span class="m num"
                                           >${recipe.nutrition?.calories} ·
                                           ${recipe.nutrition?.protein}P</span
                                         >`
                                       }
-                                    </span>
-                                  </div>
-                                  <button
-                                    class="pin ${entry.pinned ? "on" : ""}"
-                                    aria-pressed=${Boolean(entry.pinned)}
-                                    aria-label=${
+                                </span>
+                              </div>
+                              <button
+                                class="pin ${entry.pinned ? "on" : ""}"
+                                aria-pressed=${Boolean(entry.pinned)}
+                                aria-label=${
                                       entry.pinned
                                         ? `Unpin ${name} — GENERATE WEEK may replace it`
                                         : `Pin ${name} — GENERATE WEEK will keep it`
                                     }
-                                    onClick=${() => onTogglePin(entry.id)}
-                                  >
-                                    PIN
-                                  </button>
-                                  <button
-                                    class="rm"
-                                    aria-label="Remove ${name} from ${label}"
-                                    onClick=${() => onRemove(entry.id)}
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
-                              `;
-                            })}
+                                onClick=${() => onTogglePin(entry.id)}
+                              >
+                                PIN
+                              </button>
+                              <button
+                                class="rm"
+                                aria-label="Remove ${name} from ${label}"
+                                onClick=${() => onRemove(entry.id)}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          `;
+                        })}
                       </div>`
                     }
                     <button

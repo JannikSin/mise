@@ -17,6 +17,7 @@ import { perishableStatus } from "../lib/shopping.js";
  * @param {{
  *   recipes: Record<string, any>[],
  *   plan: import("../lib/plan.js").Plan,
+ *   tableConflicts: { table: import("../lib/tables.js").TableEvent, reasons: string[] }[],
  *   nextPlan: import("../lib/plan.js").Plan | null,
  *   daily: { days?: Record<string, any>[] },
  *   pantry: Record<string, any>,
@@ -28,6 +29,7 @@ import { perishableStatus } from "../lib/shopping.js";
 export function TodayView({
   recipes,
   plan,
+  tableConflicts,
   nextPlan,
   daily,
   pantry,
@@ -191,6 +193,12 @@ export function TodayView({
                         <span class="n">
                           ${entry.out ? "🍴 eating out · nothing to cook" : (entry.freeText ?? "…")}
                         </span>
+                        ${
+                          entry.table &&
+                          html`<span class="m num"
+                            >~${entry.estCalories} · ${entry.estProtein}P</span
+                          >`
+                        }
                       </div>
                     `;
                   }
@@ -209,6 +217,27 @@ export function TodayView({
                   `;
                 })}
               </div>`
+      }
+      ${
+        todayEntries.some((e) => e.table) &&
+        html`<p class="hint">
+          🍽 a shared table is fixed for ${isToday ? "today" : dayLabel} — the other meals were
+          planned around it so your day still lands on target.
+        </p>`
+      }
+      ${
+        (tableConflicts ?? []).length > 0 &&
+        html`<div class="tile" role="status">
+          <div class="k">⚠ table conflicts</div>
+          ${tableConflicts.map(
+            (c) =>
+              html`<div class="d num redflag" key=${c.table.id}>
+                ${c.table.name}
+                (${parseLocalIso(c.table.date).toLocaleDateString([], { weekday: "short" })}):
+                ${c.reasons.join(", ")} — not added to your plan
+              </div>`,
+          )}
+        </div>`
       }
       ${
         bufferRecipe &&

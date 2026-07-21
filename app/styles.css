@@ -2271,3 +2271,42 @@ button.linktext {
 .whatlist .whatitem b {
   font-weight: 700;
 }
+
+/* ---- tables (shared meals, docs/tables-design.md) ---- */
+
+.tablecard.skipped {
+  opacity: 0.6;
+}
+
+.tableform input[type="text"],
+.tableform input:not([type]),
+.tableform select {
+  width: 100%;
+  margin: 6px 0;
+  min-height: 44px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 0 10px;
+  font-family: var(--sans);
+  font-size: 14px;
+}
+
+.tableform .row {
+  gap: 8px;
+}
+
+.tableform .row select {
+  flex: 1;
+}
+
+.seatservings {
+  width: 72px;
+  min-height: 44px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  text-align: center;
+}

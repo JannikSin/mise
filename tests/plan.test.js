@@ -162,7 +162,10 @@ test("moveEntry reassigns date+slot, keeping id and content", () => {
 test("normalizePlan preserves locked across a read-refresh (regression: was silently dropped)", () => {
   const raw = { week: "2026-W28", locked: true, entries: [] };
   assert.equal(normalizePlan(raw, "2026-W28").locked, true);
-  assert.equal(normalizePlan({ week: "2026-W28", locked: false, entries: [] }, "2026-W28").locked, false);
+  assert.equal(
+    normalizePlan({ week: "2026-W28", locked: false, entries: [] }, "2026-W28").locked,
+    false,
+  );
   assert.equal("locked" in normalizePlan({ week: "2026-W28", entries: [] }, "2026-W28"), false);
 });
 
@@ -249,7 +252,10 @@ test("mergeRecipePool: untagged bank serves everyone, phases tag filters, own ov
 test("mergeRecipePool: own recipes are never phase-filtered", () => {
   const own = [{ id: "my-treat", phases: ["gain"] }];
   const pool = mergeRecipePool([], own, "loss");
-  assert.deepEqual(pool.map((r) => r.id), ["my-treat"]);
+  assert.deepEqual(
+    pool.map((r) => r.id),
+    ["my-treat"],
+  );
 });
 
 test("dayTotals sums stacked entries in the same slot", () => {
@@ -302,10 +308,16 @@ test("mergeRecipePool: avoid screen skips optional ingredients (gap-analysis fix
 });
 
 test("dietOf: tag short-circuits, else keyword classes over non-optional ingredients", () => {
-  assert.equal(dietOf({ tags: ["vegan", "gluten-free"], ingredients: [{ food: "cheese" }] }), "vegan");
+  assert.equal(
+    dietOf({ tags: ["vegan", "gluten-free"], ingredients: [{ food: "cheese" }] }),
+    "vegan",
+  );
   assert.equal(dietOf({ ingredients: [{ food: "chicken thigh" }] }), "omnivore");
   assert.equal(dietOf({ ingredients: [{ food: "wild salmon" }, { food: "rice" }] }), "pescatarian");
-  assert.equal(dietOf({ ingredients: [{ food: "feta cheese" }, { food: "tomato" }] }), "vegetarian");
+  assert.equal(
+    dietOf({ ingredients: [{ food: "feta cheese" }, { food: "tomato" }] }),
+    "vegetarian",
+  );
   assert.equal(dietOf({ ingredients: [{ food: "black beans" }, { food: "brown rice" }] }), "vegan");
   // optional meat does not disqualify an otherwise-vegan recipe
   assert.equal(
@@ -322,15 +334,21 @@ test("mergeRecipePool: diet filter removes recipes the profile's diet won't admi
     { id: "bean-chili", ingredients: [{ food: "black beans" }] }, // vegan
   ];
   assert.deepEqual(
-    mergeRecipePool(bank, [], undefined, [], "vegan").map((r) => r.id).sort(),
+    mergeRecipePool(bank, [], undefined, [], "vegan")
+      .map((r) => r.id)
+      .sort(),
     ["bean-chili"],
   );
   assert.deepEqual(
-    mergeRecipePool(bank, [], undefined, [], "vegetarian").map((r) => r.id).sort(),
+    mergeRecipePool(bank, [], undefined, [], "vegetarian")
+      .map((r) => r.id)
+      .sort(),
     ["bean-chili", "feta-salad"],
   );
   assert.deepEqual(
-    mergeRecipePool(bank, [], undefined, [], "pescatarian").map((r) => r.id).sort(),
+    mergeRecipePool(bank, [], undefined, [], "pescatarian")
+      .map((r) => r.id)
+      .sort(),
     ["bean-chili", "feta-salad", "salmon-bowl"],
   );
   // omnivore (or absent) admits everything, own recipes always exempt
@@ -342,8 +360,22 @@ test("mergeRecipePool: diet filter removes recipes the profile's diet won't admi
 test("pickCommittee: tiredOf foods lose ties softly (penalized but not banned)", async () => {
   const { pickCommittee } = await import("../app/lib/weekbuilder.js");
   const candidates = [
-    { id: "pasta-bowl", cuisine: "italian", effort: "cook", nutrition: { protein: 20 }, foodGroups: {}, ingredients: [{ food: "pasta" }] },
-    { id: "bean-bowl", cuisine: "mexican", effort: "cook", nutrition: { protein: 20 }, foodGroups: {}, ingredients: [{ food: "black beans" }] },
+    {
+      id: "pasta-bowl",
+      cuisine: "italian",
+      effort: "cook",
+      nutrition: { protein: 20 },
+      foodGroups: {},
+      ingredients: [{ food: "pasta" }],
+    },
+    {
+      id: "bean-bowl",
+      cuisine: "mexican",
+      effort: "cook",
+      nutrition: { protein: 20 },
+      foodGroups: {},
+      ingredients: [{ food: "black beans" }],
+    },
   ];
   // with pasta in tiredOf, the bean bowl should seed the committee first
   const c = pickCommittee(candidates, { size: 2, tiredOf: ["pasta"] });
@@ -356,8 +388,22 @@ test("pickCommittee: tiredOf foods lose ties softly (penalized but not banned)",
 test("pickCommittee: recentRecipeIds rotate the week away from last week's picks", async () => {
   const { pickCommittee } = await import("../app/lib/weekbuilder.js");
   const candidates = [
-    { id: "last-week-fav", cuisine: "korean", effort: "cook", nutrition: { protein: 30 }, foodGroups: {}, ingredients: [{ food: "tofu" }] },
-    { id: "fresh-option", cuisine: "mexican", effort: "cook", nutrition: { protein: 30 }, foodGroups: {}, ingredients: [{ food: "black beans" }] },
+    {
+      id: "last-week-fav",
+      cuisine: "korean",
+      effort: "cook",
+      nutrition: { protein: 30 },
+      foodGroups: {},
+      ingredients: [{ food: "tofu" }],
+    },
+    {
+      id: "fresh-option",
+      cuisine: "mexican",
+      effort: "cook",
+      nutrition: { protein: 30 },
+      foodGroups: {},
+      ingredients: [{ food: "black beans" }],
+    },
   ];
   // last-week-fav has EQUAL/better protein but was cooked last week -> penalized, fresh seeds first
   const c = pickCommittee(candidates, { size: 2, recentRecipeIds: new Set(["last-week-fav"]) });

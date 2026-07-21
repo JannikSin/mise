@@ -35,7 +35,10 @@ test("cookPlan single mode scales an everyday recipe down to the meal", () => {
   assert.equal(p.mode, "single");
   assert.equal(p.cookServings, 1);
   assert.equal(p.extraServings, 0);
-  assert.deepEqual(p.ingredients.map((i) => i.qty), [14, 1]);
+  assert.deepEqual(
+    p.ingredients.map((i) => i.qty),
+    [14, 1],
+  );
   assert.match(p.note, /Scaled to your meal/);
 });
 
@@ -50,7 +53,10 @@ test("cookPlan batch mode cooks the full batch and banks the rest", () => {
   assert.equal(p.cookServings, 5); // cook it all
   assert.equal(p.eatServings, 1.25);
   assert.equal(p.extraServings, 3.75);
-  assert.deepEqual(p.ingredients.map((i) => i.qty), [2]); // unscaled
+  assert.deepEqual(
+    p.ingredients.map((i) => i.qty),
+    [2],
+  ); // unscaled
   assert.match(p.note, /save the other 3.75/);
 });
 
@@ -61,5 +67,8 @@ test("cookPlan full mode: cooking the whole recipe (or cookbook browse) doesn't 
   // no planned servings (cookbook) -> full recipe
   const browse = cookPlan(recipe, undefined);
   assert.equal(browse.mode, "full");
-  assert.deepEqual(browse.ingredients.map((i) => i.qty), [10]);
+  assert.deepEqual(
+    browse.ingredients.map((i) => i.qty),
+    [10],
+  );
 });

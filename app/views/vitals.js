@@ -28,7 +28,8 @@ export function VitalsView({ vitals, loading, hasToken }) {
     const latest = latestWith(days, field);
     if (!latest) return null;
     const pts = spark ? series(days, field, 14) : [];
-    const avg = pts.length > 2 ? average(pts, field === "distanceMi" || field === "hrvMs" ? 1 : 0) : null;
+    const avg =
+      pts.length > 2 ? average(pts, field === "distanceMi" || field === "hrvMs" ? 1 : 0) : null;
     const poly = sparkPoints(pts, 120, 32);
     return html`
       <div class="tile vital" key=${field}>
@@ -36,7 +37,13 @@ export function VitalsView({ vitals, loading, hasToken }) {
         <div class="v num">${fmt(latest.value)} <span class="unit">${unit}</span></div>
         ${
           poly &&
-          html`<svg class="vital-spark" viewBox="0 0 120 32" width="120" height="32" aria-hidden="true">
+          html`<svg
+            class="vital-spark"
+            viewBox="0 0 120 32"
+            width="120"
+            height="32"
+            aria-hidden="true"
+          >
             <polyline points=${poly} fill="none" stroke="currentColor" stroke-width="1.5" />
           </svg>`
         }
@@ -78,7 +85,9 @@ export function VitalsView({ vitals, loading, hasToken }) {
         html`
           <div class="tile">
             <div class="k">Latest EKG</div>
-            <div class="v">${ekg.result}${ekg.avgBpm ? html` · <span class="num">${ekg.avgBpm}</span> bpm` : ""}</div>
+            <div class="v">
+              ${ekg.result}${ekg.avgBpm ? html` · <span class="num">${ekg.avgBpm}</span> bpm` : ""}
+            </div>
             <div class="d hint">${ekg.date}</div>
           </div>
         `

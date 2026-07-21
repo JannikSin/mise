@@ -211,11 +211,38 @@ test("avoidTermsFromAllergens: presets expand and dedupe, free-text appends verb
   assert.deepEqual(avoidTermsFromAllergens(), []); // absent = empty
 });
 
-const BASE_Q = { sex: "f", age: 30, heightFt: 5, heightIn: 6, weightLb: 140, activity: 3, goal: "maintain" };
+const BASE_Q = {
+  sex: "f",
+  age: 30,
+  heightFt: 5,
+  heightIn: 6,
+  weightLb: 140,
+  activity: 3,
+  goal: "maintain",
+};
 
 test("targetsFromQuestionnaire: empty prefs reproduce the pre-survey shape (no new keys)", () => {
   const t = targetsFromQuestionnaire(BASE_Q, "2026-07-17", {});
-  for (const k of ["diet", "allergens", "avoidIngredients", "snackAppetite", "maxWeeknightMinutes", "dislikeIngredients", "cuisinePrefs", "maxDifficulty", "equipment", "breakfastStyle", "budget", "stores", "shopsPerWeek", "tiredOf", "region", "leftoverTolerance", "packsLunch", "lunchMicrowave"]) {
+  for (const k of [
+    "diet",
+    "allergens",
+    "avoidIngredients",
+    "snackAppetite",
+    "maxWeeknightMinutes",
+    "dislikeIngredients",
+    "cuisinePrefs",
+    "maxDifficulty",
+    "equipment",
+    "breakfastStyle",
+    "budget",
+    "stores",
+    "shopsPerWeek",
+    "tiredOf",
+    "region",
+    "leftoverTolerance",
+    "packsLunch",
+    "lunchMicrowave",
+  ]) {
     assert.equal(k in t, false, `unexpected key ${k} at default`);
   }
 });
@@ -234,12 +261,18 @@ test("targetsFromQuestionnaire: richer-survey fields map through, defaults omitt
   assert.equal(t.packsLunch, true);
   assert.equal(t.lunchMicrowave, true);
   // "some" is the default leftover tolerance -> omitted; no state -> no region
-  const d = targetsFromQuestionnaire(BASE_Q, "2026-07-17", { leftoverTolerance: "some", packsLunch: false });
+  const d = targetsFromQuestionnaire(BASE_Q, "2026-07-17", {
+    leftoverTolerance: "some",
+    packsLunch: false,
+  });
   assert.equal("leftoverTolerance" in d, false);
   assert.equal("region" in d, false);
   assert.equal("packsLunch" in d, false);
   // microwave only recorded when packsLunch is true
-  const nolunch = targetsFromQuestionnaire(BASE_Q, "2026-07-17", { packsLunch: false, lunchMicrowave: true });
+  const nolunch = targetsFromQuestionnaire(BASE_Q, "2026-07-17", {
+    packsLunch: false,
+    lunchMicrowave: true,
+  });
   assert.equal("lunchMicrowave" in nolunch, false);
 });
 
@@ -289,7 +322,15 @@ test("targetsFromQuestionnaire: default-valued prefs stay omitted (lean file)", 
     shopsPerWeek: 1,
     cuisinePrefs: { loved: [], avoided: [] },
   });
-  for (const k of ["diet", "allergens", "snackAppetite", "maxDifficulty", "budget", "shopsPerWeek", "cuisinePrefs"]) {
+  for (const k of [
+    "diet",
+    "allergens",
+    "snackAppetite",
+    "maxDifficulty",
+    "budget",
+    "shopsPerWeek",
+    "cuisinePrefs",
+  ]) {
     assert.equal(k in t, false, `default ${k} should be omitted`);
   }
 });

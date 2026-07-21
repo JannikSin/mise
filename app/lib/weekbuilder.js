@@ -14,7 +14,14 @@
 // structurally cannot reach a target (no candidate contributes at all) is
 // called out with a plain-English suggestion.
 
-import { addEntry, dayTotals, datesOfWeek, entriesAt, recipesById, slotMacroEstimate } from "./plan.js";
+import {
+  addEntry,
+  dayTotals,
+  datesOfWeek,
+  entriesAt,
+  recipesById,
+  slotMacroEstimate,
+} from "./plan.js";
 import { slug } from "./shopping.js";
 
 /** deterministic 32-bit FNV-1a — the builder's only randomness source */
@@ -103,10 +110,17 @@ function matchesBreakfastStyle(r, style) {
   const fruit = (Number(fg.berries) || 0) + (Number(fg.otherFruit) || 0);
   if (style === "sweet") return tags.includes("sweet") || fruit > 0.5;
   if (style === "savory") {
-    return tags.includes("savory") || ((Number(fg.beans) || 0) + (Number(fg.otherVeg) || 0) > 0.5 && fruit === 0);
+    return (
+      tags.includes("savory") ||
+      ((Number(fg.beans) || 0) + (Number(fg.otherVeg) || 0) > 0.5 && fruit === 0)
+    );
   }
   if (style === "grab-and-go") {
-    return tags.some((/** @type {string} */ t) => ["grab-and-go", "make-ahead", "blend-and-go"].includes(t)) || r.effort === "assembly";
+    return (
+      tags.some((/** @type {string} */ t) =>
+        ["grab-and-go", "make-ahead", "blend-and-go"].includes(t),
+      ) || r.effort === "assembly"
+    );
   }
   return false;
 }
@@ -215,7 +229,10 @@ export function pickCommittee(candidates, opts = {}) {
   // weeks ROTATE (David is fine eating one dish all week, but wants next week
   // to look different). Strong enough to lose to any fresh option, soft enough
   // that a thin pool can still fall back to a repeat rather than fail.
-  const recent = opts.recentRecipeIds instanceof Set ? opts.recentRecipeIds : new Set(opts.recentRecipeIds ?? []);
+  const recent =
+    opts.recentRecipeIds instanceof Set
+      ? opts.recentRecipeIds
+      : new Set(opts.recentRecipeIds ?? []);
   const loved = new Set(opts.cuisinePrefs?.loved ?? []);
   const avoided = new Set(opts.cuisinePrefs?.avoided ?? []);
   const tight = opts.budget === "tight";
@@ -428,7 +445,9 @@ export function foodGroupFloorPass(plan, pool, recipesById, floors) {
         const contribution = c.foodGroups?.[group] ?? 0;
         if (contribution <= 0) continue;
         const score =
-          overlapWith(c, weekFoodPool) * 10 + contribution + (hash(`${c.id}|${date}|${group}`) % 997) / 9970;
+          overlapWith(c, weekFoodPool) * 10 +
+          contribution +
+          (hash(`${c.id}|${date}|${group}`) % 997) / 9970;
         if (score > bestScore) {
           bestScore = score;
           best = c;
@@ -601,7 +620,11 @@ export function calorieTrimPass(plan, recipesById, bounds) {
       const trimmable = next.entries
         .filter(
           (e) =>
-            e.date === date && !e.pinned && e.recipeId && recipesById.has(e.recipeId) && e.servings > 0.5,
+            e.date === date &&
+            !e.pinned &&
+            e.recipeId &&
+            recipesById.has(e.recipeId) &&
+            e.servings > 0.5,
         )
         .sort((a, b) => {
           const ta = tierOf(a);
@@ -615,7 +638,9 @@ export function calorieTrimPass(plan, recipesById, bounds) {
       let applied = false;
       for (const entry of trimmable) {
         const servings = Math.max(0.5, entry.servings - 0.5);
-        const candidateEntries = next.entries.map((e) => (e.id === entry.id ? { ...e, servings } : e));
+        const candidateEntries = next.entries.map((e) =>
+          e.id === entry.id ? { ...e, servings } : e,
+        );
         if (breaksFloor(candidateEntries, recipesById, date, bounds)) continue;
         next = { ...next, entries: candidateEntries };
         applied = true;
@@ -681,7 +706,10 @@ function foodGroupGapsReport(entries, recipesById, dates, dailyDozenPerDay) {
   for (const date of dates) {
     const chosen = entries
       .filter((e) => e.date === date && e.recipeId)
-      .map((e) => ({ recipe: recipesById.get(/** @type {string} */ (e.recipeId)), count: e.servings }))
+      .map((e) => ({
+        recipe: recipesById.get(/** @type {string} */ (e.recipeId)),
+        count: e.servings,
+      }))
       .filter((c) => c.recipe);
     const coverage = foodGroupCoverage(chosen);
     for (const [group, target] of Object.entries(dailyDozenPerDay)) {
@@ -774,7 +802,10 @@ export function poolAdequacy(recipes, targets) {
   const caloriesTarget = targets?.macros?.calories;
   if (caloriesTarget) {
     const maxCal = (/** @type {string} */ slot) =>
-      Math.max(0, ...usable.filter((r) => r.mealType === slot).map((r) => r.nutrition?.calories ?? 0));
+      Math.max(
+        0,
+        ...usable.filter((r) => r.mealType === slot).map((r) => r.nutrition?.calories ?? 0),
+      );
     // optimistic ceiling: biggest recipe per proactive slot at the 2x
     // serving cap, plus macroTopUp's 3 snack stacks at 2x
     const bestDay =
@@ -838,7 +869,16 @@ export function poolAdequacy(recipes, targets) {
  *   days that remain. Absent = full 7-day behavior (future weeks, tests).
  * @returns {{ plan: import("./plan.js").Plan, report: WeekReport }}
  */
-export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0, recentRecipeIds = [], today }) {
+export function generateWeek({
+  recipes,
+  targets,
+  pantry,
+  weekId,
+  plan,
+  salt = 0,
+  recentRecipeIds = [],
+  today,
+}) {
   const recentSet = new Set(recentRecipeIds);
   const dates = datesOfWeek(weekId);
   const isPast = (/** @type {string} */ d) => Boolean(today) && d < /** @type {string} */ (today);
@@ -855,7 +895,8 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0,
   const maxDifficulty = targets?.maxDifficulty;
   const haveEquipment = targets?.equipment; // what the profile HAS; absent = has everything
   const lacksGear = (/** @type {Record<string, any>} */ r) =>
-    Array.isArray(haveEquipment) && (r.equipment ?? []).some((/** @type {string} */ e) => !haveEquipment.includes(e));
+    Array.isArray(haveEquipment) &&
+    (r.equipment ?? []).some((/** @type {string} */ e) => !haveEquipment.includes(e));
   /** @type {string[]} slots where the time cap emptied the pool and was relaxed (Q12 honest-failure) */
   const timeBudgetRelaxed = [];
   const pool = (/** @type {string} */ meal) => {
@@ -886,7 +927,9 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0,
   const pastEntries = plan.entries.filter((e) => isPast(e.date));
   const pinnedEntries = plan.entries
     .filter((e) => e.pinned && !isPast(e.date))
-    .map((e) => (e.out && e.estCalories == null ? { ...e, ...slotMacroEstimate(recipes, e.slot) } : e));
+    .map((e) =>
+      e.out && e.estCalories == null ? { ...e, ...slotMacroEstimate(recipes, e.slot) } : e,
+    );
   let next = { ...plan, week: weekId, entries: pinnedEntries };
 
   const outDays = [...new Set(pinnedEntries.filter((e) => e.out).map((e) => e.date))]
@@ -1012,7 +1055,9 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0,
         "lunch",
         isOfficeDay && officeLunch
           ? officeLunch
-          : (otherLunches[i % Math.max(1, otherLunches.length)] ?? officeLunch ?? committees.lunch[0]),
+          : (otherLunches[i % Math.max(1, otherLunches.length)] ??
+              officeLunch ??
+              committees.lunch[0]),
       );
     }
     if (
@@ -1064,11 +1109,21 @@ export function generateWeek({ recipes, targets, pantry, weekId, plan, salt = 0,
   // effort, ingredient overlap with the week (tight list), salted jitter
   // (RE-ROLL varies it). 7 portions: one per day available, eating fewer is
   // the point. Deterministic like everything else here.
-  const BUFFER_PLANT_GROUPS = ["greens", "cruciferousVeg", "otherVeg", "beans", "nuts", "berries", "otherFruit"];
+  const BUFFER_PLANT_GROUPS = [
+    "greens",
+    "cruciferousVeg",
+    "otherVeg",
+    "beans",
+    "nuts",
+    "berries",
+    "otherFruit",
+  ];
   const BATCH_TAGS = ["make-ahead", "batch-friendly", "meal-prep"];
   const snackPool = pool("snack");
   const batchable = snackPool.filter(
-    (r) => (r.tags ?? []).some((/** @type {string} */ t) => BATCH_TAGS.includes(t)) || r.batchPrep?.sundayComponent,
+    (r) =>
+      (r.tags ?? []).some((/** @type {string} */ t) => BATCH_TAGS.includes(t)) ||
+      r.batchPrep?.sundayComponent,
   );
   const bufferCandidates = batchable.length > 0 ? batchable : snackPool;
   const [bandLo, bandHi] = targets?.phase === "gain" ? [250, 400] : [120, 300];

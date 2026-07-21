@@ -1,5 +1,5 @@
 import { html, render } from "htm/preact";
-import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { checkDataRepo, getToken, setToken, DATA_REPO } from "./lib/github.js";
 import {
   initStore,
@@ -59,9 +59,18 @@ import {
   slotMacroEstimate,
   setPlanLocked,
   mergeRecipePool,
+  recipeConflicts,
   SLOT_KEYS,
 } from "./lib/plan.js";
 import { generateWeek, poolAdequacy } from "./lib/weekbuilder.js";
+import {
+  normalizeEvents,
+  eventsPathFor,
+  deriveTables,
+  addTable,
+  removeTable,
+  patchSeat,
+} from "./lib/tables.js";
 
 export const APP = { name: "Mise", version: "0.3.0" };
 
@@ -197,6 +206,44 @@ function App() {
       unsub();
     };
   }, [weekId, hasToken]);
+
+  // Tables (docs/tables-design.md): every house's events.json, cached-first,
+  // refreshed on sync activity. A guest seated at another house's table
+  // needs THAT house's file, so all houses load (a tiny in-repo set).
+  const [houseEvents, setHouseEvents] = useState(
+    /** @type {{ house: string, events: import("./lib/tables.js").HouseEvents }[]} */ ([]),
+  );
+  const [allProfiles, setAllProfiles] = useState(/** @type {Record<string, any>[]} */ ([]));
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      void (async () => {
+        const prof = await readProfiles();
+        if (!alive) return;
+        setAllProfiles(prof.profiles);
+        const houses = [
+          ...new Set(prof.profiles.map((p) => /** @type {string} */ (p.household ?? "home"))),
+        ];
+        const loaded = await Promise.all(
+          houses.map(async (house) => ({
+            house,
+            events: normalizeEvents(
+              /** @type {any} */ (
+                await read(eventsPathFor(house), { raw: true }).catch(() => null)
+              ),
+            ),
+          })),
+        );
+        if (alive) setHouseEvents(loaded);
+      })();
+    };
+    load();
+    const unsub = onSyncChange(load);
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [hasToken]);
 
   // shopping list + pantry: cached-first, refreshed on sync activity
   const [shopping, setShopping] = useState(
@@ -564,7 +611,7 @@ function App() {
     const byId = recipesById(recipesRef.current);
     updateShopping(
       deriveShoppingList(
-        /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
+        withCookExtras(/** @type {import("./lib/plan.js").Plan} */ (planRef.current)),
         byId,
         pantryRef.current,
         shoppingRef.current,
@@ -771,7 +818,7 @@ function App() {
       if (!p.locked && shoppingRef.current.items.length > 0) {
         updateShopping(
           deriveShoppingList(
-            next,
+            withCookExtras(next),
             recipesById(recipesRef.current),
             pantryRef.current,
             shoppingRef.current,
@@ -814,7 +861,9 @@ function App() {
       // favor recipes that cook them before they leave on their own
       pantry: withAutoUseSoon(pantryRef.current, localIsoDate(new Date())),
       weekId: weekRef.current,
-      plan: /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
+      // viewPlan: derived table entries enter as pins so the generator
+      // plans each member's day around the shared meal
+      plan: /** @type {import("./lib/plan.js").Plan} */ (viewPlanRef.current),
       salt: bs.salt,
       recentRecipeIds: recentRecipeIdsRef.current,
       // day-aware: past days of the current week survive and are not
@@ -822,13 +871,15 @@ function App() {
       // ahead of today)
       today: localIsoDate(new Date()),
     });
-    updatePlan(result.plan);
+    // the Engineer seam's ONE strip point: derived table entries must
+    // never reach plans/<week>.json
+    updatePlan({ ...result.plan, entries: result.plan.entries.filter((e) => !e.table) });
     setBuildReport(result.report);
     // 7a: auto-populate the shopping list from the freshly generated plan,
     // not the stale planRef, so List is correct the instant Plan finishes
     updateShopping(
       deriveShoppingList(
-        result.plan,
+        withCookExtras(result.plan),
         recipesById(recipesRef.current),
         pantryRef.current,
         shoppingRef.current,
@@ -1025,6 +1076,114 @@ function App() {
     setTourOpen({ startStep: 0 });
   }, []);
 
+  // Tables derivation (the Engineer seam): persisted `plan` state stays
+  // PURE; virtual pinned entries exist only in this memo and the viewPlan
+  // built from it. Any failure degrades to "no tables", never a broken app.
+  const me = activeProfile() ?? "david";
+  const tableDerived = useMemo(() => {
+    try {
+      const profilesById = new Map(allProfiles.map((p) => [p.id, p]));
+      return deriveTables(houseEvents, {
+        profileId: me,
+        myHouse: /** @type {string} */ (profilesById.get(me)?.household ?? "home"),
+        diet: targets?.diet,
+        avoid: targets?.avoidIngredients,
+        bankById: recipesById(bankRecipes),
+        ownEntries: plan.entries,
+        today: localIsoDate(new Date()),
+        profilesById,
+      });
+    } catch {
+      return { entries: [], conflicts: [], collisions: [], cookExtras: [] };
+    }
+  }, [houseEvents, allProfiles, targets, bankRecipes, plan, me]);
+  const viewPlan = useMemo(
+    () => ({ ...plan, entries: [...plan.entries, ...tableDerived.entries] }),
+    [plan, tableDerived],
+  );
+  const viewPlanRef = useRef(viewPlan);
+  viewPlanRef.current = viewPlan;
+  const tableDerivedRef = useRef(tableDerived);
+  tableDerivedRef.current = tableDerived;
+  const houseEventsRef = useRef(houseEvents);
+  houseEventsRef.current = houseEvents;
+  const allProfilesRef = useRef(allProfiles);
+  allProfilesRef.current = allProfiles;
+  const bankRecipesRef = useRef(bankRecipes);
+  bankRecipesRef.current = bankRecipes;
+
+  /** the cook's shopping pseudo-entries ride the buffer precedent: augment
+   *  the plan at list-derivation time only, never in state */
+  const withCookExtras = useCallback((/** @type {import("./lib/plan.js").Plan} */ p) => {
+    const extras = tableDerivedRef.current.cookExtras;
+    return extras.length > 0
+      ? { ...p, entries: [...p.entries, .../** @type {any[]} */ (extras.map((x) => ({ ...x })))] }
+      : p;
+  }, []);
+
+  const myHouseOf = () => {
+    const mine = allProfilesRef.current.find((p) => p.id === me);
+    return /** @type {string} */ (mine?.household ?? "home");
+  };
+
+  const writeHouseEvents = useCallback(
+    (/** @type {string} */ house, /** @type {import("./lib/tables.js").HouseEvents} */ next) => {
+      setHouseEvents((cur) => [...cur.filter((h) => h.house !== house), { house, events: next }]);
+      void write(eventsPathFor(house), /** @type {any} */ (next), { raw: true });
+    },
+    [],
+  );
+
+  const handleCreateTable = useCallback(
+    (
+      /** @type {{ name: string, date: string, slot: string, recipeId: string, seats: import("./lib/tables.js").Seat[] }} */ t,
+    ) => {
+      const house = myHouseOf();
+      const cur =
+        houseEventsRef.current.find((h) => h.house === house)?.events ?? normalizeEvents(null);
+      writeHouseEvents(house, addTable(cur, t, localIsoDate(new Date())));
+    },
+    [writeHouseEvents],
+  );
+
+  const handleRemoveTable = useCallback(
+    (/** @type {string} */ house, /** @type {string} */ id) => {
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      if (!cur) return;
+      writeHouseEvents(house, removeTable(cur, id, localIsoDate(new Date())));
+    },
+    [writeHouseEvents],
+  );
+
+  const handlePatchSeat = useCallback(
+    (
+      /** @type {string} */ house,
+      /** @type {string} */ tableId,
+      /** @type {Partial<import("./lib/tables.js").Seat>} */ patch,
+    ) => {
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      if (!cur) return;
+      writeHouseEvents(house, patchSeat(cur, tableId, me, patch));
+    },
+    [writeHouseEvents],
+  );
+
+  // Tribunal amendment 1a: creation-time diet/avoid screen per prospective
+  // seat, reading each profile's own targets (raw paths per SCHEMAS.md)
+  const handleSeatScreen = useCallback(async (/** @type {string} */ recipeId) => {
+    const recipe = recipesById(bankRecipesRef.current).get(recipeId);
+    /** @type {Record<string, string[]>} */
+    const out = {};
+    if (!recipe) return out;
+    for (const p of allProfilesRef.current) {
+      const path =
+        p.id === "david" ? "fitness/targets.json" : `profiles/${p.id}/fitness/targets.json`;
+      const t = /** @type {any} */ (await read(path, { raw: true }).catch(() => null));
+      out[p.id] = recipeConflicts(recipe, t?.diet, t?.avoidIngredients);
+    }
+    return out;
+  }, []);
+
   const publicAlarm = repo?.privacy === "PUBLIC";
   // header and probe results must never disagree: offline if either says so
   const effectiveOnline = online && (repo ? repo.reachable : true);
@@ -1080,7 +1239,7 @@ function App() {
       route.view === "home" &&
       html`<${HomeView}
         recipes=${recipes}
-        plan=${plan}
+        plan=${viewPlan}
         hasToken=${hasToken}
         repo=${repo}
         daily=${dailyLog}
@@ -1096,7 +1255,8 @@ function App() {
       route.view === "today" &&
       html`<${TodayView}
         recipes=${recipes}
-        plan=${plan}
+        plan=${viewPlan}
+        tableConflicts=${tableDerived.conflicts}
         nextPlan=${nextPlan}
         daily=${dailyLog}
         pantry=${pantry}
@@ -1118,7 +1278,7 @@ function App() {
       route.view === "plan" &&
       html`<${PlannerView}
         recipes=${recipes}
-        plan=${plan}
+        plan=${viewPlan}
         targets=${targets}
         poolReport=${recipes.length > 0 ? poolAdequacy(recipes, targets) : null}
         hasToken=${hasToken}
@@ -1133,6 +1293,14 @@ function App() {
         onGenerateWeek=${handleGenerateWeek}
         buildReport=${buildReport}
         rebuilt=${buildReport !== null}
+        houseEvents=${houseEvents}
+        profiles=${allProfiles}
+        me=${me}
+        tableConflicts=${tableDerived.conflicts}
+        onCreateTable=${handleCreateTable}
+        onRemoveTable=${handleRemoveTable}
+        onPatchSeat=${handlePatchSeat}
+        onSeatScreen=${handleSeatScreen}
       />`
     }
     ${
@@ -1149,7 +1317,7 @@ function App() {
       html`<${ShoppingView}
         shopping=${shopping}
         pantry=${pantry}
-        plan=${plan}
+        plan=${viewPlan}
         weekId=${weekId}
         hasToken=${hasToken}
         repo=${repo}

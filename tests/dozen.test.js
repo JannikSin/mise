@@ -29,10 +29,8 @@ test("dozenRemaining defaults to zero remaining when day/targets are absent (nev
 });
 
 test("DOZEN_GROUPS exposes the four hand-tracked categories in display order", () => {
-  assert.deepEqual(DOZEN_GROUPS.map((g) => g.key), [
-    "beverages",
-    "greens",
-    "otherFruit",
-    "otherVeg",
-  ]);
+  assert.deepEqual(
+    DOZEN_GROUPS.map((g) => g.key),
+    ["beverages", "greens", "otherFruit", "otherVeg"],
+  );
 });

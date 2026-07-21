@@ -120,7 +120,12 @@ export async function readProfiles(readFn = defaultProfilesRead) {
  */
 export async function patchProfiles(
   fn,
-  { allowSeed = false, readCached = defaultProfilesRead, readRemote = io.read, writeFn = write } = {},
+  {
+    allowSeed = false,
+    readCached = defaultProfilesRead,
+    readRemote = io.read,
+    writeFn = write,
+  } = {},
 ) {
   const cached = await readCached("profiles.json");
   const cachedList = /** @type {any} */ (cached)?.data?.profiles;
@@ -258,7 +263,10 @@ function cacheRemote(path, data, sha) {
  * @param {string} dir
  * @returns {Promise<Record<string, unknown>[]>}
  */
-export async function readCollection(dir, /** @type {{ raw?: boolean } | undefined} */ opts = undefined) {
+export async function readCollection(
+  dir,
+  /** @type {{ raw?: boolean } | undefined} */ opts = undefined,
+) {
   const scopedDir = opts?.raw ? dir : scoped(dir);
   const prefix = `${scopedDir}/`;
   const cached = (await dbGetAll())

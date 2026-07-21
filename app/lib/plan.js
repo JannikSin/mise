@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, estCalories?: number, estProtein?: number }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, estCalories?: number, estProtein?: number }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, buffer?: PlanBuffer }} Plan
  */
@@ -59,9 +59,52 @@ export function recipesById(recipes) {
  * short-circuit protects them before the classifier ever runs.
  */
 const DIET_KEYWORDS = {
-  meat: ["chicken", "beef", "turkey", "pork", "lamb", "kofta", "sausage", "bacon", "ham", "prosciutto", "veal", "duck", "bulgogi", "meatball"],
-  fish: ["salmon", "tuna", "cod", "shrimp", "anchovy", "dashi", "sardine", "mackerel", "crab", "prawn", "fish sauce", "tilapia", "halibut", "trout"],
-  dairy: ["milk", "yogurt", "cheese", "whey", "butter", "feta", "halloumi", "cottage", "parmesan", "cream", "kefir", "ghee"],
+  meat: [
+    "chicken",
+    "beef",
+    "turkey",
+    "pork",
+    "lamb",
+    "kofta",
+    "sausage",
+    "bacon",
+    "ham",
+    "prosciutto",
+    "veal",
+    "duck",
+    "bulgogi",
+    "meatball",
+  ],
+  fish: [
+    "salmon",
+    "tuna",
+    "cod",
+    "shrimp",
+    "anchovy",
+    "dashi",
+    "sardine",
+    "mackerel",
+    "crab",
+    "prawn",
+    "fish sauce",
+    "tilapia",
+    "halibut",
+    "trout",
+  ],
+  dairy: [
+    "milk",
+    "yogurt",
+    "cheese",
+    "whey",
+    "butter",
+    "feta",
+    "halloumi",
+    "cottage",
+    "parmesan",
+    "cream",
+    "kefir",
+    "ghee",
+  ],
   egg: ["egg"],
 };
 
@@ -123,24 +166,43 @@ export function dietOf(recipe) {
  * @returns {Record<string, any>[]}
  */
 export function mergeRecipePool(bank, own, phase, avoid, diet) {
-  const terms = (avoid ?? []).map((t) => t.toLowerCase()).filter(Boolean);
-  const containsAvoided = (/** @type {Record<string, any>} */ r) =>
-    (r.ingredients ?? []).some((/** @type {any} */ ing) => {
-      if (ing.optional) return false; // optional ingredients never trigger the avoid screen
-      const food = String(ing.food ?? "").toLowerCase();
-      return terms.some((t) => food.includes(t));
-    });
-  const admits = diet && diet !== "omnivore" ? DIET_ADMITS[/** @type {keyof typeof DIET_ADMITS} */ (diet)] : null;
   /** @type {Map<string, Record<string, any>>} */
   const byId = new Map();
   for (const r of bank) {
     if (Array.isArray(r.phases) && phase && !r.phases.includes(phase)) continue;
-    if (admits && !admits.has(dietOf(r))) continue;
-    if (terms.length > 0 && containsAvoided(r)) continue;
+    if (recipeConflicts(r, diet, avoid).length > 0) continue;
     byId.set(r.id, r);
   }
   for (const r of own) byId.set(r.id, r);
   return [...byId.values()];
+}
+
+/**
+ * THE shared diet/avoid screen (Tribunal amendment 1): the same predicate
+ * mergeRecipePool filters with, exported so table creation and derivation
+ * can never bypass it. Returns human-readable conflict reasons, empty =
+ * clean. Optional ingredients never trigger the avoid screen.
+ * @param {Record<string, any>} recipe
+ * @param {string} [diet] the profile's targets.diet (absent/omnivore = no diet screen)
+ * @param {string[]} [avoid] the profile's targets.avoidIngredients
+ * @returns {string[]} conflict reasons, e.g. ["contains shallot", "not vegetarian"]
+ */
+export function recipeConflicts(recipe, diet, avoid) {
+  /** @type {string[]} */
+  const reasons = [];
+  const admits =
+    diet && diet !== "omnivore"
+      ? DIET_ADMITS[/** @type {keyof typeof DIET_ADMITS} */ (diet)]
+      : null;
+  if (admits && !admits.has(dietOf(recipe))) reasons.push(`not ${diet}`);
+  const terms = (avoid ?? []).map((t) => t.toLowerCase()).filter(Boolean);
+  for (const ing of recipe.ingredients ?? []) {
+    if (ing.optional) continue; // optional ingredients never trigger the avoid screen
+    const food = String(ing.food ?? "").toLowerCase();
+    const hit = terms.find((t) => food.includes(t));
+    if (hit && !reasons.includes(`contains ${hit}`)) reasons.push(`contains ${hit}`);
+  }
+  return reasons;
 }
 
 /**
@@ -421,7 +483,11 @@ export function dayTotals(entries, recipesById, date) {
   let protein = 0;
   for (const e of entries) {
     if (e.date !== date) continue;
-    if (e.out) {
+    // eating-out placeholders AND derived table entries both carry assumed
+    // macros in est fields — the meal is real, just not cooked from this
+    // profile's own pool (a table's recipe may not even be IN their
+    // filtered pool, so est is the only honest path)
+    if (e.out || e.table) {
       calories += e.estCalories ?? 0;
       protein += e.estProtein ?? 0;
       continue;

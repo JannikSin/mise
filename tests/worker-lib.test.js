@@ -104,7 +104,11 @@ test("validateProtocol keeps only string arrays under the caps", () => {
 });
 
 test("buildReceiptRequest forces the record_receipt tool with the image", () => {
-  const req = buildReceiptRequest({ image: "abc", mediaType: "image/jpeg", model: "claude-sonnet-5" });
+  const req = buildReceiptRequest({
+    image: "abc",
+    mediaType: "image/jpeg",
+    model: "claude-sonnet-5",
+  });
   assert.equal(req.tool_choice.name, "record_receipt");
   assert.equal(req.messages[0].content[0].source.data, "abc");
 });
@@ -122,18 +126,18 @@ test("validateReceiptItems keeps priced food lines, drops junk and non-positive 
     ],
   });
   assert.equal(out.store, "TRADER JOE'S #703");
-  assert.deepEqual(
-    out.items,
-    [
-      { name: "black beans", price: 1.09, size: "15.5 oz" },
-      { name: "bananas", price: 0.23, size: "" },
-    ],
-  );
+  assert.deepEqual(out.items, [
+    { name: "black beans", price: 1.09, size: "15.5 oz" },
+    { name: "bananas", price: 0.23, size: "" },
+  ]);
 });
 
 test("buildOnboardRequest primes the system with known survey answers, maps roles", () => {
   const req = buildOnboardRequest({
-    messages: [{ role: "user", content: "hi" }, { role: "assistant", content: "hello" }],
+    messages: [
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "hello" },
+    ],
     survey: { name: "Sam", goal: "gain" },
     model: "claude-sonnet-5",
   });
@@ -153,7 +157,17 @@ test("parseOnboardResponse returns text as reply, tool call as profile", () => {
       {
         type: "tool_use",
         name: "record_profile",
-        input: { name: "Sam", emoji: "🏃", sex: "m", age: 30, heightFt: 5, heightIn: 10, weightLb: 170, activity: 3, goal: "maintain" },
+        input: {
+          name: "Sam",
+          emoji: "🏃",
+          sex: "m",
+          age: 30,
+          heightFt: 5,
+          heightIn: 10,
+          weightLb: 170,
+          activity: 3,
+          goal: "maintain",
+        },
       },
     ],
   });
@@ -166,12 +180,29 @@ test("parseOnboardResponse returns text as reply, tool call as profile", () => {
 test("validateOnboardProfile rejects incomplete required fields", () => {
   // missing weight -> null (not done yet)
   assert.equal(
-    validateOnboardProfile({ name: "X", sex: "m", age: 30, heightFt: 5, heightIn: 10, activity: 2, goal: "gain" }),
+    validateOnboardProfile({
+      name: "X",
+      sex: "m",
+      age: 30,
+      heightFt: 5,
+      heightIn: 10,
+      activity: 2,
+      goal: "gain",
+    }),
     null,
   );
   // bad goal -> null
   assert.equal(
-    validateOnboardProfile({ name: "X", sex: "m", age: 30, heightFt: 5, heightIn: 10, weightLb: 170, activity: 2, goal: "bulk" }),
+    validateOnboardProfile({
+      name: "X",
+      sex: "m",
+      age: 30,
+      heightFt: 5,
+      heightIn: 10,
+      weightLb: 170,
+      activity: 2,
+      goal: "bulk",
+    }),
     null,
   );
 });

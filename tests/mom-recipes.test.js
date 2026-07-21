@@ -85,7 +85,10 @@ test("mom foodGroups.method is a string enum of estimated|book-verified", () => 
 
 test("no mom recipe exceeds the ~650 kcal/serving loss-pool ceiling", () => {
   for (const { file, data } of recipes) {
-    assert.ok(data.nutrition && typeof data.nutrition.calories === "number", `${file} is missing nutrition.calories`);
+    assert.ok(
+      data.nutrition && typeof data.nutrition.calories === "number",
+      `${file} is missing nutrition.calories`,
+    );
     assert.ok(
       data.nutrition.calories <= CALORIE_CEILING,
       `${file} is ${data.nutrition.calories} kcal/serving, over the ${CALORIE_CEILING} kcal loss-pool ceiling`,

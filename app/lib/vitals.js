@@ -46,7 +46,11 @@ export function latestWith(days, field) {
 export function series(days, field, n) {
   return [...days]
     .sort((a, b) => a.date.localeCompare(b.date))
-    .flatMap((d) => (typeof d[field] === "number" ? [{ date: d.date, value: /** @type {number} */ (d[field]) }] : []))
+    .flatMap((d) =>
+      typeof d[field] === "number"
+        ? [{ date: d.date, value: /** @type {number} */ (d[field]) }]
+        : [],
+    )
     .slice(-n);
 }
 

@@ -101,7 +101,11 @@ export function itemCost(item, catalogue, store) {
   const perLb = (sp.size ?? "").toLowerCase().includes("per lb");
   const u = item.unit.toLowerCase();
   const mult = COUNTED.has(u) ? item.qty : perLb && (u === "lb" || u === "lbs") ? item.qty : 1;
-  return { cost: Math.round(sp.price * mult * 100) / 100, estimate: sp.estimate === true, size: sp.size };
+  return {
+    cost: Math.round(sp.price * mult * 100) / 100,
+    estimate: sp.estimate === true,
+    size: sp.size,
+  };
 }
 
 /**
@@ -190,7 +194,11 @@ export function applyReceipt(catalogue, store, lines, updatedIso) {
     }
     match.prices[store] = {
       price: Math.round(line.price * 100) / 100,
-      ...(line.size ? { size: line.size } : match.prices[store]?.size ? { size: match.prices[store].size } : {}),
+      ...(line.size
+        ? { size: line.size }
+        : match.prices[store]?.size
+          ? { size: match.prices[store].size }
+          : {}),
       // a real receipt is the confirmed price: drop the estimate flag
     };
     applied.push({ name: line.name, matchedId: match.id, price: line.price });
@@ -214,7 +222,10 @@ export function applyReceipt(catalogue, store, lines, updatedIso) {
  */
 export function rankStores(items, catalogue, region) {
   const stores = catalogue?.stores ?? [];
-  const ranked = stores.map((store) => ({ store, summary: tripTotal(items, catalogue, store, region) }));
+  const ranked = stores.map((store) => ({
+    store,
+    summary: tripTotal(items, catalogue, store, region),
+  }));
   const maxPriced = Math.max(0, ...ranked.map((r) => r.summary.priced));
   return ranked
     .filter((r) => r.summary.priced >= maxPriced)
