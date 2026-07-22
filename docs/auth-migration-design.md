@@ -436,3 +436,52 @@ L1-L4 are the minimum viable legal gate.
 ### 12.5 Verdict
 
 BLOCKED-until-fixed. Not a redesign: the data-isolation architecture is approved and aligns with field experience on every checked pattern. Ship order: close 12.1 blockers, build against 12.3, open the 12.2 legal gate only when flipping public signup on.
+
+## 13. 2026-07-22 revision — social-era alignment (supersedes §1 where conflicting)
+
+Written against David's social vision (vault: Life/Mise-Social-Architecture.md)
+and everything shipped since §1 was drafted (family field, household-shared
+pantry, day-aware weeks, Tables). §12 remains binding; this section updates
+the target schema and sequencing. RE-COUNCIL THIS DOC before the build starts.
+
+### 13.1 Schema corrections (drift since drafting)
+
+- `pantries`: keyed per-USER above; the app moved to HOUSE-shared pantries
+  (households/<h>/pantry.json, B2/B3). Correct target:
+  `pantries (household_id uuid primary key references households, data jsonb, rev, updated_at)`;
+  RLS: readable/writable by profiles whose `household_id` matches.
+- `profiles`: add `family text` (chooser grouping, 2026-07-21) and keep
+  `household_id` MOVABLE (visit-week semantics are a product feature).
+- NEW `house_events` table: the Tables port, one row per table
+  (`id text pk, household_id uuid, data jsonb, rev, updated_at`) — the
+  events.json contract (screening, cook rule, retention, seat status) moves
+  verbatim; derivation stays client-side. RLS: any profile may READ events
+  of houses they belong to OR are seated at (seat id lookup); WRITE limited
+  to house members + own-seat patches (enforced by a SQL function, the
+  server-side upgrade of today's honor-system rule).
+- NEW `ledgers` table (receipt cost-split, family version ships pre-B1 as
+  households/<h>/ledger.json; ports like pantry): one row per house,
+  `data jsonb` of id-keyed entries `{id: tableId, date, payerId, total, shares}`.
+- Post-B1 social tables (Phase C, NOT in the auth build):
+  `friendships (a uuid, b uuid, status requested|accepted|blocked)`,
+  `availability (user_id, date, slots jsonb)`. Chat/media tables do not get
+  designed until the user benchmark (below).
+
+### 13.2 Benchmarks (David, 2026-07-22)
+
+- **Now → ~100 users**: invite-only. Auth + isolation + cross-install
+  Tables + friends + availability. No chat, no images, no feed.
+- **~20k users**: chat between users and image posts become design-eligible
+  (their own council; moderation stack required first).
+- **Feed/Instagram layer**: later still; explicitly out of every current
+  design.
+
+### 13.3 Sequencing correction
+
+- **B4 is the WEEKEND bridge, not a maybe**: friends trying Mise before B1
+  get per-group private repos + per-group fine-grained PATs (real isolation,
+  real revoke, zero new tech). Each group is its own island; no cross-group
+  features. Document per-group setup as a 20-minute runbook.
+- **B1 build scope stays MINIMAL**: auth, schema port, RLS, invite codes,
+  per-user AI quota + global spend cap, legal pack (§12.2). Social tables
+  land in Phase C only after the port is boring and stable.
