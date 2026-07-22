@@ -73,7 +73,16 @@ import {
   addTable,
   removeTable,
   patchSeat,
+  cookOf,
 } from "./lib/tables.js";
+import {
+  normalizeLedger,
+  ledgerPathFor,
+  ledgerEntryFor,
+  recordEntries,
+  balancesFor,
+  settleBetween,
+} from "./lib/money.js";
 
 export const APP = { name: "Mise", version: "0.3.0" };
 
@@ -1195,6 +1204,81 @@ function App() {
     return out;
   }, []);
 
+  // Money ledger (roadmap M1): my house's who-owes-who from finished
+  // tables. The COOK's device records each finished table exactly once
+  // (idempotent by table id, id-keyed merge dedupes concurrent recorders).
+  const [ledger, setLedger] = useState(normalizeLedger(null));
+  const ledgerRef = useRef(ledger);
+  ledgerRef.current = ledger;
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      void (async () => {
+        const prof = await readProfiles();
+        if (!alive) return;
+        const mine = prof.profiles.find((p) => p.id === me);
+        const house = /** @type {string} */ (mine?.household ?? "home");
+        const raw = /** @type {any} */ (
+          await read(ledgerPathFor(house), { raw: true }).catch(() => null)
+        );
+        if (alive) setLedger(normalizeLedger(raw));
+      })();
+    };
+    load();
+    const unsub = onSyncChange(load);
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [hasToken, me]);
+
+  // record finished tables I cooked into the house ledger
+  useEffect(() => {
+    try {
+      const today = localIsoDate(new Date());
+      const profilesById = new Map(allProfiles.map((p) => [p.id, p]));
+      const myHouse = /** @type {string} */ (profilesById.get(me)?.household ?? "home");
+      const bankById = recipesById(bankRecipes);
+      /** @type {import("./lib/money.js").LedgerEntry[]} */
+      const candidates = [];
+      for (const { house, events } of houseEvents) {
+        if (house !== myHouse) continue; // v1: my house's ledger only
+        for (const t of events.tables) {
+          if (typeof t.date !== "string" || t.date >= today) continue; // finished only
+          const cook = cookOf(t, house, profilesById);
+          if (!cook || cook.id !== me) continue; // the cook records
+          const recipe = bankById.get(t.recipeId);
+          if (!recipe) continue;
+          const store = priceCatalogue?.stores?.[0] ?? "";
+          const entry = ledgerEntryFor(t, me, recipe, priceCatalogue, store, profilesById);
+          if (entry) candidates.push(entry);
+        }
+      }
+      if (candidates.length === 0) return;
+      const { ledger: next, added } = recordEntries(ledgerRef.current, candidates);
+      if (added > 0) {
+        setLedger(next);
+        void write(ledgerPathFor(myHouse), /** @type {any} */ (next), { raw: true });
+      }
+    } catch {
+      // costing must never break the app; the ledger just waits
+    }
+  }, [houseEvents, allProfiles, bankRecipes, priceCatalogue, me]);
+
+  const handleSettle = useCallback(
+    (/** @type {string} */ other) => {
+      const profilesById = new Map(allProfilesRef.current.map((p) => [p.id, p]));
+      const myHouse = /** @type {string} */ (profilesById.get(me)?.household ?? "home");
+      const next = settleBetween(ledgerRef.current, me, other);
+      setLedger(next);
+      void write(ledgerPathFor(myHouse), /** @type {any} */ (next), { raw: true });
+    },
+    // eslint-disable-next-line
+    [me],
+  );
+
+  const moneyBalances = useMemo(() => balancesFor(ledger, me), [ledger, me]);
+
   const publicAlarm = repo?.privacy === "PUBLIC";
   // header and probe results must never disagree: offline if either says so
   const effectiveOnline = online && (repo ? repo.reachable : true);
@@ -1338,6 +1422,9 @@ function App() {
         repo=${repo}
         loading=${!listLoaded}
         onBuild=${handleBuildList}
+        moneyBalances=${moneyBalances}
+        profiles=${allProfiles}
+        onSettle=${handleSettle}
         onToggleItem=${handleToggleItem}
         onAddManual=${handleAddManual}
         onJustBought=${handleJustBought}

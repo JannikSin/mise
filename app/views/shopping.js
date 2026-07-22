@@ -130,7 +130,10 @@ const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spice
  *   storeSlug?: string,
  *   onReceiptApprove?: (store: string, lines: { name: string, price: number, size: string }[]) => void,
  *   onClearList?: () => void,
- *   onRemovePantry?: (kind: "staple" | "perishable", key: string) => void
+ *   onRemovePantry?: (kind: "staple" | "perishable", key: string) => void,
+ *   moneyBalances?: { profileId: string, net: number, entries: number, estimate: boolean }[],
+ *   profiles?: Record<string, any>[],
+ *   onSettle?: (other: string) => void
  * }} props
  */
 export function ShoppingView({
@@ -159,6 +162,9 @@ export function ShoppingView({
   onReceiptApprove = undefined,
   onClearList = undefined,
   onRemovePantry = undefined,
+  moneyBalances = undefined,
+  profiles = undefined,
+  onSettle = undefined,
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry" | "combined"} */ ("list"));
   const [manual, setManual] = useState("");
@@ -421,6 +427,32 @@ export function ShoppingView({
         }
       </div>
 
+      ${
+        tab === "list" &&
+        (moneyBalances ?? []).length > 0 &&
+        html`<div class="tile" role="status">
+          <div class="k">💰 house money · from shared tables</div>
+          ${(moneyBalances ?? []).map((b) => {
+            const name = (profiles ?? []).find((p) => p.id === b.profileId)?.name ?? b.profileId;
+            return html`<div class="row" key=${b.profileId}>
+              <span class="k num">
+                ${b.net > 0 ? `${name} owes you` : `you owe ${name}`}
+                ${b.estimate ? " ~" : " "}$${Math.abs(b.net).toFixed(2)}
+                <small> · ${b.entries} meal${b.entries === 1 ? "" : "s"}</small>
+              </span>
+              ${
+                onSettle &&
+                html`<button class="secondary" onClick=${() => onSettle(b.profileId)}>
+                  SETTLED
+                </button>`
+              }
+            </div>`;
+          })}
+          <p class="hint">
+            shares follow servings; settle in the real world (Venmo, cash), then tap SETTLED.
+          </p>
+        </div>`
+      }
       ${
         tab === "list" &&
         html`

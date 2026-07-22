@@ -73,6 +73,20 @@ function validTable(t) {
 const clampServings = (n) => Math.min(SERVINGS_MAX, Math.max(SERVINGS_MIN, Number(n) || 1));
 
 /**
+ * THE cook rule, exported so the money ledger can never drift from it:
+ * the FIRST non-skipped seat belonging to a REAL profile that lives in the
+ * table's house. Null when no such seat exists.
+ * @param {TableEvent} t
+ * @param {string} house
+ * @param {Map<string, any>} profilesById
+ * @returns {Seat | null}
+ */
+export function cookOf(t, house, profilesById) {
+  const known = (t.seats ?? []).filter((s) => s.status !== "skipped" && profilesById.has(s.id));
+  return known.find((s) => (profilesById.get(s.id)?.household ?? "home") === house) ?? null;
+}
+
+/**
  * Everything ONE profile derives from every house's tables, computed fresh
  * at read time (a memo in main.js, never persisted):
  *  - `entries`: virtual PINNED plan entries for tables I'm seated at —
@@ -141,13 +155,8 @@ export function deriveTables(houses, ctx) {
       // bounded at #profiles x 10
       const known = live.filter((s) => ctx.profilesById?.has(s.id));
 
-      // cook rule: FIRST known non-skipped seat whose profile lives in the
-      // table's house shops the summed batch; everyone else buys nothing
-      const cook = known.find((s) => {
-        const p = ctx.profilesById?.get(s.id);
-        const seatHouse = p?.household ?? "home";
-        return seatHouse === house;
-      });
+      // cook rule shared with the money ledger (cookOf)
+      const cook = ctx.profilesById ? cookOf(t, house, ctx.profilesById) : null;
       if (cook && cook.id === ctx.profileId && recipe) {
         const total = known.reduce((sum, s) => sum + clampServings(s.servings), 0);
         if (total > 0) cookExtras.push({ recipeId: t.recipeId, date: t.date, servings: total });

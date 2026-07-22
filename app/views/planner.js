@@ -500,13 +500,13 @@ export function PlannerView({
                           aria-label="Servings for ${p.name ?? p.id}"
                           value=${seat.servings}
                           onInput=${(/** @type {any} */ e) =>
-                          setTableForm({
-                            ...tableForm,
-                            seats: {
-                              ...tableForm.seats,
-                              [p.id]: { ...seat, servings: Number(e.currentTarget.value) || 1 },
-                            },
-                          })}
+                            setTableForm({
+                              ...tableForm,
+                              seats: {
+                                ...tableForm.seats,
+                                [p.id]: { ...seat, servings: Number(e.currentTarget.value) || 1 },
+                              },
+                            })}
                         /><span class="hint num">servings</span>`
                     }
                   </div>
