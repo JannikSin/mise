@@ -1,6 +1,12 @@
 import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
-import { DATA_REPO, tokenAgeDays, TOKEN_WARN_AGE_DAYS } from "../lib/github.js";
+import {
+  DATA_REPO,
+  tokenAgeDays,
+  TOKEN_WARN_AGE_DAYS,
+  setDataRepo,
+  dataRepoOverridden,
+} from "../lib/github.js";
 import { formatSyncTime } from "../lib/dates.js";
 import { activeProfile, readProfiles, patchProfiles } from "../lib/store.js";
 import { TOUR_STEPS, TOUR_TABS } from "../lib/tour.js";
@@ -137,6 +143,27 @@ export function SystemView({
   // choosing a profile there.
   const switchProfile = () => {
     localStorage.removeItem("mise.activeProfile");
+    location.reload();
+  };
+
+  // B4 friend groups: point this install at another private data repo.
+  // Switching WIPES local state (cache, profile, token) — data from one
+  // group must never bleed into another's install.
+  const [repoDraft, setRepoDraft] = useState(
+    dataRepoOverridden() ? `${DATA_REPO.owner}/${DATA_REPO.repo}` : "",
+  );
+  const applyDataRepo = () => {
+    if (!setDataRepo(repoDraft)) {
+      setProfileErr("data repo must look like owner/repo");
+      return;
+    }
+    localStorage.removeItem("mise.activeProfile");
+    localStorage.removeItem("mise.pat");
+    try {
+      indexedDB.deleteDatabase("mise");
+    } catch {
+      // reload re-opens fresh either way
+    }
     location.reload();
   };
 
@@ -390,6 +417,26 @@ export function SystemView({
             </p>
           `
         }
+        <div class="row">
+          <span class="k">Data repo</span>
+          <span class="status ${dataRepoOverridden() ? "warn" : "dim"} num">
+            ${DATA_REPO.owner}/${DATA_REPO.repo}
+          </span>
+        </div>
+        <div class="token-form">
+          <input
+            aria-label="Data repo override (owner/repo)"
+            placeholder="owner/repo (friend groups)"
+            value=${repoDraft}
+            onInput=${(/** @type {any} */ e) => setRepoDraft(e.currentTarget.value)}
+          />
+          <button class="secondary" onClick=${applyDataRepo}>SWITCH REPO</button>
+        </div>
+        <p class="hint">
+          friend groups (B4): each group lives in its OWN private repo with its own token. Switching
+          wipes this device's local data, profile, and token, then reloads — you'll re-enter that
+          group's token. Blank + SWITCH returns to the family repo.
+        </p>
       </div>
     </div>
   `;

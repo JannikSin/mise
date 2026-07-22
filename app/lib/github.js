@@ -4,7 +4,51 @@
 import { ConflictError } from "./sync.js";
 
 const API = "https://api.github.com";
-export const DATA_REPO = { owner: "JannikSin", repo: "mise-data" };
+// B4 (friend groups): each install can point at its OWN private data repo.
+// "owner/repo" in localStorage; absent = the family default. Getters keep
+// every existing DATA_REPO.owner/.repo call site working unchanged.
+const REPO_KEY = "mise.dataRepo";
+const DEFAULT_REPO = { owner: "JannikSin", repo: "mise-data" };
+function parseRepo() {
+  try {
+    const raw = (localStorage.getItem(REPO_KEY) ?? "").trim();
+    const m = raw.match(/^([\w.-]+)\/([\w.-]+)$/);
+    return m ? { owner: m[1], repo: m[2] } : DEFAULT_REPO;
+  } catch {
+    return DEFAULT_REPO;
+  }
+}
+export const DATA_REPO = {
+  get owner() {
+    return parseRepo().owner;
+  },
+  get repo() {
+    return parseRepo().repo;
+  },
+};
+
+/** @returns {boolean} true when this install points at a non-default repo */
+export function dataRepoOverridden() {
+  try {
+    return Boolean(localStorage.getItem(REPO_KEY));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Point this install at another private data repo ("owner/repo"; blank =
+ * back to the family default). The caller MUST wipe local state and reload:
+ * cached data from the previous repo must never bleed into the next one.
+ * @param {string} v
+ */
+export function setDataRepo(v) {
+  const clean = (v ?? "").trim();
+  if (clean && !/^[\w.-]+\/[\w.-]+$/.test(clean)) return false;
+  if (clean) localStorage.setItem(REPO_KEY, clean);
+  else localStorage.removeItem(REPO_KEY);
+  return true;
+}
 const TOKEN_KEY = "mise.pat";
 
 /** @returns {string | null} */

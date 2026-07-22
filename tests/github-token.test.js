@@ -39,3 +39,17 @@ test("no token means no backfill and null age", () => {
   assert.equal(getToken(), null);
   assert.equal(tokenAgeDays(), null);
 });
+
+test("B4: data repo override parses owner/repo, rejects junk, defaults back", async () => {
+  const { DATA_REPO, setDataRepo, dataRepoOverridden } = await import("../app/lib/github.js");
+  assert.equal(DATA_REPO.owner, "JannikSin");
+  assert.equal(dataRepoOverridden(), false);
+  assert.equal(setDataRepo("dormcrew/mise-data-dorm"), true);
+  assert.equal(DATA_REPO.owner, "dormcrew");
+  assert.equal(DATA_REPO.repo, "mise-data-dorm");
+  assert.equal(dataRepoOverridden(), true);
+  assert.equal(setDataRepo("not a repo path!!"), false); // rejected, unchanged
+  assert.equal(DATA_REPO.owner, "dormcrew");
+  assert.equal(setDataRepo(""), true); // blank = back to default
+  assert.equal(DATA_REPO.repo, "mise-data");
+});
