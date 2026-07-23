@@ -91,7 +91,9 @@ raw path (not profile-scoped), same access pattern as the household pantry.
   everywhere user-visible (SYS labels/hints, EVERYONE-tab wording).
   Storage untouched. Ship first.
 - **S2 (main): Tables.** events.json read/write (raw path), table CRUD UI
-  (Plan tab section: "Tables" + create form: name, date, slot, recipe,
+  (since 2026-07-23 a standalone bottom-bar "Table" tab, `#/tables`,
+  `app/views/tables.js`; Plan keeps only the read-only "adjusted around"
+  day-grid note. Create form: name, date, slot, recipe,
   seat picker with default-1 editable servings + inline diet warnings),
   derived-pin memo + viewPlan seam + strip-before-persist, cook/guest
   shopping split, adjusted-day notes, tests (derivation, screening,

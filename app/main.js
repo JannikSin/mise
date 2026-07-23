@@ -30,6 +30,7 @@ import { RemediesView } from "./views/remedies.js";
 import { VitalsView } from "./views/vitals.js";
 import { MenuView } from "./views/menu.js";
 import { DinnerView } from "./views/dinner.js";
+import { TablesView } from "./views/tables.js";
 import { ConfirmModal } from "./views/confirm-modal.js";
 import { upsertDay } from "./lib/fitness.js";
 import {
@@ -99,6 +100,7 @@ const TABS = [
   { hash: "#/today", view: "today", icon: "▤", label: "Cook" },
   { hash: "#/plan", view: "plan", icon: "⬒", label: "Plan" },
   { hash: "#/list", view: "list", icon: "☑", label: "List" },
+  { hash: "#/tables", view: "tables", icon: "◫", label: "Table" },
   { hash: "#/train", view: "train", icon: "▲", label: "Train" },
   { hash: "#/system", view: "system", icon: "☰", label: "Sys" },
 ];
@@ -739,9 +741,13 @@ function App() {
 
   const updatePlan = useCallback(
     (/** @type {{ week: string, entries: Record<string, any>[] }} */ next) => {
-      planRef.current = next;
-      setPlan(next); // optimistic: instant UI, then queue+flush via the store
-      void write(`plans/${weekRef.current}.json`, next);
+      // the ONE strip point: derived table entries (generateWeek receives
+      // the merged viewPlan, whose pinned table entries would otherwise
+      // survive into the write) live in events.json, never in a plan file
+      const clean = { ...next, entries: stripTableEntries(next.entries) };
+      planRef.current = clean;
+      setPlan(clean); // optimistic: instant UI, then queue+flush via the store
+      void write(`plans/${weekRef.current}.json`, clean);
     },
     [],
   );
@@ -1136,9 +1142,12 @@ function App() {
   bankRecipesRef.current = bankRecipes;
 
   /** the cook's shopping pseudo-entries ride the buffer precedent: augment
-   *  the plan at list-derivation time only, never in state */
+   *  the plan at list-derivation time only, never in state. Clamped to the
+   *  plan's own week — a table set weeks ahead (now one tap via the Tables
+   *  tab's date picker) must not shop its ingredients into THIS trip */
   const withCookExtras = useCallback((/** @type {import("./lib/plan.js").Plan} */ p) => {
-    const extras = tableDerivedRef.current.cookExtras;
+    const weekSet = new Set(datesOfWeek(p.week));
+    const extras = tableDerivedRef.current.cookExtras.filter((x) => weekSet.has(x.date));
     return extras.length > 0
       ? { ...p, entries: [...p.entries, .../** @type {any[]} */ (extras.map((x) => ({ ...x })))] }
       : p;
@@ -1398,7 +1407,6 @@ function App() {
       setLedger(next);
       void write(ledgerPathFor(myHouse), /** @type {any} */ (next), { raw: true });
     },
-    // eslint-disable-next-line
     [me],
   );
 
@@ -1500,7 +1508,6 @@ function App() {
       html`<${PlannerView}
         recipes=${recipes}
         plan=${viewPlan}
-        repo=${repo}
         targets=${targets}
         poolReport=${recipes.length > 0 ? poolAdequacy(recipes, targets) : null}
         hasToken=${hasToken}
@@ -1515,18 +1522,8 @@ function App() {
         onGenerateWeek=${handleGenerateWeek}
         buildReport=${buildReport}
         rebuilt=${buildReport !== null}
-        houseEvents=${houseEvents}
-        profiles=${allProfiles}
-        me=${me}
-        tableConflicts=${tableDerived.conflicts}
-        tableCollisions=${tableDerived.collisions}
         tableStale=${tableStale}
-        bankRecipes=${bankRecipes}
-        onCreateTable=${handleCreateTable}
-        onRemoveTable=${handleRemoveTable}
-        onPatchSeat=${handlePatchSeat}
-        onSeatScreen=${handleSeatScreen}
-        onTailorTable=${handleTailorTable}
+        tableIssues=${tableDerived.conflicts.length + tableDerived.collisions.length}
       />`
     }
     ${
@@ -1591,6 +1588,25 @@ function App() {
         hasToken=${hasToken}
         repo=${repo}
         onDinerFacts=${handleDinerFacts}
+      />`
+    }
+    ${
+      route.view === "tables" &&
+      html`<${TablesView}
+        houseEvents=${houseEvents}
+        profiles=${allProfiles}
+        me=${me}
+        todayIso=${localIsoDate(new Date())}
+        hasToken=${hasToken}
+        repo=${repo}
+        tableConflicts=${tableDerived.conflicts}
+        tableCollisions=${tableDerived.collisions}
+        bankRecipes=${bankRecipes}
+        onCreateTable=${handleCreateTable}
+        onRemoveTable=${handleRemoveTable}
+        onPatchSeat=${handlePatchSeat}
+        onSeatScreen=${handleSeatScreen}
+        onTailorTable=${handleTailorTable}
       />`
     }
     ${

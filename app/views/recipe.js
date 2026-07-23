@@ -52,6 +52,12 @@ export function RecipeView({ recipe, loading, from, servings }) {
         }
         · ${recipe.effort}
         ${(recipe.purpose ?? []).map((/** @type {string} */ p) => html`<span class="tag ${p}">${p === "pre-activity" ? "pre-act" : p}</span>`)}
+        ${
+          // provenance (council 2026-07-23): an AI-invented meal never
+          // passes itself off as an audited bank recipe
+          (recipe.tags ?? []).includes("ai-special") &&
+          html`<span class="tag">✨ AI special · estimated macros</span>`
+        }
       </div>
       <p class="hint">${recipe.description}</p>
 

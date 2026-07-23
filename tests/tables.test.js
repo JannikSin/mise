@@ -378,3 +378,18 @@ test("a tailored table's derived entry carries my seat's plate notes", () => {
   );
   assert.equal(other.entries[0].plate, undefined, "untailored seat gets no plate notes");
 });
+
+test("a tailored seat's estimate replaces recipe x servings in the derived entry", () => {
+  const t = table({
+    tailor: {
+      at: TODAY,
+      seats: { david: { plate: ["add extra tofu"], estCalories: 1400, estProtein: 82 } },
+      cook: [],
+    },
+  });
+  const { entries } = deriveTables([{ house: "home", events: { tables: [t] } }], ctx());
+  assert.equal(entries[0].estCalories, 1400, "meter counts the tailored plate");
+  assert.equal(entries[0].estProtein, 82);
+  const mom = deriveTables([{ house: "home", events: { tables: [t] } }], ctx({ profileId: "mom" }));
+  assert.equal(mom.entries[0].estCalories, 700, "untailored seat keeps recipe x servings");
+});

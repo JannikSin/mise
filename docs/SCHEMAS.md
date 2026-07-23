@@ -396,13 +396,27 @@ Rules (binding, from the Tribunal gate):
   and, for the cook only, `cookTotal` (the batch total to cook). Both are
   DERIVED-ONLY fields: they exist in memory, never in any stored file.
 - A tailored table's derived entry also carries `plate` (my seat's
-  `tailor.seats[<me>].plate`), same derived-only rule.
+  `tailor.seats[<me>].plate`), same derived-only rule, and its
+  `estCalories`/`estProtein` use the tailored plate's estimate instead of
+  recipe × servings (council 2026-07-23: the day meter counts the plate
+  actually eaten, tailoring is never display-only theater).
+- Worker-side deterministic avoid screen (council 2026-07-23, code-enforced
+  AFTER the model, never an AI judgment): `/tailor` drops any plate line
+  naming an ingredient on that seat's own avoid list; `/dinner` refuses a
+  special whose ingredients hit ANY participant's avoid list and blanks
+  plate notes that do.
 - The dinner discussion (`#/dinner`, Worker `/dinner`) applies its decision
   as a normal table for tonight's dinner slot. A "special" (AI-invented)
-  meal is first written to the shared bank as `recipes/special-<slug>.json`
-  tagged `"ai-special"` (normal recipe schema, `nutrition.method` and
-  `foodGroups.method` = `"estimated"`), so macros, shopping, and every
-  seat's plan work unchanged.
+  meal is first written to the shared bank as
+  `recipes/special-<slug>-<date>.json` tagged `"ai-special"` (normal recipe
+  schema, `nutrition.method` and `foodGroups.method` = `"estimated"`), so
+  macros, shopping, and every seat's plan work unchanged.
+- **Generator trust gate (council 2026-07-23):** an `ai-special` recipe is
+  settable as a table and browsable in the cookbook, but `generateWeek` and
+  `poolAdequacy` exclude it (`generatorEligible` in weekbuilder.js) until a
+  human/Greger audit sets the optional recipe field `promoted: true`. An AI
+  estimate may propose and display; it never silently enters the
+  generator's trusted denominator.
 
 ## Money ledger — `households/<h>/ledger.json`
 

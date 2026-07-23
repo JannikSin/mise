@@ -21,6 +21,9 @@ import {
   buildDinnerRequest,
   parseDinnerResponse,
   validateDinnerDecision,
+  hitsAvoid,
+  screenTailorAvoid,
+  specialAvoidHits,
 } from "../worker/src/lib.js";
 
 test("corsFor allows only the app origins", () => {
@@ -464,4 +467,54 @@ test("validateOnboardProfile rejects incomplete required fields", () => {
     }),
     null,
   );
+});
+
+test("hitsAvoid matches case-insensitively and returns the offending terms", () => {
+  assert.deepEqual(hitsAvoid("add Cilantro-lime rice", ["cilantro", "onion"]), ["cilantro"]);
+  assert.deepEqual(hitsAvoid("plain rice", ["cilantro"]), []);
+  assert.deepEqual(hitsAvoid("anything", []), []);
+});
+
+test("screenTailorAvoid drops plate lines hitting the seat's own avoid list, code-enforced", () => {
+  const out = screenTailorAvoid(
+    {
+      seats: {
+        david: { plate: ["add onion relish", "extra tofu"], estCalories: 1000, estProtein: 60 },
+        mom: { plate: ["skip the bread"], estCalories: 400, estProtein: 30 },
+      },
+      cook: ["one pot"],
+    },
+    [
+      { id: "david", avoid: ["onion"] },
+      { id: "mom", avoid: [] },
+    ],
+  );
+  assert.deepEqual(out.seats.david.plate, ["extra tofu"], "onion line refused for david");
+  assert.deepEqual(out.seats.mom.plate, ["skip the bread"]);
+  assert.deepEqual(out.cook, ["one pot"]);
+});
+
+test("screenTailorAvoid drops a seat left with no clean lines", () => {
+  const out = screenTailorAvoid(
+    { seats: { david: { plate: ["add peanut sauce"], estCalories: 1, estProtein: 1 } }, cook: [] },
+    [{ id: "david", avoid: ["peanut"] }],
+  );
+  assert.deepEqual(out.seats, {});
+});
+
+test("specialAvoidHits refuses a special whose ingredients hit any participant's list", () => {
+  const special = {
+    ingredients: [
+      { qty: 1, unit: "x", food: "chickpeas" },
+      { qty: 1, unit: "tbsp", food: "peanut butter" },
+    ],
+  };
+  assert.deepEqual(
+    specialAvoidHits(special, [
+      { name: "David", avoid: [] },
+      { name: "Laurie", avoid: ["peanut"] },
+    ]),
+    ["Laurie: peanut"],
+  );
+  assert.deepEqual(specialAvoidHits(special, [{ name: "David", avoid: ["onion"] }]), []);
 });
