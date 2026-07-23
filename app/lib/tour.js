@@ -9,6 +9,7 @@
 export const TOUR_TABS = /** @type {const} */ ({
   "#/today": "COOK",
   "#/plan": "PLAN",
+  "#/tables": "TABLE",
   "#/list": "LIST",
   "#/train": "TRAIN",
   "#/": "HOME",
@@ -44,6 +45,12 @@ export const TOUR_STEPS = [
     selector: ".batchprep",
     title: "Batch prep",
     text: "What to cook ahead and when. It knows the calendar: past Sunday it becomes a catch-up list, and on Sunday it preps NEXT week.",
+  },
+  {
+    route: "#/tables",
+    selector: ".tablecard",
+    title: "Tables — shared meals",
+    text: "One shared dish, everyone seated at their own portion, each person's day replans around it. Set one here, tailor the plates, or talk out tonight's dinner.",
   },
   {
     route: "#/plan",

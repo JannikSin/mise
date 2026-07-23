@@ -30,6 +30,9 @@ import {
   validateMenuReport,
   validateTailor,
   sanitizePeople,
+  screenTailorAvoid,
+  specialAvoidHits,
+  hitsAvoid,
   allowRequest,
 } from "./lib.js";
 
@@ -221,11 +224,15 @@ export default {
           buildTailorRequest({ recipe, seats, model: env.SCAN_MODEL ?? DEFAULT_MODEL }),
           env.ANTHROPIC_API_KEY,
         );
+        // deterministic avoid screen AFTER the model — never an AI judgment
         return json(
           200,
-          validateTailor(
-            parseToolUse(resp, "record_tailor"),
-            seats.map((s) => s.id),
+          screenTailorAvoid(
+            validateTailor(
+              parseToolUse(resp, "record_tailor"),
+              seats.map((s) => s.id),
+            ),
+            seats,
           ),
           cors,
         );
@@ -259,15 +266,32 @@ export default {
           }),
           env.ANTHROPIC_API_KEY,
         );
-        return json(
-          200,
-          parseDinnerResponse(
-            resp,
-            candidates.map((/** @type {any} */ c) => c.id),
-            people.map((p) => p.id),
-          ),
-          cors,
+        const turn = parseDinnerResponse(
+          resp,
+          candidates.map((/** @type {any} */ c) => c.id),
+          people.map((p) => p.id),
         );
+        if (turn.decision) {
+          // deterministic avoid screen AFTER the model — never an AI judgment
+          if (turn.decision.special) {
+            const hits = specialAvoidHits(/** @type {any} */ (turn.decision.special), people);
+            if (hits.length > 0) {
+              return json(
+                200,
+                {
+                  reply: `That idea is refused: it uses something on a never-serve list (${hits.join("; ")}). Ask for another idea.`,
+                  decision: null,
+                },
+                cors,
+              );
+            }
+          }
+          const avoidById = new Map(people.map((p) => [p.id, p.avoid]));
+          turn.decision.plates = turn.decision.plates.map((p) =>
+            hitsAvoid(p.note, avoidById.get(p.id) ?? []).length > 0 ? { ...p, note: "" } : p,
+          );
+        }
+        return json(200, turn, cors);
       }
       // /remedy
       const text = typeof body.text === "string" ? body.text.trim().slice(0, 2000) : "";

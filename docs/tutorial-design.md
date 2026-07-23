@@ -55,7 +55,7 @@ trigger model changed.
 ## Phase 1 (drafted, awaiting go)
 
 **One linear tour, ~16 steps, target under 2 minutes.** Walks every tab in
-living order: Cook, Plan, List, Train, Home, SYS.
+living order: Cook, Plan, Table, List, Train, Home, SYS.
 
 ### Entry points
 

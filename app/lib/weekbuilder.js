@@ -729,6 +729,18 @@ function foodGroupGapsReport(entries, recipesById, dates, dailyDozenPerDay) {
 }
 
 /**
+ * The generator's trust gate: AI-invented ai-special recipes (estimated,
+ * unaudited macros) may be chosen deliberately as a table or from the
+ * cookbook, but never auto-planned into a deterministic week until a human
+ * or Greger audit sets `promoted: true` on the recipe file.
+ * @param {Record<string, any>[]} recipes
+ * @returns {Record<string, any>[]}
+ */
+export function generatorEligible(recipes) {
+  return recipes.filter((r) => !((r.tags ?? []).includes("ai-special") && r.promoted !== true));
+}
+
+/**
  * Structural pool gaps: a category no candidate in the WHOLE pool
  * contributes to at all. Distinct from "this week's choice happened to fall
  * short" (that's `foodGroupGaps`) — this fires only when no achievable
@@ -782,7 +794,7 @@ const DEFAULT_MEAL_SLOTS = /** @type {const} */ (["breakfast", "lunch", "dinner"
  * @returns {{ counts: Record<string, number>, warnings: string[] }}
  */
 export function poolAdequacy(recipes, targets) {
-  const usable = recipes.filter((r) => r.effort !== "project");
+  const usable = generatorEligible(recipes).filter((r) => r.effort !== "project");
   const mealSlots = /** @type {string[]} */ (targets?.mealSlots ?? [...DEFAULT_MEAL_SLOTS]);
   /** @type {Record<string, number>} */
   const counts = {};
@@ -879,6 +891,11 @@ export function generateWeek({
   recentRecipeIds = [],
   today,
 }) {
+  // council 2026-07-23: an AI estimate may propose and display, but must
+  // never silently enter the generator's trusted denominator. ai-special
+  // recipes (dinner-discussion inventions, estimated macros) stay settable
+  // as tables but are excluded from every committee until promoted.
+  recipes = generatorEligible(recipes);
   const recentSet = new Set(recentRecipeIds);
   const dates = datesOfWeek(weekId);
   const isPast = (/** @type {string} */ d) => Boolean(today) && d < /** @type {string} */ (today);

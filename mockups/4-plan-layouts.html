@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mise · Plan layouts — 5 directions</title>
+<!-- Decision mockup only. Fake data throughout (fake person, fake targets,
+     fake week). Zero imports, zero fetch, no external fonts: self-contained
+     by Tribunal rule. Not part of the PWA shell. -->
+<style>
+  :root {
+    --bg: #0c0e10; --panel: #14171a; --panel-2: #1b1f23; --line: #2a2f34;
+    --text: #e8eaec; --dim: #8b939a; --green: #4cbf6b; --amber: #d9a13b;
+    --red: #d96a5b; --accent: #6fd08c;
+    font-size: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: #060708; color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 24px 12px 80px; display: flex; flex-direction: column; align-items: center; gap: 48px;
+  }
+  .num { font-variant-numeric: tabular-nums; font-family: ui-monospace, "SF Mono", Consolas, monospace; }
+  h1 { font-size: 22px; }
+  .intro { max-width: 390px; color: var(--dim); font-size: 14px; line-height: 1.5; }
+  .frame { width: 390px; background: var(--bg); border: 1px solid var(--line); border-radius: 28px; padding: 16px 12px 20px; }
+  .label { width: 390px; margin-bottom: -36px; }
+  .label b { font-size: 18px; }
+  .label p { color: var(--dim); font-size: 13px; line-height: 1.45; margin-top: 4px; }
+  .htitle { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 4px 12px; }
+  .htitle h2 { font-size: 20px; }
+  .htitle span { color: var(--dim); font-size: 12px; }
+  .meter { height: 4px; background: var(--panel-2); border-radius: 2px; overflow: hidden; flex: 1; }
+  .meter i { display: block; height: 100%; background: var(--green); }
+  .meter i.warn { background: var(--amber); }
+
+  /* 1 scoreboard */
+  .dayrow { border: 1px solid var(--line); border-radius: 14px; margin-bottom: 8px; background: var(--panel); overflow: hidden; }
+  .dayrow summary { list-style: none; display: grid; grid-template-columns: 44px 1fr 84px; gap: 10px; align-items: center; padding: 12px; min-height: 52px; cursor: pointer; }
+  .dayrow summary::-webkit-details-marker { display: none; }
+  .dayrow .d { font-weight: 700; font-size: 13px; }
+  .dayrow .d small { display: block; color: var(--dim); font-weight: 400; }
+  .meters2 { display: flex; flex-direction: column; gap: 6px; }
+  .mline { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--dim); }
+  .mline b { color: var(--text); font-weight: 600; min-width: 74px; text-align: right; font-size: 11px; }
+  .ok { color: var(--green); font-size: 15px; text-align: right; }
+  .short { color: var(--amber); font-size: 11px; text-align: right; }
+  .daymeals { border-top: 1px solid var(--line); padding: 6px 12px 10px; }
+  .mealline { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px dashed var(--panel-2); font-size: 14px; min-height: 40px; align-items: center; }
+  .mealline:last-child { border-bottom: 0; }
+  .mealline .t { color: var(--dim); font-size: 11px; letter-spacing: 0.06em; min-width: 34px; }
+  .mealline .n { flex: 1; }
+  .mealline .m { color: var(--dim); font-size: 12px; }
+
+  /* 2 grid */
+  .grid { display: grid; grid-template-columns: 42px repeat(4, 1fr); gap: 6px; }
+  .grid .hd { color: var(--dim); font-size: 11px; letter-spacing: 0.08em; text-align: center; padding: 4px 0; }
+  .grid .dy { color: var(--dim); font-size: 11px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; }
+  .grid .dy b { color: var(--text); font-size: 12px; }
+  .cell { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-height: 56px; padding: 6px; font-size: 11px; line-height: 1.25; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; }
+  .cell .m { color: var(--dim); font-size: 10px; }
+  .cell.empty { border-style: dashed; color: var(--dim); align-items: center; justify-content: center; }
+  .cell.sel { outline: 2px solid var(--accent); }
+  .sheet { margin-top: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; padding: 14px; font-size: 14px; }
+  .sheet .m { color: var(--dim); font-size: 12px; margin: 4px 0 10px; }
+  .sheet .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn { background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 10px; padding: 10px 12px; font-size: 12px; min-height: 40px; cursor: pointer; }
+
+  /* 3 timeline */
+  .tl { border-left: 2px solid var(--line); margin-left: 46px; padding-left: 14px; }
+  .tlday { position: relative; padding: 8px 0 14px; }
+  .tlday::before { content: ""; position: absolute; left: -21px; top: 16px; width: 10px; height: 10px; border-radius: 50%; background: var(--green); }
+  .tlday.warnday::before { background: var(--amber); }
+  .tlday .dh { position: absolute; left: -60px; top: 10px; width: 34px; text-align: right; color: var(--dim); font-size: 11px; line-height: 1.2; }
+  .tlday .dh b { color: var(--text); display: block; font-size: 12px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; font-size: 12px; }
+  .pill small { color: var(--dim); }
+  .tlsum { color: var(--dim); font-size: 11px; margin-top: 6px; }
+  .tlsum b.hit { color: var(--green); font-weight: 600; }
+  .tlsum b.miss { color: var(--amber); font-weight: 600; }
+
+  /* 4 day focus */
+  .pager { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; }
+  .pager button { background: var(--panel); border: 1px solid var(--line); color: var(--text); width: 44px; height: 44px; border-radius: 12px; font-size: 18px; }
+  .pager .mid { text-align: center; }
+  .pager .mid b { font-size: 18px; }
+  .pager .mid span { display: block; color: var(--dim); font-size: 12px; }
+  .weekstrip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding-bottom: 12px; }
+  .wd { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px 2px; text-align: center; font-size: 10px; color: var(--dim); cursor: pointer; }
+  .wd b { display: block; color: var(--text); font-size: 12px; }
+  .wd .dots { margin-top: 3px; font-size: 8px; letter-spacing: 2px; }
+  .wd .dots .g { color: var(--green); } .wd .dots .a { color: var(--amber); }
+  .wd.today { outline: 2px solid var(--accent); }
+  .bigmeal { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 8px; display: flex; justify-content: space-between; gap: 10px; align-items: center; min-height: 64px; }
+  .bigmeal .t { color: var(--dim); font-size: 11px; letter-spacing: 0.06em; min-width: 40px; }
+  .bigmeal .n { flex: 1; font-size: 15px; }
+  .bigmeal .n small { display: block; color: var(--dim); font-size: 12px; }
+  .bigmeal .m { color: var(--dim); font-size: 12px; text-align: right; }
+
+  /* 5 console */
+  .hm { display: grid; grid-template-columns: 64px repeat(7, 1fr); gap: 4px; align-items: center; }
+  .hm .rl { color: var(--dim); font-size: 10px; letter-spacing: 0.06em; text-align: right; padding-right: 4px; }
+  .hm .hd { color: var(--dim); font-size: 10px; text-align: center; }
+  .hmcell { height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #06110a; font-weight: 700; cursor: pointer; }
+  .lv0 { background: #23292e; color: var(--dim); } .lv1 { background: #2e5b3d; color: #cfe8d6; } .lv2 { background: #3f8a56; } .lv3 { background: #4cbf6b; }
+  .lva { background: #d9a13b; }
+  .hmnote { color: var(--dim); font-size: 11px; margin-top: 10px; line-height: 1.4; }
+  .drawer { margin-top: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; padding: 14px; font-size: 13px; display: none; }
+  .drawer.open { display: block; }
+  .verdict { width: 390px; color: var(--dim); font-size: 13px; line-height: 1.5; border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+</head>
+<body>
+  <div>
+    <h1>Plan — five directions</h1>
+    <p class="intro">
+      All data below is fake (a fictional person, 2800 kcal / 160g protein targets). Each frame is
+      real iPhone width (390px). The outer taps are live (open a day, a cell, a column); the small
+      buttons inside the sheets are drawn, not wired. Generation button, build report, and the
+      recipe tray survive in every direction; what changes is how the seven days read.
+    </p>
+  </div>
+
+  <!-- ============ 1 SCOREBOARD ============ -->
+  <div class="label"><b>1 · Scoreboard</b>
+    <p>Your toggle idea. Seven one-line days, meters always visible, whole week on one screen.
+    Tap a day to open its meals. Collapsed rows still whisper the dinner so you never lose
+    "what's tonight."</p></div>
+  <div class="frame">
+    <div class="htitle"><h2>Plan <span class="num">31</span></h2><span class="num">Jul 27 – Aug 2</span></div>
+    <div id="scoreboard"></div>
+  </div>
+
+  <!-- ============ 2 GRID ============ -->
+  <div class="label"><b>2 · Grid</b>
+    <p>Your horizontal idea. Days as rows, B / L / D / S as columns, abbreviated names. Tap a cell
+    for the detail sheet (full name, macros, swap/pin/out). Drag-and-drop would retire; assignment
+    becomes tap cell → pick recipe.</p></div>
+  <div class="frame">
+    <div class="htitle"><h2>Plan <span class="num">31</span></h2><span class="num">Jul 27 – Aug 2</span></div>
+    <div class="grid" id="grid"></div>
+    <div class="sheet" id="gridsheet" hidden></div>
+  </div>
+
+  <!-- ============ 3 TIMELINE ============ -->
+  <div class="label"><b>3 · Timeline</b>
+    <p>The week as one flowing rail. Each day is a dot (green = targets met, amber = short) with its
+    meals as wrapped pills, one compact line of totals under them. Half the vertical space of
+    today's layout, still shows every meal name.</p></div>
+  <div class="frame">
+    <div class="htitle"><h2>Plan <span class="num">31</span></h2><span class="num">Jul 27 – Aug 2</span></div>
+    <div class="tl" id="timeline"></div>
+  </div>
+
+  <!-- ============ 4 DAY FOCUS ============ -->
+  <div class="label"><b>4 · Day focus</b>
+    <p>What Apple and Google Calendar both do on a phone: one day in full detail, the other six as a
+    tappable strip with met/short dots. The day you're looking at gets room to breathe; the week
+    stays one glance.</p></div>
+  <div class="frame">
+    <div class="pager">
+      <button id="df-prev" aria-label="Previous day">‹</button>
+      <div class="mid"><b id="df-name">Wednesday</b><span class="num" id="df-date">Jul 29</span></div>
+      <button id="df-next" aria-label="Next day">›</button>
+    </div>
+    <div class="weekstrip" id="weekstrip"></div>
+    <div id="dayfocus"></div>
+  </div>
+
+  <!-- ============ 5 CONSOLE ============ -->
+  <div class="label"><b>5 · Console</b>
+    <p>Numbers first, food second. The week as a heatmap: rows are kcal, protein, greens, cost;
+    columns are days. Color = how close to target. Tap a column to open that day's meals in a
+    drawer. The most radical: Plan becomes an instrument panel.</p></div>
+  <div class="frame">
+    <div class="htitle"><h2>Plan <span class="num">31</span></h2><span class="num">Jul 27 – Aug 2</span></div>
+    <div class="hm" id="heatmap"></div>
+    <div class="hmnote">green depth = closer to target · amber = short · tap a day column for its meals</div>
+    <div class="drawer" id="hmdrawer"></div>
+  </div>
+
+  <div class="verdict">
+    Same seven fake days everywhere, so the comparison is honest. Every direction keeps GENERATE,
+    the build report, pins, and OUT; 2 and 5 retire drag-and-drop for tap-to-assign (small grid
+    cells are bad drop targets on a phone); 1, 3, 4 can keep drag or switch, either works.
+  </div>
+
+<script>
+  // one fake week shared by all five renderers — fictional person, fictional targets
+  var KCAL_T = 2800, PROT_T = 160;
+  var WEEK = [
+    { d: "Mon", date: "Jul 27", meals: [["BRK","Overnight oats",520,28],["LUN","Lentil bowl",710,42],["DIN","Tofu stir-fry",920,62],["SNO","Yogurt pot",380,24]] },
+    { d: "Tue", date: "Jul 28", meals: [["BRK","Veggie scramble",560,34],["LUN","Chickpea wrap",680,38],["DIN","Bean chili",900,55],["SNO","Trail mix",340,12]] },
+    { d: "Wed", date: "Jul 29", meals: [["BRK","Berry smoothie",480,36],["LUN","Grain salad",650,30],["DIN","🍽 Family curry night",760,44],["SNO","Cottage bowl",300,26]] },
+    { d: "Thu", date: "Jul 30", meals: [["BRK","Overnight oats",520,28],["LUN","Leftover chili",900,55],["DIN","Salmon + rice",820,48],["SNO","—",0,0]] },
+    { d: "Fri", date: "Jul 31", meals: [["BRK","Veggie scramble",560,34],["LUN","🍴 eating out",700,35],["DIN","Pasta bake",880,46],["SNO","Yogurt pot",380,24]] },
+    { d: "Sat", date: "Aug 1", meals: [["BRK","Pancakes",620,30],["LUN","Big salad",560,45],["DIN","Sheet-pan dinner",1000,62],["SNO","Fruit + nuts",350,10]] },
+    { d: "Sun", date: "Aug 2", meals: [["BRK","Berry smoothie",480,36],["LUN","Grain salad",650,30],["DIN","Batch stew",900,52],["SNO","Cottage bowl",300,26]] },
+  ];
+  function totals(day) {
+    var k = 0, p = 0;
+    day.meals.forEach(function (m) { k += m[2]; p += m[3]; });
+    return { k: k, p: p, kOk: k >= KCAL_T * 0.9, pOk: p >= PROT_T * 0.9 };
+  }
+
+  // 1 scoreboard
+  var sb = "";
+  WEEK.forEach(function (day, i) {
+    var t = totals(day);
+    var dinner = day.meals[2][1];
+    sb += '<details class="dayrow"' + (i === 2 ? " open" : "") + '><summary>' +
+      '<span class="d">' + day.d + '<small class="num">' + day.date + "</small></span>" +
+      '<span class="meters2">' +
+        '<span class="mline"><b class="num">' + t.k + " / " + KCAL_T + '</b><span class="meter"><i class="' + (t.kOk ? "" : "warn") + '" style="width:' + Math.min(100, Math.round((t.k / KCAL_T) * 100)) + '%"></i></span></span>' +
+        '<span class="mline"><b class="num">' + t.p + " / " + PROT_T + 'P</b><span class="meter"><i class="' + (t.pOk ? "" : "warn") + '" style="width:' + Math.min(100, Math.round((t.p / PROT_T) * 100)) + '%"></i></span></span>' +
+        '<span class="mline" style="color:var(--dim)">DIN · ' + dinner + "</span>" +
+      "</span>" +
+      (t.kOk && t.pOk ? '<span class="ok">✓</span>' : '<span class="short">short</span>') +
+      "</summary><div class=\"daymeals\">" +
+      day.meals.map(function (m) {
+        return '<div class="mealline"><span class="t">' + m[0] + '</span><span class="n">' + m[1] + '</span><span class="m num">' + (m[2] ? m[2] + " · " + m[3] + "P" : "") + "</span></div>";
+      }).join("") +
+      "</div></details>";
+  });
+  document.getElementById("scoreboard").innerHTML = sb;
+
+  // 2 grid
+  var g = '<div></div><div class="hd">BRK</div><div class="hd">LUN</div><div class="hd">DIN</div><div class="hd">SNO</div>';
+  WEEK.forEach(function (day, di) {
+    g += '<div class="dy"><b>' + day.d + '</b><span class="num">' + day.date.split(" ")[1] + "</span></div>";
+    day.meals.forEach(function (m, mi) {
+      var short = m[1].length > 14 ? m[1].slice(0, 13) + "…" : m[1];
+      g += m[2]
+        ? '<div class="cell" data-d="' + di + '" data-m="' + mi + '">' + short + '<span class="m num">' + m[2] + " · " + m[3] + "P</span></div>"
+        : '<div class="cell empty" data-d="' + di + '" data-m="' + mi + '">+</div>';
+    });
+  });
+  var gridEl = document.getElementById("grid");
+  gridEl.innerHTML = g;
+  gridEl.addEventListener("click", function (e) {
+    var cell = e.target.closest(".cell");
+    if (!cell) return;
+    gridEl.querySelectorAll(".cell.sel").forEach(function (c) { c.classList.remove("sel"); });
+    cell.classList.add("sel");
+    var day = WEEK[+cell.dataset.d], m = day.meals[+cell.dataset.m];
+    var sheet = document.getElementById("gridsheet");
+    sheet.hidden = false;
+    sheet.innerHTML = m[2]
+      ? "<b>" + m[1] + "</b><div class=\"m num\">" + day.d + " · " + m[2] + " kcal · " + m[3] + "g protein</div><div class=\"acts\"><button class=\"btn\">OPEN RECIPE</button><button class=\"btn\">PIN</button><button class=\"btn\">SWAP</button><button class=\"btn\">🍴 OUT</button><button class=\"btn\">✕</button></div>"
+      : "<b>Empty slot · " + day.d + "</b><div class=\"m\">tap-to-assign replaces drag here</div><div class=\"acts\"><button class=\"btn\">PICK A RECIPE</button><button class=\"btn\">🍴 OUT</button></div>";
+  });
+
+  // 3 timeline
+  var tl = "";
+  WEEK.forEach(function (day) {
+    var t = totals(day);
+    tl += '<div class="tlday' + (t.kOk && t.pOk ? "" : " warnday") + '"><span class="dh"><b>' + day.d + '</b><span class="num">' + day.date.split(" ")[1] + "</span></span>" +
+      '<div class="pills">' +
+      day.meals.filter(function (m) { return m[2]; }).map(function (m) {
+        return '<span class="pill">' + m[1] + ' <small class="num">' + m[3] + "P</small></span>";
+      }).join("") +
+      "</div><div class=\"tlsum num\">" + t.k + " / " + KCAL_T + " kcal · " + t.p + " / " + PROT_T + "P · " +
+      (t.kOk && t.pOk ? "<b class=\"hit\">on target</b>" : "<b class=\"miss\">short</b>") + "</div></div>";
+  });
+  document.getElementById("timeline").innerHTML = tl;
+
+  // 4 day focus
+  var dfIdx = 2;
+  function renderFocus() {
+    var day = WEEK[dfIdx], t = totals(day);
+    document.getElementById("df-name").textContent = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"][dfIdx];
+    document.getElementById("df-date").textContent = day.date;
+    var ws = "";
+    WEEK.forEach(function (d2, i) {
+      var t2 = totals(d2);
+      ws += '<div class="wd' + (i === dfIdx ? " today" : "") + '" data-i="' + i + '"><b>' + d2.d + '</b><span class="num">' + d2.date.split(" ")[1] + '</span><span class="dots"><span class="' + (t2.kOk ? "g" : "a") + '">●</span><span class="' + (t2.pOk ? "g" : "a") + '">●</span></span></div>';
+    });
+    document.getElementById("weekstrip").innerHTML = ws;
+    var df = "";
+    day.meals.forEach(function (m) {
+      if (!m[2]) return;
+      df += '<div class="bigmeal"><span class="t">' + m[0] + '</span><span class="n">' + m[1] + "<small>tap for recipe · pin · swap</small></span><span class=\"m num\">" + m[2] + "<br />" + m[3] + "P</span></div>";
+    });
+    df += '<div class="tlsum num" style="padding:6px 4px">' + t.k + " / " + KCAL_T + " kcal · " + t.p + " / " + PROT_T + "P " + (t.kOk && t.pOk ? "· on target ✓" : "· short — stack a snack") + "</div>";
+    document.getElementById("dayfocus").innerHTML = df;
+  }
+  document.getElementById("df-prev").addEventListener("click", function () { dfIdx = Math.max(0, dfIdx - 1); renderFocus(); });
+  document.getElementById("df-next").addEventListener("click", function () { dfIdx = Math.min(6, dfIdx + 1); renderFocus(); });
+  document.getElementById("weekstrip").addEventListener("click", function (e) {
+    var wd = e.target.closest(".wd");
+    if (wd) { dfIdx = +wd.dataset.i; renderFocus(); }
+  });
+  renderFocus();
+
+  // 5 console
+  var ROWS = [
+    ["KCAL", function (day) { var f = totals(day).k / KCAL_T; return f >= 0.97 ? 3 : f >= 0.9 ? 2 : -1; }],
+    ["PROTEIN", function (day) { var f = totals(day).p / PROT_T; return f >= 0.97 ? 3 : f >= 0.9 ? 2 : -1; }],
+    ["GREENS", function (day, i) { return [2, 3, 1, 2, -1, 3, 2][i]; }],
+    ["COST $", function (day, i) { return [3, 2, 2, 3, 1, 1, 2][i]; }],
+  ];
+  var hm = "<div></div>" + WEEK.map(function (d, i) { return '<div class="hd" data-i="' + i + '">' + d.d + "</div>"; }).join("");
+  ROWS.forEach(function (row) {
+    hm += '<div class="rl">' + row[0] + "</div>";
+    WEEK.forEach(function (day, i) {
+      var lv = row[1](day, i);
+      hm += '<div class="hmcell ' + (lv === -1 ? "lva" : "lv" + lv) + '" data-i="' + i + '">' + (lv === -1 ? "!" : "") + "</div>";
+    });
+  });
+  var hmEl = document.getElementById("heatmap");
+  hmEl.innerHTML = hm;
+  hmEl.addEventListener("click", function (e) {
+    var cell = e.target.closest("[data-i]");
+    if (!cell) return;
+    var day = WEEK[+cell.dataset.i], t = totals(day);
+    var dr = document.getElementById("hmdrawer");
+    dr.classList.add("open");
+    dr.innerHTML = "<b>" + day.d + " · " + day.date + '</b><div class="tlsum num">' + t.k + " kcal · " + t.p + "P</div>" +
+      day.meals.filter(function (m) { return m[2]; }).map(function (m) {
+        return '<div class="mealline"><span class="t">' + m[0] + '</span><span class="n">' + m[1] + '</span><span class="m num">' + m[2] + " · " + m[3] + "P</span></div>";
+      }).join("");
+  });
+</script>
+</body>
+</html>

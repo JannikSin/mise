@@ -14,6 +14,7 @@ import {
   calorieTrimPass,
   ENFORCED_DAILY_GROUPS,
   generateWeek,
+  generatorEligible,
 } from "../app/lib/weekbuilder.js";
 import { dayTotals, recipesById } from "../app/lib/plan.js";
 
@@ -1059,4 +1060,37 @@ test("poolAdequacy flags thin slots and unreachable calorie targets honestly", (
     mealSlots: ["breakfast", "lunch", "dinner"],
   });
   assert.ok(!noSmoothie.warnings.some((w) => w.includes("smoothie")));
+});
+
+test("generatorEligible: unpromoted ai-specials are fenced out, promoted ones pass", () => {
+  const normal = r("lentil-bolognese", "dinner", ["lentils"]);
+  const special = { ...r("special-x", "dinner", ["chickpeas"]), tags: ["ai-special"] };
+  const promoted = { ...r("special-y", "dinner", ["tofu"]), tags: ["ai-special"], promoted: true };
+  assert.deepEqual(
+    generatorEligible([normal, special, promoted]).map((x) => x.id),
+    ["lentil-bolognese", "special-y"],
+  );
+});
+
+test("generateWeek never auto-plans an unpromoted ai-special (council fence)", () => {
+  // the special is the ONLY dinner in the pool: the fence must leave dinner
+  // empty-handed rather than quietly planning the unaudited invention
+  const special = { ...r("special-x", "dinner", ["chickpeas"]), tags: ["ai-special"] };
+  const pool = [
+    special,
+    r("oats", "breakfast", ["oats"]),
+    r("bowl", "lunch", ["rice"]),
+    r("bites", "snack", ["dates"]),
+  ];
+  const { plan } = generateWeek({
+    recipes: pool,
+    targets: null,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W40",
+    plan: { week: "2026-W40", entries: [] },
+  });
+  assert.ok(
+    plan.entries.every((e) => e.recipeId !== "special-x"),
+    "ai-special must never be auto-planned",
+  );
 });

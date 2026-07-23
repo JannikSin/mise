@@ -206,8 +206,17 @@ export function deriveTables(houses, ctx) {
         freeText: `🍽 ${t.name || recipe.name}`,
         servings,
         pinned: true,
-        estCalories: Math.round((n.calories ?? 0) * servings),
-        estProtein: Math.round((n.protein ?? 0) * servings),
+        // council 2026-07-23: a tailored plate's estimate replaces recipe ×
+        // servings in the day meters, so tailoring is never theater — the
+        // meter must count the plate David actually eats
+        estCalories:
+          myTailor && myTailor.estCalories > 0
+            ? myTailor.estCalories
+            : Math.round((n.calories ?? 0) * servings),
+        estProtein:
+          myTailor && myTailor.estProtein > 0
+            ? myTailor.estProtein
+            : Math.round((n.protein ?? 0) * servings),
         // my seat's AI plate-tailoring, if the table has been tailored —
         // view-only, stripped with the rest of the derived entry
         ...(myTailor ? { plate: myTailor.plate } : {}),

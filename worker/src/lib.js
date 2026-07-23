@@ -539,6 +539,60 @@ export function validateTailor(input, allowedIds) {
   return { seats, cook: strList(input?.cook, 3) };
 }
 
+// ---- deterministic avoid screen (council 2026-07-23) ---------------------
+// Allergens and never-serve lists are enforced by CODE after the model has
+// answered, as a refusal, never as an AI judgment the model can talk its
+// way around.
+
+/**
+ * Which of a person's avoid terms appear in the text (case-insensitive
+ * substring; a broad match is the safe direction for a denylist).
+ * @param {string} text
+ * @param {string[]} avoid
+ * @returns {string[]}
+ */
+export function hitsAvoid(text, avoid) {
+  const t = String(text).toLowerCase();
+  return (avoid ?? []).filter((a) => a && t.includes(String(a).toLowerCase()));
+}
+
+/**
+ * Drop any tailored plate line that names an ingredient on that seat's own
+ * avoid list; a seat left with no clean lines is dropped entirely.
+ * @param {{ seats: Record<string, { plate: string[], estCalories: number, estProtein: number }>, cook: string[] }} tailor
+ * @param {{ id: string, avoid: string[] }[]} seats
+ * @returns {{ seats: Record<string, { plate: string[], estCalories: number, estProtein: number }>, cook: string[] }}
+ */
+export function screenTailorAvoid(tailor, seats) {
+  const avoidById = new Map(seats.map((s) => [s.id, s.avoid ?? []]));
+  /** @type {typeof tailor.seats} */
+  const clean = {};
+  for (const [id, notes] of Object.entries(tailor.seats)) {
+    const plate = notes.plate.filter(
+      (line) => hitsAvoid(line, avoidById.get(id) ?? []).length === 0,
+    );
+    if (plate.length > 0) clean[id] = { ...notes, plate };
+  }
+  return { ...tailor, seats: clean };
+}
+
+/**
+ * Refuse a special meal whose ingredients hit ANY participant's avoid list.
+ * Returns the refusal reasons ("Mom: cilantro"), empty = clean.
+ * @param {{ ingredients: { food: string }[] }} special
+ * @param {{ name: string, avoid: string[] }[]} people
+ * @returns {string[]}
+ */
+export function specialAvoidHits(special, people) {
+  const foods = (special.ingredients ?? []).map((i) => i.food).join(", ");
+  const out = [];
+  for (const p of people) {
+    const hits = hitsAvoid(foods, p.avoid);
+    if (hits.length > 0) out.push(`${p.name}: ${hits.join(", ")}`);
+  }
+  return out;
+}
+
 // ---- /dinner: household discussion → a decided dinner --------------------
 
 const FOOD_GROUP_KEYS = [
