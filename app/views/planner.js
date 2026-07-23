@@ -41,6 +41,7 @@ function monthDay(isoDate) {
  * @param {{
  *   recipes: Record<string, any>[],
  *   plan: import("../lib/plan.js").Plan,
+ *   repo: Record<string, any> | null,
  *   targets: Record<string, any> | null,
  *   poolReport: { counts: Record<string, number>, warnings: string[] } | null,
  *   hasToken: boolean,
@@ -65,12 +66,14 @@ function monthDay(isoDate) {
  *   onCreateTable: (t: { name: string, date: string, slot: string, recipeId: string, seats: import("../lib/tables.js").Seat[] }) => void,
  *   onRemoveTable: (house: string, id: string) => void,
  *   onPatchSeat: (house: string, tableId: string, patch: Partial<import("../lib/tables.js").Seat>) => void,
- *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>
+ *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>,
+ *   onTailorTable: (house: string, tableId: string) => Promise<void>
  * }} props
  */
 export function PlannerView({
   recipes,
   plan,
+  repo,
   targets,
   poolReport,
   hasToken,
@@ -96,7 +99,26 @@ export function PlannerView({
   onRemoveTable,
   onPatchSeat,
   onSeatScreen,
+  onTailorTable,
 }) {
+  // AI plate-tailoring per table: busy flag + last error, keyed by table id
+  const tokenBlocked = !hasToken || repo?.auth === "invalid";
+  const [tailorBusy, setTailorBusy] = useState(/** @type {string | null} */ (null));
+  const [tailorErr, setTailorErr] = useState(/** @type {Record<string, string>} */ ({}));
+  const runTailor = async (/** @type {string} */ house, /** @type {string} */ tableId) => {
+    if (tailorBusy) return;
+    setTailorBusy(tableId);
+    setTailorErr({ ...tailorErr, [tableId]: "" });
+    try {
+      await onTailorTable(house, tableId);
+    } catch (err) {
+      setTailorErr({
+        ...tailorErr,
+        [tableId]: err instanceof Error ? err.message : "tailoring failed — try again",
+      });
+    }
+    setTailorBusy(null);
+  };
   const rootRef = useRef(/** @type {HTMLElement | null} */ (null));
   // tray meal filter: at ~50 recipes an unfiltered tray is unusable (David)
   const [trayFilter, setTrayFilter] = useState(/** @type {string | null} */ (null));
@@ -360,6 +382,14 @@ export function PlannerView({
           their own portion and their day replans around it.
         </p>`
       }
+      ${
+        tokenBlocked &&
+        myTables.length > 0 &&
+        html`<p class="hint">
+          ✨ plate tailoring needs the token —
+          ${repo?.auth === "invalid" ? "renew it in SYS" : "connect it in SYS"}
+        </p>`
+      }
       ${myTables.map(({ house, t }) => {
         const mySeat = (t.seats ?? []).find((s) => s.id === me);
         const skipped = mySeat?.status === "skipped";
@@ -395,7 +425,47 @@ export function PlannerView({
                 or clear it to sit at this table
               </div>`
             }
+            ${
+              t.tailor &&
+              html`<div class="d" role="status">
+                ${Object.entries(t.tailor.seats ?? {}).map(
+                  ([sid, notes]) => html`
+                    <div class="d" key=${sid}>
+                      ✨ ${nameOf(sid)}: ${notes.plate.join(" · ")}
+                      <span class="num"> · ~${notes.estCalories} kcal · ${notes.estProtein}P</span>
+                    </div>
+                  `,
+                )}
+                ${(t.tailor.cook ?? []).map(
+                  (/** @type {string} */ c) => html`<div class="hint" key=${c}>👨‍🍳 ${c}</div>`,
+                )}
+              </div>`
+            }
+            ${
+              tailorErr[t.id] &&
+              html`<div class="d num redflag" role="status">${tailorErr[t.id]}</div>`
+            }
             <div class="actions wrap">
+              ${
+                mySeat &&
+                html`<button
+                  class="secondary"
+                  disabled=${
+                    tailorBusy === t.id ||
+                    tokenBlocked ||
+                    (t.seats ?? []).every((s) => s.status === "skipped")
+                  }
+                  onClick=${() => runTailor(house, t.id)}
+                >
+                  ${
+                    tailorBusy === t.id
+                      ? "TAILORING…"
+                      : t.tailor
+                        ? "✨ RE-TAILOR"
+                        : "✨ TAILOR PLATES"
+                  }
+                </button>`
+              }
               ${
                 mySeat &&
                 html`<button

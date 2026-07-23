@@ -14,6 +14,7 @@ import {
 import { initRouter } from "./lib/router.js";
 import { formatSyncTime, isoWeekId, localIsoDate, statusDate } from "./lib/dates.js";
 import { applyScanItems } from "./lib/scan.js";
+import { tailorTable } from "./lib/worker.js";
 import { HomeView } from "./views/home.js";
 import { ProfileGateView } from "./views/profile-gate.js";
 import { TodayView } from "./views/today.js";
@@ -27,6 +28,8 @@ import { ShoppingView } from "./views/shopping.js";
 import { FitnessView } from "./views/fitness.js";
 import { RemediesView } from "./views/remedies.js";
 import { VitalsView } from "./views/vitals.js";
+import { MenuView } from "./views/menu.js";
+import { DinnerView } from "./views/dinner.js";
 import { ConfirmModal } from "./views/confirm-modal.js";
 import { upsertDay } from "./lib/fitness.js";
 import {
@@ -73,6 +76,7 @@ import {
   addTable,
   removeTable,
   patchSeat,
+  setTableTailor,
   cookOf,
 } from "./lib/tables.js";
 import {
@@ -1204,6 +1208,127 @@ function App() {
     return out;
   }, []);
 
+  // per-person facts for the AI features (menu scan, tailor, dinner): each
+  // profile's goal + targets + diet screen, read from its own targets file
+  // (same raw paths as handleSeatScreen)
+  const handleDinerFacts = useCallback(async (/** @type {string[]} */ ids) => {
+    const out = [];
+    for (const id of ids) {
+      const p = allProfilesRef.current.find((x) => x.id === id);
+      const path = id === "david" ? "fitness/targets.json" : `profiles/${id}/fitness/targets.json`;
+      const t = /** @type {any} */ (await read(path, { raw: true }).catch(() => null));
+      out.push({
+        id,
+        name: /** @type {string} */ (p?.name ?? id),
+        goal: /** @type {string} */ (t?.phase ?? "maintain"),
+        calories: /** @type {number} */ (t?.macros?.calories ?? 0),
+        protein: /** @type {number} */ (t?.macros?.protein ?? 0),
+        diet: /** @type {string} */ (t?.diet ?? "omnivore"),
+        avoid: /** @type {string[]} */ (t?.avoidIngredients ?? []),
+      });
+    }
+    return out;
+  }, []);
+
+  // AI plate-tailoring for a table: one dish, per-seat plating adjustments
+  // toward each seat's own targets, persisted on the table so every seat's
+  // device shows the same plates
+  const handleTailorTable = useCallback(
+    async (/** @type {string} */ house, /** @type {string} */ tableId) => {
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      const t = cur?.tables.find((x) => x.id === tableId);
+      const recipe = t ? recipesById(bankRecipesRef.current).get(t.recipeId) : null;
+      if (!cur || !t || !recipe) throw new Error("table or recipe missing — sync first");
+      const live = (t.seats ?? []).filter((s) => s.status !== "skipped");
+      if (live.length === 0) throw new Error("everyone skipped this table — nothing to tailor");
+      const facts = await handleDinerFacts(live.map((s) => s.id));
+      const n = recipe.nutrition ?? {};
+      const result = await tailorTable(
+        {
+          name: recipe.name,
+          servings: recipe.servings ?? 1,
+          calories: n.calories ?? 0,
+          protein: n.protein ?? 0,
+          carbs: n.carbs ?? 0,
+          fat: n.fat ?? 0,
+          ingredients: (recipe.ingredients ?? []).map((/** @type {any} */ i) => i.food),
+        },
+        /** @type {any} */ (
+          facts.map((f) => ({
+            ...f,
+            say: `eats ${live.find((s) => s.id === f.id)?.servings ?? 1} serving(s) of this dish`,
+          }))
+        ),
+      );
+      if (Object.keys(result.seats).length === 0)
+        throw new Error("no tailoring came back — try again");
+      const today = localIsoDate(new Date());
+      writeHouseEvents(house, setTableTailor(cur, tableId, { at: today, ...result }, today));
+    },
+    [writeHouseEvents, handleDinerFacts],
+  );
+
+  // dinner-discussion decision → a real table for tonight. A special meal is
+  // first written to the shared bank (tagged ai-special) so the whole table
+  // machinery — macros, shopping, everyone's plan — works unchanged.
+  const handleApplyDinner = useCallback(
+    async (/** @type {Record<string, any>} */ decision, /** @type {string[]} */ participantIds) => {
+      const today = localIsoDate(new Date());
+      let recipeId = /** @type {string} */ (decision.pickRecipeId || "");
+      if (!recipeId && decision.special) {
+        const s = decision.special;
+        // date-suffixed so two discussions landing on the same generic name
+        // ("quick stir-fry") never overwrite each other's recipe
+        recipeId = `special-${slug(s.name)}-${today}`;
+        const recipe = {
+          id: recipeId,
+          name: s.name,
+          description: s.description || "Special dinner from the household discussion.",
+          servings: s.servings,
+          totalTime: s.totalTime,
+          mealType: "dinner",
+          tags: ["ai-special"],
+          purpose: ["everyday"],
+          effort: s.totalTime <= 15 ? "assembly" : s.totalTime <= 30 ? "cook" : "project",
+          ingredients: s.ingredients,
+          instructions: s.instructions,
+          nutrition: s.nutrition,
+          foodGroups: s.foodGroups,
+        };
+        await write(`recipes/${recipeId}.json`, /** @type {any} */ (recipe), { raw: true });
+        setBankRecipes([...bankRecipesRef.current.filter((r) => r.id !== recipeId), recipe]);
+      }
+      if (!recipeId) throw new Error("the decision names no recipe");
+      const house = myHouseOf();
+      const cur =
+        houseEventsRef.current.find((h) => h.house === house)?.events ?? normalizeEvents(null);
+      const withTable = addTable(
+        cur,
+        {
+          name: "Tonight's dinner",
+          date: today,
+          slot: "dinner",
+          recipeId,
+          seats: participantIds.map((id) => ({ id, servings: 1 })),
+        },
+        today,
+      );
+      const newTable = withTable.tables[withTable.tables.length - 1];
+      /** @type {Record<string, { plate: string[], estCalories: number, estProtein: number }>} */
+      const seats = {};
+      for (const p of decision.plates ?? []) {
+        if (p.note)
+          seats[p.id] = { plate: [p.note], estCalories: p.estCalories, estProtein: p.estProtein };
+      }
+      const next =
+        Object.keys(seats).length > 0 && newTable
+          ? setTableTailor(withTable, newTable.id, { at: today, seats, cook: [] }, today)
+          : withTable;
+      writeHouseEvents(house, next);
+    },
+    [writeHouseEvents],
+  );
+
   // Money ledger (roadmap M1): my house's who-owes-who from finished
   // tables. The COOK's device records each finished table exactly once
   // (idempotent by table id, id-keyed merge dedupes concurrent recorders).
@@ -1375,6 +1500,7 @@ function App() {
       html`<${PlannerView}
         recipes=${recipes}
         plan=${viewPlan}
+        repo=${repo}
         targets=${targets}
         poolReport=${recipes.length > 0 ? poolAdequacy(recipes, targets) : null}
         hasToken=${hasToken}
@@ -1400,6 +1526,7 @@ function App() {
         onRemoveTable=${handleRemoveTable}
         onPatchSeat=${handlePatchSeat}
         onSeatScreen=${handleSeatScreen}
+        onTailorTable=${handleTailorTable}
       />`
     }
     ${
@@ -1455,6 +1582,28 @@ function App() {
     ${
       route.view === "vitals" &&
       html`<${VitalsView} vitals=${vitals} loading=${!vitalsLoaded} hasToken=${hasToken} />`
+    }
+    ${
+      route.view === "menu" &&
+      html`<${MenuView}
+        profiles=${allProfiles}
+        me=${me}
+        hasToken=${hasToken}
+        repo=${repo}
+        onDinerFacts=${handleDinerFacts}
+      />`
+    }
+    ${
+      route.view === "dinner" &&
+      html`<${DinnerView}
+        profiles=${allProfiles}
+        me=${me}
+        bankRecipes=${bankRecipes}
+        hasToken=${hasToken}
+        repo=${repo}
+        onDinerFacts=${handleDinerFacts}
+        onApplyDinner=${handleApplyDinner}
+      />`
     }
     ${
       route.view === "train" &&

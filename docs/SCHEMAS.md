@@ -351,6 +351,21 @@ before every plan write).
         { "id": "david", "servings": 1.5 },
         { "id": "mom", "servings": 1, "status": "skipped" }, // ? absent = in
       ],
+      "tailor": {
+        // ? AI plate-tailoring (Worker /tailor or the dinner discussion):
+        //   one shared pot, per-seat plating adjustments toward each seat's
+        //   own targets. Written whole by setTableTailor (whitelisted keys
+        //   only); re-tailoring replaces it. Absent = never tailored.
+        "at": "2026-07-23", // ISO date it was generated
+        "seats": {
+          "david": {
+            "plate": ["add 100g extra tofu on top"], // 1-3 concrete actions
+            "estCalories": 1150, // this seat's plate after adjustments
+            "estProtein": 66,
+          },
+        },
+        "cook": ["hold the bread back; plate mom's without it"], // 0-3 one-pot notes
+      },
     },
   ],
 }
@@ -380,6 +395,14 @@ Rules (binding, from the Tribunal gate):
 - Derived entries additionally carry `viewRecipeId` (Cook-view recipe link)
   and, for the cook only, `cookTotal` (the batch total to cook). Both are
   DERIVED-ONLY fields: they exist in memory, never in any stored file.
+- A tailored table's derived entry also carries `plate` (my seat's
+  `tailor.seats[<me>].plate`), same derived-only rule.
+- The dinner discussion (`#/dinner`, Worker `/dinner`) applies its decision
+  as a normal table for tonight's dinner slot. A "special" (AI-invented)
+  meal is first written to the shared bank as `recipes/special-<slug>.json`
+  tagged `"ai-special"` (normal recipe schema, `nutrition.method` and
+  `foodGroups.method` = `"estimated"`), so macros, shopping, and every
+  seat's plan work unchanged.
 
 ## Money ledger — `households/<h>/ledger.json`
 

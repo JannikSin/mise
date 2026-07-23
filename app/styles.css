@@ -2331,3 +2331,20 @@ button.linktext {
   color: var(--text);
   text-align: center;
 }
+
+/* AI features (menu scan, plate tailoring, dinner discussion) */
+.plateline {
+  display: block;
+  margin-top: 2px;
+}
+
+/* redflag was only styled inside .buildreport; table cards use it too
+   (conflicts, collisions, tailoring errors) */
+.tablecard .redflag {
+  color: var(--red);
+}
+
+.saylabel {
+  align-self: center;
+  min-width: 64px;
+}
