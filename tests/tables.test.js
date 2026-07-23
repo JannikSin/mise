@@ -6,6 +6,7 @@ import {
   addTable,
   removeTable,
   patchSeat,
+  setTableTailor,
   pruneTables,
   stripTableEntries,
   mergeViewPlan,
@@ -337,4 +338,43 @@ test("patchSeat whitelists fields: id and junk keys never land", () => {
 test("normalizeEvents carries an unbuilt brigades key through untouched", () => {
   const ev = normalizeEvents({ tables: [], brigades: [{ id: "b1" }] });
   assert.deepEqual(ev.brigades, [{ id: "b1" }]);
+});
+
+test("setTableTailor attaches a whitelisted tailor block to the right table", () => {
+  const ev = { tables: [table(), table({ id: "t2" })] };
+  const out = setTableTailor(
+    ev,
+    "t1",
+    {
+      at: TODAY,
+      seats: { david: { plate: ["extra tofu"], estCalories: 1000, estProtein: 60 } },
+      cook: ["hold the bread"],
+      junk: "never lands",
+    },
+    TODAY,
+  );
+  assert.deepEqual(out.tables[0].tailor, {
+    at: TODAY,
+    seats: { david: { plate: ["extra tofu"], estCalories: 1000, estProtein: 60 } },
+    cook: ["hold the bread"],
+  });
+  assert.equal(out.tables[1].tailor, undefined, "other tables untouched");
+  assert.equal(ev.tables[0].tailor, undefined, "pure: input untouched");
+});
+
+test("a tailored table's derived entry carries my seat's plate notes", () => {
+  const t = table({
+    tailor: {
+      at: TODAY,
+      seats: { david: { plate: ["add 100g extra tofu"], estCalories: 1150, estProtein: 66 } },
+      cook: [],
+    },
+  });
+  const { entries } = deriveTables([{ house: "home", events: { tables: [t] } }], ctx());
+  assert.deepEqual(entries[0].plate, ["add 100g extra tofu"]);
+  const other = deriveTables(
+    [{ house: "home", events: { tables: [t] } }],
+    ctx({ profileId: "mom" }),
+  );
+  assert.equal(other.entries[0].plate, undefined, "untailored seat gets no plate notes");
 });

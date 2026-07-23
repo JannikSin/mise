@@ -16,6 +16,8 @@ test("top-level views", () => {
   assert.deepEqual(parseRoute("#/list"), { view: "list" });
   assert.deepEqual(parseRoute("#/train"), { view: "train" });
   assert.deepEqual(parseRoute("#/remedies"), { view: "remedies" });
+  assert.deepEqual(parseRoute("#/menu"), { view: "menu" });
+  assert.deepEqual(parseRoute("#/dinner"), { view: "dinner" });
 });
 
 test("removed quiz route falls back to home", () => {

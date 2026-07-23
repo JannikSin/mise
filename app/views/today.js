@@ -217,6 +217,14 @@ export function TodayView({
                       <span class="n">
                         ${recipe.name}${entry.table && html` <span class="usesoon">table</span>`}
                         ${entry.cookTotal && html` <span class="usesoon">cook ×${entry.cookTotal} total</span>`}
+                        ${
+                          // my seat's AI plate-tailoring (set on the table
+                          // from Plan or the dinner discussion)
+                          /** @type {any} */ (entry).plate &&
+                          html`<span class="hint plateline"
+                            >✨ ${/** @type {any} */ (entry).plate.join(" · ")}</span
+                          >`
+                        }
                       </span>
                       <span class="m num"
                         >${recipe.nutrition?.calories} · ${recipe.nutrition?.protein}P ›</span
@@ -349,7 +357,9 @@ export function TodayView({
         </details>`
       }
 
-      <div class="actions">
+      <div class="actions wrap">
+        <a class="secondary linkbtn" href="#/dinner">💬 what should dinner be? →</a>
+        <a class="secondary linkbtn" href="#/menu">🍴 eating out? scan the menu →</a>
         <a class="secondary linkbtn" href="#/cookbook">browse all recipes →</a>
       </div>
     </div>

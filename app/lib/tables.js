@@ -8,7 +8,9 @@ import { recipeConflicts, SLOT_KEYS } from "./plan.js";
 
 /**
  * @typedef {{ id: string, servings: number, status?: "in" | "skipped" }} Seat seat id = profileId
- * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[] }} TableEvent
+ * @typedef {{ plate: string[], estCalories: number, estProtein: number }} TailorSeat
+ * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
+ * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor }} TableEvent
  * @typedef {{ tables: TableEvent[] }} HouseEvents
  */
 
@@ -187,6 +189,7 @@ export function deriveTables(houses, ctx) {
       derivedSlots.add(key);
 
       const servings = clampServings(mySeat.servings);
+      const myTailor = t.tailor?.seats?.[ctx.profileId];
       const n = recipe.nutrition ?? {};
       const knownTotal = known.reduce((sum, s2) => sum + clampServings(s2.servings), 0);
       entries.push({
@@ -205,6 +208,9 @@ export function deriveTables(houses, ctx) {
         pinned: true,
         estCalories: Math.round((n.calories ?? 0) * servings),
         estProtein: Math.round((n.protein ?? 0) * servings),
+        // my seat's AI plate-tailoring, if the table has been tailored —
+        // view-only, stripped with the rest of the derived entry
+        ...(myTailor ? { plate: myTailor.plate } : {}),
       });
     }
   }
@@ -319,6 +325,28 @@ export function patchSeat(events, tableId, profileId, patch, today) {
           }
         : t,
     ),
+  };
+}
+
+/**
+ * Attach (or replace) a table's AI plate-tailoring result. Whitelisted like
+ * patchSeat: only the known keys land in the file. Pure.
+ * @param {HouseEvents} events
+ * @param {string} tableId
+ * @param {{ at: string, seats: Record<string, { plate: string[], estCalories: number, estProtein: number }>, cook: string[] }} tailor
+ * @param {string} today prunes past-retention tables like every CRUD write
+ * @returns {HouseEvents}
+ */
+export function setTableTailor(events, tableId, tailor, today) {
+  const clean = {
+    at: typeof tailor.at === "string" ? tailor.at : "",
+    seats: tailor.seats && typeof tailor.seats === "object" ? tailor.seats : {},
+    cook: Array.isArray(tailor.cook) ? tailor.cook : [],
+  };
+  const base = pruneTables(events, today);
+  return {
+    ...base,
+    tables: base.tables.map((t) => (t.id === tableId ? { ...t, tailor: clean } : t)),
   };
 }
 

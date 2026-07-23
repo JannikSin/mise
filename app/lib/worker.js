@@ -105,6 +105,54 @@ export async function onboardTurn(messages, survey) {
 }
 
 /**
+ * Restaurant-menu photo + the diners at the table → per-diner order report.
+ * Same downscale + auth path as the pantry scan; nothing is persisted.
+ * @param {File | Blob} file
+ * @param {{ id: string, name: string, goal: string, calories: number, protein: number, diet: string, avoid: string[] }[]} diners
+ * @returns {Promise<{ diners: { name: string, picks: { item: string, why: string, estCalories: number, estProtein: number }[], skip: string[] }[], notes: string[] }>}
+ */
+export async function scanMenu(file, diners) {
+  const { image, mediaType } = await downscalePhoto(file);
+  const data = await post("/menu", { image, mediaType, diners });
+  return {
+    diners: Array.isArray(data.diners) ? data.diners : [],
+    notes: Array.isArray(data.notes) ? data.notes : [],
+  };
+}
+
+/**
+ * One shared table dish → per-seat plate adjustments + cook notes. The
+ * caller persists the result onto the table (setTableTailor).
+ * @param {{ name: string, servings: number, calories: number, protein: number, carbs: number, fat: number, ingredients: string[] }} recipe
+ * @param {{ id: string, name: string, goal: string, calories: number, protein: number, diet: string, avoid: string[] }[]} seats
+ * @returns {Promise<{ seats: Record<string, { plate: string[], estCalories: number, estProtein: number }>, cook: string[] }>}
+ */
+export async function tailorTable(recipe, seats) {
+  const data = await post("/tailor", { recipe, seats });
+  return {
+    seats: data.seats && typeof data.seats === "object" ? data.seats : {},
+    cook: Array.isArray(data.cook) ? data.cook : [],
+  };
+}
+
+/**
+ * One turn of the household dinner discussion. Gets back either the
+ * mediator's next question (`reply`) or a settled `decision` (a bank pick or
+ * a fully specified special meal, plus per-person plate notes).
+ * @param {{ role: string, content: string }[]} messages
+ * @param {{ id: string, name: string, goal: string, calories: number, protein: number, diet: string, avoid: string[], say: string }[]} people
+ * @param {{ id: string, name: string, calories: number, protein: number, cuisine: string }[]} candidates
+ * @returns {Promise<{ reply: string, decision: Record<string, any> | null }>}
+ */
+export async function dinnerTurn(messages, people, candidates) {
+  const data = await post("/dinner", { messages, people, candidates });
+  return {
+    reply: typeof data.reply === "string" ? data.reply : "",
+    decision: data.decision && typeof data.decision === "object" ? data.decision : null,
+  };
+}
+
+/**
  * Free-text symptoms → protocol in the rules-engine shape.
  * @param {string} text
  * @returns {Promise<{ teas: string[], foods: string[], avoid: string[], notes: string[] }>}

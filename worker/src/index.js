@@ -1,7 +1,12 @@
 // Mise Worker — the app's only server-side component (blueprint Task 12).
-// Two endpoints, both Anthropic-backed:
-//   POST /scan   { image: base64, mediaType } -> { items: [{name, kind, qty}] }
-//   POST /remedy { text }                     -> { protocol: {teas, foods, avoid, notes} }
+// Anthropic-backed endpoints:
+//   POST /scan    { image, mediaType }            -> { items: [{name, kind, qty}] }
+//   POST /receipt { image, mediaType }            -> { store, items: [{name, price, size}] }
+//   POST /menu    { image, mediaType, diners }    -> { diners: [{name, picks, skip}], notes }
+//   POST /tailor  { recipe, seats }               -> { seats: {id: {plate, est*}}, cook }
+//   POST /dinner  { messages, people, candidates } -> { reply, decision }
+//   POST /onboard { messages, survey }            -> { reply, profile }
+//   POST /remedy  { text }                        -> { protocol: {teas, foods, avoid, notes} }
 // Auth: the caller proves they are David by presenting the SAME fine-grained
 // PAT the app already holds — the Worker verifies it can see the private
 // mise-data repo. No second secret to manage; revoking the PAT kills both.
@@ -13,11 +18,18 @@ import {
   buildReceiptRequest,
   buildOnboardRequest,
   buildRemedyRequest,
+  buildMenuRequest,
+  buildTailorRequest,
+  buildDinnerRequest,
   parseToolUse,
   parseOnboardResponse,
+  parseDinnerResponse,
   validateScanItems,
   validateReceiptItems,
   validateProtocol,
+  validateMenuReport,
+  validateTailor,
+  sanitizePeople,
   allowRequest,
 } from "./lib.js";
 
@@ -104,7 +116,12 @@ export default {
     }
     if (!cors) return json(403, { error: "origin not allowed" }, {});
     const url = new URL(request.url);
-    if (request.method !== "POST" || !["/scan", "/receipt", "/onboard", "/remedy"].includes(url.pathname)) {
+    if (
+      request.method !== "POST" ||
+      !["/scan", "/receipt", "/onboard", "/remedy", "/menu", "/tailor", "/dinner"].includes(
+        url.pathname,
+      )
+    ) {
       return json(404, { error: "not found" }, cors);
     }
 
@@ -168,6 +185,89 @@ export default {
           env.ANTHROPIC_API_KEY,
         );
         return json(200, parseOnboardResponse(resp), cors);
+      }
+      if (url.pathname === "/menu") {
+        const image = typeof body.image === "string" ? body.image : "";
+        const mediaType = ["image/jpeg", "image/png", "image/webp"].includes(body.mediaType)
+          ? body.mediaType
+          : "";
+        const diners = sanitizePeople(body.diners);
+        if (!image || !mediaType) return json(400, { error: "image + mediaType required" }, cors);
+        if (diners.length === 0) return json(400, { error: "diners required" }, cors);
+        const resp = await callAnthropic(
+          buildMenuRequest({ image, mediaType, diners, model: env.SCAN_MODEL ?? DEFAULT_MODEL }),
+          env.ANTHROPIC_API_KEY,
+        );
+        return json(200, validateMenuReport(parseToolUse(resp, "record_menu")), cors);
+      }
+      if (url.pathname === "/tailor") {
+        const r = typeof body.recipe === "object" && body.recipe !== null ? body.recipe : {};
+        const recipe = {
+          name: typeof r.name === "string" ? r.name.trim().slice(0, 80) : "",
+          servings: typeof r.servings === "number" && isFinite(r.servings) ? r.servings : 1,
+          calories: typeof r.calories === "number" && isFinite(r.calories) ? r.calories : 0,
+          protein: typeof r.protein === "number" && isFinite(r.protein) ? r.protein : 0,
+          carbs: typeof r.carbs === "number" && isFinite(r.carbs) ? r.carbs : 0,
+          fat: typeof r.fat === "number" && isFinite(r.fat) ? r.fat : 0,
+          ingredients: (Array.isArray(r.ingredients) ? r.ingredients : [])
+            .filter((/** @type {any} */ s) => typeof s === "string" && s.trim())
+            .map((/** @type {string} */ s) => s.trim().slice(0, 60))
+            .slice(0, 30),
+        };
+        const seats = sanitizePeople(body.seats).filter((s) => s.id);
+        if (!recipe.name) return json(400, { error: "recipe required" }, cors);
+        if (seats.length === 0) return json(400, { error: "seats required" }, cors);
+        const resp = await callAnthropic(
+          buildTailorRequest({ recipe, seats, model: env.SCAN_MODEL ?? DEFAULT_MODEL }),
+          env.ANTHROPIC_API_KEY,
+        );
+        return json(
+          200,
+          validateTailor(
+            parseToolUse(resp, "record_tailor"),
+            seats.map((s) => s.id),
+          ),
+          cors,
+        );
+      }
+      if (url.pathname === "/dinner") {
+        const messages = Array.isArray(body.messages) ? body.messages.slice(-40) : [];
+        const people = sanitizePeople(body.people).filter((p) => p.id);
+        const candidates = (Array.isArray(body.candidates) ? body.candidates : [])
+          .filter(
+            (/** @type {any} */ c) =>
+              typeof c === "object" && c !== null && typeof c.id === "string" && c.id,
+          )
+          .map((/** @type {any} */ c) => ({
+            id: String(c.id).slice(0, 80),
+            name: typeof c.name === "string" ? c.name.trim().slice(0, 80) : "",
+            calories:
+              typeof c.calories === "number" && isFinite(c.calories) ? Math.round(c.calories) : 0,
+            protein:
+              typeof c.protein === "number" && isFinite(c.protein) ? Math.round(c.protein) : 0,
+            cuisine: typeof c.cuisine === "string" ? c.cuisine.trim().slice(0, 30) : "",
+          }))
+          .slice(0, 80);
+        if (messages.length === 0) return json(400, { error: "messages required" }, cors);
+        if (people.length === 0) return json(400, { error: "people required" }, cors);
+        const resp = await callAnthropic(
+          buildDinnerRequest({
+            messages,
+            people,
+            candidates,
+            model: env.SCAN_MODEL ?? DEFAULT_MODEL,
+          }),
+          env.ANTHROPIC_API_KEY,
+        );
+        return json(
+          200,
+          parseDinnerResponse(
+            resp,
+            candidates.map((/** @type {any} */ c) => c.id),
+            people.map((p) => p.id),
+          ),
+          cors,
+        );
       }
       // /remedy
       const text = typeof body.text === "string" ? body.text.trim().slice(0, 2000) : "";

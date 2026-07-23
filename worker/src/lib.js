@@ -92,8 +92,14 @@ const RECEIPT_TOOL = {
         items: {
           type: "object",
           properties: {
-            name: { type: "string", description: "generic food name, brand off, e.g. 'black beans'" },
-            price: { type: "number", description: "the line's dollar price as a number, e.g. 1.99" },
+            name: {
+              type: "string",
+              description: "generic food name, brand off, e.g. 'black beans'",
+            },
+            price: {
+              type: "number",
+              description: "the line's dollar price as a number, e.g. 1.99",
+            },
             size: { type: "string", description: "package size if printed, e.g. '15 oz', else ''" },
           },
           required: ["name", "price"],
@@ -157,7 +163,11 @@ const ONBOARD_TOOL = {
       diet: { type: "string", enum: ["omnivore", "pescatarian", "vegetarian", "vegan"] },
       allergensFreeText: { type: "string", description: "comma-separated allergies/hard-no foods" },
       dislikeIngredients: { type: "array", items: { type: "string" } },
-      tiredOf: { type: "array", items: { type: "string" }, description: "foods eaten too much lately" },
+      tiredOf: {
+        type: "array",
+        items: { type: "string" },
+        description: "foods eaten too much lately",
+      },
       lovedCuisines: { type: "array", items: { type: "string" } },
       avoidedCuisines: { type: "array", items: { type: "string" } },
       budget: { type: "string", enum: ["tight", "normal", "loose"] },
@@ -169,7 +179,17 @@ const ONBOARD_TOOL = {
       skipBreakfast: { type: "boolean" },
       smoothie: { type: "boolean", description: "wants a daily smoothie (needs a blender)" },
     },
-    required: ["name", "emoji", "sex", "age", "heightFt", "heightIn", "weightLb", "activity", "goal"],
+    required: [
+      "name",
+      "emoji",
+      "sex",
+      "age",
+      "heightFt",
+      "heightIn",
+      "weightLb",
+      "activity",
+      "goal",
+    ],
   },
 };
 
@@ -241,6 +261,535 @@ export function buildRemedyRequest({ text, model }) {
     tools: [REMEDY_TOOL],
     tool_choice: { type: "tool", name: "record_protocol" },
     messages: [{ role: "user", content: [{ type: "text", text }] }],
+  };
+}
+
+// ---- shared person context (menu / tailor / dinner) ----------------------
+
+/**
+ * Sanitize a client-sent people array (per-person nutrition context) at the
+ * trust boundary: capped strings, finite numbers, bounded lists.
+ * @param {any} input
+ * @returns {{ id: string, name: string, goal: string, calories: number, protein: number, diet: string, avoid: string[], say: string }[]}
+ */
+export function sanitizePeople(input) {
+  const str = (/** @type {any} */ v, /** @type {number} */ n) =>
+    typeof v === "string" ? v.trim().slice(0, n) : "";
+  const num = (/** @type {any} */ v) =>
+    typeof v === "number" && isFinite(v) && v > 0 ? Math.round(v) : 0;
+  const out = [];
+  for (const p of Array.isArray(input) ? input : []) {
+    if (out.length >= 8) break;
+    if (typeof p !== "object" || p === null) continue;
+    const name = str(p.name, 40);
+    if (!name) continue;
+    out.push({
+      id: str(p.id, 40),
+      name,
+      goal: str(p.goal, 20),
+      calories: num(p.calories),
+      protein: num(p.protein),
+      diet: str(p.diet, 20),
+      avoid: (Array.isArray(p.avoid) ? p.avoid : [])
+        .filter((/** @type {any} */ s) => typeof s === "string" && s.trim())
+        .map((/** @type {string} */ s) => s.trim().slice(0, 60))
+        .slice(0, 20),
+      say: str(p.say, 300),
+    });
+  }
+  return out;
+}
+
+/** @param {ReturnType<typeof sanitizePeople>[number]} p one prompt line of person context */
+function personLine(p) {
+  const bits = [`${p.name}: goal ${p.goal || "maintain"}`];
+  if (p.calories) bits.push(`daily target ${p.calories} kcal / ${p.protein}g protein`);
+  if (p.diet && p.diet !== "omnivore") bits.push(p.diet);
+  if (p.avoid.length > 0) bits.push(`never serve: ${p.avoid.join(", ")}`);
+  return bits.join(", ");
+}
+
+// ---- /menu: restaurant-menu photo → per-diner report ---------------------
+
+const MENU_TOOL = {
+  name: "record_menu",
+  description: "Record the per-diner menu report.",
+  input_schema: {
+    type: "object",
+    properties: {
+      diners: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "the diner's name, exactly as given" },
+            picks: {
+              type: "array",
+              description: "1-3 best menu items for this diner, best first",
+              items: {
+                type: "object",
+                properties: {
+                  item: { type: "string", description: "the menu item name as printed" },
+                  why: { type: "string", description: "one short sentence: why this fits them" },
+                  estCalories: { type: "number", description: "rough honest estimate" },
+                  estProtein: { type: "number", description: "rough grams protein" },
+                },
+                required: ["item", "why", "estCalories", "estProtein"],
+              },
+            },
+            skip: {
+              type: "array",
+              items: { type: "string" },
+              description: "menu items this diner should skip, with no reason text",
+            },
+          },
+          required: ["name", "picks", "skip"],
+        },
+      },
+      notes: {
+        type: "array",
+        items: { type: "string" },
+        description: "0-3 whole-table notes (share a side, portion warnings)",
+      },
+    },
+    required: ["diners", "notes"],
+  },
+};
+
+const MENU_SYSTEM =
+  "You read a photographed restaurant menu for a household meal-planning app. " +
+  "Each diner has a goal and daily macro targets. Recommend only items that " +
+  "actually appear on the menu, adapted per diner: a gaining lifter wants " +
+  "protein-dense and calorie-dense picks, a losing diner wants satiating " +
+  "lower-calorie picks (and note easy trims like skip the bread, dressing on " +
+  "the side). Respect diets and never-serve lists absolutely. Macro estimates " +
+  "are honest restaurant-portion guesses. No em dashes.";
+
+/**
+ * Anthropic Messages request for a menu-photo scan.
+ * @param {{ image: string, mediaType: string, diners: ReturnType<typeof sanitizePeople>, model: string }} args
+ */
+export function buildMenuRequest({ image, mediaType, diners, model }) {
+  return {
+    model,
+    max_tokens: 2048,
+    system: MENU_SYSTEM,
+    tools: [MENU_TOOL],
+    tool_choice: { type: "tool", name: "record_menu" },
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: mediaType, data: image } },
+          {
+            type: "text",
+            text: `Diners:\n${diners.map(personLine).join("\n")}\n\nRead this menu and report what each diner should order.`,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Sanitize the menu report: capped strings, finite numbers, bounded lists.
+ * @param {Record<string, any> | null} input
+ * @returns {{ diners: { name: string, picks: { item: string, why: string, estCalories: number, estProtein: number }[], skip: string[] }[], notes: string[] }}
+ */
+export function validateMenuReport(input) {
+  const strList = (/** @type {any} */ v, /** @type {number} */ cap) =>
+    (Array.isArray(v) ? v : [])
+      .filter((s) => typeof s === "string" && s.trim())
+      .map((s) => s.trim().slice(0, 120))
+      .slice(0, cap);
+  const diners = [];
+  for (const d of Array.isArray(input?.diners) ? input.diners : []) {
+    if (diners.length >= 8) break;
+    if (typeof d !== "object" || d === null) continue;
+    const name = typeof d.name === "string" ? d.name.trim().slice(0, 40) : "";
+    if (!name) continue;
+    const picks = [];
+    for (const p of Array.isArray(d.picks) ? d.picks : []) {
+      if (picks.length >= 3) break;
+      if (typeof p !== "object" || p === null) continue;
+      const item = typeof p.item === "string" ? p.item.trim().slice(0, 80) : "";
+      if (!item) continue;
+      picks.push({
+        item,
+        why: typeof p.why === "string" ? p.why.trim().slice(0, 200) : "",
+        estCalories:
+          typeof p.estCalories === "number" && isFinite(p.estCalories)
+            ? Math.round(p.estCalories)
+            : 0,
+        estProtein:
+          typeof p.estProtein === "number" && isFinite(p.estProtein) ? Math.round(p.estProtein) : 0,
+      });
+    }
+    diners.push({ name, picks, skip: strList(d.skip, 6) });
+  }
+  return { diners, notes: strList(input?.notes, 3).map((s) => s.slice(0, 200)) };
+}
+
+// ---- /tailor: one shared table dish → per-seat plate adjustments ---------
+
+const TAILOR_TOOL = {
+  name: "record_tailor",
+  description: "Record per-seat plate adjustments and shared cook notes for one table dish.",
+  input_schema: {
+    type: "object",
+    properties: {
+      seats: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "the seat's profile id, exactly as given" },
+            plate: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "1-3 concrete plating actions for THIS person (e.g. 'add 100g extra tofu on top', 'skip the bread', 'half portion of rice')",
+            },
+            estCalories: { type: "number", description: "this seat's plate after adjustments" },
+            estProtein: { type: "number", description: "grams protein after adjustments" },
+          },
+          required: ["id", "plate", "estCalories", "estProtein"],
+        },
+      },
+      cook: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "0-3 notes for the cook so ONE pot still serves everyone (what to hold back, add late, or plate separately)",
+      },
+    },
+    required: ["seats", "cook"],
+  },
+};
+
+const TAILOR_SYSTEM =
+  "You tailor ONE shared home-cooked dish to each person at the table. The " +
+  "dish is cooked once; your job is per-plate adjustments at serving time " +
+  "that move each plate toward that person's goal and daily targets: extra " +
+  "protein or starch for a gaining lifter, lighter starch, skipped bread or " +
+  "smaller portion for someone losing, respecting diets and never-serve " +
+  "lists absolutely. Adjustments must be concrete kitchen actions with " +
+  "amounts, achievable from the dish's own components plus ordinary pantry " +
+  "staples. Cook notes keep it one pot: what to hold back, add late, or " +
+  "plate separately. Honest macro estimates per adjusted plate. No em dashes.";
+
+/**
+ * Anthropic Messages request to tailor a table dish per seat.
+ * @param {{ recipe: { name: string, servings: number, calories: number, protein: number, carbs: number, fat: number, ingredients: string[] }, seats: ReturnType<typeof sanitizePeople>, model: string }} args
+ */
+export function buildTailorRequest({ recipe, seats, model }) {
+  const dish =
+    `Dish: ${recipe.name} (serves ${recipe.servings}; per serving ${recipe.calories} kcal, ` +
+    `${recipe.protein}g protein, ${recipe.carbs}g carbs, ${recipe.fat}g fat)\n` +
+    `Ingredients: ${recipe.ingredients.join(", ")}`;
+  const people = seats
+    .map((s) => `[${s.id}] ${personLine(s)}${s.say ? ` (${s.say})` : ""}`)
+    .join("\n");
+  return {
+    model,
+    max_tokens: 1536,
+    system: TAILOR_SYSTEM,
+    tools: [TAILOR_TOOL],
+    tool_choice: { type: "tool", name: "record_tailor" },
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: `${dish}\n\nSeats:\n${people}\n\nTailor each plate.` }],
+      },
+    ],
+  };
+}
+
+/**
+ * Sanitize tailor output; seats not in `allowedIds` are dropped so the model
+ * can never write notes for someone who is not at the table.
+ * @param {Record<string, any> | null} input
+ * @param {string[]} allowedIds
+ * @returns {{ seats: Record<string, { plate: string[], estCalories: number, estProtein: number }>, cook: string[] }}
+ */
+export function validateTailor(input, allowedIds) {
+  const strList = (/** @type {any} */ v, /** @type {number} */ cap) =>
+    (Array.isArray(v) ? v : [])
+      .filter((s) => typeof s === "string" && s.trim())
+      .map((s) => s.trim().slice(0, 160))
+      .slice(0, cap);
+  /** @type {Record<string, { plate: string[], estCalories: number, estProtein: number }>} */
+  const seats = {};
+  const allowed = new Set(allowedIds);
+  for (const s of Array.isArray(input?.seats) ? input.seats : []) {
+    if (typeof s !== "object" || s === null) continue;
+    if (typeof s.id !== "string" || !allowed.has(s.id) || seats[s.id]) continue;
+    const plate = strList(s.plate, 3);
+    if (plate.length === 0) continue;
+    seats[s.id] = {
+      plate,
+      estCalories:
+        typeof s.estCalories === "number" && isFinite(s.estCalories)
+          ? Math.round(s.estCalories)
+          : 0,
+      estProtein:
+        typeof s.estProtein === "number" && isFinite(s.estProtein) ? Math.round(s.estProtein) : 0,
+    };
+  }
+  return { seats, cook: strList(input?.cook, 3) };
+}
+
+// ---- /dinner: household discussion → a decided dinner --------------------
+
+const FOOD_GROUP_KEYS = [
+  "beans",
+  "berries",
+  "otherFruit",
+  "cruciferousVeg",
+  "greens",
+  "otherVeg",
+  "flaxseed",
+  "nuts",
+  "spicesHerbs",
+  "wholeGrains",
+  "beverages",
+];
+
+const DINNER_TOOL = {
+  name: "record_dinner",
+  description:
+    "Call this ONLY when the dinner decision is settled. Either pick a recipe " +
+    "from the candidate list (pickRecipeId) OR invent one special meal " +
+    "(special) when no candidate honestly satisfies everyone. Never both.",
+  input_schema: {
+    type: "object",
+    properties: {
+      pickRecipeId: {
+        type: "string",
+        description: "the chosen candidate recipe id, or '' when proposing a special meal",
+      },
+      special: {
+        type: "object",
+        description: "a fully specified new meal, only when pickRecipeId is ''",
+        properties: {
+          name: { type: "string" },
+          description: { type: "string", description: "one appetizing sentence" },
+          servings: { type: "number", description: "how many servings the recipe yields" },
+          totalTime: { type: "number", description: "minutes start to plate" },
+          ingredients: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                qty: { type: "number" },
+                unit: { type: "string", description: "g, ml, tbsp, x, ..." },
+                food: { type: "string" },
+              },
+              required: ["qty", "unit", "food"],
+            },
+          },
+          instructions: { type: "array", items: { type: "string" } },
+          nutrition: {
+            type: "object",
+            description: "PER SERVING, honest estimates",
+            properties: {
+              calories: { type: "number" },
+              protein: { type: "number" },
+              carbs: { type: "number" },
+              fat: { type: "number" },
+            },
+            required: ["calories", "protein", "carbs", "fat"],
+          },
+          foodGroups: {
+            type: "object",
+            description:
+              "Daily Dozen servings per recipe serving; keys among: " + FOOD_GROUP_KEYS.join(", "),
+          },
+        },
+        required: ["name", "servings", "totalTime", "ingredients", "instructions", "nutrition"],
+      },
+      plates: {
+        type: "array",
+        description: "per-person plate note for the chosen dinner",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "the person's profile id, exactly as given" },
+            note: {
+              type: "string",
+              description: "one concrete plating adjustment for them, '' if none",
+            },
+            estCalories: { type: "number" },
+            estProtein: { type: "number" },
+          },
+          required: ["id", "note", "estCalories", "estProtein"],
+        },
+      },
+      why: { type: "string", description: "1-2 sentences: how this answers everyone's asks" },
+    },
+    required: ["pickRecipeId", "plates", "why"],
+  },
+};
+
+const DINNER_SYSTEM =
+  "You mediate a household's what-should-dinner-be discussion for a meal " +
+  "planning app. Each person has a goal, daily targets, and tonight's ask in " +
+  "their own words. Weigh every voice; nobody's ask is silently dropped. " +
+  "Strongly prefer picking from the candidate recipe list (the household " +
+  "already shops and cooks these). Invent a special meal ONLY when no " +
+  "candidate honestly fits the asks, keeping it cheap, whole-food-forward " +
+  "and weeknight-simple. If the asks conflict, say the tradeoff plainly in a " +
+  "SHORT reply (a sentence or two) and ask ONE clarifying question instead " +
+  "of deciding. The moment a fair decision exists, call record_dinner. " +
+  "Respect diets and never-serve lists absolutely. Do not re-ask what the " +
+  "asks already answer. No em dashes.";
+
+/**
+ * Anthropic Messages request for one dinner-discussion turn.
+ * @param {{ messages: { role: string, content: string }[], people: ReturnType<typeof sanitizePeople>, candidates: { id: string, name: string, calories: number, protein: number, cuisine: string }[], model: string }} args
+ */
+export function buildDinnerRequest({ messages, people, candidates, model }) {
+  const who = people
+    .map((p) => `[${p.id}] ${personLine(p)}${p.say ? ` | tonight's ask: "${p.say}"` : ""}`)
+    .join("\n");
+  const menu = candidates
+    .map(
+      (c) =>
+        `${c.id}: ${c.name} (${c.calories} kcal, ${c.protein}g P${c.cuisine ? `, ${c.cuisine}` : ""})`,
+    )
+    .join("\n");
+  const system = `${DINNER_SYSTEM}\n\nPeople at the table:\n${who}\n\nCandidate recipes:\n${menu}`;
+  return {
+    model,
+    max_tokens: 2048,
+    system,
+    tools: [DINNER_TOOL],
+    messages: messages.map((m) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: [{ type: "text", text: String(m.content ?? "").slice(0, 4000) }],
+    })),
+  };
+}
+
+/**
+ * One dinner-discussion turn: either assistant text (still talking) or a
+ * settled decision. Prefers the tool call when present.
+ * @param {Record<string, any>} response
+ * @param {string[]} candidateIds
+ * @param {string[]} personIds
+ * @returns {{ reply: string, decision: ReturnType<typeof validateDinnerDecision> }}
+ */
+export function parseDinnerResponse(response, candidateIds, personIds) {
+  const blocks = Array.isArray(response?.content) ? response.content : [];
+  const tool = blocks.find((b) => b?.type === "tool_use" && b?.name === "record_dinner");
+  if (tool) {
+    const decision = validateDinnerDecision(tool.input ?? {}, candidateIds, personIds);
+    if (decision) return { reply: "", decision };
+  }
+  const text = blocks
+    .filter((b) => b?.type === "text" && typeof b.text === "string")
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
+  return { reply: text, decision: null };
+}
+
+/**
+ * Sanitize a record_dinner tool input. A pick must name a real candidate; a
+ * special meal must be complete enough to cook and shop. Invalid = null (the
+ * turn is treated as still-talking).
+ * @param {Record<string, any>} input
+ * @param {string[]} candidateIds
+ * @param {string[]} personIds
+ * @returns {{ pickRecipeId: string, special: Record<string, any> | null, plates: { id: string, note: string, estCalories: number, estProtein: number }[], why: string } | null}
+ */
+export function validateDinnerDecision(input, candidateIds, personIds) {
+  const str = (/** @type {any} */ v, /** @type {number} */ n) =>
+    typeof v === "string" ? v.trim().slice(0, n) : "";
+  const num = (/** @type {any} */ v) => (typeof v === "number" && isFinite(v) ? v : null);
+  const pick = str(input.pickRecipeId, 80);
+  const allowedPeople = new Set(personIds);
+
+  /** @type {Record<string, any> | null} */
+  let special = null;
+  if (!pick && typeof input.special === "object" && input.special !== null) {
+    const s = input.special;
+    const name = str(s.name, 60);
+    const servings = num(s.servings);
+    const ingredients = (Array.isArray(s.ingredients) ? s.ingredients : [])
+      .filter((/** @type {any} */ i) => {
+        if (typeof i !== "object" || i === null || !str(i.food, 60)) return false;
+        const q = num(i.qty);
+        return q !== null && q > 0;
+      })
+      .map((/** @type {any} */ i) => ({
+        qty: /** @type {number} */ (num(i.qty)),
+        unit: str(i.unit, 12) || "x",
+        food: str(i.food, 60),
+      }))
+      .slice(0, 25);
+    const instructions = (Array.isArray(s.instructions) ? s.instructions : [])
+      .filter((/** @type {any} */ t) => typeof t === "string" && t.trim())
+      .map((/** @type {string} */ t, /** @type {number} */ i) => ({
+        step: i + 1,
+        text: t.trim().slice(0, 300),
+      }))
+      .slice(0, 15);
+    const nRaw = typeof s.nutrition === "object" && s.nutrition !== null ? s.nutrition : {};
+    const nutrition = {
+      calories: num(nRaw.calories),
+      protein: num(nRaw.protein),
+      carbs: num(nRaw.carbs),
+      fat: num(nRaw.fat),
+    };
+    /** @type {Record<string, number>} */
+    const foodGroups = {};
+    const fgRaw = typeof s.foodGroups === "object" && s.foodGroups !== null ? s.foodGroups : {};
+    for (const key of FOOD_GROUP_KEYS) {
+      const v = num(fgRaw[key]);
+      if (v !== null && v > 0) foodGroups[key] = Math.min(4, v);
+    }
+    const ok =
+      name &&
+      servings !== null &&
+      servings >= 1 &&
+      servings <= 10 &&
+      ingredients.length >= 2 &&
+      instructions.length >= 2 &&
+      Object.values(nutrition).every((v) => v !== null && v >= 0);
+    if (ok) {
+      special = {
+        name,
+        description: str(s.description, 200),
+        servings: Math.round(/** @type {number} */ (servings)),
+        totalTime: Math.max(5, Math.round(num(s.totalTime) ?? 30)),
+        ingredients,
+        instructions,
+        nutrition: { ...nutrition, method: "estimated" },
+        foodGroups: { ...foodGroups, method: "estimated" },
+      };
+    }
+  }
+
+  if (!candidateIds.includes(pick) && !special) return null;
+
+  const plates = (Array.isArray(input.plates) ? input.plates : [])
+    .filter(
+      (/** @type {any} */ p) => typeof p === "object" && p !== null && allowedPeople.has(p.id),
+    )
+    .map((/** @type {any} */ p) => ({
+      id: /** @type {string} */ (p.id),
+      note: str(p.note, 160),
+      estCalories: Math.round(num(p.estCalories) ?? 0),
+      estProtein: Math.round(num(p.estProtein) ?? 0),
+    }))
+    .slice(0, 8);
+
+  return {
+    pickRecipeId: candidateIds.includes(pick) ? pick : "",
+    special,
+    plates,
+    why: str(input.why, 400),
   };
 }
 
@@ -336,7 +885,15 @@ export function validateOnboardProfile(input) {
       .map((s) => s.trim().slice(0, 60))
       .slice(0, 20);
   const name = str(input.name, 40);
-  const req = [input.sex, input.age, input.heightFt, input.heightIn, input.weightLb, input.activity, input.goal];
+  const req = [
+    input.sex,
+    input.age,
+    input.heightFt,
+    input.heightIn,
+    input.weightLb,
+    input.activity,
+    input.goal,
+  ];
   const sexOk = input.sex === "m" || input.sex === "f";
   const goalOk = ["loss", "maintain", "gain"].includes(input.goal);
   if (!name || !sexOk || !goalOk || req.some((v, i) => i > 0 && i < 6 && num(v) === null)) {
@@ -355,7 +912,9 @@ export function validateOnboardProfile(input) {
     goal: input.goal,
     trainingEnabled: input.trainingEnabled !== false,
     state: str(input.state, 2).toUpperCase(),
-    diet: ["omnivore", "pescatarian", "vegetarian", "vegan"].includes(input.diet) ? input.diet : "omnivore",
+    diet: ["omnivore", "pescatarian", "vegetarian", "vegan"].includes(input.diet)
+      ? input.diet
+      : "omnivore",
     allergensFreeText: str(input.allergensFreeText, 200),
     dislikeIngredients: list(input.dislikeIngredients),
     tiredOf: list(input.tiredOf),
@@ -388,7 +947,8 @@ export function validateReceiptItems(input) {
     if (out.length >= 120) break;
     if (typeof it !== "object" || it === null) continue;
     const name = typeof it.name === "string" ? it.name.trim().slice(0, 80) : "";
-    const price = typeof it.price === "number" && it.price > 0 ? Math.round(it.price * 100) / 100 : 0;
+    const price =
+      typeof it.price === "number" && it.price > 0 ? Math.round(it.price * 100) / 100 : 0;
     if (!name || !price) continue;
     const size = typeof it.size === "string" ? it.size.trim().slice(0, 40) : "";
     out.push({ name, price, size });
