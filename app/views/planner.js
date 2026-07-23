@@ -11,7 +11,7 @@ import {
   SLOT_KEYS,
   SLOT_META,
 } from "../lib/plan.js";
-import { parseLocalIso, statusDate } from "../lib/dates.js";
+import { parseLocalIso } from "../lib/dates.js";
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
@@ -81,6 +81,10 @@ export function PlannerView({
   const rootRef = useRef(/** @type {HTMLElement | null} */ (null));
   // tray meal filter: at ~50 recipes an unfiltered tray is unusable (David)
   const [trayFilter, setTrayFilter] = useState(/** @type {string | null} */ (null));
+  // scoreboard accordion (David's layout pick, 2026-07-23): which days are
+  // expanded. Absent = default (today open, everything else collapsed);
+  // native <details> does the rest, this map only remembers user toggles
+  const [openDays, setOpenDays] = useState(/** @type {Record<string, boolean>} */ ({}));
   // latest-callback ref: the drag engine attaches ONCE and never re-attaches
   // mid-gesture, regardless of parent re-renders
   const dropRef = useRef(onDropInto);
@@ -97,6 +101,9 @@ export function PlannerView({
   const isPast = (/** @type {string} */ d) => Boolean(todayRef.current) && d < todayRef.current;
   const firstLive = dates.find((d) => !isPast(d));
   const midWeek = firstLive != null && dates.some((d) => isPast(d));
+  // the one day expanded by default: today when this week is shown, else the
+  // week's first live day (a fully past week opens nothing)
+  const defaultOpenDate = dates.includes(todayRef.current ?? "") ? todayRef.current : firstLive;
 
   useEffect(() => {
     if (!rootRef.current) return;
@@ -333,55 +340,81 @@ export function PlannerView({
         const pPct = Math.min(100, Math.round((totals.protein / proteinTarget) * 100));
         // out slots carry an assumed macro credit (dayTotals counts it), so
         // the meters and warn styling stay honest without special-casing
-        const dayOut = SLOTS.some(({ key }) => outEntryAt(plan.entries, date, key));
         const dayTable = plan.entries.find((e) => e.date === date && e.table);
         const kcalOk = totals.calories / kcalTarget >= 0.9;
         const pOk = totals.protein / proteinTarget >= 0.9;
+        // collapsed rows still whisper the dinner so "what's tonight" never
+        // hides behind the accordion (the Historian's condition on this pick)
+        const dinnerEntries = entriesAt(plan.entries, date, "dinner").filter((e) => !e.out);
+        // dinner-scoped, never day-wide: a breakfast marked OUT must not
+        // stamp "out" on the dinner whisper. A table dinner needs no extra
+        // marker either, its freeText already carries the 🍽 prefix.
+        const dinnerOut = outEntryAt(plan.entries, date, "dinner");
+        const dinnerWhisper =
+          dinnerEntries.length > 0
+            ? dinnerEntries
+                .map((e) => (e.recipeId ? (byId.get(e.recipeId)?.name ?? e.recipeId) : e.freeText))
+                .join(" · ")
+            : dinnerOut
+              ? "🍴 eating out"
+              : "—";
+        const isOpen = openDays[date] ?? date === defaultOpenDate;
+        const dayName = parseLocalIso(date).toLocaleDateString([], { weekday: "short" });
         return html`
-          <section class="day ${past ? "past" : ""}" key=${date}>
-            <h2 class="block-title">
-              ${statusDate(parseLocalIso(date))}${past && html`<span class="eaten">✓ eaten</span>`}${dayOut && html`<span class="outday"> · 🍴 out</span>`}${dayTable && html`<span class="outday"> · adjusted around ${dayTable.freeText} · <a href="#/tables">Table tab</a></span>`}
-            </h2>
-            <div class="meters">
-              <div class="meterline ${kcalOk ? "" : "warn"}">
-                <span class="k num">${totals.calories} / ${kcalTarget} kcal</span>
-                <div
-                  class="meter"
-                  role="progressbar"
-                  aria-label="Calories planned"
-                  aria-valuenow=${totals.calories}
-                  aria-valuemin="0"
-                  aria-valuemax=${kcalTarget}
-                >
-                  <i style=${`width:${kcalPct}%`}></i>
-                </div>
-              </div>
-              <div class="meterline ${pOk ? "" : "warn"}">
-                <span class="k num">${totals.protein} / ${proteinTarget}g P</span>
-                <div
-                  class="meter"
-                  role="progressbar"
-                  aria-label="Protein planned"
-                  aria-valuenow=${totals.protein}
-                  aria-valuemin="0"
-                  aria-valuemax=${proteinTarget}
-                >
-                  <i style=${`width:${pPct}%`}></i>
-                </div>
-              </div>
-            </div>
-            <div class="slotgrid">
-              ${SLOTS.map(({ key, label, full }) => {
-                const outEntry = outEntryAt(plan.entries, date, key);
-                const stacked = entriesAt(plan.entries, date, key).filter((e) => !e.out);
-                if (past) {
-                  // read-only: what was eaten, nothing draggable, no controls
-                  return html`
-                    <div class="slotrow" key=${key}>
-                      <span class="t" aria-label=${full}>${label}</span>
-                      ${outEntry && html`<span class="outslot">🍴 ate out</span>`}
-                      ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">—</span>`}
-                      ${
+          <details
+            class="day dayrow ${past ? "past" : ""}"
+            key=${date}
+            open=${isOpen}
+            onToggle=${(/** @type {any} */ e) =>
+              setOpenDays({ ...openDays, [date]: e.currentTarget.open })}
+          >
+            <summary
+              aria-label="${dayName} ${monthDay(date)}: ${totals.calories} of ${kcalTarget} calories, ${totals.protein} of ${proteinTarget} grams protein${past ? ", already eaten" : ""}"
+            >
+              <span class="dsum-day">
+                ${dayName}
+                <small class="num">${monthDay(date)}</small>
+              </span>
+              <span class="dsum-meters">
+                <span class="mline ${kcalOk ? "" : "warn"}">
+                  <b class="num">${totals.calories} / ${kcalTarget}</b>
+                  <span class="meter" aria-hidden="true">
+                    <i style=${`width:${kcalPct}%`}></i>
+                  </span>
+                </span>
+                <span class="mline ${pOk ? "" : "warn"}">
+                  <b class="num">${totals.protein} / ${proteinTarget}P</b>
+                  <span class="meter" aria-hidden="true">
+                    <i style=${`width:${pPct}%`}></i>
+                  </span>
+                </span>
+                <span class="dsum-whisper">
+                  ${past && html`<span class="eaten">✓ eaten</span> `}${`DIN · ${dinnerWhisper}`}${!past && dinnerOut && dinnerEntries.length > 0 ? " · 🍴 out" : ""}
+                </span>
+              </span>
+              <span class="dsum-status ${past ? "" : kcalOk && pOk ? "ok" : "shortfall"}">
+                ${past ? "" : kcalOk && pOk ? "✓" : "short"}
+              </span>
+            </summary>
+            <div class="daymeals">
+              ${
+                dayTable &&
+                html`<p class="hint">
+                  🍽 adjusted around ${dayTable.freeText} · <a href="#/tables">Table tab</a>
+                </p>`
+              }
+              <div class="slotgrid">
+                ${SLOTS.map(({ key, label, full }) => {
+                  const outEntry = outEntryAt(plan.entries, date, key);
+                  const stacked = entriesAt(plan.entries, date, key).filter((e) => !e.out);
+                  if (past) {
+                    // read-only: what was eaten, nothing draggable, no controls
+                    return html`
+                      <div class="slotrow" key=${key}>
+                        <span class="t" aria-label=${full}>${label}</span>
+                        ${outEntry && html`<span class="outslot">🍴 ate out</span>`}
+                        ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">—</span>`}
+                        ${
                         stacked.length > 0 &&
                         html`<div class="stack">
                           ${stacked.map((entry) => {
@@ -405,19 +438,19 @@ export function PlannerView({
                           })}
                         </div>`
                       }
-                    </div>
-                  `;
-                }
-                return html`
-                  <div
-                    class="slotrow ${outEntry ? "isout" : ""}"
-                    data-drop
-                    data-date=${date}
-                    data-slot=${key}
-                    key=${key}
-                  >
-                    <span class="t" aria-label=${full}>${label}</span>
-                    ${
+                      </div>
+                    `;
+                  }
+                  return html`
+                    <div
+                      class="slotrow ${outEntry ? "isout" : ""}"
+                      data-drop
+                      data-date=${date}
+                      data-slot=${key}
+                      key=${key}
+                    >
+                      <span class="t" aria-label=${full}>${label}</span>
+                      ${
                       outEntry &&
                       html`<span class="outslot">
                         🍴 eating out
@@ -432,8 +465,8 @@ export function PlannerView({
                         }
                       </span>`
                     }
-                    ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">—</span>`}
-                    ${
+                      ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">—</span>`}
+                      ${
                       // real entries render even next to a placeholder: a
                       // two-device merge can resurrect a meal into an out
                       // slot, and hiding it would leave it silently shopped
@@ -498,23 +531,24 @@ export function PlannerView({
                         })}
                       </div>`
                     }
-                    <button
-                      class="outbtn ${outEntry ? "on" : ""}"
-                      aria-pressed=${Boolean(outEntry)}
-                      aria-label=${
+                      <button
+                        class="outbtn ${outEntry ? "on" : ""}"
+                        aria-pressed=${Boolean(outEntry)}
+                        aria-label=${
                         outEntry
                           ? `${full} ${monthDay(date)} is eating out, tap to plan a meal again`
                           : `Mark ${full} ${monthDay(date)} as eating out: clears the slot, nothing shopped or re-rolled`
                       }
-                      onClick=${() => onToggleOut(date, key)}
-                    >
-                      🍴 OUT
-                    </button>
-                  </div>
-                `;
-              })}
+                        onClick=${() => onToggleOut(date, key)}
+                      >
+                        🍴 OUT
+                      </button>
+                    </div>
+                  `;
+                })}
+              </div>
             </div>
-          </section>
+          </details>
         `;
       })}
     </div>

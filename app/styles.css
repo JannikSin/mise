@@ -873,7 +873,7 @@ summary.block-title {
   border-style: solid;
 }
 
-.block-title .eaten {
+.dsum-whisper .eaten {
   font-size: 9.5px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -881,19 +881,6 @@ summary.block-title {
   border: 1px solid var(--line);
   border-radius: 3px;
   padding: 1px 5px;
-}
-
-.meters {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  padding: 0 4px 8px;
-}
-
-.meterline .k {
-  font-family: var(--mono);
-  font-size: 9.5px;
-  color: var(--dim);
 }
 
 .meter {
@@ -909,10 +896,6 @@ summary.block-title {
   height: 100%;
   border-radius: 3px;
   background: var(--signal);
-}
-
-.meterline.warn .meter i {
-  background: var(--amber);
 }
 
 .traymsg {
@@ -1056,11 +1039,6 @@ summary.block-title {
   color: var(--dim);
   font-family: var(--mono);
   font-size: 11px;
-}
-
-.block-title .outday {
-  color: var(--dim);
-  font-weight: normal;
 }
 
 /* ---- interval timer (F1) ---- */
@@ -2342,6 +2320,112 @@ button.linktext {
    (conflicts, collisions, tailoring errors) */
 .tablecard .redflag {
   color: var(--red);
+}
+
+/* Plan scoreboard (David's layout pick, 2026-07-23): the week as seven
+   one-line days, meters always visible, native <details> accordion */
+details.dayrow {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+details.dayrow summary {
+  list-style: none;
+  display: grid;
+  grid-template-columns: 46px 1fr 52px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  min-height: 56px;
+  cursor: pointer;
+}
+
+details.dayrow summary::-webkit-details-marker {
+  display: none;
+}
+
+details.dayrow summary:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: -2px;
+  border-radius: 14px;
+}
+
+.dsum-day {
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.dsum-day small {
+  display: block;
+  color: var(--dim);
+  font-weight: 400;
+}
+
+.dsum-meters {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dsum-meters .mline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dsum-meters .mline b {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--dim);
+  min-width: 84px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.dsum-meters .meter {
+  flex: 1;
+  margin-top: 0;
+}
+
+.dsum-meters .mline.warn .meter i {
+  background: var(--amber);
+}
+
+.dsum-whisper {
+  display: block;
+  color: var(--dim);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dsum-status {
+  text-align: right;
+  font-size: 13px;
+  font-family: var(--mono);
+}
+
+.dsum-status.ok {
+  color: var(--signal);
+}
+
+.dsum-status.shortfall {
+  color: var(--amber);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.daymeals {
+  border-top: 1px solid var(--line);
+  padding: 8px 10px 10px;
 }
 
 .saylabel {
