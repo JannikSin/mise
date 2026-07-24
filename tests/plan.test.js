@@ -15,6 +15,8 @@ import {
   slotMacroEstimate,
   OUT_TEXT,
   setPlanLocked,
+  setPlanShopped,
+  toggleEntryCooked,
   mergeRecipePool,
   dietOf,
   prepSundayOf,
@@ -423,4 +425,33 @@ test("normalizePlan preserves buffer across a read-refresh", () => {
   };
   assert.deepEqual(normalizePlan(raw, "2026-W28").buffer, { recipeId: "bean-tub", portions: 7 });
   assert.equal(normalizePlan({ week: "2026-W28", entries: [] }, "2026-W28").buffer, undefined);
+});
+
+test("setPlanShopped stamps the week; normalizePlan carries it and cookedAt", () => {
+  const plan = setPlanShopped({ week: "2026-W30", entries: [] }, "2026-07-25");
+  assert.equal(plan.shoppedAt, "2026-07-25");
+  const carried = normalizePlan(
+    {
+      week: "2026-W30",
+      shoppedAt: "2026-07-25",
+      entries: [
+        { id: "a", date: "2026-07-23", slot: "dinner", servings: 1, cookedAt: "2026-07-23" },
+      ],
+    },
+    "2026-W30",
+  );
+  assert.equal(carried.shoppedAt, "2026-07-25");
+  assert.equal(carried.entries[0].cookedAt, "2026-07-23");
+});
+
+test("toggleEntryCooked confirms, and a second tap takes it back", () => {
+  const plan = {
+    week: "2026-W30",
+    entries: [{ id: "a", date: "2026-07-23", slot: "dinner", servings: 1 }],
+  };
+  const cooked = toggleEntryCooked(plan, "a", "2026-07-23");
+  assert.equal(cooked.entries[0].cookedAt, "2026-07-23");
+  const undone = toggleEntryCooked(cooked, "a", "2026-07-24");
+  assert.ok(!("cookedAt" in undone.entries[0]), "toggle off removes the field");
+  assert.equal(plan.entries[0].cookedAt, undefined, "pure: input untouched");
 });

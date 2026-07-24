@@ -847,6 +847,164 @@ export function validateDinnerDecision(input, candidateIds, personIds) {
   };
 }
 
+// ---- ntfy notification engine (Worker cron) ------------------------------
+// Pure schedule logic; the Worker's scheduled() handler feeds it real data
+// and posts the results to ntfy. All times are America/Chicago hours.
+
+const APP_URL = "https://janniksin.github.io/mise/";
+
+/** meal slots the cook reminders cover, with their local reminder hour */
+const MEAL_HOURS = /** @type {const} */ ([
+  ["lunch", 11],
+  ["smoothie", 15],
+  ["snack", 15],
+  ["dinner", 17],
+]);
+
+/**
+ * ISO week id for a local YYYY-MM-DD (same math as app/lib/dates.js).
+ * @param {string} dateIso
+ * @returns {string}
+ */
+export function isoWeekIdOf(dateIso) {
+  const [y = 0, m = 1, d = 1] = dateIso.split("-").map(Number);
+  const t = new Date(y, m - 1, d);
+  t.setDate(t.getDate() + 3 - ((t.getDay() + 6) % 7));
+  const isoYear = t.getFullYear();
+  const jan4 = new Date(isoYear, 0, 4);
+  const week1Monday = new Date(isoYear, 0, 4 - ((jan4.getDay() + 6) % 7));
+  const week = 1 + Math.round((t.getTime() - week1Monday.getTime()) / (7 * 86400000));
+  return `${isoYear}-W${String(week).padStart(2, "0")}`;
+}
+
+/**
+ * Everything to send for ONE local hour. Honest-state rules (David,
+ * 2026-07-23): cook reminders exist only when the week's groceries are
+ * CONFIRMED (plan.shoppedAt, set by scanning the receipt) and the meal
+ * isn't already marked cooked; a missing plan or an OUT slot sends nothing.
+ * @param {{
+ *   hour: number,
+ *   weekday: string,
+ *   dateIso: string,
+ *   plan: Record<string, any> | null,
+ *   shopping: Record<string, any> | null,
+ *   daily: Record<string, any> | null,
+ *   recipeName: (id: string) => string
+ * }} args weekday = "Mon".."Sun"
+ * @returns {{ title: string, body: string, tags: string, priority: string, click: string }[]}
+ */
+export function buildNotifications({ hour, weekday, dateIso, plan, shopping, daily, recipeName }) {
+  /** @type {{ title: string, body: string, tags: string, priority: string, click: string }[]} */
+  const out = [];
+  const entries = Array.isArray(plan?.entries) ? plan.entries : [];
+  const shopped = Boolean(plan?.shoppedAt);
+  const todayEntries = (/** @type {string} */ slot) =>
+    entries.filter((e) => e.date === dateIso && e.slot === slot);
+  const mealLine = (/** @type {Record<string, any>} */ e) =>
+    e.table
+      ? String(e.freeText ?? "🍽 table")
+      : e.recipeId
+        ? recipeName(e.recipeId)
+        : String(e.freeText ?? "");
+
+  // morning check-in + the day ahead
+  if (hour === 7) {
+    const brk = todayEntries("breakfast").filter((e) => !e.out);
+    const dinner = todayEntries("dinner").filter((e) => !e.out);
+    const lines = ["Log: weight · supplements · water · pushups"];
+    if (shopped && brk.length > 0) lines.push(`Breakfast: ${brk.map(mealLine).join(" · ")}`);
+    if (dinner.length > 0) lines.push(`Tonight: ${dinner.map(mealLine).join(" · ")}`);
+    out.push({
+      title: "Morning check-in",
+      body: lines.join("\n"),
+      tags: "sunrise",
+      priority: "default",
+      click: APP_URL,
+    });
+  }
+
+  // cook reminders, only for confirmed-shopped weeks and uncooked meals
+  for (const [slot, mealHour] of MEAL_HOURS) {
+    if (hour !== mealHour) continue;
+    const due = todayEntries(slot).filter(
+      (e) => !e.out && !e.cookedAt && (e.table || (shopped && e.recipeId)),
+    );
+    if (due.length === 0) continue;
+    const label = slot === "smoothie" || slot === "snack" ? "Afternoon fuel" : `Cook ${slot}`;
+    // one notification per hour, meals merged (smoothie+snack share 15:00)
+    const existing = out.find((n) => n.title === label);
+    const body = due.map(mealLine).filter(Boolean).join(" · ");
+    if (existing) {
+      existing.body += ` · ${body}`;
+    } else {
+      out.push({
+        title: label,
+        body,
+        tags: "cook",
+        priority: "default",
+        click: `${APP_URL}#/today`,
+      });
+    }
+  }
+
+  // store run: Saturday nag, Sunday fallback, until the receipt confirms
+  if ((weekday === "Sat" && hour === 10) || (weekday === "Sun" && hour === 12)) {
+    if (!shopped) {
+      const open = (shopping?.items ?? []).filter((/** @type {any} */ i) => !i.checked).length;
+      if (open > 0) {
+        out.push({
+          title: "Store run",
+          body: `${open} items on the list. Scan the receipt after — that's what unlocks cook reminders.`,
+          tags: "shopping_cart",
+          priority: "default",
+          click: `${APP_URL}#/list`,
+        });
+      }
+    }
+  }
+
+  // Sunday batch block
+  if (weekday === "Sun" && hour === 10) {
+    out.push({
+      title: "Batch day",
+      body: "Sunday prep: open Cook for the batch list, tick each component done as you go.",
+      tags: "cooking",
+      priority: "default",
+      click: `${APP_URL}#/today`,
+    });
+  }
+
+  // evening catch-up: whatever today's log is still missing
+  if (hour === 20) {
+    const day = (daily?.days ?? []).find((/** @type {any} */ d) => d.date === dateIso) ?? {};
+    /** @type {string[]} */
+    const missing = [];
+    if (day.weight == null) missing.push("weight");
+    // supplements is a per-supplement tick map in daily.json
+    if (!Object.values(day.supplements ?? {}).some(Boolean)) missing.push("supplements");
+    if (!(Number(day.water) > 0)) missing.push("water");
+    if (!(Number(day.pushups) > 0)) missing.push("pushups");
+    const uncooked = shopped
+      ? entries.filter((e) => e.date === dateIso && e.recipeId && !e.out && !e.cookedAt).length
+      : 0;
+    if (missing.length > 0 || uncooked > 0) {
+      const bits = [];
+      if (missing.length > 0) bits.push(`Not logged yet: ${missing.join(" · ")}`);
+      if (uncooked > 0)
+        bits.push(`${uncooked} planned meal${uncooked === 1 ? "" : "s"} not marked cooked`);
+      out.push({
+        title: "Evening catch-up",
+        body: bits.join("\n"),
+        tags: "clipboard",
+        priority: "default",
+        click: APP_URL,
+      });
+    }
+  }
+
+  return out;
+}
+
 /**
  * Input of the forced tool_use block, or null if absent.
  * @param {Record<string, any>} response

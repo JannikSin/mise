@@ -40,6 +40,17 @@ test("ids are URL-decoded", () => {
   assert.deepEqual(parseRoute("#/recipe/a%20b"), { view: "recipe", id: "a b" });
 });
 
+test("?entry= plan-entry id is carried into recipe and cook routes", () => {
+  assert.deepEqual(parseRoute("#/recipe/x/cook?from=today&servings=2&entry=abc123"), {
+    view: "cook",
+    id: "x",
+    from: "today",
+    servings: 2,
+    entry: "abc123",
+  });
+  assert.equal(parseRoute("#/recipe/x?from=today").entry, undefined);
+});
+
 test("?from= origin is carried on recipe and cook routes, omitted when absent", () => {
   assert.deepEqual(parseRoute("#/recipe/x?from=today"), {
     view: "recipe",

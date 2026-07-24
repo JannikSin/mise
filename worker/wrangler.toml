@@ -8,5 +8,12 @@ preview_urls = false
 
 # Secrets (set via dashboard or `npx wrangler secret put`, NEVER here):
 #   ANTHROPIC_API_KEY
+#   MISE_DATA_TOKEN  (read-only fine-grained PAT on mise-data — cron reads)
+#   NTFY_TOPIC       (unguessable ntfy.sh topic David's phone subscribes to)
 # Optional plain vars to override models:
 #   SCAN_MODEL / REMEDY_MODEL (default claude-sonnet-5 in code)
+
+# hourly notification cron (meal/store/batch/check-in pings via ntfy);
+# scheduled() no-ops silently until both notification secrets are set
+[triggers]
+crons = ["0 * * * *"]

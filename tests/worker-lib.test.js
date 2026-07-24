@@ -24,6 +24,8 @@ import {
   hitsAvoid,
   screenTailorAvoid,
   specialAvoidHits,
+  buildNotifications,
+  isoWeekIdOf,
 } from "../worker/src/lib.js";
 
 test("corsFor allows only the app origins", () => {
@@ -517,4 +519,121 @@ test("specialAvoidHits refuses a special whose ingredients hit any participant's
     ["Laurie: peanut"],
   );
   assert.deepEqual(specialAvoidHits(special, [{ name: "David", avoid: ["onion"] }]), []);
+});
+
+test("isoWeekIdOf matches the app's ISO week math", () => {
+  assert.equal(isoWeekIdOf("2026-07-23"), "2026-W30");
+  assert.equal(isoWeekIdOf("2026-01-01"), "2026-W01");
+  assert.equal(isoWeekIdOf("2027-01-01"), "2026-W53");
+});
+
+const NOTIF_BASE = {
+  weekday: "Thu",
+  dateIso: "2026-07-23",
+  shopping: null,
+  daily: null,
+  recipeName: (id) => ({ "lentil-bolognese": "Lentil Bolognese" })[id] ?? id,
+};
+const PLAN_SHOPPED = {
+  week: "2026-W30",
+  shoppedAt: "2026-07-22",
+  entries: [
+    { id: "a", date: "2026-07-23", slot: "dinner", recipeId: "lentil-bolognese", servings: 1 },
+    { id: "b", date: "2026-07-23", slot: "breakfast", recipeId: "lentil-bolognese", servings: 1 },
+  ],
+};
+
+test("cook reminder fires at the slot hour for a shopped, uncooked meal", () => {
+  const out = buildNotifications({ ...NOTIF_BASE, hour: 17, plan: PLAN_SHOPPED });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].title, "Cook dinner");
+  assert.match(out[0].body, /Lentil Bolognese/);
+});
+
+test("no cook reminder without the receipt confirmation (shoppedAt absent)", () => {
+  const plan = { ...PLAN_SHOPPED };
+  delete plan.shoppedAt;
+  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 17, plan }), []);
+});
+
+test("no cook reminder once the meal is marked cooked, or for OUT slots", () => {
+  const cooked = {
+    ...PLAN_SHOPPED,
+    entries: [{ ...PLAN_SHOPPED.entries[0], cookedAt: "2026-07-23" }],
+  };
+  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 17, plan: cooked }), []);
+  const out = {
+    ...PLAN_SHOPPED,
+    entries: [{ id: "o", date: "2026-07-23", slot: "dinner", out: true, servings: 1 }],
+  };
+  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 17, plan: out }), []);
+});
+
+test("a table dinner reminds even without shoppedAt (someone else shopped)", () => {
+  const plan = {
+    week: "2026-W30",
+    entries: [
+      {
+        id: "t",
+        date: "2026-07-23",
+        slot: "dinner",
+        table: "t1",
+        freeText: "F Family dinner",
+        servings: 1,
+      },
+    ],
+  };
+  const out = buildNotifications({ ...NOTIF_BASE, hour: 17, plan });
+  assert.equal(out.length, 1);
+  assert.match(out[0].body, /Family dinner/);
+});
+
+test("morning check-in always fires at 7 and lists tonight's dinner", () => {
+  const out = buildNotifications({ ...NOTIF_BASE, hour: 7, plan: PLAN_SHOPPED });
+  assert.equal(out.length, 1);
+  assert.match(out[0].body, /weight/);
+  assert.match(out[0].body, /Tonight: Lentil Bolognese/);
+});
+
+test("Saturday store nag fires only when unshopped with open items", () => {
+  const shopping = {
+    items: [
+      { id: "x", checked: false },
+      { id: "y", checked: true },
+    ],
+  };
+  const plan = { week: "2026-W30", entries: [] };
+  const out = buildNotifications({ ...NOTIF_BASE, weekday: "Sat", hour: 10, plan, shopping });
+  assert.equal(out.length, 1);
+  assert.match(out[0].body, /1 items/);
+  assert.deepEqual(
+    buildNotifications({ ...NOTIF_BASE, weekday: "Sat", hour: 10, plan: PLAN_SHOPPED, shopping }),
+    [],
+    "shopped week gets no store nag",
+  );
+});
+
+test("Sunday sends the batch reminder at 10", () => {
+  const out = buildNotifications({ ...NOTIF_BASE, weekday: "Sun", hour: 10, plan: null });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].title, "Batch day");
+});
+
+test("evening catch-up names exactly what today's log is missing", () => {
+  const daily = {
+    days: [
+      { date: "2026-07-23", weight: 180, supplements: { creatine: true }, water: 0, pushups: 100 },
+    ],
+  };
+  const out = buildNotifications({ ...NOTIF_BASE, hour: 20, plan: null, daily });
+  assert.equal(out.length, 1);
+  assert.match(out[0].body, /water/);
+  assert.ok(!/weight/.test(out[0].body), "logged items are not nagged");
+  assert.ok(!/pushups/.test(out[0].body));
+  const done = {
+    days: [
+      { date: "2026-07-23", weight: 180, supplements: { creatine: true }, water: 3, pushups: 100 },
+    ],
+  };
+  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 20, plan: null, daily: done }), []);
 });

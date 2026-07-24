@@ -34,6 +34,8 @@ import {
   specialAvoidHits,
   hitsAvoid,
   allowRequest,
+  buildNotifications,
+  isoWeekIdOf,
 } from "./lib.js";
 
 const DATA_REPO = "JannikSin/mise-data";
@@ -87,6 +89,107 @@ function json(status, body, cors) {
   });
 }
 
+// ---- notification cron helpers -------------------------------------------
+
+/**
+ * Read one file from the private data repo via the Contents API (the one
+ * sanctioned data path). 404 → null.
+ * @param {string} path
+ * @param {string} token
+ * @returns {Promise<Record<string, any> | null>}
+ */
+async function ghReadJson(path, token) {
+  const res = await fetch(`https://api.github.com/repos/${DATA_REPO}/contents/${path}`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+      accept: "application/vnd.github.raw+json",
+      "user-agent": "mise-worker",
+    },
+  });
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
+}
+
+/** local wall clock in David's timezone */
+function chicagoNow() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    hour: "numeric",
+    hour12: false,
+    weekday: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (/** @type {string} */ t) => parts.find((p) => p.type === t)?.value ?? "";
+  return {
+    hour: Number(get("hour")) % 24,
+    weekday: get("weekday"),
+    dateIso: `${get("year")}-${get("month")}-${get("day")}`,
+  };
+}
+
+/**
+ * Compute this hour's notifications from live data and post them to ntfy.
+ * @param {string} token repo-read token
+ * @param {string} topic ntfy topic
+ * @param {{ hour: number, weekday: string, dateIso: string }} now
+ * @param {boolean} send false = preview only (the SYS test button)
+ * @returns {Promise<{ sent: number, preview: { title: string, body: string }[] }>}
+ */
+async function runNotifications(token, topic, now, send) {
+  const weekId = isoWeekIdOf(now.dateIso);
+  const plan = await ghReadJson(`plans/${weekId}.json`, token);
+  // shopping + daily only matter at their hours; skip the reads otherwise
+  const wantsShopping = now.weekday === "Sat" || now.weekday === "Sun";
+  const shopping = wantsShopping ? await ghReadJson("shopping.json", token) : null;
+  const daily = now.hour === 20 || !send ? await ghReadJson("fitness/daily.json", token) : null;
+  // resolve only the recipe names today's entries actually need
+  /** @type {Record<string, string>} */
+  const names = {};
+  const todaysIds = [
+    ...new Set(
+      (plan?.entries ?? [])
+        .filter((/** @type {any} */ e) => e.date === now.dateIso && e.recipeId)
+        .map((/** @type {any} */ e) => String(e.recipeId))
+        // defense-in-depth: recipe ids are slugs; anything else never
+        // reaches a URL (no path/query traversal via a poisoned plan file)
+        .filter((/** @type {string} */ id) => /^[a-z0-9-]+$/.test(id)),
+    ),
+  ].slice(0, 12);
+  for (const id of todaysIds) {
+    const r = await ghReadJson(`recipes/${id}.json`, token);
+    if (r?.name) names[id] = String(r.name);
+  }
+  const recipeName = (/** @type {string} */ id) => names[id] ?? id;
+
+  const notifications = send
+    ? buildNotifications({ ...now, plan, shopping, daily, recipeName })
+    : // preview mode: the whole day's schedule at once, so the SYS button
+      // shows what WOULD fire instead of an empty list at off-hours
+      [7, 10, 11, 12, 15, 17, 20].flatMap((hour) =>
+        buildNotifications({ ...now, hour, plan, shopping, daily, recipeName }),
+      );
+
+  let sent = 0;
+  if (send && topic) {
+    for (const n of notifications) {
+      const res = await fetch(`https://ntfy.sh/${topic}`, {
+        method: "POST",
+        headers: {
+          Title: n.title,
+          Priority: n.priority,
+          Tags: n.tags,
+          Click: n.click,
+        },
+        body: n.body,
+      });
+      if (res.ok) sent++;
+    }
+  }
+  return { sent, preview: notifications.map((n) => ({ title: n.title, body: n.body })) };
+}
+
 /**
  * @param {Record<string, any>} body Anthropic Messages request
  * @param {string} apiKey
@@ -109,8 +212,26 @@ async function callAnthropic(body, apiKey) {
 
 export default {
   /**
+   * Hourly cron (wrangler.toml): compute this hour's notifications and post
+   * them to ntfy. Silent no-op until both secrets exist: MISE_DATA_TOKEN (a
+   * read-only fine-grained PAT for mise-data — the ONE stored credential,
+   * revoke it to kill the cron) and NTFY_TOPIC.
+   * @param {{ cron: string }} controller
+   * @param {{ MISE_DATA_TOKEN?: string, NTFY_TOPIC?: string }} env
+   */
+  async scheduled(controller, env) {
+    if (!env.MISE_DATA_TOKEN || !env.NTFY_TOPIC) return;
+    try {
+      await runNotifications(env.MISE_DATA_TOKEN, env.NTFY_TOPIC, chicagoNow(), true);
+    } catch {
+      // one bad fetch must not take down the hour's cron; the next hour
+      // runs fresh and the SYS test button surfaces persistent breakage
+    }
+  },
+
+  /**
    * @param {Request} request
-   * @param {{ ANTHROPIC_API_KEY?: string, SCAN_MODEL?: string, REMEDY_MODEL?: string }} env
+   * @param {{ ANTHROPIC_API_KEY?: string, SCAN_MODEL?: string, REMEDY_MODEL?: string, MISE_DATA_TOKEN?: string, NTFY_TOPIC?: string }} env
    */
   async fetch(request, env) {
     const cors = corsFor(request.headers.get("origin"));
@@ -121,9 +242,16 @@ export default {
     const url = new URL(request.url);
     if (
       request.method !== "POST" ||
-      !["/scan", "/receipt", "/onboard", "/remedy", "/menu", "/tailor", "/dinner"].includes(
-        url.pathname,
-      )
+      ![
+        "/scan",
+        "/receipt",
+        "/onboard",
+        "/remedy",
+        "/menu",
+        "/tailor",
+        "/dinner",
+        "/notify-test",
+      ].includes(url.pathname)
     ) {
       return json(404, { error: "not found" }, cors);
     }
@@ -135,6 +263,43 @@ export default {
     if (!allowRequest(rateState, await tokenKey(/** @type {string} */ (token)), Date.now())) {
       return json(429, { error: "slow down — try again in a few minutes" }, cors);
     }
+
+    // notification test (SYS button): reads with the PRESENTED token, sends
+    // one live ping, returns the whole day's would-fire schedule. Needs no
+    // Anthropic key — only the ntfy topic.
+    if (url.pathname === "/notify-test") {
+      try {
+        const now = chicagoNow();
+        const result = await runNotifications(
+          /** @type {string} */ (token),
+          env.NTFY_TOPIC ?? "",
+          now,
+          false,
+        );
+        let pinged = false;
+        if (env.NTFY_TOPIC) {
+          const res = await fetch(`https://ntfy.sh/${env.NTFY_TOPIC}`, {
+            method: "POST",
+            headers: { Title: "Mise notifications are wired", Tags: "tada", Priority: "default" },
+            body: `Test ping ${now.dateIso} ${now.hour}:00. Today's schedule has ${result.preview.length} notification(s).`,
+          });
+          pinged = res.ok;
+        }
+        return json(
+          200,
+          {
+            pinged,
+            topicSet: Boolean(env.NTFY_TOPIC),
+            cronReady: Boolean(env.MISE_DATA_TOKEN && env.NTFY_TOPIC),
+            preview: result.preview,
+          },
+          cors,
+        );
+      } catch (e) {
+        return json(502, { error: e instanceof Error ? e.message : "notify test failed" }, cors);
+      }
+    }
+
     if (!env.ANTHROPIC_API_KEY) {
       return json(503, { error: "ANTHROPIC_API_KEY not configured yet" }, cors);
     }

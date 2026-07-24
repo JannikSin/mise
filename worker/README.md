@@ -32,6 +32,36 @@ already stores; revoke it once, all die).
 - `POST /remedy` `{ text: "how I feel" }` →
   `{ protocol: { teas[], foods[], avoid[], notes[] } }` — same shape the
   offline rules engine renders.
+- `POST /notify-test` `{}` →
+  `{ pinged, topicSet, cronReady, preview[] }` — sends one live ntfy ping and
+  returns today's would-fire notification schedule (the SYS test button).
+  Reads the data repo with the PRESENTED PAT; needs no Anthropic key.
+
+## Notification cron
+
+An hourly cron (`[triggers]` in wrangler.toml) posts ntfy pushes: morning
+check-in (7), cook reminders at meal hours (11/15/17, only for weeks whose
+`plan.shoppedAt` receipt confirmation exists and meals not yet `cookedAt`),
+Saturday store nag (10) with a Sunday fallback (12), Sunday batch (10), and
+an evening catch-up (20) naming whatever the daily log is missing. Pure
+logic in `buildNotifications` (lib.js), all times America/Chicago. The cron
+no-ops silently until BOTH secrets exist:
+
+```
+npx wrangler secret put NTFY_TOPIC        # unguessable topic, subscribe in the ntfy app
+npx wrangler secret put MISE_DATA_TOKEN   # fine-grained PAT, mise-data, contents READ-ONLY
+```
+
+The topic name IS the auth on ntfy.sh: generate it (`openssl rand -hex 24`
+or any long random string), treat it like a password (never paste it into
+chats/screenshots), and rotate it if it ever leaks. Bodies deliberately
+carry meal names and missing-log LABELS only, never health values. If
+secrecy-by-topic ever feels thin, self-hosted ntfy or an ntfy Pro
+access-controlled topic adds real auth without code changes.
+
+MISE_DATA_TOKEN is the one stored repo credential (the AI endpoints still
+use only the caller's presented PAT); make it read-only and revoke it to
+kill the cron.
 
 Errors: `401` bad/missing PAT · `503` `ANTHROPIC_API_KEY` not set yet ·
 `413` photo too big · `502` upstream.
