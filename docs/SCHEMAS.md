@@ -455,6 +455,9 @@ even the same slot — merge without losing either entry.
 {
   "week": "2026-W28",
   "locked": false, // ? true = you've shopped for this week; see below
+  "shoppedAt": "2026-07-25", // ? groceries CONFIRMED bought (a scanned receipt
+  //   sets this via setPlanShopped). Honest-state rule (2026-07-23): absent =
+  //   not confirmed; the Worker's cook-reminder cron stays silent for the week.
   "buffer": { "recipeId": "smoky-three-bean-edamame-protein-salad", "portions": 7 }, // ? see below
   "entries": [
     {
@@ -468,6 +471,10 @@ even the same slot — merge without losing either entry.
       "out": false, // ? true = eating-out placeholder (see below)
       "estCalories": 595, // ? out entries only: assumed macros of the restaurant meal
       "estProtein": 34, // ? (slotMacroEstimate: pool average for the slot x 0.85 undershoot)
+      "cookedAt": "2026-07-06", // ? confirmed cooked (Cook mode's DONE button,
+      //   toggleEntryCooked). Absent = never confirmed: the Plan scoreboard
+      //   shows "not logged" instead of "eaten" on past days, and the cron
+      //   keeps reminding until it's set. A date alone NEVER implies eaten.
     },
   ],
 }
@@ -775,6 +782,9 @@ One row per day; 10-second morning check-in.
         "otherFruit": 2,
         "otherVeg": 1,
       },
+      "batched": ["chicken-bulgogi-bowl"], // ? recipe ids whose batch component
+      //   was ticked ✓ DONE on the Cook tab's batch block TODAY (honest-state:
+      //   batching is confirmed by the tap, never assumed)
     },
   ],
 }

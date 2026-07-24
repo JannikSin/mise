@@ -10,6 +10,7 @@ import {
 import { formatSyncTime } from "../lib/dates.js";
 import { activeProfile, readProfiles, patchProfiles } from "../lib/store.js";
 import { TOUR_STEPS, TOUR_TABS } from "../lib/tour.js";
+import { notifyTest } from "../lib/worker.js";
 
 /**
  * System status view: app health, sync queue, data-repo checks, token entry.
@@ -43,6 +44,27 @@ export function SystemView({
 }) {
   const ageDays = tokenAgeDays();
   const renewSoon = hasToken && ageDays != null && ageDays >= TOKEN_WARN_AGE_DAYS;
+
+  // notification pipeline test (ntfy ping + today's would-fire schedule)
+  const [notify, setNotify] = useState(/** @type {null | "busy" | "done"} */ (null));
+  const [notifyErr, setNotifyErr] = useState("");
+  const [notifyResult, setNotifyResult] = useState(
+    /** @type {null | { pinged: boolean, topicSet: boolean, cronReady: boolean, preview: { title: string, body: string }[] }} */ (
+      null
+    ),
+  );
+  const runNotifyTest = async () => {
+    if (notify === "busy") return;
+    setNotify("busy");
+    setNotifyErr("");
+    setNotifyResult(null); // a failed retest must not leave a stale success tile
+    try {
+      setNotifyResult(await notifyTest());
+    } catch (err) {
+      setNotifyErr(err instanceof Error ? err.message : "test failed — needs signal + token");
+    }
+    setNotify("done");
+  };
 
   // full list for DISPLAY; every write goes through patchProfiles (G2), which
   // mutates the real file by id and refuses when it can't be loaded — a
@@ -354,6 +376,43 @@ export function SystemView({
           Downloads this profile's data (targets, pantry, list, plans, logs, own recipes) as one
           JSON file — your offline backup, works from the local cache even without signal.
         </p>
+        <div class="actions">
+          <button class="secondary" disabled=${notify === "busy"} onClick=${runNotifyTest}>
+            ${notify === "busy" ? "TESTING…" : "🔔 TEST NOTIFICATIONS"}
+          </button>
+        </div>
+        <p class="hint">
+          Sends one real ntfy ping to your phone and lists everything today's schedule would send
+          (cook reminders, store run, batch day, check-in nags).
+        </p>
+        ${notifyErr && html`<p class="hint scanerr" role="status">${notifyErr}</p>`}
+        ${
+          notifyResult &&
+          html`<div class="tile" role="status">
+            <div class="k">
+              ${notifyResult.pinged ? "✓ ping sent — check your phone" : "no ping"} ·
+              ${
+                notifyResult.cronReady
+                  ? "hourly cron LIVE"
+                  : notifyResult.topicSet
+                    ? "cron waiting on MISE_DATA_TOKEN (Worker secret)"
+                    : "cron waiting on NTFY_TOPIC + MISE_DATA_TOKEN (Worker secrets)"
+              }
+            </div>
+            ${
+              notifyResult.preview.length === 0
+                ? html`<div class="d">
+                    nothing scheduled today (no plan, or groceries not confirmed)
+                  </div>`
+                : notifyResult.preview.map(
+                    (n) =>
+                      html`<div class="d" key=${n.title + n.body}>
+                        <b>${n.title}</b> — ${n.body}
+                      </div>`,
+                  )
+            }
+          </div>`
+        }
       </div>
 
       <div class="tile">

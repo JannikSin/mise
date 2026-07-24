@@ -63,6 +63,8 @@ import {
   slotMacroEstimate,
   datesOfWeek,
   setPlanLocked,
+  setPlanShopped,
+  toggleEntryCooked,
   mergeRecipePool,
   recipeConflicts,
   SLOT_KEYS,
@@ -107,7 +109,7 @@ const TABS = [
 
 function App() {
   const [route, setRoute] = useState(
-    /** @type {{ view: string, id?: string, from?: string, servings?: number }} */ ({
+    /** @type {{ view: string, id?: string, from?: string, servings?: number, entry?: string }} */ ({
       view: "home",
     }),
   );
@@ -496,12 +498,21 @@ function App() {
       /** @type {string} */ store,
       /** @type {{ name: string, price: number, size: string }[]} */ lines,
     ) => {
+      const today = localIsoDate(new Date());
+      // the receipt IS the groceries-bought confirmation (honest-state rule):
+      // it unlocks the week's cook reminders and the eaten tracking
+      updatePlan(
+        setPlanShopped(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), today),
+      );
       const cat = priceCatalogue;
       if (!cat) return;
-      const { catalogue: next } = applyReceipt(cat, store, lines, localIsoDate(new Date()));
+      const { catalogue: next } = applyReceipt(cat, store, lines, today);
       setPriceCatalogue(next);
       void write("prices.json", /** @type {any} */ (next), { raw: true });
     },
+    // updatePlan/planRef are declared later in this component but are
+    // identity-stable; referencing them in the body (call time) is safe,
+    // only the dep array must not touch them (TDZ at definition time)
     [priceCatalogue],
   );
 
@@ -856,6 +867,22 @@ function App() {
     const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
     updatePlan(setPlanLocked(p, !p.locked));
   }, [updatePlan]);
+
+  // the DONE button at the end of Cook mode: confirm (or un-confirm) a
+  // planned meal as actually cooked — the only thing that makes a past day
+  // read "eaten"
+  const handleMarkCooked = useCallback(
+    (/** @type {string} */ entryId) => {
+      updatePlan(
+        toggleEntryCooked(
+          /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
+          entryId,
+          localIsoDate(new Date()),
+        ),
+      );
+    },
+    [updatePlan],
+  );
 
   /** Add straight from the cookbook: slot inferred from the recipe's
    *  mealType; returns the slot so the row can confirm where it landed. */
@@ -1421,12 +1448,16 @@ function App() {
 
   if (route.view === "cook") {
     // key: hook state (current step) must reset when the recipe changes
+    const cookEntry = route.entry ? plan.entries.find((e) => e.id === route.entry) : undefined;
     return html`<${CookView}
       key=${route.id}
       recipe=${recipeById(route.id)}
       loading=${loading}
       from=${route.from}
       servings=${route.servings}
+      entryId=${cookEntry?.id}
+      cooked=${Boolean(cookEntry?.cookedAt)}
+      onCooked=${handleMarkCooked}
     />`;
   }
 
@@ -1533,6 +1564,7 @@ function App() {
         loading=${loading}
         from=${route.from}
         servings=${route.servings}
+        entryId=${route.entry}
       />`
     }
     ${

@@ -14,22 +14,25 @@ const DEFAULT_ORIGIN = { hash: "#/cookbook", label: "← COOKBOOK" };
 const originOf = (from) => (from && ORIGINS[from]) || DEFAULT_ORIGIN;
 
 /**
- * Query suffix carrying the backlink origin AND the planned portion through to
- * Cook mode, so cooking stays scaled to the meal.
+ * Query suffix carrying the backlink origin, the planned portion, AND the
+ * plan-entry id through to Cook mode, so cooking stays scaled to the meal
+ * and DONE can confirm the right entry as cooked.
  * @param {string | undefined} from
  * @param {number} [servings]
+ * @param {string} [entryId]
  */
-const cookSuffix = (from, servings) => {
+const cookSuffix = (from, servings, entryId) => {
   const parts = [];
   if (from && ORIGINS[from]) parts.push(`from=${encodeURIComponent(from)}`);
   if (servings && servings > 0) parts.push(`servings=${servings}`);
+  if (entryId) parts.push(`entry=${encodeURIComponent(entryId)}`);
   return parts.length ? `?${parts.join("&")}` : "";
 };
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string }} props
  */
-export function RecipeView({ recipe, loading, from, servings }) {
+export function RecipeView({ recipe, loading, from, servings, entryId }) {
   const origin = originOf(from);
   if (!recipe)
     return html`<div class="empty">
@@ -94,7 +97,7 @@ export function RecipeView({ recipe, loading, from, servings }) {
         <button
           class="ask"
           onClick=${() =>
-            (location.hash = `#/recipe/${encodeURIComponent(recipe.id)}/cook${cookSuffix(from, servings)}`)}
+            (location.hash = `#/recipe/${encodeURIComponent(recipe.id)}/cook${cookSuffix(from, servings, entryId)}`)}
         >
           COOK MODE
           <small>big text · step by step</small>
@@ -148,10 +151,12 @@ export function RecipeView({ recipe, loading, from, servings }) {
 }
 
 /**
- * Full-screen cooking mode: one big step at a time, screen kept awake.
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number }} props
+ * Full-screen cooking mode: one big step at a time, screen kept awake. When
+ * opened from a planned meal (entryId), the last step's button confirms the
+ * meal COOKED — the honest-state rule: only a confirmation marks it eaten.
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, cooked?: boolean, onCooked?: (entryId: string) => void }} props
  */
-export function CookView({ recipe, loading, from, servings }) {
+export function CookView({ recipe, loading, from, servings, entryId, cooked, onCooked }) {
   const [step, setStep] = useState(0);
   useEffect(() => {
     /** @type {any} */
@@ -179,7 +184,11 @@ export function CookView({ recipe, loading, from, servings }) {
   const plan = cookPlan(recipe, servings);
   // exit lands back on the recipe, keeping ?from= AND the portion so the
   // recipe there stays scaled to the same meal
-  const back = `#/recipe/${encodeURIComponent(recipe.id)}${cookSuffix(from, servings)}`;
+  const back = `#/recipe/${encodeURIComponent(recipe.id)}${cookSuffix(from, servings, entryId)}`;
+  const finish = () => {
+    if (entryId && onCooked && !cooked) onCooked(entryId);
+    location.hash = back;
+  };
 
   return html`
     <div class="cook">
@@ -197,7 +206,9 @@ export function CookView({ recipe, loading, from, servings }) {
         ${
           step < last
             ? html`<button class="next" onClick=${() => setStep(step + 1)}>NEXT →</button>`
-            : html`<button class="next" onClick=${() => (location.hash = back)}>DONE ✓</button>`
+            : html`<button class="next" onClick=${finish}>
+                ${entryId && !cooked ? "COOKED ✓" : "DONE ✓"}
+              </button>`
         }
       </div>
     </div>

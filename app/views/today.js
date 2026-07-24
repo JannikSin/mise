@@ -107,6 +107,15 @@ export function TodayView({
   // the week has already eaten (sum of every day's counter)
   const bufferRecipe = plan.buffer ? byId.get(plan.buffer.recipeId) : null;
   const days = daily?.days ?? [];
+  // batch components ticked done TODAY (honest-state: batching is confirmed
+  // by the DONE tap, stored on today's daily-log day)
+  const todayBatched = /** @type {string[]} */ (days.find((d) => d.date === today)?.batched ?? []);
+  const toggleBatched = (/** @type {string} */ id) =>
+    onPatchDay({
+      batched: todayBatched.includes(id)
+        ? todayBatched.filter((b) => b !== id)
+        : [...todayBatched, id],
+    });
   const bufferToday = days.find((d) => d.date === today)?.buffer ?? 0;
   const bufferWeek = weekDates.reduce(
     (s, d) => s + (days.find((x) => x.date === d)?.buffer ?? 0),
@@ -207,16 +216,20 @@ export function TodayView({
                       </div>
                     `;
                   }
+                  // table-derived entries live in events.json, not this plan
+                  // — no entry id to confirm cooked against, so no ?entry=
+                  const entryParam = entry.table ? "" : `&entry=${encodeURIComponent(entry.id)}`;
                   return html`
                     <a
                       class="todayrow"
-                      href="#/recipe/${encodeURIComponent(rid ?? "")}?from=today&servings=${entry.cookTotal ?? entry.servings ?? 1}"
+                      href="#/recipe/${encodeURIComponent(rid ?? "")}?from=today&servings=${entry.cookTotal ?? entry.servings ?? 1}${entryParam}"
                       key=${entry.id}
                     >
                       <span class="t">${label}</span>
                       <span class="n">
                         ${recipe.name}${entry.table && html` <span class="usesoon">table</span>`}
                         ${entry.cookTotal && html` <span class="usesoon">cook ×${entry.cookTotal} total</span>`}
+                        ${entry.cookedAt && html` <span class="usesoon cookedchip">✓ cooked</span>`}
                         ${
                           // my seat's AI plate-tailoring (set on the table
                           // from Plan or the dinner discussion)
@@ -341,8 +354,16 @@ export function TodayView({
           ${sundayComponents.map(
             (r) =>
               html`<div class="batch" key=${r.id}>
-                <div class="k">${catchUp ? "Catch-up" : "Sunday"} · ${r.name}</div>
+                <div class="k">
+                  ${catchUp ? "Catch-up" : "Sunday"} · ${r.name}
+                  ${todayBatched.includes(r.id) && html`<span class="usesoon cookedchip">✓ done</span>`}
+                </div>
                 ${r.text}
+                <div class="actions">
+                  <button class="secondary" onClick=${() => toggleBatched(r.id)}>
+                    ${todayBatched.includes(r.id) ? "UNDO" : "✓ DONE"}
+                  </button>
+                </div>
               </div>`,
           )}
           ${weekdayAssembly.map(

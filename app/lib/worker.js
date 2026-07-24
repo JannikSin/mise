@@ -153,6 +153,21 @@ export async function dinnerTurn(messages, people, candidates) {
 }
 
 /**
+ * Test the notification pipeline: sends one live ntfy ping and returns the
+ * whole day's would-fire schedule plus whether the cron is fully configured.
+ * @returns {Promise<{ pinged: boolean, topicSet: boolean, cronReady: boolean, preview: { title: string, body: string }[] }>}
+ */
+export async function notifyTest() {
+  const data = await post("/notify-test", {});
+  return {
+    pinged: Boolean(data.pinged),
+    topicSet: Boolean(data.topicSet),
+    cronReady: Boolean(data.cronReady),
+    preview: Array.isArray(data.preview) ? data.preview : [],
+  };
+}
+
+/**
  * Free-text symptoms → protocol in the rules-engine shape.
  * @param {string} text
  * @returns {Promise<{ teas: string[], foods: string[], avoid: string[], notes: string[] }>}

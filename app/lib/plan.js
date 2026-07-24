@@ -4,10 +4,16 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
- * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, buffer?: PlanBuffer }} Plan
+ * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer }} Plan
  */
+// cookedAt is optional; absent = not confirmed cooked. Set (local YYYY-MM-DD)
+// by the DONE button at the end of Cook mode — the honest-state rule: a past
+// date never implies eaten, only a confirmation does.
+// shoppedAt is optional; absent = groceries NOT confirmed for this week. Set
+// when a receipt is scanned and applied (the receipt IS the confirmation);
+// cook reminders (Worker cron) fire only for shopped weeks.
 // buffer is optional; absent = no weekly buffer (pre-buffer data, unchanged).
 // It names ONE batch-prepped snack recipe for the whole week — the measured
 // fridge stand-by for any moment of extra hunger — plus how many portions the
@@ -433,6 +439,38 @@ export function setPlanLocked(plan, locked) {
 }
 
 /**
+ * Groceries confirmed for this week (a scanned receipt is the confirmation).
+ * Pure.
+ * @param {Plan} plan
+ * @param {string} dateIso
+ * @returns {Plan}
+ */
+export function setPlanShopped(plan, dateIso) {
+  return { ...plan, shoppedAt: dateIso };
+}
+
+/**
+ * Toggle an entry's cooked confirmation (the DONE button after cooking).
+ * Toggling, not just setting, keeps a mis-tap reversible. Pure.
+ * @param {Plan} plan
+ * @param {string} entryId
+ * @param {string} dateIso
+ * @returns {Plan}
+ */
+export function toggleEntryCooked(plan, entryId, dateIso) {
+  return {
+    ...plan,
+    entries: plan.entries.map((e) =>
+      e.id === entryId
+        ? e.cookedAt
+          ? (({ cookedAt: _gone, ...rest }) => rest)(e)
+          : { ...e, cookedAt: dateIso }
+        : e,
+    ),
+  };
+}
+
+/**
  * Shape a freshly-read (or absent) plan file: guarantees week + entries and
  * self-heals pre-id legacy entries by assigning ids (persisted on next write).
  * @param {Record<string, any> | null} raw
@@ -446,6 +484,7 @@ export function normalizePlan(raw, weekId) {
   return {
     week: typeof raw.week === "string" ? raw.week : weekId,
     ...(raw.locked !== undefined ? { locked: Boolean(raw.locked) } : {}),
+    ...(typeof raw.shoppedAt === "string" ? { shoppedAt: raw.shoppedAt } : {}),
     ...(raw.buffer && typeof raw.buffer.recipeId === "string"
       ? { buffer: { recipeId: raw.buffer.recipeId, portions: Number(raw.buffer.portions) || 0 } }
       : {}),

@@ -96,8 +96,8 @@ export function PlannerView({
   const dates = datesOfWeek(weekId);
   const kcalTarget = targets?.macros?.calories ?? 3400;
   const proteinTarget = targets?.macros?.protein ?? 210;
-  // a past day is read-only: already eaten, never a drop target, never
-  // re-rolled (generateWeek leaves it alone). Only the current week has any.
+  // a past day is read-only: never a drop target, never re-rolled
+  // (generateWeek leaves it alone). Only the current week has any.
   const isPast = (/** @type {string} */ d) => Boolean(todayRef.current) && d < todayRef.current;
   const firstLive = dates.find((d) => !isPast(d));
   const midWeek = firstLive != null && dates.some((d) => isPast(d));
@@ -360,6 +360,16 @@ export function PlannerView({
               : "—";
         const isOpen = openDays[date] ?? date === defaultOpenDate;
         const dayName = parseLocalIso(date).toLocaleDateString([], { weekday: "short" });
+        // honest-state (David, 2026-07-23): a past DATE never implies eaten.
+        // "✓ eaten" only when every cookable meal that day carries a cooked
+        // confirmation from the DONE button; "not logged" only when there WAS
+        // something to confirm (an out/table-only day has nothing to log and
+        // gets no badge either way); otherwise the past day just dims.
+        const cookable = plan.entries.filter(
+          (e) => e.date === date && e.recipeId && !e.out && !e.table,
+        );
+        const dayEaten = cookable.length > 0 && cookable.every((e) => e.cookedAt);
+        const dayUnlogged = cookable.length > 0 && !dayEaten;
         return html`
           <details
             class="day dayrow ${past ? "past" : ""}"
@@ -369,7 +379,7 @@ export function PlannerView({
               setOpenDays({ ...openDays, [date]: e.currentTarget.open })}
           >
             <summary
-              aria-label="${dayName} ${monthDay(date)}: ${totals.calories} of ${kcalTarget} calories, ${totals.protein} of ${proteinTarget} grams protein${past ? ", already eaten" : ""}"
+              aria-label="${dayName} ${monthDay(date)}: ${totals.calories} of ${kcalTarget} calories, ${totals.protein} of ${proteinTarget} grams protein${dayEaten ? ", eaten" : dayUnlogged && past ? ", past, cooking not logged" : past ? ", past" : ""}"
             >
               <span class="dsum-day">
                 ${dayName}
@@ -389,7 +399,7 @@ export function PlannerView({
                   </span>
                 </span>
                 <span class="dsum-whisper">
-                  ${past && html`<span class="eaten">✓ eaten</span> `}${`DIN · ${dinnerWhisper}`}${!past && dinnerOut && dinnerEntries.length > 0 ? " · 🍴 out" : ""}
+                  ${past && dayEaten && html`<span class="eaten">✓ eaten</span> `}${past && dayUnlogged && html`<span class="eaten">not logged</span> `}${`DIN · ${dinnerWhisper}`}${!past && dinnerOut && dinnerEntries.length > 0 ? " · 🍴 out" : ""}
                 </span>
               </span>
               <span class="dsum-status ${past ? "" : kcalOk && pOk ? "ok" : "shortfall"}">
@@ -415,29 +425,31 @@ export function PlannerView({
                         ${outEntry && html`<span class="outslot">🍴 ate out</span>`}
                         ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">—</span>`}
                         ${
-                        stacked.length > 0 &&
-                        html`<div class="stack">
-                          ${stacked.map((entry) => {
-                            const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
-                            return html`
-                              <div class="stackline" key=${entry.id}>
-                                <div class="fill drag-chip">
-                                  <span class="chipbody">
-                                    <span class="n">${recipe ? recipe.name : entry.freeText}</span>
-                                    ${
+                          stacked.length > 0 &&
+                          html`<div class="stack">
+                            ${stacked.map((entry) => {
+                              const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
+                              return html`
+                                <div class="stackline" key=${entry.id}>
+                                  <div class="fill drag-chip">
+                                    <span class="chipbody">
+                                      <span class="n"
+                                        >${recipe ? recipe.name : entry.freeText}</span
+                                      >
+                                      ${
                                       recipe &&
                                       html`<span class="m num"
                                         >${recipe.nutrition?.calories} ·
                                         ${recipe.nutrition?.protein}P</span
                                       >`
                                     }
-                                  </span>
+                                    </span>
+                                  </div>
                                 </div>
-                              </div>
-                            `;
-                          })}
-                        </div>`
-                      }
+                              `;
+                            })}
+                          </div>`
+                        }
                       </div>
                     `;
                   }
@@ -451,94 +463,94 @@ export function PlannerView({
                     >
                       <span class="t" aria-label=${full}>${label}</span>
                       ${
-                      outEntry &&
-                      html`<span class="outslot">
-                        🍴 eating out
-                        ${
-                          outEntry.estCalories != null
-                            ? html` ·
-                                <span class="num"
-                                  >~${outEntry.estCalories} kcal · ${outEntry.estProtein}P
-                                  assumed</span
-                                >`
-                            : " · not planned, not re-rolled"
-                        }
-                      </span>`
-                    }
+                        outEntry &&
+                        html`<span class="outslot">
+                          🍴 eating out
+                          ${
+                            outEntry.estCalories != null
+                              ? html` ·
+                                  <span class="num"
+                                    >~${outEntry.estCalories} kcal · ${outEntry.estProtein}P
+                                    assumed</span
+                                  >`
+                              : " · not planned, not re-rolled"
+                          }
+                        </span>`
+                      }
                       ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">—</span>`}
                       ${
-                      // real entries render even next to a placeholder: a
-                      // two-device merge can resurrect a meal into an out
-                      // slot, and hiding it would leave it silently shopped
-                      stacked.length > 0 &&
-                      html`<div class="stack">
-                        ${stacked.map((entry) => {
-                          const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
-                          const name = recipe ? recipe.name : entry.freeText;
-                          if (entry.table) {
-                            // derived table entry: lives in the house's
-                            // events.json, not this plan — read-only here,
-                            // managed from the Tables section above
+                        // real entries render even next to a placeholder: a
+                        // two-device merge can resurrect a meal into an out
+                        // slot, and hiding it would leave it silently shopped
+                        stacked.length > 0 &&
+                        html`<div class="stack">
+                          ${stacked.map((entry) => {
+                            const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
+                            const name = recipe ? recipe.name : entry.freeText;
+                            if (entry.table) {
+                              // derived table entry: lives in the house's
+                              // events.json, not this plan — read-only here,
+                              // managed from the Tables section above
+                              return html`
+                                <div class="stackline" key=${entry.id}>
+                                  <div class="fill drag-chip">
+                                    <span class="chipbody">
+                                      <span class="n">${name}</span>
+                                      <span class="m num">
+                                        ~${entry.estCalories} · ${entry.estProtein}P · table
+                                      </span>
+                                    </span>
+                                  </div>
+                                </div>
+                              `;
+                            }
                             return html`
                               <div class="stackline" key=${entry.id}>
-                                <div class="fill drag-chip">
+                                <div class="fill drag-chip" data-drag="move" data-id=${entry.id}>
+                                  <span class="grip" aria-hidden="true">⠿</span>
                                   <span class="chipbody">
                                     <span class="n">${name}</span>
-                                    <span class="m num">
-                                      ~${entry.estCalories} · ${entry.estProtein}P · table
-                                    </span>
-                                  </span>
-                                </div>
-                              </div>
-                            `;
-                          }
-                          return html`
-                            <div class="stackline" key=${entry.id}>
-                              <div class="fill drag-chip" data-drag="move" data-id=${entry.id}>
-                                <span class="grip" aria-hidden="true">⠿</span>
-                                <span class="chipbody">
-                                  <span class="n">${name}</span>
-                                  ${
+                                    ${
                                     recipe &&
                                     html`<span class="m num"
                                       >${recipe.nutrition?.calories} ·
                                       ${recipe.nutrition?.protein}P</span
                                     >`
                                   }
-                                </span>
-                              </div>
-                              <button
-                                class="pin ${entry.pinned ? "on" : ""}"
-                                aria-pressed=${Boolean(entry.pinned)}
-                                aria-label=${
+                                  </span>
+                                </div>
+                                <button
+                                  class="pin ${entry.pinned ? "on" : ""}"
+                                  aria-pressed=${Boolean(entry.pinned)}
+                                  aria-label=${
                                   entry.pinned
                                     ? `Unpin ${name} — GENERATE WEEK may replace it`
                                     : `Pin ${name} — GENERATE WEEK will keep it`
                                 }
-                                onClick=${() => onTogglePin(entry.id)}
-                              >
-                                PIN
-                              </button>
-                              <button
-                                class="rm"
-                                aria-label="Remove ${name} from ${label}"
-                                onClick=${() => onRemove(entry.id)}
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          `;
-                        })}
-                      </div>`
-                    }
+                                  onClick=${() => onTogglePin(entry.id)}
+                                >
+                                  PIN
+                                </button>
+                                <button
+                                  class="rm"
+                                  aria-label="Remove ${name} from ${label}"
+                                  onClick=${() => onRemove(entry.id)}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            `;
+                          })}
+                        </div>`
+                      }
                       <button
                         class="outbtn ${outEntry ? "on" : ""}"
                         aria-pressed=${Boolean(outEntry)}
                         aria-label=${
-                        outEntry
-                          ? `${full} ${monthDay(date)} is eating out, tap to plan a meal again`
-                          : `Mark ${full} ${monthDay(date)} as eating out: clears the slot, nothing shopped or re-rolled`
-                      }
+                          outEntry
+                            ? `${full} ${monthDay(date)} is eating out, tap to plan a meal again`
+                            : `Mark ${full} ${monthDay(date)} as eating out: clears the slot, nothing shopped or re-rolled`
+                        }
                         onClick=${() => onToggleOut(date, key)}
                       >
                         🍴 OUT
