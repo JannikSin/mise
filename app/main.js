@@ -70,6 +70,7 @@ import {
   SLOT_KEYS,
 } from "./lib/plan.js";
 import { generateWeek, poolAdequacy } from "./lib/weekbuilder.js";
+import { weekAdherence, rankScoreboard } from "./lib/adherence.js";
 import {
   normalizeEvents,
   eventsPathFor,
@@ -1365,6 +1366,57 @@ function App() {
     [writeHouseEvents],
   );
 
+  // Adherence scoreboard (David, 2026-07-24): every household member's
+  // CURRENT-week score from the same raw files the honest-state features
+  // write (plan cookedAt/shoppedAt + daily logs). Same yardstick for
+  // everyone — that's what makes the leaderboard a competition. Purely
+  // derived, nothing stored.
+  const [scoreboard, setScoreboard] = useState(
+    /** @type {{ id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, logged: { done: number, total: number }, shopped: boolean }[]} */ ([]),
+  );
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      void (async () => {
+        const prof = await readProfiles();
+        if (!alive) return;
+        const meNow = activeProfile() ?? "david";
+        const myHouse = prof.profiles.find((p) => p.id === meNow)?.household ?? "home";
+        const members = prof.profiles.filter((p) => (p.household ?? "home") === myHouse);
+        const weekNow = isoWeekId(new Date());
+        const todayNow = localIsoDate(new Date());
+        const rows = await Promise.all(
+          members.map(async (p) => {
+            const prefix = p.id === "david" ? "" : `profiles/${p.id}/`;
+            const [planRaw, dailyRaw] = await Promise.all([
+              read(`${prefix}plans/${weekNow}.json`, { raw: true }).catch(() => null),
+              read(`${prefix}fitness/daily.json`, { raw: true }).catch(() => null),
+            ]);
+            return {
+              id: /** @type {string} */ (p.id),
+              name: /** @type {string} */ (p.name ?? p.id),
+              emoji: /** @type {string} */ (p.emoji ?? ""),
+              ...weekAdherence({
+                plan: /** @type {any} */ (planRaw),
+                daily: /** @type {any} */ (dailyRaw),
+                weekId: weekNow,
+                today: todayNow,
+              }),
+            };
+          }),
+        );
+        if (alive) setScoreboard(rankScoreboard(rows));
+      })();
+    };
+    load();
+    const unsub = onSyncChange(load);
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [hasToken]);
+  const myAdherence = scoreboard.find((r) => r.id === me) ?? null;
+
   // Money ledger (roadmap M1): my house's who-owes-who from finished
   // tables. The COOK's device records each finished table exactly once
   // (idempotent by table id, id-keyed merge dedupes concurrent recorders).
@@ -1508,6 +1560,7 @@ function App() {
         loading=${!fitnessLoaded}
         trainingEnabled=${trainingEnabled}
         onPatchDay=${handlePatchDay}
+        adherence=${myAdherence}
       />`
     }
     ${
@@ -1639,6 +1692,7 @@ function App() {
         onPatchSeat=${handlePatchSeat}
         onSeatScreen=${handleSeatScreen}
         onTailorTable=${handleTailorTable}
+        scoreboard=${scoreboard}
       />`
     }
     ${

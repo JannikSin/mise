@@ -67,7 +67,8 @@ function waistTrend(days, todayIso) {
  *   today: string,
  *   loading: boolean,
  *   trainingEnabled: boolean,
- *   onPatchDay: (patch: Record<string, any>) => void
+ *   onPatchDay: (patch: Record<string, any>) => void,
+ *   adherence: { score: number, cooked: { done: number, total: number }, logged: { done: number, total: number }, shopped: boolean } | null
  * }} props
  */
 export function HomeView({
@@ -82,6 +83,7 @@ export function HomeView({
   loading,
   trainingEnabled,
   onPatchDay,
+  adherence,
 }) {
   const day = daily.days.find((d) => d.date === today) ?? { date: today };
   const supplements = day.supplements ?? {};
@@ -135,6 +137,21 @@ export function HomeView({
             <span class="t">Train</span>
             <span class="n">${workoutLabel}</span>
             <span class="m num">›</span>
+          </a>`
+        }
+        ${
+          // the accountability number (2026-07-24): derived from the week's
+          // confirmations only — cooked meals, the receipt, the daily logs.
+          // Numbers, not judgment; the components explain the score.
+          adherence &&
+          html`<a class="todayrow" href="#/tables">
+            <span class="t">Week</span>
+            <span class="n">
+              cooked ${adherence.cooked.done}/${adherence.cooked.total} · logged${" "}
+              ${adherence.logged.done}/${adherence.logged.total} ·
+              ${adherence.shopped ? "shopped ✓" : "receipt not scanned"}
+            </span>
+            <span class="m num"><b>${adherence.score}</b> ›</span>
           </a>`
         }
       </div>
