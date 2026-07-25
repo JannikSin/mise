@@ -26,7 +26,8 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onRemoveTable: (house: string, id: string) => void,
  *   onPatchSeat: (house: string, tableId: string, patch: Partial<import("../lib/tables.js").Seat>) => void,
  *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>,
- *   onTailorTable: (house: string, tableId: string) => Promise<void>
+ *   onTailorTable: (house: string, tableId: string) => Promise<void>,
+ *   scoreboard: { id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, logged: { done: number, total: number }, shopped: boolean }[]
  * }} props
  */
 export function TablesView({
@@ -44,6 +45,7 @@ export function TablesView({
   onPatchSeat,
   onSeatScreen,
   onTailorTable,
+  scoreboard,
 }) {
   const byId = recipesById(bankRecipes ?? []);
   const myHouse = /** @type {string} */ (
@@ -139,6 +141,27 @@ export function TablesView({
         own portion and their day replans around it. Money from finished tables settles on the List
         tab.
       </p>
+      ${
+        // the household competition: same yardstick for everyone (cooked
+        // confirmations, receipt, daily logs), numbers not judgment
+        (scoreboard ?? []).length > 0 &&
+        html`<div class="tile">
+          <div class="k">🏆 THIS WEEK · household scoreboard</div>
+          ${scoreboard.map(
+            (r, i) => html`
+              <div class="d num" key=${r.id}>
+                ${i === 0 && r.score > 0 ? "👑" : `${i + 1}.`} ${r.emoji} ${r.name}
+                <b> ${r.score}</b> · cooked ${r.cooked.done}/${r.cooked.total} · logged${" "}
+                ${r.logged.done}/${r.logged.total} · ${r.shopped ? "🧾 shopped" : "no receipt yet"}
+              </div>
+            `,
+          )}
+          <div class="hint">
+            score = 50% meals confirmed cooked + 30% daily logs + 20% receipt scanned, over days
+            already finished. Tap COOKED after cooking and it climbs.
+          </div>
+        </div>`
+      }
       ${
         tokenBlocked &&
         myTables.length > 0 &&
