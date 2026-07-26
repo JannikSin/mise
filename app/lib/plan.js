@@ -6,7 +6,7 @@ import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 /**
  * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
- * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer }} Plan
+ * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[] }} Plan
  */
 // cookedAt is optional; absent = not confirmed cooked. Set (local YYYY-MM-DD)
 // by the DONE button at the end of Cook mode — the honest-state rule: a past
@@ -450,6 +450,43 @@ export function setPlanShopped(plan, dateIso) {
 }
 
 /**
+ * Is this recipe's METHOD still behind the receipt?
+ *
+ * David, 2026-07-25: recipes should not show until the receipt is there. He
+ * chose the soft version: the meal name, its macros and its ingredients stay
+ * visible all week, and only the steps wait, with a per-meal override for the
+ * nights you cook out of the pantry.
+ *
+ * `houseShopped` is the whole reason this takes three arguments. `shoppedAt`
+ * lives on a profile's OWN week plan, but a brigade has one cook and one
+ * receipt: Mom, Dad and Laurie never scan anything, so keying the gate to
+ * each person's own plan would hide every instruction from three of the four
+ * of them permanently. The gate asks whether the HOUSE has shopped.
+ * @param {Plan | null | undefined} plan
+ * @param {string} recipeId
+ * @param {boolean} [houseShopped] anyone in the house confirmed this week
+ * @returns {boolean}
+ */
+export function recipeGated(plan, recipeId, houseShopped) {
+  if (!plan || !recipeId) return false;
+  if (plan.shoppedAt || houseShopped) return false;
+  return !(plan.unlocked ?? []).includes(recipeId);
+}
+
+/**
+ * "I already have this": open one recipe for the rest of the week without
+ * pretending a shop happened. Pure, and idempotent.
+ * @param {Plan} plan
+ * @param {string} recipeId
+ * @returns {Plan}
+ */
+export function unlockRecipe(plan, recipeId) {
+  const unlocked = plan.unlocked ?? [];
+  if (!recipeId || unlocked.includes(recipeId)) return plan;
+  return { ...plan, unlocked: [...unlocked, recipeId] };
+}
+
+/**
  * Toggle an entry's cooked confirmation (the DONE button after cooking).
  * Toggling, not just setting, keeps a mis-tap reversible. Pure.
  * @param {Plan} plan
@@ -485,6 +522,9 @@ export function normalizePlan(raw, weekId) {
     week: typeof raw.week === "string" ? raw.week : weekId,
     ...(raw.locked !== undefined ? { locked: Boolean(raw.locked) } : {}),
     ...(typeof raw.shoppedAt === "string" ? { shoppedAt: raw.shoppedAt } : {}),
+    ...(Array.isArray(raw.unlocked)
+      ? { unlocked: raw.unlocked.filter((/** @type {any} */ r) => typeof r === "string") }
+      : {}),
     ...(raw.buffer && typeof raw.buffer.recipeId === "string"
       ? { buffer: { recipeId: raw.buffer.recipeId, portions: Number(raw.buffer.portions) || 0 } }
       : {}),

@@ -20,6 +20,8 @@ import {
   mergeRecipePool,
   dietOf,
   prepSundayOf,
+  recipeGated,
+  unlockRecipe,
 } from "../app/lib/plan.js";
 
 test("prepSundayOf is the day before the week's Monday", () => {
@@ -454,4 +456,32 @@ test("toggleEntryCooked confirms, and a second tap takes it back", () => {
   const undone = toggleEntryCooked(cooked, "a", "2026-07-24");
   assert.ok(!("cookedAt" in undone.entries[0]), "toggle off removes the field");
   assert.equal(plan.entries[0].cookedAt, undefined, "pure: input untouched");
+});
+
+test("the recipe gate hides the METHOD, and reads the HOUSE not the person", () => {
+  const plan = { week: "2026-W31", entries: [] };
+  // no receipt anywhere: the method waits
+  assert.equal(recipeGated(plan, "chili"), true);
+  // my own receipt opens it
+  assert.equal(recipeGated({ ...plan, shoppedAt: "2026-07-27" }, "chili"), false);
+  // and so does ANYONE in the house. This is the one that matters: a brigade
+  // has one cook and one receipt, so keying the gate to each person's own
+  // plan would hide every instruction from the three who never scan anything.
+  assert.equal(recipeGated(plan, "chili", true), false);
+});
+
+test("the per-meal override opens one recipe without faking a shop", () => {
+  const plan = { week: "2026-W31", entries: [] };
+  const after = unlockRecipe(plan, "chili");
+  assert.equal(recipeGated(after, "chili"), false, "this one opens");
+  assert.equal(recipeGated(after, "tagine"), true, "the rest still wait");
+  assert.equal(after.shoppedAt, undefined, "and no shop is invented");
+  // idempotent, and it survives a normalize round trip
+  assert.equal(unlockRecipe(after, "chili"), after);
+  assert.deepEqual(normalizePlan(after, "2026-W31").unlocked, ["chili"]);
+});
+
+test("a gate with no plan or no recipe never blocks anything", () => {
+  assert.equal(recipeGated(null, "chili"), false);
+  assert.equal(recipeGated({ week: "2026-W31", entries: [] }, ""), false);
 });
