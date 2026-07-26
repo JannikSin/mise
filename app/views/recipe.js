@@ -34,9 +34,9 @@ const cookSuffix = (from, servings, entryId) => {
 };
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, gated?: boolean, onUnlock?: (recipeId: string) => void }} props
  */
-export function RecipeView({ recipe, loading, from, servings, entryId }) {
+export function RecipeView({ recipe, loading, from, servings, entryId, gated, onUnlock }) {
   const origin = originOf(from);
   if (!recipe)
     return html`<div class="empty">
@@ -100,11 +100,12 @@ export function RecipeView({ recipe, loading, from, servings, entryId }) {
       <div class="actions">
         <button
           class="ask"
+          disabled=${Boolean(gated)}
           onClick=${() =>
             (location.hash = `#/recipe/${encodeURIComponent(recipe.id)}/cook${cookSuffix(from, servings, entryId)}`)}
         >
           COOK MODE
-          <small>big text · step by step</small>
+          <small>${gated ? "waiting on the receipt" : "big text · step by step"}</small>
         </button>
       </div>
 
@@ -144,12 +145,33 @@ export function RecipeView({ recipe, loading, from, servings, entryId }) {
       </div>
 
       <h2 class="block-title">Steps</h2>
-      <ol class="steps">
-        ${(recipe.instructions ?? []).map(
-          (/** @type {{ step: number, text: string }} */ s) =>
-            html`<li key=${s.step}>${s.text}</li>`,
-        )}
-      </ol>
+      ${
+        gated
+          ? html`<div class="tile" role="status">
+              <div class="k">🔒 Waiting on the receipt</div>
+              <div class="d">
+                The meal, its macros and its shopping are all above. The method opens when someone
+                in the house scans this week’s receipt on the List tab, so you never cook a week
+                nobody bought.
+              </div>
+              <div class="actions">
+                <button class="secondary" onClick=${() => onUnlock?.(recipe.id)}>
+                  I ALREADY HAVE THIS
+                </button>
+                <a class="secondary linkbtn" href="#/list">scan the receipt →</a>
+              </div>
+              <p class="hint">
+                Food safety is never gated: shelf lives, safe temperatures and the danger signs are
+                on the <a href="#/list">List tab</a> under FOOD SAFETY, receipt or no receipt.
+              </p>
+            </div>`
+          : html`<ol class="steps">
+              ${(recipe.instructions ?? []).map(
+                (/** @type {{ step: number, text: string }} */ s) =>
+                  html`<li key=${s.step}>${s.text}</li>`,
+              )}
+            </ol>`
+      }
     </div>
   `;
 }

@@ -55,6 +55,8 @@ import {
   removeEntryById,
   moveEntry,
   normalizePlan,
+  recipeGated,
+  unlockRecipe,
   recipesById,
   shiftWeek,
   togglePinById,
@@ -452,6 +454,37 @@ function App() {
   /** @type {(id: string) => string} */
   const shoppingPathFor = (id) =>
     id === "david" ? "shopping.json" : `profiles/${id}/shopping.json`;
+
+  // Has ANYONE in the house confirmed groceries for this week? A brigade has
+  // one cook and one receipt, so a gate keyed to each profile own plan would
+  // hide every instruction from the three people who never scan anything.
+  // Read-only, same raw-path pattern as the combined shopping lists.
+  const [houseShopped, setHouseShopped] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      readProfiles().then(async (p) => {
+        if (!alive) return;
+        const mates = householdOthers(p.profiles, me);
+        for (const pr of mates) {
+          const path =
+            pr.id === "david" ? `plans/${weekId}.json` : `profiles/${pr.id}/plans/${weekId}.json`;
+          const theirs = /** @type {any} */ (await read(path, { raw: true }).catch(() => null));
+          if (theirs?.shoppedAt) {
+            if (alive) setHouseShopped(true);
+            return;
+          }
+        }
+        if (alive) setHouseShopped(false);
+      });
+    };
+    load();
+    const unsub = onSyncChange(load);
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [hasToken, weekId]);
 
   const [otherLists, setOtherLists] = useState(
     /** @type {{ profileId: string, name: string, emoji: string, list: import("./lib/shopping.js").ShoppingList }[]} */ ([]),
@@ -914,6 +947,15 @@ function App() {
       }
     },
     [updatePlan, updateShopping, askConfirm],
+  );
+
+  // "I already have this": open ONE recipe method for the rest of the week,
+  // for the nights you cook out of the pantry without a shop.
+  const handleUnlockRecipe = useCallback(
+    (/** @type {string} */ recipeId) => {
+      updatePlan(unlockRecipe(/** @type {any} */ (planRef.current), recipeId));
+    },
+    [updatePlan],
   );
 
   const handleToggleLock = useCallback(() => {
@@ -1708,6 +1750,8 @@ function App() {
         from=${route.from}
         servings=${route.servings}
         entryId=${route.entry}
+        gated=${recipeGated(/** @type {any} */ (plan), route.id ?? "", houseShopped)}
+        onUnlock=${handleUnlockRecipe}
       />`
     }
     ${

@@ -553,6 +553,15 @@ even the same slot — merge without losing either entry.
   "shoppedAt": "2026-07-25", // ? groceries CONFIRMED bought (a scanned receipt
   //   sets this via setPlanShopped). Honest-state rule (2026-07-23): absent =
   //   not confirmed; the Worker's cook-reminder cron stays silent for the week.
+  "unlocked": ["turkey-chili"], // ? recipes opened by hand this week ("I already
+  //   have this"), for cooking out of the pantry without a shop. Absent = none.
+  //   THE RECIPE GATE (David, 2026-07-25): with no receipt, a recipe shows its
+  //   name, macros and ingredients but NOT its steps, and cook mode refuses.
+  //   The gate asks whether the HOUSE has shopped, not the person: a brigade
+  //   has one cook and one receipt, so keying it to each profile's own plan
+  //   would hide every instruction from everyone but the cook, permanently.
+  //   Food safety is never gated (Red Team): shelf lives, temperatures and
+  //   danger signs stay on the List tab whatever the receipt says.
   "buffer": { "recipeId": "smoky-three-bean-edamame-protein-salad", "portions": 7 }, // ? see below
   "entries": [
     {
