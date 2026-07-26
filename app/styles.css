@@ -2432,3 +2432,20 @@ details.dayrow summary:focus-visible {
   align-self: center;
   min-width: 64px;
 }
+
+/* Receipt review states (David, 2026-07-26: "i am unable to check any of the
+   boxes ... i cannot tell"). The rows were toggling correctly, but a kept line
+   drew its ✓ in --on-signal on an UNFILLED box, i.e. dark on dark, and an
+   excluded line drew nothing: both states looked identical. A kept line now
+   fills its box like every other checked control in the app, and an excluded
+   line visibly drops out. */
+.checkrow.picked .box {
+  background: var(--signal);
+  border-color: var(--signal);
+}
+.checkrow.off {
+  opacity: 0.4;
+}
+.checkrow.off .food {
+  text-decoration: line-through;
+}

@@ -1037,7 +1037,12 @@ test("a location sweep replaces ONLY that location, and never staples or unsorte
 
   // content-derived ids: two people sweeping the same shelf converge on one
   // row instead of duplicating it on the 409 merge
-  const again = applySweep(pantry, "fridge", [{ food: "spinach" }, { food: "yogurt" }], "2026-07-25");
+  const again = applySweep(
+    pantry,
+    "fridge",
+    [{ food: "spinach" }, { food: "yogurt" }],
+    "2026-07-25",
+  );
   assert.deepEqual(
     out.perishables.map((p) => p.id).sort(),
     again.perishables.map((p) => p.id).sort(),
@@ -1093,11 +1098,37 @@ test("SUBSTITUTE proposes swaps to MY week only, toward what the house already b
 
   // Mom already buys feta; only I buy blue cheese
   const combined = [
-    { id: "blue-cheese", food: "blue cheese", qty: 50, unit: "g", section: "dairy", sources: [{ profileId: "david", checked: false }] },
-    { id: "feta-cheese", food: "feta cheese", qty: 200, unit: "g", section: "dairy", sources: [{ profileId: "mom", checked: false }] },
-    { id: "baby-spinach", food: "baby spinach", qty: 200, unit: "g", section: "produce", sources: [{ profileId: "david", checked: false }, { profileId: "mom", checked: false }] },
+    {
+      id: "blue-cheese",
+      food: "blue cheese",
+      qty: 50,
+      unit: "g",
+      section: "dairy",
+      sources: [{ profileId: "david", checked: false }],
+    },
+    {
+      id: "feta-cheese",
+      food: "feta cheese",
+      qty: 200,
+      unit: "g",
+      section: "dairy",
+      sources: [{ profileId: "mom", checked: false }],
+    },
+    {
+      id: "baby-spinach",
+      food: "baby spinach",
+      qty: 200,
+      unit: "g",
+      section: "produce",
+      sources: [
+        { profileId: "david", checked: false },
+        { profileId: "mom", checked: false },
+      ],
+    },
   ];
-  const entries = [{ id: "e1", date: "2026-07-27", slot: "lunch", recipeId: "blue-salad", servings: 1 }];
+  const entries = [
+    { id: "e1", date: "2026-07-27", slot: "lunch", recipeId: "blue-salad", servings: 1 },
+  ];
 
   const swaps = substitutionPlan(combined, "david", entries, pool, byId);
   assert.equal(swaps.length, 1);
@@ -1119,15 +1150,105 @@ test("SUBSTITUTE leaves alone what it must not touch", () => {
   const pool = [r("a"), r("b")];
   const byId = new Map(pool.map((x) => [x.id, x]));
   const combined = [
-    { id: "blue-cheese", food: "blue cheese", qty: 1, unit: "x", section: "dairy", sources: [{ profileId: "david", checked: false }] },
+    {
+      id: "blue-cheese",
+      food: "blue cheese",
+      qty: 1,
+      unit: "x",
+      section: "dairy",
+      sources: [{ profileId: "david", checked: false }],
+    },
   ];
   const base = { date: "2026-07-27", slot: "lunch", recipeId: "a", servings: 1 };
 
   // a pinned meal is a decision, an OUT slot is a restaurant, a table is the
   // house's, and none of them are mine to rewrite
   for (const guard of [{ pinned: true }, { out: true }, { table: "t1" }]) {
-    assert.deepEqual(substitutionPlan(combined, "david", [{ id: "e", ...base, ...guard }], pool, byId), []);
+    assert.deepEqual(
+      substitutionPlan(combined, "david", [{ id: "e", ...base, ...guard }], pool, byId),
+      [],
+    );
   }
   // and a swap that saves nothing is not proposed
   assert.deepEqual(substitutionPlan(combined, "david", [{ id: "e", ...base }], pool, byId), []);
+});
+
+test("a PARTIAL shop buys only the days you picked, and leaves the plan alone", () => {
+  // David, 2026-07-26: guests over, fridge full, still eating to plan. Opting
+  // the meals OUT was wrong because the meals are still happening; only the
+  // shopping is partial.
+  const recipes = new Map([
+    ["a", { id: "a", servings: 1, ingredients: [{ qty: 100, unit: "g", food: "tofu" }] }],
+    ["b", { id: "b", servings: 1, ingredients: [{ qty: 200, unit: "g", food: "cod" }] }],
+  ]);
+  const plan = {
+    week: "2026-W31",
+    entries: [
+      { id: "1", date: "2026-07-27", slot: "dinner", recipeId: "a", servings: 1 },
+      { id: "2", date: "2026-07-29", slot: "dinner", recipeId: "b", servings: 1 },
+    ],
+    buffer: { recipeId: "a", portions: 7 },
+  };
+  const pantry = { staples: [], perishables: [] };
+
+  const monOnly = deriveShoppingList(plan, recipes, pantry, null, undefined, {
+    dates: ["2026-07-27"],
+  });
+  assert.ok(monOnly.items.find((i) => i.food === "tofu"));
+  assert.equal(
+    monOnly.items.find((i) => i.food === "cod"),
+    undefined,
+    "Wednesday is not bought",
+  );
+
+  // the whole week still behaves exactly as before
+  const all = deriveShoppingList(plan, recipes, pantry);
+  assert.ok(all.items.find((i) => i.food === "cod"));
+});
+
+test("a partial shop sits the weekly buffer batch out", () => {
+  const recipes = new Map([
+    ["a", { id: "a", servings: 1, ingredients: [{ qty: 100, unit: "g", food: "tofu" }] }],
+    ["buf", { id: "buf", servings: 1, ingredients: [{ qty: 50, unit: "g", food: "cashews" }] }],
+  ]);
+  const plan = {
+    week: "2026-W31",
+    entries: [{ id: "1", date: "2026-07-27", slot: "dinner", recipeId: "a", servings: 1 }],
+    buffer: { recipeId: "buf", portions: 7 },
+  };
+  const pantry = { staples: [], perishables: [] };
+
+  // a week-long stand-by batch has no business in a three-day shop
+  const partial = deriveShoppingList(plan, recipes, pantry, null, undefined, {
+    dates: ["2026-07-27"],
+  });
+  assert.equal(
+    partial.items.find((i) => i.food === "cashews"),
+    undefined,
+  );
+  // but a full build still shops it
+  assert.ok(deriveShoppingList(plan, recipes, pantry).items.find((i) => i.food === "cashews"));
+});
+
+test("a partial shop can narrow to particular meals too", () => {
+  const recipes = new Map([
+    ["brk", { id: "brk", servings: 1, ingredients: [{ qty: 80, unit: "g", food: "rolled oats" }] }],
+    ["din", { id: "din", servings: 1, ingredients: [{ qty: 200, unit: "g", food: "cod" }] }],
+  ]);
+  const plan = {
+    week: "2026-W31",
+    entries: [
+      { id: "1", date: "2026-07-27", slot: "breakfast", recipeId: "brk", servings: 1 },
+      { id: "2", date: "2026-07-27", slot: "dinner", recipeId: "din", servings: 1 },
+    ],
+  };
+  const out = deriveShoppingList(plan, recipes, { staples: [], perishables: [] }, null, undefined, {
+    dates: ["2026-07-27"],
+    slots: ["dinner"],
+  });
+  assert.ok(out.items.find((i) => i.food === "cod"));
+  assert.equal(
+    out.items.find((i) => i.food === "rolled oats"),
+    undefined,
+  );
 });

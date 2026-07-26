@@ -61,9 +61,17 @@ export function slug(food) {
  *   you cannot shop for a meal you already ate. Absent = whole week. The
  *   buffer pseudo-entry has no date and always shops (its portions are
  *   already scaled to remaining days by generateWeek).
+ * @param {{ dates?: string[], slots?: string[] }} [only] shop for PART of the
+ *   week. David, 2026-07-26: guests came, the fridge was full, and he still
+ *   wanted to stay on the plan — so he needed to buy for three days rather
+ *   than either seven or none. Opting the meals OUT was wrong, because the
+ *   meals are still happening; only the SHOPPING is partial. Absent = the
+ *   whole week, exactly as before.
  * @returns {ShoppingList}
  */
-export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate) {
+export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate, only) {
+  const onlyDates = only?.dates?.length ? new Set(only.dates) : null;
+  const onlySlots = only?.slots?.length ? new Set(only.slots) : null;
   /** @type {Map<string, ShoppingItem>} */
   const merged = new Map();
 
@@ -80,13 +88,21 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
 
   // the weekly buffer snack shops exactly like a planned entry: its batch is
   // `portions` servings of the recipe
+  // the weekly buffer is a WEEK-long batch, so a partial shop leaves it out
+  // rather than buying a full week of stand-by snack for three days of food
+  const partial = Boolean(onlyDates || onlySlots);
   const toShop = [
     ...plan.entries,
-    ...(plan.buffer ? [{ recipeId: plan.buffer.recipeId, servings: plan.buffer.portions }] : []),
+    ...(plan.buffer && !partial
+      ? [{ recipeId: plan.buffer.recipeId, servings: plan.buffer.portions }]
+      : []),
   ];
   for (const entry of toShop) {
     if (!entry.recipeId) continue;
     if (fromDate && "date" in entry && entry.date < fromDate) continue;
+    // a partial shop: the meals stay planned, they just are not bought yet
+    if (onlyDates && "date" in entry && !onlyDates.has(entry.date)) continue;
+    if (onlySlots && "slot" in entry && !onlySlots.has(entry.slot)) continue;
     const recipe = recipesById.get(entry.recipeId);
     if (!recipe) continue;
     const perServing = entry.servings / (recipe.servings || 1);
