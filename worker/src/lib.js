@@ -942,7 +942,7 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, dai
         body,
         tags: "cook",
         priority: "default",
-        click: `${APP_URL}#/today`,
+        click: `${APP_URL}#/plan`,
       });
     }
   }
@@ -970,7 +970,7 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, dai
       body: "Sunday prep: open Cook for the batch list, tick each component done as you go.",
       tags: "cooking",
       priority: "default",
-      click: `${APP_URL}#/today`,
+      click: `${APP_URL}#/plan`,
     });
   }
 

@@ -52,7 +52,7 @@ export function MenuView({ profiles, me, hasToken, repo, onDinerFacts }) {
 
   return html`
     <div class="view">
-      <a class="backlink" href="#/today">← COOK</a>
+      <a class="backlink" href="#/tables">← CARNET</a>
       <div class="hero"><h1>Menu scan</h1></div>
       <p class="hint">
         eating out? photograph the menu and get an order that still lands on everyone's targets.

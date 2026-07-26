@@ -6,7 +6,10 @@ import { formatStoreQty } from "../lib/shopping.js";
 // ?from=<key> in the recipe hash → where the backlink returns; unknown or
 // absent keys fall back to the cookbook (the historical behavior)
 const ORIGINS = /** @type {Record<string, { hash: string, label: string }>} */ ({
-  today: { hash: "#/today", label: "← TODAY" },
+  // #/today is a legacy alias kept for recipe URLs bookmarked before Plan
+  // absorbed Cook; both land on the merged tab
+  plan: { hash: "#/plan", label: "← PLAN" },
+  today: { hash: "#/plan", label: "← PLAN" },
   remedies: { hash: "#/remedies", label: "← REMEDIES" },
 });
 const DEFAULT_ORIGIN = { hash: "#/cookbook", label: "← COOKBOOK" };

@@ -12,6 +12,7 @@ import {
   SLOT_META,
 } from "../lib/plan.js";
 import { parseLocalIso } from "../lib/dates.js";
+import { CookBlocks } from "./cook-blocks.js";
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
@@ -55,7 +56,12 @@ function monthDay(isoDate) {
  *   buildReport: import("../lib/weekbuilder.js").WeekReport | null,
  *   rebuilt: boolean,
  *   tableStale: boolean,
- *   tableIssues: number
+ *   tableIssues: number,
+ *   tableConflicts: { table: import("../lib/tables.js").TableEvent, reasons: string[] }[],
+ *   nextPlan: import("../lib/plan.js").Plan | null,
+ *   daily: { days?: Record<string, any>[] },
+ *   pantry: Record<string, any>,
+ *   onPatchDay: (patch: Record<string, any>) => void
  * }} props
  */
 export function PlannerView({
@@ -77,6 +83,11 @@ export function PlannerView({
   rebuilt,
   tableStale,
   tableIssues,
+  tableConflicts,
+  nextPlan,
+  daily,
+  pantry,
+  onPatchDay,
 }) {
   const rootRef = useRef(/** @type {HTMLElement | null} */ (null));
   // tray meal filter: at ~50 recipes an unfiltered tray is unusable (David)
@@ -124,6 +135,22 @@ export function PlannerView({
         </div>
         <button class="wk" aria-label="Next week" onClick=${() => onWeek(1)}>›</button>
       </div>
+
+      ${
+        // A tap does two different things depending on whether the week is
+        // locked: opens a recipe, or picks a meal up to move it. Removing the
+        // drag grips is the strong half of that signal, but someone who never
+        // saw a grip has nothing telling them what a tap will do, so the state
+        // is also said out loud here.
+        plan.locked &&
+        html`<div class="tile lockbanner" role="status">
+          <div class="k">🔒 This week is bought</div>
+          <div class="d">
+            Nothing moves now. Tap any meal to open its recipe and cook it. Unlock on the List tab
+            if the week really has to change.
+          </div>
+        </div>`
+      }
 
       <div class="actions">
         <button
@@ -437,14 +464,84 @@ export function PlannerView({
                                         >${recipe ? recipe.name : entry.freeText}</span
                                       >
                                       ${
-                                      recipe &&
-                                      html`<span class="m num"
-                                        >${recipe.nutrition?.calories} ·
-                                        ${recipe.nutrition?.protein}P</span
-                                      >`
-                                    }
+                                        recipe &&
+                                        html`<span class="m num"
+                                          >${recipe.nutrition?.calories} ·
+                                          ${recipe.nutrition?.protein}P</span
+                                        >`
+                                      }
                                     </span>
                                   </div>
+                                </div>
+                              `;
+                            })}
+                          </div>`
+                        }
+                      </div>
+                    `;
+                  }
+                  if (plan.locked) {
+                    // LOCKED = the week is bought, so this stops being a
+                    // planner and becomes the cook's copy. Nothing moves, and
+                    // tapping a meal opens its recipe, which is what the old
+                    // Cook tab did. The drag grips, PIN and ✕ are not rendered
+                    // at all rather than being rendered and then refused:
+                    // "you can't" beats "are you sure", and the confirm modal
+                    // that used to guard this is gone.
+                    return html`
+                      <div class="slotrow ${outEntry ? "isout" : ""}" key=${key}>
+                        <span class="t" aria-label=${full}>${label}</span>
+                        ${outEntry && html`<span class="outslot">🍴 eating out</span>`}
+                        ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">—</span>`}
+                        ${
+                          stacked.length > 0 &&
+                          html`<div class="stack">
+                            ${stacked.map((entry) => {
+                              // a table entry's dish is linkable through
+                              // viewRecipeId without entering the shopping or
+                              // dayTotals recipeId paths
+                              const rid = entry.recipeId ?? entry.viewRecipeId;
+                              const recipe = rid ? byId.get(rid) : null;
+                              const name = recipe ? recipe.name : entry.freeText;
+                              if (!recipe) {
+                                return html`
+                                  <div class="stackline" key=${entry.id}>
+                                    <div class="fill drag-chip">
+                                      <span class="chipbody"><span class="n">${name}</span></span>
+                                    </div>
+                                  </div>
+                                `;
+                              }
+                              // derived table entries live in events.json, so
+                              // there is no plan entry to confirm cooked
+                              const entryParam = entry.table
+                                ? ""
+                                : `&entry=${encodeURIComponent(entry.id)}`;
+                              return html`
+                                <div class="stackline" key=${entry.id}>
+                                  <a
+                                    class="fill drag-chip cooklink"
+                                    href="#/recipe/${encodeURIComponent(rid ?? "")}?from=plan&servings=${entry.cookTotal ?? entry.servings ?? 1}${entryParam}"
+                                  >
+                                    <span class="chipbody">
+                                      <span class="n">
+                                        ${name}${entry.table && html` <span class="usesoon">table</span>`}
+                                        ${entry.cookTotal && html` <span class="usesoon">cook ×${entry.cookTotal} total</span>`}
+                                        ${entry.cookedAt && html` <span class="usesoon cookedchip">✓ cooked</span>`}
+                                        ${
+                                          /** @type {any} */ (entry).plate &&
+                                          html`<span class="hint plateline"
+                                            >✨
+                                            ${/** @type {any} */ (entry).plate.join(" · ")}</span
+                                          >`
+                                        }
+                                      </span>
+                                      <span class="m num">
+                                        ${recipe.nutrition?.calories} ·
+                                        ${recipe.nutrition?.protein}P ›
+                                      </span>
+                                    </span>
+                                  </a>
                                 </div>
                               `;
                             })}
@@ -511,22 +608,22 @@ export function PlannerView({
                                   <span class="chipbody">
                                     <span class="n">${name}</span>
                                     ${
-                                    recipe &&
-                                    html`<span class="m num"
-                                      >${recipe.nutrition?.calories} ·
-                                      ${recipe.nutrition?.protein}P</span
-                                    >`
-                                  }
+                                      recipe &&
+                                      html`<span class="m num"
+                                        >${recipe.nutrition?.calories} ·
+                                        ${recipe.nutrition?.protein}P</span
+                                      >`
+                                    }
                                   </span>
                                 </div>
                                 <button
                                   class="pin ${entry.pinned ? "on" : ""}"
                                   aria-pressed=${Boolean(entry.pinned)}
                                   aria-label=${
-                                  entry.pinned
-                                    ? `Unpin ${name} — GENERATE WEEK may replace it`
-                                    : `Pin ${name} — GENERATE WEEK will keep it`
-                                }
+                                    entry.pinned
+                                      ? `Unpin ${name} — GENERATE WEEK may replace it`
+                                      : `Pin ${name} — GENERATE WEEK will keep it`
+                                  }
                                   onClick=${() => onTogglePin(entry.id)}
                                 >
                                   PIN
@@ -563,6 +660,16 @@ export function PlannerView({
           </details>
         `;
       })}
+
+      <${CookBlocks}
+        recipes=${recipes}
+        plan=${plan}
+        tableConflicts=${tableConflicts}
+        nextPlan=${nextPlan}
+        daily=${daily}
+        pantry=${pantry}
+        onPatchDay=${onPatchDay}
+      />
     </div>
   `;
 }
