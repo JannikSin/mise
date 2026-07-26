@@ -20,6 +20,8 @@ import {
   toStoreUnits,
   formatStoreQty,
   tripOf,
+  emptyPantry,
+  applySweep,
 } from "../app/lib/shopping.js";
 
 test("tripOf: perishable sections are the fresh trip, shelf-stable the pantry trip", () => {
@@ -974,4 +976,83 @@ test("householdOf and pantryPathFor: household keys the shared pantry (B2)", () 
     pantryPathFor(householdOf(profiles, "david")),
     pantryPathFor(householdOf(profiles, "mom")),
   );
+});
+
+test("shelf life now knows WHERE the food is, and never lengthens an unknown", () => {
+  // David asked how the expiry matching works. It keyed on the food name
+  // alone, so spinach was six days whether it sat in the fridge or the
+  // freezer. Location is optional and its absence must behave exactly as
+  // before, because expirePerishables DELETES rows on every load.
+  assert.equal(shelfLifeDays("baby spinach"), 6, "no location = unchanged");
+  assert.equal(shelfLifeDays("baby spinach", "fridge"), 6);
+  assert.ok(shelfLifeDays("baby spinach", "freezer") > 100, "frozen greens keep for months");
+  assert.equal(shelfLifeDays("chicken breast", "fridge"), 4);
+  assert.equal(shelfLifeDays("chicken breast", "freezer"), 90);
+  // potatoes genuinely prefer a cupboard to the fridge
+  assert.ok(shelfLifeDays("potato", "pantry") > shelfLifeDays("potato", "fridge"));
+  // a food the location table does not cover keeps its fridge number, never
+  // a longer guess — this function deletes food
+  assert.equal(shelfLifeDays("mystery item", "freezer"), shelfLifeDays("mystery item"));
+  assert.equal(shelfLifeDays("greek yogurt", "freezer"), shelfLifeDays("greek yogurt"));
+  // an unrecognized location falls back to the fridge, so a typo cannot
+  // silently extend a chicken breast to eight months
+  assert.equal(shelfLifeDays("chicken breast", "garage"), 4);
+});
+
+test("normalizePantry quarantines legacy rows as UNSORTED, never guesses fridge", () => {
+  const out = normalizePantry({
+    staples: [],
+    perishables: [{ food: "spinach", added: "2026-07-20" }],
+  });
+  const p = out.perishables[0];
+  assert.equal(p.location, "unsorted", "a guess of fridge would put it in a sweep's blast radius");
+  assert.equal(p.group, "produce");
+  assert.equal(typeof p.id, "string");
+  // and it is idempotent
+  assert.equal(normalizePantry(out), out);
+});
+
+test("a location sweep replaces ONLY that location, and never staples or unsorted", () => {
+  const pantry = {
+    staples: [{ id: "olive-oil", name: "olive oil", onHand: true, runningLow: false }],
+    perishables: [
+      { id: "a", food: "old milk", location: "fridge", added: "2026-07-01" },
+      { id: "b", food: "peas", location: "freezer", added: "2026-07-01" },
+      { id: "c", food: "mystery", location: "unsorted", added: "2026-07-01" },
+    ],
+  };
+  const out = applySweep(pantry, "fridge", [{ food: "spinach" }, { food: "yogurt" }], "2026-07-25");
+
+  assert.deepEqual(
+    out.perishables.map((p) => p.food).sort(),
+    ["mystery", "peas", "spinach", "yogurt"],
+    "the fridge row is replaced; freezer and unsorted survive untouched",
+  );
+  assert.deepEqual(out.staples, pantry.staples, "staples are never touched by a sweep");
+  const spinach = out.perishables.find((p) => p.food === "spinach");
+  assert.equal(spinach.location, "fridge");
+  assert.equal(spinach.group, "produce");
+  assert.equal(spinach.added, "2026-07-25");
+
+  // content-derived ids: two people sweeping the same shelf converge on one
+  // row instead of duplicating it on the 409 merge
+  const again = applySweep(pantry, "fridge", [{ food: "spinach" }, { food: "yogurt" }], "2026-07-25");
+  assert.deepEqual(
+    out.perishables.map((p) => p.id).sort(),
+    again.perishables.map((p) => p.id).sort(),
+  );
+});
+
+test("emptyPantry can keep the permanent shelf or wipe everything", () => {
+  const pantry = {
+    staples: [{ id: "salt", name: "salt", onHand: true }],
+    perishables: [{ id: "a", food: "spinach" }],
+  };
+  const kept = emptyPantry(pantry, true);
+  assert.deepEqual(kept.staples, pantry.staples);
+  assert.deepEqual(kept.perishables, []);
+
+  const all = emptyPantry(pantry, false);
+  assert.deepEqual(all.staples, []);
+  assert.deepEqual(all.perishables, []);
 });

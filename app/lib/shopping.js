@@ -444,15 +444,133 @@ const PERISHABLE_SHELF_DAYS = [
 ];
 
 /**
- * Shelf life in days for a perishable food name (default 14 for anything
- * unrecognized — long enough not to nuke a mystery item prematurely).
+ * Where a perishable is kept. `unsorted` is the quarantine for rows that
+ * predate locations: a location sweep must never delete something it could
+ * not see, and every item in an existing pantry has no location at all.
+ * @typedef {"fridge" | "freezer" | "pantry" | "unsorted"} PantryLocation
+ */
+export const PANTRY_LOCATIONS = /** @type {PantryLocation[]} */ ([
+  "fridge",
+  "freezer",
+  "pantry",
+  "unsorted",
+]);
+
+/**
+ * How long the same food keeps somewhere OTHER than the fridge, by keyword.
+ *
+ * David asked how the expiry matching works, and the honest answer was that
+ * it did not know where the food was: spinach is six days in the fridge and
+ * months in the freezer, and one table could not tell them apart.
+ *
+ * Numbers are the LOW end of the ranges in the app's own offline food-safety
+ * guide (views/shopping.js FOOD_SAFETY), which is where they have to stay in
+ * sync. Deliberately conservative, because this function DELETES rows: a
+ * false "still good" is the dangerous failure, a false "expired" only costs
+ * food. A food with no entry for a location keeps its fridge number, which is
+ * always the shorter of the two, so an unknown can never be extended.
+ * @type {[RegExp, { freezer?: number, pantry?: number }][]}
+ */
+const OTHER_LOCATION_DAYS = [
+  [/\b(salmon|tuna|cod|tilapia|shrimp|prawn|scallop|fish|seafood)\b/, { freezer: 90 }],
+  [/\b(chicken|turkey|pork|beef|lamb|mince|steak|thigh|breast|ground)\b/, { freezer: 90 }],
+  [/\b(berries|berry)\b/, { freezer: 240 }],
+  [/\b(spinach|lettuce|arugula|greens|kale|herb|cilantro|parsley|basil)\b/, { freezer: 180 }],
+  [
+    /\b(broccoli|cauliflower|pepper|mushroom|zucchini|asparagus|peas|corn|edamame)\b/,
+    { freezer: 240 },
+  ],
+  [/\b(tofu|tempeh)\b/, { freezer: 90 }],
+  [/\b(bread|pita|tortilla|bun|bagel)\b/, { freezer: 90, pantry: 5 }],
+  // the guide's own note: these prefer a cool cupboard to the fridge
+  [/\b(potato|onion|shallot|garlic|squash)\b/, { pantry: 30 }],
+  [/\b(banana|avocado|tomato)\b/, { pantry: 5 }],
+  [/\b(apple|citrus|lemon|lime|orange)\b/, { pantry: 10 }],
+];
+
+/**
+ * Shelf life in days for a perishable, given where it is kept.
+ *
+ * `location` is optional and everything without one behaves EXACTLY as it did
+ * before this existed. That matters more than it looks: expirePerishables
+ * runs on every pantry load and persists the trim, so a migration that
+ * shortened any existing window would delete other people's food on whichever
+ * device opened the app first. Unknown locations fall back to the fridge
+ * number for the same reason.
  * @param {string} food
+ * @param {PantryLocation | string} [location]
  * @returns {number}
  */
-export function shelfLifeDays(food) {
+export function shelfLifeDays(food, location) {
   const f = (food ?? "").toLowerCase();
-  for (const [re, days] of PERISHABLE_SHELF_DAYS) if (re.test(f)) return days;
-  return 14;
+  let fridge = 14; // default: long enough not to nuke a mystery item early
+  for (const [re, days] of PERISHABLE_SHELF_DAYS) {
+    if (re.test(f)) {
+      fridge = days;
+      break;
+    }
+  }
+  if (location !== "freezer" && location !== "pantry") return fridge;
+  for (const [re, other] of OTHER_LOCATION_DAYS) {
+    if (re.test(f)) {
+      const days = other[location];
+      // never SHORTER than the fridge figure for a pantry item that the table
+      // says keeps longer there, and never longer for one it does not cover
+      if (days != null) return location === "pantry" ? days : Math.max(days, fridge);
+    }
+  }
+  return fridge;
+}
+
+/**
+ * Wipe the pantry. `keepStaples` keeps the permanent shelf (oil, salt, rice)
+ * and clears only the perishables, which is what "reset" almost always means.
+ * @param {Record<string, any>} pantry
+ * @param {boolean} keepStaples
+ * @returns {Record<string, any>}
+ */
+export function emptyPantry(pantry, keepStaples) {
+  return { ...pantry, staples: keepStaples ? (pantry.staples ?? []) : [], perishables: [] };
+}
+
+/**
+ * Apply one location's photo sweep: the confirmed items REPLACE that
+ * location's perishables.
+ *
+ * Replace-on-confirm rather than an incremental merge is deliberate. No
+ * vendor has shipped a reliable diff between successive fridge photos, and
+ * pretending to would silently keep things that are long gone. But it is only
+ * safe with three fences, all of them here:
+ *
+ *  - it touches PERISHABLES only, never staples, whose `onHand` flags are
+ *    what stop the shopping list re-buying every staple in the house;
+ *  - it only clears rows at the SCANNED location, so a fridge sweep cannot
+ *    take the freezer with it;
+ *  - rows with no location sit in `unsorted` and are never touched by any
+ *    sweep, because a camera cannot see the back of the fridge and every row
+ *    in an existing pantry predates locations entirely.
+ *
+ * Ids are content-derived, so two people sweeping the same shelf on the same
+ * day converge on one row instead of duplicating it on the 409 merge.
+ * @param {Record<string, any>} pantry
+ * @param {PantryLocation} location
+ * @param {{ food: string, qty?: string, group?: string }[]} items
+ * @param {string} today ISO date
+ * @returns {Record<string, any>}
+ */
+export function applySweep(pantry, location, items, today) {
+  const kept = (pantry.perishables ?? []).filter(
+    (/** @type {any} */ p) => (p.location ?? "unsorted") !== location,
+  );
+  const swept = items.map((i) => ({
+    id: `${slug(i.food)}-${location}`,
+    food: i.food,
+    ...(i.qty ? { qty: i.qty } : {}),
+    added: today,
+    location,
+    group: i.group ?? aisleOf(i.food),
+  }));
+  return { ...pantry, perishables: [...kept, ...swept] };
 }
 
 /**
@@ -466,7 +584,7 @@ export function shelfLifeDays(food) {
 export function perishableStatus(p, todayIso) {
   if (!p.added) return { goodUntil: null, daysLeft: null };
   const until = new Date(`${p.added}T00:00:00`);
-  until.setDate(until.getDate() + shelfLifeDays(p.food));
+  until.setDate(until.getDate() + shelfLifeDays(p.food, p.location));
   const today = new Date(`${todayIso}T00:00:00`);
   const daysLeft = Math.round((until.getTime() - today.getTime()) / 86400000);
   const y = until.getFullYear();
@@ -508,7 +626,7 @@ export function expirePerishables(pantry, todayIso) {
   const kept = (pantry.perishables ?? []).filter((/** @type {any} */ p) => {
     if (!p.added) return true;
     const gone = new Date(`${p.added}T00:00:00`);
-    gone.setDate(gone.getDate() + shelfLifeDays(p.food));
+    gone.setDate(gone.getDate() + shelfLifeDays(p.food, p.location));
     if (gone < today) {
       expired.push(p.food);
       return false;
@@ -555,17 +673,34 @@ function legacyPerishableId(p, twinIndex) {
  */
 export function normalizePantry(pantry) {
   const perishables = pantry.perishables ?? [];
-  if (perishables.every((/** @type {any} */ p) => typeof p.id === "string")) return pantry;
+  const settled = perishables.every(
+    (/** @type {any} */ p) =>
+      typeof p.id === "string" && typeof p.location === "string" && typeof p.group === "string",
+  );
+  if (settled) return pantry;
   /** @type {Map<string, number>} */
   const twinCounts = new Map();
   return {
     ...pantry,
     perishables: perishables.map((/** @type {any} */ p) => {
-      if (typeof p.id === "string") return p;
-      const contentKey = `${p.food ?? ""}|${p.added ?? ""}|${p.qty ?? ""}`;
-      const twinIndex = twinCounts.get(contentKey) ?? 0;
-      twinCounts.set(contentKey, twinIndex + 1);
-      return { ...p, id: legacyPerishableId(p, twinIndex) };
+      let id = p.id;
+      if (typeof id !== "string") {
+        const contentKey = `${p.food ?? ""}|${p.added ?? ""}|${p.qty ?? ""}`;
+        const twinIndex = twinCounts.get(contentKey) ?? 0;
+        twinCounts.set(contentKey, twinIndex + 1);
+        id = legacyPerishableId(p, twinIndex);
+      }
+      return {
+        ...p,
+        id,
+        // UNSORTED, not a guess. Every row that predates locations is
+        // somewhere the app has never been told about, and a photo sweep must
+        // never delete something it could not see. A guess of "fridge" here
+        // would put the whole legacy pantry in the blast radius of the first
+        // fridge rescan.
+        location: typeof p.location === "string" ? p.location : "unsorted",
+        group: typeof p.group === "string" ? p.group : aisleOf(p.food ?? ""),
+      };
     }),
   };
 }
