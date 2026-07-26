@@ -42,6 +42,7 @@ import {
   ownItemToPantry,
   expirePerishables,
   normalizePantry,
+  normalizeShoppingList,
   withAutoUseSoon,
   removeFromPantry,
   sectionOf,
@@ -288,7 +289,9 @@ function App() {
     const load = () => {
       read("shopping.json").then((s) => {
         if (!alive) return;
-        if (s) setShopping(/** @type {any} */ (s));
+        // re-key onto the canonical ingredient ids before anything merges or
+        // ticks: ids are the 409 merge key across every device in the house
+        if (s) setShopping(/** @type {any} */ (normalizeShoppingList(/** @type {any} */ (s))));
         setListLoaded(true);
       });
       // pantry is HOUSEHOLD-shared (B2): one kitchen, one fridge, one file at
@@ -474,8 +477,14 @@ function App() {
             profileId: pr.id,
             name: pr.name,
             emoji: pr.emoji,
+            // same re-key as our own list: the household merge compares ids
+            // across profiles, so both sides must be on the canonical scheme
             list: /** @type {any} */ (
-              (await read(shoppingPathFor(pr.id), { raw: true })) ?? { items: [] }
+              normalizeShoppingList(
+                /** @type {any} */ (
+                  (await read(shoppingPathFor(pr.id), { raw: true })) ?? { items: [] }
+                ),
+              )
             ),
           })),
         ).then((ls) => {
