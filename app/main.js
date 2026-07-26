@@ -45,6 +45,8 @@ import {
   emptyPantry,
   applySweep,
   substitutionPlan,
+  applyReceiptStock,
+  consumeForCook,
   PANTRY_LOCATIONS,
   withAutoUseSoon,
   removeFromPantry,
@@ -52,6 +54,7 @@ import {
   slug,
 } from "./lib/shopping.js";
 import { applyReceipt } from "./lib/prices.js";
+import { cookPlan } from "./lib/portions.js";
 import {
   addEntry,
   removeEntryById,
@@ -611,6 +614,13 @@ function App() {
       updatePlan(
         setPlanShopped(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), today),
       );
+      // the trip is DONE: every row the till confirms (plus anything ticked in
+      // the aisle) leaves the list and lands on a shelf. A fully-bought list
+      // ends up empty, which is the whole point — the list is a to-do, not a
+      // record of what you own.
+      const stocked = applyReceiptStock(shoppingRef.current, pantryRef.current, lines, today);
+      updateShopping(stocked.shopping);
+      updatePantry(stocked.pantry);
       const cat = priceCatalogue;
       if (!cat) return;
       const { catalogue: next } = applyReceipt(cat, store, lines, today);
@@ -620,7 +630,7 @@ function App() {
     // updatePlan/planRef are declared later in this component but are
     // identity-stable; referencing them in the body (call time) is safe,
     // only the dep array must not touch them (TDZ at definition time)
-    [priceCatalogue],
+    [priceCatalogue, updateShopping, updatePantry],
   );
 
   // ticking a combined item buys it for EVERYONE who wants it: write through
@@ -1013,15 +1023,28 @@ function App() {
   // read "eaten"
   const handleMarkCooked = useCallback(
     (/** @type {string} */ entryId) => {
-      updatePlan(
-        toggleEntryCooked(
-          /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
-          entryId,
-          localIsoDate(new Date()),
-        ),
+      const plan = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      const entry = plan.entries.find((e) => e.id === entryId);
+      updatePlan(toggleEntryCooked(plan, entryId, localIsoDate(new Date())));
+      // cooking it EATS it (David, 2026-07-26): the meal's ingredients come
+      // off the shelves they were put on. Only on the way IN — un-ticking a
+      // meal cannot un-cook the food, so nothing is put back.
+      if (!entry || entry.cookedAt) return;
+      // a batch is bought and cooked ONCE: the leftover days the generator
+      // schedules are the same recipe again, and taking its ingredients off
+      // the shelf a second time would empty a fridge that is genuinely full
+      if (plan.entries.some((e) => e.id !== entryId && e.recipeId === entry.recipeId && e.cookedAt))
+        return;
+      const recipe = recipesRef.current.find((r) => r.id === entry.recipeId);
+      if (!recipe) return;
+      const { pantry: next, used } = consumeForCook(
+        pantryRef.current,
+        /** @type {any} */ (cookPlan(recipe, entry.servings).ingredients),
       );
+      if (used.length === 0 && next === pantryRef.current) return;
+      updatePantry(next);
     },
-    [updatePlan],
+    [updatePlan, updatePantry],
   );
 
   /** Add straight from the cookbook: slot inferred from the recipe's

@@ -3,7 +3,13 @@
 // add running-low pantry staples, group by store section. Regeneration
 // preserves check-state and manual items.
 
-import { canonicalFood, mergeIdentity, aisleOf } from "./ingredients.js";
+import {
+  canonicalFood,
+  canonicalUnit,
+  mergeIdentity,
+  aisleOf,
+  toPreferred,
+} from "./ingredients.js";
 
 /**
  * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, checked: boolean, manual: boolean, fromRecipes?: string[] }} ShoppingItem
@@ -813,7 +819,19 @@ export function applyJustBought(shopping, pantry, today) {
         !stapleSlugs.has(slug(b.food)) &&
         !stapleSlugs.has(canonicalFood(b.food)),
     )
-    .map((b) => ({ id: perishableId(), food: b.food, qty: `${b.qty} ${b.unit}`, added: today }));
+    .map((b) => ({
+      id: perishableId(),
+      food: b.food,
+      qty: `${b.qty} ${b.unit}`,
+      added: today,
+      // WHERE it went, not just that it arrived (David, 2026-07-26: "the
+      // fridge is kind of a thing but not really"). Without this every bought
+      // item landed unsorted, which is the one location no shelf view shows
+      // and no sweep touches — the shelves stayed empty however much he
+      // bought.
+      location: locationForBuy(b.section),
+      group: b.section ?? aisleOf(b.food),
+    }));
   return {
     shopping: { ...shopping, items: shopping.items.filter((i) => !i.checked) },
     pantry: {
@@ -822,6 +840,153 @@ export function applyJustBought(shopping, pantry, today) {
       perishables: [...(pantry.perishables ?? []), ...newPerishables],
     },
   };
+}
+
+/**
+ * Which shelf a freshly-bought item goes on, from its store section. Frozen
+ * is the freezer, anything from the fresh run is the fridge, the shelf-stable
+ * run is the pantry. Deliberately mechanical: he can still move it by hand,
+ * and a shelf photo sweep overwrites the guess wholesale.
+ * @param {string} section
+ * @returns {PantryLocation}
+ */
+export function locationForBuy(section) {
+  if (section === "frozen") return "freezer";
+  return tripOf(section) === "fresh" ? "fridge" : "pantry";
+}
+
+/**
+ * The receipt IS the trip: every list row the till confirms is bought, so it
+ * leaves the list and lands on a shelf.
+ *
+ * David, 2026-07-26: ticking in the aisle should mean "got it", and uploading
+ * the receipt should mean "the trip is done" — the list empties and the food
+ * shows up in the fridge/pantry. Rows he ticked that the scan never read still
+ * count as bought (applyJustBought clears every ticked row): a missed OCR line
+ * must not resurrect food that is already in the bag.
+ * @param {ShoppingList} shopping
+ * @param {Record<string, any>} pantry
+ * @param {{ name: string }[]} lines receipt lines, already decoded
+ * @param {string} today ISO date
+ * @returns {{ shopping: ShoppingList, pantry: Record<string, any> }}
+ */
+export function applyReceiptStock(shopping, pantry, lines, today) {
+  const onReceipt = new Set((lines ?? []).map((l) => canonicalFood(l.name)));
+  const marked = {
+    ...shopping,
+    items: (shopping.items ?? []).map((i) =>
+      onReceipt.has(canonicalFood(i.food)) ? { ...i, checked: true } : i,
+    ),
+  };
+  return applyJustBought(marked, pantry, today);
+}
+
+/**
+ * `"1.98 lb"` → `{ qty: 1.98, unit: "lb" }`. Null for a free-text quantity a
+ * shelf scan wrote ("half a bag"), which is exactly the case where arithmetic
+ * would be a lie.
+ * @param {unknown} raw
+ * @returns {{ qty: number, unit: string } | null}
+ */
+function parseQty(raw) {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*([a-zA-Z]*)/.exec(String(raw ?? ""));
+  if (!m) return null;
+  const qty = Number(m[1]);
+  return Number.isFinite(qty) ? { qty, unit: m[2] || "x" } : null;
+}
+
+/**
+ * Both amounts of one food expressed in the same unit, or null when that is
+ * not knowable (unknown food AND different units). Known foods route through
+ * their own preferred unit, which is what makes "500 g chicken" subtract
+ * cleanly from a "1.98 lb" row.
+ * @param {{ qty: number, unit: string }} a
+ * @param {{ qty: number, unit: string }} b
+ * @param {string} key canonical food key
+ * @returns {{ a: number, b: number, unit: string } | null}
+ */
+function commonUnit(a, b, key) {
+  const pa = toPreferred(a.qty, a.unit, key);
+  const pb = toPreferred(b.qty, b.unit, key);
+  if (pa && pb && pa.unit === pb.unit) return { a: pa.qty, b: pb.qty, unit: pa.unit };
+  const ua = canonicalUnit(a.unit);
+  if (ua === canonicalUnit(b.unit)) return { a: a.qty, b: b.qty, unit: ua };
+  return null;
+}
+
+/**
+ * Cooking a meal takes its ingredients off the shelves.
+ *
+ * David, 2026-07-26: "as each recipe is reported to be cooked I want the
+ * ingredients subtracted from their respective places." This replaces the
+ * old blanket "no decrement-on-cook ledger, ever" rule in docs/SCHEMAS.md,
+ * with the honesty fences that made that rule attractive kept intact:
+ *
+ *  - STAPLES are never decremented. `onHand` is what stops the list re-buying
+ *    the whole spice rack every week; a pinch of cayenne is not an inventory
+ *    event. Running low stays a manual tap, as it always was.
+ *  - Oldest row of a food goes first, and a need bigger than one row carries
+ *    into the next — buying chicken twice must not strand the first pack.
+ *  - A row whose quantity is free text ("half a bag" from a shelf scan) is
+ *    REMOVED rather than fake-subtracted. It went into the pan; inventing a
+ *    number for what is left would be worse than admitting we cannot count.
+ *  - A row left with a sliver (≤2% ) is removed rather than kept as dust.
+ *
+ * @param {Record<string, any>} pantry
+ * @param {{ food: string, qty?: number, unit?: string, staple?: boolean }[]} ingredients
+ *   already scaled to the servings actually cooked
+ * @returns {{ pantry: Record<string, any>, used: string[] }}
+ */
+export function consumeForCook(pantry, ingredients) {
+  let perishables = [...(pantry.perishables ?? [])];
+  /** @type {string[]} */
+  const used = [];
+  let changed = false;
+  for (const ing of ingredients ?? []) {
+    if (!ing || ing.staple) continue;
+    const key = canonicalFood(ing.food);
+    // oldest first: the pack bought last week is the one to finish
+    const rows = perishables
+      .map((/** @type {any} */ p, /** @type {number} */ idx) => ({ p, idx }))
+      .filter(({ p }) => canonicalFood(p.food) === key)
+      .sort((x, y) => String(x.p.added ?? "").localeCompare(String(y.p.added ?? "")));
+    if (rows.length === 0) continue;
+    let need = Number(ing.qty);
+    let needUnit = ing.unit ?? "";
+    /** @type {Set<number>} */
+    const drop = new Set();
+    for (const { p, idx } of rows) {
+      const have = parseQty(p.qty);
+      const both =
+        have && Number.isFinite(need) && needUnit
+          ? commonUnit(have, { qty: need, unit: needUnit }, key)
+          : null;
+      if (!both) {
+        // cannot measure it: it was used, so the row goes
+        drop.add(idx);
+        used.push(p.food);
+        changed = true;
+        break;
+      }
+      if (both.b >= both.a * 0.98) {
+        drop.add(idx);
+        used.push(p.food);
+        changed = true;
+        // carry the shortfall onto the next row of the same food
+        const left = both.b - both.a;
+        if (left <= 0) break;
+        // subsequent rows are compared in the unit we just resolved into
+        need = left;
+        needUnit = both.unit;
+        continue;
+      }
+      perishables[idx] = { ...p, qty: `${Number((both.a - both.b).toFixed(2))} ${both.unit}` };
+      changed = true;
+      break;
+    }
+    if (drop.size > 0) perishables = perishables.filter((_p, idx) => !drop.has(idx));
+  }
+  return changed ? { pantry: { ...pantry, perishables }, used } : { pantry, used };
 }
 
 /**

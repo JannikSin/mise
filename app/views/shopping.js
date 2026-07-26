@@ -260,7 +260,7 @@ export function ShoppingView({
     );
     if (chosen.length) onReceiptApprove(receipt.store, chosen);
     setReceipt({
-      notice: `updated ${chosen.length} prices — thanks, the catalogue is fresher now`,
+      notice: `${chosen.length} lines applied — those items left the list and are on the shelves now (PANTRY tab)`,
     });
   };
 
@@ -852,9 +852,15 @@ export function ShoppingView({
                         </button>
                       </p>`)
                 }
-                ${prices && onReceiptApprove && receiptControl()}
               </div>
             `
+          }
+          ${
+            // OUTSIDE the price tile on purpose: applying a receipt empties the
+            // list, and that tile only renders while the list has rows — the
+            // review panel and its confirmation would vanish under your thumb
+            // at the exact moment you pressed APPLY.
+            prices && onReceiptApprove && receiptControl()
           }
           ${
             items.length === 0 &&
@@ -897,25 +903,41 @@ export function ShoppingView({
         tab === "pantry" &&
         html`
           <div class="chips wrapchips" role="group" aria-label="Which shelf">
-            ${pantryLocations
-              .filter((l) => l !== "unsorted")
-              .map(
-                (l) => html`
+            ${
+              // the shelf chips are the VIEW, not just the camera's target
+              // (David, 2026-07-26: "the fridge is kind of a thing but not
+              // really"). Picking one shows what is on it and points the next
+              // photo at it. "unsorted" only appears when rows are actually
+              // stranded there, so it never reads as a fifth shelf.
+              [
+                ...pantryLocations.filter(
+                  (l) =>
+                    l !== "unsorted" ||
+                    (pantry.perishables ?? []).some(
+                      (/** @type {any} */ p) => (p.location ?? "unsorted") === "unsorted",
+                    ),
+                ),
+              ].map((l) => {
+                const n = (pantry.perishables ?? []).filter(
+                  (/** @type {any} */ p) => (p.location ?? "unsorted") === l,
+                ).length;
+                return html`
                   <button
                     key=${l}
                     class=${scanLocation === l ? "chip on" : "chip"}
                     aria-pressed=${scanLocation === l}
                     onClick=${() => setScanLocation(l)}
                   >
-                    ${l}
+                    ${l}${n > 0 ? ` (${n})` : ""}
                   </button>
-                `,
-              )}
+                `;
+              })
+            }
           </div>
           <button
             class="ask scanbtn"
             onClick=${() => fileRef.current?.click()}
-            disabled=${scan === "busy" || tokenBlocked}
+            disabled=${scan === "busy" || tokenBlocked || scanLocation === "unsorted"}
           >
             ${scan === "busy" ? "READING PHOTO…" : `📷 SCAN THE ${scanLocation.toUpperCase()}`}
             <small>
@@ -1003,8 +1025,9 @@ export function ShoppingView({
                 </button>
               </span>`
             }
-            Tap LOW when a staple runs out — it joins the next shopping list. Perishables arrive
-            here via Just Bought or a shelf scan.
+            Tap LOW when a staple runs out — it joins the next shopping list. Food arrives on a
+            shelf when you scan the receipt, tap ADD TO PANTRY, or photograph the shelf, and comes
+            off it when you cook the meal.
           </p>
           <h2 class="block-title">Staples</h2>
           ${
@@ -1039,35 +1062,40 @@ export function ShoppingView({
               `,
             )}
           </div>
-          ${
-            (pantry.perishables ?? []).length > 0 &&
-            html`
-              <h2 class="block-title">Perishables</h2>
+          ${(() => {
+            const shelf = (pantry.perishables ?? []).filter(
+              (/** @type {any} */ p) => (p.location ?? "unsorted") === scanLocation,
+            );
+            return html`
+              <h2 class="block-title">In the ${scanLocation}</h2>
+              ${
+                shelf.length === 0 &&
+                html`<div class="empty">
+                  nothing recorded in the ${scanLocation} — food lands here when you scan a receipt,
+                  tap ADD TO PANTRY, or photograph the shelf
+                </div>`
+              }
               <div class="slots">
-                ${(pantry.perishables ?? []).map(
-                  (/** @type {Record<string, any>} */ p, /** @type {number} */ i) => {
-                    const { goodUntil, daysLeft } = perishableStatus(p, localIsoDate(new Date()));
-                    return html`
-                      <div class="checkrow static" key=${p.id ?? i}>
-                        <span class="food">
-                          ${p.food}${(p.useSoon || (daysLeft != null && daysLeft <= 2)) && html` <span class="usesoon">use soon</span>`}
-                          ${
-                            // where it lives, because the same food keeps for
-                            // days in the fridge and months in the freezer,
-                            // and the date beside it now depends on which
-                            p.location &&
-                            p.location !== "unsorted" &&
-                            html` <span class="tag">${p.location}</span>`
-                          }
-                        </span>
-                        <span class="q num ${daysLeft != null && daysLeft <= 2 ? "expiring" : ""}">
-                          ${
+                ${shelf.map((/** @type {Record<string, any>} */ p, /** @type {number} */ i) => {
+                  const { goodUntil, daysLeft } = perishableStatus(p, localIsoDate(new Date()));
+                  return html`
+                    <div class="checkrow static" key=${p.id ?? i}>
+                      <span class="food">
+                        ${p.food}${(p.useSoon || (daysLeft != null && daysLeft <= 2)) && html` <span class="usesoon">use soon</span>`}
+                      </span>
+                      <span class="q num ${daysLeft != null && daysLeft <= 2 ? "expiring" : ""}">
+                        ${
+                            // how much is LEFT, now that cooking subtracts —
+                            // "good til" alone can't tell you whether there is
+                            // enough chicken for Thursday
+                            p.qty ? `${p.qty} · ` : ""
+                          }${
                             goodUntil
                               ? `good til ${parseLocalIso(goodUntil).toLocaleDateString([], { month: "short", day: "numeric" })} · ${daysLeft}d`
-                              : `${p.qty ?? ""} · no date`
+                              : "no date"
                           }
-                        </span>
-                        ${
+                      </span>
+                      ${
                           onRemovePantry &&
                           html`<button
                             class="rmbtn"
@@ -1077,13 +1105,12 @@ export function ShoppingView({
                             ✕
                           </button>`
                         }
-                      </div>
-                    `;
-                  },
-                )}
+                    </div>
+                  `;
+                })}
               </div>
-            `
-          }
+            `;
+          })()}
           <details class="foodsafety">
             <summary class="block-title">
               🧊 Food safety <span class="hint">shelf lives, danger signs, temps</span>

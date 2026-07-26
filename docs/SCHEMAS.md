@@ -333,7 +333,16 @@ still running pre-B2 code keep using the legacy path until they update, so
 expect a brief divergence window on mixed versions, resolved in favor of the
 household file the first time every device is current.
 
-Two tiers, deliberately lightweight (no decrement-on-cook ledger, ever).
+Two tiers. Staples are a registry (`onHand`/`runningLow`, never decremented —
+a pinch of cayenne is not an inventory event). Perishables ARE counted:
+marking a meal cooked subtracts its non-staple ingredients from the shelves
+(`consumeForCook` in app/lib/shopping.js), which replaces the earlier "no
+decrement-on-cook ledger, ever" rule (David, 2026-07-26). The honesty fences:
+oldest row of a food goes first and a shortfall carries to the next pack; a
+row whose `qty` is free text is removed rather than fake-subtracted; a row
+left with ≤2% is removed rather than kept as dust; un-marking a meal puts
+nothing back; and a recipe already cooked once this week (its leftover days)
+subtracts nothing further.
 
 ```jsonc
 {
@@ -354,10 +363,21 @@ Two tiers, deliberately lightweight (no decrement-on-cook ledger, ever).
       // DETERMINISTIC id on read (FNV over food|added|qty + twin index, so two
       // devices healing the same household pantry agree), persisted next write.
       "food": "half cabbage",
-      "qty": "0.5 head", // ? free string, human-scale
+      "qty": "0.5 head", // ? free string, human-scale. "<number> <unit>" is what
+      // cook-subtraction can do arithmetic on; anything else is
+      // removed whole when the food is cooked.
       "added": "2026-07-04",
       "expires": "2026-07-11", // ?
       "useSoon": true, // ? surfaces in recipe recommendations
+      "location": "fridge", // fridge | freezer | pantry | unsorted. The PANTRY tab's
+      // shelf chips filter on this, and a photo sweep replaces
+      // exactly one location. Bought food is placed by store
+      // section (locationForBuy): frozen → freezer, the fresh
+      // run → fridge, shelf-stable → pantry. "unsorted" is the
+      // quarantine for rows that predate locations — no sweep
+      // touches it, and it only appears as a chip when rows are
+      // actually stranded there.
+      "group": "produce", // aisle, for grouping (aisleOf)
     },
   ],
 }
@@ -626,6 +646,11 @@ existing data).
 
 Derived (aggregate week's ingredients → merge duplicates → subtract pantry
 `onHand` staples → group by section). Check-state and manual items persist.
+The list is a to-do, not a record of what you own: applying a scanned receipt
+(`applyReceiptStock`) ticks every row the till confirms and then runs the
+Just-Bought path, so those rows LEAVE the list and land in the pantry. Rows
+ticked in the aisle that the scan never read leave too — a missed OCR line
+must not resurrect food already in the bag. A fully-bought list ends empty.
 Displayed `qty`/`unit` are rounded up to a purchasable amount (whole counts,
 sensible gram/ml/kg/L/cup/tbsp/tsp/lb/oz steps) after summing, not before.
 STORED quantities stay metric and authoritative; the List and EVERYONE tabs
