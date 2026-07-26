@@ -1992,6 +1992,36 @@ function App() {
   `;
 }
 
+/**
+ * ?fresh=1 — the one-tap cure for a wedged install.
+ *
+ * David, 2026-07-26: after a deploy his phone painted the Plan page but no
+ * button responded. That is the signature of a half-updated service worker:
+ * the old SW keeps serving some cached modules while the page runs newer
+ * ones, so the tree renders and then never wires up. The controllerchange
+ * reload above handles the normal case, but if the SW itself is stuck there
+ * is nothing on a phone to clear it: no devtools, and the installed PWA has
+ * no address bar.
+ *
+ * So the escape hatch is a URL. Opening the app with ?fresh=1 unregisters
+ * every worker, drops every cache, and reloads clean. It runs BEFORE the app
+ * renders, and it never touches localStorage, so the token, the profile and
+ * every queued write survive.
+ */
+if (location.search.includes("fresh")) {
+  const clean = location.href.split("?")[0] + location.hash;
+  void (async () => {
+    try {
+      const regs = await navigator.serviceWorker?.getRegistrations?.();
+      for (const r of regs ?? []) await r.unregister();
+      for (const k of await caches.keys()) await caches.delete(k);
+    } catch {
+      // nothing to clear, or the browser refused: reload anyway
+    }
+    location.replace(clean);
+  })();
+}
+
 const root = document.getElementById("app");
 if (root) {
   // gate: no profile chosen yet (fresh install, or System's "switch
