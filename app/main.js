@@ -2008,6 +2008,22 @@ function App() {
  * renders, and it never touches localStorage, so the token, the profile and
  * every queued write survive.
  */
+/**
+ * ?notour=1 — drop the guided-tour state for every profile on this device.
+ *
+ * The tour overlay is a full-screen fixed layer, so a run that gets stuck
+ * takes the whole app with it and there is nothing left to tap, including
+ * anything that would end the tour. The overlay now always carries its own
+ * CLOSE button, but a device already wedged needs a lever from outside, and
+ * on a phone the only lever is a URL. Deliberately narrow: this clears the
+ * tour keys and nothing else, so the token, profile and queued writes stay.
+ */
+if (location.search.includes("notour")) {
+  for (const k of Object.keys(localStorage)) {
+    if (k.startsWith("mise.tour.")) localStorage.removeItem(k);
+  }
+}
+
 if (location.search.includes("fresh")) {
   const clean = location.href.split("?")[0] + location.hash;
   void (async () => {
@@ -2022,12 +2038,58 @@ if (location.search.includes("fresh")) {
   })();
 }
 
+/**
+ * Show the error instead of dying quietly.
+ *
+ * David, 2026-07-26: "none of the buttons work. i can scroll on the plan page
+ * but that is it." That is what a throw during re-render looks like from the
+ * outside: the last good screen stays painted, scrolling still works because
+ * the compositor owns it, and every tap runs a handler that dies on the way
+ * back. Nothing on screen says so, and on a phone there is no console to ask.
+ *
+ * So the app now says so itself. A fixed banner, above everything, carrying
+ * the real message and a COPY button, so the failure can be read off the
+ * device that actually has it instead of guessed at from another machine.
+ */
+function showCrash(/** @type {string} */ what, /** @type {any} */ err) {
+  const message = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
+  let bar = document.getElementById("crashbar");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "crashbar";
+    bar.setAttribute("role", "alert");
+    bar.style.cssText =
+      "position:fixed;left:0;right:0;top:0;z-index:99999;background:#5b1111;color:#fff;" +
+      "font:12px/1.4 ui-monospace,monospace;padding:10px 12px;max-height:45vh;overflow:auto;" +
+      "white-space:pre-wrap;overscroll-behavior:contain";
+    document.body.appendChild(bar);
+  }
+  const text = `${what}: ${message}`;
+  bar.textContent = text;
+  const copy = document.createElement("button");
+  copy.textContent = "COPY";
+  copy.style.cssText =
+    "margin-top:8px;padding:6px 12px;background:#fff;color:#000;border:0;border-radius:6px;font:inherit";
+  copy.onclick = () => {
+    void navigator.clipboard?.writeText(text);
+    copy.textContent = "COPIED";
+  };
+  bar.appendChild(copy);
+}
+
+window.addEventListener("error", (e) => showCrash("error", e.error ?? e.message));
+window.addEventListener("unhandledrejection", (e) => showCrash("promise", e.reason));
+
 const root = document.getElementById("app");
 if (root) {
   // gate: no profile chosen yet (fresh install, or System's "switch
   // profile" cleared the key) — render the chooser instead of the app.
-  render(
-    localStorage.getItem("mise.activeProfile") ? html`<${App} />` : html`<${ProfileGateView} />`,
-    root,
-  );
+  try {
+    render(
+      localStorage.getItem("mise.activeProfile") ? html`<${App} />` : html`<${ProfileGateView} />`,
+      root,
+    );
+  } catch (err) {
+    showCrash("render", err);
+  }
 }

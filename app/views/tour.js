@@ -174,6 +174,21 @@ export function TourOverlay({ startStep, onProgress, onEnd }) {
           : html`<div class="tour-dim"></div>`
       }
       ${
+        // ALWAYS an escape. .tour is a full-screen fixed layer that swallows
+        // every tap, and the card below only renders once a step target has
+        // been measured — so a step whose element never resolves used to
+        // leave an invisible, inescapable blocker over the whole app, which
+        // reads exactly like a dead app that still scrolls (David,
+        // 2026-07-26). This button does not depend on any of that.
+        html`<button
+          class="tour-escape"
+          aria-label="Close the tour"
+          onClick=${() => onEnd("bailed", step + 1)}
+        >
+          ✕ CLOSE TOUR
+        </button>`
+      }
+      ${
         // no card until the target is found and measured: an unresolved step
         // must skip invisibly, never flash a card and yank it away mid-read
         rect &&

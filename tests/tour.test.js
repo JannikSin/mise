@@ -55,3 +55,27 @@ test("tour state round-trips per profile and tolerates junk", () => {
   m.set("mise.tour.mom", "{not json");
   assert.equal(readTourState("mom", storage), null);
 });
+
+test("the tour overlay always renders an escape, even with no card", () => {
+  // David, 2026-07-26: the app painted and scrolled but no control worked.
+  // .tour is fixed inset:0 and swallows every tap, and the card only renders
+  // once a step's target has been MEASURED. A step whose element never
+  // resolves therefore left an invisible, inescapable blocker over the whole
+  // app. The close button must not depend on rect, the card, or the step.
+  const src = readFileSync(new URL("../app/views/tour.js", import.meta.url), "utf8");
+  const escape = src.indexOf("tour-escape");
+  assert.ok(escape > 0, "the overlay must carry its own way out");
+
+  // it has to sit OUTSIDE the `rect &&` guard that gates the card
+  const cardGuard = src.indexOf('rect &&\n        html`<div\n          class="tour-card');
+  assert.ok(
+    cardGuard === -1 || escape < cardGuard,
+    "the escape must render before/independently of the measured-card guard",
+  );
+
+  // and it must be styled above the overlay it escapes
+  const css = readFileSync(new URL("../app/styles.css", import.meta.url), "utf8");
+  const tourZ = Number(css.match(/\.tour \{[^}]*z-index:\s*(\d+)/)?.[1] ?? 0);
+  const escZ = Number(css.match(/\.tour-escape \{[^}]*z-index:\s*(\d+)/)?.[1] ?? 0);
+  assert.ok(escZ > tourZ, `escape z-index ${escZ} must sit above .tour ${tourZ}`);
+});

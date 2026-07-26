@@ -2449,3 +2449,20 @@ details.dayrow summary:focus-visible {
 .checkrow.off .food {
   text-decoration: line-through;
 }
+
+/* The tour's unconditional way out. .tour is fixed inset:0 and eats every
+   tap, and its card only renders once a step's target is measured, so a step
+   that never resolves left an invisible full-screen blocker with nothing to
+   press (David, 2026-07-26: "none of the buttons work ... i can scroll"). */
+.tour-escape {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top));
+  right: 12px;
+  z-index: 130;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--fg);
+  font: 600 12px/1 var(--mono);
+}
