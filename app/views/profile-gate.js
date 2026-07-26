@@ -72,6 +72,7 @@ export function ProfileGateView() {
   const [weightLb, setWeightLb] = useState("");
   const [activity, setActivity] = useState(2);
   const [goal, setGoal] = useState(/** @type {"loss" | "maintain" | "gain"} */ ("maintain"));
+  const [goalWeightLb, setGoalWeightLb] = useState("");
   const [training, setTraining] = useState(true);
   const [saving, setSaving] = useState(false);
   const [chatMode, setChatMode] = useState(false);
@@ -187,6 +188,9 @@ export function ProfileGateView() {
         heightFt: numeric.heightFt,
         heightIn: numeric.heightIn,
         weightLb: numeric.weightLb,
+        ...(goal === "loss" && Number(goalWeightLb) > 0
+          ? { goalWeightLb: Number(goalWeightLb) }
+          : {}),
         activity: /** @type {1|2|3|4|5} */ (activity),
         goal,
       },
@@ -281,6 +285,7 @@ export function ProfileGateView() {
     ...(age ? { age: Number(age) } : {}),
     ...(heightFt ? { heightFt: Number(heightFt) } : {}),
     ...(weightLb ? { weightLb: Number(weightLb) } : {}),
+    ...(goalWeightLb ? { goalWeightLb: Number(goalWeightLb) } : {}),
     sex,
     goal,
     diet,
@@ -467,6 +472,26 @@ export function ProfileGateView() {
               gain
             </button>
           </div>
+          ${
+            goal === "loss" &&
+            html`
+              <div class="row">
+                <input
+                  aria-label="Goal weight in pounds"
+                  placeholder="goal lb"
+                  inputmode="numeric"
+                  value=${goalWeightLb}
+                  onInput=${num(setGoalWeightLb)}
+                />
+              </div>
+              <p class="hint">
+                Optional, and it changes one thing: the protein floor anchors to the weight you are
+                heading for instead of the one you are carrying. Protein is there to protect muscle
+                while the fat comes off, and muscle does not scale with the fat. Calories still come
+                from your weight today.
+              </p>
+            `
+          }
 
           <h2 class="block-title">what they eat</h2>
           <div class="chips wrapchips" role="group" aria-label="Dietary pattern">

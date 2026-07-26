@@ -350,3 +350,53 @@ test("intervalPhaseAt walks work→rest per round, no trailing rest, then done",
   assert.equal(intervalPhaseAt(0, 0, 60, 3).phase, "done");
   assert.equal(intervalPhaseAt(0, 60, 60, 0).phase, "done");
 });
+
+test("protein anchors to GOAL weight on a loss phase, not the weight being carried", () => {
+  // David's dad: 6'4", 300 lb, heading for 200, age 56. Keying 0.9 g/lb to
+  // 300 lb asks for 270 g of protein, which is neither achievable nor useful,
+  // and at a deficit it swallows the whole calorie budget.
+  const base = {
+    sex: /** @type {"m"} */ ("m"),
+    age: 56,
+    heightFt: 6,
+    heightIn: 4,
+    weightLb: 300,
+    activity: /** @type {1} */ (1),
+    goal: /** @type {"loss"} */ ("loss"),
+  };
+  const without = targetsFromQuestionnaire(base);
+  const withGoal = targetsFromQuestionnaire({ ...base, goalWeightLb: 200 });
+
+  assert.equal(without.macros.protein, 270, "the old behaviour, for contrast");
+  assert.equal(withGoal.macros.protein, 180, "0.9 g per lb of goal weight");
+  assert.equal(withGoal.goalWeightLb, 200, "and the number that set it stays visible");
+
+  // calories still come from the body doing the burning
+  assert.equal(withGoal.macros.calories, without.macros.calories);
+
+  // carbs must not be squeezed to nothing to make room for the protein
+  assert.ok(withGoal.macros.carbs > without.macros.carbs);
+});
+
+test("goal weight is ignored when it would not help", () => {
+  const base = {
+    sex: /** @type {"m"} */ ("m"),
+    age: 56,
+    heightFt: 6,
+    heightIn: 4,
+    weightLb: 300,
+    activity: /** @type {1} */ (1),
+    goal: /** @type {"loss"} */ ("loss"),
+  };
+  // a goal ABOVE current weight on a loss phase is a typo, not an instruction
+  assert.equal(targetsFromQuestionnaire({ ...base, goalWeightLb: 400 }).macros.protein, 270);
+  assert.equal(targetsFromQuestionnaire({ ...base, goalWeightLb: 0 }).macros.protein, 270);
+  // and a gain phase keeps anchoring to the body you actually have
+  const gain = targetsFromQuestionnaire({
+    ...base,
+    goal: /** @type {"gain"} */ ("gain"),
+    weightLb: 170,
+    goalWeightLb: 150,
+  });
+  assert.equal(gain.macros.protein, 170);
+});
