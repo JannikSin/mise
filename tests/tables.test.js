@@ -335,9 +335,21 @@ test("patchSeat whitelists fields: id and junk keys never land", () => {
   assert.equal(seat.servings, 2);
 });
 
-test("normalizeEvents carries an unbuilt brigades key through untouched", () => {
-  const ev = normalizeEvents({ tables: [], brigades: [{ id: "b1" }] });
-  assert.deepEqual(ev.brigades, [{ id: "b1" }]);
+test("normalizeEvents now VALIDATES brigades instead of passing them through", () => {
+  // brigades used to be an unbuilt placeholder, carried through untouched so a
+  // hand-prototyped array was not lost. They now drive a write loop, which
+  // makes the key a real trust boundary: a malformed one is dropped on its
+  // own, and a good one beside it survives.
+  const good = {
+    id: "b1",
+    name: "Family dinners",
+    memberIds: ["mom", "laurie"],
+    slots: ["dinner"],
+    from: "2026-07-27",
+    until: "2026-08-02",
+  };
+  const ev = normalizeEvents({ tables: [], brigades: [{ id: "b0" }, good] });
+  assert.deepEqual(ev.brigades, [good]);
 });
 
 test("setTableTailor attaches a whitelisted tailor block to the right table", () => {
