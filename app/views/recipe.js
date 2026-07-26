@@ -1,6 +1,7 @@
 import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 import { cookPlan } from "../lib/portions.js";
+import { formatStoreQty } from "../lib/shopping.js";
 
 // ?from=<key> in the recipe hash → where the backlink returns; unknown or
 // absent keys fall back to the cookbook (the historical behavior)
@@ -133,7 +134,7 @@ export function RecipeView({ recipe, loading, from, servings, entryId }) {
                 ${i.food}${i.note ? html` <span class="note">— ${i.note}</span>` : ""}
                 ${i.staple ? html` <span class="pantry-mark">pantry</span>` : ""}
               </span>
-              <span class="q">${i.qty} ${i.unit}</span>
+              <span class="q">${formatStoreQty(i.qty, i.unit)}</span>
             </div>
           `,
         )}

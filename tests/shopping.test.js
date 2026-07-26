@@ -346,7 +346,9 @@ test("regeneration preserves check-state and manual items", () => {
   assert.equal(manual.manual, true);
 });
 
-test("same food in different units gets DISTINCT ids (merge/toggle safety)", () => {
+test("a KNOWN food in two units becomes ONE row (the broccoli complaint)", () => {
+  // David, 2026-07-25: the list showed the same food several times. A food in
+  // the canonical table now merges across units and reads in its own unit.
   const recipes = new Map([
     [
       "soup",
@@ -374,8 +376,43 @@ test("same food in different units gets DISTINCT ids (merge/toggle safety)", () 
   };
   const list = deriveShoppingList(plan, recipes, { staples: [], perishables: [] });
   const oils = list.items.filter((i) => i.food === "olive oil");
-  assert.equal(oils.length, 2);
-  assert.notEqual(oils[0].id, oils[1].id);
+  assert.equal(oils.length, 1, "one food, one row");
+  assert.equal(oils[0].unit, "tbsp", "and it reads in the unit you measure oil in");
+  assert.equal(oils[0].qty, 18); // 1 cup = 16 tbsp, plus 2
+});
+
+test("an UNKNOWN food in two units still gets distinct ids (merge/toggle safety)", () => {
+  // the safety property the old unit-aware id existed for: a name the table
+  // has never seen must never silently collapse two different things
+  const recipes = new Map([
+    [
+      "a",
+      {
+        id: "a",
+        servings: 1,
+        ingredients: [{ qty: 1, unit: "cup", food: "dragon fruit", staple: false }],
+      },
+    ],
+    [
+      "b",
+      {
+        id: "b",
+        servings: 1,
+        ingredients: [{ qty: 2, unit: "each", food: "dragon fruit", staple: false }],
+      },
+    ],
+  ]);
+  const plan = {
+    week: "2026-W28",
+    entries: [
+      { id: "a", date: "2026-07-06", slot: "dinner", recipeId: "a", servings: 1 },
+      { id: "b", date: "2026-07-06", slot: "lunch", recipeId: "b", servings: 1 },
+    ],
+  };
+  const list = deriveShoppingList(plan, recipes, { staples: [], perishables: [] });
+  const rows = list.items.filter((i) => i.food === "dragon fruit");
+  assert.equal(rows.length, 2);
+  assert.notEqual(rows[0].id, rows[1].id);
 });
 
 test("running-low staple is suppressed when a recipe already shops that food", () => {

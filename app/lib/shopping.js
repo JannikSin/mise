@@ -3,6 +3,8 @@
 // add running-low pantry staples, group by store section. Regeneration
 // preserves check-state and manual items.
 
+import { canonicalFood, mergeIdentity } from "./ingredients.js";
+
 /**
  * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, checked: boolean, manual: boolean, fromRecipes?: string[] }} ShoppingItem
  * @typedef {{ generatedFrom?: string, items: ShoppingItem[] }} ShoppingList
@@ -83,7 +85,7 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
   const onHandSlugs = new Set(
     (pantry.staples ?? [])
       .filter((/** @type {any} */ s) => s.onHand && !s.runningLow)
-      .flatMap((/** @type {any} */ s) => [s.id, slug(s.name)]),
+      .flatMap((/** @type {any} */ s) => [s.id, slug(s.name), canonicalFood(s.name)]),
   );
 
   // the weekly buffer snack shops exactly like a planned entry: its batch is
@@ -99,13 +101,19 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
     if (!recipe) continue;
     const perServing = entry.servings / (recipe.servings || 1);
     for (const ing of recipe.ingredients ?? []) {
-      if (ing.staple || onHandSlugs.has(slug(ing.food))) continue;
-      // id is unit-aware: the same food in two units must be two distinct
-      // items, or toggles and 409 merges (id-keyed) collapse them
-      const id = `${slug(ing.food)}-${slug(ing.unit)}`;
+      const canon = canonicalFood(ing.food);
+      if (ing.staple || onHandSlugs.has(slug(ing.food)) || onHandSlugs.has(canon)) continue;
+      // A known food merges to ONE row in its own preferred unit, whatever
+      // unit the recipe wrote (this is the broccoli fix). An unknown food
+      // keeps the unit in its id, exactly as before, so two different things
+      // can never silently collapse into one row.
+      const ident = mergeIdentity(ing.food, ing.unit);
+      const converted = ident.qty(ing.qty * perServing);
+      const id = ident.id;
       const existing = merged.get(id);
-      const qty = ing.qty * perServing;
-      shoppedFoods.add(slug(ing.food));
+      const qty = converted ? converted.qty : ing.qty * perServing;
+      const unit = converted ? converted.unit : ing.unit;
+      shoppedFoods.add(canon);
       if (existing) {
         existing.qty += qty;
         if (!existing.fromRecipes?.includes(recipe.id)) existing.fromRecipes?.push(recipe.id);
@@ -114,7 +122,7 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
           id,
           food: ing.food,
           qty,
-          unit: ing.unit,
+          unit,
           section: sectionOf(ing.food),
           checked: false,
           manual: false,
@@ -127,7 +135,8 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
   // pantry staples flagged running-low re-enter the list — unless the week's
   // recipes already put that food on it
   for (const s of pantry.staples ?? []) {
-    if (!s.runningLow || shoppedFoods.has(slug(s.name))) continue;
+    if (!s.runningLow || shoppedFoods.has(slug(s.name)) || shoppedFoods.has(canonicalFood(s.name)))
+      continue;
     const id = `${slug(s.name)}-x`;
     if (!merged.has(id)) {
       merged.set(id, {
@@ -163,9 +172,61 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
   return { generatedFrom: plan.week, items };
 }
 
+/**
+ * Self-heal a shopping list read from disk onto the canonical id scheme.
+ *
+ * This is the load-bearing half of the canonical-ingredient change, and it
+ * has to run BEFORE any merge. Item ids are the 409 merge key and the
+ * check-state carryover key across four phones. Change the scheme without
+ * this and four things break silently: every ticked item unchecks on the
+ * next build, manual items come back under their old ids as fresh
+ * duplicates, ticking an item in the store stops writing through to another
+ * profile's list, and a mid-trip 409 keeps both the old-id and new-id rows.
+ *
+ * Re-keying on READ makes every device compute the same ids from the same
+ * content without talking to each other, the same trick normalizePlan and
+ * normalizePantry already use. Rows that collapse together sum, and stay
+ * checked only if every row that fed them was checked (re-buying something
+ * is a cheaper mistake than missing it).
+ * @param {ShoppingList | null | undefined} list
+ * @returns {ShoppingList | null | undefined}
+ */
+export function normalizeShoppingList(list) {
+  const items = list?.items;
+  if (!items?.length) return list;
+  const rekeyed = items.map((i) => {
+    const ident = mergeIdentity(i.food, i.unit);
+    if (ident.id === i.id) return i;
+    const converted = ident.qty(i.qty);
+    return converted
+      ? { ...i, id: ident.id, qty: converted.qty, unit: converted.unit }
+      : { ...i, id: ident.id };
+  });
+  if (rekeyed.every((i, n) => i === items[n])) return list;
+
+  /** @type {Map<string, ShoppingItem>} */
+  const merged = new Map();
+  for (const item of rekeyed) {
+    const existing = merged.get(item.id);
+    if (!existing) {
+      merged.set(item.id, { ...item });
+      continue;
+    }
+    existing.qty = roundForPurchase(existing.qty + item.qty, existing.unit).qty;
+    existing.checked = existing.checked && item.checked;
+    existing.manual = existing.manual && item.manual;
+    if (item.fromRecipes?.length) {
+      existing.fromRecipes = [...new Set([...(existing.fromRecipes ?? []), ...item.fromRecipes])];
+    }
+  }
+  return { ...list, items: [...merged.values()] };
+}
+
 /** Units bought as whole discrete items — never a fraction of one. */
 const COUNTABLE_UNITS = new Set([
   "each",
+  "scoop",
+  "scoops",
   "clove",
   "cloves",
   "can",
@@ -548,8 +609,11 @@ export function ownItemToPantry(shopping, pantry, itemId) {
   const item = shopping.items.find((i) => i.id === itemId);
   if (!item) return { shopping, pantry };
   const foodSlug = slug(item.food);
+  const canon = canonicalFood(item.food);
   const staples = [...(pantry.staples ?? [])];
-  const existing = staples.findIndex((s) => s.id === foodSlug || slug(s.name) === foodSlug);
+  const existing = staples.findIndex(
+    (s) => s.id === foodSlug || slug(s.name) === foodSlug || canonicalFood(s.name) === canon,
+  );
   if (existing >= 0) {
     staples[existing] = { ...staples[existing], onHand: true, runningLow: false };
   } else {
@@ -562,8 +626,13 @@ export function ownItemToPantry(shopping, pantry, itemId) {
     });
   }
   return {
-    // owning a food clears EVERY row of it, whatever the unit
-    shopping: { ...shopping, items: shopping.items.filter((i) => slug(i.food) !== foodSlug) },
+    // owning a food clears EVERY row of it, whatever the unit or spelling
+    shopping: {
+      ...shopping,
+      items: shopping.items.filter(
+        (i) => slug(i.food) !== foodSlug && canonicalFood(i.food) !== canon,
+      ),
+    },
     pantry: { ...pantry, staples },
   };
 }
@@ -579,13 +648,25 @@ export function ownItemToPantry(shopping, pantry, itemId) {
 export function applyJustBought(shopping, pantry, today) {
   const bought = shopping.items.filter((i) => i.checked);
   const staples = (pantry.staples ?? []).map((/** @type {any} */ s) => {
-    const hit = bought.find((b) => b.id === s.id || slug(b.food) === slug(s.name));
+    const hit = bought.find(
+      (b) =>
+        b.id === s.id ||
+        slug(b.food) === slug(s.name) ||
+        canonicalFood(b.food) === canonicalFood(s.name),
+    );
     return hit ? { ...s, onHand: true, runningLow: false } : s;
   });
   const stapleIds = new Set(staples.map((/** @type {any} */ s) => s.id));
-  const stapleSlugs = new Set(staples.map((/** @type {any} */ s) => slug(s.name)));
+  const stapleSlugs = new Set(
+    staples.flatMap((/** @type {any} */ s) => [slug(s.name), canonicalFood(s.name)]),
+  );
   const newPerishables = bought
-    .filter((b) => !stapleIds.has(b.id) && !stapleSlugs.has(slug(b.food)))
+    .filter(
+      (b) =>
+        !stapleIds.has(b.id) &&
+        !stapleSlugs.has(slug(b.food)) &&
+        !stapleSlugs.has(canonicalFood(b.food)),
+    )
     .map((b) => ({ id: perishableId(), food: b.food, qty: `${b.qty} ${b.unit}`, added: today }));
   return {
     shopping: { ...shopping, items: shopping.items.filter((i) => !i.checked) },
