@@ -56,8 +56,37 @@ Every non-trivial change, in order:
 1. Hooks: format + lint + typecheck fire on edit (fix immediately, don't accumulate).
 2. Tests for the changed behavior run green.
 3. Reviewer subagents (`code-reviewer`, `security-reviewer`, `ui-reviewer` in `.claude/agents/`) critique in parallel — before commit, not after.
-4. Playwright MCP: open the running app, exercise the feature, screenshot it. "Code looks right" is not verification; "I watched it work" is.
+4. Open the running app, exercise the feature, and confirm it. "Code looks right" is not verification; "I watched it work" is.
 5. Commit with a clear message. Never force-push. Never commit directly to data files with real user data during development — use fixtures.
+6. **PUSH, then verify the LIVE host.** Pages serves `origin/main`. Until you push, nothing you built exists for David or his family, and "not pushed yet" is not a status line, it is unfinished work. After pushing, curl the live files and confirm the deploy actually landed.
+
+### Rendering is not working (learned the hard way, 2026-07-25/26)
+
+Three separate times in one week a change "verified" as rendering was in fact
+unusable. Screenshots and DOM dumps prove PAINT. They do not prove a user can
+ACT. The checks that would have caught each:
+
+- **Can a user act?** Press the thing. A screenshot of a button proves nothing
+  about whether it responds. The receipt ticks toggled state correctly for
+  weeks while drawing an invisible tick on an unfilled box, so every tap looked
+  like a no-op.
+- **Full-screen overlays must always carry an escape.** `tests/overlays.test.js`
+  enforces this: any `position: fixed; inset: 0` layer that takes pointer
+  events must be registered with the control that ALWAYS renders on it. The
+  tour stranded the whole app because its END button lived inside the card, and
+  the card only rendered once a step's target was measured. An overlay whose
+  only exit is behind a conditional is a trap.
+- **"Renders, scrolls, nothing responds" means an overlay or a throw, not a
+  cache.** Scrolling is the compositor's job and keeps working when the main
+  thread is wedged or a transparent layer is eating taps. Check for a
+  full-screen element and for a render-time exception BEFORE blaming the
+  service worker.
+- **A source-scan test is not a runtime test.** `tests/tour.test.js` asserts
+  each tour selector's class appears somewhere in view source. It passes for a
+  selector that never renders for a given user's data. Treat source-scan
+  assertions as spelling checks, not behaviour checks.
+- **Batch deploys.** Several pushes in quick succession each bump the service
+  worker shell and make it churn on a phone. Ship a coherent set, once.
 
 For architecture-level decisions (new phase, schema redesign, dependency addition): run `council this:` first and show David the verdict.
 
