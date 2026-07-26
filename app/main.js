@@ -41,6 +41,9 @@ import {
   expirePerishables,
   normalizePantry,
   normalizeShoppingList,
+  emptyPantry,
+  applySweep,
+  PANTRY_LOCATIONS,
   withAutoUseSoon,
   removeFromPantry,
   sectionOf,
@@ -722,10 +725,47 @@ function App() {
   );
 
   const handleScanApprove = useCallback(
-    (/** @type {{ name: string, kind: string, qty: string }[]} */ items) => {
-      updatePantry(applyScanItems(pantryRef.current, items, localIsoDate(new Date())));
+    (
+      /** @type {{ name: string, kind: string, qty: string }[]} */ items,
+      /** @type {string} */ location,
+    ) => {
+      const today = localIsoDate(new Date());
+      // a scan tagged with a shelf is a SWEEP: those photos are the whole
+      // truth about that location, so they replace it. An untagged scan keeps
+      // the old additive behaviour.
+      updatePantry(
+        location && location !== "unsorted"
+          ? applySweep(
+              pantryRef.current,
+              /** @type {any} */ (location),
+              items.filter((i) => i.kind !== "staple").map((i) => ({ food: i.name, qty: i.qty })),
+              today,
+            )
+          : applyScanItems(pantryRef.current, items, today),
+      );
     },
     [updatePantry],
+  );
+
+  // EMPTY THE PANTRY. The undo toast does not carry here the way it does for
+  // the list: the pantry is shared by the whole house, and the toast only
+  // exists on the device that pressed the button. So this names the blast
+  // radius first, and says where the lasting undo actually is.
+  const handleEmptyPantry = useCallback(
+    async (/** @type {boolean} */ keepStaples) => {
+      const prev = pantryRef.current;
+      const count =
+        (prev.perishables ?? []).length + (keepStaples ? 0 : (prev.staples ?? []).length);
+      if (count === 0) return;
+      const house = householdOf(allProfilesRef.current, me);
+      const ok = await askConfirm(
+        `Delete ${count} ${count === 1 ? "item" : "items"} from the ${house} pantry. Everyone in the house sees this. The lasting undo is the data repo history, not the toast.`,
+      );
+      if (!ok) return;
+      updatePantry(emptyPantry(prev, keepStaples));
+      setUndoToast({ message: "pantry emptied", restore: () => updatePantry(prev) });
+    },
+    [updatePantry, askConfirm],
   );
 
   // refs keep the drop/remove callbacks identity-stable (so the drag engine's
@@ -1704,6 +1744,8 @@ function App() {
           .replace(/^-+|-+$/g, "")}
         onReceiptApprove=${handleReceiptApprove}
         onClearList=${handleClearList}
+        onEmptyPantry=${handleEmptyPantry}
+        pantryLocations=${PANTRY_LOCATIONS}
         onRemovePantry=${handleRemovePantry}
       />`
     }
