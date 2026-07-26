@@ -3,55 +3,45 @@
 // add running-low pantry staples, group by store section. Regeneration
 // preserves check-state and manual items.
 
-import { canonicalFood, mergeIdentity } from "./ingredients.js";
+import { canonicalFood, mergeIdentity, aisleOf } from "./ingredients.js";
 
 /**
  * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, checked: boolean, manual: boolean, fromRecipes?: string[] }} ShoppingItem
  * @typedef {{ generatedFrom?: string, items: ShoppingItem[] }} ShoppingList
  */
 
-/** Keyword → store section. First match wins; extend as real foods appear. */
-const SECTIONS = [
-  ["frozen", /\bfrozen\b/], // before produce: "frozen mixed vegetables" is a frozen-aisle item
-  ["meat", /\b(beef|chicken|pork|lamb|turkey|thigh|breast|steak|mince)\b/],
-  ["dairy", /\b(milk|kefir|yogurt|cheese|butter|cream|cottage|parmesan|brie|egg|eggs)\b/],
-  [
-    "produce",
-    /\b(onion|garlic|tomato|cucumber|cabbage|spinach|broccoli|mushroom|lemon|lime|ginger|avocado|[a-z]*berr(y|ies)|potato|beans|shallot|herb|parsley|cilantro|scallion|lettuce|carrot|celery|bell pepper|apple|banana|fruit|greens|vegetables?)\b/,
-  ],
-  ["spices", /\b(cayenne|paprika|salt|peppercorn|cumin|coriander|spice|saffron|oregano|thyme)\b/],
-  [
-    "dry-goods",
-    /\b(rice|oats|pasta|noodle|flour|sugar|oil|vinegar|soy|sauce|broth|stock|tuna|can|lentil|bread|sourdough|honey|peanut butter|whey)\b/,
-  ],
-];
+/**
+ * Sections you shop FRESH, close to when you cook. Everything else is the
+ * shelf-stable run.
+ */
+const FRESH_AISLES = new Set(["produce", "meat", "seafood", "dairy", "bakery"]);
 
 /**
  * Which shopping trip a store section belongs to when a profile shops more
  * than once a week (survey-v2 David-ask #3, targets.shopsPerWeek > 1): a
- * shelf-stable "pantry" run (dry-goods, frozen, spices, other — buy in bulk,
- * less often) versus a "fresh" run (produce, meat, dairy — buy close to when
- * you cook). Shops-per-week of 1 ignores this entirely and shows one list.
- * ponytail: a true N-trip split (perishability windows, per-store routing
- * keyed to targets.stores, balancing item counts) is the fuller version; this
- * two-bucket tag is the simplest thing that lets the list render per-trip.
+ * shelf-stable "pantry" run (grains, canned, spices, ... — buy in bulk, less
+ * often) versus a "fresh" run (produce, meat, dairy — buy close to when you
+ * cook). Shops-per-week of 1 ignores this entirely and shows one list.
  * @param {string} section
  * @returns {"pantry" | "fresh"}
  */
 export function tripOf(section) {
-  return section === "produce" || section === "meat" || section === "dairy" ? "fresh" : "pantry";
+  return FRESH_AISLES.has(section) ? "fresh" : "pantry";
 }
 
 /**
+ * Which aisle a food belongs to.
+ *
+ * Was seven keyword buckets with everything unmatched falling to "other"
+ * (David, 2026-07-25: "the items are not sorted in any helpful way"). Now
+ * delegates to the shared aisle taxonomy in ingredients.js, so the list
+ * sections, the pantry groups, and the canonical merge key are all one
+ * vocabulary rather than three that can drift.
  * @param {string} food
  * @returns {string}
  */
 export function sectionOf(food) {
-  const f = food.toLowerCase();
-  for (const [section, re] of SECTIONS) {
-    if (/** @type {RegExp} */ (re).test(f)) return /** @type {string} */ (section);
-  }
-  return "other";
+  return aisleOf(food);
 }
 
 /** @param {string} food */
@@ -194,7 +184,12 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
 export function normalizeShoppingList(list) {
   const items = list?.items;
   if (!items?.length) return list;
-  const rekeyed = items.map((i) => {
+  const rekeyed = items.map((item) => {
+    // sections are re-derived here too: the aisle taxonomy widened from seven
+    // buckets to fourteen, and a row stored under an old name ("dry-goods")
+    // would otherwise match no section group and silently vanish from the list
+    const section = sectionOf(item.food);
+    const i = section === item.section ? item : { ...item, section };
     const ident = mergeIdentity(i.food, i.unit);
     if (ident.id === i.id) return i;
     const converted = ident.qty(i.qty);

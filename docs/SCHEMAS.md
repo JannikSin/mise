@@ -206,6 +206,41 @@ ranking that never lets a store missing half the basket "win"). Chips price
 at the profile's first `targets.stores` entry, slugified; fallback is the
 cheapest covered store.
 
+### Aisle maps — optional `aisles` key on `prices.json`
+
+David, 2026-07-25: the store toggle should change the GROUPING, not just the
+prices, so the list walks the store in order.
+
+```jsonc
+{
+  "aisles": {
+    "marianos": {
+      "order": ["produce", "bakery", "meat", "seafood", "dairy", "canned"],
+      "labels": { "canned": "Aisle 7", "spices": "Aisle 9" }, // ? shown beside the header
+    },
+  },
+}
+```
+
+Hand-curated once per store, because a store's layout is a stable fact and no
+grocery chain publishes it as data. Rules:
+
+- `order` lists aisle names from the shared taxonomy (`AISLES` in
+  `app/lib/ingredients.js`); unknown names are ignored.
+- Anything the curated order omits still renders AFTER the curated part, in
+  the default US walk order, so a half-finished aisle map can never hide
+  groceries.
+- Absent store, or absent `aisles` entirely = the default walk order and no
+  aisle labels. Nothing breaks without it.
+
+**Kroger note (verified 2026-07-25):** Mariano's is Kroger, and the Kroger
+Products API does return per-store aisle number, side and shelf under
+client-credentials OAuth (`product.compact` scope, ~10k calls/day, no partner
+agreement). That is a real future source for `labels`, but coverage is not
+guaranteed per item, so any integration must fall back to the curated order
+per item rather than assume a lookup succeeded. Read Kroger's terms first,
+particularly on client-side caching, since this app is offline-first.
+
 ## Recipe — `recipes/<id>.json`
 
 ```jsonc

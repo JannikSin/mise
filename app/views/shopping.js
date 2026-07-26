@@ -8,6 +8,7 @@ import {
   formatStoreQty,
   tripOf,
 } from "../lib/shopping.js";
+import { AISLES } from "../lib/ingredients.js";
 import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 import {
   itemCost,
@@ -100,7 +101,32 @@ const STORE_NAMES = /** @type {Record<string, string>} */ ({
   aldi: "Aldi",
 });
 
-const SECTION_ORDER = ["produce", "meat", "dairy", "dry-goods", "frozen", "spices", "other"];
+// Default walk order for a US grocery store: produce at the door, freezer and
+// household on the way out. A store with a curated aisle map in prices.json
+// overrides this per store (see aisleOrderFor).
+const SECTION_ORDER = AISLES;
+
+/**
+ * The section order to render for a store, and the aisle label to show beside
+ * each section header.
+ *
+ * prices.json may carry `aisles: { <store>: { order, labels } }`, hand-curated
+ * once per store, because a store's layout is a stable fact that no chain
+ * publishes. Absent = the default walk order and no labels. Anything a curated
+ * order forgets still renders after the curated part, so a half-finished aisle
+ * map can never hide groceries.
+ * @param {Record<string, any> | null} prices
+ * @param {string} store
+ * @returns {{ order: string[], labels: Record<string, string> }}
+ */
+function aisleOrderFor(prices, store) {
+  const map = prices?.aisles?.[store];
+  const curated = Array.isArray(map?.order)
+    ? map.order.filter((/** @type {string} */ a) => AISLES.includes(a))
+    : [];
+  const order = [...curated, ...SECTION_ORDER.filter((a) => !curated.includes(a))];
+  return { order, labels: map?.labels ?? {} };
+}
 
 /**
  * Shopping list + pantry (blueprint §6.4/6.5). Phone-first: big checkbox
@@ -225,50 +251,6 @@ export function ShoppingView({
   const items = shopping.items ?? [];
   const checkedCount = items.filter((i) => i.checked).length;
 
-  const sections = SECTION_ORDER.map((s) => ({
-    section: s,
-    items: items.filter((i) => i.section === s),
-  })).filter((g) => g.items.length > 0);
-
-  // survey-v2 David-ask #3: split the list into shopping trips when the
-  // profile shops more than once a week. One trip = today's single list.
-  const trips =
-    shopsPerWeek >= 2
-      ? [
-          {
-            key: "pantry",
-            label: "Trip · pantry & bulk",
-            groups: sections.filter((g) => tripOf(g.section) === "pantry"),
-          },
-          {
-            key: "fresh",
-            label: "Trip · fresh",
-            groups: sections.filter((g) => tripOf(g.section) === "fresh"),
-          },
-        ].filter((t) => t.groups.length > 0)
-      : [{ key: "all", label: "", groups: sections }];
-
-  // combined household trip: this profile's list + every other profile's,
-  // merged read-time (no third artifact to sync)
-  const me = activeProfile();
-  /** @type {Map<string, string>} */
-  const emojiFor = new Map();
-  emojiFor.set(me, ownEmoji || "you");
-  for (const o of others) emojiFor.set(o.profileId, o.emoji);
-  const combined =
-    others.length > 0
-      ? mergeProfileLists([
-          { profileId: me, list: shopping },
-          ...others.map((o) => ({ profileId: o.profileId, list: o.list })),
-        ])
-      : [];
-  const combinedSections = SECTION_ORDER.map((s) => ({
-    section: s,
-    items: combined.filter((i) => i.section === s),
-  })).filter((g) => g.items.length > 0);
-  const candidates = swapCandidates(combined);
-  const sharedCount = combined.filter((i) => i.sources.length > 1).length;
-
   // price estimates (prices.json catalogue): chips per row at the profile's
   // own store, trip totals + grocery tax below the list, honest store ranking
   // store to price against: the shopper PICKS it per trip (they might go to
@@ -298,6 +280,89 @@ export function ShoppingView({
       ? html`<span class="q num">$${c.cost.toFixed(2)}${c.estimate ? "~" : ""}</span>`
       : html`<span class="q num nopr">no price</span>`;
   };
+
+  // the aisle walk order for the store actually being shopped
+  const aisles = aisleOrderFor(prices, homeStore);
+  const sections = aisles.order
+    .map((s) => ({
+      section: s,
+      label: aisles.labels[s] ?? "",
+      items: items.filter((i) => i.section === s),
+    }))
+    .filter((g) => g.items.length > 0);
+
+  // survey-v2 David-ask #3: split the list into shopping trips when the
+  // profile shops more than once a week. One trip = today's single list.
+  const trips =
+    shopsPerWeek >= 2
+      ? [
+          {
+            key: "pantry",
+            label: "Trip · pantry & bulk",
+            groups: sections.filter((g) => tripOf(g.section) === "pantry"),
+          },
+          {
+            key: "fresh",
+            label: "Trip · fresh",
+            groups: sections.filter((g) => tripOf(g.section) === "fresh"),
+          },
+        ].filter((t) => t.groups.length > 0)
+      : [{ key: "all", label: "", groups: sections }];
+
+  // combined household trip: this profile's list + every other profile's,
+  // merged read-time (no third artifact to sync)
+  const me = activeProfile();
+  /** @type {Map<string, string>} */
+  const emojiFor = new Map();
+  emojiFor.set(me, ownEmoji || "you");
+  for (const o of others) emojiFor.set(o.profileId, o.emoji);
+  // FAMILY (David, 2026-07-25): the EVERYONE trip became a per-person picker,
+  // because you do not always shop for the whole house. Toggled-off people
+  // simply drop out of the merge. Persisted per profile, same pattern as the
+  // store pick. Absent = everyone on, which is the old behaviour exactly.
+  const familyKey = `mise.familyTrip.${me}`;
+  const [tripOff, setTripOff] = useState(() => {
+    try {
+      const raw = localStorage.getItem(familyKey);
+      return new Set(raw ? JSON.parse(raw) : []);
+    } catch {
+      return new Set();
+    }
+  });
+  const toggleTripMember = (/** @type {string} */ id) => {
+    const next = new Set(tripOff);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setTripOff(next);
+    try {
+      localStorage.setItem(familyKey, JSON.stringify([...next]));
+    } catch {
+      // storage blocked: the toggle just does not persist across reloads
+    }
+  };
+  const tripOthers = others.filter((o) => !tripOff.has(o.profileId));
+  const combined =
+    tripOthers.length > 0 || tripOff.has(me)
+      ? mergeProfileLists([
+          ...(tripOff.has(me) ? [] : [{ profileId: me, list: shopping }]),
+          ...tripOthers.map((o) => ({ profileId: o.profileId, list: o.list })),
+        ])
+      : others.length > 0
+        ? mergeProfileLists([
+            { profileId: me, list: shopping },
+            ...others.map((o) => ({ profileId: o.profileId, list: o.list })),
+          ])
+        : [];
+  const combinedSections = aisles.order
+    .map((s) => ({
+      section: s,
+      label: aisles.labels[s] ?? "",
+      items: combined.filter((i) => i.section === s),
+    }))
+    .filter((g) => g.items.length > 0);
+  const candidates = swapCandidates(combined);
+  const sharedCount = combined.filter((i) => i.sources.length > 1).length;
+
   // the whole household's one trip, priced: combined items already carry
   // {food, qty, unit}, so tripTotal works on them directly
   const combinedSummary =
@@ -422,7 +487,7 @@ export function ShoppingView({
             aria-pressed=${tab === "combined"}
             onClick=${() => setTab("combined")}
           >
-            EVERYONE ${combined.length ? `(${combined.length})` : ""}
+            FAMILY ${combined.length ? `(${combined.length})` : ""}
           </button>`
         }
       </div>
@@ -509,7 +574,9 @@ export function ShoppingView({
                 ${trip.label && html`<h2 class="block-title trip-title">${trip.label}</h2>`}
                 ${trip.groups.map(
                   (g) => html`
-                    <h2 class="block-title" key=${g.section}>${g.section}</h2>
+                    <h2 class="block-title" key=${g.section}>
+                      ${g.section}${g.label && html` <span class="hint">${g.label}</span>`}
+                    </h2>
                     <div class="slots">
                       ${g.items.map(
                         (i) => html`
@@ -832,6 +899,39 @@ export function ShoppingView({
       ${
         tab === "combined" &&
         html`
+          <div class="chips wrapchips" role="group" aria-label="Who this trip is for">
+            ${[{ profileId: me, name: "You", emoji: ownEmoji }, ...others].map(
+              (p) => html`
+                <button
+                  key=${p.profileId}
+                  class=${tripOff.has(p.profileId) ? "chip" : "chip on"}
+                  aria-pressed=${!tripOff.has(p.profileId)}
+                  onClick=${() => toggleTripMember(p.profileId)}
+                >
+                  ${p.emoji ?? ""} ${p.name}
+                </button>
+              `,
+            )}
+            ${
+              // family who live somewhere else are shown so the picker reads
+              // complete, but disabled: a trip is a kitchen, not a family
+              (profiles ?? [])
+                .filter(
+                  (p) =>
+                    p.id !== me &&
+                    !others.some((o) => o.profileId === p.id) &&
+                    p.family &&
+                    p.family === (profiles ?? []).find((x) => x.id === me)?.family,
+                )
+                .map(
+                  (p) => html`
+                    <button key=${p.id} class="chip" disabled title="different house">
+                      ${p.emoji ?? ""} ${p.name} · different house
+                    </button>
+                  `,
+                )
+            }
+          </div>
           <p class="hint">
             One trip for the whole house. Quantities are everyone's lists summed; the badges show
             who wants it. Tick = bought for everyone who wants it (writes to each person's own
@@ -861,7 +961,9 @@ export function ShoppingView({
           }
           ${combinedSections.map(
             (g) => html`
-              <h2 class="block-title" key=${g.section}>${g.section}</h2>
+              <h2 class="block-title" key=${g.section}>
+                ${g.section}${g.label && html` <span class="hint">${g.label}</span>`}
+              </h2>
               <div class="slots">
                 ${g.items.map((i) => {
                   const allChecked = i.sources.every((s) => s.checked);

@@ -26,7 +26,11 @@ test("tripOf: perishable sections are the fresh trip, shelf-stable the pantry tr
   assert.equal(tripOf("produce"), "fresh");
   assert.equal(tripOf("meat"), "fresh");
   assert.equal(tripOf("dairy"), "fresh");
-  assert.equal(tripOf("dry-goods"), "pantry");
+  assert.equal(tripOf("seafood"), "fresh");
+  assert.equal(tripOf("bakery"), "fresh");
+  assert.equal(tripOf("grains"), "pantry");
+  assert.equal(tripOf("canned"), "pantry");
+  assert.equal(tripOf("condiments"), "pantry");
   assert.equal(tripOf("frozen"), "pantry");
   assert.equal(tripOf("spices"), "pantry");
   assert.equal(tripOf("other"), "pantry");
@@ -442,13 +446,23 @@ test("running-low staple is suppressed when a recipe already shops that food", (
   assert.equal(soys[0].qty, 2);
 });
 
-test("sectionOf classifies common foods", () => {
+test("sectionOf classifies common foods across the wider aisle taxonomy", () => {
+  // David, 2026-07-25: "the items are not sorted in any helpful way". Seven
+  // buckets became fourteen real aisles, shared with the pantry groups.
   assert.equal(sectionOf("chicken breast"), "meat");
+  assert.equal(sectionOf("salmon fillet"), "seafood");
   assert.equal(sectionOf("greek yogurt"), "dairy");
   assert.equal(sectionOf("blueberries"), "produce");
   assert.equal(sectionOf("frozen mixed vegetables"), "frozen");
   assert.equal(sectionOf("mixed vegetables"), "produce");
+  assert.equal(sectionOf("whole wheat pita"), "bakery");
+  assert.equal(sectionOf("rolled oats"), "grains");
+  assert.equal(sectionOf("olive oil"), "condiments");
+  assert.equal(sectionOf("smoked paprika"), "spices");
   assert.equal(sectionOf("mystery powder"), "other");
+  // the trap: fresh green beans are produce, tinned legumes are canned
+  assert.equal(sectionOf("green beans"), "produce");
+  assert.equal(sectionOf("black beans"), "canned");
 });
 
 test("applyJustBought: checked staples go onHand, others land in perishables", () => {
