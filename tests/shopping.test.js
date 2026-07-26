@@ -22,6 +22,7 @@ import {
   tripOf,
   emptyPantry,
   applySweep,
+  substitutionPlan,
 } from "../app/lib/shopping.js";
 
 test("tripOf: perishable sections are the fresh trip, shelf-stable the pantry trip", () => {
@@ -1055,4 +1056,78 @@ test("emptyPantry can keep the permanent shelf or wipe everything", () => {
   const all = emptyPantry(pantry, false);
   assert.deepEqual(all.staples, []);
   assert.deepEqual(all.perishables, []);
+});
+
+test("SUBSTITUTE proposes swaps to MY week only, toward what the house already buys", () => {
+  // Red Team vetoed the version that edits other people's plans: their
+  // avoid-list may have changed since my copy synced, and a recipe arriving as
+  // a plain plan entry passes no screen on their device. So this converges my
+  // own week instead, which is what the ask means from the seat of the person
+  // pressing the button.
+  const mine = {
+    id: "blue-salad",
+    name: "Blue cheese salad",
+    mealType: "lunch",
+    servings: 1,
+    nutrition: { calories: 500 },
+    ingredients: [
+      { qty: 50, unit: "g", food: "blue cheese" },
+      { qty: 100, unit: "g", food: "baby spinach" },
+    ],
+  };
+  const better = {
+    id: "feta-salad",
+    name: "Feta salad",
+    mealType: "lunch",
+    servings: 1,
+    nutrition: { calories: 520 },
+    ingredients: [
+      { qty: 50, unit: "g", food: "feta cheese" },
+      { qty: 100, unit: "g", food: "baby spinach" },
+    ],
+  };
+  const wrongMeal = { ...better, id: "feta-dinner", mealType: "dinner" };
+  const wrongSize = { ...better, id: "feta-huge", nutrition: { calories: 900 } };
+  const pool = [mine, better, wrongMeal, wrongSize];
+  const byId = new Map(pool.map((r) => [r.id, r]));
+
+  // Mom already buys feta; only I buy blue cheese
+  const combined = [
+    { id: "blue-cheese", food: "blue cheese", qty: 50, unit: "g", section: "dairy", sources: [{ profileId: "david", checked: false }] },
+    { id: "feta-cheese", food: "feta cheese", qty: 200, unit: "g", section: "dairy", sources: [{ profileId: "mom", checked: false }] },
+    { id: "baby-spinach", food: "baby spinach", qty: 200, unit: "g", section: "produce", sources: [{ profileId: "david", checked: false }, { profileId: "mom", checked: false }] },
+  ];
+  const entries = [{ id: "e1", date: "2026-07-27", slot: "lunch", recipeId: "blue-salad", servings: 1 }];
+
+  const swaps = substitutionPlan(combined, "david", entries, pool, byId);
+  assert.equal(swaps.length, 1);
+  assert.equal(swaps[0].toId, "feta-salad", "swaps toward the cheese already in the trolley");
+  assert.deepEqual(swaps[0].drops, ["blue-cheese"]);
+  assert.equal(swaps[0].entryId, "e1", "and it targets MY entry");
+});
+
+test("SUBSTITUTE leaves alone what it must not touch", () => {
+  const r = (id, extra = {}) => ({
+    id,
+    name: id,
+    mealType: "lunch",
+    servings: 1,
+    nutrition: { calories: 500 },
+    ingredients: [{ qty: 1, unit: "x", food: "blue cheese" }],
+    ...extra,
+  });
+  const pool = [r("a"), r("b")];
+  const byId = new Map(pool.map((x) => [x.id, x]));
+  const combined = [
+    { id: "blue-cheese", food: "blue cheese", qty: 1, unit: "x", section: "dairy", sources: [{ profileId: "david", checked: false }] },
+  ];
+  const base = { date: "2026-07-27", slot: "lunch", recipeId: "a", servings: 1 };
+
+  // a pinned meal is a decision, an OUT slot is a restaurant, a table is the
+  // house's, and none of them are mine to rewrite
+  for (const guard of [{ pinned: true }, { out: true }, { table: "t1" }]) {
+    assert.deepEqual(substitutionPlan(combined, "david", [{ id: "e", ...base, ...guard }], pool, byId), []);
+  }
+  // and a swap that saves nothing is not proposed
+  assert.deepEqual(substitutionPlan(combined, "david", [{ id: "e", ...base }], pool, byId), []);
 });
