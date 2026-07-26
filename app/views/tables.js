@@ -27,7 +27,11 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onPatchSeat: (house: string, tableId: string, patch: Partial<import("../lib/tables.js").Seat>) => void,
  *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>,
  *   onTailorTable: (house: string, tableId: string) => Promise<void>,
- *   scoreboard: { id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, logged: { done: number, total: number }, shopped: boolean }[]
+ *   scoreboard: { id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, logged: { done: number, total: number }, shopped: boolean }[],
+ *   weekId: string,
+ *   onCreateBrigade: (b: { name: string, memberIds: string[], slots: string[], cookId?: string, from: string, until: string }) => void,
+ *   onRemoveBrigade: (id: string) => void,
+ *   onRunBrigade: (id: string, week: string, regenerate?: boolean) => Promise<{ made: number, thin: { slot: string, available: number }[] }>
  * }} props
  */
 export function TablesView({
@@ -46,6 +50,10 @@ export function TablesView({
   onSeatScreen,
   onTailorTable,
   scoreboard,
+  weekId,
+  onCreateBrigade,
+  onRemoveBrigade,
+  onRunBrigade,
 }) {
   const byId = recipesById(bankRecipes ?? []);
   const myHouse = /** @type {string} */ (
@@ -87,6 +95,83 @@ export function TablesView({
       });
     }
     setTailorBusy(null);
+  };
+
+  // BRIGADE state. A brigade is a standing table: people who live together
+  // and eat the same meals. Only same-house profiles can be members, which is
+  // enforced in the lib as well — this just keeps the picker honest.
+  const houseMates = (profiles ?? []).filter((p) => (p.household ?? "home") === myHouse);
+  const myBrigades = (houseEvents ?? []).find((h) => h.house === myHouse)?.events?.brigades ?? [];
+  const [brigadeForm, setBrigadeForm] = useState(
+    /** @type {null | { name: string, memberIds: string[], slots: string[], cookId: string, from: string, until: string }} */ (
+      null
+    ),
+  );
+  const [brigadeBusy, setBrigadeBusy] = useState(/** @type {string | null} */ (null));
+  const [brigadeNote, setBrigadeNote] = useState(/** @type {string} */ (""));
+
+  const openBrigadeForm = () => {
+    const until = new Date(`${todayIso}T12:00:00`);
+    until.setDate(until.getDate() + 27); // the lib caps a brigade at four weeks
+    setBrigadeForm({
+      name: "",
+      memberIds: houseMates.filter((p) => p.id === me).map((p) => p.id),
+      slots: ["dinner"],
+      cookId: me,
+      from: todayIso,
+      until: until.toISOString().slice(0, 10),
+    });
+    setBrigadeNote("");
+  };
+
+  const toggleIn = (/** @type {string[]} */ list, /** @type {string} */ value) =>
+    list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
+
+  const submitBrigade = () => {
+    if (!brigadeForm) return;
+    if (brigadeForm.memberIds.length < 2) {
+      setBrigadeNote("A brigade needs at least two people. That is what makes it a brigade.");
+      return;
+    }
+    if (brigadeForm.slots.length === 0) {
+      setBrigadeNote("Pick at least one meal for the brigade to share.");
+      return;
+    }
+    onCreateBrigade({
+      name: brigadeForm.name.trim() || "Brigade",
+      memberIds: brigadeForm.memberIds,
+      slots: brigadeForm.slots,
+      cookId: brigadeForm.memberIds.includes(brigadeForm.cookId)
+        ? brigadeForm.cookId
+        : brigadeForm.memberIds[0],
+      from: brigadeForm.from,
+      until: brigadeForm.until,
+    });
+    setBrigadeForm(null);
+  };
+
+  const runBrigade = async (/** @type {string} */ id, /** @type {boolean} */ regenerate) => {
+    setBrigadeBusy(id);
+    setBrigadeNote("");
+    try {
+      const { made, thin } = await onRunBrigade(id, weekId, regenerate);
+      const short = thin.filter((t) => t.available === 0).map((t) => t.slot);
+      const tight = thin.filter((t) => t.available > 0);
+      setBrigadeNote(
+        short.length > 0
+          ? `No ${short.join(" or ")} works for everyone in this brigade. Nothing was set. Widen the bank or check the avoid lists.`
+          : tight.length > 0
+            ? `Set ${made} ${made === 1 ? "meal" : "meals"}. Only ${tight
+                .map((t) => `${t.available} ${t.slot} ${t.available === 1 ? "recipe" : "recipes"}`)
+                .join(", ")} suit everyone, so the week repeats itself.`
+            : made > 0
+              ? `Set ${made} ${made === 1 ? "meal" : "meals"} for this week.`
+              : "This week is already set. Use RE-ROLL to change it.",
+      );
+    } catch {
+      setBrigadeNote("Could not set the week. Check the connection and try again.");
+    }
+    setBrigadeBusy(null);
   };
 
   // CREATE TABLE form state
@@ -377,6 +462,140 @@ export function TablesView({
               </div>
             </div>`
       }
+      <h2 class="block-title">Brigades</h2>
+      <p class="hint">
+        A standing table. Two or more people in this house eating the same meals, each at their own
+        portion. Set it once, then run it every week.
+      </p>
+      ${myBrigades.map((b) => {
+        const names = b.memberIds.map((id) => {
+          const p = (profiles ?? []).find((x) => x.id === id);
+          return `${p?.emoji ?? ""} ${p?.name ?? id}`.trim();
+        });
+        const cook = (profiles ?? []).find((p) => p.id === b.cookId);
+        return html`
+          <div class="tile" key=${b.id}>
+            <div class="k">${b.name}</div>
+            <div class="sub">${names.join(" · ")}</div>
+            <div class="sub">
+              ${b.slots.map((s) => SLOT_META[s]?.full ?? s).join(", ")} · through
+              ${" "}${parseLocalIso(b.until).toLocaleDateString([], { month: "short", day: "numeric" })}
+              ${cook ? html` · ${cook.name ?? cook.id} shops` : ""}
+            </div>
+            <div class="actions">
+              <button
+                class="primary"
+                disabled=${brigadeBusy === b.id}
+                onClick=${() => runBrigade(b.id, false)}
+              >
+                ${brigadeBusy === b.id ? "SETTING…" : "SET THIS WEEK"}
+              </button>
+              <button
+                class="secondary"
+                disabled=${brigadeBusy === b.id}
+                onClick=${() => runBrigade(b.id, true)}
+              >
+                RE-ROLL
+              </button>
+              <button class="secondary" onClick=${() => onRemoveBrigade(b.id)}>END</button>
+            </div>
+          </div>
+        `;
+      })}
+      ${brigadeNote && html`<p class="hint" role="status">${brigadeNote}</p>`}
+      ${
+        !brigadeForm
+          ? html`<div class="actions">
+              <button class="secondary" onClick=${openBrigadeForm}>+ START A BRIGADE</button>
+            </div>`
+          : html`<div class="tile tableform">
+              <div class="k">Start a brigade</div>
+              <input
+                aria-label="Brigade name"
+                placeholder="e.g. Mom + Laurie"
+                value=${brigadeForm.name}
+                onInput=${(/** @type {any} */ e) =>
+                  setBrigadeForm({ ...brigadeForm, name: e.currentTarget.value })}
+              />
+              <div class="sub">Who is in it</div>
+              <div class="chips">
+                ${houseMates.map(
+                  (p) => html`
+                    <button
+                      key=${p.id}
+                      class=${brigadeForm.memberIds.includes(p.id) ? "chip on" : "chip"}
+                      aria-pressed=${brigadeForm.memberIds.includes(p.id)}
+                      onClick=${() =>
+                        setBrigadeForm({
+                          ...brigadeForm,
+                          memberIds: toggleIn(brigadeForm.memberIds, p.id),
+                        })}
+                    >
+                      ${p.emoji ?? ""} ${p.name ?? p.id}
+                    </button>
+                  `,
+                )}
+              </div>
+              <div class="sub">Which meals they share</div>
+              <div class="chips">
+                ${SLOTS.map(
+                  (s) => html`
+                    <button
+                      key=${s.key}
+                      class=${brigadeForm.slots.includes(s.key) ? "chip on" : "chip"}
+                      aria-pressed=${brigadeForm.slots.includes(s.key)}
+                      onClick=${() =>
+                        setBrigadeForm({
+                          ...brigadeForm,
+                          slots: toggleIn(brigadeForm.slots, s.key),
+                        })}
+                    >
+                      ${s.full}
+                    </button>
+                  `,
+                )}
+              </div>
+              <div class="sub">Who does the shopping</div>
+              <select
+                aria-label="Cook"
+                value=${brigadeForm.cookId}
+                onChange=${(/** @type {any} */ e) =>
+                  setBrigadeForm({ ...brigadeForm, cookId: e.currentTarget.value })}
+              >
+                ${brigadeForm.memberIds.map((id) => {
+                  const p = (profiles ?? []).find((x) => x.id === id);
+                  return html`<option key=${id} value=${id}>${p?.name ?? id}</option>`;
+                })}
+              </select>
+              <div class="row">
+                <input
+                  type="date"
+                  aria-label="Starts"
+                  min=${todayIso}
+                  value=${brigadeForm.from}
+                  onInput=${(/** @type {any} */ e) =>
+                    setBrigadeForm({ ...brigadeForm, from: e.currentTarget.value })}
+                />
+                <input
+                  type="date"
+                  aria-label="Ends"
+                  min=${brigadeForm.from}
+                  value=${brigadeForm.until}
+                  onInput=${(/** @type {any} */ e) =>
+                    setBrigadeForm({ ...brigadeForm, until: e.currentTarget.value })}
+                />
+              </div>
+              <p class="hint">
+                A brigade runs for up to four weeks, then you renew it. Portions come from each
+                person's own targets, so one pot serves different plates.
+              </p>
+              <div class="actions">
+                <button class="secondary" onClick=${() => setBrigadeForm(null)}>CANCEL</button>
+                <button class="primary" onClick=${submitBrigade}>START BRIGADE</button>
+              </div>
+            </div>`
+      }
+
       <div class="actions">
         <a class="secondary linkbtn" href="#/dinner">💬 what should dinner be? →</a>
       </div>

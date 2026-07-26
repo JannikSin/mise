@@ -81,6 +81,9 @@ import {
   addTable,
   removeTable,
   patchSeat,
+  addBrigade,
+  removeBrigade,
+  materializeBrigade,
   setTableTailor,
   cookOf,
 } from "./lib/tables.js";
@@ -1238,6 +1241,71 @@ function App() {
     [writeHouseEvents],
   );
 
+  // ---- brigades (S3): the standing table ---------------------------------
+  // Everything a brigade does is done by materializing ordinary tables, so
+  // only two things live here: creating/removing the rule, and running the
+  // factory. The factory needs every member's targets (portions come from
+  // each person's own numbers), and those are per-profile raw reads, so this
+  // is async where table creation is not.
+  const handleCreateBrigade = useCallback(
+    (
+      /** @type {{ name: string, memberIds: string[], slots: string[], cookId?: string, from: string, until: string }} */ b,
+    ) => {
+      const house = myHouseOf();
+      const cur =
+        houseEventsRef.current.find((h) => h.house === house)?.events ?? normalizeEvents(null);
+      writeHouseEvents(house, addBrigade(cur, b, localIsoDate(new Date())));
+    },
+    [writeHouseEvents],
+  );
+
+  const handleRemoveBrigade = useCallback(
+    (/** @type {string} */ id) => {
+      const house = myHouseOf();
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      if (!cur) return;
+      writeHouseEvents(house, removeBrigade(cur, id, localIsoDate(new Date())));
+    },
+    [writeHouseEvents],
+  );
+
+  /**
+   * Run a brigade over a week. ANY member may call it: the ids are
+   * deterministic, so whoever gets there first fixes the week and a second
+   * device's write merges onto the same rows. `cookId` decides who shops,
+   * not who is allowed to generate, otherwise everyone else stares at empty
+   * dinner slots waiting on the cook.
+   */
+  const handleRunBrigade = useCallback(
+    async (/** @type {string} */ brigadeId, /** @type {string} */ week, regenerate = false) => {
+      const house = myHouseOf();
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      const brigade = cur?.brigades?.find((b) => b.id === brigadeId);
+      if (!cur || !brigade) return { made: 0, thin: [] };
+
+      /** @type {Map<string, any>} */
+      const targetsById = new Map();
+      for (const id of brigade.memberIds) {
+        const path =
+          id === "david" ? "fitness/targets.json" : `profiles/${id}/fitness/targets.json`;
+        targetsById.set(id, await read(path, { raw: true }).catch(() => null));
+      }
+
+      const { events, made, thin } = materializeBrigade(cur, brigade, {
+        dates: datesOfWeek(week),
+        today: localIsoDate(new Date()),
+        house,
+        profilesById: new Map(allProfilesRef.current.map((p) => [p.id, p])),
+        targetsById,
+        bankById: recipesById(bankRecipesRef.current),
+        regenerate,
+      });
+      if (made > 0) writeHouseEvents(house, events);
+      return { made, thin };
+    },
+    [writeHouseEvents],
+  );
+
   // Tribunal amendment 1a: creation-time diet/avoid screen per prospective
   // seat, reading each profile's own targets (raw paths per SCHEMAS.md)
   const handleSeatScreen = useCallback(async (/** @type {string} */ recipeId) => {
@@ -1702,6 +1770,10 @@ function App() {
         onSeatScreen=${handleSeatScreen}
         onTailorTable=${handleTailorTable}
         scoreboard=${scoreboard}
+        weekId=${weekId}
+        onCreateBrigade=${handleCreateBrigade}
+        onRemoveBrigade=${handleRemoveBrigade}
+        onRunBrigade=${handleRunBrigade}
       />`
     }
     ${

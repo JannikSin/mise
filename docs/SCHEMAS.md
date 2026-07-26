@@ -418,6 +418,66 @@ Rules (binding, from the Tribunal gate):
   estimate may propose and display; it never silently enters the
   generator's trusted denominator.
 
+### Brigades (standing tables) — same file, `brigades` array
+
+A BRIGADE is a standing table: two or more people in ONE house who eat the
+same meals at their own portions. It stores only the standing rule.
+Generation MATERIALIZES ordinary tables tagged `fromBrigade`, so every rule
+above applies to a brigade meal unchanged — there is no second derivation
+path, and no brigade-specific behaviour anywhere downstream.
+
+```jsonc
+{
+  "brigades": [
+    {
+      "id": "e5f6a7b8",
+      "name": "Mom + Laurie",
+      "memberIds": ["mom", "laurie"], // 2+, all in THIS house
+      "slots": ["dinner"], // plan slot keys
+      "cookId": "mom", // ? who shops; absent = first member
+      "from": "2026-07-27",
+      "until": "2026-08-02", // REQUIRED, span capped at 28 days
+    },
+  ],
+}
+```
+
+A materialized table carries two extra fields: `fromBrigade` (the brigade's
+id) and `cookId`. Both are normal stored fields, unlike the derived-only
+ones above.
+
+Rules (binding, from the Tribunal plan gate):
+
+- **Ids are DETERMINISTIC**: `b-<brigadeId>-<date>-<slot>`. Two members
+  generating the same week offline must produce the same rows, or the
+  id-keyed merge unions them and — because the cook's shopping entry is
+  pushed before the one-pin-per-slot guard — the cook silently buys and is
+  billed for every meal twice.
+- **Any member may generate**; `cookId` decides who SHOPS, not who may run
+  it. Materialization is idempotent on (brigade, date, slot).
+- **Regeneration carries seats forward**, preserving `status` and edited
+  `servings`, and rewrites only the recipe. Rebuilding seats would erase a
+  `skipped` and cook a portion nobody eats.
+- **Already-lived days are never touched** (`date < today` is skipped).
+- **The pool is the INTERSECTION** of every member's `diet`/`avoidIngredients`
+  screen, over the shared BANK only — each profile's `own` recipes are exempt
+  from screening by design, which is unsafe once the meal is served to other
+  people. An empty pool makes nothing and says so; a thin one is reported.
+- **One house, rechecked at materialize time**, not trusted from creation: a
+  member who moves out stops being planned for and stops riding the cook's
+  list.
+- `validBrigade` is a trust boundary like `validTable`: `until` required,
+  span ≤ 28 days, 2+ member ids, known slots, non-empty id. Invalid brigades
+  are dropped individually at normalize time.
+- **A hand-set table beats a brigade meal** at the same date and slot, and
+  the cook's shopping entries are deduped per date and slot, so one meal is
+  bought once however many tables claim it.
+- Portions come from each member's own targets, renormalized over that
+  member's own `mealSlots`, rounded to 0.25 and clamped to [0.5, 3] (tighter
+  than the hand-set table clamp of [0.5, 10]).
+- Removing a brigade also removes its FUTURE tables; past ones stay, because
+  the money ledger is entitled to meals that actually happened.
+
 ## Money ledger — `households/<h>/ledger.json`
 
 Who-owes-who from shared Tables (roadmap M1). The table's COOK's device
