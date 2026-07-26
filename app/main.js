@@ -120,6 +120,11 @@ const TABS = [
 ];
 
 function App() {
+  // the active profile id. Declared FIRST because half the component reads it
+  // and it depends on nothing; when it lived further down, a memo added above
+  // it threw "Cannot access 'me' before initialization" and killed the app
+  // for anyone whose household list was non-empty (2026-07-26).
+  const me = activeProfile() ?? "david";
   const [route, setRoute] = useState(
     /** @type {{ view: string, id?: string, from?: string, servings?: number, entry?: string }} */ ({
       view: "home",
@@ -135,9 +140,15 @@ function App() {
   const [sync, setSync] = useState(getSyncStatus());
   const [recipes, setRecipes] = useState(/** @type {Record<string, any>[]} */ ([]));
   const [weekId, setWeekId] = useState(isoWeekId(new Date()));
+
   const [plan, setPlan] = useState(
     /** @type {{ week: string, entries: Record<string, any>[] }} */ ({ week: weekId, entries: [] }),
   );
+  // mirrors of state for identity-stable callbacks. Declared beside the state
+  // they track rather than further down: a handler defined ABOVE its ref reads
+  // fine to a human and is a temporal dead zone to the engine.
+  const planRef = useRef(plan);
+  planRef.current = plan;
   const [targets, setTargets] = useState(/** @type {Record<string, any> | null} */ (null));
 
   useEffect(() => initRouter(setRoute), []);
@@ -246,6 +257,9 @@ function App() {
     /** @type {{ house: string, events: import("./lib/tables.js").HouseEvents }[]} */ ([]),
   );
   const [allProfiles, setAllProfiles] = useState(/** @type {Record<string, any>[]} */ ([]));
+
+  const allProfilesRef = useRef(allProfiles);
+  allProfilesRef.current = allProfiles;
   useEffect(() => {
     let alive = true;
     const load = () => {
@@ -284,6 +298,13 @@ function App() {
   const [pantry, setPantry] = useState(
     /** @type {Record<string, any>} */ ({ staples: [], perishables: [] }),
   );
+
+  const shoppingRef = useRef(shopping);
+  shoppingRef.current = shopping;
+  const pantryRef = useRef(pantry);
+  pantryRef.current = pantry;
+  // resolved households/<h>/pantry.json once profiles load; null until then
+  const pantryPathRef = useRef(/** @type {string | null} */ (null));
 
   const [listLoaded, setListLoaded] = useState(false);
   const [priceCatalogue, setPriceCatalogue] = useState(
@@ -363,12 +384,47 @@ function App() {
     };
   }, [hasToken]);
 
-  const shoppingRef = useRef(shopping);
-  shoppingRef.current = shopping;
-  const pantryRef = useRef(pantry);
-  pantryRef.current = pantry;
-  // resolved households/<h>/pantry.json once profiles load; null until then
-  const pantryPathRef = useRef(/** @type {string | null} */ (null));
+  // Latest-value refs, declared up here with inert initials and assigned
+  // further down where their values exist. They are read ONLY inside
+  // callbacks, so the initial value is never observed — and declaring them
+  // early is what lets the handlers that read them sit above their sources
+  // without a temporal dead zone (2026-07-26).
+  const viewPlanRef = useRef(/** @type {any} */ (null));
+  const tableDerivedRef = useRef(
+    /** @type {any} */ ({ entries: [], conflicts: [], collisions: [], cookExtras: [] }),
+  );
+  const recentRecipeIdsRef = useRef(/** @type {string[]} */ ([]));
+  const weekRef = useRef(weekId);
+  weekRef.current = weekId;
+
+  const updatePlan = useCallback(
+    (/** @type {{ week: string, entries: Record<string, any>[] }} */ next) => {
+      // the ONE strip point: derived table entries (generateWeek receives
+      // the merged viewPlan, whose pinned table entries would otherwise
+      // survive into the write) live in events.json, never in a plan file
+      const clean = { ...next, entries: stripTableEntries(next.entries) };
+      planRef.current = clean;
+      setPlan(clean); // optimistic: instant UI, then queue+flush via the store
+      void write(`plans/${weekRef.current}.json`, clean);
+    },
+    [],
+  );
+
+  const withCookExtras = useCallback((/** @type {import("./lib/plan.js").Plan} */ p) => {
+    const weekSet = new Set(datesOfWeek(p.week));
+    const extras = tableDerivedRef.current.cookExtras.filter((/** @type {any} */ x) =>
+      weekSet.has(x.date),
+    );
+    return extras.length > 0
+      ? {
+          ...p,
+          entries: [
+            ...p.entries,
+            .../** @type {any[]} */ (extras.map((/** @type {any} */ x) => ({ ...x }))),
+          ],
+        }
+      : p;
+  }, []);
 
   const updateShopping = useCallback(
     (/** @type {import("./lib/shopping.js").ShoppingList} */ next) => {
@@ -811,10 +867,6 @@ function App() {
   // listeners never re-attach mid-gesture) while still seeing fresh state —
   // planRef is also advanced inside updatePlan so back-to-back drops chain
   // correctly even before the next render commits
-  const planRef = useRef(plan);
-  planRef.current = plan;
-  const weekRef = useRef(weekId);
-  weekRef.current = weekId;
 
   // 7c: auto-advance the week pointer when the calendar rolls into a new
   // ISO week while the app is open — this only changes which week is
@@ -841,19 +893,6 @@ function App() {
       document.removeEventListener("visibilitychange", sync);
     };
   }, []);
-
-  const updatePlan = useCallback(
-    (/** @type {{ week: string, entries: Record<string, any>[] }} */ next) => {
-      // the ONE strip point: derived table entries (generateWeek receives
-      // the merged viewPlan, whose pinned table entries would otherwise
-      // survive into the write) live in events.json, never in a plan file
-      const clean = { ...next, entries: stripTableEntries(next.entries) };
-      planRef.current = clean;
-      setPlan(clean); // optimistic: instant UI, then queue+flush via the store
-      void write(`plans/${weekRef.current}.json`, clean);
-    },
-    [],
-  );
 
   // locked week: destructive edits (add/remove/move) ask first, since the
   // meals may already be shopped for; pin/unpin never changes what's cooked
@@ -1063,7 +1102,6 @@ function App() {
     };
   }, [weekId, hasToken]);
 
-  const recentRecipeIdsRef = useRef(/** @type {string[]} */ ([]));
   useEffect(() => {
     let alive = true;
     const prior = [shiftWeek(weekId, -1), shiftWeek(weekId, -2)];
@@ -1227,7 +1265,6 @@ function App() {
   // Tables derivation (the Engineer seam): persisted `plan` state stays
   // PURE; virtual pinned entries exist only in this memo and the viewPlan
   // built from it. Any failure degrades to "no tables", never a broken app.
-  const me = activeProfile() ?? "david";
 
   // the household list as the view sees it, needed here so SUBSTITUTE can
   // tell which foods only I am buying
@@ -1298,14 +1335,10 @@ function App() {
   // a table landed AFTER this week was generated: the view displaced a meal
   // but snacks/portions were sized around the old one — say so until re-roll
   const tableStale = merged.displaced;
-  const viewPlanRef = useRef(viewPlan);
   viewPlanRef.current = viewPlan;
-  const tableDerivedRef = useRef(tableDerived);
   tableDerivedRef.current = tableDerived;
   const houseEventsRef = useRef(houseEvents);
   houseEventsRef.current = houseEvents;
-  const allProfilesRef = useRef(allProfiles);
-  allProfilesRef.current = allProfiles;
   const bankRecipesRef = useRef(bankRecipes);
   bankRecipesRef.current = bankRecipes;
 
@@ -1313,13 +1346,6 @@ function App() {
    *  the plan at list-derivation time only, never in state. Clamped to the
    *  plan's own week — a table set weeks ahead (now one tap via the Tables
    *  tab's date picker) must not shop its ingredients into THIS trip */
-  const withCookExtras = useCallback((/** @type {import("./lib/plan.js").Plan} */ p) => {
-    const weekSet = new Set(datesOfWeek(p.week));
-    const extras = tableDerivedRef.current.cookExtras.filter((x) => weekSet.has(x.date));
-    return extras.length > 0
-      ? { ...p, entries: [...p.entries, .../** @type {any[]} */ (extras.map((x) => ({ ...x })))] }
-      : p;
-  }, []);
 
   const myHouseOf = () => {
     const mine = allProfilesRef.current.find((p) => p.id === me);

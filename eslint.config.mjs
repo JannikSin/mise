@@ -76,6 +76,17 @@ export default [
     },
     rules: {
       "no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
+      // TDZ guard. 2026-07-26: a useMemo added ABOVE `const me` referenced it,
+      // which typechecks, lints clean under the defaults, and passes every
+      // test — then throws "Cannot access 'me' before initialization" and
+      // kills the whole app, but ONLY on a device where the branch holding the
+      // reference actually runs. It never fired once on a machine with no
+      // household profiles loaded. Functions stay hoistable (the file is full
+      // of handlers defined after use); variables and classes must not be.
+      "no-use-before-define": [
+        "error",
+        { functions: false, variables: true, classes: true, allowNamedExports: true },
+      ],
       eqeqeq: ["error", "smart"],
       "no-var": "error",
       "prefer-const": "error",
