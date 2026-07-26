@@ -3,6 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import { recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { parseLocalIso } from "../lib/dates.js";
 import { SERVINGS_MIN, SERVINGS_MAX } from "../lib/tables.js";
+import { CheckInView } from "./checkin.js";
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
@@ -31,7 +32,8 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   weekId: string,
  *   onCreateBrigade: (b: { name: string, memberIds: string[], slots: string[], cookId?: string, from: string, until: string }) => void,
  *   onRemoveBrigade: (id: string) => void,
- *   onRunBrigade: (id: string, week: string, regenerate?: boolean) => Promise<{ made: number, thin: { slot: string, available: number }[] }>
+ *   onRunBrigade: (id: string, week: string, regenerate?: boolean) => Promise<{ made: number, thin: { slot: string, available: number }[] }>,
+ *   checkIn: Record<string, any>
  * }} props
  */
 export function TablesView({
@@ -54,6 +56,7 @@ export function TablesView({
   onCreateBrigade,
   onRemoveBrigade,
   onRunBrigade,
+  checkIn,
 }) {
   const byId = recipesById(bankRecipes ?? []);
   const myHouse = /** @type {string} */ (
@@ -220,7 +223,14 @@ export function TablesView({
 
   return html`
     <div class="view">
-      <div class="hero"><h1>Table</h1></div>
+      <div class="hero">
+        <h1>Carnet<span>.</span></h1>
+        <div class="sub">your day, your tools, your table</div>
+      </div>
+
+      <${CheckInView} ...${checkIn} />
+
+      <h2 class="block-title">Tables</h2>
       <p class="hint">
         a table is one shared meal: pick a recipe, seat people, everyone eats the same dish at their
         own portion and their day replans around it. Money from finished tables settles on the List

@@ -7,12 +7,10 @@
 
 /** Tab label per route, in tour order — also groups the SYS static list. */
 export const TOUR_TABS = /** @type {const} */ ({
-  "#/today": "COOK",
   "#/plan": "PLAN",
-  "#/tables": "TABLE",
   "#/list": "LIST",
+  "#/tables": "CARNET",
   "#/train": "TRAIN",
-  "#/": "HOME",
   "#/system": "SYS",
 });
 
@@ -23,25 +21,25 @@ export const TOUR_TABS = /** @type {const} */ ({
 /** @type {TourStep[]} */
 export const TOUR_STEPS = [
   {
-    route: "#/today",
-    selector: ".todaylist",
-    title: "Today's meals",
-    text: "Everything planned for today. Tap a meal to open its recipe, portions already scaled to what you should eat.",
-  },
-  {
-    route: "#/today",
+    route: "#/plan",
     selector: ".hero.weeknav",
-    title: "Flip through the week",
-    text: "The arrows page through the week's days, so you can open tomorrow and pre-cook what you can tonight.",
+    title: "Plan is the whole app",
+    text: "Planning and cooking in one place. The arrows move between weeks; every day of the week is a row below.",
   },
   {
-    route: "#/today",
+    route: "#/plan",
+    selector: ".dsum",
+    title: "A day at a glance",
+    text: "One line per day with its calories and protein. Tap a day to open it and see the meals; today opens by itself.",
+  },
+  {
+    route: "#/plan",
     selector: ".tile.buffer",
     title: "The buffer snack",
     text: "One batch-prepped fridge stand-by per week, the measured answer to still-hungry moments. Tally portions here as you eat them.",
   },
   {
-    route: "#/today",
+    route: "#/plan",
     selector: ".batchprep",
     title: "Batch prep",
     text: "What to cook ahead and when. It knows the calendar: past Sunday it becomes a catch-up list, and on Sunday it preps NEXT week.",
@@ -113,7 +111,7 @@ export const TOUR_STEPS = [
     text: "Today's workout with one-entry logging, plus this interval timer for circuits: work, rest, rounds, beeps.",
   },
   {
-    route: "#/",
+    route: "#/tables",
     selector: ".grid",
     title: "Morning check-in",
     text: "Weigh in, log how you feel, see the day at a glance. The trend reads over 7 days, never a single morning.",

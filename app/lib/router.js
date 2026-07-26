@@ -11,10 +11,16 @@ export function parseRoute(hash) {
   const parts = path.split("/").filter(Boolean);
   const [head, id, sub] = parts;
   switch (head) {
+    // #/ and #/today are permanent ALIASES for the merged Plan tab, not
+    // redirects. Plan absorbed Cook and Home retired, but the Worker pushes
+    // ntfy notifications deep-linking to #/today (worker/src/lib.js), and the
+    // family have bookmarks. Aliasing means the URL keeps working forever
+    // with zero Worker changes.
     case undefined:
-      return { view: "home" };
-    case "cookbook":
     case "today":
+    case "home":
+      return { view: "plan" };
+    case "cookbook":
     case "system":
     case "plan":
     case "list":
@@ -26,12 +32,12 @@ export function parseRoute(hash) {
     case "tables":
       return { view: head };
     case "recipe": {
-      if (!id) return { view: "home" };
+      if (!id) return { view: "plan" };
       let decoded;
       try {
         decoded = decodeURIComponent(id);
       } catch {
-        return { view: "home" }; // malformed percent-sequence in the hash
+        return { view: "plan" }; // malformed percent-sequence in the hash
       }
       /** @type {{ view: string, id: string, from?: string, servings?: number, entry?: string }} */
       const route = { view: sub === "cook" ? "cook" : "recipe", id: decoded };
@@ -47,7 +53,7 @@ export function parseRoute(hash) {
       return route;
     }
     default:
-      return { view: "home" };
+      return { view: "plan" };
   }
 }
 

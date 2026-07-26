@@ -15,9 +15,7 @@ import { initRouter } from "./lib/router.js";
 import { formatSyncTime, isoWeekId, localIsoDate, statusDate } from "./lib/dates.js";
 import { applyScanItems } from "./lib/scan.js";
 import { tailorTable } from "./lib/worker.js";
-import { HomeView } from "./views/home.js";
 import { ProfileGateView } from "./views/profile-gate.js";
-import { TodayView } from "./views/today.js";
 import { CookbookView } from "./views/cookbook.js";
 import { RecipeView, CookView } from "./views/recipe.js";
 import { SystemView } from "./views/system.js";
@@ -102,12 +100,14 @@ export const APP = { name: "Mise", version: "0.3.0" };
 
 let checkGen = 0;
 
+// Five tabs (David, 2026-07-25). Home only ever linked to Cook, and Cook and
+// Plan showed the same week twice, so Plan absorbed Cook and Home retired.
+// CARNET holds everything that is neither planning nor shopping: the daily
+// check-in, the scanners, the chatbot, tables and brigades.
 const TABS = [
-  { hash: "#/", view: "home", icon: "◉", label: "Home" },
-  { hash: "#/today", view: "today", icon: "▤", label: "Cook" },
   { hash: "#/plan", view: "plan", icon: "⬒", label: "Plan" },
   { hash: "#/list", view: "list", icon: "☑", label: "List" },
-  { hash: "#/tables", view: "tables", icon: "◫", label: "Table" },
+  { hash: "#/tables", view: "tables", icon: "◫", label: "Carnet" },
   { hash: "#/train", view: "train", icon: "▲", label: "Train" },
   { hash: "#/system", view: "system", icon: "☰", label: "Sys" },
 ];
@@ -1624,38 +1624,6 @@ function App() {
     </div>
 
     ${
-      route.view === "home" &&
-      html`<${HomeView}
-        recipes=${recipes}
-        plan=${viewPlan}
-        hasToken=${hasToken}
-        repo=${repo}
-        daily=${dailyLog}
-        targets=${targets}
-        workouts=${workouts}
-        today=${localIsoDate(now)}
-        loading=${!fitnessLoaded}
-        trainingEnabled=${trainingEnabled}
-        onPatchDay=${handlePatchDay}
-        adherence=${myAdherence}
-      />`
-    }
-    ${
-      route.view === "today" &&
-      html`<${TodayView}
-        recipes=${recipes}
-        plan=${viewPlan}
-        tableConflicts=${tableDerived.conflicts}
-        tableStale=${tableStale}
-        nextPlan=${nextPlan}
-        daily=${dailyLog}
-        pantry=${pantry}
-        onPatchDay=${handlePatchDay}
-        hasToken=${hasToken}
-        loading=${loading}
-      />`
-    }
-    ${
       route.view === "cookbook" &&
       html`<${CookbookView}
         recipes=${recipes}
@@ -1685,6 +1653,11 @@ function App() {
         rebuilt=${buildReport !== null}
         tableStale=${tableStale}
         tableIssues=${tableDerived.conflicts.length + tableDerived.collisions.length}
+        tableConflicts=${tableDerived.conflicts}
+        nextPlan=${nextPlan}
+        daily=${dailyLog}
+        pantry=${pantry}
+        onPatchDay=${handlePatchDay}
       />`
     }
     ${
@@ -1774,6 +1747,14 @@ function App() {
         onCreateBrigade=${handleCreateBrigade}
         onRemoveBrigade=${handleRemoveBrigade}
         onRunBrigade=${handleRunBrigade}
+        checkIn=${{
+          daily: dailyLog,
+          targets,
+          today: localIsoDate(now),
+          loading: !fitnessLoaded,
+          onPatchDay: handlePatchDay,
+          adherence: myAdherence,
+        }}
       />`
     }
     ${

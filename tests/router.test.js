@@ -2,15 +2,19 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseRoute } from "../app/lib/router.js";
 
-test("empty and #/ map to home", () => {
-  assert.deepEqual(parseRoute(""), { view: "home" });
-  assert.deepEqual(parseRoute("#/"), { view: "home" });
-  assert.deepEqual(parseRoute("#"), { view: "home" });
+test("#/ and #/today are PERMANENT aliases for the merged Plan tab", () => {
+  // Plan absorbed Cook and Home retired (2026-07-25), but the Worker pushes
+  // ntfy notifications deep-linking to #/today and the family have bookmarks.
+  // These aliases are load-bearing forever, not a migration step.
+  assert.deepEqual(parseRoute(""), { view: "plan" });
+  assert.deepEqual(parseRoute("#/"), { view: "plan" });
+  assert.deepEqual(parseRoute("#"), { view: "plan" });
+  assert.deepEqual(parseRoute("#/today"), { view: "plan" });
+  assert.deepEqual(parseRoute("#/home"), { view: "plan" });
 });
 
 test("top-level views", () => {
   assert.deepEqual(parseRoute("#/cookbook"), { view: "cookbook" });
-  assert.deepEqual(parseRoute("#/today"), { view: "today" });
   assert.deepEqual(parseRoute("#/system"), { view: "system" });
   assert.deepEqual(parseRoute("#/plan"), { view: "plan" });
   assert.deepEqual(parseRoute("#/list"), { view: "list" });
@@ -21,8 +25,8 @@ test("top-level views", () => {
   assert.deepEqual(parseRoute("#/tables"), { view: "tables" });
 });
 
-test("removed quiz route falls back to home", () => {
-  assert.deepEqual(parseRoute("#/quiz"), { view: "home" });
+test("removed routes fall back to the Plan tab", () => {
+  assert.deepEqual(parseRoute("#/quiz"), { view: "plan" });
 });
 
 test("recipe detail and cook mode carry the id", () => {
@@ -65,7 +69,7 @@ test("?from= origin is carried on recipe and cook routes, omitted when absent", 
   assert.deepEqual(parseRoute("#/recipe/x?from="), { view: "recipe", id: "x" });
 });
 
-test("unknown routes fall back to home", () => {
-  assert.deepEqual(parseRoute("#/nope"), { view: "home" });
-  assert.deepEqual(parseRoute("#/recipe"), { view: "home" });
+test("unknown routes fall back to plan", () => {
+  assert.deepEqual(parseRoute("#/nope"), { view: "plan" });
+  assert.deepEqual(parseRoute("#/recipe"), { view: "plan" });
 });

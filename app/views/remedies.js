@@ -70,7 +70,7 @@ export function RemediesView({ recipes, hasToken, repo }) {
 
   return html`
     <div class="view">
-      <a class="backlink" href="#/">← BACK</a>
+      <a class="backlink" href="#/tables">← CARNET</a>
       <div class="hero"><h1>Feeling off?</h1></div>
 
       <h2 class="block-title">What's going on</h2>
