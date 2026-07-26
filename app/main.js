@@ -687,18 +687,22 @@ function App() {
   const todayIfCurrentWeek = (week) =>
     week === isoWeekId(new Date()) ? localIsoDate(new Date()) : undefined;
 
-  const handleBuildList = useCallback(() => {
-    const byId = recipesById(recipesRef.current);
-    updateShopping(
-      deriveShoppingList(
-        withCookExtras(/** @type {import("./lib/plan.js").Plan} */ (planRef.current)),
-        byId,
-        pantryRef.current,
-        shoppingRef.current,
-        todayIfCurrentWeek(/** @type {any} */ (planRef.current).week),
-      ),
-    );
-  }, [updateShopping]);
+  const handleBuildList = useCallback(
+    (/** @type {{ dates?: string[], slots?: string[] } | undefined} */ only) => {
+      const byId = recipesById(recipesRef.current);
+      updateShopping(
+        deriveShoppingList(
+          withCookExtras(/** @type {import("./lib/plan.js").Plan} */ (planRef.current)),
+          byId,
+          pantryRef.current,
+          shoppingRef.current,
+          todayIfCurrentWeek(/** @type {any} */ (planRef.current).week),
+          only,
+        ),
+      );
+    },
+    [updateShopping],
+  );
 
   const handleToggleItem = useCallback(
     (/** @type {string} */ id) => {

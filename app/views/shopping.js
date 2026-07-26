@@ -9,7 +9,9 @@ import {
   tripOf,
 } from "../lib/shopping.js";
 import { AISLES } from "../lib/ingredients.js";
+import { decodeReceiptLine, shopScore } from "../lib/receipt.js";
 import { localIsoDate, parseLocalIso } from "../lib/dates.js";
+import { datesOfWeek, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import {
   itemCost,
   rankStores,
@@ -139,7 +141,7 @@ function aisleOrderFor(prices, store) {
  *   hasToken: boolean,
  *   repo: Record<string, any> | null,
  *   loading: boolean,
- *   onBuild: () => void,
+ *   onBuild: (only?: { dates?: string[], slots?: string[] }) => void,
  *   onToggleItem: (id: string) => void,
  *   onAddManual: (food: string) => void,
  *   onJustBought: () => void,
@@ -205,6 +207,13 @@ export function ShoppingView({
   // which shelf the next photo is of. Tagging the shot turns an additive scan
   // into a SWEEP: those photos become the whole truth about that location.
   const [scanLocation, setScanLocation] = useState("fridge");
+  // Buying for PART of the week (David, 2026-07-26: guests over, fridge full,
+  // still on the plan). Empty = the whole week, which is the default and the
+  // old behaviour. The meals stay planned either way; only the shopping is
+  // partial, which is why this is not the OUT toggle.
+  const [buyDays, setBuyDays] = useState(/** @type {string[]} */ ([]));
+  const [buySlots, setBuySlots] = useState(/** @type {string[]} */ ([]));
+  const [showPartial, setShowPartial] = useState(false);
   // camera scan: null | "busy" | { error } | { items, kept: boolean[] }
   const [scan, setScan] = useState(/** @type {any} */ (null));
   const fileRef = useRef(/** @type {HTMLInputElement | null} */ (null));
@@ -225,7 +234,20 @@ export function ShoppingView({
         return;
       }
       const detected = storeSlugFromReceipt(store, prices?.stores ?? []);
-      setReceipt({ store: detected ?? storeSlug ?? "", lines, kept: lines.map(() => true) });
+      // decode each till line against THIS WEEK'S LIST before showing it.
+      // The abbreviation alone is ambiguous ("BLDMD ALMND" reads as almond
+      // milk); the list you were sent to buy from resolves it.
+      const expected = (shopping.items ?? []).map((/** @type {any} */ i) => i.food);
+      const decoded = lines.map((/** @type {any} */ l) => {
+        const d = decodeReceiptLine(l.name, expected);
+        return { ...l, name: d.food, till: d.food === l.name ? "" : l.name, guessed: !d.confident };
+      });
+      setReceipt({
+        store: detected ?? storeSlug ?? "",
+        lines: decoded,
+        kept: decoded.map(() => true),
+        editing: null,
+      });
     } catch (err) {
       setReceipt({ error: err instanceof Error ? err.message : "receipt scan failed" });
     }
@@ -432,12 +454,14 @@ export function ShoppingView({
               )}
             </div>
             <p class="hint">
-              tick the lines to save, then apply. Only lines that match a tracked item update.
+              tick the lines to save, then apply. Only lines that match a tracked item update. A
+              till abbreviation the scan read wrong is EDITABLE — fix the name and the price lands
+              on the right food.
             </p>
             <div class="slots">
               ${receipt.lines.map(
                 (/** @type {any} */ l, /** @type {number} */ idx) => html`
-                  <div class="checkrow ${receipt.kept[idx] ? "" : "off"}" key=${idx}>
+                  <div class="checkrow ${receipt.kept[idx] ? "picked" : "off"}" key=${idx}>
                     <button
                       class="tickarea"
                       aria-pressed=${receipt.kept[idx]}
@@ -451,14 +475,108 @@ export function ShoppingView({
                         })}
                     >
                       <span class="box" aria-hidden="true">${receipt.kept[idx] ? "✓" : ""}</span>
-                      <span class="food"
-                        >${l.name}${l.size ? html` <span class="tag">${l.size}</span>` : ""}</span
-                      >
-                      <span class="q num">$${Number(l.price).toFixed(2)}</span>
+                      <span class="food">
+                        ${l.name}${l.size ? html` <span class="tag">${l.size}</span>` : ""}
+                        ${l.guessed && html` <span class="usesoon">check this</span>`}
+                        ${l.till && html`<span class="hint plateline">till read: ${l.till}</span>`}
+                      </span>
+                      <span class="q num">${Number(l.price).toFixed(2)}</span>
+                    </button>
+                    <button
+                      class="ownbtn"
+                      aria-label="Edit ${l.name}"
+                      onClick=${() => setReceipt({ ...receipt, editing: idx })}
+                    >
+                      ✎
                     </button>
                   </div>
+                  ${
+                    receipt.editing === idx &&
+                    html`<div class="tile" key=${`edit-${idx}`}>
+                      <div class="k">what was this really?</div>
+                      <input
+                        aria-label="Item name"
+                        value=${l.name}
+                        onInput=${(/** @type {any} */ e) =>
+                          setReceipt({
+                            ...receipt,
+                            lines: receipt.lines.map(
+                              (/** @type {any} */ x, /** @type {number} */ j) =>
+                                j === idx ? { ...x, name: e.currentTarget.value } : x,
+                            ),
+                          })}
+                      />
+                      <input
+                        aria-label="Price"
+                        inputmode="decimal"
+                        value=${l.price}
+                        onInput=${(/** @type {any} */ e) =>
+                          setReceipt({
+                            ...receipt,
+                            lines: receipt.lines.map(
+                              (/** @type {any} */ x, /** @type {number} */ j) =>
+                                j === idx ? { ...x, price: Number(e.currentTarget.value) || 0 } : x,
+                            ),
+                          })}
+                      />
+                      <div class="actions">
+                        <button
+                          class="secondary"
+                          onClick=${() => setReceipt({ ...receipt, editing: null })}
+                        >
+                          DONE
+                        </button>
+                      </div>
+                    </div>`
+                  }
                 `,
               )}
+            </div>
+            ${
+              // "give me a score on how well i did at the store" (David).
+              // Same spirit as the adherence score: three plain numbers over
+              // what is already known, and the names behind each, so a low
+              // score explains itself instead of just accusing.
+              (() => {
+                const s = shopScore(
+                  receipt.lines.filter(
+                    (/** @type {any} */ _l, /** @type {number} */ i) => receipt.kept[i],
+                  ),
+                  shopping.items ?? [],
+                );
+                if ((shopping.items ?? []).length === 0) return "";
+                return html`<div class="tile buildreport" role="status">
+                  <div class="k">This trip covered <b>${s.score}%</b> of the list</div>
+                  ${
+                    s.missed.length > 0 &&
+                    html`<div class="d num redflag">
+                      still needed:
+                      ${s.missed.slice(0, 8).join(" · ")}${s.missed.length > 8 ? " …" : ""}
+                    </div>`
+                  }
+                  ${
+                    s.extra.length > 0 &&
+                    html`<div class="d num">
+                      not on the list:
+                      ${s.extra.slice(0, 8).join(" · ")}${s.extra.length > 8 ? " …" : ""}
+                    </div>`
+                  }
+                </div>`;
+              })()
+            }
+            <div class="actions">
+              <button
+                class="secondary"
+                onClick=${() =>
+                  setReceipt({
+                    ...receipt,
+                    lines: [...receipt.lines, { name: "", price: 0, size: "" }],
+                    kept: [...receipt.kept, true],
+                    editing: receipt.lines.length,
+                  })}
+              >
+                + ADD A LINE THE SCAN MISSED
+              </button>
             </div>
             <div class="actions wrap">
               <button class="primary" onClick=${approveReceipt} disabled=${!receipt.store}>
@@ -533,7 +651,24 @@ export function ShoppingView({
         tab === "list" &&
         html`
           <div class="actions wrap">
-            <button class="primary" onClick=${onBuild}>BUILD FROM W${weekId.split("-W")[1]}</button>
+            <button
+              class="primary"
+              onClick=${() =>
+                onBuild(
+                  buyDays.length > 0 || buySlots.length > 0
+                    ? { dates: buyDays, slots: buySlots }
+                    : undefined,
+                )}
+            >
+              ${
+                buyDays.length > 0 || buySlots.length > 0
+                  ? `BUILD FOR ${buyDays.length || 7} ${(buyDays.length || 7) === 1 ? "DAY" : "DAYS"}`
+                  : `BUILD FROM W${weekId.split("-W")[1]}`
+              }
+            </button>
+            <button class="secondary" onClick=${() => setShowPartial(!showPartial)}>
+              ${showPartial ? "WHOLE WEEK" : "JUST SOME DAYS"}
+            </button>
             ${
               checkedCount > 0 &&
               html`<button class="primary" onClick=${onJustBought}>
@@ -564,6 +699,49 @@ export function ShoppingView({
               </button>`
             }
           </div>
+          ${
+            showPartial &&
+            html`<div class="tile">
+              <div class="k">Buy for only part of the week</div>
+              <p class="hint">
+                The meals stay planned, they just are not bought yet. For the weeks when the fridge
+                is already full but you still want to eat to plan.
+              </p>
+              <div class="chips wrapchips" role="group" aria-label="Days to buy for">
+                ${datesOfWeek(weekId).map((d) => {
+                  const on = buyDays.includes(d);
+                  return html`<button
+                    key=${d}
+                    class=${on ? "chip on" : "chip"}
+                    aria-pressed=${on}
+                    onClick=${() =>
+                      setBuyDays(on ? buyDays.filter((x) => x !== d) : [...buyDays, d])}
+                  >
+                    ${parseLocalIso(d).toLocaleDateString([], { weekday: "short" })}
+                  </button>`;
+                })}
+              </div>
+              <div class="chips wrapchips" role="group" aria-label="Meals to buy for">
+                ${SLOT_KEYS.map((k) => {
+                  const on = buySlots.includes(k);
+                  return html`<button
+                    key=${k}
+                    class=${on ? "chip on" : "chip"}
+                    aria-pressed=${on}
+                    onClick=${() =>
+                      setBuySlots(on ? buySlots.filter((x) => x !== k) : [...buySlots, k])}
+                  >
+                    ${SLOT_META[k]?.full ?? k}
+                  </button>`;
+                })}
+              </div>
+              <p class="hint">
+                Nothing picked = the whole week. Days alone buys every meal on those days; adding
+                meals narrows it further. The weekly buffer snack sits out a partial shop, since it
+                is a week-long batch.
+              </p>
+            </div>`
+          }
           <p class="hint lockhint">
             ${
               plan?.locked
