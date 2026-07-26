@@ -237,7 +237,8 @@ export function setTopSet(session, exercise, set) {
  *   heightIn: number,
  *   weightLb: number,
  *   activity: 1 | 2 | 3 | 4 | 5,
- *   goal: "loss" | "maintain" | "gain"
+ *   goal: "loss" | "maintain" | "gain",
+ *   goalWeightLb?: number
  * }} Questionnaire
  */
 
@@ -378,7 +379,18 @@ export function targetsFromQuestionnaire(q, todayIso, prefs = {}) {
   const tdee = bmr * (ACTIVITY_MULT[q.activity - 1] ?? 1.2);
   const delta = q.goal === "loss" ? -500 : q.goal === "gain" ? 300 : 0;
   const calories = Math.max(1200, Math.round((tdee + delta) / 50) * 50);
-  const protein = Math.round(q.weightLb * (q.goal === "gain" ? 1.0 : 0.9));
+  // Protein anchors to the weight you are heading FOR, not the one you are
+  // carrying. On a loss phase the point of the protein floor is to hold onto
+  // lean mass, and lean mass does not scale with the fat being lost: keying
+  // 0.9 g/lb to a 300 lb bodyweight asks for 270 g, which is neither
+  // achievable nor useful, and at a deficit it eats the whole calorie budget.
+  // Current weight still drives BMR, which is correct — a heavier body really
+  // does burn more.
+  const referenceWeightLb =
+    q.goal === "loss" && q.goalWeightLb && q.goalWeightLb > 0 && q.goalWeightLb < q.weightLb
+      ? q.goalWeightLb
+      : q.weightLb;
+  const protein = Math.round(referenceWeightLb * (q.goal === "gain" ? 1.0 : 0.9));
   // heavy bodyweights at a loss deficit can push protein+fat past the
   // calorie budget — carbs must never go negative, so fat yields first
   const proteinKcal = protein * 4;
@@ -416,6 +428,9 @@ export function targetsFromQuestionnaire(q, todayIso, prefs = {}) {
       "Weigh most mornings; judge the 7-day average, not the day. Adjust calories by 150-200 only after two flat weeks.",
     phase,
     ...(todayIso ? { phaseSince: todayIso } : {}),
+    // kept so the number that set the protein floor is visible and editable
+    // later, rather than being a one-time input nobody can find again
+    ...(q.goalWeightLb ? { goalWeightLb: q.goalWeightLb } : {}),
     // survey-v2 answers, each omitted when it equals its safe default so the
     // file stays lean and "absent = default" holds (SCHEMAS.md).
     ...(prefs.diet && prefs.diet !== "omnivore" ? { diet: prefs.diet } : {}),
