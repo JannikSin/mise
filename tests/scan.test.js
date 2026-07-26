@@ -27,7 +27,7 @@ test("new staple is added with a derived id and section", () => {
   const oil = next.staples.find((s) => s.id === "olive-oil");
   assert.ok(oil);
   assert.equal(oil.name, "Olive Oil");
-  assert.equal(oil.section, "dry-goods");
+  assert.equal(oil.section, "condiments"); // cooking oils shelve with the vinegars
   assert.equal(oil.onHand, true);
   assert.equal(oil.runningLow, false);
 });

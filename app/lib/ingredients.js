@@ -429,15 +429,18 @@ const AISLE_RULES = [
   ["bakery", /\b(bread|sourdough|pita|tortilla|bun|bagel|naan|roll)\b/],
   [
     "produce",
-    /\b(onion|garlic|tomato|cucumber|cabbage|spinach|broccoli|cauliflower|mushroom|lemon|lime|ginger|avocado|[a-z]*berr(y|ies)|potato|shallot|herb|parsley|cilantro|basil|mint|scallion|lettuce|arugula|kale|carrot|celery|pepper|apple|banana|mango|fruit|greens|zucchini|asparagus|edamame|sprouts|vegetables?)\b/,
+    /\b(onion|garlic|tomato|cucumber|cabbage|spinach|broccoli|cauliflower|mushroom|lemon|lime|ginger|avocado|[a-z]*berr(y|ies)|potato|shallot|herb|parsley|cilantro|basil|mint|scallion|lettuce|arugula|kale|carrot|celery|pepper|apple|banana|mango|fruit|greens|zucchini|asparagus|edamame|sprouts|green beans|snap peas|vegetables?)\b/,
   ],
   [
     "canned",
-    /\b(can|canned|crushed tomatoes|tomato paste|coconut milk|broth|stock|beans|chickpeas|lentil)\b/,
+    // legumes in a tin. NOT plain "beans": produce above already claimed the
+    // fresh ones, and a bag of green beans is not a canned good
+    /\b(can|canned|crushed tomatoes|tomato paste|coconut milk|broth|stock|black beans|kidney beans|cannellini|pinto|butter beans|baked beans|refried|chickpeas|garbanzo|lentil)\b/,
   ],
   [
+    // cooking oils shelve with the vinegars and dressings in a US store
     "condiments",
-    /\b(sauce|soy|vinegar|mustard|sriracha|mayo|dressing|salsa|harissa|marinade|tahini|miso|mirin)\b/,
+    /\b(oil|sauce|soy|vinegar|mustard|sriracha|mayo|dressing|salsa|harissa|marinade|tahini|miso|mirin)\b/,
   ],
   [
     "spices",
