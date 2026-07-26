@@ -145,7 +145,7 @@ function aisleOrderFor(prices, store) {
  *   onJustBought: () => void,
  *   onToggleLow: (id: string) => void,
  *   onOwnItem: (id: string) => void,
- *   onScanApprove: (items: { name: string, kind: string, qty: string }[]) => void,
+ *   onScanApprove: (items: { name: string, kind: string, qty: string }[], location?: string) => void,
  *   onToggleLock: () => void,
  *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList }[],
  *   ownEmoji: string,
@@ -157,6 +157,8 @@ function aisleOrderFor(prices, store) {
  *   onReceiptApprove?: (store: string, lines: { name: string, price: number, size: string }[]) => void,
  *   onClearList?: () => void,
  *   onRemovePantry?: (kind: "staple" | "perishable", key: string) => void,
+ *   onEmptyPantry?: (keepStaples: boolean) => void,
+ *   pantryLocations?: string[],
  *   moneyBalances?: { profileId: string, net: number, entries: number, estimate: boolean }[],
  *   profiles?: Record<string, any>[],
  *   onSettle?: (other: string) => void
@@ -188,12 +190,17 @@ export function ShoppingView({
   onReceiptApprove = undefined,
   onClearList = undefined,
   onRemovePantry = undefined,
+  onEmptyPantry = undefined,
+  pantryLocations = ["fridge", "freezer", "pantry", "unsorted"],
   moneyBalances = undefined,
   profiles = undefined,
   onSettle = undefined,
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry" | "combined"} */ ("list"));
   const [manual, setManual] = useState("");
+  // which shelf the next photo is of. Tagging the shot turns an additive scan
+  // into a SWEEP: those photos become the whole truth about that location.
+  const [scanLocation, setScanLocation] = useState("fridge");
   // camera scan: null | "busy" | { error } | { items, kept: boolean[] }
   const [scan, setScan] = useState(/** @type {any} */ (null));
   const fileRef = useRef(/** @type {HTMLInputElement | null} */ (null));
@@ -707,15 +714,31 @@ export function ShoppingView({
       ${
         tab === "pantry" &&
         html`
+          <div class="chips wrapchips" role="group" aria-label="Which shelf">
+            ${pantryLocations
+              .filter((l) => l !== "unsorted")
+              .map(
+                (l) => html`
+                  <button
+                    key=${l}
+                    class=${scanLocation === l ? "chip on" : "chip"}
+                    aria-pressed=${scanLocation === l}
+                    onClick=${() => setScanLocation(l)}
+                  >
+                    ${l}
+                  </button>
+                `,
+              )}
+          </div>
           <button
             class="ask scanbtn"
             onClick=${() => fileRef.current?.click()}
             disabled=${scan === "busy" || tokenBlocked}
           >
-            ${scan === "busy" ? "READING PHOTO…" : "📷 SCAN SHELF"}
+            ${scan === "busy" ? "READING PHOTO…" : `📷 SCAN THE ${scanLocation.toUpperCase()}`}
             <small>
-              photo of fridge or pantry <span aria-hidden="true">→</span> itemized${" "}
-              <span aria-hidden="true">→</span> approve
+              these photos become the whole truth about the ${scanLocation}: approving REPLACES what
+              is recorded there. Nothing else is touched.
             </small>
           </button>
           <input
@@ -772,12 +795,14 @@ export function ShoppingView({
                         scan.items.filter((/** @type {any} */ _, /** @type {number} */ i) =>
                           Boolean(scan.kept[i]),
                         ),
+                        scanLocation,
                       );
                       setScan(null);
                     }}
                     disabled=${!scan.kept.some(Boolean)}
                   >
-                    ADD ${scan.kept.filter(Boolean).length} TO PANTRY
+                    SET THE ${scanLocation.toUpperCase()} TO THESE
+                    ${scan.kept.filter(Boolean).length}
                   </button>
                   <button class="secondary" onClick=${() => setScan(null)}>CANCEL</button>
                 </div>
@@ -785,6 +810,17 @@ export function ShoppingView({
             `
           }
           <p class="hint">
+            ${
+              onEmptyPantry &&
+              html`<span class="resetpantry">
+                <button class="secondary" onClick=${() => onEmptyPantry(true)}>
+                  EMPTY PERISHABLES
+                </button>
+                <button class="secondary" onClick=${() => onEmptyPantry(false)}>
+                  EMPTY EVERYTHING
+                </button>
+              </span>`
+            }
             Tap LOW when a staple runs out — it joins the next shopping list. Perishables arrive
             here via Just Bought or a shelf scan.
           </p>
@@ -833,6 +869,14 @@ export function ShoppingView({
                       <div class="checkrow static" key=${p.id ?? i}>
                         <span class="food">
                           ${p.food}${(p.useSoon || (daysLeft != null && daysLeft <= 2)) && html` <span class="usesoon">use soon</span>`}
+                          ${
+                            // where it lives, because the same food keeps for
+                            // days in the fridge and months in the freezer,
+                            // and the date beside it now depends on which
+                            p.location &&
+                            p.location !== "unsorted" &&
+                            html` <span class="tag">${p.location}</span>`
+                          }
                         </span>
                         <span class="q num ${daysLeft != null && daysLeft <= 2 ? "expiring" : ""}">
                           ${
