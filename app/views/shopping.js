@@ -161,7 +161,9 @@ function aisleOrderFor(prices, store) {
  *   pantryLocations?: string[],
  *   moneyBalances?: { profileId: string, net: number, entries: number, estimate: boolean }[],
  *   profiles?: Record<string, any>[],
- *   onSettle?: (other: string) => void
+ *   onSettle?: (other: string) => void,
+ *   substitutions?: { entryId: string, date: string, slot: string, fromId: string, fromName: string, toId: string, toName: string, drops: string[] }[],
+ *   onSubstitute?: (swaps: { entryId: string, toId: string }[]) => void
  * }} props
  */
 export function ShoppingView({
@@ -195,6 +197,8 @@ export function ShoppingView({
   moneyBalances = undefined,
   profiles = undefined,
   onSettle = undefined,
+  substitutions = [],
+  onSubstitute = undefined,
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry" | "combined"} */ ("list"));
   const [manual, setManual] = useState("");
@@ -982,6 +986,50 @@ export function ShoppingView({
             list). <span class="num">${sharedCount}</span> of${" "}
             <span class="num">${combined.length}</span> items are already shared.
           </p>
+          ${
+            // SUBSTITUTE (David: "regenerate lists to match each other more").
+            // Only ever rewrites MY week: applying a swap to someone else’s
+            // plan means writing their plan file from this device, which the
+            // Tribunal vetoed, because a recipe arriving that way passes no
+            // diet screen on their phone.
+            onSubstitute &&
+            substitutions.length > 0 &&
+            html`
+              <div class="tile buildreport" role="note">
+                <div class="k">
+                  SUBSTITUTE · ${substitutions.length}
+                  ${substitutions.length === 1 ? "swap" : "swaps"} to your week would drop
+                  ${new Set(substitutions.flatMap((x) => x.drops)).size} single-buyer
+                  ${new Set(substitutions.flatMap((x) => x.drops)).size === 1 ? "item" : "items"}
+                </div>
+                ${substitutions.map(
+                  (x) => html`
+                    <div class="d num" key=${x.entryId}>
+                      ${parseLocalIso(x.date).toLocaleDateString([], { weekday: "short" })}
+                      ${x.slot}: ${x.fromName} → ${x.toName}
+                      <span class="hint">drops ${x.drops.join(", ")}</span>
+                    </div>
+                  `,
+                )}
+                <p class="hint">
+                  Only your own week changes. Whole meals are swapped, never ingredients inside a
+                  recipe, so the nutrition audit stays intact.
+                </p>
+                <div class="actions">
+                  <button
+                    class="secondary"
+                    disabled=${Boolean(plan.locked)}
+                    onClick=${() =>
+                      onSubstitute(
+                        substitutions.map((x) => ({ entryId: x.entryId, toId: x.toId })),
+                      )}
+                  >
+                    ${plan.locked ? "LOCKED · ALREADY SHOPPED" : "APPLY THESE SWAPS"}
+                  </button>
+                </div>
+              </div>
+            `
+          }
           ${
             candidates.length > 0 &&
             html`

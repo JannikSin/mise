@@ -39,10 +39,12 @@ import {
   pantryPathFor,
   ownItemToPantry,
   expirePerishables,
+  mergeProfileLists,
   normalizePantry,
   normalizeShoppingList,
   emptyPantry,
   applySweep,
+  substitutionPlan,
   PANTRY_LOCATIONS,
   withAutoUseSoon,
   removeFromPantry,
@@ -951,6 +953,45 @@ function App() {
 
   // "I already have this": open ONE recipe method for the rest of the week,
   // for the nights you cook out of the pantry without a shop.
+  // the household list as the view sees it, needed here so SUBSTITUTE can
+  // tell which foods only I am buying
+  const combinedForSwap = useMemo(
+    () =>
+      otherLists.length > 0
+        ? mergeProfileLists([
+            { profileId: me, list: /** @type {any} */ (shopping) },
+            ...otherLists.map((o) => ({ profileId: o.profileId, list: o.list })),
+          ])
+        : [],
+    [shopping, otherLists],
+  );
+
+  // SUBSTITUTE: swaps proposed against MY week only (Tribunal veto: applying
+  // one to another profile plan would write their file from this device, and
+  // it would land having passed no diet screen on their phone).
+  const substitutions = useMemo(
+    () =>
+      combinedForSwap.length > 0
+        ? substitutionPlan(combinedForSwap, me, plan.entries, recipes, recipesById(recipes))
+        : [],
+    [combinedForSwap, plan.entries, recipes],
+  );
+
+  const handleSubstitute = useCallback(
+    (/** @type {{ entryId: string, toId: string }[]} */ swaps) => {
+      const cur = /** @type {any} */ (planRef.current);
+      if (cur.locked) return;
+      updatePlan({
+        ...cur,
+        entries: cur.entries.map((/** @type {any} */ e) => {
+          const swap = swaps.find((x) => x.entryId === e.id);
+          return swap ? { ...e, recipeId: swap.toId } : e;
+        }),
+      });
+    },
+    [updatePlan],
+  );
+
   const handleUnlockRecipe = useCallback(
     (/** @type {string} */ recipeId) => {
       updatePlan(unlockRecipe(/** @type {any} */ (planRef.current), recipeId));
@@ -1768,6 +1809,8 @@ function App() {
         moneyBalances=${moneyBalances}
         profiles=${allProfiles}
         onSettle=${handleSettle}
+        substitutions=${substitutions}
+        onSubstitute=${handleSubstitute}
         onToggleItem=${handleToggleItem}
         onAddManual=${handleAddManual}
         onJustBought=${handleJustBought}

@@ -807,3 +807,93 @@ export function applyJustBought(shopping, pantry, today) {
     },
   };
 }
+
+/**
+ * SUBSTITUTE: converge MY week toward what the rest of the house already buys.
+ *
+ * David asked for a button that "regenerates lists to match each other more".
+ * The obvious reading of that (edit everyone's week so the lists converge) was
+ * vetoed at the Tribunal plan gate, and correctly: applying a swap to another
+ * person's plan means writing their plan file from my device, which the tables
+ * architecture forbids by name. The concrete failure is not hypothetical —
+ * their avoid-list may have changed since my copy synced, and a recipe that
+ * arrives as a plain plan entry passes no screen on their device.
+ *
+ * So this only ever proposes swaps to the ACTING profile's own week. That is
+ * both safe by construction and what the ask means from the seat of the person
+ * pressing the button: fewer odd single-buyer items, one trip that hangs
+ * together. Whole recipes are swapped, never ingredients inside one, because
+ * editing a Greger-audited recipe's ingredients silently voids the audit.
+ *
+ * @param {CombinedItem[]} combined the merged household list
+ * @param {string} meId
+ * @param {Record<string, any>[]} myEntries my plan entries for the week
+ * @param {Record<string, any>[]} myPool recipes I may be served (already screened)
+ * @param {Map<string, any>} recipesById
+ * @returns {{ entryId: string, date: string, slot: string, fromId: string, fromName: string, toId: string, toName: string, drops: string[] }[]}
+ */
+export function substitutionPlan(combined, meId, myEntries, myPool, recipesById) {
+  // foods somebody ELSE is already buying: swapping toward these is free,
+  // because the item is in the house's trolley either way
+  const othersBuy = new Set();
+  /** foods only I am buying — each one is a container someone strands */
+  const soloFoods = new Set();
+  for (const item of combined) {
+    const key = canonicalFood(item.food);
+    const mineOnly = item.sources.length === 1 && item.sources[0]?.profileId === meId;
+    if (mineOnly) soloFoods.add(key);
+    else othersBuy.add(key);
+  }
+  if (soloFoods.size === 0) return [];
+
+  const foodsOf = (/** @type {any} */ r) =>
+    (r?.ingredients ?? [])
+      .filter((/** @type {any} */ i) => !i.staple)
+      .map((/** @type {any} */ i) => canonicalFood(i.food));
+
+  const out = [];
+  for (const entry of myEntries) {
+    if (!entry.recipeId || entry.pinned || entry.out || entry.table) continue;
+    const current = recipesById.get(entry.recipeId);
+    if (!current) continue;
+    const currentSolo = foodsOf(current).filter((/** @type {string} */ f) => soloFoods.has(f));
+    if (currentSolo.length === 0) continue;
+
+    let best = null;
+    for (const candidate of myPool) {
+      if (candidate.id === current.id) continue;
+      if (candidate.mealType !== current.mealType) continue;
+      // a swap must not move the day: same ballpark or it is a different plan,
+      // not a substitution
+      const a = current.nutrition?.calories ?? 0;
+      const b = candidate.nutrition?.calories ?? 0;
+      if (a <= 0 || b <= 0 || Math.abs(a - b) / a > 0.15) continue;
+      const foods = foodsOf(candidate);
+      // every single-buyer food the CANDIDATE needs, including any the current
+      // recipe already needed. Excluding those would score a swap between two
+      // blue-cheese recipes as a saving when the blue cheese is still bought.
+      const newSolo = foods.filter((/** @type {string} */ f) => soloFoods.has(f));
+      const shared = foods.filter((/** @type {string} */ f) => othersBuy.has(f)).length;
+      // net items removed from the trolley
+      const gain = currentSolo.length - newSolo.length;
+      if (gain <= 0) continue;
+      if (!best || gain > best.gain || (gain === best.gain && shared > best.shared)) {
+        best = { candidate, gain, shared };
+      }
+    }
+    if (!best) continue;
+    out.push({
+      entryId: entry.id,
+      date: entry.date,
+      slot: entry.slot,
+      fromId: current.id,
+      fromName: current.name,
+      toId: best.candidate.id,
+      toName: best.candidate.name,
+      drops: currentSolo,
+    });
+  }
+  // biggest saving first, and never more than a handful: this is a suggestion
+  // to read, not a rewrite of the week
+  return out.sort((a, b) => b.drops.length - a.drops.length).slice(0, 5);
+}
