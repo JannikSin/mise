@@ -67,7 +67,7 @@ export function initDrag(root, onDrop) {
   };
 
   /** @param {PointerEvent} e */
-  const lift = (e) => {
+  function lift(e) {
     const d = /** @type {NonNullable<typeof drag>} */ (drag);
     const r = d.src.getBoundingClientRect();
     const ghost = /** @type {HTMLElement} */ (d.src.cloneNode(true));
@@ -80,16 +80,16 @@ export function initDrag(root, onDrop) {
     d.dx = e.clientX - r.left;
     d.dy = e.clientY - r.top;
     d.src.classList.add("drag-lifted");
-  };
+  }
 
-  const autoScroll = () => {
+  function autoScroll() {
     if (!drag || !drag.scrollDir) {
       if (drag) drag.raf = 0;
       return;
     }
     scrollBy(0, drag.scrollDir * SCROLL_SPEED);
     drag.raf = requestAnimationFrame(autoScroll);
-  };
+  }
 
   /** @param {PointerEvent} e */
   const up = (e) => {
@@ -125,13 +125,13 @@ export function initDrag(root, onDrop) {
    * @param {HTMLElement} ghost
    * @param {DOMRect} to
    */
-  const settleGhost = (ghost, to) => {
+  function settleGhost(ghost, to) {
     ghost.classList.add("drag-snapping");
     ghost.style.left = `${to.left}px`;
     ghost.style.top = `${to.top}px`;
     ghost.style.opacity = "0";
     setTimeout(() => ghost.remove(), 180);
-  };
+  }
 
   root.addEventListener("pointerdown", down);
   root.addEventListener("pointermove", move);
