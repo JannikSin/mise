@@ -23,6 +23,9 @@ import {
   emptyPantry,
   applySweep,
   substitutionPlan,
+  locationForBuy,
+  applyReceiptStock,
+  consumeForCook,
 } from "../app/lib/shopping.js";
 
 test("tripOf: perishable sections are the fresh trip, shelf-stable the pantry trip", () => {
@@ -1251,4 +1254,111 @@ test("a partial shop can narrow to particular meals too", () => {
     out.items.find((i) => i.food === "rolled oats"),
     undefined,
   );
+});
+
+test("locationForBuy: frozen goes to the freezer, fresh to the fridge, the rest to the pantry", () => {
+  assert.equal(locationForBuy("frozen"), "freezer");
+  assert.equal(locationForBuy("produce"), "fridge");
+  assert.equal(locationForBuy("meat"), "fridge");
+  assert.equal(locationForBuy("dairy"), "fridge");
+  assert.equal(locationForBuy("grains"), "pantry");
+  assert.equal(locationForBuy("canned"), "pantry");
+});
+
+test("applyJustBought: bought food lands on a real shelf, never unsorted", () => {
+  const shopping = {
+    items: [
+      { id: "spinach-g", food: "spinach", qty: 200, unit: "g", section: "produce", checked: true },
+      { id: "peas-g", food: "peas", qty: 500, unit: "g", section: "frozen", checked: true },
+      { id: "rice-g", food: "rice", qty: 1000, unit: "g", section: "grains", checked: true },
+    ],
+  };
+  const out = applyJustBought(shopping, { staples: [], perishables: [] }, "2026-07-26");
+  const at = (food) => out.pantry.perishables.find((p) => p.food === food).location;
+  assert.equal(at("spinach"), "fridge");
+  assert.equal(at("peas"), "freezer");
+  assert.equal(at("rice"), "pantry");
+});
+
+test("applyReceiptStock: receipt lines empty the list and stock the shelves", () => {
+  const shopping = {
+    items: [
+      { id: "chicken-thigh-g", food: "chicken thigh", qty: 900, unit: "g", section: "meat", checked: false },
+      { id: "rice-g", food: "rice", qty: 1000, unit: "g", section: "grains", checked: false },
+    ],
+  };
+  const out = applyReceiptStock(
+    shopping,
+    { staples: [], perishables: [] },
+    [{ name: "chicken thigh" }, { name: "rice" }],
+    "2026-07-26",
+  );
+  assert.deepEqual(out.shopping.items, []);
+  assert.deepEqual(
+    out.pantry.perishables.map((p) => p.food).sort(),
+    ["chicken thigh", "rice"],
+  );
+});
+
+test("applyReceiptStock: a row ticked in the aisle but missed by the scan still counts as bought", () => {
+  const shopping = {
+    items: [
+      { id: "milk-ml", food: "milk", qty: 1000, unit: "ml", section: "dairy", checked: true },
+      { id: "oats-g", food: "rolled oats", qty: 500, unit: "g", section: "grains", checked: false },
+    ],
+  };
+  const out = applyReceiptStock(shopping, { staples: [], perishables: [] }, [{ name: "milk" }], "2026-07-26");
+  assert.deepEqual(
+    out.shopping.items.map((i) => i.food),
+    ["rolled oats"],
+  );
+});
+
+test("consumeForCook: cooking subtracts the meal from the shelf and leaves the rest", () => {
+  const pantry = {
+    staples: [{ id: "olive-oil", name: "Olive oil", onHand: true }],
+    perishables: [
+      { id: "a", food: "chicken thigh", qty: "900 g", added: "2026-07-25", location: "fridge" },
+    ],
+  };
+  const out = consumeForCook(pantry, [
+    { food: "chicken thigh", qty: 300, unit: "g" },
+    { food: "olive oil", qty: 1, unit: "tbsp", staple: true },
+  ]);
+  assert.equal(out.pantry.perishables.length, 1);
+  assert.equal(out.pantry.perishables[0].qty, "600 g");
+  // staples are never decremented — onHand is what stops the list re-buying them
+  assert.equal(out.pantry.staples[0].onHand, true);
+});
+
+test("consumeForCook: a finished row leaves, and the shortfall carries to the next pack", () => {
+  const pantry = {
+    perishables: [
+      { id: "old", food: "chicken thigh", qty: "200 g", added: "2026-07-20", location: "fridge" },
+      { id: "new", food: "chicken thigh", qty: "900 g", added: "2026-07-25", location: "fridge" },
+    ],
+  };
+  const out = consumeForCook(pantry, [{ food: "chicken thigh", qty: 500, unit: "g" }]);
+  assert.deepEqual(
+    out.pantry.perishables.map((p) => p.id),
+    ["new"],
+  );
+  assert.equal(out.pantry.perishables[0].qty, "600 g");
+  assert.deepEqual(out.used, ["chicken thigh"]);
+});
+
+test("consumeForCook: a free-text quantity is removed, never fake-subtracted", () => {
+  const pantry = {
+    perishables: [{ id: "c", food: "cabbage", qty: "half a head", added: "2026-07-25", location: "fridge" }],
+  };
+  const out = consumeForCook(pantry, [{ food: "cabbage", qty: 0.5, unit: "head" }]);
+  assert.deepEqual(out.pantry.perishables, []);
+  assert.deepEqual(out.used, ["cabbage"]);
+});
+
+test("consumeForCook: food that is not on any shelf changes nothing", () => {
+  const pantry = { perishables: [{ id: "a", food: "spinach", qty: "200 g", added: "2026-07-25" }] };
+  const out = consumeForCook(pantry, [{ food: "salmon", qty: 200, unit: "g" }]);
+  assert.equal(out.pantry, pantry);
+  assert.deepEqual(out.used, []);
 });
