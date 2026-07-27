@@ -2,6 +2,8 @@ import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 import { cookPlan } from "../lib/portions.js";
 import { formatStoreQty } from "../lib/shopping.js";
+import { keepAwake } from "../lib/awake.js";
+import { pickForRecipe } from "../lib/music.js";
 
 // ?from=<key> in the recipe hash → where the backlink returns; unknown or
 // absent keys fall back to the cookbook (the historical behavior)
@@ -38,6 +40,18 @@ const cookSuffix = (from, servings, entryId) => {
  */
 export function RecipeView({ recipe, loading, from, servings, entryId, unshopped = false }) {
   const origin = originOf(from);
+  // the recipe page holds the screen as well as Cook mode. Reading the steps
+  // off THIS page with full hands is exactly when it used to sleep, because
+  // only Cook mode ever asked for a lock.
+  const [awake, setAwake] = useState(
+    /** @type {import("../lib/awake.js").AwakeState} */ ({
+      held: false,
+      supported: true,
+      reason: "",
+    }),
+  );
+  const [tune, setTune] = useState(0);
+  useEffect(() => keepAwake(setAwake), []);
   if (!recipe)
     return html`<div class="empty">
       ${loading ? "loading…" : "recipe not found"} — <a href=${origin.hash}>go back</a>
@@ -96,7 +110,30 @@ export function RecipeView({ recipe, loading, from, servings, entryId, unshopped
           <div class="d">${plan.note}</div>
         </div>`
       }
-
+      ${
+        // Something to put on, themed to the food (David, 2026-07-27). It is a
+        // LINK, not a player: on the phone this opens the Music app. Offered,
+        // never forced, and it remembers nothing.
+        (() => {
+          const p = pickForRecipe(recipe, tune);
+          return html`<div class="tile tunetile">
+            <div class="row">
+              <span class="k">🎧 put something on?</span>
+              <button
+                class="linktext"
+                aria-label="Suggest something else"
+                onClick=${() => setTune(tune + 1)}
+              >
+                something else ↻
+              </button>
+            </div>
+            <a class="secondary linkbtn tunelink" href=${p.url} rel="noopener noreferrer">
+              ${p.label}${p.why ? html` <span class="hint">· ${p.why}</span>` : ""}
+            </a>
+          </div>`;
+        })()
+      }
+      ${!awake.held && awake.reason && html`<p class="hint awakewhy">☀ ${awake.reason}</p>`}
       <div class="actions">
         <button
           class="ask"
@@ -160,7 +197,8 @@ export function RecipeView({ recipe, loading, from, servings, entryId, unshopped
       }
       <ol class="steps">
         ${(recipe.instructions ?? []).map(
-          (/** @type {{ step: number, text: string }} */ s) => html`<li key=${s.step}>${s.text}</li>`,
+          (/** @type {{ step: number, text: string }} */ s) =>
+            html`<li key=${s.step}>${s.text}</li>`,
         )}
       </ol>
     </div>
@@ -175,21 +213,17 @@ export function RecipeView({ recipe, loading, from, servings, entryId, unshopped
  */
 export function CookView({ recipe, loading, from, servings, entryId, cooked, onCooked }) {
   const [step, setStep] = useState(0);
-  useEffect(() => {
-    /** @type {any} */
-    let lock = null;
-    if ("wakeLock" in navigator) {
-      /** @type {any} */ (navigator).wakeLock.request("screen").then(
-        (/** @type {any} */ l) => {
-          lock = l;
-        },
-        () => {},
-      );
-    }
-    return () => {
-      if (lock) lock.release().catch(() => {});
-    };
-  }, []);
+  const [awake, setAwake] = useState(
+    /** @type {import("../lib/awake.js").AwakeState} */ ({
+      held: false,
+      supported: true,
+      reason: "",
+    }),
+  );
+  // hands covered in egg, next step is time-critical: this is the one screen
+  // in the app that must not sleep, and if it cannot hold the screen it has
+  // to SAY so rather than fail silently
+  useEffect(() => keepAwake(setAwake), []);
 
   if (!recipe)
     return html`<div class="empty">
@@ -213,7 +247,21 @@ export function CookView({ recipe, loading, from, servings, entryId, cooked, onC
         <span>${recipe.name}</span>
         <a class="exit" href=${back}>✕ EXIT</a>
       </div>
-      <div class="counter num">STEP ${step + 1}/${steps.length}</div>
+      <div class="counter num">
+        STEP ${step + 1}/${steps.length}
+        ${
+          // an honest indicator. A silent failure here is what left him with
+          // eggy hands at a locked phone, so this says which of the two it is.
+          awake.held
+            ? html`<span class="awakechip on" title="This screen will not sleep">☀ screen on</span>`
+            : html`<span class="awakechip">☀ screen may sleep</span>`
+        }
+      </div>
+      ${
+        !awake.held &&
+        awake.reason &&
+        html`<div class="cook-portion awakewhy">⚠ ${awake.reason}</div>`
+      }
       ${step === 0 && plan.note && html`<div class="cook-portion">${plan.note}</div>`}
       <div class="steptext">${steps[step]?.text}</div>
       <div class="nav">

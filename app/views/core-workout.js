@@ -2,6 +2,8 @@ import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { CORE_SESSIONS, coreStepAt, LEAD_IN, sessionForDay, sessionSeconds } from "../lib/core.js";
 import { CoreFigure } from "./core-figure.js";
+import { keepAwake } from "../lib/awake.js";
+import { pickForTraining } from "../lib/music.js";
 import { localIsoDate } from "../lib/dates.js";
 
 /** short beep via WebAudio — no asset, no CSP issue. Three tones: high =
@@ -56,6 +58,7 @@ export function CoreWorkout({ open = false }) {
   const [, forceTick] = useState(0);
   const lastPhaseRef = useRef("");
   const lastTickRef = useRef(-1);
+  const [tune, setTune] = useState(0);
 
   const elapsed = run
     ? run.elapsed + (run.startedAt != null ? (Date.now() - run.startedAt) / 1000 : 0)
@@ -67,16 +70,11 @@ export function CoreWorkout({ open = false }) {
   useEffect(() => {
     if (!running) return;
     const t = setInterval(() => forceTick((n) => n + 1), 250);
-    /** @type {any} */
-    let lock = null;
-    if ("wakeLock" in navigator) {
-      /** @type {any} */ (navigator).wakeLock.request("screen").then(
-        (/** @type {any} */ l) => {
-          lock = l;
-        },
-        () => {},
-      );
-    }
+    // one shared implementation, which RE-ACQUIRES when you come back to the
+    // app. The old inline version dropped the lock the first time the phone
+    // was glanced away from and never asked for it again, so a session longer
+    // than one glance ended with the screen asleep.
+    const release = keepAwake();
     // a backgrounded tab has its timers throttled to about once a minute, so
     // coming back to the app can show a stale number for a beat. The clock
     // itself is derived from the start timestamp and was never wrong, but the
@@ -86,7 +84,7 @@ export function CoreWorkout({ open = false }) {
     return () => {
       clearInterval(t);
       document.removeEventListener("visibilitychange", onVisible);
-      if (lock) lock.release().catch(() => {});
+      release();
     };
   }, [running]);
 
@@ -257,9 +255,26 @@ export function CoreWorkout({ open = false }) {
       }
       ${
         run === null &&
-        html`<div class="tactions">
-          <button class="ask tstart" onClick=${start}>START · ${dur(total)}</button>
-        </div>`
+        html`
+          ${(() => {
+            const p = pickForTraining(tune);
+            return html`<div class="row tunerow">
+              <a class="secondary linkbtn tunelink" href=${p.url} rel="noopener noreferrer">
+                🎧 ${p.label}
+              </a>
+              <button
+                class="linktext"
+                aria-label="Suggest something else"
+                onClick=${() => setTune(tune + 1)}
+              >
+                something else ↻
+              </button>
+            </div>`;
+          })()}
+          <div class="tactions">
+            <button class="ask tstart" onClick=${start}>START · ${dur(total)}</button>
+          </div>
+        `
       }
     </details>
   `;
