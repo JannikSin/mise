@@ -106,9 +106,9 @@ export const TOUR_STEPS = [
   },
   {
     route: "#/train",
-    selector: ".intervaltimer",
+    selector: ".coreblock",
     title: "Train",
-    text: "Today's workout with one-entry logging, plus this interval timer for circuits: work, rest, rounds, beeps.",
+    text: "Today's workout with one-entry logging, plus a directed core session: pick one or take the day's, press START, and it calls every move and counts it down for you.",
   },
   {
     route: "#/tables",
