@@ -742,92 +742,31 @@ summary.block-title {
   outline-offset: 2px;
 }
 
-.tray {
-  position: sticky;
-  top: env(safe-area-inset-top);
-  z-index: 30;
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 8px 4px 10px;
-  background: var(--bg);
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
-  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
-}
-
-.tray::-webkit-scrollbar {
-  display: none;
-}
-
-.drag-chip {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 52px;
-  max-width: 190px;
-  padding: 8px 12px 8px 9px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-  cursor: grab;
-  /* pan-x: sideways swipes scroll the tray; vertical movement starts a drag */
-  touch-action: pan-x;
-  -webkit-user-select: none;
-  user-select: none;
-}
-
-.drag-chip .grip {
-  color: var(--dim);
-  font-size: 13px;
-  flex-shrink: 0;
-}
-
-.drag-chip .chipbody {
+.chipbody {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
 
-.drag-chip .n {
+.chipbody .n {
   font-size: 12.5px;
   font-weight: 600;
-  white-space: nowrap;
+  /* was nowrap + ellipsis, which is how a planned meal rendered as
+     "matcha gree…" (David, 2026-07-27). A recipe name is the single most
+     load-bearing string on this screen, so it gets two lines before it
+     truncates, and the row grows to fit rather than the name shrinking. */
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.drag-chip .m {
+.chipbody .m {
   font-size: 9.5px;
   color: var(--dim);
-}
-
-.drag-chip.text .n {
-  color: var(--dim);
-  font-style: italic;
-}
-
-.drag-lifted {
-  opacity: 0.4;
-}
-
-.drag-ghost {
-  position: fixed;
-  z-index: 100;
-  margin: 0;
-  pointer-events: none;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.6);
-  border-color: var(--signal);
-}
-
-.drag-snapping {
-  transition:
-    left 0.16s ease-out,
-    top 0.16s ease-out,
-    opacity 0.16s ease-out;
 }
 
 .ask:disabled {
@@ -851,12 +790,6 @@ summary.block-title {
   color: var(--signal);
 }
 
-.traylabel {
-  margin: 0 4px 4px;
-  font-family: var(--mono);
-  font-size: 9.5px;
-}
-
 .day {
   margin-bottom: 6px;
 }
@@ -866,11 +799,6 @@ summary.block-title {
 .day.past {
   opacity: 0.65;
   filter: saturate(0.4);
-}
-
-/* past rows are not drop targets — drop the dashed drop-affordance border */
-.day.past .slotrow {
-  border-style: solid;
 }
 
 .dsum-whisper .eaten {
@@ -898,12 +826,6 @@ summary.block-title {
   background: var(--signal);
 }
 
-.traymsg {
-  padding: 8px 12px;
-  text-align: left;
-  white-space: nowrap;
-}
-
 .slotgrid {
   display: flex;
   flex-direction: column;
@@ -913,9 +835,12 @@ summary.block-title {
 .slotrow {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 56px;
-  padding: 6px 10px;
+  /* tightened 2026-07-27: the gap and padding here were sized for a drop
+     target with two trailing buttons. Both buttons and the drop target are
+     gone, so this space now belongs to the recipe name. */
+  gap: 6px;
+  min-height: 52px;
+  padding: 5px 6px 5px 8px;
   background: var(--panel);
   border: 1px dashed var(--line-strong);
   border-radius: 12px;
@@ -924,9 +849,9 @@ summary.block-title {
 .slotrow .t {
   font-family: var(--mono);
   font-size: 9.5px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   color: var(--dim);
-  width: 34px;
+  width: 26px;
   flex-shrink: 0;
 }
 
@@ -944,13 +869,52 @@ summary.block-title {
   gap: 6px;
 }
 
+/* the meal itself: a button, because tapping it opens the recipe */
 .slotrow .fill {
   flex: 1;
   min-width: 0;
   max-width: none;
-  border-style: solid;
-  /* filled chips sit in the vertical page flow — no sideways pan to allow */
-  touch-action: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 8px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.slotrow .fill:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.slotrow .fill:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
+}
+
+/* SWITCH: one tap swaps the meal for another that fits the slot */
+.slotrow .switchbtn {
+  min-width: 40px;
+  min-height: 44px;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--dim);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 10px;
+}
+
+.slotrow .switchbtn:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
 }
 
 .slotrow .emptyslot {
@@ -960,54 +924,8 @@ summary.block-title {
   font-family: var(--mono);
 }
 
-.slotrow.drop-over {
-  border-color: var(--signal);
-  border-style: solid;
-  background: var(--signal-08);
-}
-
-.slotrow .rm {
-  min-width: 44px;
-  min-height: 44px;
-  flex-shrink: 0;
-  border: none;
-  background: none;
-  color: var(--dim);
-  font-size: 14px;
-  cursor: pointer;
-  border-radius: 10px;
-}
-
-.slotrow .rm:focus-visible {
-  outline: 2px solid var(--recover);
-  outline-offset: 2px;
-}
-
-.slotrow .pin {
-  min-width: 44px;
-  min-height: 44px;
-  flex-shrink: 0;
-  border: none;
-  background: none;
-  color: var(--dim);
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.1em;
-  cursor: pointer;
-  border-radius: 10px;
-}
-
-.slotrow .pin.on {
-  color: var(--signal);
-}
-
-.slotrow .pin:focus-visible {
-  outline: 2px solid var(--recover);
-  outline-offset: 2px;
-}
-
 .slotrow .outbtn {
-  min-width: 44px;
+  min-width: 40px;
   min-height: 44px;
   flex-shrink: 0;
   border: none;
@@ -1119,6 +1037,276 @@ summary.block-title {
 
 .tactions button {
   flex: 1;
+}
+
+/* ---- recipe peek: the card a planned meal opens into (2026-07-27) ----
+   Registered in tests/overlays.test.js: a full-screen layer that takes taps
+   must always render its own way out. Here that is the ✕, plus a backdrop
+   tap and Escape, none of them behind a conditional. */
+.peek-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.62);
+  padding: 12px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+.peek-card {
+  width: 100%;
+  max-width: 560px;
+  max-height: 86vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  padding: 14px 14px 18px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.peek-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.peek-head h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.peek-close {
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--dim);
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 10px;
+}
+
+.peek-close:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
+}
+
+.peekmacros {
+  margin-top: 2px;
+  color: var(--dim);
+}
+
+.peekreceipt,
+.receiptnote {
+  border-left: 2px solid var(--line-strong);
+  padding-left: 8px;
+}
+
+.peekactions {
+  margin-top: 14px;
+}
+
+.corerow {
+  gap: 10px;
+}
+
+/* ---- core session figures (2026-07-27) ----
+   Schematic animated stick figures. They answer "which shape, which way does
+   it move" at a glance, because reading a paragraph of cue text while already
+   in a plank is exactly the moment you cannot read anything. */
+.corefig {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin: 4px auto 0;
+  height: auto;
+}
+
+.corefig.small {
+  max-width: 92px;
+  margin: 0;
+}
+
+.corefig .f-limb,
+.corefig .f-spine,
+.corefig .f-arrow,
+.corefig .f-box {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.corefig .f-head {
+  fill: currentColor;
+}
+
+.corefig .f-floor {
+  stroke: var(--line-strong);
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+}
+
+.corefig .f-arrow {
+  stroke-width: 2;
+  opacity: 0.55;
+}
+
+.corefig .f-box {
+  stroke: var(--line-strong);
+  stroke-width: 2;
+}
+
+/* the moving parts. Each figure animates ONE group, because two moving
+   groups on a 120x60 stick figure reads as noise rather than as a movement */
+.fig-plank .f-limb {
+  animation: fig-breathe 3.2s ease-in-out infinite;
+}
+
+.fig-sideplank .f-body {
+  animation: fig-breathe 3.2s ease-in-out infinite;
+  transform-origin: 30px 40px;
+}
+
+.fig-hollow .f-shake {
+  animation: fig-breathe 2.4s ease-in-out infinite;
+}
+
+.fig-hipdip .f-hips {
+  animation: fig-dip 2.4s ease-in-out infinite;
+}
+
+.fig-copenhagen .f-hips {
+  animation: fig-dip 2.8s ease-in-out infinite;
+}
+
+.fig-crunch .f-fold {
+  animation: fig-fold 2.6s ease-in-out infinite;
+  transform-origin: 70px 48px;
+}
+
+.fig-reversecrunch .f-roll {
+  animation: fig-roll 2.6s ease-in-out infinite;
+  transform-origin: 66px 48px;
+}
+
+.fig-legraise .f-swing {
+  animation: fig-swing 3.4s ease-in-out infinite;
+  transform-origin: 64px 48px;
+}
+
+.fig-twist .f-rotate {
+  animation: fig-twist 3s ease-in-out infinite;
+  transform-origin: 60px 50px;
+}
+
+.fig-deadbug .f-alt-a,
+.fig-flutter .f-alt-a,
+.fig-bicycle .f-alt-a {
+  animation: fig-alt 2.2s ease-in-out infinite;
+}
+
+.fig-deadbug .f-alt-b,
+.fig-flutter .f-alt-b,
+.fig-bicycle .f-alt-b {
+  animation: fig-alt 2.2s ease-in-out infinite reverse;
+}
+
+@keyframes fig-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.62;
+  }
+}
+
+@keyframes fig-dip {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(7px);
+  }
+}
+
+@keyframes fig-fold {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-22deg);
+  }
+}
+
+@keyframes fig-roll {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-28deg);
+  }
+}
+
+@keyframes fig-swing {
+  0%,
+  100% {
+    transform: rotate(-58deg);
+  }
+  50% {
+    transform: rotate(-4deg);
+  }
+}
+
+@keyframes fig-twist {
+  0%,
+  100% {
+    transform: rotate(-12deg);
+  }
+  50% {
+    transform: rotate(12deg);
+  }
+}
+
+@keyframes fig-alt {
+  0%,
+  100% {
+    transform: translateY(-5px);
+  }
+  50% {
+    transform: translateY(5px);
+  }
+}
+
+/* a phone set to reduce motion gets the pose, not the movement */
+@media (prefers-reduced-motion: reduce) {
+  .corefig * {
+    animation: none !important;
+  }
+}
+
+/* the lead-in: the cue arrives BEFORE you are in position, which is the
+   whole fix. Reading it mid-plank was the complaint. */
+.tface.ready {
+  border-color: var(--dim);
+  border-style: solid;
+}
+
+.tface.ready .tphase {
+  color: var(--dim);
 }
 
 /* ---- food safety guide (D3) ---- */

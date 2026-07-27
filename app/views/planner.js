@@ -1,12 +1,10 @@
 import { html } from "htm/preact";
-import { useEffect, useRef, useState } from "preact/hooks";
-import { initDrag } from "../lib/drag.js";
+import { useRef, useState } from "preact/hooks";
 import {
   datesOfWeek,
   dayTotals,
   entriesAt,
   outEntryAt,
-  OUT_TEXT,
   recipesById,
   SLOT_KEYS,
   SLOT_META,
@@ -15,10 +13,6 @@ import { parseLocalIso } from "../lib/dates.js";
 import { CookBlocks } from "./cook-blocks.js";
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
-
-// OUT_TEXT by reference, not a copied literal: main.js routes a dropped chip
-// with exactly that text through the slot's OUT toggle
-const FREE_TEXT = ["leftovers", OUT_TEXT];
 
 /**
  * @param {string} isoDate
@@ -31,26 +25,36 @@ function monthDay(isoDate) {
 }
 
 /**
- * Drag-and-drop weekly planner (blueprint §6.3). Drag a recipe chip from the
- * tray into a slot; drag a filled slot to another slot to move it; ✕ removes,
- * PIN protects an entry from GENERATE MY WEEK / RE-ROLL WEEK. GENERATE MY
- * WEEK clears and rebuilds every unpinned entry across all 7 days; a second
- * tap is a RE-ROLL over the same pinned base.
- * Known gap (accepted for Phase 1, fast-follow planned): add is drag-only —
- * no keyboard/switch-control path yet; remove is a plain button.
+ * The weekly plan (blueprint §6.3), rebuilt 2026-07-27 around what David
+ * actually does with it.
+ *
+ * Everything that made this a DRAG-AND-DROP planner is gone: the recipe tray,
+ * its meal filter chips, the drag grips, and moving a meal between slots. His
+ * reasoning, and it is right: he never moved anything, a breakfast is only
+ * ever a breakfast so a move is really a cross-DAY move, and that is a rare
+ * enough want to cost the whole layout. The grid had to keep six droppable
+ * targets legible, which is why a recipe name rendered as "matcha gree…".
+ *
+ * What replaced them:
+ *   TAP A MEAL  opens the recipe as a card over the plan (ingredients + cook),
+ *               no longer gated on a scanned receipt.
+ *   SWITCH      replaces the meal with another eligible recipe for that slot,
+ *               instead of the old ✕ which could only delete. Tapping again
+ *               keeps cycling.
+ *   OUT         unchanged.
+ * PIN is gone from the UI (he did not know what it did). The DATA still
+ * honours `pinned`, so a pinned entry from an older device is still kept by
+ * GENERATE WEEK; nothing in the app sets one any more.
  * @param {{
  *   recipes: Record<string, any>[],
  *   plan: import("../lib/plan.js").Plan,
  *   targets: Record<string, any> | null,
  *   poolReport: { counts: Record<string, number>, warnings: string[] } | null,
- *   hasToken: boolean,
- *   loading: boolean,
  *   weekId: string,
  *   todayIso: string,
  *   onWeek: (delta: number) => void,
- *   onDropInto: (date: string, slot: string, drag: DOMStringMap) => void,
- *   onRemove: (id: string) => void,
- *   onTogglePin: (id: string) => void,
+ *   onSwitch: (id: string) => void,
+ *   onOpen: (entry: Record<string, any>) => void,
  *   onToggleOut: (date: string, slot: string) => void,
  *   onGenerateWeek: () => void,
  *   buildReport: import("../lib/weekbuilder.js").WeekReport | null,
@@ -69,14 +73,11 @@ export function PlannerView({
   plan,
   targets,
   poolReport,
-  hasToken,
-  loading,
   weekId,
   todayIso,
   onWeek,
-  onDropInto,
-  onRemove,
-  onTogglePin,
+  onSwitch,
+  onOpen,
   onToggleOut,
   onGenerateWeek,
   buildReport,
@@ -90,16 +91,10 @@ export function PlannerView({
   onPatchDay,
 }) {
   const rootRef = useRef(/** @type {HTMLElement | null} */ (null));
-  // tray meal filter: at ~50 recipes an unfiltered tray is unusable (David)
-  const [trayFilter, setTrayFilter] = useState(/** @type {string | null} */ (null));
   // scoreboard accordion (David's layout pick, 2026-07-23): which days are
   // expanded. Absent = default (today open, everything else collapsed);
   // native <details> does the rest, this map only remembers user toggles
   const [openDays, setOpenDays] = useState(/** @type {Record<string, boolean>} */ ({}));
-  // latest-callback ref: the drag engine attaches ONCE and never re-attaches
-  // mid-gesture, regardless of parent re-renders
-  const dropRef = useRef(onDropInto);
-  dropRef.current = onDropInto;
   const todayRef = useRef(todayIso);
   todayRef.current = todayIso;
 
@@ -116,15 +111,6 @@ export function PlannerView({
   // week's first live day (a fully past week opens nothing)
   const defaultOpenDate = dates.includes(todayRef.current ?? "") ? todayRef.current : firstLive;
 
-  useEffect(() => {
-    if (!rootRef.current) return;
-    return initDrag(rootRef.current, (drag, drop) => {
-      if (!drop.date || !drop.slot) return;
-      if (isPast(drop.date)) return; // belt+suspenders: past rows carry no data-drop
-      dropRef.current(drop.date, drop.slot, drag);
-    });
-  }, []);
-
   return html`
     <div class="view" ref=${rootRef}>
       <div class="hero weeknav">
@@ -137,17 +123,14 @@ export function PlannerView({
       </div>
 
       ${
-        // A tap does two different things depending on whether the week is
-        // locked: opens a recipe, or picks a meal up to move it. Removing the
-        // drag grips is the strong half of that signal, but someone who never
-        // saw a grip has nothing telling them what a tap will do, so the state
-        // is also said out loud here.
+        // a tap always opens the recipe now, locked or not, so this banner only
+        // has to say why GENERATE is refusing
         plan.locked &&
         html`<div class="tile lockbanner" role="status">
           <div class="k">🔒 This week is bought</div>
           <div class="d">
-            Nothing moves now. Tap any meal to open its recipe and cook it. Unlock on the List tab
-            if the week really has to change.
+            The week is bought, so GENERATE and SWITCH are off. Tap any meal to open its recipe and
+            cook it. Unlock on the List tab if the week really has to change.
           </div>
         </div>`
       }
@@ -174,9 +157,9 @@ export function PlannerView({
                   ? "this week is over, nothing left to plan"
                   : midWeek
                     ? firstLive === dates[6]
-                      ? "plans today only · earlier days already eaten · pinned entries are kept"
-                      : `plans ${parseLocalIso(firstLive).toLocaleDateString([], { weekday: "short" })}–Sun · earlier days already eaten · pinned entries are kept`
-                    : "overlapping ingredients → fewer, bulkier buys · pinned entries are kept"
+                      ? "plans today only · earlier days already eaten"
+                      : `plans ${parseLocalIso(firstLive).toLocaleDateString([], { weekday: "short" })}–Sun · earlier days already eaten`
+                    : "overlapping ingredients → fewer, bulkier buys"
             }
           </small>
         </button>
@@ -310,56 +293,6 @@ export function PlannerView({
           slot) — details on the Table tab.
         </p>`
       }
-
-      <div class="chips" role="group" aria-label="Filter tray by meal">
-        ${SLOTS.map(
-          ({ key, label, full }) => html`
-            <button
-              class="chip ${trayFilter === key ? "on" : ""}"
-              aria-pressed=${trayFilter === key}
-              aria-label="Show ${full} recipes"
-              key=${key}
-              onClick=${() => setTrayFilter(trayFilter === key ? null : key)}
-            >
-              ${label}
-            </button>
-          `,
-        )}
-      </div>
-
-      <div class="tray" aria-label="Drag a recipe into a day">
-        ${recipes
-          .filter((r) => !trayFilter || r.mealType === trayFilter)
-          .map(
-            (r) => html`
-              <div class="drag-chip" data-drag="recipe" data-recipe=${r.id} key=${r.id}>
-                <span class="grip" aria-hidden="true">⠿</span>
-                <span class="chipbody">
-                  <span class="n">${r.name}</span>
-                  <span class="m num">${r.nutrition?.calories} · ${r.nutrition?.protein}P</span>
-                </span>
-              </div>
-            `,
-          )}
-        ${FREE_TEXT.map(
-          (t) => html`
-            <div class="drag-chip text" data-drag="text" data-text=${t} key=${t}>
-              <span class="grip" aria-hidden="true">⠿</span>
-              <span class="chipbody"><span class="n">${t}</span></span>
-            </div>
-          `,
-        )}
-        ${
-          recipes.length === 0 &&
-          html`<div class="empty traymsg">
-            ${hasToken ? (loading ? "loading recipes…" : "no recipes yet") : "connect token in SYS to load recipes"}
-          </div>`
-        }
-      </div>
-      <p class="hint traylabel">
-        drag down into a slot · scroll tray sideways ${!targets && html` · using default targets`}
-      </p>
-
       ${dates.map((date) => {
         const past = isPast(date);
         const totals = dayTotals(/** @type {any} */ (plan.entries), byId, date);
@@ -458,7 +391,7 @@ export function PlannerView({
                               const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
                               return html`
                                 <div class="stackline" key=${entry.id}>
-                                  <div class="fill drag-chip">
+                                  <div class="fill">
                                     <span class="chipbody">
                                       <span class="n"
                                         >${recipe ? recipe.name : entry.freeText}</span
@@ -480,84 +413,13 @@ export function PlannerView({
                       </div>
                     `;
                   }
-                  if (plan.locked) {
-                    // LOCKED = the week is bought, so this stops being a
-                    // planner and becomes the cook's copy. Nothing moves, and
-                    // tapping a meal opens its recipe, which is what the old
-                    // Cook tab did. The drag grips, PIN and ✕ are not rendered
-                    // at all rather than being rendered and then refused:
-                    // "you can't" beats "are you sure", and the confirm modal
-                    // that used to guard this is gone.
-                    return html`
-                      <div class="slotrow ${outEntry ? "isout" : ""}" key=${key}>
-                        <span class="t" aria-label=${full}>${label}</span>
-                        ${outEntry && html`<span class="outslot">🍴 eating out</span>`}
-                        ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">—</span>`}
-                        ${
-                          stacked.length > 0 &&
-                          html`<div class="stack">
-                            ${stacked.map((entry) => {
-                              // a table entry's dish is linkable through
-                              // viewRecipeId without entering the shopping or
-                              // dayTotals recipeId paths
-                              const rid = entry.recipeId ?? entry.viewRecipeId;
-                              const recipe = rid ? byId.get(rid) : null;
-                              const name = recipe ? recipe.name : entry.freeText;
-                              if (!recipe) {
-                                return html`
-                                  <div class="stackline" key=${entry.id}>
-                                    <div class="fill drag-chip">
-                                      <span class="chipbody"><span class="n">${name}</span></span>
-                                    </div>
-                                  </div>
-                                `;
-                              }
-                              // derived table entries live in events.json, so
-                              // there is no plan entry to confirm cooked
-                              const entryParam = entry.table
-                                ? ""
-                                : `&entry=${encodeURIComponent(entry.id)}`;
-                              return html`
-                                <div class="stackline" key=${entry.id}>
-                                  <a
-                                    class="fill drag-chip cooklink"
-                                    href="#/recipe/${encodeURIComponent(rid ?? "")}?from=plan&servings=${entry.cookTotal ?? entry.servings ?? 1}${entryParam}"
-                                  >
-                                    <span class="chipbody">
-                                      <span class="n">
-                                        ${name}${entry.table && html` <span class="usesoon">table</span>`}
-                                        ${entry.cookTotal && html` <span class="usesoon">cook ×${entry.cookTotal} total</span>`}
-                                        ${entry.cookedAt && html` <span class="usesoon cookedchip">✓ cooked</span>`}
-                                        ${
-                                          /** @type {any} */ (entry).plate &&
-                                          html`<span class="hint plateline"
-                                            >✨
-                                            ${/** @type {any} */ (entry).plate.join(" · ")}</span
-                                          >`
-                                        }
-                                      </span>
-                                      <span class="m num">
-                                        ${recipe.nutrition?.calories} ·
-                                        ${recipe.nutrition?.protein}P ›
-                                      </span>
-                                    </span>
-                                  </a>
-                                </div>
-                              `;
-                            })}
-                          </div>`
-                        }
-                      </div>
-                    `;
-                  }
+                  // ONE renderer for live and locked weeks. They used to be
+                  // two near-identical blocks that differed only in which
+                  // controls rendered; with dragging gone and tapping always
+                  // opening the recipe, the only real difference left is that
+                  // a bought week cannot be switched or marked out.
                   return html`
-                    <div
-                      class="slotrow ${outEntry ? "isout" : ""}"
-                      data-drop
-                      data-date=${date}
-                      data-slot=${key}
-                      key=${key}
-                    >
+                    <div class="slotrow ${outEntry ? "isout" : ""}" key=${key}>
                       <span class="t" aria-label=${full}>${label}</span>
                       ${
                         outEntry &&
@@ -582,31 +444,34 @@ export function PlannerView({
                         stacked.length > 0 &&
                         html`<div class="stack">
                           ${stacked.map((entry) => {
-                            const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
+                            // a table entry's dish is openable through
+                            // viewRecipeId without entering the shopping or
+                            // dayTotals recipeId paths
+                            const rid = entry.recipeId ?? entry.viewRecipeId;
+                            const recipe = rid ? byId.get(rid) : null;
                             const name = recipe ? recipe.name : entry.freeText;
-                            if (entry.table) {
-                              // derived table entry: lives in the house's
-                              // events.json, not this plan — read-only here,
-                              // managed from the Tables section above
-                              return html`
-                                <div class="stackline" key=${entry.id}>
-                                  <div class="fill drag-chip">
-                                    <span class="chipbody">
-                                      <span class="n">${name}</span>
-                                      <span class="m num">
-                                        ~${entry.estCalories} · ${entry.estProtein}P · table
-                                      </span>
-                                    </span>
-                                  </div>
-                                </div>
-                              `;
-                            }
                             return html`
                               <div class="stackline" key=${entry.id}>
-                                <div class="fill drag-chip" data-drag="move" data-id=${entry.id}>
-                                  <span class="grip" aria-hidden="true">⠿</span>
+                                <button
+                                  class="fill mealbtn"
+                                  disabled=${!recipe}
+                                  aria-label=${
+                                    recipe ? `Open ${name}` : /** @type {string} */ (name)
+                                  }
+                                  onClick=${() => recipe && onOpen(entry)}
+                                >
                                   <span class="chipbody">
-                                    <span class="n">${name}</span>
+                                    <span class="n">
+                                      ${name}${entry.table && html` <span class="usesoon">table</span>`}
+                                      ${entry.cookTotal && html` <span class="usesoon">cook ×${entry.cookTotal}</span>`}
+                                      ${entry.cookedAt && html` <span class="usesoon cookedchip">✓ cooked</span>`}
+                                      ${
+                                        /** @type {any} */ (entry).plate &&
+                                        html`<span class="hint plateline"
+                                          >✨ ${/** @type {any} */ (entry).plate.join(" · ")}</span
+                                        >`
+                                      }
+                                    </span>
                                     ${
                                       recipe &&
                                       html`<span class="m num"
@@ -614,44 +479,54 @@ export function PlannerView({
                                         ${recipe.nutrition?.protein}P</span
                                       >`
                                     }
+                                    ${
+                                      !recipe &&
+                                      entry.table &&
+                                      html`<span class="m num"
+                                        >~${entry.estCalories} · ${entry.estProtein}P · table</span
+                                      >`
+                                    }
                                   </span>
-                                </div>
-                                <button
-                                  class="pin ${entry.pinned ? "on" : ""}"
-                                  aria-pressed=${Boolean(entry.pinned)}
-                                  aria-label=${
-                                    entry.pinned
-                                      ? `Unpin ${name} — GENERATE WEEK may replace it`
-                                      : `Pin ${name} — GENERATE WEEK will keep it`
-                                  }
-                                  onClick=${() => onTogglePin(entry.id)}
-                                >
-                                  PIN
                                 </button>
-                                <button
-                                  class="rm"
-                                  aria-label="Remove ${name} from ${label}"
-                                  onClick=${() => onRemove(entry.id)}
-                                >
-                                  ✕
-                                </button>
+                                ${
+                                  // SWITCH replaces the meal with another
+                                  // eligible recipe for this slot instead of
+                                  // only deleting it (David: "instead of being
+                                  // able to only get rid of I want an automatic
+                                  // replacement"). Tapping again keeps cycling.
+                                  // A table entry is not ours to rewrite: it
+                                  // lives in the house's events.json.
+                                  !entry.table &&
+                                  !plan.locked &&
+                                  entry.recipeId &&
+                                  html`<button
+                                    class="switchbtn"
+                                    aria-label="Switch ${name} for another ${full.toLowerCase()}"
+                                    onClick=${() => onSwitch(entry.id)}
+                                  >
+                                    ⇄
+                                  </button>`
+                                }
                               </div>
                             `;
                           })}
                         </div>`
                       }
-                      <button
-                        class="outbtn ${outEntry ? "on" : ""}"
-                        aria-pressed=${Boolean(outEntry)}
-                        aria-label=${
-                          outEntry
-                            ? `${full} ${monthDay(date)} is eating out, tap to plan a meal again`
-                            : `Mark ${full} ${monthDay(date)} as eating out: clears the slot, nothing shopped or re-rolled`
-                        }
-                        onClick=${() => onToggleOut(date, key)}
-                      >
-                        🍴 OUT
-                      </button>
+                      ${
+                        !plan.locked &&
+                        html`<button
+                          class="outbtn ${outEntry ? "on" : ""}"
+                          aria-pressed=${Boolean(outEntry)}
+                          aria-label=${
+                            outEntry
+                              ? `${full} ${monthDay(date)} is eating out, tap to plan a meal again`
+                              : `Mark ${full} ${monthDay(date)} as eating out: clears the slot, nothing shopped or re-rolled`
+                          }
+                          onClick=${() => onToggleOut(date, key)}
+                        >
+                          🍴 OUT
+                        </button>`
+                      }
                     </div>
                   `;
                 })}

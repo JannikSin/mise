@@ -234,6 +234,10 @@ export const CORE_SESSIONS = [
   },
 ];
 
+/** Seconds of GET READY before the first move: enough to read one cue and
+ *  get on the floor, short enough not to feel like waiting. */
+export const LEAD_IN = 8;
+
 /**
  * Seconds of work plus rest in a session (the number shown before you start).
  * @param {CoreSession} session
@@ -270,8 +274,9 @@ export function sessionForDay(todayIso, sessions = CORE_SESSIONS) {
  * because rest you never come back from is just the end of the workout.
  * @param {number} elapsed whole seconds since start
  * @param {CoreStep[]} steps
+ * @param {number} [leadIn] seconds of GET READY before the first move
  * @returns {{
- *   phase: "work" | "rest" | "done",
+ *   phase: "ready" | "work" | "rest" | "done",
  *   index: number,
  *   remaining: number,
  *   step: CoreStep | null,
@@ -279,10 +284,10 @@ export function sessionForDay(todayIso, sessions = CORE_SESSIONS) {
  *   workLeft: number
  * }}
  */
-export function coreStepAt(elapsed, steps) {
+export function coreStepAt(elapsed, steps, leadIn = 0) {
   const list = steps ?? [];
   const done = {
-    phase: /** @type {const} */ ("done"),
+    phase: /** @type {"ready" | "work" | "rest" | "done"} */ ("done"),
     index: list.length,
     remaining: 0,
     step: null,
@@ -292,6 +297,21 @@ export function coreStepAt(elapsed, steps) {
   if (list.length === 0) return done;
 
   let t = Math.max(0, Math.floor(elapsed));
+  // GET READY (David, 2026-07-27: "I had to read the description while I was
+  // supposed to be doing them"). The cue and the figure for move ONE need a
+  // moment on screen before the clock on move one starts, or the first thing
+  // the session asks you to do is read.
+  if (leadIn > 0 && t < leadIn) {
+    return {
+      phase: /** @type {"ready" | "work" | "rest" | "done"} */ ("ready"),
+      index: -1,
+      remaining: leadIn - t,
+      step: null,
+      next: list[0] ?? null,
+      workLeft: list.reduce((sum, x) => sum + x.seconds, 0),
+    };
+  }
+  t -= Math.max(0, leadIn);
   for (let i = 0; i < list.length; i++) {
     const step = /** @type {CoreStep} */ (list[i]);
     const next = list[i + 1] ?? null;
@@ -300,7 +320,7 @@ export function coreStepAt(elapsed, steps) {
     const workLeft = list.slice(i).reduce((sum, s) => sum + s.seconds, 0);
     if (t < step.seconds) {
       return {
-        phase: "work",
+        phase: /** @type {"ready" | "work" | "rest" | "done"} */ ("work"),
         index: i,
         remaining: step.seconds - t,
         step,
@@ -313,7 +333,7 @@ export function coreStepAt(elapsed, steps) {
     const rest = next ? step.rest : 0;
     if (t < rest) {
       return {
-        phase: "rest",
+        phase: /** @type {"ready" | "work" | "rest" | "done"} */ ("rest"),
         index: i,
         remaining: rest - t,
         step,

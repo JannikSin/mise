@@ -18,6 +18,7 @@ import { tailorTable } from "./lib/worker.js";
 import { ProfileGateView } from "./views/profile-gate.js";
 import { CookbookView } from "./views/cookbook.js";
 import { RecipeView, CookView } from "./views/recipe.js";
+import { RecipePeek } from "./views/recipe-peek.js";
 import { SystemView } from "./views/system.js";
 import { TourOverlay, TourOffer } from "./views/tour.js";
 import { readTourState, writeTourState } from "./lib/tour.js";
@@ -58,17 +59,14 @@ import { cookPlan } from "./lib/portions.js";
 import {
   addEntry,
   removeEntryById,
-  moveEntry,
   normalizePlan,
-  recipeGated,
-  unlockRecipe,
+  switchCandidate,
+  setEntryRecipe,
   recipesById,
   shiftWeek,
-  togglePinById,
   toggleSlotOut,
   outEntryAt,
   entriesAt,
-  OUT_TEXT,
   slotMacroEstimate,
   datesOfWeek,
   setPlanLocked,
@@ -909,63 +907,41 @@ function App() {
   // so it's left ungated
   const LOCK_CONFIRM = "This week is locked, you've shopped for it. Change this meal anyway?";
 
-  const handleDrop = useCallback(
-    async (
-      /** @type {string} */ date,
-      /** @type {string} */ slot,
-      /** @type {DOMStringMap} */ drag,
-    ) => {
-      if (
-        /** @type {import("./lib/plan.js").Plan} */ (planRef.current).locked &&
-        !(await askConfirm(LOCK_CONFIRM))
-      )
-        return;
-      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
-      // the "eating out" tray chip behaves exactly like the slot's OUT
-      // toggle: pinned placeholder, clears the slot, survives re-roll
-      if (drag.drag === "text" && drag.text === OUT_TEXT) {
-        if (!outEntryAt(p.entries, date, slot)) {
-          updatePlan(toggleSlotOut(p, date, slot, slotMacroEstimate(recipesRef.current, slot)));
-        }
-        return;
-      }
-      // dropping real food into an eating-out slot means plans changed —
-      // the placeholder yields to the meal
-      const out = outEntryAt(p.entries, date, slot);
-      const base = out ? removeEntryById(p, out.id) : p;
-      if (drag.drag === "recipe" && drag.recipe) {
-        updatePlan(addEntry(base, date, slot, { recipeId: drag.recipe, servings: 1 }));
-      } else if (drag.drag === "text" && drag.text) {
-        updatePlan(addEntry(base, date, slot, { freeText: drag.text, servings: 1 }));
-      } else if (drag.drag === "move" && drag.id) {
-        const src = base.entries.find((e) => e.id === drag.id);
-        if (!src || (src.date === date && src.slot === slot)) return;
-        updatePlan(moveEntry(base, drag.id, date, slot));
-      }
-    },
-    [updatePlan, askConfirm],
-  );
-
-  const handleRemove = useCallback(
-    async (/** @type {string} */ id) => {
-      if (
-        /** @type {import("./lib/plan.js").Plan} */ (planRef.current).locked &&
-        !(await askConfirm(LOCK_CONFIRM))
-      )
-        return;
-      updatePlan(
-        removeEntryById(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), id),
-      );
-    },
-    [updatePlan, askConfirm],
-  );
-
-  const handleTogglePin = useCallback(
+  // SWITCH: the meal keeps its slot and its servings and becomes a different
+  // recipe. Replaces the old ✕, which could only delete (David, 2026-07-27).
+  // A locked week refuses, same as GENERATE: you have bought this food.
+  const handleSwitchEntry = useCallback(
     (/** @type {string} */ id) => {
-      updatePlan(togglePinById(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), id));
+      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      if (p.locked) return;
+      const next = switchCandidate(p, id, recipesRef.current);
+      if (!next) {
+        setUndoToast({
+          message: "nothing else fits that slot",
+          restore: () => updatePlan(p),
+        });
+        return;
+      }
+      updatePlan(setEntryRecipe(p, id, next));
+      // one tap replaced a meal: the way back has to be one tap too
+      setUndoToast({ message: "switched", restore: () => updatePlan(p) });
     },
     [updatePlan],
   );
+
+  // tapping a planned meal opens it as a card over the plan
+  const [peek, setPeek] = useState(
+    /** @type {{ recipeId: string, servings?: number, entryId?: string } | null} */ (null),
+  );
+  const handleOpenEntry = useCallback((/** @type {Record<string, any>} */ entry) => {
+    const rid = entry.recipeId ?? entry.viewRecipeId;
+    if (!rid) return;
+    setPeek({
+      recipeId: rid,
+      servings: entry.cookTotal ?? entry.servings ?? 1,
+      entryId: entry.table ? undefined : entry.id,
+    });
+  }, []);
 
   const handleToggleOut = useCallback(
     async (/** @type {string} */ date, /** @type {string} */ slot) => {
@@ -1006,21 +982,11 @@ function App() {
 
   // "I already have this": open ONE recipe method for the rest of the week,
   // for the nights you cook out of the pantry without a shop.
-  const handleUnlockRecipe = useCallback(
-    (/** @type {string} */ recipeId) => {
-      updatePlan(unlockRecipe(/** @type {any} */ (planRef.current), recipeId));
-    },
-    [updatePlan],
-  );
-
   const handleToggleLock = useCallback(() => {
     const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
     updatePlan(setPlanLocked(p, !p.locked));
   }, [updatePlan]);
 
-  // the DONE button at the end of Cook mode: confirm (or un-confirm) a
-  // planned meal as actually cooked — the only thing that makes a past day
-  // read "eaten"
   const handleMarkCooked = useCallback(
     (/** @type {string} */ entryId) => {
       const plan = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
@@ -1816,14 +1782,11 @@ function App() {
         plan=${viewPlan}
         targets=${targets}
         poolReport=${recipes.length > 0 ? poolAdequacy(recipes, targets) : null}
-        hasToken=${hasToken}
-        loading=${loading}
         weekId=${weekId}
         todayIso=${localIsoDate(new Date())}
         onWeek=${handleWeekNav}
-        onDropInto=${handleDrop}
-        onRemove=${handleRemove}
-        onTogglePin=${handleTogglePin}
+        onSwitch=${handleSwitchEntry}
+        onOpen=${handleOpenEntry}
         onToggleOut=${handleToggleOut}
         onGenerateWeek=${handleGenerateWeek}
         buildReport=${buildReport}
@@ -1845,8 +1808,7 @@ function App() {
         from=${route.from}
         servings=${route.servings}
         entryId=${route.entry}
-        gated=${recipeGated(/** @type {any} */ (plan), route.id ?? "", houseShopped)}
-        onUnlock=${handleUnlockRecipe}
+        unshopped=${!(/** @type {any} */ (plan)?.shoppedAt || houseShopped)}
       />`
     }
     ${
@@ -2022,6 +1984,16 @@ function App() {
         startStep=${tourOpen.startStep}
         onProgress=${handleTourProgress}
         onEnd=${handleTourEnd}
+      />`
+    }
+    ${
+      peek &&
+      html`<${RecipePeek}
+        recipe=${recipeById(peek.recipeId) ?? null}
+        servings=${peek.servings}
+        entryId=${peek.entryId}
+        unshopped=${!(/** @type {any} */ (plan)?.shoppedAt || houseShopped)}
+        onClose=${() => setPeek(null)}
       />`
     }
     ${
