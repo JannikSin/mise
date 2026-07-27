@@ -1039,6 +1039,53 @@ summary.block-title {
   flex: 1;
 }
 
+/* ---- screen-awake indicator + music offer (2026-07-27) ----
+   The chip exists because the failure it reports used to be silent: he found
+   out the screen was not being held by looking at a locked phone with egg on
+   his hands. */
+.awakechip {
+  margin-left: 8px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+.awakechip.on {
+  color: var(--signal);
+  border-color: var(--signal);
+}
+
+.awakewhy {
+  color: var(--dim);
+  line-height: 1.5;
+}
+
+.tunetile {
+  margin-top: 10px;
+}
+
+.tunelink {
+  display: inline-block;
+  margin-top: 8px;
+}
+
+.tunerow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 10px 0 4px;
+}
+
+.tunerow .tunelink {
+  margin-top: 0;
+}
+
 /* ---- recipe peek: the card a planned meal opens into (2026-07-27) ----
    Registered in tests/overlays.test.js: a full-screen layer that takes taps
    must always render its own way out. Here that is the ✕, plus a backdrop
