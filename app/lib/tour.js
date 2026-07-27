@@ -64,15 +64,15 @@ export const TOUR_STEPS = [
   },
   {
     route: "#/plan",
-    selector: ".tray",
-    title: "The recipe tray",
-    text: "Drag any recipe down into any day's slot. The chips above filter by meal type.",
+    selector: ".mealbtn",
+    title: "Tap any meal",
+    text: "Opens the recipe over the plan: ingredients, macros, and COOK IT. Never gated on a receipt, because sometimes you already have the food.",
   },
   {
     route: "#/plan",
-    selector: ".pin",
-    title: "Pin a meal",
-    text: "PIN locks an entry you want to keep. Generate and re-roll build around pins, never over them.",
+    selector: ".switchbtn",
+    title: "Switch it",
+    text: "Do not fancy it? SWITCH swaps that meal for another one that fits the same slot, keeping your portions. Tap again to keep cycling, and UNDO puts it back.",
   },
   {
     route: "#/plan",

@@ -37,6 +37,11 @@ const KNOWN_BLOCKERS = {
     file: "../app/views/confirm-modal.js",
     marker: "onResolve(false)",
   },
+  ".peek-overlay": {
+    escape: "the ✕ close button, plus a backdrop tap and Escape",
+    file: "../app/views/recipe-peek.js",
+    marker: "peek-close",
+  },
   ".tour": {
     escape: "CLOSE TOUR button, outside the measured-card guard",
     file: "../app/views/tour.js",

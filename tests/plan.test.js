@@ -22,6 +22,8 @@ import {
   prepSundayOf,
   recipeGated,
   unlockRecipe,
+  switchCandidate,
+  setEntryRecipe,
 } from "../app/lib/plan.js";
 
 test("prepSundayOf is the day before the week's Monday", () => {
@@ -484,4 +486,87 @@ test("the per-meal override opens one recipe without faking a shop", () => {
 test("a gate with no plan or no recipe never blocks anything", () => {
   assert.equal(recipeGated(null, "chili"), false);
   assert.equal(recipeGated({ week: "2026-W31", entries: [] }, ""), false);
+});
+
+test("switchCandidate cycles the same-slot pool in order and wraps", () => {
+  const plan = {
+    week: "2026-W31",
+    entries: [{ id: "e1", date: "2026-07-28", slot: "lunch", recipeId: "b-bowl", servings: 1 }],
+  };
+  const pool = [
+    { id: "a-salad", mealType: "lunch" },
+    { id: "b-bowl", mealType: "lunch" },
+    { id: "c-wrap", mealType: "lunch" },
+    { id: "z-oats", mealType: "breakfast" },
+  ];
+  // b → c → a → b: predictable, and you can always get back
+  assert.equal(switchCandidate(plan, "e1", pool), "c-wrap");
+  const atC = setEntryRecipe(plan, "e1", "c-wrap");
+  assert.equal(switchCandidate(atC, "e1", pool), "a-salad");
+  const atA = setEntryRecipe(atC, "e1", "a-salad");
+  assert.equal(switchCandidate(atA, "e1", pool), "b-bowl");
+});
+
+test("switchCandidate never offers a meal type from another slot", () => {
+  const plan = {
+    week: "2026-W31",
+    entries: [{ id: "e1", date: "2026-07-28", slot: "lunch", recipeId: "b-bowl", servings: 1 }],
+  };
+  const pool = [
+    { id: "b-bowl", mealType: "lunch" },
+    { id: "z-oats", mealType: "breakfast" },
+  ];
+  // only one lunch exists, so there is nothing to switch to
+  assert.equal(switchCandidate(plan, "e1", pool), null);
+});
+
+test("switchCandidate skips anything already planned that same day", () => {
+  const plan = {
+    week: "2026-W31",
+    entries: [
+      { id: "e1", date: "2026-07-28", slot: "lunch", recipeId: "b-bowl", servings: 1 },
+      { id: "e2", date: "2026-07-28", slot: "dinner", recipeId: "c-wrap", servings: 1 },
+    ],
+  };
+  const pool = [
+    { id: "a-salad", mealType: "lunch" },
+    { id: "b-bowl", mealType: "lunch" },
+    { id: "c-wrap", mealType: "lunch" },
+  ];
+  // c-wrap is dinner today, so switching lunch onto it is not a switch
+  assert.equal(switchCandidate(plan, "e1", pool), "a-salad");
+});
+
+test("switchCandidate returns null for a free-text or missing entry", () => {
+  const plan = {
+    week: "2026-W31",
+    entries: [{ id: "e1", date: "2026-07-28", slot: "lunch", freeText: "leftovers" }],
+  };
+  assert.equal(switchCandidate(plan, "e1", [{ id: "a", mealType: "lunch" }]), null);
+  assert.equal(switchCandidate(plan, "nope", [{ id: "a", mealType: "lunch" }]), null);
+});
+
+test("setEntryRecipe keeps the id, date, slot and servings, and drops cookedAt", () => {
+  const plan = {
+    week: "2026-W31",
+    entries: [
+      {
+        id: "e1",
+        date: "2026-07-28",
+        slot: "lunch",
+        recipeId: "b-bowl",
+        servings: 1.5,
+        cookedAt: "2026-07-28",
+      },
+    ],
+  };
+  const next = setEntryRecipe(plan, "e1", "c-wrap");
+  const e = next.entries[0];
+  assert.equal(e.id, "e1");
+  assert.equal(e.date, "2026-07-28");
+  assert.equal(e.slot, "lunch");
+  assert.equal(e.servings, 1.5);
+  assert.equal(e.recipeId, "c-wrap");
+  // a switched meal is not the meal you cooked
+  assert.equal("cookedAt" in e, false);
 });

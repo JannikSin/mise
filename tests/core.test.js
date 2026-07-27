@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CORE_SESSIONS, coreStepAt, sessionForDay, sessionSeconds } from "../app/lib/core.js";
+import {
+  CORE_SESSIONS,
+  coreStepAt,
+  LEAD_IN,
+  sessionForDay,
+  sessionSeconds,
+} from "../app/lib/core.js";
 
 const STEPS = [
   { name: "Plank", seconds: 60, rest: 10, cue: "" },
@@ -81,5 +87,46 @@ test("every shipped session is floor-sized: 4-10 minutes, cued, side-balanced", 
     for (const [name, sides] of byName) {
       assert.equal([...sides].sort().join(""), "LR", `${s.id}/${name} is not side-balanced`);
     }
+  }
+});
+
+test("coreStepAt: the GET READY lead-in runs before move one, then shifts everything", () => {
+  const ready = coreStepAt(0, STEPS, 8);
+  assert.equal(ready.phase, "ready");
+  assert.equal(ready.remaining, 8);
+  // it previews what is coming, so the cue and figure are on screen early
+  assert.equal(ready.next.name, "Plank");
+  assert.equal(ready.step, null);
+  assert.equal(coreStepAt(7, STEPS, 8).phase, "ready");
+  // the session proper starts the instant the lead-in ends, undrifted
+  const first = coreStepAt(8, STEPS, 8);
+  assert.equal(first.phase, "work");
+  assert.equal(first.step.name, "Plank");
+  assert.equal(first.remaining, 60);
+  // and the whole session shifts by exactly the lead-in, no more
+  assert.equal(coreStepAt(165 + 8, STEPS, 8).phase, "done");
+  assert.equal(coreStepAt(164 + 8, STEPS, 8).phase, "work");
+});
+
+test("coreStepAt: no lead-in argument behaves exactly as before", () => {
+  assert.equal(coreStepAt(0, STEPS).phase, "work");
+  assert.equal(coreStepAt(0, STEPS, 0).phase, "work");
+  assert.ok(LEAD_IN > 0 && LEAD_IN <= 15);
+});
+
+test("every shipped exercise has a figure, so no move ships undrawn", async () => {
+  // the figure module imports htm/preact, which node cannot resolve, so match
+  // the exported table against the sessions by reading the source instead
+  const src = await import("node:fs").then((fs) =>
+    fs.readFileSync(new URL("../app/views/core-figure.js", import.meta.url), "utf8"),
+  );
+  const patterns = [...src.matchAll(/\[\/(.+?)\/i,\s*"([a-z]+)"\]/g)].map(([, re]) => new RegExp(re, "i"));
+  assert.ok(patterns.length >= 10, "figure table did not parse");
+  const names = [...new Set(CORE_SESSIONS.flatMap((s) => s.steps.map((x) => x.name)))];
+  for (const name of names) {
+    assert.ok(
+      patterns.some((re) => re.test(name)),
+      `"${name}" has no figure — add one to core-figure.js or the session ships a move nobody can see`,
+    );
   }
 });

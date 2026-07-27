@@ -439,6 +439,70 @@ export function setPlanLocked(plan, locked) {
 }
 
 /**
+ * The next recipe to offer for a planned meal (David, 2026-07-27: SWITCH
+ * replaces the old ✕, "instead of being able to only get rid of I want an
+ * automatic replacement").
+ *
+ * Cycles rather than randomises: tapping SWITCH repeatedly walks the eligible
+ * list in order and wraps, so pressing it four times and pressing it once are
+ * both predictable, and you can always get back to where you started. A
+ * random pick would make the button feel like a slot machine and could serve
+ * the same alternative twice in a row.
+ *
+ * Candidates are screened the same way the tray was: same meal type as the
+ * slot, and never a recipe already planned elsewhere in that DAY, because
+ * switching lunch onto the same thing you are having for dinner is not a
+ * switch. The pool handed in is already diet/phase/avoid-screened by
+ * mergeRecipePool, so nothing unsafe can enter here.
+ * @param {Plan} plan
+ * @param {string} entryId
+ * @param {Record<string, any>[]} recipes screened pool
+ * @returns {string | null} the next recipe id, or null when there is nothing to switch to
+ */
+export function switchCandidate(plan, entryId, recipes) {
+  const entry = (plan?.entries ?? []).find((e) => e.id === entryId);
+  if (!entry || !entry.recipeId) return null;
+  const sameDay = new Set(
+    (plan.entries ?? [])
+      .filter((e) => e.date === entry.date && e.id !== entryId && e.recipeId)
+      .map((e) => e.recipeId),
+  );
+  const pool = (recipes ?? [])
+    .filter((r) => r && r.id && r.mealType === entry.slot && !sameDay.has(r.id))
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  if (pool.length === 0) return null;
+  const at = pool.findIndex((r) => r.id === entry.recipeId);
+  // current recipe not in the pool (its meal type changed, or it came from a
+  // table): offer the first candidate rather than nothing
+  const next = pool[(at + 1) % pool.length];
+  return next && next.id !== entry.recipeId ? next.id : null;
+}
+
+/**
+ * Swap one planned entry onto a different recipe, keeping its date, slot,
+ * servings and id. The id is deliberately preserved: it is the 409 merge key
+ * and the cooked-confirmation key. A switched meal is NOT cooked any more, so
+ * any confirmation on it is dropped.
+ * @param {Plan} plan
+ * @param {string} entryId
+ * @param {string} recipeId
+ * @returns {Plan}
+ */
+export function setEntryRecipe(plan, entryId, recipeId) {
+  if (!recipeId) return plan;
+  return {
+    ...plan,
+    entries: plan.entries.map((e) => {
+      if (e.id !== entryId) return e;
+      const rest = { ...e };
+      // a switched meal is not the meal you cooked
+      delete rest.cookedAt;
+      return { ...rest, recipeId, freeText: undefined };
+    }),
+  };
+}
+
+/**
  * Groceries confirmed for this week (a scanned receipt is the confirmation).
  * Pure.
  * @param {Plan} plan

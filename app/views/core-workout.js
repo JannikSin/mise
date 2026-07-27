@@ -1,6 +1,7 @@
 import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { CORE_SESSIONS, coreStepAt, sessionForDay, sessionSeconds } from "../lib/core.js";
+import { CORE_SESSIONS, coreStepAt, LEAD_IN, sessionForDay, sessionSeconds } from "../lib/core.js";
+import { CoreFigure } from "./core-figure.js";
 import { localIsoDate } from "../lib/dates.js";
 
 /** short beep via WebAudio — no asset, no CSP issue. Three tones: high =
@@ -59,7 +60,7 @@ export function CoreWorkout({ open = false }) {
   const elapsed = run
     ? run.elapsed + (run.startedAt != null ? (Date.now() - run.startedAt) / 1000 : 0)
     : 0;
-  const at = coreStepAt(Math.floor(elapsed), session.steps);
+  const at = coreStepAt(Math.floor(elapsed), session.steps, LEAD_IN);
   const running = Boolean(run && run.startedAt != null);
   const total = sessionSeconds(session);
 
@@ -121,8 +122,9 @@ export function CoreWorkout({ open = false }) {
   // session keeps its own timings instead of being shifted by a partial step
   const skip = () => {
     const steps = session.steps;
-    let mark = 0;
+    let mark = LEAD_IN;
     for (let i = 0; i <= at.index && i < steps.length; i++) {
+      if (i < 0) continue;
       const s = /** @type {any} */ (steps[i]);
       mark += s.seconds + (steps[i + 1] ? s.rest : 0);
     }
@@ -159,7 +161,8 @@ export function CoreWorkout({ open = false }) {
           <div class="slots corelist">
             ${session.steps.map(
               (s, i) => html`
-                <div class="checkrow static" key=${`${s.name}-${i}`}>
+                <div class="checkrow static corerow" key=${`${s.name}-${i}`}>
+                  <${CoreFigure} name=${s.name} small=${true} />
                   <span class="food">${titleOf(s)}</span>
                   <span class="q num">
                     ${dur(s.seconds)}${s.rest > 0 ? ` · ${s.rest}s rest` : " · straight in"}
@@ -178,18 +181,43 @@ export function CoreWorkout({ open = false }) {
               ${
                 at.phase === "done"
                   ? "DONE ✓"
-                  : at.phase === "rest"
-                    ? `REST · NEXT: ${titleOf(at.next)}`
-                    : `${at.index + 1}/${session.steps.length} · ${dur(Math.ceil(at.workLeft))} of work left`
+                  : at.phase === "ready"
+                    ? "GET READY · FIRST UP"
+                    : at.phase === "rest"
+                      ? "REST · NEXT UP"
+                      : `${at.index + 1}/${session.steps.length} · ${dur(Math.ceil(at.workLeft))} of work left`
               }
             </div>
             <div class="corename">
-              ${at.phase === "done" ? session.name : at.phase === "rest" ? "rest" : titleOf(at.step)}
+              ${
+                at.phase === "done"
+                  ? session.name
+                  : at.phase === "ready"
+                    ? titleOf(at.next)
+                    : at.phase === "rest"
+                      ? titleOf(at.next)
+                      : titleOf(at.step)
+              }
             </div>
+            ${
+              // the figure for whatever is being asked for NEXT: during the
+              // lead-in and during a rest that is the move about to start, so
+              // the shape is on screen before you have to be in it
+              at.phase !== "done" &&
+              html`<${CoreFigure} name=${(at.phase === "work" ? at.step : at.next)?.name ?? ""} />`
+            }
             <div class="tclock num">
               ${at.phase === "done" ? "✓" : String(Math.ceil(at.remaining))}
             </div>
-            ${at.phase === "work" && at.step && html`<p class="corecue">${at.step.cue}</p>`}
+            ${
+              // the cue shows during the lead-in and the rest as well, which
+              // is the actual fix: you read it BEFORE you are in position
+              at.phase !== "done" &&
+              (at.phase === "work" ? at.step : at.next) &&
+              html`<p class="corecue">
+                ${/** @type {any} */ (at.phase === "work" ? at.step : at.next).cue}
+              </p>`
+            }
             ${
               at.phase === "work" &&
               at.next &&

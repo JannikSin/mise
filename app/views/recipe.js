@@ -34,9 +34,9 @@ const cookSuffix = (from, servings, entryId) => {
 };
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, gated?: boolean, onUnlock?: (recipeId: string) => void }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, unshopped?: boolean }} props
  */
-export function RecipeView({ recipe, loading, from, servings, entryId, gated, onUnlock }) {
+export function RecipeView({ recipe, loading, from, servings, entryId, unshopped = false }) {
   const origin = originOf(from);
   if (!recipe)
     return html`<div class="empty">
@@ -100,12 +100,11 @@ export function RecipeView({ recipe, loading, from, servings, entryId, gated, on
       <div class="actions">
         <button
           class="ask"
-          disabled=${Boolean(gated)}
           onClick=${() =>
             (location.hash = `#/recipe/${encodeURIComponent(recipe.id)}/cook${cookSuffix(from, servings, entryId)}`)}
         >
           COOK MODE
-          <small>${gated ? "waiting on the receipt" : "big text · step by step"}</small>
+          <small>big text · step by step</small>
         </button>
       </div>
 
@@ -146,32 +145,24 @@ export function RecipeView({ recipe, loading, from, servings, entryId, gated, on
 
       <h2 class="block-title">Steps</h2>
       ${
-        gated
-          ? html`<div class="tile" role="status">
-              <div class="k">🔒 Waiting on the receipt</div>
-              <div class="d">
-                The meal, its macros and its shopping are all above. The method opens when someone
-                in the house scans this week’s receipt on the List tab, so you never cook a week
-                nobody bought.
-              </div>
-              <div class="actions">
-                <button class="secondary" onClick=${() => onUnlock?.(recipe.id)}>
-                  I ALREADY HAVE THIS
-                </button>
-                <a class="secondary linkbtn" href="#/list">scan the receipt →</a>
-              </div>
-              <p class="hint">
-                Food safety is never gated: shelf lives, safe temperatures and the danger signs are
-                on the <a href="#/list">List tab</a> under FOOD SAFETY, receipt or no receipt.
-              </p>
-            </div>`
-          : html`<ol class="steps">
-              ${(recipe.instructions ?? []).map(
-                (/** @type {{ step: number, text: string }} */ s) =>
-                  html`<li key=${s.step}>${s.text}</li>`,
-              )}
-            </ol>`
+        // NOT A GATE any more (David, 2026-07-27: "it is not good for people
+        // to not be able to access recipes when not given receipt yet cause
+        // sometimes we do have the food"). The steps used to wait behind a
+        // scanned receipt; now the receipt is a NOTE. The original worry it
+        // was built for was real (cooking a week nobody bought), but the
+        // failure it actually produced was worse: a locked recipe for food
+        // already in the fridge.
+        unshopped &&
+        html`<p class="hint receiptnote">
+          No receipt scanned for this week yet, so nothing here is confirmed bought. Cook it anyway
+          if you already have the food. <a href="#/list">scan the receipt →</a>
+        </p>`
       }
+      <ol class="steps">
+        ${(recipe.instructions ?? []).map(
+          (/** @type {{ step: number, text: string }} */ s) => html`<li key=${s.step}>${s.text}</li>`,
+        )}
+      </ol>
     </div>
   `;
 }
