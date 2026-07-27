@@ -1043,44 +1043,34 @@ summary.block-title {
 
 /* ---- interval timer (F1) ---- */
 
-.intervaltimer {
+.coreblock {
   margin-top: 18px;
 }
 
-.intervaltimer summary {
+.coreblock summary {
   cursor: pointer;
 }
 
-.tconfig {
-  display: flex;
-  gap: 10px;
-  margin: 10px 0;
+.corelist {
+  margin-top: 8px;
 }
 
-.tfield {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+/* the exercise being called: it has to be readable from the floor, at arm's
+   length, upside down in a plank, which is why it is this big */
+.corename {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.15;
+  margin: 6px 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 
-.tfield .k {
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.12em;
+.corecue {
+  margin: 8px 14px 0;
+  font-size: 13.5px;
+  line-height: 1.45;
   color: var(--dim);
-}
-
-.tfield input {
-  width: 100%;
-  min-height: 44px;
-  background: var(--panel);
-  border: 1px solid var(--line-strong);
-  border-radius: 10px;
-  color: inherit;
-  font-family: var(--mono);
-  font-size: 16px;
-  padding: 0 10px;
 }
 
 .tface {
