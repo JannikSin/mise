@@ -12,22 +12,22 @@ Classification method: keyword scan over non-staple ingredient names (same appro
 
 By meal type (generator needs per week: dinner committee 4, lunch 3, breakfast 2, smoothie 1, plus a protein-dense snack top-up pool):
 
-| mealType | count |
-|----------|-------|
-| dinner | 33 |
-| breakfast | 13 |
-| snack | 13 |
-| lunch | 8 |
-| smoothie | 5 |
+| mealType  | count |
+| --------- | ----- |
+| dinner    | 33    |
+| breakfast | 13    |
+| snack     | 13    |
+| lunch     | 8     |
+| smoothie  | 5     |
 
 By effective dietary pattern (ingredient-derived):
 
-| pattern | count |
-|---------|-------|
-| omnivore-only (contains meat) | 33 |
-| vegetarian (dairy/egg, no meat/fish) | ~27 |
-| pescatarian-only (fish, no meat) | 5 |
-| fully vegan | 7 |
+| pattern                              | count |
+| ------------------------------------ | ----- |
+| omnivore-only (contains meat)        | 33    |
+| vegetarian (dairy/egg, no meat/fish) | ~27   |
+| pescatarian-only (fish, no meat)     | 5     |
+| fully vegan                          | 7     |
 
 By cuisine: american 22, italian 7, japanese 7, chinese 6, korean 6, middle-eastern 5, french 3, mediterranean 3, other 3, moroccan 2, mexican 2, plus singletons (greek, indian, spanish, north-african, asian, tropical). By effort: assembly 31, cook 35, project 6. `phases` tags: none in the bank (everything serves every phase).
 
@@ -35,18 +35,18 @@ By cuisine: american 22, italian 7, japanese 7, chinese 6, korean 6, middle-east
 
 Cell = usable recipes in the pre-expansion bank / what the generator needs. FAIL = generation is structurally broken (committee cannot fill, or macroTopUp cannot reach protein floors), THIN = fills but with no variety (re-roll changes nothing).
 
-| Survey answer | Dinner (need 4) | Lunch (need 3) | Breakfast (need 2) | Smoothie (need 1) | Protein snacks (need ~3) |
-|---|---|---|---|---|---|
-| Vegetarian | 3 / THIN | 6 / ok | 12 / ok | 5 / ok | 6 / ok |
-| Vegan | 1 / FAIL | 1 / FAIL | 1 / FAIL (sick-day plate, 6 g) | 0 / FAIL | 0 over 10 g / FAIL |
-| Pescatarian | 5 / THIN | 6 / ok | 12 / ok | 5 / ok | 7 / ok |
-| Dairy excluded | ~14 / ok | 5 / ok | 2 / FAIL | 0 / FAIL | 2 / FAIL (onigiri 24 g, egg-drop 14 g) |
-| Gluten excluded | 13 / ok | 3 / THIN | 6 / ok | 5 / ok | 10 / ok |
-| Nuts excluded | ~30 / ok | 7 / ok | 12 / ok | 4 / ok | 2 over 10 g / FAIL |
-| Soy excluded | ~28 / ok | 5 / ok | 12 / ok | 4 / ok | 11 / ok |
-| Shellfish excluded | 31 / ok | 7 / ok | 13 / ok | 5 / ok | 12 / ok |
-| Gain phase (800+ kcal mains) | 9, all animal / FAIL for vegan-gain | | 1 | | |
-| 15-min weeknights (assembly dinners) | 5 / ok-THIN | | | | |
+| Survey answer                        | Dinner (need 4)                     | Lunch (need 3) | Breakfast (need 2)             | Smoothie (need 1) | Protein snacks (need ~3)               |
+| ------------------------------------ | ----------------------------------- | -------------- | ------------------------------ | ----------------- | -------------------------------------- |
+| Vegetarian                           | 3 / THIN                            | 6 / ok         | 12 / ok                        | 5 / ok            | 6 / ok                                 |
+| Vegan                                | 1 / FAIL                            | 1 / FAIL       | 1 / FAIL (sick-day plate, 6 g) | 0 / FAIL          | 0 over 10 g / FAIL                     |
+| Pescatarian                          | 5 / THIN                            | 6 / ok         | 12 / ok                        | 5 / ok            | 7 / ok                                 |
+| Dairy excluded                       | ~14 / ok                            | 5 / ok         | 2 / FAIL                       | 0 / FAIL          | 2 / FAIL (onigiri 24 g, egg-drop 14 g) |
+| Gluten excluded                      | 13 / ok                             | 3 / THIN       | 6 / ok                         | 5 / ok            | 10 / ok                                |
+| Nuts excluded                        | ~30 / ok                            | 7 / ok         | 12 / ok                        | 4 / ok            | 2 over 10 g / FAIL                     |
+| Soy excluded                         | ~28 / ok                            | 5 / ok         | 12 / ok                        | 4 / ok            | 11 / ok                                |
+| Shellfish excluded                   | 31 / ok                             | 7 / ok         | 13 / ok                        | 5 / ok            | 12 / ok                                |
+| Gain phase (800+ kcal mains)         | 9, all animal / FAIL for vegan-gain |                | 1                              |                   |                                        |
+| 15-min weeknights (assembly dinners) | 5 / ok-THIN                         |                |                                |                   |                                        |
 
 ### The five structural failures, in priority order
 
@@ -69,34 +69,34 @@ Cell = usable recipes in the pre-expansion bank / what the generator needs. FAIL
 
 All follow the SCHEMAS.md recipe shape, pass `tests/recipe-data.test.js` (11 foodGroups keys + method, numeric servings, plant-forward invariant), and are tagged `plant-forward` + `greger-aligned` plus diet/allergen tags (`vegan`, `gluten-free`, `nut-free`, `dairy-free`) for the future tag short-circuit in `dietOf`. Nutrition and foodGroups are `method: "estimated"`. No deep frying anywhere; oil stays at roughly 1 tbsp per 2-4 servings; turmeric is paired with black pepper wherever it appears.
 
-| Recipe | Slot | Fills gap |
-|---|---|---|
-| chana-masala-brown-rice | dinner | Vegan dinner committee (also GF, soy-free, nut-free: survives every screen) |
-| black-bean-sweet-potato-tacos | dinner | Vegan + GF dinner; adds cruciferous via cabbage slaw; mexican cuisine depth |
-| red-lentil-coconut-curry | dinner | Vegan + GF dinner; 200 g spinach targets the enforced greens floor |
-| tuscan-white-bean-kale-skillet | dinner | Only vegan dinner clearing BOTH enforced daily floors (greens + cruciferous) in one pan; light enough for loss profiles |
-| peanut-tempeh-brown-rice-bowl | dinner | Gain-phase vegan density (880 kcal, 44 g); tagged phases:["gain"] |
-| edamame-quinoa-power-bowl | lunch | Vegan + GF + nut-free lunch, 29 g, packable |
-| lentil-quinoa-tabbouleh-bowl | lunch | Vegan + GF lunch; fixes the GF-lunch THIN cell; greens serving from real parsley volume |
-| tofu-veggie-breakfast-scramble | breakfast | Savory dairy-free/egg-free breakfast, 26 g |
-| chickpea-flour-veggie-omelet | breakfast | The one breakfast passing every allergen screen at once (no gluten/dairy/egg/soy/nuts) |
-| peanut-butter-banana-overnight-oats | breakfast | Dairy-free grab-and-go with gain-phase density (620 kcal, 27 g) |
-| chocolate-peanut-butter-soy-smoothie | smoothie | Dairy-free smoothie committee, 42 g, hidden greens serving |
-| mango-berry-pea-protein-smoothie | smoothie | The most exclusion-proof smoothie: no dairy, soy, nuts, or gluten; 30 g |
-| roasted-chickpea-crunch | snack | Beans-based protein snack for the macroTopUp pool, batch of 4 |
-| sea-salt-edamame-bowl | snack | Highest protein-per-minute exclusion-safe snack (18 g in 5 min) |
-| silken-tofu-chocolate-pudding | snack | Dairy-free mirror of cottage-cheese-pre-bed (12 g, dessert-shaped) |
-| hummus-veggie-snack-plate | snack | No-cook snack contributing otherVeg, a category snacks previously ignored |
+| Recipe                               | Slot      | Fills gap                                                                                                               |
+| ------------------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------- |
+| chana-masala-brown-rice              | dinner    | Vegan dinner committee (also GF, soy-free, nut-free: survives every screen)                                             |
+| black-bean-sweet-potato-tacos        | dinner    | Vegan + GF dinner; adds cruciferous via cabbage slaw; mexican cuisine depth                                             |
+| red-lentil-coconut-curry             | dinner    | Vegan + GF dinner; 200 g spinach targets the enforced greens floor                                                      |
+| tuscan-white-bean-kale-skillet       | dinner    | Only vegan dinner clearing BOTH enforced daily floors (greens + cruciferous) in one pan; light enough for loss profiles |
+| peanut-tempeh-brown-rice-bowl        | dinner    | Gain-phase vegan density (880 kcal, 44 g); tagged phases:["gain"]                                                       |
+| edamame-quinoa-power-bowl            | lunch     | Vegan + GF + nut-free lunch, 29 g, packable                                                                             |
+| lentil-quinoa-tabbouleh-bowl         | lunch     | Vegan + GF lunch; fixes the GF-lunch THIN cell; greens serving from real parsley volume                                 |
+| tofu-veggie-breakfast-scramble       | breakfast | Savory dairy-free/egg-free breakfast, 26 g                                                                              |
+| chickpea-flour-veggie-omelet         | breakfast | The one breakfast passing every allergen screen at once (no gluten/dairy/egg/soy/nuts)                                  |
+| peanut-butter-banana-overnight-oats  | breakfast | Dairy-free grab-and-go with gain-phase density (620 kcal, 27 g)                                                         |
+| chocolate-peanut-butter-soy-smoothie | smoothie  | Dairy-free smoothie committee, 42 g, hidden greens serving                                                              |
+| mango-berry-pea-protein-smoothie     | smoothie  | The most exclusion-proof smoothie: no dairy, soy, nuts, or gluten; 30 g                                                 |
+| roasted-chickpea-crunch              | snack     | Beans-based protein snack for the macroTopUp pool, batch of 4                                                           |
+| sea-salt-edamame-bowl                | snack     | Highest protein-per-minute exclusion-safe snack (18 g in 5 min)                                                         |
+| silken-tofu-chocolate-pudding        | snack     | Dairy-free mirror of cottage-cheese-pre-bed (12 g, dessert-shaped)                                                      |
+| hummus-veggie-snack-plate            | snack     | No-cook snack contributing otherVeg, a category snacks previously ignored                                               |
 
 ### Matrix after expansion (changed cells only)
 
-| Survey answer | Dinner | Lunch | Breakfast | Smoothie | Protein snacks |
-|---|---|---|---|---|---|
-| Vegan | 6 / ok | 3 / ok | 4 / ok | 2 / ok | 4 / ok |
-| Dairy excluded | ~19 / ok | 7 / ok | 5 / ok | 2 / ok | 6 / ok |
-| Nuts excluded | ~33 / ok | 9 / ok | 14 / ok | 5 / ok | 5 / ok |
-| Gluten excluded | 17 / ok | 5 / ok | 8 / ok | 7 / ok | 13 / ok |
-| Vegan + gain | 1 dense main + committees fill / workable | | | | |
+| Survey answer   | Dinner                                    | Lunch  | Breakfast | Smoothie | Protein snacks |
+| --------------- | ----------------------------------------- | ------ | --------- | -------- | -------------- |
+| Vegan           | 6 / ok                                    | 3 / ok | 4 / ok    | 2 / ok   | 4 / ok         |
+| Dairy excluded  | ~19 / ok                                  | 7 / ok | 5 / ok    | 2 / ok   | 6 / ok         |
+| Nuts excluded   | ~33 / ok                                  | 9 / ok | 14 / ok   | 5 / ok   | 5 / ok         |
+| Gluten excluded | 17 / ok                                   | 5 / ok | 8 / ok    | 7 / ok   | 13 / ok        |
+| Vegan + gain    | 1 dense main + committees fill / workable |        |           |          |                |
 
 Every FAIL cell is now at or above the committee/pool minimum. Vegetarian dinner THIN also resolved (all 6 vegan dinners serve vegetarians: 8 total).
 

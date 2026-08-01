@@ -170,10 +170,10 @@ export function CheckInView({ daily, targets, today, loading, onPatchDay, adhere
           <div class="v num">${waist.current ?? "—"}<small> in</small></div>
           <div class="d num">
             ${
-                waist.delta === null
-                  ? "log weekly to start a trend"
-                  : `${waist.delta > 0 ? "+" : ""}${waist.delta.toFixed(2)} in since last log`
-              }
+              waist.delta === null
+                ? "log weekly to start a trend"
+                : `${waist.delta > 0 ? "+" : ""}${waist.delta.toFixed(2)} in since last log`
+            }
           </div>
         </div>
         <p class="hint">
@@ -234,27 +234,25 @@ export function CheckInView({ daily, targets, today, loading, onPatchDay, adhere
       html`<h2 class="block-title">Supplements</h2>
         <div class="slots">
           ${(targets?.supplementPlan ?? []).map(
-              (/** @type {Record<string, any>} */ s) => html`
-                <div class="checkrow ${supplements[s.id] ? "done" : ""}" key=${s.id}>
-                  <button
-                    class="tickarea"
-                    aria-pressed=${Boolean(supplements[s.id])}
-                    onClick=${() =>
+            (/** @type {Record<string, any>} */ s) => html`
+              <div class="checkrow ${supplements[s.id] ? "done" : ""}" key=${s.id}>
+                <button
+                  class="tickarea"
+                  aria-pressed=${Boolean(supplements[s.id])}
+                  onClick=${() =>
                       onPatchDay({ supplements: { ...supplements, [s.id]: !supplements[s.id] } })}
-                  >
-                    <span class="box" aria-hidden="true">${supplements[s.id] ? "✓" : ""}</span>
-                    <span class="food">${s.name}</span>
-                    <span class="q num">${s.dose}</span>
-                  </button>
-                </div>
-              `,
-            )}
+                >
+                  <span class="box" aria-hidden="true">${supplements[s.id] ? "✓" : ""}</span>
+                  <span class="food">${s.name}</span>
+                  <span class="q num">${s.dose}</span>
+                </button>
+              </div>
+            `,
+          )}
           ${
-              (targets?.supplementPlan ?? []).length === 0 &&
-              html`<div class="empty">
-                ${loading ? "loading…" : "no supplement plan in targets"}
-              </div>`
-            }
+            (targets?.supplementPlan ?? []).length === 0 &&
+            html`<div class="empty">${loading ? "loading…" : "no supplement plan in targets"}</div>`
+          }
         </div>`
     }
     ${
@@ -271,24 +269,24 @@ export function CheckInView({ daily, targets, today, loading, onPatchDay, adhere
         <div class="tile streaktile">
           <div class="v num">
             ${computeStreak(
-                /** @type {any} */ (daily.days),
-                (targets?.supplementPlan ?? []).map((/** @type {any} */ s) => s.id),
-                targets?.pushupsPerDay ?? 200,
-                targets?.macros?.waterLiters ?? 3.5,
-                today,
-                tracks,
-              )}<small> day streak</small>
+              /** @type {any} */ (daily.days),
+              (targets?.supplementPlan ?? []).map((/** @type {any} */ s) => s.id),
+              targets?.pushupsPerDay ?? 200,
+              targets?.macros?.waterLiters ?? 3.5,
+              today,
+              tracks,
+            )}<small> day streak</small>
           </div>
           <div class="d">
             a day counts:${" "}
             ${[
-                tracks.includes("sleep") && "sleep logged",
-                tracks.includes("pushups") && "pushups done",
-                tracks.includes("water") && "water done",
-                tracks.includes("supplements") && "all supplements ✓",
-              ]
-                .filter(Boolean)
-                .join(" · ")}
+              tracks.includes("sleep") && "sleep logged",
+              tracks.includes("pushups") && "pushups done",
+              tracks.includes("water") && "water done",
+              tracks.includes("supplements") && "all supplements ✓",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </div>
         </div>`
     }

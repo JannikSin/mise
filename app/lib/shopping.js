@@ -6,6 +6,8 @@
 import {
   canonicalFood,
   canonicalUnit,
+  convertUnit,
+  dimensionOf,
   mergeIdentity,
   aisleOf,
   toPreferred,
@@ -341,6 +343,106 @@ export function formatStoreQty(qty, unit) {
 }
 
 /**
+ * Store-pack language (David, 2026-08-01: "I want 2 lbs of this or a bag of
+ * this"). A metric quantity is honest but nobody shops in grams of spinach —
+ * they buy bags, bunches and heads. Each entry: substrings to match on the
+ * food name, the typical US store pack in grams (or ml / count), and the
+ * pack's name. Sizes are deliberately common-denominator (a 5 oz clamshell
+ * of greens, a 2 lb bag of rice); the metric number stays the authority and
+ * renders alongside, so a store that sells bigger bags can't under-buy you.
+ */
+const PACK_HINTS = [
+  {
+    match: ["baby spinach", "spinach", "arugula", "spring mix", "mixed greens", "salad greens"],
+    per: 140,
+    unit: "g",
+    name: "bag",
+    plural: "bags",
+  }, // 5 oz clamshell
+  {
+    match: ["kale", "swiss chard", "collard"],
+    per: 200,
+    unit: "g",
+    name: "bunch",
+    plural: "bunches",
+  },
+  {
+    match: ["cilantro", "parsley", "mint", "dill"],
+    per: 60,
+    unit: "g",
+    name: "bunch",
+    plural: "bunches",
+  },
+  { match: ["scallion", "green onion"], per: 100, unit: "g", name: "bunch", plural: "bunches" },
+  { match: ["cabbage"], per: 900, unit: "g", name: "head", plural: "heads" },
+  { match: ["cauliflower"], per: 700, unit: "g", name: "head", plural: "heads" },
+  { match: ["broccoli"], per: 300, unit: "g", name: "crown", plural: "crowns" },
+  { match: ["romaine", "lettuce"], per: 300, unit: "g", name: "head", plural: "heads" },
+  { match: ["ginger"], per: 50, unit: "g", name: "knob", plural: "knobs" },
+  {
+    match: ["greek yogurt", "yogurt"],
+    per: 900,
+    unit: "g",
+    name: "32 oz tub",
+    plural: "32 oz tubs",
+  },
+  { match: ["cottage cheese"], per: 680, unit: "g", name: "24 oz tub", plural: "24 oz tubs" },
+  { match: ["blueberr"], per: 340, unit: "g", name: "pint", plural: "pints" },
+  { match: ["strawberr"], per: 450, unit: "g", name: "1 lb clamshell", plural: "1 lb clamshells" },
+  { match: ["rice"], per: 900, unit: "g", name: "2 lb bag", plural: "2 lb bags" },
+  { match: ["rolled oats", "oats"], per: 1190, unit: "g", name: "42 oz tub", plural: "42 oz tubs" },
+  { match: ["tofu"], per: 400, unit: "g", name: "block", plural: "blocks" },
+  {
+    match: ["pasta", "spaghetti", "penne", "orzo"],
+    per: 450,
+    unit: "g",
+    name: "1 lb box",
+    plural: "1 lb boxes",
+  },
+  { match: ["potato"], per: 2270, unit: "g", name: "5 lb bag", plural: "5 lb bags" },
+  { match: ["milk"], per: 1900, unit: "ml", name: "half-gallon", plural: "half-gallons" },
+];
+
+/**
+ * "≈ 2 bags" for a list row, or "" when no honest pack language exists.
+ * Garlic cloves get their own rule (10 cloves ≈ 1 head). Counts ceil to a
+ * whole pack — you cannot buy 1.4 bunches — and anything over 12 packs
+ * returns "" rather than shout "≈ 19 bags" at a bulk buy.
+ * @param {string} food
+ * @param {number} qty
+ * @param {string} unit
+ * @returns {string}
+ */
+export function packHint(food, qty, unit) {
+  const f = String(food ?? "").toLowerCase();
+  if (!(Number(qty) > 0)) return "";
+  if (f.includes("garlic") && /clove/.test(unit)) {
+    const heads = Math.ceil(qty / 10);
+    return `≈ ${heads} ${heads === 1 ? "head" : "heads"}`;
+  }
+  const inBase =
+    unit === "g" || unit === "ml"
+      ? qty
+      : unit === "kg" || unit === "L" || unit === "l"
+        ? qty * 1000
+        : unit === "lb"
+          ? qty * 453.6
+          : unit === "oz"
+            ? qty * 28.35
+            : null;
+  if (inBase == null) return "";
+  const baseKind = unit === "ml" || unit === "L" || unit === "l" ? "ml" : "g";
+  for (const h of PACK_HINTS) {
+    if (h.unit !== baseKind) continue;
+    if (!h.match.some((m) => f.includes(m))) continue;
+    const n = Math.ceil(inBase / h.per);
+    if (n < 1 || n > 12) return "";
+    return `≈ ${n} ${n === 1 ? h.name : h.plural}`;
+  }
+  return "";
+}
+
+/**
  * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, sources: { profileId: string, checked: boolean }[] }} CombinedItem
  */
 
@@ -416,6 +518,83 @@ export function mergeProfileLists(lists) {
   const items = [...merged.values()];
   items.sort((a, b) => a.section.localeCompare(b.section) || a.food.localeCompare(b.food));
   return items;
+}
+
+/**
+ * Fridge-first shopping (David, 2026-08-01: "use everything in the fridge…
+ * only buy stuff that we need"): before a trip, food the kitchen already
+ * holds comes off what is bought. Works on any row shape carrying
+ * `{ food, qty, unit }` — per-profile ShoppingItems and CombinedItems alike —
+ * against the household pantry's PERISHABLES (staples are already dropped at
+ * derive time by `onHand`).
+ *
+ * Honesty fences, mirroring consumeForCook:
+ *  - only rows whose pantry qty parses as "<number> <unit>" AND converts to
+ *    the list row's unit count — a "half a bag" is never fake-subtracted,
+ *    that row simply doesn't reduce the buy;
+ *  - unit "x" list rows (manual items, running-low staples) never reduce —
+ *    a running-low staple is on the list BECAUSE the kitchen is out;
+ *  - stock is consumed across the trip in item order, so two rows of the
+ *    same food can never both claim the same fridge pack;
+ *  - a remainder is re-rounded UP to a purchasable amount.
+ *
+ * Render-time only: stored lists are never rewritten, so no device ever
+ * double-subtracts and un-scanning food simply restores the full buy.
+ * @template {{ food: string, qty: number, unit: string }} T
+ * @param {T[]} items
+ * @param {Record<string, any>} pantry the household pantry
+ * @returns {{ toBuy: (T & { kitchenHas?: boolean })[], covered: T[] }}
+ *   `toBuy` = rows still needing purchase (qty reduced where the kitchen
+ *   partially covers, flagged `kitchenHas`); `covered` = rows the kitchen
+ *   fully covers, for an honest "already in the kitchen" display.
+ */
+export function subtractPantryFromTrip(items, pantry) {
+  /** @type {Map<string, { qty: number, unit: string }[]>} */
+  const stock = new Map();
+  for (const p of pantry?.perishables ?? []) {
+    const have = parseQty(p.qty);
+    if (!have || have.unit === "x") continue;
+    const key = canonicalFood(String(p.food ?? ""));
+    const rows = stock.get(key);
+    if (rows) rows.push(have);
+    else stock.set(key, [have]);
+  }
+  /** @type {(T & { kitchenHas?: boolean })[]} */
+  const toBuy = [];
+  /** @type {T[]} */
+  const covered = [];
+  for (const item of items) {
+    const key = canonicalFood(item.food);
+    const rows = stock.get(key);
+    const wanted = Number(item.qty);
+    if (!rows || rows.length === 0 || !(wanted > 0) || !item.unit || item.unit === "x") {
+      toBuy.push(item);
+      continue;
+    }
+    let need = wanted;
+    let needUnit = item.unit;
+    let reduced = false;
+    for (const row of rows) {
+      if (need <= 0 || row.qty <= 0) continue;
+      const both = commonUnit(row, { qty: need, unit: needUnit }, key);
+      if (!both) continue;
+      const take = Math.min(both.a, both.b);
+      row.qty = both.a - take;
+      row.unit = both.unit;
+      need = both.b - take;
+      needUnit = both.unit;
+      reduced = true;
+    }
+    if (!reduced) {
+      toBuy.push(item);
+    } else if (need <= 0.001) {
+      covered.push(item);
+    } else {
+      const { qty, unit } = roundForPurchase(need, needUnit);
+      toBuy.push({ ...item, qty, unit, kitchenHas: true });
+    }
+  }
+  return { toBuy, covered };
 }
 
 /** Sections where a single-profile buy tends to strand most of a container
@@ -795,9 +974,17 @@ export function ownItemToPantry(shopping, pantry, itemId) {
  * @param {ShoppingList} shopping
  * @param {Record<string, any>} pantry
  * @param {string} today ISO date
+ * @param {{ fridgeFirst?: boolean }} [opts] `fridgeFirst: true` banks the
+ *   pantry-REDUCED quantities via subtractPantryFromTrip — pass it ONLY when
+ *   `shopping` is the very row set whose rendered trip subtracted this same
+ *   pantry (a solo profile's list, or the house's MERGED trip at receipt
+ *   time). Default false banks stored quantities verbatim: in a household,
+ *   per-profile rows are PORTIONS of a merged sum, and re-subtracting the
+ *   shared stock from each portion independently banks ~nothing while the
+ *   real fridge fills (Tribunal BLOCK, 2026-08-01).
  * @returns {{ shopping: ShoppingList, pantry: Record<string, any> }}
  */
-export function applyJustBought(shopping, pantry, today) {
+export function applyJustBought(shopping, pantry, today, opts = {}) {
   const bought = shopping.items.filter((i) => i.checked);
   const staples = (pantry.staples ?? []).map((/** @type {any} */ s) => {
     const hit = bought.find(
@@ -812,26 +999,34 @@ export function applyJustBought(shopping, pantry, today) {
   const stapleSlugs = new Set(
     staples.flatMap((/** @type {any} */ s) => [slug(s.name), canonicalFood(s.name)]),
   );
-  const newPerishables = bought
-    .filter(
-      (b) =>
-        !stapleIds.has(b.id) &&
-        !stapleSlugs.has(slug(b.food)) &&
-        !stapleSlugs.has(canonicalFood(b.food)),
-    )
-    .map((b) => ({
-      id: perishableId(),
-      food: b.food,
-      qty: `${b.qty} ${b.unit}`,
-      added: today,
-      // WHERE it went, not just that it arrived (David, 2026-07-26: "the
-      // fridge is kind of a thing but not really"). Without this every bought
-      // item landed unsorted, which is the one location no shelf view shows
-      // and no sweep touches — the shelves stayed empty however much he
-      // bought.
-      location: locationForBuy(b.section),
-      group: b.section ?? aisleOf(b.food),
-    }));
+  const boughtPerishables = bought.filter(
+    (b) =>
+      !stapleIds.has(b.id) &&
+      !stapleSlugs.has(slug(b.food)) &&
+      !stapleSlugs.has(canonicalFood(b.food)),
+  );
+  // fridgeFirst: bank what was actually BOUGHT, not the stored row — the
+  // rendered trip subtracted what the kitchen already held, so the shopper
+  // bought the reduced amount, and a fully-covered ticked row banks nothing
+  // ("have enough", not "bought another"). Only valid when this row set IS
+  // the rendered trip; see the opts JSDoc for why a household portion must
+  // bank verbatim instead.
+  const bankRows = opts.fridgeFirst
+    ? subtractPantryFromTrip(boughtPerishables, pantry).toBuy
+    : boughtPerishables;
+  const newPerishables = bankRows.map((b) => ({
+    id: perishableId(),
+    food: b.food,
+    qty: `${b.qty} ${b.unit}`,
+    added: today,
+    // WHERE it went, not just that it arrived (David, 2026-07-26: "the
+    // fridge is kind of a thing but not really"). Without this every bought
+    // item landed unsorted, which is the one location no shelf view shows
+    // and no sweep touches — the shelves stayed empty however much he
+    // bought.
+    location: locationForBuy(b.section),
+    group: b.section ?? aisleOf(b.food),
+  }));
   return {
     shopping: { ...shopping, items: shopping.items.filter((i) => !i.checked) },
     pantry: {
@@ -878,7 +1073,36 @@ export function applyReceiptStock(shopping, pantry, lines, today) {
       onReceipt.has(canonicalFood(i.food)) ? { ...i, checked: true } : i,
     ),
   };
-  return applyJustBought(marked, pantry, today);
+  // fridgeFirst is correct here BY CONTRACT: the caller must hand this
+  // function the trip that was actually shopped — a solo profile's own list,
+  // or the household's MERGED list (main.js handleReceiptApprove) — never
+  // one household member's portion of it.
+  return applyJustBought(marked, pantry, today, { fridgeFirst: true });
+}
+
+/**
+ * The receipt ends the WHOLE HOUSE's trip, not just the scanner's (David,
+ * 2026-08-01: "when a receipt is pictured it will exit everyone's list").
+ * One person shops the FAMILY trip and photographs the till roll; every
+ * housemate's rows the till confirms — plus rows already ticked in the
+ * aisle, same rule as applyJustBought — leave THEIR list too.
+ *
+ * Unlike applyJustBought this NEVER banks: the scanner's device stocks the
+ * shared pantry exactly once from the MERGED household trip (main.js
+ * handleReceiptApprove), which already contains every member's summed
+ * quantities. Clearing here is bookkeeping on the to-do lists only.
+ * @param {ShoppingList} list a housemate's shopping list
+ * @param {{ name: string }[]} lines receipt lines, already decoded
+ * @returns {{ list: ShoppingList, changed: boolean }} changed=false means
+ *   nothing to remove — skip the write, don't churn their file
+ */
+export function clearReceiptRows(list, lines) {
+  const onReceipt = new Set((lines ?? []).map((l) => canonicalFood(l.name)));
+  const kept = (list.items ?? []).filter(
+    (i) => !i.checked && !onReceipt.has(canonicalFood(i.food)),
+  );
+  if (kept.length === (list.items ?? []).length) return { list, changed: false };
+  return { list: { ...list, items: kept }, changed: true };
 }
 
 /**
@@ -910,7 +1134,18 @@ function commonUnit(a, b, key) {
   const pb = toPreferred(b.qty, b.unit, key);
   if (pa && pb && pa.unit === pb.unit) return { a: pa.qty, b: pb.qty, unit: pa.unit };
   const ua = canonicalUnit(a.unit);
-  if (ua === canonicalUnit(b.unit)) return { a: a.qty, b: b.qty, unit: ua };
+  const ub = canonicalUnit(b.unit);
+  if (ua === ub) return { a: a.qty, b: b.qty, unit: ua };
+  // same DIMENSION, different units, food not in the preferred table
+  // (Tribunal B1): a receipt banks the summed trip as "1.5 kg" of a food
+  // FOOD_UNITS never heard of, and next week's "500 g" need must still
+  // subtract from it — and consumeForCook must decrement it instead of
+  // hitting the "cannot measure" delete. Counts stay excluded: a "can" is
+  // not an "each" however equal their table entries look.
+  if (dimensionOf(ua) !== "count") {
+    const conv = convertUnit(b.qty, ub, ua);
+    if (conv != null) return { a: a.qty, b: conv, unit: ua };
+  }
   return null;
 }
 

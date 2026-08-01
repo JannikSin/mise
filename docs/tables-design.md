@@ -66,22 +66,37 @@ solo half).
 ## Schema (documented in SCHEMAS.md on build, same commit)
 
 `households/<h>/events.json`:
+
 ```jsonc
 {
   "tables": [
-    { "id": "t1", "name": "Family dinner", "date": "2026-07-24",
-      "slot": "dinner", "recipeId": "doner-style-kebab-bowl",
-      "seats": [ { "id": "david", "servings": 1.5 },
-                 { "id": "mom", "servings": 1, "status": "skipped" } ] }
+    {
+      "id": "t1",
+      "name": "Family dinner",
+      "date": "2026-07-24",
+      "slot": "dinner",
+      "recipeId": "doner-style-kebab-bowl",
+      "seats": [
+        { "id": "david", "servings": 1.5 },
+        { "id": "mom", "servings": 1, "status": "skipped" },
+      ],
+    },
     // seat id = profileId (id-keyed so concurrent seat edits merge);
     // status absent = in; the table's house = the file's own path
   ],
   "brigades": [
-    { "id": "b1", "name": "Apartment dinners", "memberIds": ["david", "laurie"],
-      "slots": ["dinner"], "from": "2026-07-27", "until": "2026-08-03" }
-  ]
+    {
+      "id": "b1",
+      "name": "Apartment dinners",
+      "memberIds": ["david", "laurie"],
+      "slots": ["dinner"],
+      "from": "2026-07-27",
+      "until": "2026-08-03",
+    },
+  ],
 }
 ```
+
 Merging: both arrays id-keyed (existing merge machinery). File is per-house,
 raw path (not profile-scoped), same access pattern as the household pantry.
 

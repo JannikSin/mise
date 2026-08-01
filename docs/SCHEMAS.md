@@ -78,7 +78,7 @@ handler body, not just the disabled button.
 
 **Combined household shopping list**: a read-time merge of every profile's
 `shopping.json` (`app/lib/shopping.js` `mergeProfileLists`) shown as the
-EVERYONE tab in List. No third file exists; ticking a combined item writes
+FAMILY tab in List (named EVERYONE before 2026-07-25; docs and code now both say FAMILY). No third file exists; ticking a combined item writes
 the tick through to each source profile's own list. Swap suggestions
 (`swapCandidates`) flag single-profile items in partial-container sections
 (dairy/produce/spices/other) — report only, recipes are never auto-edited.
@@ -117,10 +117,10 @@ data to the app repo.
   2026-07-21)** — every label and hint says "house" (a physical kitchen);
   the storage field and the `households/` path keep this legacy name
   deliberately, zero data migration. Groups profiles into one grocery
-  trip: the List view's EVERYONE tab merges only profiles that share the
+  trip: the List view's FAMILY tab merges only profiles that share the
   active profile's household (`app/lib/shopping.js` `householdOthers`, wired
   in `app/main.js`). A profile alone in its household (e.g. Laurie in her own
-  apartment) sees no EVERYONE tab at all; absent-field profiles keep merging
+  apartment) sees no FAMILY tab at all; absent-field profiles keep merging
   exactly as before the field existed. Not asked in the gate questionnaire —
   edited from the SYS App tile ("MOVE HOUSEHOLD", `app\views\system.js`),
   which normalizes to lowercase-kebab and stores `"home"`/blank as absent.
@@ -383,6 +383,15 @@ subtracts nothing further.
 }
 ```
 
+**Fresh start (2026-08-01, no schema change):** the PANTRY tab's START FRESH
+wizard empties the whole file (staples included, behind the same confirm as
+EMPTY EVERYTHING) then walks fridge → freezer → pantry shelves → spice
+cabinet with the camera. Wizard scans run in "add" mode —
+`applyScanItems(pantry, items, today, location)` places new perishables on
+the step's shelf ADDITIVELY, because a wiped kitchen needs several photos
+per shelf and a second fridge photo must extend the first, not replace it.
+Non-wizard shelf scans keep sweep-replace semantics unchanged.
+
 ## Tables (shared meals) — `households/<h>/events.json`
 
 One shared meal = a TABLE (docs/tables-design.md, Tribunal-gated). The file
@@ -437,9 +446,12 @@ Rules (binding, from the Tribunal gate):
   banner, no pin, no macros).
 - A seat with `status: "skipped"` derives nothing and is excluded from the
   cook's shopping sum.
-- The COOK = first non-skipped seat whose profile's house is the table's
-  house; only their list derivation shops the summed servings; every other
-  seat's entry is est-macro only (nothing to buy).
+- The COOK = the table's explicit `cookId` when it names an in-house profile
+  — EVEN IF that seat is skipped (cooking is not eating: a rotated cook who
+  skips their own plate still shops and still pays; letting the role slide
+  to seat #1 billed the wrong person). Fallback: first non-skipped in-house
+  seat. Only the cook's list derivation shops the summed servings; every
+  other seat's entry is est-macro only (nothing to buy).
 - A profile's own entry at the same date+slot wins over the table entry.
 - Retention: derivation ignores tables >14 days past; every CRUD write
   (add, remove, seat patch) prunes them, malformed dates included.
@@ -487,9 +499,21 @@ path, and no brigade-specific behaviour anywhere downstream.
     {
       "id": "e5f6a7b8",
       "name": "Mom + Laurie",
-      "memberIds": ["mom", "laurie"], // 2+, all in THIS house
+      "memberIds": ["mom", "laurie"], // 2+, all in THIS house. ORDER MATTERS
+      //   when rotateCooks: the cook cycles through this array; the brigade
+      //   form stores it in the picker's display order so the chips read as
+      //   the rotation.
       "slots": ["dinner"], // plan slot keys
       "cookId": "mom", // ? who shops; absent = first member
+      "rotateCooks": true, // ? cooks take turns (David 2026-08-01: "each person
+      //   is responsible for 1-2 dinners"). The materialized table's cookId
+      //   cycles through memberIds in order, one per calendar day from
+      //   `from`, derived from the DATE (never a loop counter) so any device
+      //   on any day assigns the same cooks and the id-keyed merge stays a
+      //   no-op. Overrides `cookId`. Absent/false = single cook, unchanged.
+      //   Mixed-version caveat: a pre-rotation device that materializes
+      //   first stamps its single cookId and the idempotency guard keeps
+      //   those tables until someone RE-ROLLs on current code.
       "from": "2026-07-27",
       "until": "2026-08-02", // REQUIRED, span capped at 28 days
     },
@@ -653,11 +677,39 @@ ticked in the aisle that the scan never read leave too — a missed OCR line
 must not resurrect food already in the bag. A fully-bought list ends empty.
 Displayed `qty`/`unit` are rounded up to a purchasable amount (whole counts,
 sensible gram/ml/kg/L/cup/tbsp/tsp/lb/oz steps) after summing, not before.
-STORED quantities stay metric and authoritative; the List and EVERYONE tabs
+STORED quantities stay metric and authoritative; the List and FAMILY tabs
 display a store-shelf conversion on top ("1.98 lb (900 g)") via
 `toStoreUnits`/`formatStoreQty` in app/lib/shopping.js — a faithful convert
 of the already-purchasable metric value, never re-rounded onto an imperial
 grid (which would make the two numbers disagree or under-buy).
+
+**Fridge-first trips (2026-08-01, render-time only — no schema change):**
+`subtractPantryFromTrip` (app/lib/shopping.js) subtracts the household
+pantry's COUNTABLE perishables from the trip actually being shopped — the
+FAMILY tab's merged list (once, after summing everyone), or a solo profile's
+own list. Honesty fences mirror consumeForCook: free-text pantry quantities
+never fake-subtract, unit-"x" rows (manual items, running-low staples) never
+reduce, stock is consumed in item order so two rows can't claim the same
+pack, remainders re-round UP to purchasable. Fully-covered rows render in an
+"already in the kitchen" block instead of the buy list. STORED `shopping.json`
+files are never rewritten by this pass (the receipt path below is the one
+deliberate cross-profile list write) — that is what makes the render pass
+safe for four devices sharing one pantry.
+
+**The receipt ends the HOUSE's trip (2026-08-01, Tribunal-gated):** one
+person shops the FAMILY tab and photographs the till roll; the scanner's
+device then (1) BANKS the pantry exactly once from the MERGED household trip
+— everyone's lists summed, fridge-first-reduced, so `banked === bought`
+(banking from any single profile's rows was the Tribunal BLOCK: portions of
+a summed row re-subtracting the same shared stock recorded ~nothing while
+the real fridge filled); (2) clears till-confirmed AND aisle-ticked rows
+from EVERY house profile's `shopping.json` via `clearReceiptRows` — a raw
+cross-profile write, never banking (the merged bank in step 1 already
+counted those rows); (3) shows an UNDO toast naming whose lists it touched.
+`applyJustBought`'s fridge-first reduction is OPT-IN (`fridgeFirst`) and
+only valid when the given rows ARE the rendered trip: a solo profile's list
+or the merged house trip; a household member's manual ADD TO PANTRY banks
+verbatim.
 
 ```jsonc
 {
@@ -707,6 +759,14 @@ Seeded from the FITNESS.md system; edited rarely.
   //   ("onion" also blocks "red onion"). The profile's
   //   OWN recipes are exempt (authored to its rules).
   //   Absent = no screening.
+  "avoidRecipes": ["office-lunch-box"],
+  // ? recipe IDS banned outright for this profile (David 2026-08-01:
+  //   "never wants to see the office lunch box again"). Exact-id filter in
+  //   mergeRecipePool — unlike every other screen it ALSO removes own
+  //   recipes, so the recipe vanishes from this profile's cookbook,
+  //   generator, and swaps everywhere. brigadePool honors every member's
+  //   list (a shared pot never serves a meal one member banned).
+  //   Absent = none. Hand-edited for now; no SYS UI yet.
   "region": { "country": "USA", "state": "IL" },
   // ? where this profile buys groceries, for sales tax on the List
   //   trip total (app/lib/prices.js GROCERY_TAX_RATE by state;

@@ -302,6 +302,28 @@ export function canonicalUnit(unit) {
  * @param {string} unit
  * @returns {Dimension | null}
  */
+/**
+ * Convert a quantity between two units of the SAME dimension via the unit
+ * table, independent of any food's preferred unit. Null when either unit is
+ * unknown or the dimensions differ. The receipt-banking fix (Tribunal B1,
+ * 2026-08-01) rides on this: a summed trip banks "1.5 kg" of a food that has
+ * no FOOD_UNITS entry, and next week's "500 g" need must still subtract.
+ * @param {number} qty
+ * @param {string} from
+ * @param {string} to
+ * @returns {number | null}
+ */
+export function convertUnit(qty, from, to) {
+  const f = UNIT_BASE[/** @type {keyof typeof UNIT_BASE} */ (canonicalUnit(from))];
+  const t = UNIT_BASE[/** @type {keyof typeof UNIT_BASE} */ (canonicalUnit(to))];
+  if (!f || !t || f.dim !== t.dim) return null;
+  return (qty * f.per) / t.per;
+}
+
+/**
+ * @param {string} unit
+ * @returns {Dimension | null}
+ */
 export function dimensionOf(unit) {
   const base = UNIT_BASE[canonicalUnit(unit)];
   return base ? /** @type {Dimension} */ (base.dim) : null;

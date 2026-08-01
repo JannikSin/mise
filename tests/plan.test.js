@@ -570,3 +570,17 @@ test("setEntryRecipe keeps the id, date, slot and servings, and drops cookedAt",
   // a switched meal is not the meal you cooked
   assert.equal("cookedAt" in e, false);
 });
+
+test("mergeRecipePool: avoidRecipes bans by id, own recipes included", () => {
+  const bank = [
+    { id: "office-lunch-box", ingredients: [] },
+    { id: "chana-masala", ingredients: [] },
+  ];
+  const own = [{ id: "office-lunch-box", ingredients: [] }];
+  const pool = mergeRecipePool(bank, own, undefined, undefined, undefined, ["office-lunch-box"]);
+  assert.ok(!pool.some((r) => r.id === "office-lunch-box"), "a ban is a ban, own variant included");
+  assert.ok(pool.some((r) => r.id === "chana-masala"));
+  // and absent = today's behavior exactly
+  const open = mergeRecipePool(bank, own, undefined, undefined, undefined);
+  assert.ok(open.some((r) => r.id === "office-lunch-box"));
+});

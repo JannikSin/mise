@@ -16,7 +16,7 @@ import {
   generateWeek,
   generatorEligible,
 } from "../app/lib/weekbuilder.js";
-import { dayTotals, recipesById } from "../app/lib/plan.js";
+import { dayTotals, datesOfWeek, recipesById } from "../app/lib/plan.js";
 
 const EMPTY_FOOD_GROUPS = {
   beans: 0,
@@ -1093,4 +1093,60 @@ test("generateWeek never auto-plans an unpromoted ai-special (council fence)", (
     plan.entries.every((e) => e.recipeId !== "special-x"),
     "ai-special must never be auto-planned",
   );
+});
+
+test("onHandFoods bias: the committee leans toward food the kitchen already owns", () => {
+  const mk = (id, food) => ({
+    id,
+    name: id,
+    mealType: "dinner",
+    servings: 1,
+    effort: "cook",
+    nutrition: { calories: 500, protein: 30 },
+    ingredients: [{ qty: 200, unit: "g", food }],
+  });
+  const a = mk("a-farro-bowl", "farro");
+  const b = mk("b-chicken-bowl", "chicken thigh");
+  const picked = pickCommittee([a, b], { size: 1, onHandFoods: ["chicken thigh"] });
+  assert.equal(picked[0].id, "b-chicken-bowl");
+});
+
+test("no recipe is ever hard-pinned by id: lunches cycle, nothing owns 3 straight days", () => {
+  // guards the 2026-08-01 removal of the office-lunch-box Tue/Wed/Thu pin —
+  // under the pin, one id occupied three consecutive days whatever the
+  // committee said; under honest cycling no id can run 3 in a row when the
+  // committee has 3+ members
+  const mk = (id, food) => ({
+    id,
+    name: id,
+    mealType: "lunch",
+    servings: 1,
+    effort: "assembly",
+    totalTime: 10,
+    nutrition: { calories: 600, protein: 40 },
+    ingredients: [{ qty: 1, unit: "x", food }],
+  });
+  const recipes = [
+    mk("office-lunch-box", "crackers"),
+    mk("nicoise-salad", "tuna"),
+    mk("halloumi-pita", "halloumi"),
+    mk("farro-bowl", "farro"),
+  ];
+  const targets = { macros: { calories: 1800, protein: 120 }, mealSlots: ["lunch"] };
+  const { plan } = generateWeek({
+    recipes,
+    targets,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W32",
+    plan: { week: "2026-W32", entries: [] },
+  });
+  const lunches = datesOfWeek("2026-W32").map(
+    (d) => plan.entries.find((e) => e.date === d && e.slot === "lunch")?.recipeId,
+  );
+  for (let i = 0; i + 2 < lunches.length; i++) {
+    assert.ok(
+      !(lunches[i] && lunches[i] === lunches[i + 1] && lunches[i] === lunches[i + 2]),
+      `no lunch runs 3 straight days: ${lunches.join(", ")}`,
+    );
+  }
 });

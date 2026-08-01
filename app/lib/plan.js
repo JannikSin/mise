@@ -169,17 +169,28 @@ export function dietOf(recipe) {
  * @param {string | undefined} phase the profile's targets.phase
  * @param {string[]} [avoid] the profile's targets.avoidIngredients
  * @param {string} [diet] the profile's targets.diet (absent = omnivore, no diet filter)
+ * @param {string[]} [avoidRecipes] the profile's targets.avoidRecipes: recipe
+ *   ids banned outright ("never show me the office lunch box again", David
+ *   2026-08-01). Unlike every other screen this one also applies to OWN
+ *   recipes — a ban is a ban — so the recipe vanishes from this profile's
+ *   cookbook, generator, and swap suggestions everywhere the merged pool is
+ *   the source of truth.
  * @returns {Record<string, any>[]}
  */
-export function mergeRecipePool(bank, own, phase, avoid, diet) {
+export function mergeRecipePool(bank, own, phase, avoid, diet, avoidRecipes) {
+  const banned = new Set(avoidRecipes ?? []);
   /** @type {Map<string, Record<string, any>>} */
   const byId = new Map();
   for (const r of bank) {
+    if (banned.has(r.id)) continue;
     if (Array.isArray(r.phases) && phase && !r.phases.includes(phase)) continue;
     if (recipeConflicts(r, diet, avoid).length > 0) continue;
     byId.set(r.id, r);
   }
-  for (const r of own) byId.set(r.id, r);
+  for (const r of own) {
+    if (banned.has(r.id)) continue;
+    byId.set(r.id, r);
+  }
   return [...byId.values()];
 }
 
@@ -191,11 +202,16 @@ export function mergeRecipePool(bank, own, phase, avoid, diet) {
  * @param {Record<string, any>} recipe
  * @param {string} [diet] the profile's targets.diet (absent/omnivore = no diet screen)
  * @param {string[]} [avoid] the profile's targets.avoidIngredients
+ * @param {string[]} [avoidRecipes] the profile's targets.avoidRecipes — a
+ *   banned recipe id conflicts here too, so a hand-set table can't pin food
+ *   a profile has sworn off (the seat screen and derivation both route
+ *   through this predicate; a screen with a bypass is not a screen)
  * @returns {string[]} conflict reasons, e.g. ["contains shallot", "not vegetarian"]
  */
-export function recipeConflicts(recipe, diet, avoid) {
+export function recipeConflicts(recipe, diet, avoid, avoidRecipes) {
   /** @type {string[]} */
   const reasons = [];
+  if ((avoidRecipes ?? []).includes(recipe.id)) reasons.push("on their never-again list");
   const admits =
     diet && diet !== "omnivore"
       ? DIET_ADMITS[/** @type {keyof typeof DIET_ADMITS} */ (diet)]

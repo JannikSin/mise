@@ -46,7 +46,7 @@ import {
   emptyPantry,
   applySweep,
   substitutionPlan,
-  applyReceiptStock,
+  clearReceiptRows,
   consumeForCook,
   PANTRY_LOCATIONS,
   withAutoUseSoon,
@@ -55,6 +55,7 @@ import {
   slug,
 } from "./lib/shopping.js";
 import { applyReceipt } from "./lib/prices.js";
+import { canonicalFood } from "./lib/ingredients.js";
 import { cookPlan } from "./lib/portions.js";
 import {
   addEntry,
@@ -140,6 +141,8 @@ function App() {
   const [sw, setSw] = useState(/** @type {"installing" | "ready" | "failed"} */ ("installing"));
   const [sync, setSync] = useState(getSyncStatus());
   const [recipes, setRecipes] = useState(/** @type {Record<string, any>[]} */ ([]));
+  // bank+own with no screens — identity lookups only (see the mergeRecipePool effect)
+  const [allRecipes, setAllRecipes] = useState(/** @type {Record<string, any>[]} */ ([]));
   const [weekId, setWeekId] = useState(isoWeekId(new Date()));
 
   const [plan, setPlan] = useState(
@@ -231,7 +234,19 @@ function App() {
         targets?.phase,
         targets?.avoidIngredients,
         targets?.diet,
+        targets?.avoidRecipes,
       ),
+    );
+    // IDENTITY pool: bank+own merged with PREFERENCE screens off but SAFETY
+    // screens ON. Phase and avoidRecipes govern what is PICKABLE, never what
+    // an existing plan entry means — resolving a planned recipe through the
+    // fully screened pool made a newly banned recipe silently vanish from
+    // the shopping list and hand cook mode a null. But diet/avoidIngredients
+    // are allergy-class: a recipe that newly fails them must NOT keep being
+    // shopped and cooked through this pool (Red Team R4) — for those, the
+    // old vanish-everywhere behavior is the safe direction.
+    setAllRecipes(
+      mergeRecipePool(bankRecipes, ownRecipes, undefined, targets?.avoidIngredients, targets?.diet),
     );
   }, [bankRecipes, ownRecipes, targets]);
 
@@ -607,18 +622,84 @@ function App() {
       /** @type {{ name: string, price: number, size: string }[]} */ lines,
     ) => {
       const today = localIsoDate(new Date());
+      const me = activeProfile();
+      const prevPlan = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       // the receipt IS the groceries-bought confirmation (honest-state rule):
       // it unlocks the week's cook reminders and the eaten tracking
-      updatePlan(
-        setPlanShopped(/** @type {import("./lib/plan.js").Plan} */ (planRef.current), today),
-      );
+      updatePlan(setPlanShopped(prevPlan, today));
       // the trip is DONE: every row the till confirms (plus anything ticked in
       // the aisle) leaves the list and lands on a shelf. A fully-bought list
       // ends up empty, which is the whole point — the list is a to-do, not a
       // record of what you own.
-      const stocked = applyReceiptStock(shoppingRef.current, pantryRef.current, lines, today);
-      updateShopping(stocked.shopping);
+      // BANK ONCE, FROM THE MERGED TRIP (Tribunal BLOCK, 2026-08-01). The
+      // FAMILY tab the shopper walked is everyone's lists SUMMED, minus the
+      // shared pantry once; the pantry must gain exactly what that trip
+      // bought. Banking from this profile's own rows alone recorded a
+      // fraction (or nothing) of the food now physically in the fridge, and
+      // fridge-first then re-bought it every week. A row ticked by ANY
+      // source counts bought — the FAMILY tick writes through to all.
+      const prevShopping = shoppingRef.current;
+      const prevPantry = pantryRef.current;
+      const prevOthers = otherListsRef.current;
+      // a row counts BOUGHT per source list: till-confirmed, or ticked in
+      // that list itself. Merging first and then marking any-source-checked
+      // over-banked (Tribunal B2): a row David ticked on his solo tab that
+      // the receipt never read would have banked all four portions while
+      // three of them stayed on housemates' lists.
+      const onReceipt = new Set((lines ?? []).map((l) => canonicalFood(l.name)));
+      const boughtOf = (/** @type {import("./lib/shopping.js").ShoppingList} */ list) => ({
+        items: (list.items ?? []).filter((i) => i.checked || onReceipt.has(canonicalFood(i.food))),
+      });
+      const mergedTrip = {
+        generatedFrom: prevShopping.generatedFrom,
+        items: mergeProfileLists([
+          { profileId: me, list: boughtOf(prevShopping) },
+          ...prevOthers.map((o) => ({ profileId: o.profileId, list: boughtOf(o.list) })),
+        ]).map((i) => ({ ...i, checked: true, manual: false })),
+      };
+      const stocked = applyJustBought(mergedTrip, prevPantry, today, { fridgeFirst: true });
       updatePantry(stocked.pantry);
+      // every list — mine included — clears the till-confirmed rows the same
+      // way; banking already happened once, above, from the merged sum
+      const mine = clearReceiptRows(prevShopping, lines);
+      if (mine.changed) updateShopping(mine.list);
+      let nextOthers = prevOthers;
+      /** @type {string[]} */
+      const clearedNames = [];
+      for (const o of prevOthers) {
+        const { list: cleared, changed } = clearReceiptRows(o.list, lines);
+        if (!changed) continue;
+        clearedNames.push(o.name || o.profileId);
+        nextOthers = nextOthers.map((x) =>
+          x.profileId === o.profileId ? { ...x, list: cleared } : x,
+        );
+        void write(shoppingPathFor(o.profileId), /** @type {any} */ (cleared), { raw: true });
+      }
+      if (nextOthers !== prevOthers) {
+        otherListsRef.current = nextOthers;
+        setOtherLists(nextOthers);
+      }
+      // name the blast radius and keep an exit: this tap edited other
+      // people's lists, banked the shared pantry, and confirmed the week as
+      // shopped — undo covers all of it even when no other list changed
+      {
+        setUndoToast({
+          message:
+            clearedNames.length > 0
+              ? `receipt cleared ${clearedNames.join(", ")}'s list${clearedNames.length === 1 ? "" : "s"} too`
+              : "receipt applied — list, pantry and week updated",
+          restore: () => {
+            updatePlan(prevPlan); // un-confirms shoppedAt — the receipt was a mistake
+            updateShopping(prevShopping);
+            updatePantry(prevPantry);
+            otherListsRef.current = prevOthers;
+            setOtherLists(prevOthers);
+            for (const o of prevOthers) {
+              void write(shoppingPathFor(o.profileId), /** @type {any} */ (o.list), { raw: true });
+            }
+          },
+        });
+      }
       const cat = priceCatalogue;
       if (!cat) return;
       const { catalogue: next } = applyReceipt(cat, store, lines, today);
@@ -738,6 +819,8 @@ function App() {
 
   const recipesRef = useRef(recipes);
   recipesRef.current = recipes;
+  const allRecipesRef = useRef(allRecipes);
+  allRecipesRef.current = allRecipes;
 
   /**
    * fromDate for deriveShoppingList: only the CURRENT calendar week filters
@@ -753,7 +836,7 @@ function App() {
 
   const handleBuildList = useCallback(
     (/** @type {{ dates?: string[], slots?: string[] } | undefined} */ only) => {
-      const byId = recipesById(recipesRef.current);
+      const byId = recipesById(allRecipesRef.current);
       updateShopping(
         deriveShoppingList(
           withCookExtras(/** @type {import("./lib/plan.js").Plan} */ (planRef.current)),
@@ -796,10 +879,16 @@ function App() {
   );
 
   const handleJustBought = useCallback(() => {
+    // fridgeFirst only when this list IS the rendered trip — a solo profile.
+    // A household member's list is a PORTION of the merged FAMILY trip, and
+    // reducing each portion against the same shared stock banks ~nothing
+    // (Tribunal BLOCK 2026-08-01); their manual path banks verbatim, and the
+    // canonical household flow is the receipt, which banks the merged sum.
     const result = applyJustBought(
       shoppingRef.current,
       pantryRef.current,
       localIsoDate(new Date()),
+      { fridgeFirst: otherListsRef.current.length === 0 },
     );
     updateShopping(result.shopping);
     updatePantry(result.pantry);
@@ -831,20 +920,28 @@ function App() {
     (
       /** @type {{ name: string, kind: string, qty: string }[]} */ items,
       /** @type {string} */ location,
+      /** @type {"sweep" | "add"} */ mode = "sweep",
     ) => {
       const today = localIsoDate(new Date());
       // a scan tagged with a shelf is a SWEEP: those photos are the whole
       // truth about that location, so they replace it. An untagged scan keeps
-      // the old additive behaviour.
+      // the old additive behaviour. mode "add" (fresh-start wizard's "another
+      // photo of the same shelf") is additive but still lands on the shelf —
+      // a second fridge photo must extend the first, not erase it.
       updatePantry(
-        location && location !== "unsorted"
+        location && location !== "unsorted" && mode === "sweep"
           ? applySweep(
               pantryRef.current,
               /** @type {any} */ (location),
               items.filter((i) => i.kind !== "staple").map((i) => ({ food: i.name, qty: i.qty })),
               today,
             )
-          : applyScanItems(pantryRef.current, items, today),
+          : applyScanItems(
+              pantryRef.current,
+              items,
+              today,
+              location && location !== "unsorted" ? location : undefined,
+            ),
       );
     },
     [updatePantry],
@@ -859,14 +956,17 @@ function App() {
       const prev = pantryRef.current;
       const count =
         (prev.perishables ?? []).length + (keepStaples ? 0 : (prev.staples ?? []).length);
-      if (count === 0) return;
+      // returns whether the pantry IS empty now (the fresh-start wizard only
+      // proceeds on true): already-empty counts as yes, a declined confirm is no
+      if (count === 0) return true;
       const house = householdOf(allProfilesRef.current, me);
       const ok = await askConfirm(
-        `Delete ${count} ${count === 1 ? "item" : "items"} from the ${house} pantry. Everyone in the house sees this. The lasting undo is the data repo history, not the toast.`,
+        `Delete ${count} ${count === 1 ? "item" : "items"} from the ${house} kitchen record? Everyone in the house sees this. An UNDO button appears for a moment after — past that, rescanning the shelves is how it comes back.`,
       );
-      if (!ok) return;
+      if (!ok) return false;
       updatePantry(emptyPantry(prev, keepStaples));
       setUndoToast({ message: "pantry emptied", restore: () => updatePantry(prev) });
+      return true;
     },
     [updatePantry, askConfirm],
   );
@@ -969,7 +1069,7 @@ function App() {
         updateShopping(
           deriveShoppingList(
             withCookExtras(next),
-            recipesById(recipesRef.current),
+            recipesById(allRecipesRef.current),
             pantryRef.current,
             shoppingRef.current,
             todayIfCurrentWeek(next.week),
@@ -1001,7 +1101,7 @@ function App() {
       // the shelf a second time would empty a fridge that is genuinely full
       if (plan.entries.some((e) => e.id !== entryId && e.recipeId === entry.recipeId && e.cookedAt))
         return;
-      const recipe = recipesRef.current.find((r) => r.id === entry.recipeId);
+      const recipe = allRecipesRef.current.find((r) => r.id === entry.recipeId);
       if (!recipe) return;
       const { pantry: next, used } = consumeForCook(
         pantryRef.current,
@@ -1056,7 +1156,7 @@ function App() {
     updateShopping(
       deriveShoppingList(
         withCookExtras(result.plan),
-        recipesById(recipesRef.current),
+        recipesById(allRecipesRef.current),
         pantryRef.current,
         shoppingRef.current,
         todayIfCurrentWeek(result.plan.week),
@@ -1301,6 +1401,7 @@ function App() {
         profileId: me,
         diet: targets?.diet,
         avoid: targets?.avoidIngredients,
+        avoidRecipes: targets?.avoidRecipes,
         bankById: recipesById(bankRecipes),
         ownEntries: plan.entries,
         today: localIsoDate(new Date()),
@@ -1362,13 +1463,24 @@ function App() {
   );
 
   const handleRemoveTable = useCallback(
-    (/** @type {string} */ house, /** @type {string} */ id) => {
+    async (/** @type {string} */ house, /** @type {string} */ id) => {
       if (house !== myHouseOf()) return; // amendment 5: foreign houses are read-only
       const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
       if (!cur) return;
+      // cancelling a table cancels DINNER FOR THE WHOLE HOUSE, from any
+      // seat's phone — a tap that edits three other people's evenings gets a
+      // question first (Tribunal U2: "skip mine" is the personal exit)
+      const seats = cur.tables.find((t) => t.id === id)?.seats?.length ?? 0;
+      if (
+        seats > 1 &&
+        !(await askConfirm(
+          `Cancel this shared dinner for all ${seats} people? To bow out yourself, use SKIP MINE instead.`,
+        ))
+      )
+        return;
       writeHouseEvents(house, removeTable(cur, id, localIsoDate(new Date())));
     },
-    [writeHouseEvents],
+    [writeHouseEvents, askConfirm],
   );
 
   const handlePatchSeat = useCallback(
@@ -1443,8 +1555,16 @@ function App() {
         bankById: recipesById(bankRecipesRef.current),
         regenerate,
       });
-      if (made > 0) writeHouseEvents(house, events);
-      return { made, thin };
+      // write when anything changed — pruning expired tables counts even
+      // when no new meal was made
+      if (made > 0 || events.tables.length !== cur.tables.length) writeHouseEvents(house, events);
+      // zero overlap between the viewed week and the brigade's span is the
+      // W31/W32 trap: "made 0" would read as "already set" while nothing was
+      // set at all — name the real cause so the view can say it (Realist e)
+      const overlap = datesOfWeek(week).filter(
+        (d) => d >= brigade.from && d <= brigade.until,
+      ).length;
+      return { made, thin, outOfRange: overlap === 0, from: brigade.from, until: brigade.until };
     },
     [writeHouseEvents],
   );
@@ -1460,7 +1580,7 @@ function App() {
       const path =
         p.id === "david" ? "fitness/targets.json" : `profiles/${p.id}/fitness/targets.json`;
       const t = /** @type {any} */ (await read(path, { raw: true }).catch(() => null));
-      out[p.id] = recipeConflicts(recipe, t?.diet, t?.avoidIngredients);
+      out[p.id] = recipeConflicts(recipe, t?.diet, t?.avoidIngredients, t?.avoidRecipes);
     }
     return out;
   }, []);
@@ -1605,26 +1725,38 @@ function App() {
         const members = prof.profiles.filter((p) => (p.household ?? "home") === myHouse);
         const weekNow = isoWeekId(new Date());
         const todayNow = localIsoDate(new Date());
-        const rows = await Promise.all(
+        const raws = await Promise.all(
           members.map(async (p) => {
             const prefix = p.id === "david" ? "" : `profiles/${p.id}/`;
             const [planRaw, dailyRaw] = await Promise.all([
               read(`${prefix}plans/${weekNow}.json`, { raw: true }).catch(() => null),
               read(`${prefix}fitness/daily.json`, { raw: true }).catch(() => null),
             ]);
-            return {
-              id: /** @type {string} */ (p.id),
-              name: /** @type {string} */ (p.name ?? p.id),
-              emoji: /** @type {string} */ (p.emoji ?? ""),
-              ...weekAdherence({
-                plan: /** @type {any} */ (planRaw),
-                daily: /** @type {any} */ (dailyRaw),
-                weekId: weekNow,
-                today: todayNow,
-              }),
-            };
+            return { p, planRaw, dailyRaw };
           }),
         );
+        // ONE receipt per house per week is the designed flow — the scanner's
+        // shoppedAt credits every housemate's scoreboard, same houseShopped
+        // rule the recipe gate already learned (Tribunal U9: a family with
+        // one shopper must not cap three people at 80 all week)
+        const anyShopped = raws.some((r) => Boolean(/** @type {any} */ (r.planRaw)?.shoppedAt));
+        const rows = raws.map(({ p, planRaw, dailyRaw }) => {
+          const credited =
+            anyShopped && planRaw && !(/** @type {any} */ (planRaw).shoppedAt)
+              ? { .../** @type {any} */ (planRaw), shoppedAt: todayNow }
+              : planRaw;
+          return {
+            id: /** @type {string} */ (p.id),
+            name: /** @type {string} */ (p.name ?? p.id),
+            emoji: /** @type {string} */ (p.emoji ?? ""),
+            ...weekAdherence({
+              plan: /** @type {any} */ (credited),
+              daily: /** @type {any} */ (dailyRaw),
+              weekId: weekNow,
+              today: todayNow,
+            }),
+          };
+        });
         if (alive) setScoreboard(rankScoreboard(rows));
       })();
     };
@@ -1714,7 +1846,10 @@ function App() {
   const publicAlarm = repo?.privacy === "PUBLIC";
   // header and probe results must never disagree: offline if either says so
   const effectiveOnline = online && (repo ? repo.reachable : true);
-  const recipeById = (/** @type {string | undefined} */ id) => recipes.find((r) => r.id === id);
+  // IDENTITY lookup (allRecipes, not the screened pool): detail pages, peek,
+  // and cook mode render what the plan SAYS, including a banned-but-still-
+  // planned recipe — bans govern picking, not what an existing entry means
+  const recipeById = (/** @type {string | undefined} */ id) => allRecipes.find((r) => r.id === id);
 
   const loading = recipes.length === 0 && hasToken;
 
@@ -1779,6 +1914,7 @@ function App() {
       route.view === "plan" &&
       html`<${PlannerView}
         recipes=${recipes}
+        identityRecipes=${allRecipes}
         plan=${viewPlan}
         targets=${targets}
         poolReport=${recipes.length > 0 ? poolAdequacy(recipes, targets) : null}
@@ -1838,6 +1974,7 @@ function App() {
         ownEmoji=${ownEmoji}
         onCombinedToggle=${handleCombinedToggle}
         shopsPerWeek=${targets?.shopsPerWeek ?? 1}
+        houseShopped=${Boolean(/** @type {any} */ (plan)?.shoppedAt) || houseShopped}
         prices=${priceCatalogue}
         region=${targets?.region}
         storeSlug=${(targets?.stores?.[0] ?? "")

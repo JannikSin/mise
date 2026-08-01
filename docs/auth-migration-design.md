@@ -12,19 +12,19 @@ Grounding: this design was written after reading `app/lib/store.js`, `app/lib/gi
 
 Per-profile data today is a set of small JSON files in `mise-data` (David at repo root, Mom under `profiles/mom/`), all shapes documented in `docs/SCHEMAS.md`:
 
-| File | Shape (top level) | Notes |
-|---|---|---|
-| `profiles.json` | `{ profiles: [{id, name, emoji, phase}] }` | root, never scoped; becomes obsolete (replaced by accounts) |
-| `recipes/<id>.json` | one recipe per file | SHARED bank, root only; phases-filtered per profile |
-| `profiles/<id>/recipes/<id>.json` | same recipe shape | per-profile overrides; Mom has 29 real loss-adjusted variants plus 29 byte-identical shadow duplicates of bank recipes (backward-compat only, see SCHEMAS.md) |
-| `plans/<week>.json` | `{ week, locked?, entries: [{id, date, slot, recipeId\|freeText, servings, pinned?}] }` | entry `id` is the merge key |
-| `shopping.json` | `{ generatedFrom?, items: [{id, food, qty, unit, section, checked, manual, fromRecipes?}] }` | derived + check state; combined household tab reads every profile's copy |
-| `pantry.json` | `{ staples: [...], perishables: [...] }` | |
-| `fitness/targets.json` | macros, phase, phaseSince, avoidIngredients?, mealSlots?, tracks?, dailyDozen, sleepHoursTarget, pushupsPerDay?, priorityStack, nonNegotiables, supplementPlan | this IS the profile's "targets" object |
-| `fitness/workouts.json` | `{ schedule?, templates, sessions: [{id, date, ...}] }` | session `id` is the merge key |
-| `fitness/daily.json` | `{ days: [{date, weight?, waist?, sleepHours?, pushups?, water?, supplements?, calories?, protein?, dozen?}] }` | the daily check-in / meal log |
-| `fitness/activities.json` | reserved, no UI reads or writes it | NOT migrated to a table (YAGNI); revisit when the feature exists |
-| `meta.json` | schemaVersion, lastWrite | dropped; Postgres `updated_at` replaces it |
+| File                              | Shape (top level)                                                                                                                                              | Notes                                                                                                                                                         |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `profiles.json`                   | `{ profiles: [{id, name, emoji, phase}] }`                                                                                                                     | root, never scoped; becomes obsolete (replaced by accounts)                                                                                                   |
+| `recipes/<id>.json`               | one recipe per file                                                                                                                                            | SHARED bank, root only; phases-filtered per profile                                                                                                           |
+| `profiles/<id>/recipes/<id>.json` | same recipe shape                                                                                                                                              | per-profile overrides; Mom has 29 real loss-adjusted variants plus 29 byte-identical shadow duplicates of bank recipes (backward-compat only, see SCHEMAS.md) |
+| `plans/<week>.json`               | `{ week, locked?, entries: [{id, date, slot, recipeId\|freeText, servings, pinned?}] }`                                                                        | entry `id` is the merge key                                                                                                                                   |
+| `shopping.json`                   | `{ generatedFrom?, items: [{id, food, qty, unit, section, checked, manual, fromRecipes?}] }`                                                                   | derived + check state; combined household tab reads every profile's copy                                                                                      |
+| `pantry.json`                     | `{ staples: [...], perishables: [...] }`                                                                                                                       |                                                                                                                                                               |
+| `fitness/targets.json`            | macros, phase, phaseSince, avoidIngredients?, mealSlots?, tracks?, dailyDozen, sleepHoursTarget, pushupsPerDay?, priorityStack, nonNegotiables, supplementPlan | this IS the profile's "targets" object                                                                                                                        |
+| `fitness/workouts.json`           | `{ schedule?, templates, sessions: [{id, date, ...}] }`                                                                                                        | session `id` is the merge key                                                                                                                                 |
+| `fitness/daily.json`              | `{ days: [{date, weight?, waist?, sleepHours?, pushups?, water?, supplements?, calories?, protein?, dozen?}] }`                                                | the daily check-in / meal log                                                                                                                                 |
+| `fitness/activities.json`         | reserved, no UI reads or writes it                                                                                                                             | NOT migrated to a table (YAGNI); revisit when the feature exists                                                                                              |
+| `meta.json`                       | schemaVersion, lastWrite                                                                                                                                       | dropped; Postgres `updated_at` replaces it                                                                                                                    |
 
 Data-flow facts that shape the design:
 
@@ -345,24 +345,28 @@ Verified current Supabase free-tier numbers (July 2026): 500 MB database, 50,000
 Phase 0 blocks everything; A, B, C are then parallelizable by three agents with one integration point (the adapter's module interface, defined in A1, is frozen first).
 
 Phase 0. Project setup (single agent or David + agent, ~an hour)
+
 1. Create Supabase project; record `SUPABASE_URL`, anon key, service-role key (service key goes only into David's local env, never the repo).
 2. Run one `schema.sql` (tables, indexes, triggers, `write_doc`, RPCs, all RLS from sections 1 and 2). Commit `schema.sql` under `supabase/` in the app repo as the source of truth; update `docs/SCHEMAS.md` to describe tables instead of files (same commit rule as today).
 3. Auth settings: disable email confirmation, set Site URL `https://janniksin.github.io/mise/`, add redirect URL, leave built-in SMTP.
 4. Run the Supabase database linter and fix anything it flags on the policies.
 
 Phase A. Data layer (agent 1)
+
 1. Vendor supabase-js (section 3), add to import map in `index.html`, add `https://<ref>.supabase.co` to CSP `connect-src`, remove `https://api.github.com` from it at cutover. New `app/lib/supabase.js` (client + constants).
 2. New `app/lib/supa-data.js` implementing exactly the `github.js` surface consumed by `store.js`: `readFile(path)`, `writeFile(path, data, sha)`, `listDir(dir)`, mapping paths to tables: `plans/<week>.json` to `week_plans`, `shopping.json` to `shopping_lists`, `pantry.json` to `pantries`, `fitness/targets.json` to `profiles.targets`, `fitness/workouts.json` to `workouts`, `fitness/daily.json` to `daily_logs`, `recipes/<id>` to bank or `profile_recipes`, `profiles/<id>/shopping.json` (household raw path) to the other member's `shopping_lists` row. `sha` slot carries `String(rev)`; stale rev raises `ConflictError`. `listDir("recipes")` selects `id, rev` (or `updated_at`) as the change token.
 3. `store.js`: swap `io` to the new adapter; DELETE `scoped()`/`activeProfile()` (RLS scopes now); keep raw-path support only for the household shopping read/write-through; `readProfiles()` becomes "select household member profiles".
 4. Port `github.js`'s `checkDataRepo` role: a `checkBackend()` returning session validity for System's status panel; delete PAT storage, token age warning, and the repo-public red banner (no repo to leak). `node --test` suite for the adapter path mapping and conflict contract.
 
 Phase B. Auth UI + app shell (agent 2)
+
 1. `app/views/profile-gate.js` becomes `app/views/auth-gate.js`: login form (username-or-email + password), signup (names, username, email, password x2, then the existing questionnaire markup moved intact), forgot-password, set-new-password (recovery). Keep the questionnaire-to-targets code path exactly as is.
 2. `app/main.js`: boot on `getSession()` instead of `mise.activeProfile`; `onAuthStateChange` wiring (SIGNED_OUT, PASSWORD_RECOVERY) registered before `initRouter`; router treats `#access_token`/`#error` hashes as non-routes.
 3. `app/views/system.js`: replace the token panel with account panel (signed-in email, change password, sign out); keep sync status UI.
 4. `sw.js`: add `vendor/supabase/supabase.module.js` and `app/lib/supabase.js`/`supa-data.js` to SHELL, remove `github.js`, bump `CACHE_VERSION`.
 
 Phase C. Worker + migration + cutover (agent 3)
+
 1. `worker/src/index.js`: `isAuthorized` swap (section 5); `wrangler.toml` vars; deploy; curl-test 401 without token, 200 with a real session token.
 2. `app/lib/worker.js`: send the Supabase access token.
 3. `scripts/migrate-to-supabase.mjs` (section 4) + run it with David; verify counts and the cross-user RLS smoke test.
@@ -394,6 +398,7 @@ Nine independent reviewers audited this plan. Verdict: BLOCKED-until-fixed. The 
 
 **B1. The Anthropic proxy must authorize entitled users, not any authenticated user.**
 Root problem: this design (a) disables email confirmation and (b) changes the Worker `isAuthorized` to accept any token `/auth/v1/user` validates. Combined, any stranger signs up with a throwaway email, gets a live token instantly, and calls `/scan` and `/remedy` on David's `ANTHROPIC_API_KEY` as a free Claude endpoint. No exploit needed. Required fixes, all of them:
+
 - Worker verifies the Supabase JWT AND checks the uid against an entitlement (allowlist table, custom claim, or household membership) via the service-role key. "Authenticated" is not "entitled."
 - Re-enable email confirmation before login (also gates the legal age/consent items).
 - Per-user daily quota on the paid endpoints keyed on the JWT `sub` claim, not the raw token (tokens rotate hourly, so token-keyed limits reset every refresh).

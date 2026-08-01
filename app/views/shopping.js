@@ -1,9 +1,11 @@
 import { html } from "htm/preact";
-import { useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { scanPhoto, scanReceipt } from "../lib/worker.js";
 import {
   mergeProfileLists,
+  packHint,
   perishableStatus,
+  subtractPantryFromTrip,
   swapCandidates,
   formatStoreQty,
   tripOf,
@@ -131,6 +133,18 @@ function aisleOrderFor(prices, store) {
 }
 
 /**
+ * Fresh-start wizard steps: one photo pass per part of the kitchen. The
+ * spice cabinet reuses the "pantry" shelf — its items classify as staples
+ * and land in the staples registry, not on a shelf row.
+ */
+const FRESH_STEPS = [
+  { loc: "fridge", label: "the fridge" },
+  { loc: "freezer", label: "the freezer" },
+  { loc: "pantry", label: "the pantry shelves" },
+  { loc: "pantry", label: "the spice cabinet" },
+];
+
+/**
  * Shopping list + pantry (blueprint §6.4/6.5). Phone-first: big checkbox
  * rows, section grouping, works offline (cache-backed store writes).
  * @param {{
@@ -147,19 +161,20 @@ function aisleOrderFor(prices, store) {
  *   onJustBought: () => void,
  *   onToggleLow: (id: string) => void,
  *   onOwnItem: (id: string) => void,
- *   onScanApprove: (items: { name: string, kind: string, qty: string }[], location?: string) => void,
+ *   onScanApprove: (items: { name: string, kind: string, qty: string }[], location?: string, mode?: "sweep" | "add") => void,
  *   onToggleLock: () => void,
  *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList }[],
  *   ownEmoji: string,
  *   onCombinedToggle: (itemId: string, sources: { profileId: string, checked: boolean }[]) => void,
  *   shopsPerWeek?: number,
+ *   houseShopped?: boolean,
  *   prices?: import("../lib/prices.js").PriceCatalogue | null,
  *   region?: { country?: string, state?: string },
  *   storeSlug?: string,
  *   onReceiptApprove?: (store: string, lines: { name: string, price: number, size: string }[]) => void,
  *   onClearList?: () => void,
  *   onRemovePantry?: (kind: "staple" | "perishable", key: string) => void,
- *   onEmptyPantry?: (keepStaples: boolean) => void,
+ *   onEmptyPantry?: (keepStaples: boolean) => Promise<boolean | undefined> | void,
  *   pantryLocations?: string[],
  *   moneyBalances?: { profileId: string, net: number, entries: number, estimate: boolean }[],
  *   profiles?: Record<string, any>[],
@@ -188,6 +203,7 @@ export function ShoppingView({
   ownEmoji,
   onCombinedToggle,
   shopsPerWeek = 1,
+  houseShopped = false,
   prices = null,
   region = undefined,
   storeSlug = "",
@@ -217,6 +233,59 @@ export function ShoppingView({
   // camera scan: null | "busy" | { error } | { items, kept: boolean[] }
   const [scan, setScan] = useState(/** @type {any} */ (null));
   const fileRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+  // FRESH START (David, 2026-08-01: "start from a nothing pantry and scan
+  // into the pantry and fridge"): wipe everything, then walk the kitchen one
+  // shelf at a time. `fresh` = step index into FRESH_STEPS, null = not
+  // running. Wizard scans are ADDITIVE ("add" mode) — the wipe already
+  // guaranteed a clean slate, and a big fridge takes more than one photo.
+  const [fresh, setFresh] = useState(
+    /** @type {number | null} */ (
+      (() => {
+        // the wipe is irreversible in-app, so the wizard step survives a
+        // reload or PWA background-kill instead of stranding a half-scanned
+        // kitchen with no prompt (Tribunal L7)
+        try {
+          const raw = localStorage.getItem("mise.freshStart");
+          if (raw == null) return null;
+          const n = Number(raw);
+          return Number.isInteger(n) && n >= 0 && n < FRESH_STEPS.length ? n : null;
+        } catch {
+          return null;
+        }
+      })()
+    ),
+  );
+  const [freshShots, setFreshShots] = useState(0); // photos approved this step
+  useEffect(() => {
+    try {
+      if (fresh == null) localStorage.removeItem("mise.freshStart");
+      else localStorage.setItem("mise.freshStart", String(fresh));
+    } catch {
+      // storage blocked: the step just does not survive a reload
+    }
+    if (fresh != null) setScanLocation(FRESH_STEPS[fresh]?.loc ?? "pantry");
+  }, [fresh]);
+  const freshStep = (fresh != null ? FRESH_STEPS[fresh] : null) ?? null;
+  // a scan in flight or an unapproved review on screen: advancing now would
+  // either retarget the resolving photo at the wrong shelf or silently throw
+  // away food the camera already read — from a kitchen that was just wiped
+  const scanPending = scan === "busy" || Boolean(scan?.items);
+  const advanceFresh = () => {
+    if (fresh == null) return;
+    if (fresh < FRESH_STEPS.length - 1) {
+      const next = fresh + 1;
+      setFresh(next);
+      setFreshShots(0);
+      setScan(null);
+      setScanLocation(FRESH_STEPS[next]?.loc ?? "pantry");
+    } else {
+      setFresh(null);
+      setScan({
+        notice:
+          "kitchen scanned ✓ — now everyone taps GENERATE MY WEEK on Plan, then shop the FAMILY list once",
+      });
+    }
+  };
   // receipt scan (price freshness loop): null | "busy" | { error } | { notice }
   //   | { store, lines: [{name, price, size}], kept: bool[] }
   const [receipt, setReceipt] = useState(/** @type {any} */ (null));
@@ -284,6 +353,27 @@ export function ShoppingView({
   const items = shopping.items ?? [];
   const checkedCount = items.filter((i) => i.checked).length;
 
+  // fridge-first (David, 2026-08-01): food the kitchen already holds comes
+  // off the trip at render time. Only where THIS list IS the trip — a profile
+  // alone in its house. With housemates, the FAMILY tab is the trip and the
+  // subtraction happens there exactly once: four lists each subtracting the
+  // same fridge pack would collectively under-buy.
+  // a row someone already TICKED never hides in the covered block, whatever
+  // stock arrives mid-trip: it stays visible (and un-tickable back) in its
+  // aisle, so "ADD TO PANTRY (n)" always counts rows the shopper can see
+  const keepTicked = (
+    /** @type {{ toBuy: any[], covered: any[] }} */ trip,
+    /** @type {(i: any) => boolean} */ isDone,
+  ) => ({
+    toBuy: [...trip.toBuy, ...trip.covered.filter(isDone)],
+    covered: trip.covered.filter((i) => !isDone(i)),
+  });
+  const soloTrip =
+    others.length === 0
+      ? keepTicked(subtractPantryFromTrip(items, pantry), (i) => i.checked)
+      : null;
+  const tripItems = soloTrip ? soloTrip.toBuy : items;
+
   // price estimates (prices.json catalogue): chips per row at the profile's
   // own store, trip totals + grocery tax below the list, honest store ranking
   // store to price against: the shopper PICKS it per trip (they might go to
@@ -298,13 +388,13 @@ export function ShoppingView({
     localStorage.setItem(storeKey, s);
   };
   const allStores = prices?.stores ?? [];
-  const ranked = prices ? rankStores(items, prices, region) : [];
+  const ranked = prices ? rankStores(tripItems, prices, region) : [];
   const homeStore =
     (pickedStore && allStores.includes(pickedStore) && pickedStore) ||
     (storeSlug && allStores.includes(storeSlug) && storeSlug) ||
     ranked[0]?.store ||
     "";
-  const homeSummary = homeStore ? tripTotal(items, prices, homeStore, region) : null;
+  const homeSummary = homeStore ? tripTotal(tripItems, prices, homeStore, region) : null;
   const bestStore = ranked[0] ?? null;
   const priceTag = (/** @type {any} */ item) => {
     if (!prices || !homeStore) return "";
@@ -320,7 +410,7 @@ export function ShoppingView({
     .map((s) => ({
       section: s,
       label: aisles.labels[s] ?? "",
-      items: items.filter((i) => i.section === s),
+      items: tripItems.filter((i) => i.section === s),
     }))
     .filter((g) => g.items.length > 0);
 
@@ -374,7 +464,7 @@ export function ShoppingView({
     }
   };
   const tripOthers = others.filter((o) => !tripOff.has(o.profileId));
-  const combined =
+  const combinedMerged =
     tripOthers.length > 0 || tripOff.has(me)
       ? mergeProfileLists([
           ...(tripOff.has(me) ? [] : [{ profileId: me, list: shopping }]),
@@ -386,6 +476,29 @@ export function ShoppingView({
             ...others.map((o) => ({ profileId: o.profileId, list: o.list })),
           ])
         : [];
+  // fridge-first for the house: the shared pantry is subtracted from the
+  // MERGED trip, exactly once, after everyone's quantities are summed
+  const combinedTrip = keepTicked(subtractPantryFromTrip(combinedMerged, pantry), (i) =>
+    i.sources.every((/** @type {any} */ s) => s.checked),
+  );
+  const combined = combinedTrip.toBuy;
+  // honest display of what the fridge-first pass took off a trip
+  const coveredBlock = (/** @type {any[]} */ covered) =>
+    covered.length > 0 &&
+    html`<div class="tile" role="note">
+      <div class="k">🧊 Already in the kitchen · ${covered.length} — not on this trip</div>
+      ${covered.map(
+        (i) => html`
+          <div class="d num" key=${i.id}>
+            ${i.food} — ${formatStoreQty(i.qty, i.unit)} needed, the shelves cover it
+          </div>
+        `,
+      )}
+      <p class="hint">
+        counted from the PANTRY tab's shelves. If a row there is wrong, fix it and this updates.
+      </p>
+    </div>`;
+
   const combinedSections = aisles.order
     .map((s) => ({
       section: s,
@@ -623,6 +736,17 @@ export function ShoppingView({
 
       ${
         tab === "list" &&
+        others.length > 0 &&
+        html`<div class="tile" role="note">
+          <div class="k">🛒 The store trip is the FAMILY tab</div>
+          <p class="hint">
+            This list is just your own meals. FAMILY merges the whole house, subtracts what the
+            kitchen already holds, and is the one list to shop from.
+          </p>
+        </div>`
+      }
+      ${
+        tab === "list" &&
         (moneyBalances ?? []).length > 0 &&
         html`<div class="tile" role="status">
           <div class="k">💰 house money · from shared tables</div>
@@ -752,9 +876,14 @@ export function ShoppingView({
             }
           </p>
           <p class="hint">
-            Aggregates the week's plan, drops pantry staples, groups by aisle. Rebuilt lists keep
-            your ticks and manual items. Tick = got it / have enough this week. P+ = already own it
-            — moves it to your permanent pantry staples.
+            Aggregates the week's plan, drops pantry
+            staples${
+              soloTrip
+                ? " and food already on the kitchen's shelves"
+                : " (the FAMILY tab subtracts what the kitchen already holds, once for the house)"
+            },
+            groups by aisle. Rebuilt lists keep your ticks and manual items. Tick = got it / have
+            enough this week. P+ = already own it — moves it to your permanent pantry staples.
           </p>
 
           ${trips.map(
@@ -779,9 +908,20 @@ export function ShoppingView({
                               <span class="food"
                                 >${i.food}${
                                   i.manual ? html` <span class="tag">manual</span>` : ""
+                                }${
+                                  /** @type {any} */ (i).kitchenHas
+                                    ? html` <span class="tag"
+                                        >buy this much — kitchen has the rest</span
+                                      >`
+                                    : ""
                                 }</span
                               >
-                              <span class="q num">${formatStoreQty(i.qty, i.unit)}</span>
+                              <span class="q num">
+                                ${formatStoreQty(i.qty, i.unit)}${(() => {
+                                  const h = packHint(i.food, i.qty, i.unit);
+                                  return h ? html` <span class="hint">${h}</span>` : "";
+                                })()}
+                              </span>
                               ${priceTag(i)}
                             </button>
                             <button
@@ -800,9 +940,10 @@ export function ShoppingView({
               </div>
             `,
           )}
+          ${soloTrip && coveredBlock(soloTrip.covered)}
           ${
             homeSummary &&
-            items.length > 0 &&
+            tripItems.length > 0 &&
             html`
               <div class="tile">
                 <div class="chips wrapchips" role="group" aria-label="Which store to price against">
@@ -835,7 +976,7 @@ export function ShoppingView({
                   <span class="status num">$${homeSummary.total.toFixed(2)}</span>
                 </div>
                 <p class="hint">
-                  ${homeSummary.priced} of ${items.length} rows
+                  ${homeSummary.priced} of ${tripItems.length} rows
                   priced${
                     homeSummary.estimates > 0 ? `, ${homeSummary.estimates} are estimates (~)` : ""
                   }${homeSummary.unpriced > 0 ? " — unpriced rows cost extra on top" : ""}.
@@ -872,7 +1013,9 @@ export function ShoppingView({
                     ? "connect token in SYS"
                     : loading
                       ? "loading…"
-                      : "no list yet — build it from this week's plan"
+                      : houseShopped
+                        ? "the house has shopped this week ✓ — the receipt cleared this list and the food is on the PANTRY shelves. BUILD only if you add new meals."
+                        : "no list yet — build it from this week's plan"
               }
             </div>`
           }
@@ -902,6 +1045,67 @@ export function ShoppingView({
       ${
         tab === "pantry" &&
         html`
+          ${
+            fresh == null
+              ? html`<button
+                  class="ask scanbtn"
+                  disabled=${tokenBlocked || scan === "busy"}
+                  onClick=${async () => {
+                    const ok = await onEmptyPantry?.(false);
+                    if (ok === false) return;
+                    setFresh(0);
+                    setFreshShots(0);
+                    setScan(null);
+                    setScanLocation("fridge");
+                  }}
+                >
+                  🧹 START FRESH — rescan the whole kitchen
+                  <small>
+                    empties every shelf and the staples registry, then walks you through
+                    photographing the fridge, freezer, pantry and spice cabinet. What the camera
+                    reads becomes the kitchen's truth, and the week's shopping only buys what is not
+                    already here.
+                  </small>
+                </button>`
+              : html`<div class="tile scanreview" role="status">
+                  <div class="k">
+                    FRESH START · ${/** @type {number} */ (fresh) + 1} of ${FRESH_STEPS.length} —
+                    ${freshStep?.label}
+                  </div>
+                  <p class="hint">
+                    Photograph ${freshStep?.label}, approve what the camera reads, and take another
+                    photo if one shot didn't fit everything. Every photo ADDS here — nothing is
+                    replaced. Then NEXT. SKIP records nothing for this shelf, so the list will shop
+                    as if it were bare.
+                  </p>
+                  <div class="actions">
+                    <button class="secondary" disabled=${scanPending} onClick=${advanceFresh}>
+                      ${
+                        fresh < FRESH_STEPS.length - 1
+                          ? freshShots > 0
+                            ? "NEXT →"
+                            : "SKIP →"
+                          : "DONE ✓"
+                      }
+                    </button>
+                    <button
+                      class="secondary"
+                      disabled=${scanPending}
+                      onClick=${() => setFresh(null)}
+                    >
+                      STOP
+                    </button>
+                  </div>
+                  <p class="hint">
+                    STOP keeps the wipe and whatever is scanned so far — shelves you haven't
+                    photographed stay empty until you scan them from the shelf chips below.
+                  </p>
+                  ${
+                    scanPending &&
+                    html`<p class="hint">finish the photo below first — approve or cancel it</p>`
+                  }
+                </div>`
+          }
           <div class="chips wrapchips" role="group" aria-label="Which shelf">
             ${
               // the shelf chips are the VIEW, not just the camera's target
@@ -926,6 +1130,7 @@ export function ShoppingView({
                     key=${l}
                     class=${scanLocation === l ? "chip on" : "chip"}
                     aria-pressed=${scanLocation === l}
+                    disabled=${fresh != null}
                     onClick=${() => setScanLocation(l)}
                   >
                     ${l}${n > 0 ? ` (${n})` : ""}
@@ -939,10 +1144,17 @@ export function ShoppingView({
             onClick=${() => fileRef.current?.click()}
             disabled=${scan === "busy" || tokenBlocked || scanLocation === "unsorted"}
           >
-            ${scan === "busy" ? "READING PHOTO…" : `📷 SCAN THE ${scanLocation.toUpperCase()}`}
+            ${
+              scan === "busy"
+                ? "READING PHOTO…"
+                : `📷 SCAN ${fresh != null ? (freshStep?.label ?? "").toUpperCase() : `THE ${scanLocation.toUpperCase()}`}`
+            }
             <small>
-              these photos become the whole truth about the ${scanLocation}: approving REPLACES what
-              is recorded there. Nothing else is touched.
+              ${
+                fresh != null
+                  ? `fresh start: every approved photo ADDS to ${freshStep?.label}. Shoot until it is all recorded.`
+                  : `these photos become the whole truth about the ${scanLocation}: approving REPLACES what is recorded there. Nothing else is touched.`
+              }
             </small>
           </button>
           <input
@@ -999,14 +1211,22 @@ export function ShoppingView({
                         scan.items.filter((/** @type {any} */ _, /** @type {number} */ i) =>
                           Boolean(scan.kept[i]),
                         ),
-                        scanLocation,
+                        // mid-wizard the STEP owns the target shelf — a chip
+                        // tapped while a photo was in flight must not redirect
+                        // the fridge's food to the pantry
+                        fresh != null ? (freshStep?.loc ?? scanLocation) : scanLocation,
+                        fresh != null ? "add" : "sweep",
                       );
                       setScan(null);
+                      if (fresh != null) setFreshShots(freshShots + 1);
                     }}
                     disabled=${!scan.kept.some(Boolean)}
                   >
-                    SET THE ${scanLocation.toUpperCase()} TO THESE
-                    ${scan.kept.filter(Boolean).length}
+                    ${
+                      fresh != null
+                        ? `ADD THESE ${scan.kept.filter(Boolean).length} TO THE KITCHEN`
+                        : `SET THE ${scanLocation.toUpperCase()} TO THESE ${scan.kept.filter(Boolean).length}`
+                    }
                   </button>
                   <button class="secondary" onClick=${() => setScan(null)}>CANCEL</button>
                 </div>
@@ -1085,26 +1305,26 @@ export function ShoppingView({
                       </span>
                       <span class="q num ${daysLeft != null && daysLeft <= 2 ? "expiring" : ""}">
                         ${
-                            // how much is LEFT, now that cooking subtracts —
-                            // "good til" alone can't tell you whether there is
-                            // enough chicken for Thursday
-                            p.qty ? `${p.qty} · ` : ""
-                          }${
-                            goodUntil
-                              ? `good til ${parseLocalIso(goodUntil).toLocaleDateString([], { month: "short", day: "numeric" })} · ${daysLeft}d`
-                              : "no date"
-                          }
+                          // how much is LEFT, now that cooking subtracts —
+                          // "good til" alone can't tell you whether there is
+                          // enough chicken for Thursday
+                          p.qty ? `${p.qty} · ` : ""
+                        }${
+                          goodUntil
+                            ? `good til ${parseLocalIso(goodUntil).toLocaleDateString([], { month: "short", day: "numeric" })} · ${daysLeft}d`
+                            : "no date"
+                        }
                       </span>
                       ${
-                          onRemovePantry &&
-                          html`<button
-                            class="rmbtn"
-                            aria-label="Remove ${p.food} from the pantry"
-                            onClick=${() => onRemovePantry("perishable", p.id)}
-                          >
-                            ✕
-                          </button>`
-                        }
+                        onRemovePantry &&
+                        html`<button
+                          class="rmbtn"
+                          aria-label="Remove ${p.food} from the pantry"
+                          onClick=${() => onRemovePantry("perishable", p.id)}
+                        >
+                          ✕
+                        </button>`
+                      }
                     </div>
                   `;
                 })}
@@ -1256,6 +1476,7 @@ export function ShoppingView({
               </div>
             `
           }
+          ${coveredBlock(combinedTrip.covered)}
           ${combinedSections.map(
             (g) => html`
               <h2 class="block-title" key=${g.section}>
@@ -1263,11 +1484,12 @@ export function ShoppingView({
               </h2>
               <div class="slots">
                 ${g.items.map((i) => {
-                  const allChecked = i.sources.every((s) => s.checked);
-                  const someChecked = !allChecked && i.sources.some((s) => s.checked);
+                  const allChecked = i.sources.every((/** @type {any} */ s) => s.checked);
+                  const someChecked =
+                    !allChecked && i.sources.some((/** @type {any} */ s) => s.checked);
                   const stillNeeds = i.sources
-                    .filter((s) => !s.checked)
-                    .map((s) => emojiFor.get(s.profileId) ?? "?")
+                    .filter((/** @type {any} */ s) => !s.checked)
+                    .map((/** @type {any} */ s) => emojiFor.get(s.profileId) ?? "?")
                     .join(" ");
                   return html`
                     <div class="checkrow ${allChecked ? "done" : ""}" key=${i.id}>
@@ -1287,13 +1509,22 @@ export function ShoppingView({
                         <span class="food">
                           ${i.food}${" "}
                           <span class="tag"
-                            >${i.sources.map((s) => emojiFor.get(s.profileId) ?? "?").join(" ")}</span
+                            >${i.sources.map((/** @type {any} */ s) => emojiFor.get(s.profileId) ?? "?").join(" ")}</span
                           >
                           ${
                             someChecked && html` <span class="tag">still needs ${stillNeeds}</span>`
+                          }${
+                            i.kitchenHas
+                              ? html` <span class="tag">buy this much — kitchen has the rest</span>`
+                              : ""
                           }
                         </span>
-                        <span class="q num">${formatStoreQty(i.qty, i.unit)}</span>
+                        <span class="q num">
+                          ${formatStoreQty(i.qty, i.unit)}${(() => {
+                            const h = packHint(i.food, i.qty, i.unit);
+                            return h ? html` <span class="hint">${h}</span>` : "";
+                          })()}
+                        </span>
                         ${priceTag(i)}
                       </button>
                     </div>

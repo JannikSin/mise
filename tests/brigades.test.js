@@ -165,6 +165,26 @@ test("IDS ARE DETERMINISTIC, so two phones generating offline cannot double-shop
   assert.equal(a.tables[0].id, brigadeTableId("b1", "2026-07-27", "dinner"));
 });
 
+test("THE PICK DOES NOT DEPEND ON THE RUN DAY (Tribunal H2)", () => {
+  // The regression this pins: with a used-set the pool was walked relative to
+  // the dates THIS run materializes, so a phone generating on Wednesday chose
+  // different dinners than one that ran Monday — same deterministic ids, so
+  // the merge silently swapped tonight's meal after the cook had shopped.
+  const monday = materializeBrigade({ tables: [] }, BRIGADE, ctx()).events;
+  const byDate = new Map(monday.tables.map((t) => [t.date, t.recipeId]));
+  const wednesday = materializeBrigade({ tables: [] }, BRIGADE, ctx({ today: "2026-07-29" })).events;
+  assert.ok(wednesday.tables.length > 0);
+  for (const t of wednesday.tables) {
+    assert.equal(t.recipeId, byDate.get(t.date), `${t.date} must not depend on the run day`);
+  }
+  // and the walk still repeats nothing inside one pool's worth of days
+  const pool = brigadePool(BANK, [{ id: "mom" }, { id: "laurie" }], "dinner");
+  const seq = [...byDate.values()];
+  for (let i = 0; i + pool.length <= seq.length; i++) {
+    assert.equal(new Set(seq.slice(i, i + pool.length)).size, pool.length, "no repeat in window");
+  }
+});
+
 test("materialize is idempotent: running it again changes nothing", () => {
   const first = materializeBrigade({ tables: [] }, BRIGADE, ctx()).events;
   const second = materializeBrigade(first, BRIGADE, ctx());
@@ -338,4 +358,99 @@ test("A HAND-SET TABLE BEATS THE BRIGADE'S, and the cook shops the meal once", (
   const mondayShops = out.cookExtras.filter((e) => e.date === "2026-07-27");
   assert.equal(mondayShops.length, 1, "and the cook buys that dinner exactly once");
   assert.equal(mondayShops[0].recipeId, "tagine");
+});
+
+test("ROTATING COOKS cycle memberIds by calendar day, derived from the date", () => {
+  // David 2026-08-01: "each person is responsible for 1-2 dinners." The cook
+  // must come from the DATE, never a loop counter, or regenerating mid-week
+  // (past days skipped) would silently reassign the remaining nights.
+  const rot = { ...BRIGADE, memberIds: ["mom", "laurie", "david"], rotateCooks: true };
+  const { events } = materializeBrigade({ tables: [] }, rot, ctx());
+  const cooks = events.tables
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((t) => t.cookId);
+  assert.deepEqual(cooks, ["mom", "laurie", "david", "mom", "laurie"]);
+});
+
+test("rotation is stable when generation happens mid-week", () => {
+  // Wednesday's device generates with Mon/Tue already lived: the surviving
+  // nights keep the cooks the whole house already agreed to.
+  const rot = { ...BRIGADE, memberIds: ["mom", "laurie", "david"], rotateCooks: true };
+  const full = materializeBrigade({ tables: [] }, rot, ctx()).events;
+  const late = materializeBrigade({ tables: [] }, rot, ctx({ today: "2026-07-29" })).events;
+  for (const t of late.tables) {
+    const same = full.tables.find((x) => x.id === t.id);
+    assert.equal(t.cookId, same.cookId, `${t.date} keeps its cook`);
+    // Tribunal H2: the MEAL is as date-stable as the cook. The old used-set
+    // walked the pool relative to the run's date list, so a Wednesday device
+    // picked different dinners than a Monday one under the SAME table ids
+    // and the merge silently swapped a meal the cook had shopped for.
+    assert.equal(t.recipeId, same.recipeId, `${t.date} keeps its meal`);
+  }
+});
+
+test("regenerate onto a CHANGED bank recomputes servings; skips still carry (Tribunal H3)", () => {
+  const first = materializeBrigade({ tables: [] }, BRIGADE, ctx()).events;
+  // hand-edit mom's servings and skip laurie on the first night
+  const night = first.tables.slice().sort((a, b) => a.date.localeCompare(b.date))[0];
+  night.seats = night.seats.map((s) =>
+    s.id === "mom" ? { ...s, servings: 1.25 } : { ...s, status: "skipped" },
+  );
+  // the bank changes so the re-roll lands a DIFFERENT recipe on that night
+  const fatDish = recipe("zz-massive-lasagna", 1800);
+  const bank = new Map([["zz-massive-lasagna", fatDish]]);
+  const re = materializeBrigade(first, BRIGADE, ctx({ bankById: bank, regenerate: true })).events;
+  const reNight = re.tables.find((t) => t.id === night.id);
+  assert.equal(reNight.recipeId, "zz-massive-lasagna");
+  const mom = reNight.seats.find((s) => s.id === "mom");
+  assert.notEqual(mom.servings, 1.25, "1.25 servings of chili is not 1.25 of an 1800-kcal dish");
+  assert.equal(
+    reNight.seats.find((s) => s.id === "laurie").status,
+    "skipped",
+    "the Laurie lesson: a skip is a decision and always carries",
+  );
+});
+
+test("a skipped rotated cook still cooks and still pays (Tribunal M6)", () => {
+  const table = {
+    id: "t1",
+    name: "Family dinner",
+    date: "2026-07-28",
+    slot: "dinner",
+    recipeId: "chili",
+    cookId: "laurie",
+    seats: [
+      { id: "mom", servings: 1 },
+      { id: "laurie", servings: 1, status: "skipped" },
+    ],
+  };
+  const cook = cookOf(table, "taranowski", PROFILES);
+  assert.equal(cook?.id, "laurie", "cooking is not eating — the role must not slide to seat #1");
+  // a cookId that is NOT of this house (or not a profile at all) still falls
+  // through to the house rule: the named path must not void the cook
+  const away = cookOf({ ...table, cookId: "away" }, "taranowski", PROFILES);
+  assert.equal(away?.id, "mom", "an out-of-house named cook falls back to the house rule");
+  const ghost = cookOf({ ...table, cookId: "nobody" }, "taranowski", PROFILES);
+  assert.equal(ghost?.id, "mom", "an unknown cookId falls back too, never null");
+});
+
+test("a recipe any member banned outright (avoidRecipes) never reaches the shared pot", () => {
+  const members = [{ id: "mom", avoidRecipes: ["chili"] }, { id: "laurie" }];
+  const pool = brigadePool(BANK, members, "dinner");
+  assert.ok(!pool.some((r) => r.id === "chili"));
+  assert.ok(pool.some((r) => r.id === "tagine"), "everything else stays");
+});
+
+test("materializeBrigade honors a member's avoidRecipes from their targets", () => {
+  const targets = new Map(TARGETS);
+  targets.set("mom", { ...TARGETS.get("mom"), avoidRecipes: ["chili", "tagine", "curry"] });
+  const { events, thin } = materializeBrigade(
+    { tables: [] },
+    BRIGADE,
+    ctx({ targetsById: targets }),
+  );
+  // only onion-stew survives her ban list, so the week repeats it and says so
+  assert.ok(events.tables.every((t) => t.recipeId === "onion-stew"));
+  assert.ok(thin.length > 0, "a one-recipe pool is reported thin, not papered over");
 });

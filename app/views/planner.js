@@ -47,6 +47,7 @@ function monthDay(isoDate) {
  * GENERATE WEEK; nothing in the app sets one any more.
  * @param {{
  *   recipes: Record<string, any>[],
+ *   identityRecipes?: Record<string, any>[],
  *   plan: import("../lib/plan.js").Plan,
  *   targets: Record<string, any> | null,
  *   poolReport: { counts: Record<string, number>, warnings: string[] } | null,
@@ -70,6 +71,7 @@ function monthDay(isoDate) {
  */
 export function PlannerView({
   recipes,
+  identityRecipes = undefined,
   plan,
   targets,
   poolReport,
@@ -98,7 +100,10 @@ export function PlannerView({
   const todayRef = useRef(todayIso);
   todayRef.current = todayIso;
 
-  const byId = recipesById(recipes);
+  // identity pool when provided: an existing entry must resolve (and count
+  // its macros) even when a screen has since removed its recipe from the
+  // pickable pool; `recipes` stays the pool SWITCH and the tray pick from
+  const byId = recipesById(identityRecipes ?? recipes);
   const dates = datesOfWeek(weekId);
   const kcalTarget = targets?.macros?.calories ?? 3400;
   const proteinTarget = targets?.macros?.protein ?? 210;
@@ -370,7 +375,21 @@ export function PlannerView({
               ${
                 dayTable &&
                 html`<p class="hint">
-                  🍽 adjusted around ${dayTable.freeText} · <a href="#/tables">Table tab</a>
+                  ${
+                    // cookTotal only exists on the cook's own device — the one
+                    // honest "it's your night" signal available in this view
+                    /** @type {any} */ (dayTable).cookTotal
+                      ? html`🍽 family dinner — <strong>👨‍🍳 your night to cook</strong> (batch
+                          ×${/** @type {any} */ (dayTable).cookTotal})`
+                      : html`🍽 family dinner — you're seated, nothing to
+                        shop${
+                          /** @type {any} */ (dayTable).cookName
+                            ? html` ·
+                                <strong>👨‍🍳 ${/** @type {any} */ (dayTable).cookName} cooks</strong>`
+                            : ""
+                        }`
+                  }
+                  ${" "}· <a href="#/tables">Table tab</a>
                 </p>`
               }
               <div class="slotgrid">
@@ -537,7 +556,7 @@ export function PlannerView({
       })}
 
       <${CookBlocks}
-        recipes=${recipes}
+        recipes=${identityRecipes ?? recipes}
         plan=${plan}
         tableConflicts=${tableConflicts}
         nextPlan=${nextPlan}

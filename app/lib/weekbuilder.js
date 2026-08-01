@@ -200,6 +200,7 @@ export function foodGroupGapBonus(recipe, coverageSoFar, targets) {
  *   size?: number,
  *   salt?: number,
  *   useSoonFoods?: string[],
+ *   onHandFoods?: string[],
  *   weekFoodPool?: Set<string>,
  *   coverageSoFar?: Record<string, number>,
  *   dailyDozenTargets?: Record<string, number>,
@@ -217,6 +218,10 @@ export function pickCommittee(candidates, opts = {}) {
   const size = Math.min(opts.size ?? 4, candidates.length);
   const salt = opts.salt ?? 0;
   const useSoon = opts.useSoonFoods ?? [];
+  // everything countable already in the kitchen (fridge-first shopping,
+  // David 2026-08-01): a weaker pull than useSoon's expiry rescue, but every
+  // recipe that cooks owned food is food not bought
+  const onHand = opts.onHandFoods ?? [];
   const weekFoodPool = opts.weekFoodPool ?? new Set();
   const coverageSoFar = opts.coverageSoFar ?? {};
   const dailyDozenTargets = opts.dailyDozenTargets ?? {};
@@ -264,6 +269,7 @@ export function pickCommittee(candidates, opts = {}) {
   };
   const bonus = (/** @type {Record<string, any>} */ r) =>
     foodMatchCount(r, useSoon) * 3 +
+    foodMatchCount(r, onHand) * 1 +
     (r.nutrition?.protein ?? 0) / 200 +
     foodGroupGapBonus(r, coverageSoFar, dailyDozenTargets) * 2 +
     tasteBonus(r) +
@@ -861,8 +867,10 @@ export function poolAdequacy(recipes, targets) {
  * (their foods/food-groups count toward "already in play"). Among the listed
  * slots, dinner is picked first (biggest ingredient mass), then lunch,
  * breakfast, smoothie — each committee sees the growing week-wide food pool
- * and coverage. The office-lunch-box recipe (if present) hard-pins Tue/Wed/
- * Thu when lunch is a proactive slot, matching the Sunday-batch routine.
+ * and coverage. Lunches cycle their committee like breakfasts do — no recipe
+ * is ever hard-pinned by id (the office-lunch-box special case died 2026-08-01;
+ * David: never again. A profile that wants it banned outright lists it in
+ * targets.avoidRecipes).
  * Deterministic per (weekId, salt); RE-ROLL is salt+1 over the same pinned
  * base.
  * @param {{
@@ -904,6 +912,11 @@ export function generateWeek({
   const useSoonFoods = (pantry.perishables ?? [])
     .filter((/** @type {any} */ p) => p.useSoon)
     .map((/** @type {any} */ p) => String(p.food));
+  // every perishable on the shelves, expiring or not: committees lean toward
+  // cooking what the house already owns, so the shopping list shrinks
+  const onHandFoods = [
+    ...new Set((pantry.perishables ?? []).map((/** @type {any} */ p) => String(p.food))),
+  ];
 
   // survey-v2 FILTERS applied at pool level (Q12 time, Q15 skill, Q16 gear).
   // maxWeeknightMinutes caps only dinner/lunch (breakfast/smoothie/snack are
@@ -1012,6 +1025,7 @@ export function generateWeek({
         size: COMMITTEE_SIZES[meal],
         salt,
         useSoonFoods,
+        onHandFoods,
         weekFoodPool,
         coverageSoFar,
         dailyDozenTargets: dailyDozenWeekly,
@@ -1047,35 +1061,20 @@ export function generateWeek({
     next = addEntry(next, date, slot, { recipeId: recipe.id, servings: 1 });
   };
 
-  // office-lunch-box hard-pins Tue/Wed/Thu when it exists in the pool
-  // (Sunday-batch routine), searched across the full lunch pool — not just
-  // whichever 3 recipes made the committee
-  const officeLunch = pool("lunch").find((r) => r.id === "office-lunch-box");
-  const otherLunches = committees.lunch.filter((r) => r.id !== "office-lunch-box");
-
   const dinnerRotation = hash(`${weekId}|${salt}|dinner`) % Math.max(1, committees.dinner.length);
   const dinnerSequence = twoPassSequence(committees.dinner, dinnerRotation);
   let dinnerCursor = 0;
 
   dates.forEach((date, i) => {
-    if (isPast(date)) return; // day already eaten — index i keeps office days weekday-true
+    if (isPast(date)) return; // day already eaten — index i stays weekday-true
     if (mealSlotSet.has("breakfast")) {
       fill(date, "breakfast", committees.breakfast[i % Math.max(1, committees.breakfast.length)]);
     }
     if (mealSlotSet.has("smoothie")) {
       fill(date, "smoothie", committees.smoothie[0]);
     }
-    const isOfficeDay = i >= 1 && i <= 3; // Tue/Wed/Thu
     if (mealSlotSet.has("lunch")) {
-      fill(
-        date,
-        "lunch",
-        isOfficeDay && officeLunch
-          ? officeLunch
-          : (otherLunches[i % Math.max(1, otherLunches.length)] ??
-              officeLunch ??
-              committees.lunch[0]),
-      );
+      fill(date, "lunch", committees.lunch[i % Math.max(1, committees.lunch.length)]);
     }
     if (
       mealSlotSet.has("dinner") &&
