@@ -109,6 +109,14 @@ The strict rule from the blueprint: **no phase starts until the previous one is 
 
 **Phase 5 — Career digest + live Claude.** The Worker already IS the live-Claude infrastructure — `/remedy` proved the pattern (forced tool schema, validated output, PAT auth). A general `/ask` endpoint is the same ~60 lines with a different system prompt. The career digest is another scheduled-task product: weekly research written to `digest.json`, rendered as a read-only view.
 
+**Tagged for later (David, 2026-08-01):** produce-picking guidance on the
+shopping list — per-item "how to pick a good one" notes (thump a watermelon,
+avocado gives slightly at the stem, heavy-for-size citrus). Natural shape: a
+static `PICK_TIPS` table beside `PACK_HINTS` in `app/lib/shopping.js`,
+rendered as a tap-to-expand hint on produce rows. Static data, no Worker, no
+schema change. Not built yet — David called it "maybe not necessary" and
+asked for the tag only.
+
 **Thinking further out** (the 30-steps-ahead view): every phase adds (a) a data file + schema, (b) at most one tab, (c) at most one Worker endpoint, (d) optionally one scheduled-task prompt. If a proposed feature doesn't decompose into those four pieces, it's fighting the architecture — redesign the feature, not the architecture. The things that must never change without a council run: the two-repo split, the PAT-only data path, offline-first, zero-build, and the small-files rule.
 
 ## 8. State of the build (July 2026)

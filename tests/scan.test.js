@@ -57,3 +57,53 @@ test("does not mutate the input pantry and tolerates missing arrays", () => {
   assert.equal(next.perishables.length, 1);
   assert.deepEqual(next.staples, []);
 });
+
+test("a scan with a location lands the new perishables on that shelf", () => {
+  const next = applyScanItems(
+    PANTRY,
+    [{ name: "greek yogurt", kind: "perishable", qty: "500 g" }],
+    "2026-07-06",
+    "fridge",
+  );
+  const row = next.perishables.find((p) => p.food === "greek yogurt");
+  assert.equal(row.location, "fridge");
+});
+
+test("a scan without a location keeps the legacy shape (no location field)", () => {
+  const next = applyScanItems(
+    PANTRY,
+    [{ name: "greek yogurt", kind: "perishable", qty: "500 g" }],
+    "2026-07-06",
+  );
+  const row = next.perishables.find((p) => p.food === "greek yogurt");
+  assert.ok(!("location" in row));
+});
+
+test("SHELF-AWARE refresh (Tribunal B3): a fridge scan never rewrites the freezer's pack", () => {
+  const pantry = {
+    staples: [],
+    perishables: [
+      { id: "z1", food: "chicken thigh", qty: "1 kg", added: "2026-07-10", location: "freezer" },
+    ],
+  };
+  const next = applyScanItems(
+    pantry,
+    [{ name: "chicken thigh", kind: "perishable", qty: "500 g" }],
+    "2026-08-01",
+    "fridge",
+  );
+  const freezer = next.perishables.find((p) => p.id === "z1");
+  assert.equal(freezer.qty, "1 kg", "freezer row untouched");
+  assert.equal(freezer.added, "2026-07-10", "no expiry laundering");
+  const fridge = next.perishables.find((p) => p.location === "fridge");
+  assert.equal(fridge.qty, "500 g", "the fridge gets its own new row");
+  // and a SECOND fridge photo refreshes the fridge row instead of duplicating
+  const again = applyScanItems(
+    next,
+    [{ name: "chicken thigh", kind: "perishable", qty: "700 g" }],
+    "2026-08-01",
+    "fridge",
+  );
+  assert.equal(again.perishables.filter((p) => p.food === "chicken thigh").length, 2);
+  assert.equal(again.perishables.find((p) => p.location === "fridge").qty, "700 g");
+});

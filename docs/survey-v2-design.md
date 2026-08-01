@@ -23,16 +23,16 @@ Three ways an answer can shape the plan, in decreasing strictness:
 
 ### Section 1: REQUIRED, "about you" (exists today, unchanged)
 
-| # | Question | Field | Mechanism |
-|---|----------|-------|-----------|
-| 1 | Name | profile `name`/`id` | identity |
-| 2 | Emoji | profile `emoji` | identity |
-| 3 | Sex | questionnaire input | TARGET: Mifflin-St Jeor constant, waterLiters |
-| 4 | Age | questionnaire input | TARGET: Mifflin-St Jeor |
-| 5 | Height ft+in | questionnaire input | TARGET: Mifflin-St Jeor |
-| 6 | Weight lb | questionnaire input | TARGET: Mifflin-St Jeor, protein g/lb |
-| 7 | Activity level (5 chips) | questionnaire input | TARGET: TDEE multiplier |
-| 8 | Goal lose/maintain/gain | `targets.phase` | TARGET: calorie delta; FILTER: `recipe.phases` tag via `mergeRecipePool` (exists) |
+| #   | Question                 | Field               | Mechanism                                                                         |
+| --- | ------------------------ | ------------------- | --------------------------------------------------------------------------------- |
+| 1   | Name                     | profile `name`/`id` | identity                                                                          |
+| 2   | Emoji                    | profile `emoji`     | identity                                                                          |
+| 3   | Sex                      | questionnaire input | TARGET: Mifflin-St Jeor constant, waterLiters                                     |
+| 4   | Age                      | questionnaire input | TARGET: Mifflin-St Jeor                                                           |
+| 5   | Height ft+in             | questionnaire input | TARGET: Mifflin-St Jeor                                                           |
+| 6   | Weight lb                | questionnaire input | TARGET: Mifflin-St Jeor, protein g/lb                                             |
+| 7   | Activity level (5 chips) | questionnaire input | TARGET: TDEE multiplier                                                           |
+| 8   | Goal lose/maintain/gain  | `targets.phase`     | TARGET: calorie delta; FILTER: `recipe.phases` tag via `mergeRecipePool` (exists) |
 
 ### Section 2: REQUIRED, "what you eat" (new, ~1 minute)
 

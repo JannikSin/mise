@@ -26,6 +26,9 @@ import {
   locationForBuy,
   applyReceiptStock,
   consumeForCook,
+  subtractPantryFromTrip,
+  clearReceiptRows,
+  packHint,
 } from "../app/lib/shopping.js";
 
 test("tripOf: perishable sections are the fresh trip, shelf-stable the pantry trip", () => {
@@ -1361,4 +1364,255 @@ test("consumeForCook: food that is not on any shelf changes nothing", () => {
   const out = consumeForCook(pantry, [{ food: "salmon", qty: 200, unit: "g" }]);
   assert.equal(out.pantry, pantry);
   assert.deepEqual(out.used, []);
+});
+
+// ---- fridge-first trips (David 2026-08-01: "only buy stuff that we need") ----
+
+const tripItem = (id, food, qty, unit, extra = {}) => ({
+  id,
+  food,
+  qty,
+  unit,
+  section: "meat",
+  checked: false,
+  manual: false,
+  ...extra,
+});
+
+test("subtractPantryFromTrip: a fully covered row leaves the buy list honestly", () => {
+  const pantry = { perishables: [{ food: "chicken thigh", qty: "600 g", added: "2026-07-30" }] };
+  const { toBuy, covered } = subtractPantryFromTrip(
+    [tripItem("chicken-thigh", "chicken thigh", 500, "g")],
+    pantry,
+  );
+  assert.equal(toBuy.length, 0);
+  assert.equal(covered.length, 1);
+  assert.equal(covered[0].food, "chicken thigh");
+});
+
+test("subtractPantryFromTrip: partial cover reduces the buy and flags the row", () => {
+  const pantry = { perishables: [{ food: "chicken thigh", qty: "200 g", added: "2026-07-30" }] };
+  const { toBuy, covered } = subtractPantryFromTrip(
+    [tripItem("chicken-thigh", "chicken thigh", 500, "g")],
+    pantry,
+  );
+  assert.equal(covered.length, 0);
+  assert.equal(toBuy.length, 1);
+  assert.ok(toBuy[0].qty < 500 && toBuy[0].qty >= 300, `re-rounded remainder, got ${toBuy[0].qty}`);
+  assert.equal(toBuy[0].kitchenHas, true);
+});
+
+test("subtractPantryFromTrip: free-text pantry quantities never fake-subtract", () => {
+  const pantry = { perishables: [{ food: "chicken thigh", qty: "half a pack", added: "2026-07-30" }] };
+  const { toBuy, covered } = subtractPantryFromTrip(
+    [tripItem("chicken-thigh", "chicken thigh", 500, "g")],
+    pantry,
+  );
+  assert.equal(covered.length, 0);
+  assert.equal(toBuy[0].qty, 500, "cannot count it, so the full buy stands");
+  assert.equal(toBuy[0].kitchenHas, undefined);
+});
+
+test("subtractPantryFromTrip: unit-x rows (manual, running-low staples) never reduce", () => {
+  const pantry = { perishables: [{ food: "batteries", qty: "4 x", added: "2026-07-30" }] };
+  const { toBuy } = subtractPantryFromTrip(
+    [tripItem("batteries-x", "batteries", 1, "x", { manual: true })],
+    pantry,
+  );
+  assert.equal(toBuy.length, 1);
+  assert.equal(toBuy[0].qty, 1);
+});
+
+test("subtractPantryFromTrip: two rows of one food cannot both claim the same pack", () => {
+  const pantry = { perishables: [{ food: "chicken thigh", qty: "500 g", added: "2026-07-30" }] };
+  const { toBuy, covered } = subtractPantryFromTrip(
+    [
+      tripItem("a", "chicken thigh", 400, "g"),
+      tripItem("b", "chicken thigh", 300, "g"),
+    ],
+    pantry,
+  );
+  assert.equal(covered.length, 1, "the first row eats 400 of the 500");
+  assert.equal(toBuy.length, 1);
+  assert.ok(toBuy[0].qty >= 200 && toBuy[0].qty < 300, `only 100 g remained for row b, got ${toBuy[0].qty}`);
+});
+
+test("subtractPantryFromTrip: stored lists are untouched (render-time contract)", () => {
+  const items = [tripItem("chicken-thigh", "chicken thigh", 500, "g")];
+  const pantry = { perishables: [{ food: "chicken thigh", qty: "600 g", added: "2026-07-30" }] };
+  subtractPantryFromTrip(items, pantry);
+  assert.equal(items[0].qty, 500, "input rows are never mutated");
+  assert.equal(pantry.perishables[0].qty, "600 g", "the pantry is never mutated");
+});
+
+test("applyJustBought banks the pantry-REDUCED qty, never phantom stock", () => {
+  // kitchen already held 200 g; the rendered trip said BUY 300 g; ticking and
+  // banking must record 300, not the stored row's 500 — or next week's
+  // fridge-first pass sees 700 g on record for 500 g of real chicken and
+  // under-buys (code-review 2026-08-01, HIGH #1)
+  const shopping = {
+    generatedFrom: "2026-W32",
+    items: [tripItem("chicken-thigh", "chicken thigh", 500, "g", { checked: true })],
+  };
+  const pantry = {
+    staples: [],
+    perishables: [{ id: "p1", food: "chicken thigh", qty: "200 g", added: "2026-07-30" }],
+  };
+  const r = applyJustBought(shopping, pantry, "2026-08-01", { fridgeFirst: true });
+  const rows = r.pantry.perishables.filter((p) => p.food === "chicken thigh");
+  assert.equal(rows.length, 2, "old pack stays, one new pack lands");
+  const banked = rows.find((p) => p.id !== "p1");
+  assert.equal(banked.qty, "300 g");
+  // and a row the kitchen fully covered banks NOTHING — the tick meant
+  // "have enough", not "bought another"
+  const covered = applyJustBought(
+    { generatedFrom: "2026-W32", items: [tripItem("a", "chicken thigh", 150, "g", { checked: true })] },
+    pantry,
+    "2026-08-01",
+  
+    { fridgeFirst: true },
+  );
+  assert.equal(covered.pantry.perishables.length, 1, "nothing new banked");
+  assert.equal(covered.shopping.items.length, 0, "the ticked row still leaves the list");
+});
+
+test("clearReceiptRows: the receipt exits matching rows from a housemate's list", () => {
+  const list = {
+    generatedFrom: "2026-W32",
+    items: [
+      tripItem("chicken-thigh", "chicken thigh", 500, "g"),
+      tripItem("rolled-oats", "rolled oats", 400, "g"),
+      tripItem("tuna-can", "tuna", 2, "can", { checked: true }), // aisle-ticked
+    ],
+  };
+  const { list: next, changed } = clearReceiptRows(list, [{ name: "chicken thigh" }]);
+  assert.equal(changed, true);
+  assert.deepEqual(
+    next.items.map((i) => i.id),
+    ["rolled-oats"],
+    "receipt-matched AND already-ticked rows leave; the rest stay",
+  );
+  // nothing matched, nothing ticked = no write churn
+  const untouched = clearReceiptRows(
+    { generatedFrom: "2026-W32", items: [tripItem("a", "farro", 300, "g")] },
+    [{ name: "chicken thigh" }],
+  );
+  assert.equal(untouched.changed, false);
+});
+
+test("packHint: store-pack language for shelf quantities", () => {
+  assert.equal(packHint("baby spinach", 280, "g"), "≈ 2 bags");
+  assert.equal(packHint("cabbage", 900, "g"), "≈ 1 head");
+  assert.equal(packHint("garlic", 12, "clove"), "≈ 2 heads");
+  assert.equal(packHint("greek yogurt", 1.8, "kg"), "≈ 2 32 oz tubs");
+  assert.equal(packHint("milk", 1.9, "L"), "≈ 1 half-gallon");
+  assert.equal(packHint("chicken thigh", 900, "g"), "", "meat has no pack language — lb display already covers it");
+  assert.equal(packHint("tuna", 2, "can"), "", "counted units need no hint");
+  assert.equal(packHint("rice", 20000, "g"), "", "a silly pack count says nothing rather than shouting");
+});
+
+test("HOUSEHOLD REGRESSION (Red Team R1): the merged trip banks exactly what was bought", () => {
+  // 4 profiles, 500 g chicken each = 2000 g summed; the shelf holds 500 g.
+  // The FAMILY tab renders BUY 1500 g; the receipt must bank 1500 g — not 0,
+  // not 2000. This is the 4-person topology the app actually ships into.
+  const lists = ["david", "laurie", "mom", "dad"].map((profileId) => ({
+    profileId,
+    list: {
+      generatedFrom: "2026-W32",
+      items: [tripItem("chicken-thigh", "chicken thigh", 500, "g")],
+    },
+  }));
+  const pantry = {
+    staples: [],
+    perishables: [{ id: "p1", food: "chicken thigh", qty: "500 g", added: "2026-07-30" }],
+  };
+  const merged = mergeProfileLists(lists);
+  assert.equal(merged[0].qty, 2000, "the FAMILY row is the four portions summed");
+  const trip = subtractPantryFromTrip(merged, pantry);
+  assert.equal(`${trip.toBuy[0].qty} ${trip.toBuy[0].unit}`, "1.5 kg", "the trip says buy 1.5 kg");
+  // receipt time: bank ONCE from the merged trip (main.js handleReceiptApprove shape)
+  const mergedList = {
+    generatedFrom: "2026-W32",
+    items: merged.map((i) => ({ ...i, checked: false, manual: false })),
+  };
+  const stocked = applyReceiptStock(mergedList, pantry, [{ name: "chicken thigh" }], "2026-08-02");
+  const rows = stocked.pantry.perishables.filter((p) => p.food === "chicken thigh");
+  const banked = rows.find((p) => p.id !== "p1");
+  assert.equal(banked.qty, "1.5 kg", "banked === bought");
+  assert.equal(rows.length, 2, "old pack + the one new pack");
+  // and each housemate's list clears without banking anything further
+  for (const l of lists) {
+    const { list: cleared } = clearReceiptRows(l.list, [{ name: "chicken thigh" }]);
+    assert.equal(cleared.items.length, 0);
+  }
+});
+
+test("household manual ADD TO PANTRY banks verbatim (no per-portion re-subtraction)", () => {
+  // one member's 500 g portion of the merged trip must not be re-reduced
+  // against the shared 500 g shelf on their own device — that banked 0 for
+  // all four members while the fridge filled
+  const shopping = {
+    generatedFrom: "2026-W32",
+    items: [tripItem("chicken-thigh", "chicken thigh", 500, "g", { checked: true })],
+  };
+  const pantry = {
+    staples: [],
+    perishables: [{ id: "p1", food: "chicken thigh", qty: "500 g", added: "2026-07-30" }],
+  };
+  const r = applyJustBought(shopping, pantry, "2026-08-02"); // default: verbatim
+  const banked = r.pantry.perishables.find((p) => p.id !== "p1");
+  assert.equal(banked.qty, "500 g");
+});
+
+test("BANKED FOOD ROUND-TRIPS (Tribunal B1): next week's need subtracts from a kg pack", () => {
+  // the receipt banks the summed trip as "1.5 kg" of a food FOOD_UNITS never
+  // heard of; next week's 500 g need must see it as covered, and cooking
+  // must decrement it instead of deleting the pack as unmeasurable
+  const pantry = {
+    staples: [],
+    perishables: [{ id: "k1", food: "zz-mystery-cut", qty: "1.5 kg", added: "2026-08-02" }],
+  };
+  const { toBuy, covered } = subtractPantryFromTrip(
+    [tripItem("zz-mystery-cut", "zz-mystery-cut", 500, "g")],
+    pantry,
+  );
+  assert.equal(toBuy.length, 0);
+  assert.equal(covered.length, 1, "1.5 kg on the shelf covers a 500 g need");
+  const cooked = consumeForCook(pantry, [{ food: "zz-mystery-cut", qty: 500, unit: "g" }]);
+  const left = cooked.pantry.perishables.find((p) => p.id === "k1");
+  assert.ok(left, "cooking 500 g must not delete the whole pack");
+  assert.equal(left.qty, "1 kg");
+});
+
+test("PER-SOURCE BOUGHT (Tribunal B2): a solo-tab tick banks one portion, not four", () => {
+  // David ticks his own 500 g row on his personal tab; the receipt reads only
+  // eggs. Only HIS portion banks; the other three rows are neither banked nor
+  // cleared. (mirrors main.js handleReceiptApprove's boughtOf + merge shape)
+  const lists = ["david", "laurie", "mom", "dad"].map((profileId) => ({
+    profileId,
+    list: {
+      items: [
+        tripItem("chicken-thigh", "chicken thigh", 500, "g", {
+          checked: profileId === "david",
+        }),
+      ],
+    },
+  }));
+  const bought = lists.map(({ profileId, list }) => ({
+    profileId,
+    list: { items: list.items.filter((i) => i.checked) },
+  }));
+  const merged = mergeProfileLists(bought);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].qty, 500, "only the portion whose own list bought it");
+  const r = applyJustBought(
+    { items: merged.map((i) => ({ ...i, checked: true, manual: false })) },
+    { staples: [], perishables: [] },
+    "2026-08-02",
+    { fridgeFirst: true },
+  );
+  assert.equal(r.pantry.perishables[0].qty, "500 g");
+  // and clearReceiptRows leaves the untouched housemates' rows alone
+  const { changed } = clearReceiptRows(lists[1].list, [{ name: "eggs" }]);
+  assert.equal(changed, false);
 });

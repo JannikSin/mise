@@ -11,7 +11,7 @@ import { recipeConflicts, SLOT_KEYS } from "./plan.js";
  * @typedef {{ plate: string[], estCalories: number, estProtein: number }} TailorSeat
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
  * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, fromBrigade?: string }} TableEvent
- * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, from: string, until: string }} Brigade
+ * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string }} Brigade
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
 
@@ -130,7 +130,17 @@ export function cookOf(t, house, profilesById) {
   // pays": mergeKeyedArrays rebuilds seat order from map insertion order, so
   // a 409 could hand the bill to someone else. Brigade-materialized tables
   // always carry cookId; hand-made ones fall back to the original rule.
-  const named = t.cookId ? inHouse.find((s) => s.id === t.cookId) : null;
+  // The named cook is resolved IGNORING skip status (Tribunal 2026-08-01):
+  // cooking is not eating — a rotated cook who skips their own plate still
+  // shops and still pays, and letting the role slide to seat #1 would bill
+  // the wrong person every time it happens.
+  const namedSeat = t.cookId ? (t.seats ?? []).find((s) => s.id === t.cookId) : null;
+  const named =
+    namedSeat &&
+    profilesById.has(namedSeat.id) &&
+    (profilesById.get(namedSeat.id)?.household ?? "home") === house
+      ? namedSeat
+      : null;
   return named ?? inHouse[0] ?? null;
 }
 
@@ -158,6 +168,7 @@ export function cookOf(t, house, profilesById) {
  *   profileId: string,
  *   diet?: string,
  *   avoid?: string[],
+ *   avoidRecipes?: string[],
  *   bankById: Map<string, any>,
  *   ownEntries: Record<string, any>[],
  *   today: string,
@@ -245,7 +256,7 @@ export function deriveTables(houses, ctx) {
         continue;
       }
 
-      const reasons = recipeConflicts(recipe, ctx.diet, ctx.avoid);
+      const reasons = recipeConflicts(recipe, ctx.diet, ctx.avoid, ctx.avoidRecipes);
       if (reasons.length > 0) {
         conflicts.push({ table: t, reasons });
         continue; // no pin, no macros — never a backdoor around the screen
@@ -273,6 +284,15 @@ export function deriveTables(houses, ctx) {
         viewRecipeId: t.recipeId,
         // the cook needs the BATCH total at cook time, not just their portion
         ...(cook && cook.id === ctx.profileId ? { cookTotal: knownTotal } : {}),
+        // WHO cooks tonight, resolved to a display name here so no view needs
+        // the profiles list (Tribunal U1: with rotating cooks nobody could
+        // see whose turn it was). Derived-only, stripped like the rest.
+        ...(cook
+          ? {
+              cookId: cook.id,
+              cookName: ctx.profilesById?.get(cook.id)?.name ?? cook.id,
+            }
+          : {}),
         freeText: `🍽 ${t.name || recipe.name}`,
         servings,
         pinned: true,
@@ -489,7 +509,7 @@ export function seatServingsFor(targets, slot, recipe) {
  * private variants), which is safe when only they eat them and unsafe the
  * moment the meal is served to three other people.
  * @param {Map<string, any>} bankById
- * @param {{ id: string, diet?: string, avoid?: string[] }[]} members
+ * @param {{ id: string, diet?: string, avoid?: string[], avoidRecipes?: string[] }[]} members
  * @param {string} slot
  * @returns {Record<string, any>[]} eligible recipes, id-sorted for determinism
  */
@@ -501,6 +521,9 @@ export function brigadePool(bankById, members, slot) {
     // an AI-invented special is choosable deliberately, never auto-planned
     // (council 2026-07-23: "AI at the table, never in the plan")
     if (recipe.source === "ai-special" && !recipe.promoted) continue;
+    // a recipe any member has banned outright (targets.avoidRecipes) never
+    // reaches the shared pot — intersection, same as the diet screens
+    if (members.some((m) => (m.avoidRecipes ?? []).includes(recipe.id))) continue;
     if (members.every((m) => recipeConflicts(recipe, m.diet, m.avoid).length === 0))
       out.push(recipe);
   }
@@ -574,12 +597,29 @@ export function materializeBrigade(events, brigade, ctx) {
       id,
       diet: ctx.targetsById.get(id)?.diet,
       avoid: ctx.targetsById.get(id)?.avoidIngredients,
+      avoidRecipes: ctx.targetsById.get(id)?.avoidRecipes,
     }));
   if (members.length < 2) return { events, made: 0, thin: [] };
 
   const firstMember = members[0];
   if (!firstMember) return { events, made: 0, thin: [] };
   const cookId = members.some((m) => m.id === brigade.cookId) ? brigade.cookId : firstMember.id;
+  // ROTATING COOKS (David, 2026-08-01: "each person is responsible for 1-2
+  // dinners"): with `rotateCooks`, the cook cycles through the members in
+  // memberIds order, one per calendar day from the brigade's start. Derived
+  // from the DATE, never from a loop counter, so a regeneration run next
+  // Wednesday assigns the same cooks the whole house already agreed to, and
+  // two offline devices materialize identical tables (the id-keyed merge
+  // depends on that).
+  // whole days since the brigade began, UTC-parsed ISO dates so every device
+  // in every timezone computes the same offset
+  const dayOffset = (/** @type {string} */ date) =>
+    Math.round((Date.parse(date) - Date.parse(brigade.from)) / 86400000);
+  const cookFor = (/** @type {string} */ date) => {
+    if (!brigade.rotateCooks || members.length === 0) return cookId;
+    const at = ((dayOffset(date) % members.length) + members.length) % members.length;
+    return (members[at] ?? firstMember).id;
+  };
   const dates = ctx.dates
     .filter((d) => d >= brigade.from && d <= brigade.until)
     .filter((d) => d >= ctx.today) // day-aware: never touch a day already lived
@@ -600,37 +640,38 @@ export function materializeBrigade(events, brigade, ctx) {
     }
     if (pool.length < dates.length) thin.push({ slot, available: pool.length });
 
-    /** recipes this run has already used, so a week does not repeat itself */
-    const used = new Set();
     for (const date of dates) {
       const id = brigadeTableId(brigade.id, date, slot);
       const existing = byId.get(id);
       if (existing && !ctx.regenerate) continue; // idempotent: already set
 
-      // deterministic pick: every device computes the same meal for the same
-      // (brigade, date, slot) without coordinating
-      const start = hash(`${brigade.id}|${date}|${slot}`) % pool.length;
-      /** @type {Record<string, any> | undefined} */
-      let pick;
-      for (let n = 0; n < pool.length; n++) {
-        const candidate = pool[(start + n) % pool.length];
-        if (candidate && !used.has(candidate.id)) {
-          pick = candidate;
-          break;
-        }
-      }
-      // pool smaller than the week: repeating a meal is honest, inventing one is not
-      const meal = pick ?? pool[start];
+      // STATELESS per-date pick (Tribunal 2026-08-01): the meal is a pure
+      // function of (brigade, slot, date), never of which dates this RUN
+      // happens to materialize. The old used-set walked the pool relative to
+      // the run's date list, so a device generating on Wednesday picked
+      // different meals than one that ran Monday — same deterministic ids,
+      // DIFFERENT dinners, and the id-keyed merge silently swapped tonight's
+      // meal after the cook had shopped for the other one. Anchoring on the
+      // brigade+slot hash and walking by day offset repeats nothing within
+      // pool.length days and is byte-identical on every device on every day.
+      const meal =
+        pool[
+          (((hash(`${brigade.id}|${slot}`) + dayOffset(date)) % pool.length) + pool.length) %
+            pool.length
+        ];
       if (!meal) continue;
-      used.add(meal.id);
 
       // seats carry FORWARD on regeneration: a skip is a decision, not a
-      // detail to rebuild away (Tribunal amendment A3)
+      // detail to rebuild away (Tribunal amendment A3). SERVINGS carry only
+      // while the recipe is unchanged — 1.25 servings of a 500-kcal chili
+      // carried onto an 1800-kcal dish would be a 2250-kcal plate and the
+      // cook would shop for it; a new recipe recomputes from targets.
       const seats = members.map((m) => {
         const old = existing?.seats?.find((s) => s.id === m.id);
+        const carried = existing?.recipeId === meal.id ? old?.servings : undefined;
         return {
           id: m.id,
-          servings: old?.servings ?? seatServingsFor(ctx.targetsById.get(m.id), slot, meal),
+          servings: carried ?? seatServingsFor(ctx.targetsById.get(m.id), slot, meal),
           ...(old?.status ? { status: old.status } : {}),
         };
       });
@@ -642,7 +683,7 @@ export function materializeBrigade(events, brigade, ctx) {
         slot,
         recipeId: meal.id,
         seats,
-        cookId,
+        cookId: cookFor(date),
         fromBrigade: brigade.id,
       });
       made++;

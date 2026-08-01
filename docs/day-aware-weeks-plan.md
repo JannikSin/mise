@@ -21,10 +21,12 @@
 ### Task 1: prepSundayOf helper
 
 **Files:**
+
 - Modify: `app/lib/plan.js` (near `datesOfWeek`)
 - Test: `tests/plan.test.js`
 
 **Interfaces:**
+
 - Produces: `prepSundayOf(weekId: string): string`, local ISO date of the day before the week's Monday.
 
 - [x] Test: `prepSundayOf("2026-W30")` === `"2026-07-19"`; `prepSundayOf("2026-W01")` crosses the year (`"2025-12-28"`).
@@ -45,10 +47,12 @@ export function prepSundayOf(weekId) {
 ### Task 2: deriveShoppingList fromDate
 
 **Files:**
+
 - Modify: `app/lib/shopping.js:70-91`
 - Test: `tests/shopping.test.js`
 
 **Interfaces:**
+
 - Produces: `deriveShoppingList(plan, recipesById, pantry, previous, fromDate?)`, entries with `entry.date < fromDate` skipped; buffer unaffected; absent fromDate = today's behavior.
 
 - [x] Test: plan with Mon+Wed entries, `fromDate` = Tue → only Wed's ingredients; absent fromDate → both.
@@ -58,10 +62,12 @@ export function prepSundayOf(weekId) {
 ### Task 3: generateWeek today param
 
 **Files:**
+
 - Modify: `app/lib/weekbuilder.js:836-1110`
 - Test: `tests/weekbuilder.test.js`
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces: `generateWeek({ ..., today? })`. Absent = full week (existing behavior).
 
@@ -95,6 +101,7 @@ const pinnedEntries = plan.entries.filter((e) => liveSet.has(e.date) && e.pinned
 ### Task 4: main.js wiring
 
 **Files:**
+
 - Modify: `app/main.js` (handleGenerateWeek ~752, handleBuildList ~521, handleToggleOut ~714, view props)
 
 - [x] Pass `today: localIsoDate(new Date())` to `generateWeek`.
@@ -106,6 +113,7 @@ const pinnedEntries = plan.entries.filter((e) => liveSet.has(e.date) && e.pinned
 ### Task 5: PlannerView past-day lockout
 
 **Files:**
+
 - Modify: `app/views/planner.js`, `app/styles.css`
 
 - [x] `todayIso` prop. Per-day column: `const past = date < todayIso;`
@@ -116,6 +124,7 @@ const pinnedEntries = plan.entries.filter((e) => liveSet.has(e.date) && e.pinned
 ### Task 6: Batch-block states + recipe label
 
 **Files:**
+
 - Modify: `app/views/today.js:44-75,230-250`, `app/views/recipe.js:100`, `app/main.js` (nextPlan prop), `app/styles.css` if needed
 
 Batch block state machine (shown week W, `monday = weekDates[0]`, `sunday = weekDates[6]`, `prep = prepSundayOf(plan.week)`):

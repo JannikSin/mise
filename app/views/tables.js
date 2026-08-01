@@ -106,7 +106,7 @@ export function TablesView({
   const houseMates = (profiles ?? []).filter((p) => (p.household ?? "home") === myHouse);
   const myBrigades = (houseEvents ?? []).find((h) => h.house === myHouse)?.events?.brigades ?? [];
   const [brigadeForm, setBrigadeForm] = useState(
-    /** @type {null | { name: string, memberIds: string[], slots: string[], cookId: string, from: string, until: string }} */ (
+    /** @type {null | { name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string }} */ (
       null
     ),
   );
@@ -121,6 +121,7 @@ export function TablesView({
       memberIds: houseMates.filter((p) => p.id === me).map((p) => p.id),
       slots: ["dinner"],
       cookId: me,
+      rotateCooks: false,
       from: todayIso,
       until: until.toISOString().slice(0, 10),
     });
@@ -140,13 +141,18 @@ export function TablesView({
       setBrigadeNote("Pick at least one meal for the brigade to share.");
       return;
     }
+    // members stored in the picker's display order, so the rotation cycles
+    // exactly the way the chip row reads — toggling someone off and on can't
+    // silently reshuffle who cooks which night
+    const orderedMembers = houseMates
+      .map((p) => p.id)
+      .filter((id) => brigadeForm.memberIds.includes(id));
     onCreateBrigade({
       name: brigadeForm.name.trim() || "Brigade",
-      memberIds: brigadeForm.memberIds,
+      memberIds: orderedMembers,
       slots: brigadeForm.slots,
-      cookId: brigadeForm.memberIds.includes(brigadeForm.cookId)
-        ? brigadeForm.cookId
-        : brigadeForm.memberIds[0],
+      cookId: orderedMembers.includes(brigadeForm.cookId) ? brigadeForm.cookId : orderedMembers[0],
+      ...(brigadeForm.rotateCooks ? { rotateCooks: true } : {}),
       from: brigadeForm.from,
       until: brigadeForm.until,
     });
@@ -157,19 +163,28 @@ export function TablesView({
     setBrigadeBusy(id);
     setBrigadeNote("");
     try {
-      const { made, thin } = await onRunBrigade(id, weekId, regenerate);
-      const short = thin.filter((t) => t.available === 0).map((t) => t.slot);
-      const tight = thin.filter((t) => t.available > 0);
+      const { made, thin, outOfRange, from, until } = /** @type {any} */ (
+        await onRunBrigade(id, weekId, regenerate)
+      );
+      const short = thin
+        .filter((/** @type {any} */ t) => t.available === 0)
+        .map((/** @type {any} */ t) => t.slot);
+      const tight = thin.filter((/** @type {any} */ t) => t.available > 0);
       setBrigadeNote(
-        short.length > 0
-          ? `No ${short.join(" or ")} works for everyone in this brigade. Nothing was set. Widen the bank or check the avoid lists.`
-          : tight.length > 0
-            ? `Set ${made} ${made === 1 ? "meal" : "meals"}. Only ${tight
-                .map((t) => `${t.available} ${t.slot} ${t.available === 1 ? "recipe" : "recipes"}`)
-                .join(", ")} suit everyone, so the week repeats itself.`
-            : made > 0
-              ? `Set ${made} ${made === 1 ? "meal" : "meals"} for this week.`
-              : "This week is already set. Use RE-ROLL to change it.",
+        outOfRange
+          ? `This brigade runs ${from} to ${until}, and the Plan tab is on a different week. Flip Plan to that week, then SET THIS WEEK — nothing was set just now.`
+          : short.length > 0
+            ? `No ${short.join(" or ")} works for everyone in this brigade. Nothing was set. Widen the bank or check the avoid lists.`
+            : tight.length > 0
+              ? `Set ${made} ${made === 1 ? "meal" : "meals"}. Only ${tight
+                  .map(
+                    (/** @type {any} */ t) =>
+                      `${t.available} ${t.slot} ${t.available === 1 ? "recipe" : "recipes"}`,
+                  )
+                  .join(", ")} suit everyone, so the week repeats itself.`
+              : made > 0
+                ? `Set ${made} ${made === 1 ? "meal" : "meals"} for this week.`
+                : "This week is already set. Use RE-ROLL to change it.",
       );
     } catch {
       setBrigadeNote("Could not set the week. Check the connection and try again.");
@@ -289,6 +304,13 @@ export function TablesView({
               · ${byId.get(t.recipeId)?.name ?? t.recipeId}
               ${house !== myHouse && html` · at ${house}`}
             </div>
+            ${
+              t.cookId &&
+              html`<div class="d">
+                👨‍🍳 <strong>${nameOf(t.cookId)}${t.cookId === me ? " (you)" : ""}</strong> cooks and
+                shops this one
+              </div>`
+            }
             <div class="d num">
               ${(t.seats ?? [])
                 .map(
@@ -483,6 +505,26 @@ export function TablesView({
           return `${p?.emoji ?? ""} ${p?.name ?? id}`.trim();
         });
         const cook = (profiles ?? []).find((p) => p.id === b.cookId);
+        // the next few nights' cooks, so "take turns" is a schedule someone
+        // can actually read, not a mystery (Tribunal U1). Same date-offset
+        // rule materializeBrigade uses.
+        const rotation = [];
+        if (b.rotateCooks && b.memberIds.length > 0) {
+          const start = new Date(`${todayIso}T12:00:00`); // noon: UTC slice can't day-shift
+          for (let i = 0; i < 7 && rotation.length < 4; i++) {
+            const d = new Date(start);
+            d.setDate(d.getDate() + i);
+            const iso = d.toISOString().slice(0, 10);
+            if (iso < b.from || iso > b.until) continue;
+            const off = Math.round((Date.parse(iso) - Date.parse(b.from)) / 86400000);
+            const id =
+              b.memberIds[((off % b.memberIds.length) + b.memberIds.length) % b.memberIds.length];
+            const p = (profiles ?? []).find((x) => x.id === id);
+            rotation.push(
+              `${d.toLocaleDateString([], { weekday: "short" })} ${p?.name ?? id}${id === me ? " (you)" : ""}`,
+            );
+          }
+        }
         return html`
           <div class="tile" key=${b.id}>
             <div class="k">${b.name}</div>
@@ -490,8 +532,15 @@ export function TablesView({
             <div class="sub">
               ${b.slots.map((s) => SLOT_META[s]?.full ?? s).join(", ")} · through
               ${" "}${parseLocalIso(b.until).toLocaleDateString([], { month: "short", day: "numeric" })}
-              ${cook ? html` · ${cook.name ?? cook.id} shops` : ""}
+              ${
+                b.rotateCooks
+                  ? html` · cooks take turns`
+                  : cook
+                    ? html` · ${cook.name ?? cook.id} shops`
+                    : ""
+              }
             </div>
+            <div class="sub">${rotation.length > 0 && html`👨‍🍳 ${rotation.join(" · ")}`}</div>
             <div class="actions">
               <button
                 class="primary"
@@ -565,18 +614,36 @@ export function TablesView({
                   `,
                 )}
               </div>
-              <div class="sub">Who does the shopping</div>
-              <select
-                aria-label="Cook"
-                value=${brigadeForm.cookId}
-                onChange=${(/** @type {any} */ e) =>
-                  setBrigadeForm({ ...brigadeForm, cookId: e.currentTarget.value })}
-              >
-                ${brigadeForm.memberIds.map((id) => {
-                  const p = (profiles ?? []).find((x) => x.id === id);
-                  return html`<option key=${id} value=${id}>${p?.name ?? id}</option>`;
-                })}
-              </select>
+              <div class="sub">Who cooks and shops</div>
+              <div class="chips">
+                <button
+                  class=${brigadeForm.rotateCooks ? "chip on" : "chip"}
+                  aria-pressed=${brigadeForm.rotateCooks}
+                  onClick=${() =>
+                    setBrigadeForm({ ...brigadeForm, rotateCooks: !brigadeForm.rotateCooks })}
+                >
+                  🔄 take turns
+                </button>
+              </div>
+              ${
+                brigadeForm.rotateCooks
+                  ? html`<p class="hint">
+                      The cook rotates day by day in the order people are listed above — with four
+                      people over a week, everyone cooks one or two dinners and shops for their own
+                      nights (the FAMILY list still merges it into one trip).
+                    </p>`
+                  : html`<select
+                      aria-label="Cook"
+                      value=${brigadeForm.cookId}
+                      onChange=${(/** @type {any} */ e) =>
+                        setBrigadeForm({ ...brigadeForm, cookId: e.currentTarget.value })}
+                    >
+                      ${brigadeForm.memberIds.map((id) => {
+                        const p = (profiles ?? []).find((x) => x.id === id);
+                        return html`<option key=${id} value=${id}>${p?.name ?? id}</option>`;
+                      })}
+                    </select>`
+              }
               <div class="row">
                 <input
                   type="date"

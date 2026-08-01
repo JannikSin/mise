@@ -107,7 +107,10 @@ export function decodeReceiptLine(raw, expected) {
 
   let best = null;
   for (const candidate of expected ?? []) {
-    const cw = String(candidate).toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 2);
+    const cw = String(candidate)
+      .toLowerCase()
+      .split(/[^a-z]+/)
+      .filter((w) => w.length > 2);
     if (cw.length === 0) continue;
     const hits = cw.filter((w) => words.has(w)).length;
     if (hits === 0) continue;
