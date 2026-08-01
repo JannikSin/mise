@@ -640,6 +640,18 @@ export function materializeBrigade(events, brigade, ctx) {
     }
     if (pool.length < dates.length) thin.push({ slot, available: pool.length });
 
+    // the walk order is a deterministic SHUFFLE of the pool, keyed on
+    // brigade+slot (David, 2026-08-01: "variety in the food"). The pool is
+    // id-sorted, so a plain walk put beef-bulgogi-rice-bowl next to
+    // beef-kofta-with-rice — near-identical dinners on consecutive nights.
+    // Hash-ordering scatters cuisines while staying byte-identical on every
+    // device and keeping the no-repeat-within-pool.length window.
+    const walk = [...pool].sort(
+      (a, b) =>
+        hash(`${brigade.id}|${slot}|${a.id}`) - hash(`${brigade.id}|${slot}|${b.id}`) ||
+        String(a.id).localeCompare(String(b.id)),
+    );
+
     for (const date of dates) {
       const id = brigadeTableId(brigade.id, date, slot);
       const existing = byId.get(id);
@@ -655,9 +667,9 @@ export function materializeBrigade(events, brigade, ctx) {
       // brigade+slot hash and walking by day offset repeats nothing within
       // pool.length days and is byte-identical on every device on every day.
       const meal =
-        pool[
-          (((hash(`${brigade.id}|${slot}`) + dayOffset(date)) % pool.length) + pool.length) %
-            pool.length
+        walk[
+          (((hash(`${brigade.id}|${slot}`) + dayOffset(date)) % walk.length) + walk.length) %
+            walk.length
         ];
       if (!meal) continue;
 

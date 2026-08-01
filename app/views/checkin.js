@@ -240,7 +240,7 @@ export function CheckInView({ daily, targets, today, loading, onPatchDay, adhere
                   class="tickarea"
                   aria-pressed=${Boolean(supplements[s.id])}
                   onClick=${() =>
-                      onPatchDay({ supplements: { ...supplements, [s.id]: !supplements[s.id] } })}
+                    onPatchDay({ supplements: { ...supplements, [s.id]: !supplements[s.id] } })}
                 >
                   <span class="box" aria-hidden="true">${supplements[s.id] ? "✓" : ""}</span>
                   <span class="food">${s.name}</span>

@@ -1150,3 +1150,58 @@ test("no recipe is ever hard-pinned by id: lunches cycle, nothing owns 3 straigh
     );
   }
 });
+
+test("MY cook night seeds overlap; OTHER cooks' dinners push away (David 2026-08-01)", () => {
+  const lunch = (id, food) => ({
+    id,
+    name: id,
+    mealType: "lunch",
+    servings: 1,
+    effort: "assembly",
+    nutrition: { calories: 600, protein: 40 },
+    ingredients: [{ qty: 200, unit: "g", food }],
+  });
+  const dinner = {
+    id: "family-chicken-dinner",
+    name: "family dinner",
+    mealType: "dinner",
+    servings: 4,
+    nutrition: { calories: 700, protein: 50 },
+    ingredients: [{ qty: 800, unit: "g", food: "chicken thigh" }],
+  };
+  const recipes = [lunch("a-chicken-lunch", "chicken thigh"), lunch("b-farro-lunch", "farro"), dinner];
+  const targets = { macros: { calories: 1800, protein: 120 }, mealSlots: ["lunch"] };
+  const tableEntry = (extra) => ({
+    id: "table-x",
+    table: "x",
+    date: "2026-08-03",
+    slot: "dinner",
+    viewRecipeId: "family-chicken-dinner",
+    freeText: "🍽 family dinner",
+    servings: 1,
+    pinned: true,
+    estCalories: 700,
+    estProtein: 50,
+    ...extra,
+  });
+  // when I COOK: my lunches converge on the dinner's ingredients
+  const mine = generateWeek({
+    recipes,
+    targets,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W32",
+    plan: { week: "2026-W32", entries: [tableEntry({ cookTotal: 4 })] },
+  }).plan;
+  const myLunch = mine.entries.find((e) => e.slot === "lunch" && e.date === "2026-08-03");
+  assert.equal(myLunch?.recipeId, "a-chicken-lunch", "cook-night foods pull my lunches in");
+  // when someone ELSE cooks: the same dinner pushes my lunches away
+  const theirs = generateWeek({
+    recipes,
+    targets,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W32",
+    plan: { week: "2026-W32", entries: [tableEntry({})] },
+  }).plan;
+  const theirLunch = theirs.entries.find((e) => e.slot === "lunch" && e.date === "2026-08-03");
+  assert.equal(theirLunch?.recipeId, "b-farro-lunch", "other cooks' foods push my meals away");
+});
