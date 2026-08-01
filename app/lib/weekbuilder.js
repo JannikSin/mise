@@ -201,6 +201,7 @@ export function foodGroupGapBonus(recipe, coverageSoFar, targets) {
  *   salt?: number,
  *   useSoonFoods?: string[],
  *   onHandFoods?: string[],
+ *   avoidOverlapFoods?: string[],
  *   weekFoodPool?: Set<string>,
  *   coverageSoFar?: Record<string, number>,
  *   dailyDozenTargets?: Record<string, number>,
@@ -222,6 +223,10 @@ export function pickCommittee(candidates, opts = {}) {
   // David 2026-08-01): a weaker pull than useSoon's expiry rescue, but every
   // recipe that cooks owned food is food not bought
   const onHand = opts.onHandFoods ?? [];
+  // foods from OTHER cooks' family-dinner nights: a soft push-AWAY (never a
+  // filter), so my own meals cluster around my own cook nights and the
+  // family's week stays varied across cooks (David, 2026-08-01)
+  const avoidOverlap = opts.avoidOverlapFoods ?? [];
   const weekFoodPool = opts.weekFoodPool ?? new Set();
   const coverageSoFar = opts.coverageSoFar ?? {};
   const dailyDozenTargets = opts.dailyDozenTargets ?? {};
@@ -270,6 +275,7 @@ export function pickCommittee(candidates, opts = {}) {
   const bonus = (/** @type {Record<string, any>} */ r) =>
     foodMatchCount(r, useSoon) * 3 +
     foodMatchCount(r, onHand) * 1 +
+    foodMatchCount(r, avoidOverlap) * -0.75 +
     (r.nutrition?.protein ?? 0) / 200 +
     foodGroupGapBonus(r, coverageSoFar, dailyDozenTargets) * 2 +
     tasteBonus(r) +
@@ -1003,11 +1009,46 @@ export function generateWeek({
       return r ? [...foodSlugsOf(r)] : [];
     }),
   );
+  // FAMILY DINNERS shape the week two ways (David, 2026-08-01: "my lunch
+  // ingredients should overlap with what I cook for dinner, so when someone
+  // else cooks it is different food"). Derived table entries carry
+  // viewRecipeId (never recipeId — that would make every guest shop the
+  // dish), so the old seeding above cannot see them. Nights I COOK
+  // (cookTotal is a cook-device-only derived field) join the overlap pool:
+  // my breakfasts and lunches converge on ingredients I am already buying
+  // for the shared pot. OTHER cooks' dinner foods become a SOFT push-away,
+  // so each member's own meals cluster around their own cook nights and the
+  // household's week stays varied across cooks instead of everyone orbiting
+  // Monday's dinner.
+  /** @type {string[]} */
+  const otherCookFoods = [];
+  for (const e of pinnedEntries) {
+    const anyE = /** @type {any} */ (e);
+    if (!anyE.table || !anyE.viewRecipeId) continue;
+    const r = byId.get(anyE.viewRecipeId);
+    if (!r) continue; // dinner outside my phase pool: no signal either way
+    if (anyE.cookTotal != null) {
+      for (const f of foodSlugsOf(r)) weekFoodPool.add(f);
+    } else {
+      otherCookFoods.push(
+        ...(r.ingredients ?? [])
+          .filter((/** @type {any} */ ing) => !ing.staple)
+          .map((/** @type {any} */ ing) => String(ing.food)),
+      );
+    }
+  }
   /** @type {Record<string, number>} */
   const coverageSoFar = foodGroupCoverage(
     pinnedEntries
-      .filter((e) => e.recipeId && byId.get(e.recipeId))
-      .map((e) => ({ recipe: byId.get(/** @type {string} */ (e.recipeId)), count: e.servings })),
+      // table entries count via viewRecipeId: the shared dinner really does
+      // deliver its food groups to my day, and pretending otherwise made the
+      // generator over-plan the categories dinner already covers
+      .map((e) => ({ e, rid: e.recipeId ?? /** @type {any} */ (e).viewRecipeId }))
+      .filter(({ rid }) => rid && byId.get(rid))
+      .map(({ e, rid }) => ({
+        recipe: byId.get(/** @type {string} */ (rid)),
+        count: e.servings,
+      })),
   );
 
   // which slots get proactively filled/committee-picked is profile-driven;
@@ -1026,6 +1067,7 @@ export function generateWeek({
         salt,
         useSoonFoods,
         onHandFoods,
+        avoidOverlapFoods: otherCookFoods,
         weekFoodPool,
         coverageSoFar,
         dailyDozenTargets: dailyDozenWeekly,

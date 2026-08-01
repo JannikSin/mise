@@ -454,3 +454,21 @@ test("materializeBrigade honors a member's avoidRecipes from their targets", () 
   assert.ok(events.tables.every((t) => t.recipeId === "onion-stew"));
   assert.ok(thin.length > 0, "a one-recipe pool is reported thin, not papered over");
 });
+
+test("brigade dinners walk a SCATTERED order, still run-day independent", () => {
+  // id-sorted adjacency put near-identical dishes on consecutive nights; the
+  // hash-shuffled walk must scatter while two run days still agree exactly
+  const rot = { ...BRIGADE, until: "2026-08-02" };
+  const a = materializeBrigade({ tables: [] }, rot, ctx()).events;
+  const b = materializeBrigade({ tables: [] }, rot, ctx({ today: "2026-07-29" })).events;
+  const byDate = new Map(a.tables.map((t) => [t.date, t.recipeId]));
+  for (const t of b.tables) assert.equal(t.recipeId, byDate.get(t.date));
+  // and consecutive days never repeat while the pool lasts
+  const seq = a.tables
+    .slice()
+    .sort((x, y) => x.date.localeCompare(y.date))
+    .map((t) => t.recipeId);
+  for (let i = 0; i + 1 < seq.length; i++) {
+    assert.notEqual(seq[i], seq[i + 1], "no same dinner two nights running");
+  }
+});
