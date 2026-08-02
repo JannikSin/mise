@@ -1386,19 +1386,21 @@ export function ShoppingView({
               `,
             )}
             ${
-              // family who live somewhere else are shown so the picker reads
-              // complete, but disabled: a trip is a kitchen, not a family
+              // EVERY profile not in this house is shown greyed with the
+              // reason, family field or not (David, 2026-08-02: dad and
+              // laurie were simply invisible here while their household was
+              // stale, and invisible reads as broken — an explained absence
+              // says exactly what to fix in SYS)
               (profiles ?? [])
-                .filter(
-                  (p) =>
-                    p.id !== me &&
-                    !others.some((o) => o.profileId === p.id) &&
-                    p.family &&
-                    p.family === (profiles ?? []).find((x) => x.id === me)?.family,
-                )
+                .filter((p) => p.id !== me && !others.some((o) => o.profileId === p.id))
                 .map(
                   (p) => html`
-                    <button key=${p.id} class="chip" disabled title="different house">
+                    <button
+                      key=${p.id}
+                      class="chip"
+                      disabled
+                      title="different house — move them in SYS to shop together"
+                    >
                       ${p.emoji ?? ""} ${p.name} · different house
                     </button>
                   `,

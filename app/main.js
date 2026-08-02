@@ -1149,20 +1149,62 @@ function App() {
       // ahead of today)
       today: localIsoDate(new Date()),
     });
-    updatePlan(result.plan); // updatePlan strips derived table entries itself
+    let built = result.plan;
+    // AUTO-APPLY substitutions (David, 2026-08-02: "there is no point in
+    // saying these are potential swaps if you don't do them"). Still MY week
+    // ONLY — the Tribunal veto on writing other people's plans stands;
+    // house-wide convergence happens because every phone's own generate does
+    // this same pass against the same house lists. One pass, no loop: swaps
+    // are computed from the freshly built week, applied, done. Swap targets
+    // come from the screened pickable pool, so nothing unsafe can land.
+    if (otherListsRef.current.length > 0) {
+      try {
+        const idById = recipesById(allRecipesRef.current);
+        const myList = deriveShoppingList(
+          withCookExtras(built),
+          idById,
+          pantryRef.current,
+          null,
+          todayIfCurrentWeek(built.week),
+        );
+        const combined = mergeProfileLists([
+          { profileId: me, list: myList },
+          ...otherListsRef.current.map((o) => ({ profileId: o.profileId, list: o.list })),
+        ]);
+        const swaps = substitutionPlan(
+          combined,
+          me,
+          built.entries,
+          recipesRef.current,
+          recipesById(recipesRef.current),
+        );
+        if (swaps.length > 0) {
+          built = {
+            ...built,
+            entries: built.entries.map((e) => {
+              const s = swaps.find((x) => x.entryId === e.id);
+              return s ? { ...e, recipeId: s.toId } : e;
+            }),
+          };
+        }
+      } catch {
+        // a swap pass that fails leaves the honestly generated week intact
+      }
+    }
+    updatePlan(built); // updatePlan strips derived table entries itself
     setBuildReport(result.report);
     // 7a: auto-populate the shopping list from the freshly generated plan,
     // not the stale planRef, so List is correct the instant Plan finishes
     updateShopping(
       deriveShoppingList(
-        withCookExtras(result.plan),
+        withCookExtras(built),
         recipesById(allRecipesRef.current),
         pantryRef.current,
         shoppingRef.current,
-        todayIfCurrentWeek(result.plan.week),
+        todayIfCurrentWeek(built.week),
       ),
     );
-  }, [updatePlan, updateShopping]);
+  }, [updatePlan, updateShopping, me]);
 
   useEffect(() => {
     // a new week means a fresh build state and report
