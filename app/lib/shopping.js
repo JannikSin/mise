@@ -337,6 +337,13 @@ export function toStoreUnits(qty, unit) {
  * @returns {string}
  */
 export function formatStoreQty(qty, unit) {
+  // count units: "banana 7 each" read as "7 per person? per serving?"
+  // (David, 2026-08-02). It never was — every list qty is the WEEK'S TOTAL,
+  // already multiplied through servings and, on FAMILY, summed across
+  // people. "×7" says "seven bananas, full stop" and leaves nothing to
+  // interpret.
+  const u = String(unit ?? "").toLowerCase();
+  if (u === "each" || u === "x") return `×${qty}`;
   const conv = toStoreUnits(qty, unit);
   if (!conv) return `${qty} ${unit}`;
   return `${conv.qty} ${conv.unit} (${qty} ${unit})`;

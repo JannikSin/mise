@@ -1616,3 +1616,11 @@ test("PER-SOURCE BOUGHT (Tribunal B2): a solo-tab tick banks one portion, not fo
   const { changed } = clearReceiptRows(lists[1].list, [{ name: "eggs" }]);
   assert.equal(changed, false);
 });
+
+test("count units display as ×N — never 'each' (David 2026-08-02)", () => {
+  // "banana 7 each" read as per-person/per-serving; it was always the week's
+  // total. ×7 leaves nothing to interpret.
+  assert.equal(formatStoreQty(7, "each"), "×7");
+  assert.equal(formatStoreQty(1, "x"), "×1");
+  assert.equal(formatStoreQty(2, "can"), "2 can", "real container words stay");
+});
