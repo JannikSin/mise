@@ -368,8 +368,12 @@ export const ENFORCED_DAILY_GROUPS = ["greens", "cruciferousVeg"];
 function dayGroupTotal(entries, recipesById, date, group) {
   let total = 0;
   for (const e of entries) {
-    if (e.date !== date || !e.recipeId) continue;
-    total += (recipesById.get(e.recipeId)?.foodGroups?.[group] ?? 0) * e.servings;
+    // viewRecipeId: a family-dinner table entry really delivers its food
+    // groups to my day — counting it in week coverage but not here made the
+    // floor pass stack snacks for greens dinner already served (review #7)
+    const rid = e.recipeId ?? /** @type {any} */ (e).viewRecipeId;
+    if (e.date !== date || !rid) continue;
+    total += (recipesById.get(rid)?.foodGroups?.[group] ?? 0) * e.servings;
   }
   return total;
 }
@@ -717,9 +721,10 @@ function foodGroupGapsReport(entries, recipesById, dates, dailyDozenPerDay) {
   const weeklyHave = {};
   for (const date of dates) {
     const chosen = entries
-      .filter((e) => e.date === date && e.recipeId)
-      .map((e) => ({
-        recipe: recipesById.get(/** @type {string} */ (e.recipeId)),
+      .map((e) => ({ e, rid: e.recipeId ?? /** @type {any} */ (e).viewRecipeId }))
+      .filter(({ e, rid }) => e.date === date && rid)
+      .map(({ e, rid }) => ({
+        recipe: recipesById.get(/** @type {string} */ (rid)),
         count: e.servings,
       }))
       .filter((c) => c.recipe);
@@ -1020,8 +1025,10 @@ export function generateWeek({
   // so each member's own meals cluster around their own cook nights and the
   // household's week stays varied across cooks instead of everyone orbiting
   // Monday's dinner.
-  /** @type {string[]} */
-  const otherCookFoods = [];
+  // DEDUPED (review #6): foodMatchCount scores per needle, so a food pushed
+  // once per dinner compounded -0.75 into a de-facto ban stronger than a
+  // dislike. One distinct food = one soft push, per the comment's promise.
+  const otherCookSet = new Set();
   for (const e of pinnedEntries) {
     const anyE = /** @type {any} */ (e);
     if (!anyE.table || !anyE.viewRecipeId) continue;
@@ -1030,13 +1037,12 @@ export function generateWeek({
     if (anyE.cookTotal != null) {
       for (const f of foodSlugsOf(r)) weekFoodPool.add(f);
     } else {
-      otherCookFoods.push(
-        ...(r.ingredients ?? [])
-          .filter((/** @type {any} */ ing) => !ing.staple)
-          .map((/** @type {any} */ ing) => String(ing.food)),
-      );
+      for (const ing of r.ingredients ?? []) {
+        if (!ing.staple && ing.food) otherCookSet.add(String(ing.food).toLowerCase());
+      }
     }
   }
+  const otherCookFoods = [...otherCookSet];
   /** @type {Record<string, number>} */
   const coverageSoFar = foodGroupCoverage(
     pinnedEntries

@@ -113,7 +113,7 @@ export function DinnerView({
 
   return html`
     <div class="view">
-      <a class="backlink" href="#/tables">← CARNET</a>
+      <a class="backlink" href="#/tables">← TODAY</a>
       <div class="hero"><h1>Tonight's dinner</h1></div>
       <p class="hint">
         everyone gets a say — the mediator weighs each voice against their targets, then picks from
@@ -167,7 +167,7 @@ export function DinnerView({
           ${
             tokenBlocked &&
             html`<p class="hint">
-              ${repo?.auth === "invalid" ? "token needs renewing — SYS" : "connect token in SYS first"}
+              ${repo?.auth === "invalid" ? "token needs renewing — Settings" : "connect token in Settings first"}
             </p>`
           }
         `

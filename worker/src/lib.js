@@ -889,11 +889,29 @@ export function isoWeekIdOf(dateIso) {
  *   plan: Record<string, any> | null,
  *   shopping: Record<string, any> | null,
  *   daily: Record<string, any> | null,
- *   recipeName: (id: string) => string
- * }} args weekday = "Mon".."Sun"
+ *   recipeName: (id: string) => string,
+ *   tracks?: string[]
+ * }} args weekday = "Mon".."Sun"; tracks = the profile's targets.tracks
  * @returns {{ title: string, body: string, tags: string, priority: string, click: string }[]}
  */
-export function buildNotifications({ hour, weekday, dateIso, plan, shopping, daily, recipeName }) {
+export function buildNotifications({
+  hour,
+  weekday,
+  dateIso,
+  plan,
+  shopping,
+  daily,
+  recipeName,
+  tracks,
+}) {
+  // the profile's own daily-log tracks (targets.tracks). Absent = the legacy
+  // four, so today's David-only cron is byte-identical; the day notifications
+  // go per-profile, nobody gets nagged about a chore their app never shows
+  // (council 2026-08-02 — the adherence scoreboard had exactly this bug).
+  const logTracks = (Array.isArray(tracks) && tracks.length > 0
+    ? tracks
+    : ["weight", "supplements", "water", "pushups"]
+  ).filter((t) => ["weight", "waist", "supplements", "water", "pushups", "sleep"].includes(t));
   /** @type {{ title: string, body: string, tags: string, priority: string, click: string }[]} */
   const out = [];
   const entries = Array.isArray(plan?.entries) ? plan.entries : [];
@@ -911,7 +929,7 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, dai
   if (hour === 7) {
     const brk = todayEntries("breakfast").filter((e) => !e.out);
     const dinner = todayEntries("dinner").filter((e) => !e.out);
-    const lines = ["Log: weight · supplements · water · pushups"];
+    const lines = [`Log: ${logTracks.join(" · ")}`];
     if (shopped && brk.length > 0) lines.push(`Breakfast: ${brk.map(mealLine).join(" · ")}`);
     if (dinner.length > 0) lines.push(`Tonight: ${dinner.map(mealLine).join(" · ")}`);
     out.push({
@@ -979,11 +997,18 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, dai
     const day = (daily?.days ?? []).find((/** @type {any} */ d) => d.date === dateIso) ?? {};
     /** @type {string[]} */
     const missing = [];
-    if (day.weight == null) missing.push("weight");
-    // supplements is a per-supplement tick map in daily.json
-    if (!Object.values(day.supplements ?? {}).some(Boolean)) missing.push("supplements");
-    if (!(Number(day.water) > 0)) missing.push("water");
-    if (!(Number(day.pushups) > 0)) missing.push("pushups");
+    const trackMissing = /** @type {Record<string, () => boolean>} */ ({
+      weight: () => day.weight == null,
+      waist: () => day.waist == null,
+      // supplements is a per-supplement tick map in daily.json
+      supplements: () => !Object.values(day.supplements ?? {}).some(Boolean),
+      water: () => !(Number(day.water) > 0),
+      pushups: () => !(Number(day.pushups) > 0),
+      sleep: () => !(Number(day.sleepHours) > 0),
+    });
+    for (const t of logTracks) {
+      if (trackMissing[t] && trackMissing[t]()) missing.push(t);
+    }
     const uncooked = shopped
       ? entries.filter((e) => e.date === dateIso && e.recipeId && !e.out && !e.cookedAt).length
       : 0;

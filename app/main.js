@@ -77,7 +77,7 @@ import {
   recipeConflicts,
   SLOT_KEYS,
 } from "./lib/plan.js";
-import { generateWeek, poolAdequacy } from "./lib/weekbuilder.js";
+import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
 import { weekAdherence, rankScoreboard } from "./lib/adherence.js";
 import {
   normalizeEvents,
@@ -116,9 +116,9 @@ let checkGen = 0;
 const TABS = [
   { hash: "#/plan", view: "plan", icon: "⬒", label: "Plan" },
   { hash: "#/list", view: "list", icon: "☑", label: "List" },
-  { hash: "#/tables", view: "tables", icon: "◫", label: "Carnet" },
+  { hash: "#/tables", view: "tables", icon: "◫", label: "Today" },
   { hash: "#/train", view: "train", icon: "▲", label: "Train" },
-  { hash: "#/system", view: "system", icon: "☰", label: "Sys" },
+  { hash: "#/system", view: "system", icon: "☰", label: "Settings" },
 ];
 
 function App() {
@@ -343,7 +343,7 @@ function App() {
       });
       // pantry is HOUSEHOLD-shared (B2): one kitchen, one fridge, one file at
       // households/<h>/pantry.json. The path derives from profiles.json every
-      // load, so moving household in SYS re-points you on the next sync tick
+      // load, so moving household in Settings re-points you on the next sync tick
       // (B3). Pre-B2 per-profile pantries are read as a fallback and seeded
       // into the household file once, so no data is lost and old devices
       // keep limping on the legacy path until they update.
@@ -407,7 +407,13 @@ function App() {
   // without a temporal dead zone (2026-07-26).
   const viewPlanRef = useRef(/** @type {any} */ (null));
   const tableDerivedRef = useRef(
-    /** @type {any} */ ({ entries: [], conflicts: [], collisions: [], cookExtras: [] }),
+    /** @type {any} */ ({
+      entries: [],
+      conflicts: [],
+      collisions: [],
+      cookExtras: [],
+      allCookExtras: [],
+    }),
   );
   const recentRecipeIdsRef = useRef(/** @type {string[]} */ ([]));
   const weekRef = useRef(weekId);
@@ -897,6 +903,15 @@ function App() {
     return derived.items.length;
   }, [updateShopping, me]);
 
+  // undo path for the dinner rows: they are manual, so nothing else ever
+  // regenerates them away (review LOW-2 — without this they ride into next
+  // week with no exit short of CLEAR LIST)
+  const handleRemoveDinnerRows = useCallback(() => {
+    const cur = shoppingRef.current;
+    const items = cur.items.filter((i) => !String(i.id).endsWith("-famdinners"));
+    if (items.length !== cur.items.length) updateShopping({ ...cur, items });
+  }, [updateShopping]);
+
   const handleToggleItem = useCallback(
     (/** @type {string} */ id) => {
       const s = shoppingRef.current;
@@ -1217,12 +1232,16 @@ function App() {
           { profileId: me, list: myList },
           ...otherListsRef.current.map((o) => ({ profileId: o.profileId, list: o.list })),
         ]);
+        // generatorEligible: an unpromoted ai-special may propose and
+        // display, never auto-land in the plan (council 2026-07-23) — the
+        // taste-screened pool alone does not enforce that
         const swaps = substitutionPlan(
           combined,
           me,
           built.entries,
-          recipesRef.current,
+          generatorEligible(recipesRef.current),
           recipesById(recipesRef.current),
+          { today: localIsoDate(new Date()) },
         );
         if (swaps.length > 0) {
           built = {
@@ -1462,7 +1481,14 @@ function App() {
   const substitutions = useMemo(
     () =>
       combinedForSwap.length > 0
-        ? substitutionPlan(combinedForSwap, me, plan.entries, recipes, recipesById(recipes))
+        ? substitutionPlan(
+            combinedForSwap,
+            me,
+            plan.entries,
+            generatorEligible(recipes),
+            recipesById(recipes),
+            { today: localIsoDate(new Date()) },
+          )
         : [],
     [combinedForSwap, plan.entries, recipes],
   );
@@ -1816,11 +1842,12 @@ function App() {
         const raws = await Promise.all(
           members.map(async (p) => {
             const prefix = p.id === "david" ? "" : `profiles/${p.id}/`;
-            const [planRaw, dailyRaw] = await Promise.all([
+            const [planRaw, dailyRaw, targetsRaw] = await Promise.all([
               read(`${prefix}plans/${weekNow}.json`, { raw: true }).catch(() => null),
               read(`${prefix}fitness/daily.json`, { raw: true }).catch(() => null),
+              read(`${prefix}fitness/targets.json`, { raw: true }).catch(() => null),
             ]);
-            return { p, planRaw, dailyRaw };
+            return { p, planRaw, dailyRaw, targetsRaw };
           }),
         );
         // ONE receipt per house per week is the designed flow — the scanner's
@@ -1828,7 +1855,7 @@ function App() {
         // rule the recipe gate already learned (Tribunal U9: a family with
         // one shopper must not cap three people at 80 all week)
         const anyShopped = raws.some((r) => Boolean(/** @type {any} */ (r.planRaw)?.shoppedAt));
-        const rows = raws.map(({ p, planRaw, dailyRaw }) => {
+        const rows = raws.map(({ p, planRaw, dailyRaw, targetsRaw }) => {
           const credited =
             anyShopped && planRaw && !(/** @type {any} */ (planRaw).shoppedAt)
               ? { .../** @type {any} */ (planRaw), shoppedAt: todayNow }
@@ -1842,6 +1869,9 @@ function App() {
               daily: /** @type {any} */ (dailyRaw),
               weekId: weekNow,
               today: todayNow,
+              // each profile is scored on ITS OWN tracks (council 2026-08-02:
+              // the hard-coded four capped Mom at 85 on invisible chores)
+              tracks: /** @type {any} */ (targetsRaw)?.tracks,
             }),
           };
         });
@@ -2062,6 +2092,7 @@ function App() {
         ownEmoji=${ownEmoji}
         onCombinedToggle=${handleCombinedToggle}
         onDinnersToMyList=${handleDinnersToMyList}
+        onRemoveDinnerRows=${handleRemoveDinnerRows}
         shopsPerWeek=${targets?.shopsPerWeek ?? 1}
         houseShopped=${Boolean(/** @type {any} */ (plan)?.shoppedAt) || houseShopped}
         prices=${priceCatalogue}

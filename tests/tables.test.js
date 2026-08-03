@@ -405,3 +405,24 @@ test("a tailored seat's estimate replaces recipe x servings in the derived entry
   const mom = deriveTables([{ house: "home", events: { tables: [t] } }], ctx({ profileId: "mom" }));
   assert.equal(mom.entries[0].estCalories, 700, "untailored seat keeps recipe x servings");
 });
+
+test("cook shopping dedupe is HOUSE-scoped: another house's same-night dinner never starves mine", () => {
+  // code review 2026-08-02 HIGH #2: unscoped, the first table across ALL
+  // houses at a date+slot ate the slot key and my own house's cook bought
+  // nothing for their night
+  const mine = table();
+  const theirs = { ...table(), id: "other-house", seats: [{ id: "away", servings: 2 }] };
+  const profiles = new Map([
+    ["david", { id: "david", household: "home" }],
+    ["away", { id: "away", household: "elsewhere" }],
+  ]);
+  const r = deriveTables(
+    [
+      { house: "elsewhere", events: { tables: [theirs] } },
+      { house: "home", events: { tables: [mine] } },
+    ],
+    { ...ctx(), profilesById: profiles },
+  );
+  assert.equal(r.cookExtras.length, 1, "my house's batch still shops");
+  assert.equal(r.allCookExtras.filter((x) => x.date === mine.date).length, 2, "both houses' batches known");
+});

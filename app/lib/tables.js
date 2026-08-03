@@ -236,14 +236,21 @@ export function deriveTables(houses, ctx) {
       // cook rule shared with the money ledger (cookOf)
       const cook = ctx.profilesById ? cookOf(t, house, ctx.profilesById) : null;
       const slotKey = `${t.date}|${t.slot}`;
-      if (cook && recipe && !cookSlots.has(slotKey)) {
+      // the SHOPPING dedupe is HOUSE-scoped: "one meal is bought once" means
+      // one KITCHEN. Unscoped, the first table across ALL houses at a
+      // date+slot ate the key and a cook whose relatives' house also eats
+      // that night bought nothing for their own (review 2026-08-02, HIGH #2).
+      // My-plan collision/pin keys (takenSlots/derivedSlots) stay date|slot —
+      // I eat one dinner however many houses are cooking.
+      const houseSlotKey = `${house}|${slotKey}`;
+      if (cook && recipe && !cookSlots.has(houseSlotKey)) {
         const total = known.reduce((sum, s) => sum + clampServings(s.servings), 0);
         if (total > 0) {
           // one meal is bought once. Without this guard two tables claiming
           // the same slot (a hand-set dinner over a brigade's, or the same
           // brigade meal written twice by two offline devices) each add a
           // shopping pseudo-entry, and the cook quietly buys the dinner twice
-          cookSlots.add(slotKey);
+          cookSlots.add(houseSlotKey);
           // every table's batch, whoever cooks it — for the "one shopper
           // buys all the family dinners" trip (David, 2026-08-02). Derived-
           // only, like everything else this function returns.

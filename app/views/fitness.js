@@ -203,7 +203,7 @@ export function FitnessView({
       ${
         tokenBroken &&
         html`<p class="hint">
-          not syncing — token needs renewing in SYS (sets still save locally)
+          not syncing — token needs renewing in Settings (sets still save locally)
         </p>`
       }
 
@@ -227,7 +227,8 @@ export function FitnessView({
           ${
             !hasSchedule &&
             html`<p class="hint">
-              no schedule set yet — add one to fitness/workouts.json in SYS. pick a session for now.
+              no schedule set yet — add one to fitness/workouts.json in Settings. pick a session for
+              now.
             </p>`
           }
           ${
@@ -340,7 +341,7 @@ export function FitnessView({
                 ${
                   workouts.templates.length === 0 &&
                   html`<div class="empty">
-                    ${hasToken ? (loading ? "loading…" : "no split templates yet") : "connect token in SYS"}
+                    ${hasToken ? (loading ? "loading…" : "no split templates yet") : "connect token in Settings"}
                   </div>`
                 }
               </div>

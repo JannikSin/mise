@@ -1,7 +1,7 @@
 import { html } from "htm/preact";
 import { useEffect } from "preact/hooks";
 import { cookPlan } from "../lib/portions.js";
-import { formatStoreQty } from "../lib/shopping.js";
+import { formatRecipeQty } from "../lib/shopping.js";
 
 /**
  * The recipe a planned meal opens into (David, 2026-07-27: with dragging gone,
@@ -79,7 +79,7 @@ export function RecipePeek({ recipe, servings, entryId, unshopped = false, onClo
                 <span class="food"
                   >${ing.food}${ing.staple ? html` <span class="tag">staple</span>` : ""}</span
                 >
-                <span class="q num">${formatStoreQty(ing.qty, ing.unit)}</span>
+                <span class="q num">${formatRecipeQty(ing.qty, ing.unit)}</span>
               </div>
             `,
           )}
