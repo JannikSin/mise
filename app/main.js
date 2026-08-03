@@ -851,6 +851,52 @@ function App() {
     [updateShopping],
   );
 
+  // ONE SHOPPER BUYS ALL THE FAMILY DINNERS (David, 2026-08-02: "buy
+  // everything for me for a week and the family dinners, not other people's
+  // daily meals"). The other cooks' batch ingredients land on MY stored list
+  // as manual rows — manual survives rebuilds, and ticks, the receipt, and
+  // the FAMILY tab's fridge-first subtraction all ride the existing
+  // machinery. My own cook nights are already on my list via cookExtras.
+  // With the other people then toggled OFF on FAMILY, the trip is exactly:
+  // my week + every family dinner, none of their daily meals.
+  const handleDinnersToMyList = useCallback(() => {
+    const weekSet = new Set(datesOfWeek(weekRef.current));
+    const extras = tableDerivedRef.current.allCookExtras.filter(
+      (/** @type {any} */ x) => x.cookId !== me && weekSet.has(x.date),
+    );
+    if (extras.length === 0) return 0;
+    const pseudo = {
+      week: weekRef.current,
+      entries: extras.map((/** @type {any} */ x, /** @type {number} */ i) => ({
+        id: `famdinner-${i}`,
+        date: x.date,
+        slot: "dinner",
+        recipeId: x.recipeId,
+        servings: x.servings,
+      })),
+    };
+    const derived = deriveShoppingList(
+      /** @type {any} */ (pseudo),
+      recipesById(allRecipesRef.current),
+      pantryRef.current,
+      null,
+      todayIfCurrentWeek(weekRef.current),
+    );
+    const cur = shoppingRef.current;
+    // distinct ids so a rebuild of MY meals never regenerates these away and
+    // an existing derived row is never silently inflated
+    const items = [...cur.items];
+    for (const row of derived.items) {
+      const id = `${row.id}-famdinners`;
+      const at = items.findIndex((i) => i.id === id);
+      const prior = at >= 0 ? items[at] : null;
+      if (prior) items[at] = { ...row, id, manual: true, checked: prior.checked };
+      else items.push({ ...row, id, manual: true });
+    }
+    updateShopping({ ...cur, items });
+    return derived.items.length;
+  }, [updateShopping, me]);
+
   const handleToggleItem = useCallback(
     (/** @type {string} */ id) => {
       const s = shoppingRef.current;
@@ -1450,7 +1496,7 @@ function App() {
         profilesById,
       });
     } catch {
-      return { entries: [], conflicts: [], collisions: [], cookExtras: [] };
+      return { entries: [], conflicts: [], collisions: [], cookExtras: [], allCookExtras: [] };
     }
   }, [houseEvents, allProfiles, targets, bankRecipes, plan, me]);
   const merged = useMemo(
@@ -2015,6 +2061,7 @@ function App() {
         others=${otherLists}
         ownEmoji=${ownEmoji}
         onCombinedToggle=${handleCombinedToggle}
+        onDinnersToMyList=${handleDinnersToMyList}
         shopsPerWeek=${targets?.shopsPerWeek ?? 1}
         houseShopped=${Boolean(/** @type {any} */ (plan)?.shoppedAt) || houseShopped}
         prices=${priceCatalogue}

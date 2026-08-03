@@ -472,3 +472,27 @@ test("brigade dinners walk a SCATTERED order, still run-day independent", () => 
     assert.notEqual(seq[i], seq[i + 1], "no same dinner two nights running");
   }
 });
+
+test("deriveTables exposes EVERY table's batch (allCookExtras), mine stays cook-only", () => {
+  // the "one shopper buys all the family dinners" trip needs every night's
+  // batch with its cook, not just the viewer's own nights
+  const rot = { ...BRIGADE, memberIds: ["mom", "laurie", "david"], rotateCooks: true };
+  const { events } = materializeBrigade({ tables: [] }, rot, ctx());
+  const d = deriveTables([{ house: "taranowski", events }], {
+    profileId: "mom",
+    bankById: BANK,
+    ownEntries: [],
+    today: TODAY,
+    profilesById: PROFILES,
+  });
+  assert.equal(d.allCookExtras.length, WEEK.length, "every night has a batch");
+  const cooks = new Set(d.allCookExtras.map((x) => x.cookId));
+  assert.ok(cooks.has("mom") && cooks.has("laurie") && cooks.has("david"));
+  for (const x of d.allCookExtras) assert.ok(x.servings > 0 && x.recipeId && x.date);
+  // mom's own cookExtras = exactly her rotation nights
+  const hers = d.allCookExtras.filter((x) => x.cookId === "mom");
+  assert.deepEqual(
+    d.cookExtras.map((x) => `${x.date}|${x.recipeId}|${x.servings}`).sort(),
+    hers.map((x) => `${x.date}|${x.recipeId}|${x.servings}`).sort(),
+  );
+});
