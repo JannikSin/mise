@@ -126,6 +126,18 @@ data to the app repo.
   which normalizes to lowercase-kebab and stores `"home"`/blank as absent.
   Moving is deliberately cheap so a visiting member can join a household for
   a week and move back.
+- `capabilities?`: string[] (council 2026-08-02, shaped like
+  `targets.tracks`): the EXTRA app surfaces this profile has. ABSENT =
+  everything (David, legacy installs — zero migration). `[]` = the family
+  minimum: Plan, List, Today's family dinners, Settings, and nothing else.
+  Values consumed today: `"checkin"` (morning check-in block on Today, and
+  with it the vitals/remedies links), `"scoreboard"` (household scoreboard),
+  `"money"` (List's who-owes-who tile). Train stays governed by
+  `trainingEnabled`. Read in `app/main.js` (`hasCap`), rendered down as
+  props — a NEW surface must argue its way into a capability value, so the
+  family default stays minimal without anyone remembering to hide things.
+  Hand-edited in profiles.json for now; no SYS UI until a second household
+  needs one.
 - `family?`: string (lowercase-kebab), absent = ungrouped. The TOP-LEVEL
   grouping (2026-07-21): family is who a person IS, household is who they
   grocery-shop with right now. The profile gate groups its chooser by family

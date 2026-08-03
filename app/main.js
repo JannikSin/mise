@@ -273,6 +273,16 @@ function App() {
     /** @type {{ house: string, events: import("./lib/tables.js").HouseEvents }[]} */ ([]),
   );
   const [allProfiles, setAllProfiles] = useState(/** @type {Record<string, any>[]} */ ([]));
+  // CAPABILITIES (council 2026-08-02, shaped like targets.tracks): the list
+  // of extra surfaces this profile HAS. Absent = everything (David, legacy
+  // installs). The family defaults to [] — plan, list, dinners, settings,
+  // and nothing else. Values consumed today: "checkin", "scoreboard",
+  // "money". Hand-edited in profiles.json; no SYS UI until a second
+  // household needs one.
+  const myCaps = /** @type {string[] | undefined} */ (
+    allProfiles.find((p) => p.id === me)?.capabilities
+  );
+  const hasCap = (/** @type {string} */ c) => !Array.isArray(myCaps) || myCaps.includes(c);
 
   const allProfilesRef = useRef(allProfiles);
   allProfilesRef.current = allProfiles;
@@ -2076,7 +2086,7 @@ function App() {
         repo=${repo}
         loading=${!listLoaded}
         onBuild=${handleBuildList}
-        moneyBalances=${moneyBalances}
+        moneyBalances=${hasCap("money") ? moneyBalances : []}
         profiles=${allProfiles}
         onSettle=${handleSettle}
         substitutions=${substitutions}
@@ -2133,6 +2143,8 @@ function App() {
         houseEvents=${houseEvents}
         profiles=${allProfiles}
         me=${me}
+        showCheckIn=${hasCap("checkin")}
+        showScoreboard=${hasCap("scoreboard")}
         todayIso=${localIsoDate(new Date())}
         hasToken=${hasToken}
         repo=${repo}
