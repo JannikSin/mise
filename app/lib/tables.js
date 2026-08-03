@@ -10,7 +10,7 @@ import { recipeConflicts, SLOT_KEYS } from "./plan.js";
  * @typedef {{ id: string, servings: number, status?: "in" | "skipped" }} Seat seat id = profileId
  * @typedef {{ plate: string[], estCalories: number, estProtein: number }} TailorSeat
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
- * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, fromBrigade?: string }} TableEvent
+ * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string }} TableEvent
  * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string }} Brigade
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
@@ -154,10 +154,11 @@ export function cookOf(t, house, profilesById) {
  *  - `conflicts`: tables whose recipe fails MY diet/avoid screen — a seat
  *    NEVER silently pins food the rest of the app would refuse me
  *    (Tribunal amendment 1); surfaced as a banner, no pin, no macros.
- *  - `cookExtras`: if I am the cook (first non-skipped seat whose house is
- *    the table's house), pseudo-entries for deriveShoppingList carrying the
- *    summed NON-skipped servings, dated so the fromDate filter drops past
- *    tables.
+ *  - `cookExtras`: if I CLAIMED the groceries (t.buyerId === me — see the
+ *    claims note in the body; the name predates the claim system),
+ *    pseudo-entries for deriveShoppingList carrying the summed NON-skipped
+ *    servings, dated so the fromDate filter drops past tables. No claim =
+ *    the batch rides nobody's list.
  * Collision precedence (amendment 4): my OWN entry at that date+slot wins;
  * the table entry is skipped and reported in `collisions`. At most one
  * derived pin per date+slot (first valid table wins).
@@ -179,7 +180,7 @@ export function cookOf(t, house, profilesById) {
  *   conflicts: { table: TableEvent, reasons: string[] }[],
  *   collisions: TableEvent[],
  *   cookExtras: { recipeId: string, date: string, servings: number }[],
- *   allCookExtras: { cookId: string, recipeId: string, date: string, servings: number }[]
+ *   allCookExtras: { cookId: string, buyerId?: string, recipeId: string, date: string, servings: number }[]
  * }}
  */
 export function deriveTables(houses, ctx) {
@@ -243,24 +244,34 @@ export function deriveTables(houses, ctx) {
       // My-plan collision/pin keys (takenSlots/derivedSlots) stay date|slot —
       // I eat one dinner however many houses are cooking.
       const houseSlotKey = `${house}|${slotKey}`;
+      // GROCERY CLAIMS (David, 2026-08-03): a family dinner's ingredients
+      // ride NOBODY's shopping list until someone claims the buy — "you
+      // don't know who will buy it, it may not be the cook." `buyerId`
+      // names the volunteer (I'LL BUY THIS); absent = the batch appears on
+      // no list at all, while the dinner still pins and plans for every
+      // seat. The buyer must be an in-house profile or the claim is inert.
+      const buyer =
+        t.buyerId && (ctx.profilesById?.get(t.buyerId)?.household ?? "home") === house
+          ? t.buyerId
+          : null;
       if (cook && recipe && !cookSlots.has(houseSlotKey)) {
         const total = known.reduce((sum, s) => sum + clampServings(s.servings), 0);
         if (total > 0) {
           // one meal is bought once. Without this guard two tables claiming
           // the same slot (a hand-set dinner over a brigade's, or the same
           // brigade meal written twice by two offline devices) each add a
-          // shopping pseudo-entry, and the cook quietly buys the dinner twice
+          // shopping pseudo-entry, and the buyer quietly buys the dinner twice
           cookSlots.add(houseSlotKey);
-          // every table's batch, whoever cooks it — for the "one shopper
-          // buys all the family dinners" trip (David, 2026-08-02). Derived-
-          // only, like everything else this function returns.
+          // every table's batch with its cook and claimant — for the claim
+          // buttons. Derived-only, like everything else this function returns.
           allCookExtras.push({
             cookId: cook.id,
+            ...(buyer ? { buyerId: buyer } : {}),
             recipeId: t.recipeId,
             date: t.date,
             servings: total,
           });
-          if (cook.id === ctx.profileId) {
+          if (buyer === ctx.profileId) {
             cookExtras.push({ recipeId: t.recipeId, date: t.date, servings: total });
           }
         }
@@ -445,6 +456,36 @@ export function patchSeat(events, tableId, profileId, patch, today) {
           }
         : t,
     ),
+  };
+}
+
+/**
+ * Claim (or release) a table's GROCERY BUY. buyerId names who volunteered to
+ * shop the batch — "I'll buy this" — and only that profile's derived list
+ * carries the ingredients. Null clears the claim, and clearing writes the
+ * field out of the object entirely (absent, not null, per SCHEMAS
+ * conventions). Membership sanity (buyer in the table's house) is enforced
+ * at derive time, so a stale claim from someone who moved out simply goes
+ * inert instead of corrupting anything.
+ * @param {HouseEvents} events
+ * @param {string} tableId
+ * @param {string | null} buyerId
+ * @param {string} today prune anchor, like every other CRUD write
+ * @returns {HouseEvents}
+ */
+export function setTableBuyer(events, tableId, buyerId, today) {
+  const base = pruneTables(events, today);
+  return {
+    ...base,
+    tables: base.tables.map((t) => {
+      if (t.id !== tableId) return t;
+      if (!buyerId) {
+        const rest = { ...t };
+        delete rest.buyerId;
+        return rest;
+      }
+      return { ...t, buyerId };
+    }),
   };
 }
 
@@ -717,6 +758,9 @@ export function materializeBrigade(events, brigade, ctx) {
         recipeId: meal.id,
         seats,
         cookId: cookFor(date),
+        // a grocery claim survives regeneration like a skip does: "I'm
+        // buying Wednesday" is a decision, not a detail to rebuild away
+        ...(existing?.buyerId ? { buyerId: existing.buyerId } : {}),
         fromBrigade: brigade.id,
       });
       made++;

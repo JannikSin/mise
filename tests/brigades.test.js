@@ -336,6 +336,7 @@ test("A HAND-SET TABLE BEATS THE BRIGADE'S, and the cook shops the meal once", (
     slot: "dinner",
     recipeId: "tagine",
     cookId: "mom",
+    buyerId: "mom",
     seats: [
       { id: "mom", servings: 1 },
       { id: "laurie", servings: 1 },
@@ -356,7 +357,7 @@ test("A HAND-SET TABLE BEATS THE BRIGADE'S, and the cook shops the meal once", (
   assert.equal(monday[0].table, "family-1", "the hand-set table wins the slot");
 
   const mondayShops = out.cookExtras.filter((e) => e.date === "2026-07-27");
-  assert.equal(mondayShops.length, 1, "and the cook buys that dinner exactly once");
+  assert.equal(mondayShops.length, 1, "and the CLAIMED dinner is bought exactly once");
   assert.equal(mondayShops[0].recipeId, "tagine");
 });
 
@@ -489,10 +490,32 @@ test("deriveTables exposes EVERY table's batch (allCookExtras), mine stays cook-
   const cooks = new Set(d.allCookExtras.map((x) => x.cookId));
   assert.ok(cooks.has("mom") && cooks.has("laurie") && cooks.has("david"));
   for (const x of d.allCookExtras) assert.ok(x.servings > 0 && x.recipeId && x.date);
-  // mom's own cookExtras = exactly her rotation nights
-  const hers = d.allCookExtras.filter((x) => x.cookId === "mom");
-  assert.deepEqual(
-    d.cookExtras.map((x) => `${x.date}|${x.recipeId}|${x.servings}`).sort(),
-    hers.map((x) => `${x.date}|${x.recipeId}|${x.servings}`).sort(),
+  // CLAIMS model: with no buyerId anywhere, NOBODY's list carries a batch —
+  // not even the cook's (David 2026-08-03: "you don't know who will buy it")
+  assert.deepEqual(d.cookExtras, []);
+  // claiming two nights puts exactly those two on the claimant's list
+  const claimed = {
+    ...events,
+    tables: events.tables.map((t, i) => (i < 2 ? { ...t, buyerId: "mom" } : t)),
+  };
+  const d2 = deriveTables([{ house: "taranowski", events: claimed }], {
+    profileId: "mom",
+    bankById: BANK,
+    ownEntries: [],
+    today: TODAY,
+    profilesById: PROFILES,
+  });
+  assert.equal(d2.cookExtras.length, 2, "exactly the claimed nights ride mom's list");
+});
+
+test("a grocery claim survives brigade regeneration, like a skip does", () => {
+  const first = materializeBrigade({ tables: [] }, BRIGADE, ctx()).events;
+  const night = first.tables.slice().sort((a, b) => a.date.localeCompare(b.date))[0];
+  night.buyerId = "laurie";
+  const re = materializeBrigade(first, BRIGADE, ctx({ regenerate: true })).events;
+  assert.equal(
+    re.tables.find((t) => t.id === night.id).buyerId,
+    "laurie",
+    "\"I'm buying Wednesday\" is a decision, not a detail to rebuild away",
   );
 });

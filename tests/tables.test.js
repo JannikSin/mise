@@ -7,6 +7,7 @@ import {
   removeTable,
   patchSeat,
   setTableTailor,
+  setTableBuyer,
   pruneTables,
   stripTableEntries,
   mergeViewPlan,
@@ -58,7 +59,7 @@ const ctx = (over = {}) => ({
 
 test("a seated profile derives one est-based pinned virtual entry", () => {
   const { entries, cookExtras } = deriveTables(
-    [{ house: "home", events: { tables: [table()] } }],
+    [{ house: "home", events: { tables: [table({ buyerId: "david" })] } }],
     ctx(),
   );
   assert.equal(entries.length, 1);
@@ -68,7 +69,7 @@ test("a seated profile derives one est-based pinned virtual entry", () => {
   assert.equal(e.recipeId, undefined); // never a recipeId: filtered pools lie
   assert.equal(e.estCalories, 1050); // 700 × 1.5
   assert.equal(e.estProtein, 60);
-  // david lives in the table's house and sits first: he cooks and shops the sum
+  // david CLAIMED the buy (buyerId), so his list carries the summed batch
   assert.deepEqual(cookExtras, [{ recipeId: "kebab", date: "2026-07-24", servings: 2.5 }]);
 });
 
@@ -107,6 +108,7 @@ test("diet/avoid conflicts surface as banners, never as pins (the Red Team block
 
 test("skipped seats derive nothing and are excluded from the cook's sum", () => {
   const t = table({
+    buyerId: "mom",
     seats: [
       { id: "david", servings: 1.5, status: "skipped" },
       { id: "mom", servings: 1 },
@@ -114,7 +116,7 @@ test("skipped seats derive nothing and are excluded from the cook's sum", () => 
   });
   const r = deriveTables([{ house: "home", events: { tables: [t] } }], ctx());
   assert.equal(r.entries.length, 0); // david skipped: no pin, no macros
-  // david skipped → mom is the first live home seat → SHE cooks; david adds nothing
+  // mom claimed the buy; skipped david's list carries nothing
   assert.deepEqual(r.cookExtras, []);
   const momView = deriveTables(
     [{ house: "home", events: { tables: [t] } }],
@@ -282,7 +284,10 @@ test("a poisoned table with an empty id derives nothing", () => {
 test("seat flood: unknown-profile seats never cook, never inflate the sum", () => {
   const seats = [{ id: "david", servings: 1 }];
   for (let i = 0; i < 50; i++) seats.push({ id: `ghost${i}`, servings: 10 });
-  const r = deriveTables([{ house: "home", events: { tables: [table({ seats })] } }], ctx());
+  const r = deriveTables(
+    [{ house: "home", events: { tables: [table({ seats, buyerId: "david" })] } }],
+    ctx(),
+  );
   assert.deepEqual(r.cookExtras, [{ recipeId: "kebab", date: "2026-07-24", servings: 1 }]);
   // and a ghost-only first seat cannot void the cook role
   const r2 = deriveTables(
@@ -292,6 +297,7 @@ test("seat flood: unknown-profile seats never cook, never inflate the sum", () =
         events: {
           tables: [
             table({
+              buyerId: "david",
               seats: [
                 { id: "zzz", servings: 1 },
                 { id: "david", servings: 1 },
@@ -410,7 +416,7 @@ test("cook shopping dedupe is HOUSE-scoped: another house's same-night dinner ne
   // code review 2026-08-02 HIGH #2: unscoped, the first table across ALL
   // houses at a date+slot ate the slot key and my own house's cook bought
   // nothing for their night
-  const mine = table();
+  const mine = table({ buyerId: "david" });
   const theirs = { ...table(), id: "other-house", seats: [{ id: "away", servings: 2 }] };
   const profiles = new Map([
     ["david", { id: "david", household: "home" }],
@@ -425,4 +431,12 @@ test("cook shopping dedupe is HOUSE-scoped: another house's same-night dinner ne
   );
   assert.equal(r.cookExtras.length, 1, "my house's batch still shops");
   assert.equal(r.allCookExtras.filter((x) => x.date === mine.date).length, 2, "both houses' batches known");
+});
+
+test("setTableBuyer claims and releases; clearing writes the field OUT (absent, not null)", () => {
+  const events = { tables: [table()] };
+  const claimed = setTableBuyer(events, "t1", "mom", "2026-07-24");
+  assert.equal(claimed.tables[0].buyerId, "mom");
+  const released = setTableBuyer(claimed, "t1", null, "2026-07-24");
+  assert.ok(!("buyerId" in released.tables[0]), "absent, per SCHEMAS conventions");
 });
