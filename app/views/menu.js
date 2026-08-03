@@ -52,7 +52,7 @@ export function MenuView({ profiles, me, hasToken, repo, onDinerFacts }) {
 
   return html`
     <div class="view">
-      <a class="backlink" href="#/tables">← CARNET</a>
+      <a class="backlink" href="#/tables">← TODAY</a>
       <div class="hero"><h1>Menu scan</h1></div>
       <p class="hint">
         eating out? photograph the menu and get an order that still lands on everyone's targets.
@@ -98,7 +98,7 @@ export function MenuView({ profiles, me, hasToken, repo, onDinerFacts }) {
       ${
         tokenBlocked &&
         html`<p class="hint">
-          ${repo?.auth === "invalid" ? "token needs renewing — SYS" : "connect token in SYS first"}
+          ${repo?.auth === "invalid" ? "token needs renewing — Settings" : "connect token in Settings first"}
         </p>`
       }
       ${scanErr && html`<p class="hint scanerr" role="status">${scanErr}</p>`}

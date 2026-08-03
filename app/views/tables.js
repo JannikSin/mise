@@ -134,11 +134,11 @@ export function TablesView({
   const submitBrigade = () => {
     if (!brigadeForm) return;
     if (brigadeForm.memberIds.length < 2) {
-      setBrigadeNote("A brigade needs at least two people. That is what makes it a brigade.");
+      setBrigadeNote("Standing dinners need at least two people — that is what makes them shared.");
       return;
     }
     if (brigadeForm.slots.length === 0) {
-      setBrigadeNote("Pick at least one meal for the brigade to share.");
+      setBrigadeNote("Pick at least one meal to share.");
       return;
     }
     // members stored in the picker's display order, so the rotation cycles
@@ -184,7 +184,7 @@ export function TablesView({
                   .join(", ")} suit everyone, so the week repeats itself.`
               : made > 0
                 ? `Set ${made} ${made === 1 ? "meal" : "meals"} for this week.`
-                : "This week is already set. Use RE-ROLL to change it.",
+                : "This week is already set. Use PICK DIFFERENT MEALS to change it.",
       );
     } catch {
       setBrigadeNote("Could not set the week. Check the connection and try again.");
@@ -239,7 +239,7 @@ export function TablesView({
   return html`
     <div class="view">
       <div class="hero">
-        <h1>Carnet<span>.</span></h1>
+        <h1>Today<span>.</span></h1>
         <div class="sub">your day, your tools, your table</div>
       </div>
 
@@ -277,7 +277,7 @@ export function TablesView({
         myTables.length > 0 &&
         html`<p class="hint">
           ✨ plate tailoring needs the token —
-          ${repo?.auth === "invalid" ? "renew it in SYS" : "connect it in SYS"}
+          ${repo?.auth === "invalid" ? "renew it in Settings" : "connect it in Settings"}
         </p>`
       }
       ${
@@ -494,11 +494,16 @@ export function TablesView({
               </div>
             </div>`
       }
-      <h2 class="block-title">Brigades</h2>
-      <p class="hint">
-        A standing table. Two or more people in this house eating the same meals, each at their own
-        portion. Set it once, then run it every week.
-      </p>
+      ${
+        // the block explains itself only when it has content or is being
+        // created — an empty jargon heading taught nothing (council 2026-08-02)
+        (myBrigades.length > 0 || brigadeForm) &&
+        html`<h2 class="block-title">Who cooks (standing dinners)</h2>
+          <p class="hint">
+            Two or more people in this house eating the same meals, each at their own portion. Set
+            it once, then run it every week.
+          </p>`
+      }
       ${myBrigades.map((b) => {
         const names = b.memberIds.map((id) => {
           const p = (profiles ?? []).find((x) => x.id === id);
@@ -554,7 +559,7 @@ export function TablesView({
                 disabled=${brigadeBusy === b.id}
                 onClick=${() => runBrigade(b.id, true)}
               >
-                RE-ROLL
+                PICK DIFFERENT MEALS
               </button>
               <button class="secondary" onClick=${() => onRemoveBrigade(b.id)}>END</button>
             </div>
@@ -565,10 +570,12 @@ export function TablesView({
       ${
         !brigadeForm
           ? html`<div class="actions">
-              <button class="secondary" onClick=${openBrigadeForm}>+ START A BRIGADE</button>
+              <button class="secondary" onClick=${openBrigadeForm}>
+                + SET WHO COOKS (standing dinners)
+              </button>
             </div>`
           : html`<div class="tile tableform">
-              <div class="k">Start a brigade</div>
+              <div class="k">Set who cooks</div>
               <input
                 aria-label="Brigade name"
                 placeholder="e.g. Mom + Laurie"
@@ -668,7 +675,7 @@ export function TablesView({
               </p>
               <div class="actions">
                 <button class="secondary" onClick=${() => setBrigadeForm(null)}>CANCEL</button>
-                <button class="primary" onClick=${submitBrigade}>START BRIGADE</button>
+                <button class="primary" onClick=${submitBrigade}>START</button>
               </div>
             </div>`
       }

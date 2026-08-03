@@ -3,13 +3,32 @@
 // week's shoppedAt receipt stamp, and the daily check-in log. Nothing new
 // to track, nothing stored (pure derivation), transparent components, and
 // numbers rather than verdict language (the Apple Watch pipeline rule).
-// Every profile is scored with the same yardstick so the household
-// scoreboard is a fair competition.
+// Every profile is scored by the same RULES against its OWN declared
+// tracks — the yardstick is shared, the chores are theirs. Scoring someone
+// on inputs their app never renders is not a competition, it is a rig.
 
 import { datesOfWeek } from "./plan.js";
 
-/** the four daily-log tracks the score counts, same for everyone */
-const LOG_TRACKS = ["weight", "pushups", "water", "supplements"];
+/**
+ * The daily-log tracks the score counted before 2026-08-02, kept as the
+ * default so a profile without `targets.tracks` (David, legacy installs)
+ * scores exactly as before. The council caught the hard-coded version
+ * scoring Mom on pushups and supplements her own check-in never renders —
+ * her ceiling was 85 in a "fair" competition. A profile is now scored ONLY
+ * on tracks it declares (the same list that decides what Home shows).
+ */
+const DEFAULT_LOG_TRACKS = ["weight", "pushups", "water", "supplements"];
+
+/** targets.tracks values that are daily-loggable, mapped to their day field */
+const TRACK_FIELDS = /** @type {Record<string, string>} */ ({
+  weight: "weight",
+  waist: "waist",
+  pushups: "pushups",
+  water: "water",
+  sleep: "sleepHours",
+  supplements: "supplements",
+  dailyDozen: "dozen",
+});
 
 /**
  * Whether one day's log has a given track filled.
@@ -19,7 +38,9 @@ const LOG_TRACKS = ["weight", "pushups", "water", "supplements"];
  */
 function logged(day, track) {
   if (track === "supplements") return Object.values(day.supplements ?? {}).some(Boolean);
-  const v = day[track];
+  if (track === "dailyDozen")
+    return Object.values(day.dozen ?? {}).some((v) => typeof v === "number" && v > 0);
+  const v = day[TRACK_FIELDS[track] ?? track];
   return typeof v === "number" && v > 0;
 }
 
@@ -33,11 +54,14 @@ function logged(day, track) {
  *   plan: { week: string, shoppedAt?: string, entries: Record<string, any>[] } | null,
  *   daily: { days?: Record<string, any>[] } | null,
  *   weekId: string,
- *   today: string
- * }} args
+ *   today: string,
+ *   tracks?: string[]
+ * }} args `tracks` = the profile's own targets.tracks; absent = the legacy
+ *   four, and unknown values are ignored so a future track can't zero a score
  * @returns {{ score: number, cooked: { done: number, total: number }, logged: { done: number, total: number }, shopped: boolean }}
  */
-export function weekAdherence({ plan, daily, weekId, today }) {
+export function weekAdherence({ plan, daily, weekId, today, tracks }) {
+  const logTracks = (tracks ?? DEFAULT_LOG_TRACKS).filter((t) => t in TRACK_FIELDS);
   const elapsed = datesOfWeek(weekId).filter((d) => d < today);
   const elapsedSet = new Set(elapsed);
 
@@ -50,11 +74,11 @@ export function weekAdherence({ plan, daily, weekId, today }) {
   };
 
   const days = daily?.days ?? [];
-  const logCells = elapsed.length * LOG_TRACKS.length;
+  const logCells = elapsed.length * logTracks.length;
   let logDone = 0;
   for (const date of elapsed) {
     const day = days.find((d) => d.date === date) ?? {};
-    for (const track of LOG_TRACKS) if (logged(day, track)) logDone++;
+    for (const track of logTracks) if (logged(day, track)) logDone++;
   }
   const log = { done: logDone, total: logCells };
 

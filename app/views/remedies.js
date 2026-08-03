@@ -70,8 +70,12 @@ export function RemediesView({ recipes, hasToken, repo }) {
 
   return html`
     <div class="view">
-      <a class="backlink" href="#/tables">← CARNET</a>
+      <a class="backlink" href="#/tables">← TODAY</a>
       <div class="hero"><h1>Feeling off?</h1></div>
+      <p class="hint">
+        Comfort food and rest ideas, not medical advice. For anything serious, persistent, or scary,
+        talk to a real clinician.
+      </p>
 
       <h2 class="block-title">What's going on</h2>
       <div class="chips wrapchips" role="group" aria-label="Symptoms">
@@ -146,8 +150,8 @@ export function RemediesView({ recipes, hasToken, repo }) {
         ${
           tokenBlocked
             ? repo?.auth === "invalid"
-              ? "token needs renewing — SYS"
-              : "connect token in SYS to ask live"
+              ? "token needs renewing — Settings"
+              : "connect token in Settings to ask live"
             : "fresh answer from Claude — needs signal; the picker above works offline."
         }
       </p>

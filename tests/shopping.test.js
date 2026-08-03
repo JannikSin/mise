@@ -29,6 +29,7 @@ import {
   subtractPantryFromTrip,
   clearReceiptRows,
   packHint,
+  normalizeShoppingList,
 } from "../app/lib/shopping.js";
 
 test("tripOf: perishable sections are the fresh trip, shelf-stable the pantry trip", () => {
@@ -1623,4 +1624,37 @@ test("count units display as ×N — never 'each' (David 2026-08-02)", () => {
   assert.equal(formatStoreQty(7, "each"), "×7");
   assert.equal(formatStoreQty(1, "x"), "×1");
   assert.equal(formatStoreQty(2, "can"), "2 can", "real container words stay");
+});
+
+test("normalize preserves -famdinners rows: no merge, no qty corruption, rebuild-proof", () => {
+  // code review 2026-08-02 HIGH #1: re-keying stripped the suffix, merged the
+  // batch into the plain derived row as "2 g" of chicken, and the next
+  // rebuild deleted the dinners silently
+  const list = {
+    generatedFrom: "2026-W32",
+    items: [
+      tripItem("chicken-thigh-g", "chicken thigh", 800, "g"),
+      tripItem("chicken-thigh-g-famdinners", "chicken thigh", 1200, "g", { manual: true }),
+    ],
+  };
+  const n = normalizeShoppingList(list);
+  const ids = (n?.items ?? []).map((i) => i.id).sort();
+  assert.equal(ids.length, 2, "two distinct rows survive");
+  assert.ok(ids.some((id) => id.endsWith("-famdinners")), "the discriminator survives re-keying");
+  const fam = (n?.items ?? []).find((i) => i.id.endsWith("-famdinners"));
+  assert.equal(fam.manual, true);
+});
+
+test("normalize merge keeps the promoted unit (2000 g is 2 kg, never '2 g')", () => {
+  const list = {
+    generatedFrom: "2026-W32",
+    items: [
+      { id: "old-key-a", food: "chicken thigh", qty: 800, unit: "g", section: "meat", checked: false, manual: false },
+      { id: "old-key-b", food: "chicken thigh", qty: 1200, unit: "g", section: "meat", checked: false, manual: false },
+    ],
+  };
+  const n = normalizeShoppingList(list);
+  const row = (n?.items ?? []).find((i) => i.food === "chicken thigh");
+  assert.ok(row, "rows merged");
+  assert.equal(`${row.qty} ${row.unit}`, "2 kg");
 });

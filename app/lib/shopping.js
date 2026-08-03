@@ -214,12 +214,18 @@ export function normalizeShoppingList(list) {
     // would otherwise match no section group and silently vanish from the list
     const section = sectionOf(item.food);
     const i = section === item.section ? item : { ...item, section };
+    // a family-dinner row (handleDinnersToMyList) keeps its discriminator
+    // through re-keying — stripping it merged the batch into the plain
+    // derived row, corrupted the qty, and let the next rebuild silently
+    // delete the dinners (code review 2026-08-02, HIGH #1)
+    const fam = String(i.id ?? "").endsWith("-famdinners");
     const ident = mergeIdentity(i.food, i.unit);
-    if (ident.id === i.id) return i;
+    const targetId = fam ? `${ident.id}-famdinners` : ident.id;
+    if (targetId === i.id) return i;
     const converted = ident.qty(i.qty);
     return converted
-      ? { ...i, id: ident.id, qty: converted.qty, unit: converted.unit }
-      : { ...i, id: ident.id };
+      ? { ...i, id: targetId, qty: converted.qty, unit: converted.unit }
+      : { ...i, id: targetId };
   });
   if (rekeyed.every((i, n) => i === items[n])) return list;
 
@@ -231,7 +237,11 @@ export function normalizeShoppingList(list) {
       merged.set(item.id, { ...item });
       continue;
     }
-    existing.qty = roundForPurchase(existing.qty + item.qty, existing.unit).qty;
+    // take the WHOLE rounded result: g can promote to kg, and keeping the
+    // old unit while adopting the promoted number turned 2000 g into "2 g"
+    const summed = roundForPurchase(existing.qty + item.qty, existing.unit);
+    existing.qty = summed.qty;
+    existing.unit = summed.unit;
     existing.checked = existing.checked && item.checked;
     existing.manual = existing.manual && item.manual;
     if (item.fromRecipes?.length) {
@@ -326,6 +336,21 @@ export function toStoreUnits(qty, unit) {
   }
   if (u === "l") return { qty: round2((qty * 1000) / 946.352946), unit: "qt" };
   return null;
+}
+
+/**
+ * Recipe-page variant: a recipe's ingredient list already sits under a
+ * servings banner, so "Egg ×3" there reads as "triple the eggs" (review #9).
+ * Count units render as the bare number — "egg · 3" — and everything else
+ * matches the store display.
+ * @param {number} qty
+ * @param {string} unit
+ * @returns {string}
+ */
+export function formatRecipeQty(qty, unit) {
+  const u = String(unit ?? "").toLowerCase();
+  if (u === "each" || u === "x") return `${qty}`;
+  return formatStoreQty(qty, unit);
 }
 
 /**
@@ -1248,14 +1273,24 @@ export function consumeForCook(pantry, ingredients) {
  * together. Whole recipes are swapped, never ingredients inside one, because
  * editing a Greger-audited recipe's ingredients silently voids the audit.
  *
+ * Guards (code review 2026-08-02, HIGH #3/#4, MEDIUM #5 — these bind on the
+ * AUTO-APPLY path, where nobody reads the suggestion before it lands):
+ * eaten history is never rewritten (cookedAt, past dates), a swap may not
+ * open a protein hole (candidate ≥ 85% of current), and a swap never
+ * duplicates a recipe already planned this week. Callers must hand a
+ * generator-eligible pool — this function screens taste and macros, not
+ * ai-special trust.
+ *
  * @param {CombinedItem[]} combined the merged household list
  * @param {string} meId
  * @param {Record<string, any>[]} myEntries my plan entries for the week
  * @param {Record<string, any>[]} myPool recipes I may be served (already screened)
  * @param {Map<string, any>} recipesById
+ * @param {{ today?: string }} [opts] local YYYY-MM-DD; entries dated before it
+ *   are history and never offered a swap
  * @returns {{ entryId: string, date: string, slot: string, fromId: string, fromName: string, toId: string, toName: string, drops: string[] }[]}
  */
-export function substitutionPlan(combined, meId, myEntries, myPool, recipesById) {
+export function substitutionPlan(combined, meId, myEntries, myPool, recipesById, opts = {}) {
   // foods somebody ELSE is already buying: swapping toward these is free,
   // because the item is in the house's trolley either way
   const othersBuy = new Set();
@@ -1274,9 +1309,14 @@ export function substitutionPlan(combined, meId, myEntries, myPool, recipesById)
       .filter((/** @type {any} */ i) => !i.staple)
       .map((/** @type {any} */ i) => canonicalFood(i.food));
 
+  const weekRecipeIds = new Set(myEntries.map((e) => e.recipeId).filter(Boolean));
   const out = [];
   for (const entry of myEntries) {
     if (!entry.recipeId || entry.pinned || entry.out || entry.table) continue;
+    // history is not a suggestion surface: a cooked meal already came off the
+    // pantry shelves, and a past day already happened
+    if (entry.cookedAt) continue;
+    if (opts.today && entry.date < opts.today) continue;
     const current = recipesById.get(entry.recipeId);
     if (!current) continue;
     const currentSolo = foodsOf(current).filter((/** @type {string} */ f) => soloFoods.has(f));
@@ -1291,6 +1331,13 @@ export function substitutionPlan(combined, meId, myEntries, myPool, recipesById)
       const a = current.nutrition?.calories ?? 0;
       const b = candidate.nutrition?.calories ?? 0;
       if (a <= 0 || b <= 0 || Math.abs(a - b) / a > 0.15) continue;
+      // a swap must not quietly open a protein hole: the top-up passes ran
+      // BEFORE this and will not run again
+      const pa = current.nutrition?.protein ?? 0;
+      const pb = candidate.nutrition?.protein ?? 0;
+      if (pa > 0 && pb < pa * 0.85) continue;
+      // never duplicate a recipe already in the week (the ≤2-repeat promise)
+      if (weekRecipeIds.has(candidate.id)) continue;
       const foods = foodsOf(candidate);
       // every single-buyer food the CANDIDATE needs, including any the current
       // recipe already needed. Excluding those would score a swap between two

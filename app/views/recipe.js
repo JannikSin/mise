@@ -1,7 +1,7 @@
 import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 import { cookPlan } from "../lib/portions.js";
-import { formatStoreQty } from "../lib/shopping.js";
+import { formatRecipeQty } from "../lib/shopping.js";
 import { keepAwake } from "../lib/awake.js";
 import { pickForRecipe } from "../lib/music.js";
 
@@ -174,7 +174,7 @@ export function RecipeView({ recipe, loading, from, servings, entryId, unshopped
                 ${i.food}${i.note ? html` <span class="note">— ${i.note}</span>` : ""}
                 ${i.staple ? html` <span class="pantry-mark">pantry</span>` : ""}
               </span>
-              <span class="q">${formatStoreQty(i.qty, i.unit)}</span>
+              <span class="q">${formatRecipeQty(i.qty, i.unit)}</span>
             </div>
           `,
         )}

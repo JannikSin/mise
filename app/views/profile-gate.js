@@ -106,7 +106,7 @@ export function ProfileGateView() {
   // richer-survey additions (2026-07-19): shorten the chat onboarder to pennies
   const [household, setHousehold] = useState("home");
   // family layer (2026-07-21): family = who you ARE (the gate groups by it);
-  // household = who you shop with right now (movable in SYS)
+  // household = who you shop with right now (movable in Settings)
   const [family, setFamily] = useState("");
   // typical restaurant/free meals per week — pre-fills nothing yet, but the
   // assistant and the OUT-slot suggestions will read it (targets.mealsOutPerWeek)
@@ -399,7 +399,7 @@ export function ProfileGateView() {
           </div>
           <p class="hint">
             family is who they ARE (the chooser groups by it); a house is the kitchen they cook and
-            shop with right now, movable any time in SYS. State sets the List's grocery tax.
+            shop with right now, movable any time in Settings. State sets the List's grocery tax.
           </p>
 
           <h2 class="block-title">about them</h2>
@@ -621,7 +621,9 @@ export function ProfileGateView() {
               no
             </button>
           </div>
-          <p class="hint">no hides the Train tab and workout tracking — flip it later in SYS.</p>
+          <p class="hint">
+            no hides the Train tab and workout tracking — flip it later in Settings.
+          </p>
 
           <details class="survey-optional">
             <summary class="block-title">make it yours (optional)</summary>
@@ -818,7 +820,7 @@ export function ProfileGateView() {
           </p>
           <p class="hint">
             calories and protein are computed from these answers (Mifflin-St Jeor); recipes come
-            from the shared bank matched to the goal. Everything is adjustable later in SYS.
+            from the shared bank matched to the goal. Everything is adjustable later in Settings.
           </p>
         </div>
       </details>

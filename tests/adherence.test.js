@@ -80,3 +80,32 @@ test("rankScoreboard sorts by score desc, name as stable tiebreak", () => {
     ["David", "Laurie", "Mom"],
   );
 });
+
+test("a profile is scored ONLY on its own tracks — a no-pushups profile can reach 100", () => {
+  // council 2026-08-02: LOG_TRACKS was hard-coded to David's four, so a
+  // loss-phase profile (tracks: sleep/weight/waist/water/dailyDozen) was
+  // scored on pushups and supplements its check-in never renders — ceiling
+  // 85 in a "fair" household competition. This pins the fix.
+  const tracks = ["sleep", "weight", "waist", "water", "dailyDozen"];
+  const days = ["2026-07-20", "2026-07-21"].map((date) => ({
+    date,
+    sleepHours: 7.5,
+    weight: 180,
+    waist: 33,
+    water: 2.5,
+    dozen: { greens: 2 },
+  }));
+  const plan = {
+    week: WEEK,
+    shoppedAt: "2026-07-20",
+    entries: [
+      { id: "a", date: "2026-07-20", slot: "dinner", recipeId: "x", servings: 1, cookedAt: "2026-07-20" },
+      { id: "b", date: "2026-07-21", slot: "dinner", recipeId: "x", servings: 1, cookedAt: "2026-07-21" },
+    ],
+  };
+  const a = weekAdherence({ plan, daily: { days }, weekId: WEEK, today: "2026-07-22", tracks });
+  assert.equal(a.score, 100, "every declared track logged, all cooked, receipt in = 100");
+  // and absent tracks keeps the legacy four (David/back-compat)
+  const legacy = weekAdherence({ plan, daily: { days }, weekId: WEEK, today: "2026-07-22" });
+  assert.ok(legacy.score < 100, "legacy default still counts pushups+supplements");
+});

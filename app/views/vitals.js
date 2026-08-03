@@ -65,7 +65,7 @@ export function VitalsView({ vitals, loading, hasToken }) {
 
   return html`
     <div class="view">
-      <a class="backlink" href="#/tables">← CARNET</a>
+      <a class="backlink" href="#/tables">← TODAY</a>
       <div class="hero"><h1>Vitals</h1></div>
       ${loading && html`<p class="hint">loading…</p>`}
       ${
@@ -75,7 +75,7 @@ export function VitalsView({ vitals, loading, hasToken }) {
           ${
             hasToken
               ? "no watch data yet — connect the Apple Shortcuts automation that posts to health/vitals.json (see docs)"
-              : "connect token in SYS"
+              : "connect token in Settings"
           }
         </div>`
       }

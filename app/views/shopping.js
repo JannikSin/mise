@@ -167,6 +167,7 @@ const FRESH_STEPS = [
  *   ownEmoji: string,
  *   onCombinedToggle: (itemId: string, sources: { profileId: string, checked: boolean }[]) => void,
  *   onDinnersToMyList?: () => number,
+ *   onRemoveDinnerRows?: () => void,
  *   shopsPerWeek?: number,
  *   houseShopped?: boolean,
  *   prices?: import("../lib/prices.js").PriceCatalogue | null,
@@ -204,6 +205,7 @@ export function ShoppingView({
   ownEmoji,
   onCombinedToggle,
   onDinnersToMyList = undefined,
+  onRemoveDinnerRows = undefined,
   shopsPerWeek = 1,
   houseShopped = false,
   prices = null,
@@ -1011,9 +1013,9 @@ export function ShoppingView({
             html`<div class="empty">
               ${
                 repo?.auth === "invalid"
-                  ? "token needs renewing — SYS"
+                  ? "token needs renewing — Settings"
                   : !hasToken
-                    ? "connect token in SYS"
+                    ? "connect token in Settings"
                     : loading
                       ? "loading…"
                       : houseShopped
@@ -1174,7 +1176,7 @@ export function ShoppingView({
           ${
             tokenBlocked &&
             html`<p class="hint">
-              ${repo?.auth === "invalid" ? "token needs renewing — SYS" : "connect token in SYS"}
+              ${repo?.auth === "invalid" ? "token needs renewing — Settings" : "connect token in Settings"}
             </p>`
           }
           ${scan?.error && html`<p class="hint scanerr" role="status">${scan.error}</p>`}
@@ -1400,6 +1402,31 @@ export function ShoppingView({
               </button>
             </div>
             ${dinnersNote && html`<p class="hint" role="status">${dinnersNote}</p>`}
+            ${(() => {
+              const hasDinnerRows = (shopping.items ?? []).some((i) =>
+                String(i.id).endsWith("-famdinners"),
+              );
+              return html`
+                ${
+                  hasDinnerRows &&
+                  tripOthers.length > 0 &&
+                  html`<p class="hint scanerr" role="status">
+                    ⚠ Your list holds the dinner batches AND the other cooks are still in this trip
+                    — those dinners count twice below. Toggle the others off, or remove the dinner
+                    rows.
+                  </p>`
+                }
+                ${
+                  hasDinnerRows &&
+                  onRemoveDinnerRows &&
+                  html`<div class="actions">
+                    <button class="secondary" onClick=${onRemoveDinnerRows}>
+                      REMOVE THE DINNER ROWS FROM MY LIST
+                    </button>
+                  </div>`
+                }
+              `;
+            })()}
           </div>
         `
       }
@@ -1424,7 +1451,7 @@ export function ShoppingView({
               // reason, family field or not (David, 2026-08-02: dad and
               // laurie were simply invisible here while their household was
               // stale, and invisible reads as broken — an explained absence
-              // says exactly what to fix in SYS)
+              // says exactly what to fix in Settings)
               (profiles ?? [])
                 .filter((p) => p.id !== me && !others.some((o) => o.profileId === p.id))
                 .map(
@@ -1433,7 +1460,7 @@ export function ShoppingView({
                       key=${p.id}
                       class="chip"
                       disabled
-                      title="different house — move them in SYS to shop together"
+                      title="different house — move them in Settings to shop together"
                     >
                       ${p.emoji ?? ""} ${p.name} · different house
                     </button>

@@ -147,13 +147,13 @@ export function PlannerView({
             plan.locked
               ? "Locked — unlock from the List tab to regenerate"
               : rebuilt
-                ? "Re-roll the generated week"
+                ? "Pick different meals for the generated week"
                 : "Generate my week automatically"
           }
           onClick=${onGenerateWeek}
           disabled=${recipes.length === 0 || Boolean(plan.locked) || firstLive == null}
         >
-          ${rebuilt ? "RE-ROLL WEEK" : "✦ GENERATE MY WEEK"}
+          ${rebuilt ? "PICK DIFFERENT MEALS" : "✦ GENERATE MY WEEK"}
           <small>
             ${
               plan.locked
@@ -287,8 +287,8 @@ export function PlannerView({
       ${
         tableStale &&
         html`<p class="hint">
-          ⚠ a table landed after this week was generated — RE-ROLL to plan the day around it and
-          rebuild the list.
+          ⚠ a family dinner landed after this week was generated — PICK DIFFERENT MEALS to plan
+          around it and rebuild the list.
         </p>`
       }
       ${
@@ -543,7 +543,7 @@ export function PlannerView({
                           }
                           onClick=${() => onToggleOut(date, key)}
                         >
-                          🍴 OUT
+                          🍴 EATING OUT
                         </button>`
                       }
                     </div>
