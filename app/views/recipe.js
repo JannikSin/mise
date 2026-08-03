@@ -105,7 +105,15 @@ export function RecipeView({ recipe, loading, from, servings, entryId, unshopped
         plan.note &&
         html`<div class="tile portion ${plan.mode}" role="note">
           <div class="k">
-            ${plan.mode === "batch" ? "🍲 batch — save the extra" : plan.mode === "single" ? "🍽️ cooking your portion" : "portion"}
+            ${
+              plan.mode === "batch"
+                ? "🍲 batch — save the extra"
+                : plan.mode === "single"
+                  ? "🍽️ cooking your portion"
+                  : plan.mode === "scaled"
+                    ? "👨‍🍳 family batch — amounts scaled up"
+                    : "portion"
+            }
           </div>
           <div class="d">${plan.note}</div>
         </div>`

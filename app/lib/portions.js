@@ -41,6 +41,9 @@ export function scaleQty(qty, unit, ratio) {
     "pitas",
     "slice",
     "slices",
+    // whole discrete items: 2.88 broccoli crowns is not a thing a cook does
+    "each",
+    "x",
   ];
   if (countable.includes(u)) {
     // round to the nearest 0.5, but never vanish a real ingredient to 0
@@ -61,7 +64,7 @@ export function scaleQty(qty, unit, ratio) {
  * @param {Record<string, any>} recipe
  * @param {number} [plannedServings] portions eaten at this slot; omit = cook full
  * @returns {{
- *   mode: "full" | "batch" | "single",
+ *   mode: "full" | "batch" | "single" | "scaled",
  *   cookServings: number,
  *   eatServings: number,
  *   extraServings: number,
@@ -74,8 +77,26 @@ export function cookPlan(recipe, plannedServings) {
   const eat = plannedServings && plannedServings > 0 ? plannedServings : makes;
   const ingredients = recipe?.ingredients ?? [];
 
-  // cooking the whole thing (or more): no scaling, no leftover math
-  if (eat >= makes) {
+  // cooking MORE than the recipe makes (a family-dinner batch: 5.75 servings
+  // of a 2-serving recipe): scale every ingredient UP so the cook reads real
+  // amounts, never "the recipe ×2.9 in your head" (David, 2026-08-03)
+  if (eat > makes) {
+    const ratio = eat / makes;
+    return {
+      mode: "scaled",
+      cookServings: eat,
+      eatServings: eat,
+      extraServings: 0,
+      ingredients: ingredients.map((/** @type {Record<string, any>} */ i) => ({
+        ...i,
+        qty: scaleQty(Number(i.qty) || 0, i.unit, ratio),
+      })),
+      note: `Scaled up for the table: makes ${eat} servings (${Math.round(ratio * 100) / 100}× the recipe). Amounts below are the full batch.`,
+    };
+  }
+
+  // cooking exactly the whole thing: no scaling, no leftover math
+  if (eat === makes) {
     return {
       mode: "full",
       cookServings: makes,

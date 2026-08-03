@@ -33,7 +33,9 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onCreateBrigade: (b: { name: string, memberIds: string[], slots: string[], cookId?: string, from: string, until: string }) => void,
  *   onRemoveBrigade: (id: string) => void,
  *   onRunBrigade: (id: string, week: string, regenerate?: boolean) => Promise<{ made: number, thin: { slot: string, available: number }[] }>,
- *   checkIn: Record<string, any>
+ *   checkIn: Record<string, any>,
+ *   showCheckIn?: boolean,
+ *   showScoreboard?: boolean
  * }} props
  */
 export function TablesView({
@@ -57,6 +59,8 @@ export function TablesView({
   onRemoveBrigade,
   onRunBrigade,
   checkIn,
+  showCheckIn = true,
+  showScoreboard = true,
 }) {
   const byId = recipesById(bankRecipes ?? []);
   const myHouse = /** @type {string} */ (
@@ -236,43 +240,9 @@ export function TablesView({
     setTableForm(null);
   };
 
-  return html`
-    <div class="view">
-      <div class="hero">
-        <h1>Today<span>.</span></h1>
-        <div class="sub">your day, your tools, your table</div>
-      </div>
-
-      <${CheckInView} ...${checkIn} />
-
-      <h2 class="block-title">Tables</h2>
-      <p class="hint">
-        a table is one shared meal: pick a recipe, seat people, everyone eats the same dish at their
-        own portion and their day replans around it. Money from finished tables settles on the List
-        tab.
-      </p>
-      ${
-        // the household competition: same yardstick for everyone (cooked
-        // confirmations, receipt, daily logs), numbers not judgment
-        (scoreboard ?? []).length > 0 &&
-        html`<div class="tile">
-          <div class="k">🏆 THIS WEEK · household scoreboard</div>
-          ${scoreboard.map(
-            (r, i) => html`
-              <div class="d num" key=${r.id}>
-                ${i === 0 && r.score > 0 ? "👑" : `${i + 1}.`} ${r.emoji} ${r.name}
-                <b> ${r.score}</b> · cooked ${r.cooked.done}/${r.cooked.total} · logged${" "}
-                ${r.logged.done}/${r.logged.total} · ${r.shopped ? "🧾 shopped" : "no receipt yet"}
-              </div>
-            `,
-          )}
-          <div class="hint">
-            score = 50% meals confirmed cooked + 30% daily logs + 20% receipt scanned, over days
-            already finished. Tap COOKED after cooking and it climbs.
-          </div>
-        </div>`
-      }
-      ${
+  // the family dinners, hoisted so they render at the TOP of the page
+  const dinnerBlock = html`
+    ${
         tokenBlocked &&
         myTables.length > 0 &&
         html`<p class="hint">
@@ -280,7 +250,7 @@ export function TablesView({
           ${repo?.auth === "invalid" ? "renew it in Settings" : "connect it in Settings"}
         </p>`
       }
-      ${
+    ${
         myTables.length === 0 &&
         !tableForm &&
         html`<p class="hint">
@@ -288,7 +258,7 @@ export function TablesView({
           <a href="#/dinner">tonight's dinner</a>.
         </p>`
       }
-      ${myTables.map(({ house, t }) => {
+    ${myTables.map(({ house, t }) => {
         const mySeat = (t.seats ?? []).find((s) => s.id === me);
         const skipped = mySeat?.status === "skipped";
         const conflicted = conflictIds.has(t.id);
@@ -395,6 +365,50 @@ export function TablesView({
           </div>
         `;
       })}
+  `;
+
+  return html`
+    <div class="view">
+      <div class="hero">
+        <h1>Today<span>.</span></h1>
+        <div class="sub">what's for dinner, who's cooking</div>
+      </div>
+
+      <h2 class="block-title">Family dinners</h2>
+      <p class="hint">
+        every shared meal coming up, with the cook named. One pot, everyone's own portion; money
+        from finished dinners settles on the List tab.
+      </p>
+      ${dinnerBlock}
+      ${
+        // the morning check-in and the household scoreboard sit BELOW the
+        // dinners (David, 2026-08-03: the page opens on the family meals) and
+        // render only for profiles whose capabilities include them — the
+        // family default is the dinners and nothing else
+        showCheckIn && html`<${CheckInView} ...${checkIn} />`
+      }
+      ${
+        // the household competition: same yardstick for everyone (cooked
+        // confirmations, receipt, daily logs), numbers not judgment
+        showScoreboard &&
+        (scoreboard ?? []).length > 0 &&
+        html`<div class="tile">
+          <div class="k">🏆 THIS WEEK · household scoreboard</div>
+          ${scoreboard.map(
+            (r, i) => html`
+              <div class="d num" key=${r.id}>
+                ${i === 0 && r.score > 0 ? "👑" : `${i + 1}.`} ${r.emoji} ${r.name}
+                <b> ${r.score}</b> · cooked ${r.cooked.done}/${r.cooked.total} · logged${" "}
+                ${r.logged.done}/${r.logged.total} · ${r.shopped ? "🧾 shopped" : "no receipt yet"}
+              </div>
+            `,
+          )}
+          <div class="hint">
+            score = 50% meals confirmed cooked + 30% daily logs + 20% receipt scanned, over days
+            already finished. Tap COOKED after cooking and it climbs.
+          </div>
+        </div>`
+      }
       ${
         !tableForm
           ? html`<div class="actions">

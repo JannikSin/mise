@@ -232,6 +232,11 @@ export function ProfileGateView() {
       emoji: emoji.trim(),
       phase: targets.phase,
       trainingEnabled: training,
+      // INVERTED DEFAULT (council 2026-08-02): a new profile starts at the
+      // family minimum — plan, list, dinners, settings. Extra surfaces
+      // (check-in, scoreboard, money) get hand-added to capabilities when
+      // that person actually wants them; features argue their way IN.
+      capabilities: /** @type {string[]} */ ([]),
       // "home" (or blank) is the default: store as absent, not a string
       ...(household.trim() && household.trim().toLowerCase() !== "home"
         ? { household: slugify(household) }

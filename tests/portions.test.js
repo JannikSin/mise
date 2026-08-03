@@ -72,3 +72,26 @@ test("cookPlan full mode: cooking the whole recipe (or cookbook browse) doesn't 
     [10],
   );
 });
+
+test("cooking MORE than the recipe makes scales every ingredient UP (family batch)", () => {
+  // David 2026-08-03: "cook ×5.75 of a 2-serving recipe" showed the
+  // 2-serving amounts with a multiplier to do in your head. The cook reads
+  // real numbers now.
+  const recipe = {
+    id: "sheet-pan",
+    servings: 2,
+    tags: [],
+    ingredients: [
+      { qty: 300, unit: "g", food: "salmon" },
+      { qty: 1, unit: "each", food: "broccoli crown" },
+    ],
+  };
+  const plan = cookPlan(recipe, 5.75);
+  assert.equal(plan.mode, "scaled");
+  assert.equal(plan.cookServings, 5.75);
+  assert.equal(plan.ingredients[0].qty, 862.5, "300 g × 5.75/2");
+  assert.equal(plan.ingredients[1].qty, 3, "counts round to a cookable half");
+  assert.ok(plan.note.includes("2.88×") || plan.note.includes("2.87×"), plan.note);
+  // exact yield unchanged: still mode full, unscaled
+  assert.equal(cookPlan(recipe, 2).mode, "full");
+});
