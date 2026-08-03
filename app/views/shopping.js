@@ -166,7 +166,8 @@ const FRESH_STEPS = [
  *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList }[],
  *   ownEmoji: string,
  *   onCombinedToggle: (itemId: string, sources: { profileId: string, checked: boolean }[]) => void,
- *   onDinnersToMyList?: () => number,
+ *   onClaimAllDinners?: (claim: boolean) => number,
+ *   dinnerClaims?: { unclaimed: number, mine: number },
  *   onRemoveDinnerRows?: () => void,
  *   shopsPerWeek?: number,
  *   houseShopped?: boolean,
@@ -204,7 +205,8 @@ export function ShoppingView({
   others,
   ownEmoji,
   onCombinedToggle,
-  onDinnersToMyList = undefined,
+  onClaimAllDinners = undefined,
+  dinnerClaims = undefined,
   onRemoveDinnerRows = undefined,
   shopsPerWeek = 1,
   houseShopped = false,
@@ -1376,57 +1378,67 @@ export function ShoppingView({
       }
       ${
         tab === "combined" &&
-        onDinnersToMyList &&
+        onClaimAllDinners &&
         html`
           <div class="tile" role="note">
-            <div class="k">🍽 Shopping alone for you + the family dinners?</div>
+            <div class="k">🛒 Family dinner groceries — who's buying?</div>
             <p class="hint">
-              Tap below to pull the OTHER cooks' dinner batches onto your own list (your cook nights
-              are already on it), then toggle everyone else off in the picker. The trip becomes
-              exactly your week plus every family dinner — none of their daily meals. Rows arrive
-              tagged manual so rebuilding your list never loses them.
+              A dinner's ingredients sit on NOBODY's list until someone claims the buy (each dinner
+              card on Today has its own I'LL BUY THIS button). Claim them all below and they join
+              your own list as normal rows — ticks, receipt, and the who-owes-what ledger all follow
+              the buyer.
+              ${dinnerClaims ? html`<b>${dinnerClaims.unclaimed}</b> unclaimed · <b>${dinnerClaims.mine}</b> yours.` : ""}
             </p>
-            <div class="actions">
-              <button
-                class="secondary"
-                onClick=${() => {
-                  const n = onDinnersToMyList();
-                  setDinnersNote(
-                    n > 0
-                      ? `${n} dinner-batch ${n === 1 ? "item" : "items"} added to your list ✓ — now toggle the others off below`
-                      : "no other cooks' dinners found for this week — nothing to add",
-                  );
-                }}
-              >
-                🍽 ADD ALL FAMILY DINNERS TO MY LIST
-              </button>
+            <div class="actions wrap">
+              ${
+                (dinnerClaims?.unclaimed ?? 0) > 0 &&
+                html`<button
+                  class="primary"
+                  onClick=${() => {
+                    const n = onClaimAllDinners(true);
+                    setDinnersNote(
+                      n > 0
+                        ? `you're buying ${n} more dinner${n === 1 ? "" : "s"} ✓ — their groceries just joined your list`
+                        : "nothing to claim",
+                    );
+                  }}
+                >
+                  🛒 I'M BUYING ALL THE FAMILY DINNERS
+                </button>`
+              }
+              ${
+                (dinnerClaims?.mine ?? 0) > 0 &&
+                html`<button
+                  class="secondary"
+                  onClick=${() => {
+                    const n = onClaimAllDinners(false);
+                    setDinnersNote(
+                      n > 0
+                        ? `released ${n} dinner claim${n === 1 ? "" : "s"} — those groceries left your list`
+                        : "nothing to release",
+                    );
+                  }}
+                >
+                  RELEASE MY DINNER CLAIMS
+                </button>`
+              }
             </div>
             ${dinnersNote && html`<p class="hint" role="status">${dinnersNote}</p>`}
-            ${(() => {
-              const hasDinnerRows = (shopping.items ?? []).some((i) =>
-                String(i.id).endsWith("-famdinners"),
-              );
-              return html`
-                ${
-                  hasDinnerRows &&
-                  tripOthers.length > 0 &&
-                  html`<p class="hint scanerr" role="status">
-                    ⚠ Your list holds the dinner batches AND the other cooks are still in this trip
-                    — those dinners count twice below. Toggle the others off, or remove the dinner
-                    rows.
-                  </p>`
-                }
-                ${
-                  hasDinnerRows &&
-                  onRemoveDinnerRows &&
-                  html`<div class="actions">
-                    <button class="secondary" onClick=${onRemoveDinnerRows}>
-                      REMOVE THE DINNER ROWS FROM MY LIST
-                    </button>
-                  </div>`
-                }
-              `;
-            })()}
+            ${
+              // RETIRED manual rows from the pre-claims button: surface the
+              // cleanup as long as any survive, they are untrusted by design
+              (shopping.items ?? []).some((i) => String(i.id).endsWith("-famdinners")) &&
+              onRemoveDinnerRows &&
+              html`<p class="hint scanerr" role="status">
+                  ⚠ Old manually-added dinner rows are still on your list from before claims existed
+                  — they may double-count. Remove them; claimed dinners re-derive cleanly.
+                </p>
+                <div class="actions">
+                  <button class="secondary" onClick=${onRemoveDinnerRows}>
+                    REMOVE THE OLD DINNER ROWS
+                  </button>
+                </div>`
+            }
           </div>
         `
       }

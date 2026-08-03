@@ -422,6 +422,15 @@ before every plan write).
       "date": "2026-07-24",
       "slot": "dinner", // plan slot keys
       "recipeId": "doner-style-kebab-bowl", // must resolve in the BANK
+      "buyerId": "mom", // ? GROCERY CLAIM (David 2026-08-03): who volunteered
+      //   to BUY this dinner's ingredients ("I'll buy this" on the card, or
+      //   the List's claim-all button). Cooking and buying are separate
+      //   jobs. ABSENT = unclaimed: the batch rides NOBODY's shopping list
+      //   — never added automatically, not even the cook's. Set/cleared via
+      //   setTableBuyer (clearing removes the field). Must be an in-house
+      //   profile or the claim is inert at derive time. Survives brigade
+      //   regeneration like a seat's skip. The money ledger's payer is the
+      //   buyer, falling back to the cook for unclaimed tables.
       "seats": [
         // seat id = profileId — id-keyed so concurrent seat edits merge
         { "id": "david", "servings": 1.5 },
@@ -459,10 +468,11 @@ Rules (binding, from the Tribunal gate):
 - A seat with `status: "skipped"` derives nothing and is excluded from the
   cook's shopping sum.
 - The COOK = the table's explicit `cookId` when it names an in-house profile
-  — EVEN IF that seat is skipped (cooking is not eating: a rotated cook who
-  skips their own plate still shops and still pays; letting the role slide
-  to seat #1 billed the wrong person). Fallback: first non-skipped in-house
-  seat. Only the cook's list derivation shops the summed servings; every
+  — EVEN IF that seat is skipped (a rotated cook who skips their own plate
+  still cooks). Fallback: first non-skipped in-house seat.
+- SHOPPING follows the BUYER, not the cook (claims, 2026-08-03): only the
+  profile matching `buyerId` derives the summed-servings shopping
+  pseudo-entries. No `buyerId` = no list anywhere carries the batch. Every
   other seat's entry is est-macro only (nothing to buy).
 - A profile's own entry at the same date+slot wins over the table entry.
 - Retention: derivation ignores tables >14 days past; every CRUD write

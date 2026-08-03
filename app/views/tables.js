@@ -25,6 +25,7 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   bankRecipes: Record<string, any>[],
  *   onCreateTable: (t: { name: string, date: string, slot: string, recipeId: string, seats: import("../lib/tables.js").Seat[] }) => void,
  *   onRemoveTable: (house: string, id: string) => void,
+ *   onSetBuyer?: (house: string, tableId: string, buyerId: string | null) => void,
  *   onPatchSeat: (house: string, tableId: string, patch: Partial<import("../lib/tables.js").Seat>) => void,
  *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>,
  *   onTailorTable: (house: string, tableId: string) => Promise<void>,
@@ -50,6 +51,7 @@ export function TablesView({
   bankRecipes,
   onCreateTable,
   onRemoveTable,
+  onSetBuyer = undefined,
   onPatchSeat,
   onSeatScreen,
   onTailorTable,
@@ -243,72 +245,79 @@ export function TablesView({
   // the family dinners, hoisted so they render at the TOP of the page
   const dinnerBlock = html`
     ${
-        tokenBlocked &&
-        myTables.length > 0 &&
-        html`<p class="hint">
-          ✨ plate tailoring needs the token —
-          ${repo?.auth === "invalid" ? "renew it in Settings" : "connect it in Settings"}
-        </p>`
-      }
+      tokenBlocked &&
+      myTables.length > 0 &&
+      html`<p class="hint">
+        ✨ plate tailoring needs the token —
+        ${repo?.auth === "invalid" ? "renew it in Settings" : "connect it in Settings"}
+      </p>`
+    }
     ${
-        myTables.length === 0 &&
-        !tableForm &&
-        html`<p class="hint">
-          no upcoming tables — set one below, or talk it out on
-          <a href="#/dinner">tonight's dinner</a>.
-        </p>`
-      }
+      myTables.length === 0 &&
+      !tableForm &&
+      html`<p class="hint">
+        no upcoming tables — set one below, or talk it out on
+        <a href="#/dinner">tonight's dinner</a>.
+      </p>`
+    }
     ${myTables.map(({ house, t }) => {
-        const mySeat = (t.seats ?? []).find((s) => s.id === me);
-        const skipped = mySeat?.status === "skipped";
-        const conflicted = conflictIds.has(t.id);
-        return html`
-          <div class="tile tablecard ${skipped ? "skipped" : ""}" key=${t.id}>
-            <div class="k">
-              🍽 ${t.name} ·
-              ${`${parseLocalIso(t.date).toLocaleDateString([], {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-              })} ${SLOT_META[t.slot]?.label ?? t.slot}`}
-              · ${byId.get(t.recipeId)?.name ?? t.recipeId}
-              ${house !== myHouse && html` · at ${house}`}
-            </div>
-            ${
-              t.cookId &&
-              html`<div class="d">
-                👨‍🍳 <strong>${nameOf(t.cookId)}${t.cookId === me ? " (you)" : ""}</strong> cooks and
-                shops this one
-              </div>`
-            }
-            <div class="d num">
-              ${(t.seats ?? [])
-                .map(
-                  (s) => `${nameOf(s.id)} ×${s.servings}${s.status === "skipped" ? " (out)" : ""}`,
-                )
-                .join(" · ")}
-              · cook total
-              ×${(t.seats ?? [])
-                .filter((s) => s.status !== "skipped")
-                .reduce((sum, s) => sum + (Number(s.servings) || 0), 0)}
-            </div>
-            ${
-              conflicted &&
-              html`<div class="d num redflag">
-                ⚠ conflicts with your diet list — not added to your plan
-              </div>`
-            }
-            ${
-              collisionIds.has(t.id) &&
-              html`<div class="d num redflag">
-                your ${SLOT_META[t.slot]?.full ?? t.slot} that day is pinned or marked OUT — unpin
-                or clear it to sit at this table
-              </div>`
-            }
-            ${
-              t.tailor &&
-              html`<div class="d" role="status">
-                ${Object.entries(t.tailor.seats ?? {}).map(
+      const mySeat = (t.seats ?? []).find((s) => s.id === me);
+      const skipped = mySeat?.status === "skipped";
+      const conflicted = conflictIds.has(t.id);
+      return html`
+        <div class="tile tablecard ${skipped ? "skipped" : ""}" key=${t.id}>
+          <div class="k">
+            🍽 ${t.name} ·
+            ${`${parseLocalIso(t.date).toLocaleDateString([], {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+            })} ${SLOT_META[t.slot]?.label ?? t.slot}`}
+            · ${byId.get(t.recipeId)?.name ?? t.recipeId}
+            ${house !== myHouse && html` · at ${house}`}
+          </div>
+          ${
+            t.cookId &&
+            html`<div class="d">
+              👨‍🍳 <strong>${nameOf(t.cookId)}${t.cookId === me ? " (you)" : ""}</strong> cooks
+            </div>`
+          }
+          ${
+            // GROCERY CLAIM: cooking and buying are separate jobs now.
+            // Nobody's list carries this dinner until someone claims it.
+            t.buyerId
+              ? html`<div class="d">
+                  🛒 <strong>${nameOf(t.buyerId)}${t.buyerId === me ? " (you)" : ""}</strong>
+                  buys the groceries
+                </div>`
+              : html`<div class="d hint">🛒 nobody has claimed the groceries yet</div>`
+          }
+          <div class="d num">
+            ${(t.seats ?? [])
+              .map((s) => `${nameOf(s.id)} ×${s.servings}${s.status === "skipped" ? " (out)" : ""}`)
+              .join(" · ")}
+            · cook total
+            ×${(t.seats ?? [])
+              .filter((s) => s.status !== "skipped")
+              .reduce((sum, s) => sum + (Number(s.servings) || 0), 0)}
+          </div>
+          ${
+            conflicted &&
+            html`<div class="d num redflag">
+              ⚠ conflicts with your diet list — not added to your plan
+            </div>`
+          }
+          ${
+            collisionIds.has(t.id) &&
+            html`<div class="d num redflag">
+              your ${SLOT_META[t.slot]?.full ?? t.slot} that day is pinned or marked OUT — unpin or
+              clear it to sit at this table
+            </div>`
+          }
+          ${
+            t.tailor &&
+            html`<div class="d" role="status">
+              ${Object.entries(t.tailor.seats ?? {}).map(
                   ([sid, notes]) => html`
                     <div class="d" key=${sid}>
                       ✨ ${nameOf(sid)}: ${notes.plate.join(" · ")}
@@ -316,55 +325,70 @@ export function TablesView({
                     </div>
                   `,
                 )}
-                ${(t.tailor.cook ?? []).map(
+              ${(t.tailor.cook ?? []).map(
                   (/** @type {string} */ c) => html`<div class="hint" key=${c}>👨‍🍳 ${c}</div>`,
                 )}
-              </div>`
-            }
+            </div>`
+          }
+          ${
+            tailorErr[t.id] &&
+            html`<div class="d num redflag" role="status">${tailorErr[t.id]}</div>`
+          }
+          <div class="actions wrap">
             ${
-              tailorErr[t.id] &&
-              html`<div class="d num redflag" role="status">${tailorErr[t.id]}</div>`
-            }
-            <div class="actions wrap">
-              ${
-                mySeat &&
-                html`<button
-                  class="secondary"
-                  disabled=${
+              mySeat &&
+              html`<button
+                class="secondary"
+                disabled=${
                     tailorBusy === t.id ||
                     tokenBlocked ||
                     (t.seats ?? []).every((s) => s.status === "skipped")
                   }
-                  onClick=${() => runTailor(house, t.id)}
-                >
-                  ${
+                onClick=${() => runTailor(house, t.id)}
+              >
+                ${
                     tailorBusy === t.id
                       ? "TAILORING…"
                       : t.tailor
                         ? "✨ RE-TAILOR"
                         : "✨ TAILOR PLATES"
                   }
-                </button>`
-              }
-              ${
-                mySeat &&
-                html`<button
-                  class="secondary"
-                  onClick=${() => onPatchSeat(house, t.id, { status: skipped ? "in" : "skipped" })}
-                >
-                  ${skipped ? "REJOIN" : "SKIP MINE"}
-                </button>`
-              }
-              ${
-                house === myHouse &&
-                html`<button class="secondary" onClick=${() => onRemoveTable(house, t.id)}>
-                  CANCEL TABLE
-                </button>`
-              }
-            </div>
+              </button>`
+            }
+            ${
+              house === myHouse &&
+              !t.buyerId &&
+              onSetBuyer &&
+              html`<button class="primary" onClick=${() => onSetBuyer(house, t.id, me)}>
+                🛒 I'LL BUY THIS
+              </button>`
+            }
+            ${
+              t.buyerId === me &&
+              onSetBuyer &&
+              html`<button class="secondary" onClick=${() => onSetBuyer(house, t.id, null)}>
+                RELEASE — NOT BUYING
+              </button>`
+            }
+            ${
+              mySeat &&
+              html`<button
+                class="secondary"
+                onClick=${() => onPatchSeat(house, t.id, { status: skipped ? "in" : "skipped" })}
+              >
+                ${skipped ? "REJOIN" : "SKIP MINE"}
+              </button>`
+            }
+            ${
+              house === myHouse &&
+              html`<button class="secondary" onClick=${() => onRemoveTable(house, t.id)}>
+                CANCEL TABLE
+              </button>`
+            }
           </div>
-        `;
-      })}
+        </div>
+      `;
+    })}
   `;
 
   return html`

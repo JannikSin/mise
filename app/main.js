@@ -92,6 +92,7 @@ import {
   removeBrigade,
   materializeBrigade,
   setTableTailor,
+  setTableBuyer,
   cookOf,
 } from "./lib/tables.js";
 import {
@@ -867,61 +868,6 @@ function App() {
     [updateShopping],
   );
 
-  // ONE SHOPPER BUYS ALL THE FAMILY DINNERS (David, 2026-08-02: "buy
-  // everything for me for a week and the family dinners, not other people's
-  // daily meals"). The other cooks' batch ingredients land on MY stored list
-  // as manual rows — manual survives rebuilds, and ticks, the receipt, and
-  // the FAMILY tab's fridge-first subtraction all ride the existing
-  // machinery. My own cook nights are already on my list via cookExtras.
-  // With the other people then toggled OFF on FAMILY, the trip is exactly:
-  // my week + every family dinner, none of their daily meals.
-  const handleDinnersToMyList = useCallback(() => {
-    const weekSet = new Set(datesOfWeek(weekRef.current));
-    const extras = tableDerivedRef.current.allCookExtras.filter(
-      (/** @type {any} */ x) => x.cookId !== me && weekSet.has(x.date),
-    );
-    if (extras.length === 0) return 0;
-    const pseudo = {
-      week: weekRef.current,
-      entries: extras.map((/** @type {any} */ x, /** @type {number} */ i) => ({
-        id: `famdinner-${i}`,
-        date: x.date,
-        slot: "dinner",
-        recipeId: x.recipeId,
-        servings: x.servings,
-      })),
-    };
-    const derived = deriveShoppingList(
-      /** @type {any} */ (pseudo),
-      recipesById(allRecipesRef.current),
-      pantryRef.current,
-      null,
-      todayIfCurrentWeek(weekRef.current),
-    );
-    const cur = shoppingRef.current;
-    // distinct ids so a rebuild of MY meals never regenerates these away and
-    // an existing derived row is never silently inflated
-    const items = [...cur.items];
-    for (const row of derived.items) {
-      const id = `${row.id}-famdinners`;
-      const at = items.findIndex((i) => i.id === id);
-      const prior = at >= 0 ? items[at] : null;
-      if (prior) items[at] = { ...row, id, manual: true, checked: prior.checked };
-      else items.push({ ...row, id, manual: true });
-    }
-    updateShopping({ ...cur, items });
-    return derived.items.length;
-  }, [updateShopping, me]);
-
-  // undo path for the dinner rows: they are manual, so nothing else ever
-  // regenerates them away (review LOW-2 — without this they ride into next
-  // week with no exit short of CLEAR LIST)
-  const handleRemoveDinnerRows = useCallback(() => {
-    const cur = shoppingRef.current;
-    const items = cur.items.filter((i) => !String(i.id).endsWith("-famdinners"));
-    if (items.length !== cur.items.length) updateShopping({ ...cur, items });
-  }, [updateShopping]);
-
   const handleToggleItem = useCallback(
     (/** @type {string} */ id) => {
       const s = shoppingRef.current;
@@ -1518,6 +1464,20 @@ function App() {
     [updatePlan],
   );
 
+  // claim counts for the List's FAMILY tile: upcoming dinners in my house
+  // with no buyer, and the ones I already claimed
+  const dinnerClaims = useMemo(() => {
+    const house = allProfiles.find((p) => p.id === me)?.household ?? "home";
+    const todayIso = localIsoDate(new Date());
+    const tables = (houseEvents.find((h) => h.house === house)?.events?.tables ?? []).filter(
+      (t) => typeof t.date === "string" && t.date >= todayIso,
+    );
+    return {
+      unclaimed: tables.filter((t) => !t.buyerId).length,
+      mine: tables.filter((t) => t.buyerId === me).length,
+    };
+  }, [houseEvents, allProfiles, me]);
+
   const tableDerived = useMemo(() => {
     try {
       const profilesById = new Map(allProfiles.map((p) => [p.id, p]));
@@ -1573,6 +1533,119 @@ function App() {
     },
     [],
   );
+
+  // GROCERY CLAIMS (David, 2026-08-03, replacing the manual famdinner rows he
+  // rightly stopped trusting): a family dinner rides NOBODY's list until
+  // someone claims it. Claiming writes buyerId on the table; the buyer's
+  // DERIVED list then carries the batch natively — no manual rows, nothing
+  // to corrupt, the receipt clears it like any derived row, and the money
+  // ledger bills the buyer.
+
+  /** rebuild MY list against a just-written events state, without waiting a
+   *  render for the tableDerived memo to catch up */
+  const rebuildListWithEvents = useCallback(
+    (
+      /** @type {string} */ house,
+      /** @type {import("./lib/tables.js").HouseEvents} */ nextEvents,
+    ) => {
+      try {
+        const houses = houseEventsRef.current.map((h) =>
+          h.house === house ? { house, events: nextEvents } : h,
+        );
+        const t = targetsRef.current;
+        const derived = deriveTables(houses, {
+          profileId: me,
+          diet: t?.diet,
+          avoid: t?.avoidIngredients,
+          avoidRecipes: t?.avoidRecipes,
+          bankById: recipesById(bankRecipesRef.current),
+          ownEntries: /** @type {any} */ (planRef.current).entries,
+          today: localIsoDate(new Date()),
+          profilesById: new Map(allProfilesRef.current.map((p) => [p.id, p])),
+        });
+        const weekSet = new Set(datesOfWeek(weekRef.current));
+        const listPlan = {
+          .../** @type {any} */ (planRef.current),
+          entries: [
+            .../** @type {any} */ (planRef.current).entries,
+            ...derived.cookExtras.filter((/** @type {any} */ x) => weekSet.has(x.date)),
+          ],
+        };
+        updateShopping(
+          deriveShoppingList(
+            /** @type {any} */ (listPlan),
+            recipesById(allRecipesRef.current),
+            pantryRef.current,
+            shoppingRef.current,
+            todayIfCurrentWeek(/** @type {any} */ (planRef.current).week),
+          ),
+        );
+      } catch {
+        // list refresh is a convenience; the next BUILD gets it right
+      }
+    },
+    [updateShopping, me],
+  );
+
+  /** claim (or release) ONE dinner's groceries from its card */
+  const handleSetBuyer = useCallback(
+    (
+      /** @type {string} */ house,
+      /** @type {string} */ tableId,
+      /** @type {string | null} */ buyerId,
+    ) => {
+      if (house !== myHouseOf()) return;
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      if (!cur) return;
+      const next = setTableBuyer(cur, tableId, buyerId, localIsoDate(new Date()));
+      writeHouseEvents(house, next);
+      rebuildListWithEvents(house, next);
+    },
+    // writeHouseEvents is declared later in this component but is
+    // identity-stable; body (call-time) reference is safe, the dep array
+    // must not touch it (TDZ at definition time)
+    [rebuildListWithEvents],
+  );
+
+  /** claim every unclaimed upcoming dinner (true) or release my claims (false) */
+  const handleClaimAllDinners = useCallback(
+    (/** @type {boolean} */ claim) => {
+      const house = myHouseOf();
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      if (!cur) return 0;
+      const today = localIsoDate(new Date());
+      let n = 0;
+      const tables = cur.tables.map((t) => {
+        if (typeof t.date !== "string" || t.date < today) return t;
+        if (claim && !t.buyerId) {
+          n++;
+          return { ...t, buyerId: me };
+        }
+        if (!claim && t.buyerId === me) {
+          n++;
+          const rest = { ...t };
+          delete rest.buyerId;
+          return rest;
+        }
+        return t;
+      });
+      if (n === 0) return 0;
+      const next = { ...cur, tables };
+      writeHouseEvents(house, next);
+      rebuildListWithEvents(house, next);
+      return n;
+    },
+    // writeHouseEvents: body-only reference, TDZ — see handleSetBuyer
+    [rebuildListWithEvents, me],
+  );
+
+  // cleanup for the RETIRED manual famdinner rows (pre-claims): they are
+  // manual, so nothing else ever regenerates them away
+  const handleRemoveDinnerRows = useCallback(() => {
+    const cur = shoppingRef.current;
+    const items = cur.items.filter((i) => !String(i.id).endsWith("-famdinners"));
+    if (items.length !== cur.items.length) updateShopping({ ...cur, items });
+  }, [updateShopping]);
 
   const handleCreateTable = useCallback(
     (
@@ -1938,8 +2011,12 @@ function App() {
         if (house !== myHouse) continue; // v1: my house's ledger only
         for (const t of events.tables) {
           if (typeof t.date !== "string" || t.date >= today) continue; // finished only
+          // the PAYER is whoever CLAIMED the groceries (buyerId), falling
+          // back to the cook for unclaimed tables — the receipt money came
+          // out of the buyer's pocket, and their device records the debt
           const cook = cookOf(t, house, profilesById);
-          if (!cook || cook.id !== me) continue; // the cook records
+          const payer = /** @type {any} */ (t).buyerId ?? cook?.id;
+          if (!payer || payer !== me) continue; // the payer records
           const recipe = bankById.get(t.recipeId);
           if (!recipe) continue;
           const store = priceCatalogue?.stores?.[0] ?? "";
@@ -2101,7 +2178,8 @@ function App() {
         others=${otherLists}
         ownEmoji=${ownEmoji}
         onCombinedToggle=${handleCombinedToggle}
-        onDinnersToMyList=${handleDinnersToMyList}
+        onClaimAllDinners=${handleClaimAllDinners}
+        dinnerClaims=${dinnerClaims}
         onRemoveDinnerRows=${handleRemoveDinnerRows}
         shopsPerWeek=${targets?.shopsPerWeek ?? 1}
         houseShopped=${Boolean(/** @type {any} */ (plan)?.shoppedAt) || houseShopped}
@@ -2153,6 +2231,7 @@ function App() {
         bankRecipes=${bankRecipes}
         onCreateTable=${handleCreateTable}
         onRemoveTable=${handleRemoveTable}
+        onSetBuyer=${handleSetBuyer}
         onPatchSeat=${handlePatchSeat}
         onSeatScreen=${handleSeatScreen}
         onTailorTable=${handleTailorTable}
