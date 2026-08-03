@@ -166,6 +166,7 @@ const FRESH_STEPS = [
  *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList }[],
  *   ownEmoji: string,
  *   onCombinedToggle: (itemId: string, sources: { profileId: string, checked: boolean }[]) => void,
+ *   onDinnersToMyList?: () => number,
  *   shopsPerWeek?: number,
  *   houseShopped?: boolean,
  *   prices?: import("../lib/prices.js").PriceCatalogue | null,
@@ -202,6 +203,7 @@ export function ShoppingView({
   others,
   ownEmoji,
   onCombinedToggle,
+  onDinnersToMyList = undefined,
   shopsPerWeek = 1,
   houseShopped = false,
   prices = null,
@@ -286,6 +288,7 @@ export function ShoppingView({
       });
     }
   };
+  const [dinnersNote, setDinnersNote] = useState(/** @type {string} */ (""));
   // receipt scan (price freshness loop): null | "busy" | { error } | { notice }
   //   | { store, lines: [{name, price, size}], kept: bool[] }
   const [receipt, setReceipt] = useState(/** @type {any} */ (null));
@@ -1367,6 +1370,37 @@ export function ShoppingView({
               ${FOOD_SAFETY.danger.map((d) => html`<li key=${d}>${d}</li>`)}
             </ul>
           </details>
+        `
+      }
+      ${
+        tab === "combined" &&
+        onDinnersToMyList &&
+        html`
+          <div class="tile" role="note">
+            <div class="k">🍽 Shopping alone for you + the family dinners?</div>
+            <p class="hint">
+              Tap below to pull the OTHER cooks' dinner batches onto your own list (your cook nights
+              are already on it), then toggle everyone else off in the picker. The trip becomes
+              exactly your week plus every family dinner — none of their daily meals. Rows arrive
+              tagged manual so rebuilding your list never loses them.
+            </p>
+            <div class="actions">
+              <button
+                class="secondary"
+                onClick=${() => {
+                  const n = onDinnersToMyList();
+                  setDinnersNote(
+                    n > 0
+                      ? `${n} dinner-batch ${n === 1 ? "item" : "items"} added to your list ✓ — now toggle the others off below`
+                      : "no other cooks' dinners found for this week — nothing to add",
+                  );
+                }}
+              >
+                🍽 ADD ALL FAMILY DINNERS TO MY LIST
+              </button>
+            </div>
+            ${dinnersNote && html`<p class="hint" role="status">${dinnersNote}</p>`}
+          </div>
         `
       }
       ${

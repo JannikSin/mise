@@ -178,7 +178,8 @@ export function cookOf(t, house, profilesById) {
  *   entries: Record<string, any>[],
  *   conflicts: { table: TableEvent, reasons: string[] }[],
  *   collisions: TableEvent[],
- *   cookExtras: { recipeId: string, date: string, servings: number }[]
+ *   cookExtras: { recipeId: string, date: string, servings: number }[],
+ *   allCookExtras: { cookId: string, recipeId: string, date: string, servings: number }[]
  * }}
  */
 export function deriveTables(houses, ctx) {
@@ -190,6 +191,8 @@ export function deriveTables(houses, ctx) {
   const collisions = [];
   /** @type {{ recipeId: string, date: string, servings: number }[]} */
   const cookExtras = [];
+  /** @type {{ cookId: string, recipeId: string, date: string, servings: number }[]} */
+  const allCookExtras = [];
   // collision = only DELIBERATE own entries (pinned or OUT), per amendment
   // 4: "pinning your own meal is how a guest declines". A generated unpinned
   // meal never blocks a table — the view displaces it and the next generate
@@ -233,7 +236,7 @@ export function deriveTables(houses, ctx) {
       // cook rule shared with the money ledger (cookOf)
       const cook = ctx.profilesById ? cookOf(t, house, ctx.profilesById) : null;
       const slotKey = `${t.date}|${t.slot}`;
-      if (cook && cook.id === ctx.profileId && recipe && !cookSlots.has(slotKey)) {
+      if (cook && recipe && !cookSlots.has(slotKey)) {
         const total = known.reduce((sum, s) => sum + clampServings(s.servings), 0);
         if (total > 0) {
           // one meal is bought once. Without this guard two tables claiming
@@ -241,7 +244,18 @@ export function deriveTables(houses, ctx) {
           // brigade meal written twice by two offline devices) each add a
           // shopping pseudo-entry, and the cook quietly buys the dinner twice
           cookSlots.add(slotKey);
-          cookExtras.push({ recipeId: t.recipeId, date: t.date, servings: total });
+          // every table's batch, whoever cooks it — for the "one shopper
+          // buys all the family dinners" trip (David, 2026-08-02). Derived-
+          // only, like everything else this function returns.
+          allCookExtras.push({
+            cookId: cook.id,
+            recipeId: t.recipeId,
+            date: t.date,
+            servings: total,
+          });
+          if (cook.id === ctx.profileId) {
+            cookExtras.push({ recipeId: t.recipeId, date: t.date, servings: total });
+          }
         }
       }
 
@@ -313,7 +327,7 @@ export function deriveTables(houses, ctx) {
       });
     }
   }
-  return { entries, conflicts, collisions, cookExtras };
+  return { entries, conflicts, collisions, cookExtras, allCookExtras };
 }
 
 /**
