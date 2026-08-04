@@ -176,3 +176,15 @@ export async function liveRemedy(text) {
   const data = await post("/remedy", { text });
   return data.protocol;
 }
+
+/**
+ * One general-question turn against the /ask endpoint: freeform answer
+ * grounded in the compact context snapshot the caller composes.
+ * @param {{ role: string, content: string }[]} messages
+ * @param {Record<string, any>} context
+ * @returns {Promise<{ reply: string }>}
+ */
+export async function askTurn(messages, context) {
+  const data = await post("/ask", { messages, context });
+  return { reply: typeof data.reply === "string" ? data.reply : "" };
+}

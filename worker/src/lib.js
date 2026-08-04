@@ -1416,3 +1416,84 @@ export function mergeVitalsDays(existing, incoming) {
   }
   return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
 }
+
+// ---------------------------------------------------------------------------
+// /ask — the general in-app question box (David, 2026-08-03: "I need a chat
+// so I can ask questions on the app where all of the context is"). Freeform
+// text answers grounded in a compact client-composed snapshot of the
+// household's live state. No tools, no writes: it explains, it never edits.
+
+const ASK_SYSTEM =
+  "You are Mise's kitchen assistant, answering questions inside a family " +
+  "meal-planning app. You get a JSON snapshot of the asker's live state: " +
+  "their targets, today's meals, the week's family dinners with cooks and " +
+  "buyers, the kitchen inventory, and their shopping list. Ground answers " +
+  "in that snapshot; when it lacks the answer, say so plainly instead of " +
+  "guessing. Cooking questions (methods, temperatures, substitutions, how " +
+  "to batch-cook a component) deserve concrete, practical answers with " +
+  "real times and temperatures. Keep answers short: a few sentences, or a " +
+  "tight list of steps when asked how to cook something. Plain words, no " +
+  "headers. You never give medical or supplement-dosing advice — for " +
+  "health questions, point at a clinician. You cannot change the app's " +
+  "data; when asked to change something, say which button in the app does " +
+  "it if the snapshot makes that clear.";
+
+/**
+ * Clamp the client-composed context snapshot to a bounded, string-safe
+ * shape. The client is trusted-ish (PAT-gated) but a poisoned field must
+ * cap at annoying, never at expensive.
+ * @param {any} raw
+ * @returns {Record<string, any>}
+ */
+export function sanitizeAskContext(raw) {
+  if (typeof raw !== "object" || raw === null) return {};
+  const s = (/** @type {any} */ v, /** @type {number} */ n) =>
+    typeof v === "string" ? v.slice(0, n) : undefined;
+  const list = (/** @type {any} */ v, /** @type {number} */ cap, /** @type {number} */ len) =>
+    Array.isArray(v)
+      ? v
+          .slice(0, cap)
+          .map((x) => (typeof x === "string" ? x.slice(0, len) : ""))
+          .filter(Boolean)
+      : [];
+  return {
+    name: s(raw.name, 40),
+    phase: s(raw.phase, 20),
+    targets: s(raw.targets, 120),
+    today: list(raw.today, 12, 120),
+    dinners: list(raw.dinners, 10, 160),
+    kitchen: list(raw.kitchen, 60, 80),
+    list: list(raw.list, 40, 80),
+    notes: s(raw.notes, 200),
+  };
+}
+
+/**
+ * @param {{ messages: { role: string, content: string }[], context: Record<string, any>, model: string }} args
+ */
+export function buildAskRequest({ messages, context, model }) {
+  const system = `${ASK_SYSTEM}\n\nLive snapshot:\n${JSON.stringify(context)}`;
+  return {
+    model,
+    max_tokens: 1024,
+    system,
+    messages: messages.map((m) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: [{ type: "text", text: String(m.content ?? "").slice(0, 4000) }],
+    })),
+  };
+}
+
+/**
+ * @param {any} resp
+ * @returns {{ reply: string }}
+ */
+export function parseAskResponse(resp) {
+  const blocks = Array.isArray(resp?.content) ? resp.content : [];
+  const text = blocks
+    .filter((/** @type {any} */ b) => b?.type === "text" && typeof b.text === "string")
+    .map((/** @type {any} */ b) => b.text)
+    .join("\n")
+    .trim();
+  return { reply: text || "no answer came back — try asking again" };
+}

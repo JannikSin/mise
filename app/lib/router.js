@@ -29,6 +29,7 @@ export function parseRoute(hash) {
     case "vitals":
     case "menu":
     case "dinner":
+    case "ask":
     case "tables":
       return { view: head };
     case "recipe": {
