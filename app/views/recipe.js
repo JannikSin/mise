@@ -155,19 +155,19 @@ export function RecipeView({ recipe, loading, from, servings, entryId, unshopped
 
       ${
         recipe.batchPrep &&
-        html`<div class="batch">
+        html`<div class="tile portion batch" role="note">
           ${
             recipe.batchPrep.sundayComponent &&
             html`<div>
-              <div class="k">Batch prep</div>
-              ${recipe.batchPrep.sundayComponent}
+              <div class="k">🍲 BATCH PREP — cook this AHEAD, the steps below assume it's done</div>
+              <div class="d">${recipe.batchPrep.sundayComponent}</div>
             </div>`
           }
           ${
             recipe.batchPrep.weekdayAssembly &&
             html`<div>
-              <div class="k">Weekday assembly</div>
-              ${recipe.batchPrep.weekdayAssembly}
+              <div class="k">Day-of assembly</div>
+              <div class="d">${recipe.batchPrep.weekdayAssembly}</div>
             </div>`
           }
         </div>`
@@ -238,7 +238,21 @@ export function CookView({ recipe, loading, from, servings, entryId, cooked, onC
       ${loading ? "loading…" : "recipe not found"} —
       <a href="#/cookbook">back to cookbook</a>
     </div>`;
-  const steps = recipe.instructions ?? [];
+  // batch-prep becomes STEP 0 in cook mode (David, 2026-08-03: the nicoise
+  // told him to "use the batch chicken" and never said how — the ahead-of-
+  // time work must live in the same step flow, not on a tile he already
+  // scrolled past)
+  const steps = [
+    ...(recipe.batchPrep?.sundayComponent
+      ? [
+          {
+            step: 0,
+            text: `AHEAD OF TIME (batch prep — skip if already done): ${recipe.batchPrep.sundayComponent}`,
+          },
+        ]
+      : []),
+    ...(recipe.instructions ?? []),
+  ];
   const last = steps.length - 1;
   const plan = cookPlan(recipe, servings);
   // exit lands back on the recipe, keeping ?from= AND the portion so the

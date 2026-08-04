@@ -29,6 +29,7 @@ import { RemediesView } from "./views/remedies.js";
 import { VitalsView } from "./views/vitals.js";
 import { MenuView } from "./views/menu.js";
 import { DinnerView } from "./views/dinner.js";
+import { AskView } from "./views/ask.js";
 import { TablesView } from "./views/tables.js";
 import { ConfirmModal } from "./views/confirm-modal.js";
 import { upsertDay } from "./lib/fitness.js";
@@ -1506,6 +1507,59 @@ function App() {
     [plan, tableDerived],
   );
   const viewPlan = merged.plan;
+
+  // compact live snapshot for the ASK chat: enough to ground an answer,
+  // small enough to cost pennies. Strings only; the Worker clamps again.
+  const askContext = useMemo(() => {
+    const bankById = recipesById(bankRecipes);
+    const nameOf = (/** @type {string | undefined} */ id) =>
+      (id && (bankById.get(id)?.name ?? allRecipes.find((r) => r.id === id)?.name)) || id || "";
+    const profName = (/** @type {string | undefined} */ id) =>
+      allProfiles.find((p) => p.id === id)?.name ?? id ?? "";
+    const todayIso = localIsoDate(new Date());
+    const house = allProfiles.find((p) => p.id === me)?.household ?? "home";
+    const tables = (houseEvents.find((h) => h.house === house)?.events?.tables ?? []).filter(
+      (t) => typeof t.date === "string" && t.date >= todayIso,
+    );
+    const batchOf = (/** @type {string} */ id) => bankById.get(id)?.batchPrep?.sundayComponent;
+    return {
+      name: profName(me),
+      phase: targets?.phase ?? "",
+      targets: `${targets?.macros?.calories ?? "?"} kcal / ${targets?.macros?.protein ?? "?"}g protein daily`,
+      today: viewPlan.entries
+        .filter((e) => e.date === todayIso)
+        .map(
+          (e) =>
+            `${e.slot}: ${nameOf(e.recipeId ?? /** @type {any} */ (e).viewRecipeId) || e.freeText || "?"} ×${e.servings}`,
+        ),
+      dinners: tables.map(
+        (t) =>
+          `${t.date} ${nameOf(t.recipeId)} — cook ${profName(t.cookId)}, groceries ${t.buyerId ? profName(t.buyerId) : "unclaimed"}${batchOf(t.recipeId) ? ` | batch prep: ${batchOf(t.recipeId)}` : ""}`,
+      ),
+      kitchen: (pantry.perishables ?? []).map(
+        (/** @type {any} */ p) =>
+          `${p.food}${p.qty ? ` (${p.qty})` : ""} in ${p.location ?? "pantry"}`,
+      ),
+      list: (shopping.items ?? []).slice(0, 40).map((i) => i.food),
+      notes:
+        houseShopped || /** @type {any} */ (plan)?.shoppedAt
+          ? "this week's shop is done"
+          : "not shopped yet this week",
+    };
+  }, [
+    bankRecipes,
+    allRecipes,
+    allProfiles,
+    houseEvents,
+    viewPlan,
+    pantry,
+    shopping,
+    targets,
+    plan,
+    houseShopped,
+    me,
+  ]);
+
   // a table landed AFTER this week was generated: the view displaced a meal
   // but snacks/portions were sized around the old one — say so until re-roll
   const tableStale = merged.displaced;
@@ -2249,6 +2303,10 @@ function App() {
           adherence: myAdherence,
         }}
       />`
+    }
+    ${
+      route.view === "ask" &&
+      html`<${AskView} context=${askContext} hasToken=${hasToken} repo=${repo} />`
     }
     ${
       route.view === "dinner" &&

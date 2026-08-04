@@ -38,6 +38,9 @@ import {
   isoWeekIdOf,
   parseHealthExport,
   mergeVitalsDays,
+  buildAskRequest,
+  parseAskResponse,
+  sanitizeAskContext,
 } from "./lib.js";
 
 const DATA_REPO = "JannikSin/mise-data";
@@ -409,6 +412,7 @@ export default {
         "/menu",
         "/tailor",
         "/dinner",
+        "/ask",
         "/notify-test",
       ].includes(url.pathname)
     ) {
@@ -560,6 +564,16 @@ export default {
           ),
           cors,
         );
+      }
+      if (url.pathname === "/ask") {
+        const messages = Array.isArray(body.messages) ? body.messages.slice(-30) : [];
+        if (messages.length === 0) return json(400, { error: "messages required" }, cors);
+        const context = sanitizeAskContext(body.context);
+        const resp = await callAnthropic(
+          buildAskRequest({ messages, context, model: env.SCAN_MODEL ?? DEFAULT_MODEL }),
+          env.ANTHROPIC_API_KEY,
+        );
+        return json(200, parseAskResponse(resp), cors);
       }
       if (url.pathname === "/dinner") {
         const messages = Array.isArray(body.messages) ? body.messages.slice(-40) : [];

@@ -318,16 +318,16 @@ export function TablesView({
             t.tailor &&
             html`<div class="d" role="status">
               ${Object.entries(t.tailor.seats ?? {}).map(
-                  ([sid, notes]) => html`
-                    <div class="d" key=${sid}>
-                      ✨ ${nameOf(sid)}: ${notes.plate.join(" · ")}
-                      <span class="num"> · ~${notes.estCalories} kcal · ${notes.estProtein}P</span>
-                    </div>
-                  `,
-                )}
+                ([sid, notes]) => html`
+                  <div class="d" key=${sid}>
+                    ✨ ${nameOf(sid)}: ${notes.plate.join(" · ")}
+                    <span class="num"> · ~${notes.estCalories} kcal · ${notes.estProtein}P</span>
+                  </div>
+                `,
+              )}
               ${(t.tailor.cook ?? []).map(
-                  (/** @type {string} */ c) => html`<div class="hint" key=${c}>👨‍🍳 ${c}</div>`,
-                )}
+                (/** @type {string} */ c) => html`<div class="hint" key=${c}>👨‍🍳 ${c}</div>`,
+              )}
             </div>`
           }
           ${
@@ -340,19 +340,19 @@ export function TablesView({
               html`<button
                 class="secondary"
                 disabled=${
-                    tailorBusy === t.id ||
-                    tokenBlocked ||
-                    (t.seats ?? []).every((s) => s.status === "skipped")
-                  }
+                  tailorBusy === t.id ||
+                  tokenBlocked ||
+                  (t.seats ?? []).every((s) => s.status === "skipped")
+                }
                 onClick=${() => runTailor(house, t.id)}
               >
                 ${
-                    tailorBusy === t.id
-                      ? "TAILORING…"
-                      : t.tailor
-                        ? "✨ RE-TAILOR"
-                        : "✨ TAILOR PLATES"
-                  }
+                  tailorBusy === t.id
+                    ? "TAILORING…"
+                    : t.tailor
+                      ? "✨ RE-TAILOR"
+                      : "✨ TAILOR PLATES"
+                }
               </button>`
             }
             ${
@@ -396,6 +396,12 @@ export function TablesView({
       <div class="hero">
         <h1>Today<span>.</span></h1>
         <div class="sub">what's for dinner, who's cooking</div>
+      </div>
+
+      <div class="actions">
+        <a class="secondary linkbtn" href="#/ask"
+          >💬 ask anything — cooking, the plan, the list →</a
+        >
       </div>
 
       <h2 class="block-title">Family dinners</h2>

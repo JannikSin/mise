@@ -26,6 +26,9 @@ import {
   specialAvoidHits,
   buildNotifications,
   isoWeekIdOf,
+  buildAskRequest,
+  parseAskResponse,
+  sanitizeAskContext,
 } from "../worker/src/lib.js";
 
 test("corsFor allows only the app origins", () => {
@@ -636,4 +639,30 @@ test("evening catch-up names exactly what today's log is missing", () => {
     ],
   };
   assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 20, plan: null, daily: done }), []);
+});
+
+test("/ask: request grounds in the sanitized snapshot, response is plain text", () => {
+  const ctx = sanitizeAskContext({
+    name: "David",
+    targets: "3700 kcal / 210g protein daily",
+    dinners: ["2026-08-04 Baked salmon — cook Laurie, groceries David | batch prep: none"],
+    kitchen: Array.from({ length: 100 }, (_, i) => `item ${i}`),
+    junk: { nested: "dropped" },
+    notes: 42,
+  });
+  assert.equal(ctx.kitchen.length, 60, "lists cap");
+  assert.equal(ctx.notes, undefined, "non-strings drop");
+  assert.ok(!("junk" in ctx), "unknown keys drop");
+  const req = buildAskRequest({
+    messages: [{ role: "user", content: "how do I batch-cook the chicken?" }],
+    context: ctx,
+    model: "claude-sonnet-5",
+  });
+  assert.ok(req.system.includes("Live snapshot"));
+  assert.ok(req.system.includes("Baked salmon"));
+  assert.equal(req.messages.length, 1);
+  assert.ok(!req.tools, "freeform text, no tools");
+  const parsed = parseAskResponse({ content: [{ type: "text", text: "Sear then bake at 400F." }] });
+  assert.equal(parsed.reply, "Sear then bake at 400F.");
+  assert.ok(parseAskResponse({}).reply.length > 0, "empty response degrades honestly");
 });
