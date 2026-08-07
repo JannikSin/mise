@@ -54,7 +54,9 @@ export function sectionOf(food) {
 
 /** @param {string} food */
 export function slug(food) {
-  return food
+  // coerce: recipe/pantry rows from the data repo can arrive with a missing
+  // food name (partial JSON) — a slug of junk is "", never a crash
+  return String(food ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
@@ -116,7 +118,10 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
     const perServing = entry.servings / (recipe.servings || 1);
     for (const ing of recipe.ingredients ?? []) {
       const canon = canonicalFood(ing.food);
-      if (ing.staple || onHandSlugs.has(slug(ing.food)) || onHandSlugs.has(canon)) continue;
+      // a nameless ingredient row (partial/hand-edited recipe JSON) cannot be
+      // shopped — skip it rather than emit an "undefined" row
+      if (!ing.food || ing.staple || onHandSlugs.has(slug(ing.food)) || onHandSlugs.has(canon))
+        continue;
       // A known food merges to ONE row in its own preferred unit, whatever
       // unit the recipe wrote (this is the broccoli fix). An unknown food
       // keeps the unit in its id, exactly as before, so two different things
@@ -149,7 +154,12 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
   // pantry staples flagged running-low re-enter the list — unless the week's
   // recipes already put that food on it
   for (const s of pantry.staples ?? []) {
-    if (!s.runningLow || shoppedFoods.has(slug(s.name)) || shoppedFoods.has(canonicalFood(s.name)))
+    if (
+      !s.runningLow ||
+      !s.name || // a nameless staple row can't be shopped
+      shoppedFoods.has(slug(s.name)) ||
+      shoppedFoods.has(canonicalFood(s.name))
+    )
       continue;
     const id = `${slug(s.name)}-x`;
     if (!merged.has(id)) {
@@ -905,16 +915,28 @@ function legacyPerishableId(p, twinIndex) {
  * @returns {Record<string, any>}
  */
 export function normalizePantry(pantry) {
-  const perishables = pantry.perishables ?? [];
-  const settled = perishables.every(
-    (/** @type {any} */ p) =>
-      typeof p.id === "string" && typeof p.location === "string" && typeof p.group === "string",
-  );
+  // malformed tiers heal here too (a hand-edited or partially-written
+  // pantry.json: a tier that isn't an array, rows that aren't objects).
+  // Every pantry load routes through this function (main.js), so it is the
+  // one chokepoint that lets every downstream consumer trust the shape.
+  const isRow = (/** @type {unknown} */ x) =>
+    x !== null && typeof x === "object" && !Array.isArray(x);
+  const tierOk = (/** @type {unknown} */ v) => v == null || (Array.isArray(v) && v.every(isRow));
+  const heal = (/** @type {unknown} */ v) => (Array.isArray(v) ? v.filter(isRow) : []);
+  const shapeOk = tierOk(pantry.staples) && tierOk(pantry.perishables);
+  const perishables = shapeOk ? (pantry.perishables ?? []) : heal(pantry.perishables);
+  const settled =
+    shapeOk &&
+    perishables.every(
+      (/** @type {any} */ p) =>
+        typeof p.id === "string" && typeof p.location === "string" && typeof p.group === "string",
+    );
   if (settled) return pantry;
   /** @type {Map<string, number>} */
   const twinCounts = new Map();
   return {
     ...pantry,
+    ...(tierOk(pantry.staples) ? {} : { staples: heal(pantry.staples) }),
     perishables: perishables.map((/** @type {any} */ p) => {
       let id = p.id;
       if (typeof id !== "string") {
