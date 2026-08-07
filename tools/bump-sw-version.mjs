@@ -29,6 +29,10 @@ if (!m) {
 }
 
 const v = (/** @type {string} */ s) => s.match(/mise-shell-v(\d+)/)?.[1];
+// compare content, not line endings: on a Windows clone with core.autocrlf
+// the working tree is CRLF while `git show` output is LF, and a raw byte
+// comparison false-positives ("unstaged edits") on every app commit
+const norm = (/** @type {string} */ s) => s.replace(/\r\n/g, "\n");
 /** HEAD:sw.js, or null when it doesn't exist yet (brand-new file / no HEAD) */
 const headSw = (() => {
   try {
@@ -45,13 +49,13 @@ if (staged.includes("sw.js")) {
   if (v(git(["show", ":sw.js"])) !== v(headSw)) process.exit(0);
   // partial staging: bumping the working tree would silently fold unstaged
   // sw.js edits into the commit — refuse and let the human sort it out
-  if (git(["show", ":sw.js"]) !== sw) {
+  if (norm(git(["show", ":sw.js"])) !== norm(sw)) {
     console.error(
       "bump-sw-version: sw.js is partially staged; bump CACHE_VERSION yourself and re-stage",
     );
     process.exit(1);
   }
-} else if (headSw !== sw) {
+} else if (norm(headSw) !== norm(sw)) {
   // sw.js not staged but the working tree differs from HEAD: a bump+add here
   // would sweep those unstaged edits into the commit — refuse
   console.error(
