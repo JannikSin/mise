@@ -472,9 +472,11 @@ Rules (binding, from the Tribunal gate):
   banner, no pin, no macros).
 - A seat with `status: "skipped"` derives nothing and is excluded from the
   cook's shopping sum.
-- The COOK = the table's explicit `cookId` when it names an in-house profile
-  — EVEN IF that seat is skipped (a rotated cook who skips their own plate
-  still cooks). Fallback: first non-skipped in-house seat.
+- The COOK = the table's explicit `cookId` when it names an in-house
+  profile whose seat is NOT skipped. A skipped named cook hands the role to
+  the first non-skipped in-house seat (David 2026-08-09, superseding the
+  2026-08-01 "still cooks and still pays" rule: SKIP MINE means "I'm not
+  there", and the house must still eat).
 - SHOPPING follows the BUYER, not the cook (claims, 2026-08-03): only the
   profile matching `buyerId` derives the summed-servings shopping
   pseudo-entries. No `buyerId` = no list anywhere carries the batch. Every

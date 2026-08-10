@@ -338,6 +338,15 @@ export function TablesView({
       const mySeat = (t.seats ?? []).find((s) => s.id === me);
       const skipped = mySeat?.status === "skipped";
       const conflicted = conflictIds.has(t.id);
+      // EFFECTIVE cook, mirroring lib cookOf: a skipped named cook hands the
+      // role to the first present seat (David 2026-08-09), and the card must
+      // show who actually cooks, not the original rota name
+      const namedOk = (t.seats ?? []).some((s) => s.id === t.cookId && s.status !== "skipped");
+      const cookShown = /** @type {string} */ (
+        namedOk
+          ? t.cookId
+          : ((t.seats ?? []).find((s) => s.status !== "skipped")?.id ?? t.cookId ?? "")
+      );
       return html`
         <div class="tile tablecard ${skipped ? "skipped" : ""}" key=${t.id}>
           <div class="k">
@@ -353,7 +362,11 @@ export function TablesView({
           ${
             t.cookId &&
             html`<div class="d">
-              👨‍🍳 <strong>${nameOf(t.cookId)}${t.cookId === me ? " (you)" : ""}</strong> cooks
+              👨‍🍳 <strong>${nameOf(cookShown)}${cookShown === me ? " (you)" : ""}</strong> cooks${
+                cookShown !== t.cookId
+                  ? html`<span class="hint"> (${nameOf(t.cookId)} is out)</span>`
+                  : ""
+              }
             </div>`
           }
           ${
@@ -486,6 +499,35 @@ export function TablesView({
         every shared meal coming up, with the cook named. One pot, everyone's own portion; money
         from finished dinners settles on the List tab.
       </p>
+      ${
+        // the week's cook rota at the TOP of the page (David, 2026-08-09:
+        // "is it clear who cooks each day?") — one glance, not a scroll past
+        // 21 meal cards to the brigade card
+        activeBrigade &&
+        activeBrigade.rotateCooks &&
+        html`<p class="hint" role="note">
+          👨‍🍳 ${(() => {
+            const out = [];
+            const start = new Date(`${todayIso}T12:00:00`);
+            for (let i = 0; i < 7; i++) {
+              const d = new Date(start);
+              d.setDate(d.getDate() + i);
+              const iso = d.toISOString().slice(0, 10);
+              if (iso < activeBrigade.from || iso > activeBrigade.until) continue;
+              const off = Math.round(
+                (Date.parse(iso) - Date.parse(activeBrigade.from)) / 86400000,
+              );
+              const ids = activeBrigade.memberIds;
+              const id = ids[((off % ids.length) + ids.length) % ids.length];
+              const p = (profiles ?? []).find((x) => x.id === id);
+              out.push(
+                `${d.toLocaleDateString([], { weekday: "short" })} ${p?.name ?? id}${id === me ? " (you)" : ""}`,
+              );
+            }
+            return out.join(" · ");
+          })()}
+        </p>`
+      }
       ${dinnerBlock}
       ${
         // the household competition: same yardstick for everyone (cooked

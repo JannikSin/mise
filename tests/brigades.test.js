@@ -413,7 +413,10 @@ test("regenerate onto a CHANGED bank recomputes servings; skips still carry (Tri
   );
 });
 
-test("a skipped rotated cook still cooks and still pays (Tribunal M6)", () => {
+test("a SKIPPED named cook hands the role to the next present seat (David 2026-08-09)", () => {
+  // supersedes Tribunal 2026-08-01 M6 ("still cooks and still pays"): in
+  // this family SKIP MINE means "I'm not there", and a dinner whose named
+  // cook is away must still get cooked by someone who is present
   const table = {
     id: "t1",
     name: "Family dinner",
@@ -427,7 +430,14 @@ test("a skipped rotated cook still cooks and still pays (Tribunal M6)", () => {
     ],
   };
   const cook = cookOf(table, "taranowski", PROFILES);
-  assert.equal(cook?.id, "laurie", "cooking is not eating — the role must not slide to seat #1");
+  assert.equal(cook?.id, "mom", "skip = away — the role falls to the first present seat");
+  // a present named cook keeps the role, of course
+  const present = cookOf(
+    { ...table, seats: table.seats.map((s) => ({ ...s, status: undefined })) },
+    "taranowski",
+    PROFILES,
+  );
+  assert.equal(present?.id, "laurie");
   // a cookId that is NOT of this house (or not a profile at all) still falls
   // through to the house rule: the named path must not void the cook
   const away = cookOf({ ...table, cookId: "away" }, "taranowski", PROFILES);

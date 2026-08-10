@@ -130,11 +130,15 @@ export function cookOf(t, house, profilesById) {
   // pays": mergeKeyedArrays rebuilds seat order from map insertion order, so
   // a 409 could hand the bill to someone else. Brigade-materialized tables
   // always carry cookId; hand-made ones fall back to the original rule.
-  // The named cook is resolved IGNORING skip status (Tribunal 2026-08-01):
-  // cooking is not eating — a rotated cook who skips their own plate still
-  // shops and still pays, and letting the role slide to seat #1 would bill
-  // the wrong person every time it happens.
-  const namedSeat = t.cookId ? (t.seats ?? []).find((s) => s.id === t.cookId) : null;
+  // A SKIPPED named cook does NOT cook (David, 2026-08-09, superseding
+  // Tribunal 2026-08-01's "cooking is not eating"): in this family SKIP MINE
+  // means "I'm not there", so the role falls to the first non-skipped
+  // in-house seat and the house still eats. The 08-01 concern (billing
+  // sliding to seat #1 on a merge) is accepted as the smaller harm than a
+  // named cook who is away and a dinner nobody cooks.
+  const namedSeat = t.cookId
+    ? (t.seats ?? []).find((s) => s.id === t.cookId && s.status !== "skipped")
+    : null;
   const named =
     namedSeat &&
     profilesById.has(namedSeat.id) &&
