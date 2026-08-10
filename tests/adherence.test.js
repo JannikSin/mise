@@ -83,3 +83,25 @@ test("rankScoreboard sorts by score desc, name as stable tiebreak", () => {
     ["David", "Laurie", "Mom"],
   );
 });
+
+test("an occasion day never counts against the score", () => {
+  // a medical-prep week: she ate exactly what the app told her to. If those
+  // meals counted as uncooked she would be punished for complying.
+  const week = "2026-W33";
+  const base = {
+    weekId: week,
+    today: "2026-08-14",
+    plan: {
+      week,
+      shoppedAt: "2026-08-10",
+      entries: [
+        { id: "a", date: "2026-08-10", slot: "dinner", recipeId: "x", cookedAt: "2026-08-10" },
+        { id: "b", date: "2026-08-11", slot: "dinner", recipeId: "clear-broth-mug", occasion: "colo" },
+        { id: "c", date: "2026-08-11", slot: "lunch", recipeId: "clear-broth-mug", occasion: "colo" },
+      ],
+    },
+  };
+  const r = weekAdherence(base);
+  assert.equal(r.cooked.total, 1, "only the real cookable meal is counted");
+  assert.equal(r.score, 100, "complying with a prep week is not a miss");
+});

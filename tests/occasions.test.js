@@ -346,3 +346,32 @@ test("a prep day DOES shop: its food has real recipes behind it", () => {
   const lowResidue = prep.days.find((d) => d.label === "Low residue");
   assert.ok(lowResidue.items.every((i) => i.recipeId));
 });
+
+test("the custom occasion is a real escape hatch: named, any length, no rules", () => {
+  const custom = presetById("custom");
+  assert.ok(custom.custom && custom.repeatable, "blank AND stretchable, or it is not an escape hatch");
+  const o = occasionFromPreset(custom, "2026-08-14", "mom", { days: 3, name: "  lake house  " });
+  assert.equal(o.name, "lake house", "named by the person, trimmed");
+  assert.deepEqual(datesOf(o), ["2026-08-14", "2026-08-15", "2026-08-16"]);
+  assert.ok(!custom.medical && !custom.disclaimer, "no medical claim on a blank one");
+  // and it starts inert: nothing planned, nothing bought
+  assert.ok(occasionEntries(o).every((e) => !e.recipeId));
+});
+
+test("a blank custom occasion still holds its days against the generator", () => {
+  const o = occasionFromPreset(presetById("custom"), "2026-08-12", "david", { days: 2 });
+  const base = applyOccasion({ week: "2026-W33", entries: [] }, o);
+  const { plan } = generateWeek({
+    recipes: bank,
+    targets: { macros: { calories: 3700, protein: 210 }, mealSlots: ["breakfast", "lunch", "dinner"] },
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W33",
+    plan: base,
+  });
+  for (const d of ["2026-08-12", "2026-08-13"]) {
+    assert.ok(
+      plan.entries.filter((e) => e.date === d).every((e) => e.occasion === o.id),
+      `${d} was planned despite being held`,
+    );
+  }
+});

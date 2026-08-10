@@ -44,6 +44,7 @@
  *   anchorLabel: string,
  *   medical?: boolean,
  *   repeatable?: boolean,
+ *   custom?: boolean,
  *   disclaimer?: string,
  *   days: PresetDay[]
  * }} OccasionPreset
@@ -337,6 +338,25 @@ export const PRESETS = [
     ],
   },
   {
+    id: "custom",
+    name: "Something else",
+    emoji: "◇",
+    blurb:
+      "A blank one. Name it, say how long, and put whatever you want on the days. " +
+      "This is the escape hatch: a situation nobody wrote a preset for.",
+    anchorLabel: "First day",
+    repeatable: true,
+    custom: true,
+    days: [
+      {
+        offset: 0,
+        label: "Off plan",
+        note: "Add whatever belongs on this day. Anything you leave as-is buys nothing and plans nothing.",
+        items: [{ slot: "dinner", freeText: "Off plan" }],
+      },
+    ],
+  },
+  {
     id: "race-week",
     name: "Race or match day",
     emoji: "▲",
@@ -379,7 +399,9 @@ export function presetById(id) {
  * @param {OccasionPreset} preset
  * @param {string} anchorIso the anchor date, YYYY-MM-DD
  * @param {string} profileId whose days these are
- * @param {{ id?: string, createdAt?: string, offTables?: boolean, days?: number }} [opts]
+ * @param {{
+ *   id?: string, createdAt?: string, offTables?: boolean, days?: number, name?: string
+ * }} [opts]
  *   `days` stretches a `repeatable` preset (a trip, a holiday stretch) across
  *   that many consecutive days; ignored for fixed-length presets
  * @returns {Occasion}
@@ -405,7 +427,9 @@ export function occasionFromPreset(preset, anchorIso, profileId, opts = {}) {
   const dates = Object.keys(days).sort();
   return {
     id: opts.id ?? `${preset.id}-${anchorIso}-${profileId}`,
-    name: preset.name,
+    // a custom occasion is whatever the person called it; the id still keys
+    // off the preset + anchor + person so re-applying stays idempotent
+    name: (opts.name ?? "").trim() || preset.name,
     emoji: preset.emoji,
     presetId: preset.id,
     profileId,

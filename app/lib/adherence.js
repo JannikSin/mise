@@ -28,8 +28,14 @@ export function weekAdherence({ plan, weekId, today }) {
   const elapsed = datesOfWeek(weekId).filter((d) => d < today);
   const elapsedSet = new Set(elapsed);
 
+  // OCCASION days are excluded like OUT and table meals (David, 2026-08-10).
+  // An occasion is a day the app has no opinion about — a medical prep, a
+  // holiday, a trip — and scoring compliance on one is the same rig the
+  // 2026-08-02 council killed: a medical-prep week would have counted
+  // twelve mugs of broth against her unless she ticked each one "cooked",
+  // for following the app's own instructions exactly.
   const cookable = (plan?.entries ?? []).filter(
-    (e) => elapsedSet.has(e.date) && e.recipeId && !e.out && !e.table,
+    (e) => elapsedSet.has(e.date) && e.recipeId && !e.out && !e.table && !e.occasion,
   );
   const cooked = {
     done: cookable.filter((e) => e.cookedAt).length,

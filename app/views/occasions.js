@@ -66,6 +66,11 @@ export function OccasionsView({
   // only asked for repeatable presets (a trip, a holiday stretch); a medical
   // prep is exactly as long as it is and the field never shows
   const [spanDays, setSpanDays] = useState(1);
+  // custom occasions only: what the person calls it
+  const [customName, setCustomName] = useState("");
+  // custom occasions only: filter over the WHOLE bank, because the escape
+  // hatch has no shelf — a Ramadan day or a cutting week wants normal food
+  const [foodFilter, setFoodFilter] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
   const [openDay, setOpenDay] = useState("");
   const [adding, setAdding] = useState("");
@@ -78,17 +83,30 @@ export function OccasionsView({
   const nameOf = (/** @type {string} */ id) => profiles.find((p) => p.id === id)?.name ?? id;
 
   // the occasion-only bank, split by shelf, for the swap and add pickers
-  const shelfFood = (/** @type {string} */ tag) =>
-    recipes.filter((r) => (r.tags ?? []).includes("occasion-only") && (r.tags ?? []).includes(tag));
+  const shelfFood = (/** @type {string} */ tag) => {
+    if (!tag) {
+      // no shelf: the whole bank, filtered by what they type. Capped so the
+      // picker never renders 400 chips on a phone.
+      const q = foodFilter.trim().toLowerCase();
+      return recipes
+        .filter((r) => !q || String(r.name).toLowerCase().includes(q))
+        .slice(0, 24);
+    }
+    return recipes.filter(
+      (r) => (r.tags ?? []).includes("occasion-only") && (r.tags ?? []).includes(tag),
+    );
+  };
 
   /** Which shelf a day is on, inferred from what is already placed there. */
-  const shelfOf = (/** @type {Record<string, any>} */ day) => {
+  const shelfOf = (/** @type {Record<string, any>} */ day, /** @type {boolean} */ custom) => {
     for (const item of day.items) {
       const r = item.recipeId ? byId.get(item.recipeId) : null;
       const hit = SHELVES.find((s) => (r?.tags ?? []).includes(s.tag));
       if (hit) return hit.tag;
     }
-    return "low-residue";
+    // a custom occasion has no shelf and no rules, so the picker opens onto
+    // the whole bank; a preset day without one yet is still a rules day
+    return custom ? "" : "low-residue";
   };
 
   const build = () => {
@@ -98,6 +116,7 @@ export function OccasionsView({
       occasionFromPreset(preset, anchor, who, {
         createdAt: new Date().toISOString(),
         days: spanDays,
+        name: customName,
       }),
     );
     setAcknowledged(false);
@@ -238,6 +257,21 @@ export function OccasionsView({
               />
             </label>
             ${
+              preset.custom &&
+              html`<label>
+                <span class="m">Call it</span>
+                <input
+                  type="text"
+                  placeholder="e.g. lake house"
+                  value=${customName}
+                  onInput=${(/** @type {any} */ e) => {
+                    setCustomName(e.currentTarget.value);
+                    setDraft(null);
+                  }}
+                />
+              </label>`
+            }
+            ${
               preset.repeatable &&
               html`<label>
                 <span class="m">How many days</span>
@@ -287,7 +321,7 @@ export function OccasionsView({
             ${datesOf(draft).map((date) => {
               const day = draft.days[date];
               if (!day) return null;
-              const shelf = shelfOf(day);
+              const shelf = shelfOf(day, draft.presetId === "custom");
               const open = openDay === date;
               return html`
                 <div class="slot" key=${date}>
@@ -333,6 +367,16 @@ export function OccasionsView({
                       ${
                         adding === date
                           ? html`
+                              ${
+                                !shelf &&
+                                html`<input
+                                  type="text"
+                                  placeholder="search the cookbook"
+                                  value=${foodFilter}
+                                  onInput=${(/** @type {any} */ e) =>
+                                    setFoodFilter(e.currentTarget.value)}
+                                />`
+                              }
                               <div class="chips wrapchips">
                                 ${shelfFood(shelf).map(
                                   (r) => html`
@@ -348,8 +392,13 @@ export function OccasionsView({
                                 <button class="chip" onClick=${() => setAdding("")}>cancel</button>
                               </div>
                               <p class="hint">
-                                Only ${SHELVES.find((s) => s.tag === shelf)?.label} show here. That
-                                is deliberate: this day has rules.
+                                ${
+                                  shelf
+                                    ? html`Only ${SHELVES.find((s) => s.tag === shelf)?.label} show
+                                        here. That is deliberate: this day has rules.`
+                                    : html`Anything in the cookbook. A custom occasion has no rules
+                                        — you are the rule.`
+                                }
                               </p>
                             `
                           : html`<button class="chip" onClick=${() => setAdding(date)}>
