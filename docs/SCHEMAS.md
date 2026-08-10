@@ -56,9 +56,15 @@ pass the profile's `targets.avoidIngredients` screen (case-insensitive
 substring match on ingredient food names — "onion" also excludes "red
 onion"), overlaid with the profile's own `profiles/<id>/recipes/` (same id
 = the profile's adjusted variant wins; own recipes are never phase-filtered
-or ingredient-screened — they were authored for that profile). Merge lives
-in `app/lib/plan.js` `mergeRecipePool`; the generator and views only ever
-see the merged pool. An empty `profiles/<id>/recipes/` is a working state —
+— they were authored for that profile). **Own recipes ARE diet- and
+allergen-screened, as of 2026-08-10.** They used to be exempt on the reasoning
+that a human authored them and had already respected the profile's rules; that
+exemption followed the DIRECTORY rather than any actual verification, so
+anything generating a file into `profiles/<id>/recipes/` would have inherited a
+bypass around the one screen this codebase calls trust-ending. Verified before
+the change: screening removes ZERO of the 58 hand-written variants on disk.
+Merge lives in `app/lib/plan.js` `mergeRecipePool`; the generator and views
+only ever see the merged pool. An empty `profiles/<id>/recipes/` is a working state —
 the bank covers it.
 
 **Shadow duplicates (2026-07-12 migration, DO NOT "clean up" blindly):**
@@ -680,6 +686,18 @@ even the same slot — merge without losing either entry.
 ```
 
 Absent `pinned` = unpinned (default behavior today, unchanged for existing data).
+
+**`potFromBank` (shared-table pot lines only; absent = a normal entry).** A
+cook/buyer's derived shopping pseudo-entry carries the BANK recipe's id and the
+whole pot's serving total. `deriveShoppingList` resolves `recipeId` through the
+MERGED pool, where a profile's own variant wins by id — so a buyer who owned a
+same-id variant had the HOUSE shopped from their own smaller plate, scaled by a
+seat total computed from the bank's calories (David, 2026-08-10; 17 of one
+profile's 27 seated meals were this case). Pot lines are therefore flagged and
+resolved against the bank map `deriveShoppingList` takes as its final argument.
+The flag travels on the ENTRY rather than being handled by swapping the lookup
+map, because a person's own plan entry and the shared pot line can carry the
+SAME recipe id and need opposite resolutions.
 
 `out` (per-entry, optional; absent = normal entry) marks an EATING-OUT
 placeholder — a free lunch, a restaurant dinner. Created by the slot's OUT

@@ -70,7 +70,11 @@ test("a seated profile derives one est-based pinned virtual entry", () => {
   assert.equal(e.estCalories, 1050); // 700 × 1.5
   assert.equal(e.estProtein, 60);
   // david CLAIMED the buy (buyerId), so his list carries the summed batch
-  assert.deepEqual(cookExtras, [{ recipeId: "kebab", date: "2026-07-24", servings: 2.5 }]);
+  // potFromBank: the shared pot always resolves to the BANK recipe, never the
+  // buyer's personal variant of the same id (2026-08-10)
+  assert.deepEqual(cookExtras, [
+    { recipeId: "kebab", date: "2026-07-24", servings: 2.5, potFromBank: true },
+  ]);
 });
 
 test("a profile not seated derives nothing; a guest from another house never shops", () => {
@@ -122,7 +126,9 @@ test("skipped seats derive nothing and are excluded from the cook's sum", () => 
     [{ house: "home", events: { tables: [t] } }],
     ctx({ profileId: "mom" }),
   );
-  assert.deepEqual(momView.cookExtras, [{ recipeId: "kebab", date: "2026-07-24", servings: 1 }]);
+  assert.deepEqual(momView.cookExtras, [
+    { recipeId: "kebab", date: "2026-07-24", servings: 1, potFromBank: true },
+  ]);
 });
 
 test("my own PINNED entry at the slot wins; the table entry reports a collision", () => {
@@ -288,7 +294,9 @@ test("seat flood: unknown-profile seats never cook, never inflate the sum", () =
     [{ house: "home", events: { tables: [table({ seats, buyerId: "david" })] } }],
     ctx(),
   );
-  assert.deepEqual(r.cookExtras, [{ recipeId: "kebab", date: "2026-07-24", servings: 1 }]);
+  assert.deepEqual(r.cookExtras, [
+    { recipeId: "kebab", date: "2026-07-24", servings: 1, potFromBank: true },
+  ]);
   // and a ghost-only first seat cannot void the cook role
   const r2 = deriveTables(
     [

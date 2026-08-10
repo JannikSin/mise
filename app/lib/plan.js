@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, occasion?: string, occasionName?: string, occasionNote?: string }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[] }} Plan
  */
@@ -196,6 +196,15 @@ export function mergeRecipePool(bank, own, phase, avoid, diet, avoidRecipes) {
   }
   for (const r of own) {
     if (banned.has(r.id)) continue;
+    // OWN recipes are screened too (David, 2026-08-10). They used to be exempt
+    // on the reasoning that a human authored them for this profile and had
+    // already respected its rules. That held only while a human wrote every
+    // one: the exemption followed the DIRECTORY, not any actual verification,
+    // so anything that ever generates a file into profiles/<id>/recipes/ would
+    // inherit a bypass around the one screen the app calls trust-ending.
+    // Verified before shipping: this removes ZERO of the 58 hand-written
+    // variants on disk, so it costs nothing today and closes the hole for good.
+    if (recipeConflicts(r, diet, avoid).length > 0) continue;
     byId.set(r.id, r);
   }
   return [...byId.values()];

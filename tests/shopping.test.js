@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { recipesById } from "../app/lib/plan.js";
 import {
   deriveShoppingList,
   normalizePantry,
@@ -1733,4 +1734,85 @@ test("normalize merge keeps the promoted unit (2000 g is 2 kg, never '2 g')", ()
   const row = (n?.items ?? []).find((i) => i.food === "chicken thigh");
   assert.ok(row, "rows merged");
   assert.equal(`${row.qty} ${row.unit}`, "2 kg");
+});
+
+// --- the shared pot is shopped from the BANK, never a personal variant -----
+// David, 2026-08-10 (found by the Tribunal). deriveShoppingList resolves an
+// entry's recipeId through the MERGED pool, where a profile's own variant wins
+// by id. The shared-table pot line carries the bank recipe's id, so when the
+// buyer owned a same-id variant the HOUSE was shopped from that one person's
+// smaller plate, scaled by a seat total computed from the bank's calories.
+// 17 of mom's 27 seated meals were this case.
+
+test("a pot line resolves to the bank recipe even when the shopper owns a variant", () => {
+  const bankRecipe = {
+    id: "kofta",
+    servings: 2,
+    ingredients: [{ qty: 800, unit: "g", food: "ground beef" }],
+    nutrition: { calories: 842, protein: 46 },
+  };
+  // the buyer's personal, smaller version of the same dish
+  const ownVariant = {
+    id: "kofta",
+    servings: 2,
+    ingredients: [{ qty: 300, unit: "g", food: "ground beef" }],
+    nutrition: { calories: 480, protein: 30 },
+  };
+  const merged = recipesById([ownVariant]); // mergeRecipePool: own wins by id
+  const bank = recipesById([bankRecipe]);
+  const potPlan = {
+    week: "2026-W30",
+    entries: [
+      /** @type {any} */ ({
+        id: "pot",
+        date: "2026-07-24",
+        slot: "dinner",
+        recipeId: "kofta",
+        servings: 4,
+        potFromBank: true,
+      }),
+    ],
+  };
+  const withBank = deriveShoppingList(potPlan, merged, { staples: [], perishables: [] }, null, undefined, undefined, bank);
+  const beef = withBank.items.find((i) => /beef/.test(i.food));
+  // 4 servings of a 2-serving bank recipe = 2x800 g, canonicalized to kg
+  const legacy = deriveShoppingList(potPlan, merged, { staples: [], perishables: [] }, null);
+  const legacyBeef = legacy.items.find((i) => /beef/.test(i.food));
+  // the list picks kg or g by magnitude, so compare in grams
+  const grams = (/** @type {any} */ i) => Number(i?.qty) * (i?.unit === "kg" ? 1000 : 1);
+  assert.equal(grams(beef), 1600, "the house pot must be bought at bank quantities");
+  assert.equal(grams(legacyBeef), 600, "without the bank map the old behaviour is unchanged");
+});
+
+test("a person's OWN plan entry still resolves to their variant", () => {
+  // the other half of the contract: only POT lines are bank-resolved. Her own
+  // dinner is correctly her 300 g version, which is the entire point of variants.
+  const bankRecipe = {
+    id: "kofta",
+    servings: 2,
+    ingredients: [{ qty: 800, unit: "g", food: "ground beef" }],
+    nutrition: { calories: 842, protein: 46 },
+  };
+  const ownVariant = { ...bankRecipe, ingredients: [{ qty: 300, unit: "g", food: "ground beef" }] };
+  const list = deriveShoppingList(
+    {
+      week: "2026-W30",
+      entries: [
+        /** @type {any} */ ({
+          id: "mine",
+          date: "2026-07-24",
+          slot: "dinner",
+          recipeId: "kofta",
+          servings: 2,
+        }),
+      ],
+    },
+    recipesById([ownVariant]),
+    { staples: [], perishables: [] },
+    null,
+    undefined,
+    undefined,
+    recipesById([bankRecipe]),
+  );
+  assert.equal(list.items.find((i) => /beef/.test(i.food))?.qty, 300);
 });

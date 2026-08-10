@@ -77,9 +77,16 @@ export function slug(food) {
  *   than either seven or none. Opting the meals OUT was wrong, because the
  *   meals are still happening; only the SHOPPING is partial. Absent = the
  *   whole week, exactly as before.
+ * @param {Map<string, any>} [bankById] the SHARED bank, used ONLY for entries
+ *   flagged `potFromBank` (the shared-table pot lines). Those must resolve to
+ *   the bank recipe even when the shopper owns a personal variant of the same
+ *   id, or the house gets shopped from one person's smaller plate. A person's
+ *   OWN entries keep resolving through `recipesById` (the merged pool), where
+ *   their variant correctly wins. Absent = every entry resolves through
+ *   `recipesById`, the pre-2026-08-10 behaviour.
  * @returns {ShoppingList}
  */
-export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate, only) {
+export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate, only, bankById) {
   const onlyDates = only?.dates?.length ? new Set(only.dates) : null;
   const onlySlots = only?.slots?.length ? new Set(only.slots) : null;
   /** @type {Map<string, ShoppingItem>} */
@@ -113,7 +120,12 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
     // a partial shop: the meals stay planned, they just are not bought yet
     if (onlyDates && "date" in entry && !onlyDates.has(entry.date)) continue;
     if (onlySlots && "slot" in entry && !onlySlots.has(entry.slot)) continue;
-    const recipe = recipesById.get(entry.recipeId);
+    // the shared pot is the bank recipe; everything else is the merged pool
+    const potLine = Boolean(/** @type {any} */ (entry).potFromBank);
+    const recipe =
+      potLine && bankById?.has(entry.recipeId)
+        ? bankById.get(entry.recipeId)
+        : recipesById.get(entry.recipeId);
     if (!recipe) continue;
     const perServing = entry.servings / (recipe.servings || 1);
     for (const ing of recipe.ingredients ?? []) {

@@ -911,6 +911,8 @@ function App() {
 
   const recipesRef = useRef(recipes);
   recipesRef.current = recipes;
+  const bankRecipesRef = useRef(bankRecipes);
+  bankRecipesRef.current = bankRecipes;
   const allRecipesRef = useRef(allRecipes);
   allRecipesRef.current = allRecipes;
 
@@ -948,6 +950,7 @@ function App() {
           shoppingRef.current,
           todayIfCurrentWeek(/** @type {any} */ (planRef.current).week),
           only,
+          recipesById(bankRecipesRef.current),
         ),
       );
     },
@@ -1176,6 +1179,8 @@ function App() {
             pantryRef.current,
             shoppingRef.current,
             todayIfCurrentWeek(next.week),
+            undefined,
+            recipesById(bankRecipesRef.current),
           ),
         );
       }
@@ -1269,6 +1274,8 @@ function App() {
           pantryRef.current,
           null,
           todayIfCurrentWeek(built.week),
+          undefined,
+          recipesById(bankRecipesRef.current),
         );
         const combined = mergeProfileLists([
           { profileId: me, list: myList },
@@ -1309,6 +1316,8 @@ function App() {
         pantryRef.current,
         shoppingRef.current,
         todayIfCurrentWeek(built.week),
+        undefined,
+        recipesById(bankRecipesRef.current),
       ),
     );
   }, [updatePlan, updateShopping, me]);
@@ -1652,8 +1661,6 @@ function App() {
   tableDerivedRef.current = tableDerived;
   const houseEventsRef = useRef(houseEvents);
   houseEventsRef.current = houseEvents;
-  const bankRecipesRef = useRef(bankRecipes);
-  bankRecipesRef.current = bankRecipes;
 
   /** the cook's shopping pseudo-entries ride the buffer precedent: augment
    *  the plan at list-derivation time only, never in state. Clamped to the
@@ -1717,6 +1724,8 @@ function App() {
             pantryRef.current,
             shoppingRef.current,
             todayIfCurrentWeek(/** @type {any} */ (planRef.current).week),
+            undefined,
+            recipesById(bankRecipesRef.current),
           ),
         );
       } catch {

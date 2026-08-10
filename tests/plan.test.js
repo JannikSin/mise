@@ -278,15 +278,26 @@ test("dayTotals sums stacked entries in the same slot", () => {
   assert.deepEqual(dayTotals(entries, recipes, "2026-07-06"), { calories: 1105, protein: 89 });
 });
 
-test("mergeRecipePool: avoidIngredients screens bank recipes by substring, own recipes exempt", () => {
+test("mergeRecipePool: avoidIngredients screens EVERY recipe, own ones included", () => {
   const bank = [
     { id: "doner", ingredients: [{ food: "red onion" }, { food: "chicken thigh" }] },
     { id: "soup", ingredients: [{ food: "Onion" }, { food: "carrot" }] }, // case-insensitive
     { id: "clean-bowl", ingredients: [{ food: "chicken breast" }, { food: "rice" }] },
   ];
-  const own = [{ id: "moms-tagine", ingredients: [{ food: "pearl onion" }] }]; // hers, untouched
+  // A profile's OWN recipes used to skip this screen entirely, on the reasoning
+  // that a human authored them for that profile. The exemption followed the
+  // DIRECTORY rather than any actual verification, so anything that ever
+  // generated a file into profiles/<id>/recipes/ inherited a bypass around the
+  // one screen the app calls trust-ending (Tribunal, 2026-08-10). Now a recipe
+  // naming an avoided food is dropped whoever wrote it and wherever it lives.
+  const own = [{ id: "moms-tagine", ingredients: [{ food: "pearl onion" }] }];
   const pool = mergeRecipePool(bank, own, "loss", ["onion", "shallot"]);
-  assert.deepEqual(pool.map((r) => r.id).sort(), ["clean-bowl", "moms-tagine"]);
+  assert.deepEqual(pool.map((r) => r.id).sort(), ["clean-bowl"]);
+  // a CLEAN own recipe still overrides the bank by id, which is the whole
+  // point of profile variants — only the unsafe ones are dropped
+  const cleanOwn = [{ id: "clean-bowl", ingredients: [{ food: "cod" }], mine: true }];
+  const overridden = mergeRecipePool(bank, cleanOwn, "loss", ["onion", "shallot"]);
+  assert.equal(overridden.find((r) => r.id === "clean-bowl")?.mine, true);
   // no avoid list = no screening (back-compat)
   assert.equal(mergeRecipePool(bank, [], "loss").length, 3);
 });
@@ -357,10 +368,13 @@ test("mergeRecipePool: diet filter removes recipes the profile's diet won't admi
       .sort(),
     ["bean-chili", "feta-salad", "salmon-bowl"],
   );
-  // omnivore (or absent) admits everything, own recipes always exempt
+  // omnivore (or absent) admits everything
   assert.equal(mergeRecipePool(bank, [], undefined, [], "omnivore").length, 4);
+  // and an OWN recipe no longer escapes the diet filter either: a beef bowl in
+  // a vegan profile's own folder is exactly the "trust-ending bug" this screen
+  // exists to prevent, whoever put the file there (Tribunal, 2026-08-10)
   const own = [{ id: "beef-bowl", ingredients: [{ food: "beef" }] }];
-  assert.ok(mergeRecipePool(bank, own, undefined, [], "vegan").some((r) => r.id === "beef-bowl"));
+  assert.ok(!mergeRecipePool(bank, own, undefined, [], "vegan").some((r) => r.id === "beef-bowl"));
 });
 
 test("pickCommittee: tiredOf foods lose ties softly (penalized but not banned)", async () => {

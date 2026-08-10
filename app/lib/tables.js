@@ -183,7 +183,7 @@ export function cookOf(t, house, profilesById) {
  *   entries: Record<string, any>[],
  *   conflicts: { table: TableEvent, reasons: string[] }[],
  *   collisions: TableEvent[],
- *   cookExtras: { recipeId: string, date: string, servings: number }[],
+ *   cookExtras: { recipeId: string, date: string, servings: number, potFromBank?: boolean }[],
  *   allCookExtras: { cookId: string, buyerId?: string, recipeId: string, date: string, servings: number }[]
  * }}
  */
@@ -276,7 +276,24 @@ export function deriveTables(houses, ctx) {
             servings: total,
           });
           if (buyer === ctx.profileId) {
-            cookExtras.push({ recipeId: t.recipeId, date: t.date, servings: total });
+            // potFromBank: the SHARED POT is always the bank recipe, never the
+            // buyer's personal variant of the same id (David, 2026-08-10).
+            // Without this flag deriveShoppingList resolves this id through the
+            // MERGED pool, where a profile's own variant wins by id — so when
+            // mom claimed a family dinner the house was shopped from her
+            // 480 kcal personal kofta scaled by a seat total computed from the
+            // bank's 842 kcal one. Her own PLAN entries must still resolve
+            // through the merged pool (her variant is correct for her own
+            // plate), so the distinction has to travel on the entry; a single
+            // lookup map cannot carry it, because both meanings share one id.
+            cookExtras.push(
+              /** @type {any} */ ({
+                recipeId: t.recipeId,
+                date: t.date,
+                servings: total,
+                potFromBank: true,
+              }),
+            );
           }
         }
       }
