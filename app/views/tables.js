@@ -28,7 +28,7 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onPatchSeat: (house: string, tableId: string, patch: Partial<import("../lib/tables.js").Seat>) => void,
  *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>,
  *   onTailorTable: (house: string, tableId: string) => Promise<void>,
- *   onDinnerWeek?: (participantIds: string[], meals: { date: string, slot: string }[], cuisine: string, note: string, away?: Record<string, string[]>) => Promise<{ made: { date: string, slot: string, name: string, why: string }[], notes: string[] }>,
+ *   onDinnerWeek?: (participantIds: string[], meals: { date: string, slot: string }[], cuisine: string, note: string, away?: Record<string, string[]>, brigade?: import("../lib/tables.js").Brigade | null) => Promise<{ made: { date: string, slot: string, name: string, why: string }[], notes: string[] }>,
  *   scoreboard: { id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, shopped: boolean }[],
  *   weekId: string,
  *   onCreateBrigade: (b: { name: string, memberIds: string[], slots: string[], cookId?: string, from: string, until: string }) => void,
@@ -218,6 +218,12 @@ export function TablesView({
     ...myHouseTables.map((t) => `${t.date}|${t.slot}`),
     ...myTables.map(({ t }) => `${t.date}|${t.slot}`),
   ]);
+  // an ACTIVE brigade owns the week run: the AI planner runs AS the brigade
+  // (its members, its slots, its cook rotation) instead of a parallel thing
+  const activeBrigade =
+    ((houseEvents ?? []).find((h) => h.house === myHouse)?.events?.brigades ?? []).find(
+      (b) => (b.until ?? "9999-12-31") >= todayIso,
+    ) ?? null;
   const mealsFor = (/** @type {string[]} */ slots) =>
     datesOfWeek(weekId)
       .filter((d) => d >= todayIso)
@@ -254,6 +260,7 @@ export function TablesView({
         weekForm.cuisine.trim(),
         weekForm.note.trim(),
         away,
+        activeBrigade,
       );
       setWeekResult(result);
       setWeekForm(null);
@@ -513,8 +520,14 @@ export function TablesView({
               setWeekResult(null);
               setWeekErr("");
               setWeekForm({
-                unpicked: [],
-                slots: [...WEEK_SLOTS],
+                unpicked: activeBrigade
+                  ? houseMates
+                      .map((p) => /** @type {string} */ (p.id))
+                      .filter((id) => !activeBrigade.memberIds.includes(id))
+                  : [],
+                slots: activeBrigade
+                  ? WEEK_SLOTS.filter((sl) => activeBrigade.slots.includes(sl))
+                  : [...WEEK_SLOTS],
                 away: {},
                 cuisine: "",
                 note: "",
@@ -540,7 +553,9 @@ export function TablesView({
         onDinnerWeek &&
         weekForm &&
         html`<div class="tile tableform">
-          <div class="k">🗓 The week's meals</div>
+          <div class="k">
+            🗓 ${activeBrigade ? `${activeBrigade.name} · the week's meals` : "The week's meals"}
+          </div>
           <p class="hint">
             the house cooks each meal ONCE and everyone eats the same food — each plate is
             portioned in grams to that person's own calories, protein and diet. Meals that

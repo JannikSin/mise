@@ -95,6 +95,8 @@ import {
   setTableTailor,
   setTableBuyer,
   cookOf,
+  brigadeTableId,
+  seatServingsFor,
 } from "./lib/tables.js";
 import {
   normalizeLedger,
@@ -2019,10 +2021,10 @@ function App() {
    * `events` so a week of meals composes into ONE events write. `buyerId`
    * pre-claims the groceries (the week runner shops today — 21 I'LL-BUY-THIS
    * taps is not a flow).
-   * @type {(events: any, decision: Record<string, any>, participantIds: string[], recipeId: string, date: string, slot: string, name: string, today: string, buyerId?: string) => any}
+   * @type {(events: any, decision: Record<string, any>, participantIds: string[], recipeId: string, date: string, slot: string, name: string, today: string, buyerId?: string, brigadeCtx?: { brigade: import("./lib/tables.js").Brigade, servingsFor: (id: string, slot: string, recipeId: string) => number, cookFor: (date: string) => string } | null) => any}
    */
   const tableFromDecision = useCallback(
-    (events, decision, participantIds, recipeId, date, slot, name, today, buyerId) => {
+    (events, decision, participantIds, recipeId, date, slot, name, today, buyerId, brigadeCtx) => {
       const withTable = addTable(
         events,
         {
@@ -2031,7 +2033,20 @@ function App() {
           slot,
           recipeId,
           ...(buyerId ? { buyerId } : {}),
-          seats: participantIds.map((id) => ({ id, servings: 1 })),
+          // run AS the brigade: deterministic id (two offline devices merge
+          // onto the same rows), the brigade's rotated cook, and seats sized
+          // from each member's own targets — one pot, different plates
+          ...(brigadeCtx
+            ? {
+                id: brigadeTableId(brigadeCtx.brigade.id, date, slot),
+                fromBrigade: brigadeCtx.brigade.id,
+                cookId: brigadeCtx.cookFor(date),
+              }
+            : {}),
+          seats: participantIds.map((id) => ({
+            id,
+            servings: brigadeCtx ? brigadeCtx.servingsFor(id, slot, recipeId) : 1,
+          })),
         },
         today,
       );
@@ -2091,8 +2106,50 @@ function App() {
       /** @type {string} */ cuisine,
       /** @type {string} */ note,
       /** @type {Record<string, string[]>} */ away = {},
+      /** @type {import("./lib/tables.js").Brigade | null} */ brigade = null,
     ) => {
       const facts = await handleDinerFacts(participantIds);
+      // running AS a brigade: deterministic table ids, the brigade's cook
+      // rotation (same date-offset rule materializeBrigade uses), and seats
+      // sized from each member's own targets instead of a flat 1
+      /** @type {Map<string, Record<string, any> | null>} */
+      const targetsById = new Map();
+      if (brigade) {
+        for (const id of participantIds) {
+          const path =
+            id === "david" ? "fitness/targets.json" : `profiles/${id}/fitness/targets.json`;
+          targetsById.set(
+            id,
+            /** @type {any} */ (await read(path, { raw: true }).catch(() => null)),
+          );
+        }
+      }
+      const brigadeCtx = brigade
+        ? {
+            brigade,
+            servingsFor: (
+              /** @type {string} */ id,
+              /** @type {string} */ slot,
+              /** @type {string} */ recipeId,
+            ) =>
+              seatServingsFor(
+                targetsById.get(id) ?? undefined,
+                slot,
+                recipesById(bankRecipesRef.current).get(recipeId),
+              ),
+            cookFor: (/** @type {string} */ date) => {
+              const members = brigade.memberIds.filter((id) => participantIds.includes(id));
+              if (!brigade.rotateCooks || members.length === 0)
+                return members.includes(brigade.cookId ?? "")
+                  ? /** @type {string} */ (brigade.cookId)
+                  : (members[0] ?? participantIds[0] ?? "david");
+              const off = Math.round((Date.parse(date) - Date.parse(brigade.from)) / 86400000);
+              return /** @type {string} */ (
+                members[((off % members.length) + members.length) % members.length] ?? members[0]
+              );
+            },
+          }
+        : null;
       const candidates = bankRecipesRef.current
         .filter((r) => ["breakfast", "lunch", "dinner"].includes(r.mealType))
         // the model never sees ingredients, so a bank pick that hits ANY
@@ -2145,9 +2202,10 @@ function App() {
           recipeId,
           n.date,
           n.slot ?? "dinner",
-          `Family ${n.slot ?? "dinner"}`,
+          brigade ? brigade.name : `Family ${n.slot ?? "dinner"}`,
           today,
           me,
+          brigadeCtx,
         );
         made.push({
           date: n.date,
