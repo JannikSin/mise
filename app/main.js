@@ -14,7 +14,7 @@ import {
 import { initRouter } from "./lib/router.js";
 import { formatSyncTime, isoWeekId, localIsoDate, statusDate } from "./lib/dates.js";
 import { applyScanItems } from "./lib/scan.js";
-import { tailorTable } from "./lib/worker.js";
+import { tailorTable, dinnerWeek } from "./lib/worker.js";
 import { ProfileGateView } from "./views/profile-gate.js";
 import { CookbookView } from "./views/cookbook.js";
 import { RecipeView, CookView } from "./views/recipe.js";
@@ -278,8 +278,9 @@ function App() {
   // CAPABILITIES (council 2026-08-02, shaped like targets.tracks): the list
   // of extra surfaces this profile HAS. Absent = everything (David, legacy
   // installs). The family defaults to [] — plan, list, dinners, settings,
-  // and nothing else. Values consumed today: "checkin", "scoreboard",
-  // "money". Hand-edited in profiles.json; no SYS UI until a second
+  // and nothing else. Values consumed today: "scoreboard", "money"
+  // ("checkin" retired 2026-08-09 — tracking lives in Crystal, the value is
+  // ignored). Hand-edited in profiles.json; no SYS UI until a second
   // household needs one.
   const myCaps = /** @type {string[] | undefined} */ (
     allProfiles.find((p) => p.id === me)?.capabilities
@@ -579,7 +580,7 @@ function App() {
   }, [hasToken, weekId]);
 
   const [otherLists, setOtherLists] = useState(
-    /** @type {{ profileId: string, name: string, emoji: string, list: import("./lib/shopping.js").ShoppingList }[]} */ ([]),
+    /** @type {{ profileId: string, name: string, emoji: string, list: import("./lib/shopping.js").ShoppingList, plan?: import("./lib/plan.js").Plan | null }[]} */ ([]),
   );
   const otherListsRef = useRef(otherLists);
   otherListsRef.current = otherLists;
@@ -617,6 +618,17 @@ function App() {
                 ),
               )
             ),
+            // their week plan too, read-only (same raw-path pattern as
+            // houseShopped): the FAMILY tab re-derives a person's trip
+            // contribution from it when only SOME of their days are shopped
+            plan: /** @type {any} */ (
+              await read(
+                pr.id === "david"
+                  ? `plans/${weekId}.json`
+                  : `profiles/${pr.id}/plans/${weekId}.json`,
+                { raw: true },
+              ).catch(() => null)
+            ),
           })),
         ).then((ls) => {
           if (alive) setOtherLists(ls);
@@ -629,7 +641,7 @@ function App() {
       alive = false;
       unsub();
     };
-  }, [hasToken]);
+  }, [hasToken, weekId]);
 
   // receipt → catalogue freshness loop: merge the reviewed receipt lines into
   // the shared prices.json (raw, root file) and persist. Real receipt prices
@@ -731,30 +743,82 @@ function App() {
   );
 
   // ticking a combined item buys it for EVERYONE who wants it: write through
-  // to every source profile's own list (active via updateShopping, others raw)
+  // to every source profile's own list (active via updateShopping, others raw).
+  // The write carries the SOURCE's qty, not the stored row's: when a member's
+  // trip contribution was narrowed to some days, their stored row still holds
+  // the whole week's amount, and checking that amount would later bank the
+  // unbought remainder into the shared pantry at the receipt step. A row the
+  // stored list no longer has (their plan changed after their last build) is
+  // appended, so an aisle tick is never a silent no-op.
   const handleCombinedToggle = useCallback(
     (
       /** @type {string} */ itemId,
-      /** @type {{ profileId: string, checked: boolean }[]} */ sources,
+      /** @type {{ profileId: string, checked: boolean, qty?: number, unit?: string, food?: string, section?: string }[]} */ sources,
     ) => {
       const me = activeProfile();
       const target = !sources.every((s) => s.checked);
+      /** @type {(list: import("./lib/shopping.js").ShoppingList, src: (typeof sources)[number]) => import("./lib/shopping.js").ShoppingList} */
+      const applyTick = (list, src) => {
+        const items = list.items ?? [];
+        const has = items.some((i) => i.id === itemId);
+        if (!target) {
+          // UNTICK only restores: checked off, and the narrowed-tick qty put
+          // back from weekQty. It never rewrites amounts or appends rows — a
+          // mis-tap must not edit anyone's week.
+          return {
+            ...list,
+            items: items.map((i) =>
+              i.id === itemId
+                ? {
+                    ...i,
+                    checked: false,
+                    ...(/** @type {any} */ (i).weekQty
+                      ? { qty: /** @type {any} */ (i).weekQty, weekQty: undefined }
+                      : {}),
+                  }
+                : i,
+            ),
+          };
+        }
+        return {
+          ...list,
+          items: has
+            ? items.map((i) =>
+                i.id === itemId
+                  ? {
+                      ...i,
+                      checked: true,
+                      // a narrowed contribution bought LESS than their stored
+                      // week row: record the bought amount (so the receipt
+                      // banks the truth) and stash the week total in weekQty
+                      // for the untick restore
+                      ...(src.qty && src.qty < i.qty ? { weekQty: i.qty, qty: src.qty } : {}),
+                    }
+                  : i,
+              )
+            : src.qty && src.food
+              ? [
+                  ...items,
+                  {
+                    id: itemId,
+                    food: src.food,
+                    qty: src.qty,
+                    unit: src.unit ?? "x",
+                    section: src.section ?? sectionOf(src.food),
+                    checked: true,
+                    manual: false,
+                  },
+                ]
+              : items,
+        };
+      };
       for (const src of sources) {
         if (src.profileId === me) {
-          const cur = shoppingRef.current;
-          updateShopping({
-            ...cur,
-            items: cur.items.map((i) => (i.id === itemId ? { ...i, checked: target } : i)),
-          });
+          updateShopping(applyTick(shoppingRef.current, src));
         } else {
           const entry = otherListsRef.current.find((o) => o.profileId === src.profileId);
           if (!entry) continue;
-          const nextList = {
-            ...entry.list,
-            items: (entry.list.items ?? []).map((i) =>
-              i.id === itemId ? { ...i, checked: target } : i,
-            ),
-          };
+          const nextList = applyTick(entry.list, src);
           const nextOthers = otherListsRef.current.map((o) =>
             o.profileId === src.profileId ? { ...o, list: nextList } : o,
           );
@@ -839,6 +903,17 @@ function App() {
   recipesRef.current = recipes;
   const allRecipesRef = useRef(allRecipes);
   allRecipesRef.current = allRecipes;
+
+  // id → recipe map for the shopping view's FAMILY tab, which re-derives a
+  // member's partial-week trip contribution with deriveShoppingList. Built
+  // from the UNSCREENED shared bank plus my pool: my own diet/avoid screen
+  // must not hide a housemate's recipe from THEIR trip derivation. (Their
+  // profile-scoped personal recipes can still miss; the view refuses to
+  // narrow and says so rather than dropping meals.)
+  const recipeIndex = useMemo(
+    () => recipesById([...bankRecipes, ...allRecipes]),
+    [bankRecipes, allRecipes],
+  );
 
   /**
    * fromDate for deriveShoppingList: only the CURRENT calendar week filters
@@ -1879,7 +1954,11 @@ function App() {
           protein: n.protein ?? 0,
           carbs: n.carbs ?? 0,
           fat: n.fat ?? 0,
-          ingredients: (recipe.ingredients ?? []).map((/** @type {any} */ i) => i.food),
+          // measured, not just named: gram-level plate math needs the real
+          // amounts ("300 g chicken thigh"), so the model can weigh honestly
+          ingredients: (recipe.ingredients ?? []).map((/** @type {any} */ i) =>
+            i.qty ? `${i.qty} ${i.unit ?? "x"} ${i.food}` : String(i.food ?? ""),
+          ),
         },
         /** @type {any} */ (
           facts.map((f) => ({
@@ -1896,18 +1975,17 @@ function App() {
     [writeHouseEvents, handleDinerFacts],
   );
 
-  // dinner-discussion decision → a real table for tonight. A special meal is
-  // first written to the shared bank (tagged ai-special) so the whole table
-  // machinery — macros, shopping, everyone's plan — works unchanged.
-  const handleApplyDinner = useCallback(
-    async (/** @type {Record<string, any>} */ decision, /** @type {string[]} */ participantIds) => {
-      const today = localIsoDate(new Date());
+  // one settled dinner decision → the recipe id it lands on. A special meal
+  // is first written to the shared bank (tagged ai-special) so the whole
+  // table machinery — macros, shopping, everyone's plan — works unchanged.
+  const decisionRecipeId = useCallback(
+    async (/** @type {Record<string, any>} */ decision, /** @type {string} */ date) => {
       let recipeId = /** @type {string} */ (decision.pickRecipeId || "");
       if (!recipeId && decision.special) {
         const s = decision.special;
         // date-suffixed so two discussions landing on the same generic name
         // ("quick stir-fry") never overwrite each other's recipe
-        recipeId = `special-${slug(s.name)}-${today}`;
+        recipeId = `special-${slug(s.name)}-${date}`;
         const recipe = {
           id: recipeId,
           name: s.name,
@@ -1927,16 +2005,29 @@ function App() {
         setBankRecipes([...bankRecipesRef.current.filter((r) => r.id !== recipeId), recipe]);
       }
       if (!recipeId) throw new Error("the decision names no recipe");
-      const house = myHouseOf();
-      const cur =
-        houseEventsRef.current.find((h) => h.house === house)?.events ?? normalizeEvents(null);
+      return recipeId;
+    },
+    [],
+  );
+
+  /**
+   * Add one decided shared meal to a house's events: the table plus, when
+   * the decision carries per-person plate specs, its tailor block. Pure over
+   * `events` so a week of meals composes into ONE events write. `buyerId`
+   * pre-claims the groceries (the week runner shops today — 21 I'LL-BUY-THIS
+   * taps is not a flow).
+   * @type {(events: any, decision: Record<string, any>, participantIds: string[], recipeId: string, date: string, slot: string, name: string, today: string, buyerId?: string) => any}
+   */
+  const tableFromDecision = useCallback(
+    (events, decision, participantIds, recipeId, date, slot, name, today, buyerId) => {
       const withTable = addTable(
-        cur,
+        events,
         {
-          name: "Tonight's dinner",
-          date: today,
-          slot: "dinner",
+          name,
+          date,
+          slot,
           recipeId,
+          ...(buyerId ? { buyerId } : {}),
           seats: participantIds.map((id) => ({ id, servings: 1 })),
         },
         today,
@@ -1948,13 +2039,106 @@ function App() {
         if (p.note)
           seats[p.id] = { plate: [p.note], estCalories: p.estCalories, estProtein: p.estProtein };
       }
-      const next =
-        Object.keys(seats).length > 0 && newTable
-          ? setTableTailor(withTable, newTable.id, { at: today, seats, cook: [] }, today)
-          : withTable;
-      writeHouseEvents(house, next);
+      return Object.keys(seats).length > 0 && newTable
+        ? setTableTailor(withTable, newTable.id, { at: today, seats, cook: [] }, today)
+        : withTable;
     },
-    [writeHouseEvents],
+    [],
+  );
+
+  // dinner-discussion decision → a real table for tonight
+  const handleApplyDinner = useCallback(
+    async (/** @type {Record<string, any>} */ decision, /** @type {string[]} */ participantIds) => {
+      const today = localIsoDate(new Date());
+      const recipeId = await decisionRecipeId(decision, today);
+      const house = myHouseOf();
+      const cur =
+        houseEventsRef.current.find((h) => h.house === house)?.events ?? normalizeEvents(null);
+      writeHouseEvents(
+        house,
+        tableFromDecision(
+          cur,
+          decision,
+          participantIds,
+          recipeId,
+          today,
+          "dinner",
+          "Tonight's dinner",
+          today,
+        ),
+      );
+    },
+    [writeHouseEvents, decisionRecipeId, tableFromDecision],
+  );
+
+  // WEEK OF MEALS (David, 2026-08-09): pick people + a cuisine, one call
+  // plans every remaining breakfast/lunch/dinner — the house cooks each slot
+  // ONCE, everyone eats the same food, and goals survive through strict
+  // per-person portioning. Snacks and smoothies stay personal (not everyone
+  // has them). Each meal lands as a real table (seats, plan derivation,
+  // shopping, plate specs) with the groceries pre-claimed by the runner, so
+  // the list is buildable and shoppable the same day.
+  const handleDinnerWeek = useCallback(
+    async (
+      /** @type {string[]} */ participantIds,
+      /** @type {{ date: string, slot: string }[]} */ meals,
+      /** @type {string} */ cuisine,
+      /** @type {string} */ note,
+    ) => {
+      const facts = await handleDinerFacts(participantIds);
+      const candidates = bankRecipesRef.current
+        .filter((r) => ["breakfast", "lunch", "dinner"].includes(r.mealType))
+        .map((r) => ({
+          id: /** @type {string} */ (r.id),
+          name: /** @type {string} */ (r.name),
+          calories: /** @type {number} */ (r.nutrition?.calories ?? 0),
+          protein: /** @type {number} */ (r.nutrition?.protein ?? 0),
+          cuisine: /** @type {string} */ (r.cuisine ?? ""),
+          meal: /** @type {string} */ (r.mealType),
+        }));
+      const { nights, notes } = await dinnerWeek(facts, candidates, meals, cuisine, note);
+      const today = localIsoDate(new Date());
+      const me = activeProfile();
+      const house = myHouseOf();
+      // resolve every recipe (specials write to the bank) BEFORE touching
+      // events, then compose all tables synchronously off a FRESH events read
+      // — reading events first and awaiting per special leaves a seconds-wide
+      // window where another phone's table claim gets clobbered by our write
+      /** @type {{ n: Record<string, any>, recipeId: string }[]} */
+      const resolved = [];
+      for (const n of nights) {
+        resolved.push({ n, recipeId: await decisionRecipeId(n, n.date) });
+      }
+      let cur =
+        houseEventsRef.current.find((h) => h.house === house)?.events ?? normalizeEvents(null);
+      /** @type {{ date: string, slot: string, name: string, why: string }[]} */
+      const made = [];
+      for (const { n, recipeId } of resolved) {
+        cur = tableFromDecision(
+          cur,
+          n,
+          participantIds,
+          recipeId,
+          n.date,
+          n.slot ?? "dinner",
+          `Family ${n.slot ?? "dinner"}`,
+          today,
+          me,
+        );
+        made.push({
+          date: n.date,
+          slot: /** @type {string} */ (n.slot ?? "dinner"),
+          name:
+            n.special?.name ??
+            bankRecipesRef.current.find((r) => r.id === recipeId)?.name ??
+            recipeId,
+          why: n.why ?? "",
+        });
+      }
+      if (made.length > 0) writeHouseEvents(house, cur);
+      return { made, notes };
+    },
+    [writeHouseEvents, decisionRecipeId, tableFromDecision, handleDinerFacts],
   );
 
   // Adherence scoreboard (David, 2026-07-24): every household member's
@@ -1963,7 +2147,7 @@ function App() {
   // everyone — that's what makes the leaderboard a competition. Purely
   // derived, nothing stored.
   const [scoreboard, setScoreboard] = useState(
-    /** @type {{ id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, logged: { done: number, total: number }, shopped: boolean }[]} */ ([]),
+    /** @type {{ id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, shopped: boolean }[]} */ ([]),
   );
   useEffect(() => {
     let alive = true;
@@ -1979,12 +2163,10 @@ function App() {
         const raws = await Promise.all(
           members.map(async (p) => {
             const prefix = p.id === "david" ? "" : `profiles/${p.id}/`;
-            const [planRaw, dailyRaw, targetsRaw] = await Promise.all([
-              read(`${prefix}plans/${weekNow}.json`, { raw: true }).catch(() => null),
-              read(`${prefix}fitness/daily.json`, { raw: true }).catch(() => null),
-              read(`${prefix}fitness/targets.json`, { raw: true }).catch(() => null),
-            ]);
-            return { p, planRaw, dailyRaw, targetsRaw };
+            const planRaw = await read(`${prefix}plans/${weekNow}.json`, { raw: true }).catch(
+              () => null,
+            );
+            return { p, planRaw };
           }),
         );
         // ONE receipt per house per week is the designed flow — the scanner's
@@ -1992,7 +2174,7 @@ function App() {
         // rule the recipe gate already learned (Tribunal U9: a family with
         // one shopper must not cap three people at 80 all week)
         const anyShopped = raws.some((r) => Boolean(/** @type {any} */ (r.planRaw)?.shoppedAt));
-        const rows = raws.map(({ p, planRaw, dailyRaw, targetsRaw }) => {
+        const rows = raws.map(({ p, planRaw }) => {
           const credited =
             anyShopped && planRaw && !(/** @type {any} */ (planRaw).shoppedAt)
               ? { .../** @type {any} */ (planRaw), shoppedAt: todayNow }
@@ -2003,12 +2185,8 @@ function App() {
             emoji: /** @type {string} */ (p.emoji ?? ""),
             ...weekAdherence({
               plan: /** @type {any} */ (credited),
-              daily: /** @type {any} */ (dailyRaw),
               weekId: weekNow,
               today: todayNow,
-              // each profile is scored on ITS OWN tracks (council 2026-08-02:
-              // the hard-coded four capped Mom at 85 on invisible chores)
-              tracks: /** @type {any} */ (targetsRaw)?.tracks,
             }),
           };
         });
@@ -2022,7 +2200,6 @@ function App() {
       unsub();
     };
   }, [hasToken]);
-  const myAdherence = scoreboard.find((r) => r.id === me) ?? null;
 
   // Money ledger (roadmap M1): my house's who-owes-who from finished
   // tables. The COOK's device records each finished table exactly once
@@ -2231,6 +2408,10 @@ function App() {
         onToggleLock=${handleToggleLock}
         others=${otherLists}
         ownEmoji=${ownEmoji}
+        recipeIndex=${recipeIndex}
+        myPlan=${plan}
+        allCookExtras=${tableDerived.allCookExtras}
+        tripFromDate=${todayIfCurrentWeek(weekId)}
         onCombinedToggle=${handleCombinedToggle}
         onClaimAllDinners=${handleClaimAllDinners}
         dinnerClaims=${dinnerClaims}
@@ -2275,7 +2456,6 @@ function App() {
         houseEvents=${houseEvents}
         profiles=${allProfiles}
         me=${me}
-        showCheckIn=${hasCap("checkin")}
         showScoreboard=${hasCap("scoreboard")}
         todayIso=${localIsoDate(new Date())}
         hasToken=${hasToken}
@@ -2289,19 +2469,12 @@ function App() {
         onPatchSeat=${handlePatchSeat}
         onSeatScreen=${handleSeatScreen}
         onTailorTable=${handleTailorTable}
+        onDinnerWeek=${handleDinnerWeek}
         scoreboard=${scoreboard}
         weekId=${weekId}
         onCreateBrigade=${handleCreateBrigade}
         onRemoveBrigade=${handleRemoveBrigade}
         onRunBrigade=${handleRunBrigade}
-        checkIn=${{
-          daily: dailyLog,
-          targets,
-          today: localIsoDate(now),
-          loading: !fitnessLoaded,
-          onPatchDay: handlePatchDay,
-          adherence: myAdherence,
-        }}
       />`
     }
     ${

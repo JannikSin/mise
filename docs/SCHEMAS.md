@@ -130,9 +130,10 @@ data to the app repo.
   `targets.tracks`): the EXTRA app surfaces this profile has. ABSENT =
   everything (David, legacy installs — zero migration). `[]` = the family
   minimum: Plan, List, Today's family dinners, Settings, and nothing else.
-  Values consumed today: `"checkin"` (morning check-in block on Today, and
-  with it the vitals/remedies links), `"scoreboard"` (household scoreboard),
-  `"money"` (List's who-owes-who tile). Train stays governed by
+  Values consumed today: `"scoreboard"` (household scoreboard) and
+  `"money"` (List's who-owes-who tile). `"checkin"` retired 2026-08-09 with
+  the in-app daily check-in (personal tracking lives in Crystal now); the
+  value is ignored if present. Train stays governed by
   `trainingEnabled`. Read in `app/main.js` (`hasCap`), rendered down as
   props — a NEW surface must argue its way into a capability value, so the
   family default stays minimal without anyone remembering to hide things.
@@ -444,12 +445,16 @@ before every plan write).
         "at": "2026-07-23", // ISO date it was generated
         "seats": {
           "david": {
-            "plate": ["add 100g extra tofu on top"], // 1-3 concrete actions
+            // ? scale-first (2026-08-09): weighed grams of the finished dish
+            //   on this plate; absent/0 on tailors from before the scale
+            "portionGrams": 450,
+            "plate": ["add 150 g cooked rice", "1 fried egg on top"], // 1-4 measured actions
             "estCalories": 1150, // this seat's plate after adjustments
             "estProtein": 66,
           },
         },
-        "cook": ["hold the bread back; plate one without it"], // 0-3 one-pot notes
+        // 0-4 sequenced one-pot notes ("portion one plate out before the onions")
+        "cook": ["hold the bread back; plate one without it"],
       },
     },
   ],
@@ -500,6 +505,21 @@ Rules (binding, from the Tribunal gate):
   `recipes/special-<slug>-<date>.json` tagged `"ai-special"` (normal recipe
   schema, `nutrition.method` and `foodGroups.method` = `"estimated"`), so
   macros, shopping, and every seat's plan work unchanged.
+- WEEK OF MEALS (Tables tab, Worker `/dinnerweek`, 2026-08-09): one call
+  plans every remaining breakfast/lunch/dinner that has no table yet —
+  people picked, slots picked (snacks/smoothies stay personal, never planned
+  here), optional cuisine/theme, per-meal bank pick or special, per-person
+  plate specs with weighed gram amounts so each person lands near their own
+  daily calories/protein while the house cooks each slot ONCE. Each meal
+  lands as an ordinary table via the same apply path as `/dinner` (specials
+  to the bank first, plates as the table's tailor block) with `buyerId`
+  pre-set to the runner, so the groceries are claimable-free and the List is
+  buildable the same day. Derivation, shopping claims, and the money ledger
+  work unchanged. The same deterministic avoid screen runs per meal: a
+  special hitting any never-serve list (ingredients, name, or instructions)
+  drops that MEAL (reported in `notes`, never silently), and offending plate
+  notes are blanked. Macro fields are clamped server-side (kcal ≤5000/serving,
+  macros ≤500 g, plate estimates ≤6000 kcal) before anything is stored.
 - **Generator trust gate (council 2026-07-23):** an `ai-special` recipe is
   settable as a table and browsable in the cookbook, but `generateWeek` and
   `poolAdequacy` exclude it (`generatorEligible` in weekbuilder.js) until a
@@ -746,6 +766,11 @@ verbatim.
       "checked": false,
       "manual": false, // true = David added by hand, survives regeneration
       "fromRecipes": ["chicken-bulgogi-bowl"], // ?
+      "weekQty": 0, // ? FAMILY-trip narrowed tick (2026-08-09): when a
+      //   day-narrowed household tick buys LESS than this row's week total,
+      //   qty becomes the bought amount (so the receipt banks the truth) and
+      //   the week total is stashed here; the untick restores it. Absent on
+      //   every normally-built row; dropped at the next regeneration.
     },
   ],
 }
@@ -1001,10 +1026,13 @@ One row per day; 10-second morning check-in.
 }
 ```
 
-`dozen`'s keys are a subset of `fitness/targets.json`'s `dailyDozen` keys — the categories
-recipes alone can't cover (directive: David logs these by hand each morning/day; the
-`generateWeek` build report already covers the recipe-deliverable categories via
-`foodGroupGaps`). Absent `dozen` or absent key = 0 logged, not missing data.
+`dozen`'s keys are a subset of `fitness/targets.json`'s `dailyDozen` keys. LEGACY as of
+2026-08-09: the in-app daily check-in (weight/sleep/water/supplements/dozen check-offs)
+retired — David's personal tracking lives in Crystal now, and Mise relies on the recipes
+being good (`generateWeek` still closes food-group gaps via `foodGroupGaps`). Old fields
+stay readable; nothing in the app writes them anymore (the vitals ingest still writes
+sleep/weight from the watch export). Absent `dozen` or absent key = 0 logged, not
+missing data.
 
 ## Fitness — `fitness/activities.json`
 

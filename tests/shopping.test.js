@@ -30,6 +30,7 @@ import {
   clearReceiptRows,
   packHint,
   normalizeShoppingList,
+  cycleDayPick,
 } from "../app/lib/shopping.js";
 
 test("tripOf: perishable sections are the fresh trip, shelf-stable the pantry trip", () => {
@@ -1258,6 +1259,73 @@ test("a partial shop can narrow to particular meals too", () => {
     out.items.find((i) => i.food === "rolled oats"),
     undefined,
   );
+});
+
+test("FAMILY day picks: one member's partial-week derive keeps ticks + manual rows and merges with a full list", () => {
+  // David, 2026-08-09: buy the first three days for mom, the whole week for
+  // everyone else. Mom's contribution is re-derived from HER plan for just
+  // those dates, with her stored list as `previous` so aisle ticks and manual
+  // rows survive; the merge then sums as usual.
+  const recipes = new Map([
+    ["a", { id: "a", servings: 1, ingredients: [{ qty: 100, unit: "g", food: "tofu" }] }],
+    ["b", { id: "b", servings: 1, ingredients: [{ qty: 200, unit: "g", food: "cod" }] }],
+  ]);
+  const momPlan = {
+    week: "2026-W32",
+    entries: [
+      { id: "1", date: "2026-08-03", slot: "dinner", recipeId: "a", servings: 1 },
+      { id: "2", date: "2026-08-06", slot: "dinner", recipeId: "b", servings: 1 },
+    ],
+  };
+  const momStored = {
+    generatedFrom: "2026-W32",
+    items: [
+      { id: "tofu-g", food: "tofu", qty: 100, unit: "g", section: "protein", checked: true },
+      { id: "cod-g", food: "cod", qty: 200, unit: "g", section: "meat", checked: false },
+      { id: "batteries-x", food: "batteries", qty: 1, unit: "x", section: "other", checked: false, manual: true },
+    ],
+  };
+  const momPartial = deriveShoppingList(
+    momPlan,
+    recipes,
+    { staples: [], perishables: [] },
+    momStored,
+    undefined,
+    { dates: ["2026-08-03"] },
+  );
+  // Thursday's cod is out; Monday's tofu keeps its aisle tick; manual rides along
+  assert.equal(
+    momPartial.items.find((i) => i.food === "cod"),
+    undefined,
+  );
+  assert.equal(momPartial.items.find((i) => i.food === "tofu")?.checked, true);
+  assert.ok(momPartial.items.find((i) => i.food === "batteries"));
+
+  const combined = mergeProfileLists([
+    { profileId: "david", list: { items: [{ id: "tofu-g", food: "tofu", qty: 300, unit: "g", section: "protein", checked: false }] } },
+    { profileId: "mom", list: momPartial },
+  ]);
+  const tofu = combined.find((i) => i.id === "tofu-g");
+  assert.equal(tofu.qty, 400, "partial contribution sums into the trip like any list");
+  assert.equal(tofu.sources.length, 2);
+  // each source carries its OWN contribution qty: the tick write-through
+  // stores what was actually shopped for that person, not their stale
+  // whole-week row (which the receipt step would otherwise over-bank)
+  assert.equal(tofu.sources.find((s) => s.profileId === "david").qty, 300);
+  assert.equal(tofu.sources.find((s) => s.profileId === "mom").qty, 100);
+  assert.equal(tofu.sources.find((s) => s.profileId === "mom").food, "tofu");
+});
+
+test("cycleDayPick: whole-week baseline, last-day guard, and malformed-week guard", () => {
+  const all = ["2026-08-03", "2026-08-04", "2026-08-05"];
+  // first un-tap starts from the whole week
+  assert.deepEqual(cycleDayPick([], all, "2026-08-04"), ["2026-08-03", "2026-08-05"]);
+  // re-lighting the last dark day normalises back to whole week ([])
+  assert.deepEqual(cycleDayPick(["2026-08-03", "2026-08-05"], all, "2026-08-04"), []);
+  // un-tapping the only lit day also resets to whole week, never to zero days
+  assert.deepEqual(cycleDayPick(["2026-08-03"], all, "2026-08-03"), []);
+  // a malformed weekId yields no dates: the tap is ignored, not normalised
+  assert.equal(cycleDayPick([], [], "2026-08-03"), null);
 });
 
 test("locationForBuy: frozen goes to the freezer, fresh to the fridge, the rest to the pantry", () => {

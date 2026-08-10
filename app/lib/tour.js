@@ -111,12 +111,6 @@ export const TOUR_STEPS = [
     text: "Today's workout with one-entry logging, plus a directed core session: pick one or take the day's, press START, and it calls every move and counts it down for you.",
   },
   {
-    route: "#/tables",
-    selector: ".grid",
-    title: "Morning check-in",
-    text: "Weigh in, log how you feel, see the day at a glance. The trend reads over 7 days, never a single morning.",
-  },
-  {
     route: "#/system",
     selector: ".tourrow",
     title: "SYS is the control room",

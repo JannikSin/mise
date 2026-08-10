@@ -2,6 +2,8 @@ import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { scanPhoto, scanReceipt } from "../lib/worker.js";
 import {
+  cycleDayPick,
+  deriveShoppingList,
   mergeProfileLists,
   packHint,
   perishableStatus,
@@ -163,9 +165,13 @@ const FRESH_STEPS = [
  *   onOwnItem: (id: string) => void,
  *   onScanApprove: (items: { name: string, kind: string, qty: string }[], location?: string, mode?: "sweep" | "add") => void,
  *   onToggleLock: () => void,
- *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList }[],
+ *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList, plan?: import("../lib/plan.js").Plan | null }[],
  *   ownEmoji: string,
- *   onCombinedToggle: (itemId: string, sources: { profileId: string, checked: boolean }[]) => void,
+ *   recipeIndex?: Map<string, any> | null,
+ *   myPlan?: import("../lib/plan.js").Plan | null,
+ *   allCookExtras?: { cookId: string, buyerId?: string, recipeId: string, date: string, servings: number }[],
+ *   tripFromDate?: string,
+ *   onCombinedToggle: (itemId: string, sources: { profileId: string, checked: boolean, qty?: number, unit?: string, food?: string, section?: string }[]) => void,
  *   onClaimAllDinners?: (claim: boolean) => number,
  *   dinnerClaims?: { unclaimed: number, mine: number },
  *   onRemoveDinnerRows?: () => void,
@@ -204,6 +210,10 @@ export function ShoppingView({
   onToggleLock,
   others,
   ownEmoji,
+  recipeIndex = null,
+  myPlan = null,
+  allCookExtras = [],
+  tripFromDate = undefined,
   onCombinedToggle,
   onClaimAllDinners = undefined,
   dinnerClaims = undefined,
@@ -471,16 +481,114 @@ export function ShoppingView({
     }
   };
   const tripOthers = others.filter((o) => !tripOff.has(o.profileId));
+  // FAMILY days (David, 2026-08-09): buy only SOME days for one member of the
+  // EVERYONE trip — mom eats at home the first three days, the rest of the
+  // house shops the whole week. Per person, per week (the picks are dates, so
+  // a new week starts clean), persisted like the member toggle. Absent/empty
+  // = their whole week, which is the old behaviour exactly.
+  const daysKey = `mise.familyDays.${me}`;
+  const [tripDays, setTripDays] = useState(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(daysKey) ?? "null");
+      return /** @type {Record<string, string[]>} */ (
+        raw && raw.week === weekId ? (raw.days ?? {}) : {}
+      );
+    } catch {
+      return /** @type {Record<string, string[]>} */ ({});
+    }
+  });
+  const toggleTripDay = (/** @type {string} */ id, /** @type {string} */ d) => {
+    // pick math lives in the lib (cycleDayPick) so it is testable; null =
+    // no dates for this week (malformed weekId), the tap is ignored
+    const nextDays = cycleDayPick(tripDays[id] ?? [], datesOfWeek(weekId), d);
+    if (nextDays === null) return;
+    const next = { ...tripDays };
+    if (nextDays.length === 0) delete next[id];
+    else next[id] = nextDays;
+    setTripDays(next);
+    try {
+      localStorage.setItem(daysKey, JSON.stringify({ week: weekId, days: next }));
+    } catch {
+      // storage blocked: the picks just do not persist across reloads
+    }
+  };
+  // week nav / auto-roll changes weekId under a mounted view: prior-week date
+  // picks would match nothing (all chips un-lit, empty contributions), so the
+  // picks re-read from storage — which the week guard resolves to {} for any
+  // other week — instead of surviving the shift
+  useEffect(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(daysKey) ?? "null");
+      setTripDays(raw && raw.week === weekId ? (raw.days ?? {}) : {});
+    } catch {
+      setTripDays({});
+    }
+    // daysKey covers the active-profile half of the dependency
+  }, [weekId, daysKey]);
+  // the picker starts open when picks survived a reload, so the narrowed
+  // trip is never invisibly narrowed
+  const [showTripDays, setShowTripDays] = useState(Object.keys(tripDays).length > 0);
+  // A member with picked days contributes a list RE-DERIVED from their plan
+  // for just those dates — the same deriveShoppingList `only` path as my own
+  // partial build. Their stored list is a week total and carries no dates, so
+  // it cannot be filtered; passing it as `previous` keeps their ticks and
+  // manual rows. Honest fallbacks, each returning the FULL stored list:
+  //  - no plan on file / empty plan (nothing to day-filter);
+  //  - recipe index still loading (empty = every derive would drop rows);
+  //  - `misses`: a picked-day meal whose recipe this phone cannot resolve
+  //    (their personal recipe, or one my diet screen filtered from the pool)
+  //    would silently vanish from the trip — refuse to narrow and say so.
+  // Claimed family-dinner batches (allCookExtras, buyerId = this member) are
+  // appended before deriving, exactly like the canonical build's cookExtras.
+  const tripContribFor = (
+    /** @type {string} */ id,
+    /** @type {any} */ memberPlan,
+    /** @type {import("../lib/shopping.js").ShoppingList} */ full,
+  ) => {
+    const dates = tripDays[id] ?? [];
+    if (
+      dates.length === 0 ||
+      !recipeIndex ||
+      recipeIndex.size === 0 ||
+      !Array.isArray(memberPlan?.entries) ||
+      memberPlan.entries.length === 0
+    )
+      return { list: full, misses: 0 };
+    const extras = (allCookExtras ?? []).filter((x) => x.buyerId === id);
+    const planned = { ...memberPlan, entries: [...memberPlan.entries, ...extras] };
+    const misses = planned.entries.filter(
+      (/** @type {any} */ e) =>
+        e.recipeId &&
+        dates.includes(e.date) &&
+        // an already-eaten day is filtered out of the derive anyway, so an
+        // unresolvable recipe there must not veto the narrowing
+        (!tripFromDate || e.date >= tripFromDate) &&
+        !recipeIndex.has(e.recipeId),
+    ).length;
+    if (misses > 0) return { list: full, misses };
+    return {
+      list: deriveShoppingList(planned, recipeIndex, pantry, full, tripFromDate, { dates }),
+      misses: 0,
+    };
+  };
   const combinedMerged =
     tripOthers.length > 0 || tripOff.has(me)
       ? mergeProfileLists([
-          ...(tripOff.has(me) ? [] : [{ profileId: me, list: shopping }]),
-          ...tripOthers.map((o) => ({ profileId: o.profileId, list: o.list })),
+          ...(tripOff.has(me)
+            ? []
+            : [{ profileId: me, list: tripContribFor(me, myPlan ?? plan, shopping).list }]),
+          ...tripOthers.map((o) => ({
+            profileId: o.profileId,
+            list: tripContribFor(o.profileId, o.plan, o.list).list,
+          })),
         ])
       : others.length > 0
         ? mergeProfileLists([
-            { profileId: me, list: shopping },
-            ...others.map((o) => ({ profileId: o.profileId, list: o.list })),
+            { profileId: me, list: tripContribFor(me, myPlan ?? plan, shopping).list },
+            ...others.map((o) => ({
+              profileId: o.profileId,
+              list: tripContribFor(o.profileId, o.plan, o.list).list,
+            })),
           ])
         : [];
   // fridge-first for the house: the shared pantry is subtracted from the
@@ -1446,18 +1554,25 @@ export function ShoppingView({
         tab === "combined" &&
         html`
           <div class="chips wrapchips" role="group" aria-label="Who this trip is for">
-            ${[{ profileId: me, name: "You", emoji: ownEmoji }, ...others].map(
-              (p) => html`
+            ${[{ profileId: me, name: "You", emoji: ownEmoji }, ...others].map((p) => {
+              // a narrowed member is visible on the always-shown chip, not
+              // only inside the (collapsible) day picker
+              const nDays = (tripDays[p.profileId] ?? []).length;
+              const badge =
+                nDays > 0 && !tripOff.has(p.profileId)
+                  ? ` · ${nDays}/${datesOfWeek(weekId).length}d`
+                  : "";
+              return html`
                 <button
                   key=${p.profileId}
                   class=${tripOff.has(p.profileId) ? "chip" : "chip on"}
                   aria-pressed=${!tripOff.has(p.profileId)}
                   onClick=${() => toggleTripMember(p.profileId)}
                 >
-                  ${p.emoji ?? ""} ${p.name}
+                  ${p.emoji ?? ""} ${p.name}${badge}
                 </button>
-              `,
-            )}
+              `;
+            })}
             ${
               // EVERY profile not in this house is shown greyed with the
               // reason, family field or not (David, 2026-08-02: dad and
@@ -1480,6 +1595,100 @@ export function ShoppingView({
                 )
             }
           </div>
+          ${(() => {
+            const dayRows = [
+              ...(tripOff.has(me)
+                ? []
+                : [{ profileId: me, name: "You", emoji: ownEmoji, plan: myPlan ?? plan, list: shopping }]),
+              ...tripOthers,
+            ];
+            if (dayRows.length === 0) return "";
+            const trimmed = dayRows.filter((p) => (tripDays[p.profileId] ?? []).length > 0).length;
+            return html`
+              <div class="actions wrap">
+                <button
+                  class="secondary"
+                  aria-expanded=${showTripDays}
+                  onClick=${() => setShowTripDays(!showTripDays)}
+                >
+                  ${
+                    showTripDays
+                      ? "HIDE DAY PICKS"
+                      : `JUST SOME DAYS · PER PERSON${trimmed > 0 ? ` · ${trimmed} trimmed` : ""}`
+                  }
+                </button>
+              </div>
+              ${
+                showTripDays &&
+                html`<div class="tile">
+                  <div class="k">Buy for only some of someone's days</div>
+                  <p class="hint">
+                    All days lit = their whole week. Un-light days to leave them out of this trip
+                    — their meals stay planned, just not bought yet. Picks are for this week only;
+                    a new week starts whole again. To shop NONE of someone's days, toggle them off
+                    the trip above.
+                  </p>
+                  ${dayRows.map((p) => {
+                    const picked = tripDays[p.profileId] ?? [];
+                    const noPlan =
+                      picked.length > 0 &&
+                      (!Array.isArray(p.plan?.entries) || p.plan.entries.length === 0);
+                    const noRecipes =
+                      picked.length > 0 && !noPlan && (!recipeIndex || recipeIndex.size === 0);
+                    const misses =
+                      picked.length > 0 && !noPlan && !noRecipes
+                        ? tripContribFor(p.profileId, p.plan, p.list).misses
+                        : 0;
+                    return html`
+                      <div key=${p.profileId}>
+                        <div class="d">${p.emoji ?? ""} ${p.name}</div>
+                        <div
+                          class="chips wrapchips"
+                          role="group"
+                          aria-label="Days to buy for ${p.name}"
+                        >
+                          ${datesOfWeek(weekId).map((d) => {
+                            const on = picked.length === 0 || picked.includes(d);
+                            return html`<button
+                              key=${d}
+                              class=${on ? "chip on" : "chip"}
+                              aria-pressed=${on}
+                              disabled=${on && picked.length === 1}
+                              onClick=${() => toggleTripDay(p.profileId, d)}
+                            >
+                              ${parseLocalIso(d).toLocaleDateString([], { weekday: "short" })}
+                            </button>`;
+                          })}
+                        </div>
+                        ${
+                          noPlan &&
+                          html`<p class="hint scanerr" role="status">
+                            ⚠ No meal plan for this week for ${p.name} — their whole list rides
+                            along until they generate one.
+                          </p>`
+                        }
+                        ${
+                          noRecipes &&
+                          html`<p class="hint scanerr" role="status">
+                            ⚠ Recipes are still loading — ${p.name}'s day picks apply once they
+                            arrive; until then their whole list rides along.
+                          </p>`
+                        }
+                        ${
+                          misses > 0 &&
+                          html`<p class="hint scanerr" role="status">
+                            ⚠ ${misses} of ${p.name}'s picked-day
+                            ${misses === 1 ? "meal uses a recipe" : "meals use recipes"} this
+                            phone can't see — their whole list rides along instead of narrowing.
+                          </p>`
+                        }
+                      </div>
+                    `;
+                  })}
+                </div>`
+              }
+            `;
+          })()}
           <p class="hint">
             One trip for the whole house. Quantities are everyone's lists summed; the badges show
             who wants it. Tick = bought for everyone who wants it (writes to each person's own

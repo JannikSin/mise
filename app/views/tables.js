@@ -1,9 +1,8 @@
 import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
-import { recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
+import { datesOfWeek, recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { parseLocalIso } from "../lib/dates.js";
 import { SERVINGS_MIN, SERVINGS_MAX } from "../lib/tables.js";
-import { CheckInView } from "./checkin.js";
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
@@ -29,13 +28,12 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onPatchSeat: (house: string, tableId: string, patch: Partial<import("../lib/tables.js").Seat>) => void,
  *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>,
  *   onTailorTable: (house: string, tableId: string) => Promise<void>,
- *   scoreboard: { id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, logged: { done: number, total: number }, shopped: boolean }[],
+ *   onDinnerWeek?: (participantIds: string[], meals: { date: string, slot: string }[], cuisine: string, note: string) => Promise<{ made: { date: string, slot: string, name: string, why: string }[], notes: string[] }>,
+ *   scoreboard: { id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, shopped: boolean }[],
  *   weekId: string,
  *   onCreateBrigade: (b: { name: string, memberIds: string[], slots: string[], cookId?: string, from: string, until: string }) => void,
  *   onRemoveBrigade: (id: string) => void,
  *   onRunBrigade: (id: string, week: string, regenerate?: boolean) => Promise<{ made: number, thin: { slot: string, available: number }[] }>,
- *   checkIn: Record<string, any>,
- *   showCheckIn?: boolean,
  *   showScoreboard?: boolean
  * }} props
  */
@@ -55,13 +53,12 @@ export function TablesView({
   onPatchSeat,
   onSeatScreen,
   onTailorTable,
+  onDinnerWeek = undefined,
   scoreboard,
   weekId,
   onCreateBrigade,
   onRemoveBrigade,
   onRunBrigade,
-  checkIn,
-  showCheckIn = true,
   showScoreboard = true,
 }) {
   const byId = recipesById(bankRecipes ?? []);
@@ -198,6 +195,66 @@ export function TablesView({
     setBrigadeBusy(null);
   };
 
+  // WEEK OF MEALS (David, 2026-08-09): pick people, slots and a cuisine; one
+  // run sets a tailored shared table for every remaining breakfast/lunch/
+  // dinner that has none yet. Snacks and smoothies stay personal on purpose.
+  const WEEK_SLOTS = ["breakfast", "lunch", "dinner"];
+  const [weekForm, setWeekForm] = useState(
+    /** @type {null | { unpicked: string[], slots: string[], cuisine: string, note: string }} */ (
+      null
+    ),
+  );
+  const [weekBusy, setWeekBusy] = useState(false);
+  const [weekErr, setWeekErr] = useState("");
+  const [weekResult, setWeekResult] = useState(
+    /** @type {null | { made: { date: string, slot: string, name: string, why: string }[], notes: string[] }} */ (
+      null
+    ),
+  );
+  const myHouseTables = (houseEvents ?? []).find((h) => h.house === myHouse)?.events?.tables ?? [];
+  // a date+slot is taken by any table at MY house, or any table I'm seated
+  // at elsewhere (planning over it would only trip the collision flag)
+  const takenMeals = new Set([
+    ...myHouseTables.map((t) => `${t.date}|${t.slot}`),
+    ...myTables.map(({ t }) => `${t.date}|${t.slot}`),
+  ]);
+  const mealsFor = (/** @type {string[]} */ slots) =>
+    datesOfWeek(weekId)
+      .filter((d) => d >= todayIso)
+      .flatMap((date) =>
+        slots.filter((slot) => !takenMeals.has(`${date}|${slot}`)).map((slot) => ({ date, slot })),
+      );
+  const weekMeals = mealsFor(weekForm?.slots ?? WEEK_SLOTS);
+  // the bank's own cuisines as one-tap chips; free text still wins
+  const cuisineChips = [
+    ...new Set(
+      (bankRecipes ?? [])
+        .filter((r) => WEEK_SLOTS.includes(r.mealType))
+        .map((r) => /** @type {string} */ (r.cuisine ?? ""))
+        .filter(Boolean),
+    ),
+  ].slice(0, 8);
+  const runWeek = async () => {
+    if (!weekForm || !onDinnerWeek || weekBusy) return;
+    const ids = houseMates.map((p) => p.id).filter((id) => !weekForm.unpicked.includes(id));
+    if (ids.length === 0 || weekMeals.length === 0) return;
+    setWeekBusy(true);
+    setWeekErr("");
+    try {
+      const result = await onDinnerWeek(
+        ids,
+        weekMeals,
+        weekForm.cuisine.trim(),
+        weekForm.note.trim(),
+      );
+      setWeekResult(result);
+      setWeekForm(null);
+    } catch (err) {
+      setWeekErr(err instanceof Error ? err.message : "planning failed — try again");
+    }
+    setWeekBusy(false);
+  };
+
   // CREATE TABLE form state
   const [tableForm, setTableForm] = useState(
     /** @type {null | { name: string, date: string, slot: string, recipeId: string, seats: Record<string, { in: boolean, servings: number }> }} */ (
@@ -320,7 +377,10 @@ export function TablesView({
               ${Object.entries(t.tailor.seats ?? {}).map(
                 ([sid, notes]) => html`
                   <div class="d" key=${sid}>
-                    ✨ ${nameOf(sid)}: ${notes.plate.join(" · ")}
+                    ✨ ${nameOf(sid)}:
+                    ${(notes.portionGrams ?? 0) > 0 ? `⚖ ${notes.portionGrams} g of the dish · ` : ""}${notes.plate.join(
+                      " · ",
+                    )}
                     <span class="num"> · ~${notes.estCalories} kcal · ${notes.estProtein}P</span>
                   </div>
                 `,
@@ -411,15 +471,10 @@ export function TablesView({
       </p>
       ${dinnerBlock}
       ${
-        // the morning check-in and the household scoreboard sit BELOW the
-        // dinners (David, 2026-08-03: the page opens on the family meals) and
-        // render only for profiles whose capabilities include them — the
-        // family default is the dinners and nothing else
-        showCheckIn && html`<${CheckInView} ...${checkIn} />`
-      }
-      ${
         // the household competition: same yardstick for everyone (cooked
-        // confirmations, receipt, daily logs), numbers not judgment
+        // confirmations + the receipt), numbers not judgment. The daily
+        // check-in retired 2026-08-09 (David: personal tracking lives in
+        // Crystal, not the family app), so logs left the score with it.
         showScoreboard &&
         (scoreboard ?? []).length > 0 &&
         html`<div class="tile">
@@ -428,14 +483,194 @@ export function TablesView({
             (r, i) => html`
               <div class="d num" key=${r.id}>
                 ${i === 0 && r.score > 0 ? "👑" : `${i + 1}.`} ${r.emoji} ${r.name}
-                <b> ${r.score}</b> · cooked ${r.cooked.done}/${r.cooked.total} · logged${" "}
-                ${r.logged.done}/${r.logged.total} · ${r.shopped ? "🧾 shopped" : "no receipt yet"}
+                <b> ${r.score}</b> · cooked ${r.cooked.done}/${r.cooked.total} ·
+                ${r.shopped ? "🧾 shopped" : "no receipt yet"}
               </div>
             `,
           )}
           <div class="hint">
-            score = 50% meals confirmed cooked + 30% daily logs + 20% receipt scanned, over days
-            already finished. Tap COOKED after cooking and it climbs.
+            score = 70% meals confirmed cooked + 30% receipt scanned, over days already finished.
+            Tap COOKED after cooking and it climbs.
+          </div>
+        </div>`
+      }
+      ${
+        onDinnerWeek &&
+        !weekForm &&
+        html`<div class="actions">
+          <button
+            class="ask"
+            disabled=${tokenBlocked || mealsFor(WEEK_SLOTS).length === 0}
+            onClick=${() => {
+              setWeekResult(null);
+              setWeekErr("");
+              setWeekForm({ unpicked: [], slots: [...WEEK_SLOTS], cuisine: "", note: "" });
+            }}
+          >
+            🗓 PLAN THE WEEK'S MEALS
+            <small>
+              ${
+                tokenBlocked
+                  ? repo?.auth === "invalid"
+                    ? "needs the token — renew it in Settings"
+                    : "needs the token — connect it in Settings"
+                  : mealsFor(WEEK_SLOTS).length === 0
+                    ? "every remaining meal already has a table"
+                    : `one shared pot per meal, everyone's own portion — covers ${mealsFor(WEEK_SLOTS).length} meals`
+              }
+            </small>
+          </button>
+        </div>`
+      }
+      ${
+        onDinnerWeek &&
+        weekForm &&
+        html`<div class="tile tableform">
+          <div class="k">🗓 The week's meals</div>
+          <p class="hint">
+            the house cooks each meal ONCE and everyone eats the same food — each plate is
+            portioned in grams to that person's own calories, protein and diet. Meals that
+            already have a table at this house (or that you're seated at elsewhere) are left
+            alone; snacks and smoothies stay personal.
+          </p>
+          <div class="chips wrapchips" role="group" aria-label="Meals to cover">
+            ${WEEK_SLOTS.map((slot) => {
+              const on = weekForm.slots.includes(slot);
+              return html`
+                <button
+                  key=${slot}
+                  class="chip ${on ? "on" : ""}"
+                  aria-pressed=${on}
+                  onClick=${() =>
+                    setWeekForm({
+                      ...weekForm,
+                      slots: on
+                        ? weekForm.slots.filter((x) => x !== slot)
+                        : [...weekForm.slots, slot],
+                    })}
+                >
+                  ${SLOT_META[slot]?.full ?? slot}
+                </button>
+              `;
+            })}
+          </div>
+          <div class="chips wrapchips" role="group" aria-label="Who's eating this week">
+            ${houseMates.map((p) => {
+              const on = !weekForm.unpicked.includes(p.id);
+              return html`
+                <button
+                  key=${p.id}
+                  class="chip ${on ? "on" : ""}"
+                  aria-pressed=${on}
+                  onClick=${() =>
+                    setWeekForm({
+                      ...weekForm,
+                      unpicked: on
+                        ? [...weekForm.unpicked, p.id]
+                        : weekForm.unpicked.filter((x) => x !== p.id),
+                    })}
+                >
+                  ${p.emoji ?? ""} ${p.name ?? p.id}
+                </button>
+              `;
+            })}
+          </div>
+          ${
+            cuisineChips.length > 0 &&
+            html`<div class="chips wrapchips" role="group" aria-label="Cuisine">
+              ${cuisineChips.map(
+                (c) => html`
+                  <button
+                    key=${c}
+                    class="chip ${weekForm.cuisine === c ? "on" : ""}"
+                    aria-pressed=${weekForm.cuisine === c}
+                    onClick=${() =>
+                      setWeekForm({ ...weekForm, cuisine: weekForm.cuisine === c ? "" : c })}
+                  >
+                    ${c}
+                  </button>
+                `,
+              )}
+            </div>`
+          }
+          <input
+            aria-label="Cuisine or theme"
+            placeholder="cuisine or theme, e.g. italian, one-pot, spicy (optional)"
+            value=${weekForm.cuisine}
+            onInput=${(/** @type {any} */ e) =>
+              setWeekForm({ ...weekForm, cuisine: e.currentTarget.value })}
+          />
+          <input
+            aria-label="Anything else the planner should know"
+            placeholder="anything else, e.g. mom is home Mon-Wed only (optional)"
+            value=${weekForm.note}
+            onInput=${(/** @type {any} */ e) =>
+              setWeekForm({ ...weekForm, note: e.currentTarget.value })}
+          />
+          <div class="actions wrap">
+            <button
+              class="primary"
+              disabled=${
+                weekBusy ||
+                tokenBlocked ||
+                weekMeals.length === 0 ||
+                houseMates.every((p) => weekForm.unpicked.includes(p.id))
+              }
+              onClick=${runWeek}
+            >
+              ${
+                weekBusy
+                  ? "PLANNING THE WEEK…"
+                  : `SET ${weekMeals.length} ${weekMeals.length === 1 ? "MEAL" : "MEALS"} ✓`
+              }
+            </button>
+            <button class="secondary" disabled=${weekBusy} onClick=${() => setWeekForm(null)}>
+              CANCEL
+            </button>
+          </div>
+          ${
+            houseMates.length > 0 &&
+            houseMates.every((p) => weekForm.unpicked.includes(p.id)) &&
+            html`<p class="hint" role="status">pick at least one person</p>`
+          }
+          ${
+            weekForm.slots.length === 0 &&
+            html`<p class="hint" role="status">pick at least one meal</p>`
+          }
+          ${weekErr && html`<p class="hint scanerr" role="status">${weekErr}</p>`}
+        </div>`
+      }
+      ${
+        weekResult &&
+        html`<div class="tile buffer" role="status">
+          <div class="k">
+            ${
+              weekResult.made.length === 0
+                ? "🗓 no meals were set"
+                : `🗓 week set · ${weekResult.made.length} ${weekResult.made.length === 1 ? "meal" : "meals"}`
+            }
+          </div>
+          ${weekResult.made.map(
+            (m) => html`
+              <div class="d" key=${`${m.date}|${m.slot}`}>
+                ${parseLocalIso(m.date).toLocaleDateString([], { weekday: "short" })}
+                ${SLOT_META[m.slot]?.label ?? m.slot}: <b>${m.name}</b>
+                ${m.why && html`<span class="hint"> — ${m.why}</span>`}
+              </div>
+            `,
+          )}
+          ${weekResult.notes.map((n, i) => html`<p class="hint scanerr" key=${i}>${n}</p>`)}
+          ${
+            weekResult.made.length > 0
+              ? html`<p class="hint">
+                  each meal is a real table above with your grocery claim already on it — BUILD
+                  the List and you can shop today. Not feeling one? Cancel that table and set it
+                  by hand.
+                </p>`
+              : html`<p class="hint">nothing changed — run it again or set meals by hand below.</p>`
+          }
+          <div class="actions">
+            <button class="secondary" onClick=${() => setWeekResult(null)}>DISMISS</button>
           </div>
         </div>`
       }
@@ -727,6 +962,15 @@ export function TablesView({
       <div class="actions">
         <a class="secondary linkbtn" href="#/dinner">💬 what should dinner be? →</a>
       </div>
+      ${
+        // bottom of the page on purpose (David, 2026-08-09): the daily
+        // check-offs moved to Crystal; remedies stay in Mise because they
+        // cook from the pantry, but they don't lead the family page
+        html`<div class="actions wrap">
+          <a class="secondary linkbtn remedy" href="#/remedies">feeling off? → remedies</a>
+          <a class="secondary linkbtn" href="#/vitals">vitals (Apple Watch) →</a>
+        </div>`
+      }
     </div>
   `;
 }

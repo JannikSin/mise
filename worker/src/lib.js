@@ -444,23 +444,28 @@ const TAILOR_TOOL = {
           type: "object",
           properties: {
             id: { type: "string", description: "the seat's profile id, exactly as given" },
+            portionGrams: {
+              type: "number",
+              description:
+                "weighed grams of the finished dish on THIS plate, from the kitchen scale; estimate honestly from the ingredient weights and the seat's servings",
+            },
             plate: {
               type: "array",
               items: { type: "string" },
               description:
-                "1-3 concrete plating actions for THIS person (e.g. 'add 100g extra tofu on top', 'skip the bread', 'half portion of rice')",
+                "1-4 concrete plating actions for THIS person, EVERY line with an exact amount: grams for anything scoopable ('add 150 g cooked rice', 'add 100 g steamed broccoli'), counts for whole items ('1 fried egg on top'), and explicit omissions with the cook step that makes them possible ('no onions: this plate is portioned out before the onions go in')",
             },
             estCalories: { type: "number", description: "this seat's plate after adjustments" },
             estProtein: { type: "number", description: "grams protein after adjustments" },
           },
-          required: ["id", "plate", "estCalories", "estProtein"],
+          required: ["id", "portionGrams", "plate", "estCalories", "estProtein"],
         },
       },
       cook: {
         type: "array",
         items: { type: "string" },
         description:
-          "0-3 notes for the cook so ONE pot still serves everyone (what to hold back, add late, or plate separately)",
+          "0-4 sequenced notes for the cook so ONE pot still serves everyone: what to hold back, add late, portion out early, or plate separately, in cooking order",
       },
     },
     required: ["seats", "cook"],
@@ -469,14 +474,21 @@ const TAILOR_TOOL = {
 
 const TAILOR_SYSTEM =
   "You tailor ONE shared home-cooked dish to each person at the table. The " +
-  "dish is cooked once; your job is per-plate adjustments at serving time " +
-  "that move each plate toward that person's goal and daily targets: extra " +
-  "protein or starch for a gaining lifter, lighter starch, skipped bread or " +
-  "smaller portion for someone losing, respecting diets and never-serve " +
-  "lists absolutely. Adjustments must be concrete kitchen actions with " +
-  "amounts, achievable from the dish's own components plus ordinary pantry " +
-  "staples. Cook notes keep it one pot: what to hold back, add late, or " +
-  "plate separately. Honest macro estimates per adjusted plate. No em dashes.";
+  "dish is cooked once; your job is per-plate serving instructions so " +
+  "nobody guesses at the pot: WHO eats WHAT and HOW MUCH, by weight. The " +
+  "kitchen has a food scale and it is used for every plate, so state the " +
+  "base portion of the finished dish in grams (portionGrams, estimated " +
+  "honestly from the ingredient weights after cooking and the seat's " +
+  "servings) and give every adjustment an exact amount: grams for anything " +
+  "scoopable, counts for whole items. Move each plate toward that person's " +
+  "goal and daily targets: extra starch or a supplemental egg for a gaining " +
+  "lifter, more vegetables and lighter starch for someone losing, " +
+  "respecting diets and never-serve lists absolutely. An omission ('no " +
+  "onions') must come with the cook step that makes it real, e.g. portion " +
+  "that plate out BEFORE the onions go in. Adjustments must be achievable " +
+  "from the dish's own components plus ordinary pantry staples. Cook notes " +
+  "are sequenced, in cooking order, so one pot still serves every plate. " +
+  "Honest macro estimates per adjusted plate. No em dashes.";
 
 /**
  * Anthropic Messages request to tailor a table dish per seat.
@@ -510,7 +522,7 @@ export function buildTailorRequest({ recipe, seats, model }) {
  * can never write notes for someone who is not at the table.
  * @param {Record<string, any> | null} input
  * @param {string[]} allowedIds
- * @returns {{ seats: Record<string, { plate: string[], estCalories: number, estProtein: number }>, cook: string[] }}
+ * @returns {{ seats: Record<string, { portionGrams: number, plate: string[], estCalories: number, estProtein: number }>, cook: string[] }}
  */
 export function validateTailor(input, allowedIds) {
   const strList = (/** @type {any} */ v, /** @type {number} */ cap) =>
@@ -518,15 +530,20 @@ export function validateTailor(input, allowedIds) {
       .filter((s) => typeof s === "string" && s.trim())
       .map((s) => s.trim().slice(0, 160))
       .slice(0, cap);
-  /** @type {Record<string, { plate: string[], estCalories: number, estProtein: number }>} */
+  /** @type {Record<string, { portionGrams: number, plate: string[], estCalories: number, estProtein: number }>} */
   const seats = {};
   const allowed = new Set(allowedIds);
   for (const s of Array.isArray(input?.seats) ? input.seats : []) {
     if (typeof s !== "object" || s === null) continue;
     if (typeof s.id !== "string" || !allowed.has(s.id) || seats[s.id]) continue;
-    const plate = strList(s.plate, 3);
+    const plate = strList(s.plate, 4);
     if (plate.length === 0) continue;
     seats[s.id] = {
+      // scale-first plating: clamp to a sane single-plate range; 0 = unknown
+      portionGrams:
+        typeof s.portionGrams === "number" && isFinite(s.portionGrams)
+          ? Math.min(3000, Math.max(0, Math.round(s.portionGrams)))
+          : 0,
       plate,
       estCalories:
         typeof s.estCalories === "number" && isFinite(s.estCalories)
@@ -536,7 +553,7 @@ export function validateTailor(input, allowedIds) {
         typeof s.estProtein === "number" && isFinite(s.estProtein) ? Math.round(s.estProtein) : 0,
     };
   }
-  return { seats, cook: strList(input?.cook, 3) };
+  return { seats, cook: strList(input?.cook, 4) };
 }
 
 // ---- deterministic avoid screen (council 2026-07-23) ---------------------
@@ -577,17 +594,26 @@ export function screenTailorAvoid(tailor, seats) {
 }
 
 /**
- * Refuse a special meal whose ingredients hit ANY participant's avoid list.
+ * Refuse a special meal that hits ANY participant's avoid list — in its
+ * ingredients, its name, or its instructions ("garnish with peanuts" is as
+ * real as a peanut ingredient row; security review 2026-08-09). Broad
+ * substring match stays the safe direction for a denylist.
  * Returns the refusal reasons ("Mom: cilantro"), empty = clean.
- * @param {{ ingredients: { food: string }[] }} special
+ * @param {{ name?: string, ingredients: { food: string }[], instructions?: ({ text: string } | string)[] }} special
  * @param {{ name: string, avoid: string[] }[]} people
  * @returns {string[]}
  */
 export function specialAvoidHits(special, people) {
-  const foods = (special.ingredients ?? []).map((i) => i.food).join(", ");
+  const text = [
+    special.name ?? "",
+    (special.ingredients ?? []).map((i) => i.food).join(", "),
+    (special.instructions ?? [])
+      .map((s) => (typeof s === "string" ? s : (s?.text ?? "")))
+      .join(" "),
+  ].join(" | ");
   const out = [];
   for (const p of people) {
-    const hits = hitsAvoid(foods, p.avoid);
+    const hits = hitsAvoid(text, p.avoid);
     if (hits.length > 0) out.push(`${p.name}: ${hits.join(", ")}`);
   }
   return out;
@@ -609,6 +635,67 @@ const FOOD_GROUP_KEYS = [
   "beverages",
 ];
 
+const SPECIAL_SCHEMA = {
+  type: "object",
+  description: "a fully specified new meal, only when pickRecipeId is ''",
+  properties: {
+    name: { type: "string" },
+    description: { type: "string", description: "one appetizing sentence" },
+    servings: { type: "number", description: "how many servings the recipe yields" },
+    totalTime: { type: "number", description: "minutes start to plate" },
+    ingredients: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          qty: { type: "number" },
+          unit: { type: "string", description: "g, ml, tbsp, x, ..." },
+          food: { type: "string" },
+        },
+        required: ["qty", "unit", "food"],
+      },
+    },
+    instructions: { type: "array", items: { type: "string" } },
+    nutrition: {
+      type: "object",
+      description: "PER SERVING, honest estimates",
+      properties: {
+        calories: { type: "number" },
+        protein: { type: "number" },
+        carbs: { type: "number" },
+        fat: { type: "number" },
+      },
+      required: ["calories", "protein", "carbs", "fat"],
+    },
+    foodGroups: {
+      type: "object",
+      description:
+        "Daily Dozen servings per recipe serving; keys among: " + FOOD_GROUP_KEYS.join(", "),
+    },
+  },
+  required: ["name", "servings", "totalTime", "ingredients", "instructions", "nutrition"],
+};
+
+const PLATES_SCHEMA = {
+  type: "array",
+  description:
+    "per-person plate spec for the chosen dinner: who eats what and how much, by weight",
+  items: {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "the person's profile id, exactly as given" },
+      note: {
+        type: "string",
+        description:
+          "one concrete plate spec for them with weighed amounts (the kitchen has a food scale): grams of the dish, grams of any addition, counts for whole items, explicit omissions; '' if truly as served",
+      },
+      estCalories: { type: "number" },
+      estProtein: { type: "number" },
+    },
+    required: ["id", "note", "estCalories", "estProtein"],
+  },
+};
+
 const DINNER_TOOL = {
   name: "record_dinner",
   description:
@@ -622,63 +709,8 @@ const DINNER_TOOL = {
         type: "string",
         description: "the chosen candidate recipe id, or '' when proposing a special meal",
       },
-      special: {
-        type: "object",
-        description: "a fully specified new meal, only when pickRecipeId is ''",
-        properties: {
-          name: { type: "string" },
-          description: { type: "string", description: "one appetizing sentence" },
-          servings: { type: "number", description: "how many servings the recipe yields" },
-          totalTime: { type: "number", description: "minutes start to plate" },
-          ingredients: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                qty: { type: "number" },
-                unit: { type: "string", description: "g, ml, tbsp, x, ..." },
-                food: { type: "string" },
-              },
-              required: ["qty", "unit", "food"],
-            },
-          },
-          instructions: { type: "array", items: { type: "string" } },
-          nutrition: {
-            type: "object",
-            description: "PER SERVING, honest estimates",
-            properties: {
-              calories: { type: "number" },
-              protein: { type: "number" },
-              carbs: { type: "number" },
-              fat: { type: "number" },
-            },
-            required: ["calories", "protein", "carbs", "fat"],
-          },
-          foodGroups: {
-            type: "object",
-            description:
-              "Daily Dozen servings per recipe serving; keys among: " + FOOD_GROUP_KEYS.join(", "),
-          },
-        },
-        required: ["name", "servings", "totalTime", "ingredients", "instructions", "nutrition"],
-      },
-      plates: {
-        type: "array",
-        description: "per-person plate note for the chosen dinner",
-        items: {
-          type: "object",
-          properties: {
-            id: { type: "string", description: "the person's profile id, exactly as given" },
-            note: {
-              type: "string",
-              description: "one concrete plating adjustment for them, '' if none",
-            },
-            estCalories: { type: "number" },
-            estProtein: { type: "number" },
-          },
-          required: ["id", "note", "estCalories", "estProtein"],
-        },
-      },
+      special: SPECIAL_SCHEMA,
+      plates: PLATES_SCHEMA,
       why: { type: "string", description: "1-2 sentences: how this answers everyone's asks" },
     },
     required: ["pickRecipeId", "plates", "why"],
@@ -790,11 +822,16 @@ export function validateDinnerDecision(input, candidateIds, personIds) {
       }))
       .slice(0, 15);
     const nRaw = typeof s.nutrition === "object" && s.nutrition !== null ? s.nutrition : {};
+    // magnitude clamps (security review 2026-08-09): a special's macros land
+    // in a stored bank recipe and feed macro math app-wide — a claimed 1e300
+    // kcal must die here, same rule as validateTailor's portionGrams clamp
+    const clampN = (/** @type {number | null} */ v, /** @type {number} */ max) =>
+      v === null ? null : Math.min(max, v);
     const nutrition = {
-      calories: num(nRaw.calories),
-      protein: num(nRaw.protein),
-      carbs: num(nRaw.carbs),
-      fat: num(nRaw.fat),
+      calories: clampN(num(nRaw.calories), 5000),
+      protein: clampN(num(nRaw.protein), 500),
+      carbs: clampN(num(nRaw.carbs), 500),
+      fat: clampN(num(nRaw.fat), 500),
     };
     /** @type {Record<string, number>} */
     const foodGroups = {};
@@ -834,8 +871,9 @@ export function validateDinnerDecision(input, candidateIds, personIds) {
     .map((/** @type {any} */ p) => ({
       id: /** @type {string} */ (p.id),
       note: str(p.note, 160),
-      estCalories: Math.round(num(p.estCalories) ?? 0),
-      estProtein: Math.round(num(p.estProtein) ?? 0),
+      // clamped like the special's macros: these land in stored tailor seats
+      estCalories: Math.min(6000, Math.max(0, Math.round(num(p.estCalories) ?? 0))),
+      estProtein: Math.min(500, Math.max(0, Math.round(num(p.estProtein) ?? 0))),
     }))
     .slice(0, 8);
 
@@ -847,7 +885,133 @@ export function validateDinnerDecision(input, candidateIds, personIds) {
   };
 }
 
-// ---- ntfy notification engine (Worker cron) ------------------------------
+// ---- /dinnerweek: one call → a tailored shared meal for every requested
+// date+slot (David, 2026-08-09: the whole house eats the SAME three cooked
+// meals a day; goals survive through per-person portioning, not separate
+// cooking; snacks and smoothies stay personal and are never planned here) --
+
+/** the slots a household cooks together; snacks/smoothies stay personal */
+export const WEEK_MEAL_SLOTS = ["breakfast", "lunch", "dinner"];
+
+const DINNER_WEEK_TOOL = {
+  name: "record_dinner_week",
+  description:
+    "Record the settled meal plan: exactly ONE meal per requested date+slot. " +
+    "Each meal either picks a candidate recipe (pickRecipeId) or invents a " +
+    "special meal (special). Never both for the same meal.",
+  input_schema: {
+    type: "object",
+    properties: {
+      nights: {
+        type: "array",
+        description: "one entry per requested date+slot, none skipped",
+        items: {
+          type: "object",
+          properties: {
+            date: { type: "string", description: "YYYY-MM-DD, one of the requested dates" },
+            slot: { type: "string", enum: WEEK_MEAL_SLOTS },
+            pickRecipeId: {
+              type: "string",
+              description: "the chosen candidate recipe id, or '' when proposing a special meal",
+            },
+            special: SPECIAL_SCHEMA,
+            plates: PLATES_SCHEMA,
+            why: { type: "string", description: "one sentence: why this dish for these people" },
+          },
+          required: ["date", "slot", "pickRecipeId", "plates", "why"],
+        },
+      },
+    },
+    required: ["nights"],
+  },
+};
+
+const DINNER_WEEK_SYSTEM =
+  "You plan a household's SHARED meals, several days in one go, for a meal " +
+  "planning app. The house cooks each planned slot ONCE and everyone eats " +
+  "the same food; each person's goal, daily calorie and protein targets, " +
+  "diet and never-serve list are met through STRICT per-person portioning " +
+  "and small plate modifications, never separate cooking. The household " +
+  "may name a cuisine or theme to lean into. For EACH requested date+slot " +
+  "pick the meal that best serves these specific people together: " +
+  "strongly prefer the candidate recipe list (the household already shops " +
+  "and cooks these; match the slot — breakfast recipes at breakfast); " +
+  "invent a special meal ONLY when no candidate honestly fits, keeping it " +
+  "cheap, whole-food-forward and weeknight-simple — and invent at most " +
+  "THREE specials per run, the rest must come from candidates. Vary the " +
+  "week: never " +
+  "the same recipe twice, vary proteins and preparations, keep breakfasts " +
+  "fast, and honor the cuisine preference where it genuinely fits rather " +
+  "than forcing every meal into it. Every meal carries per-person plates: " +
+  "WHO eats WHAT and HOW MUCH, with weighed gram amounts (the kitchen has " +
+  "a food scale) and concrete modifications toward each person's own " +
+  "daily targets — extra rice for a gainer, more vegetables for someone " +
+  "losing, a supplemental egg, or an omission with how the cook makes it " +
+  "possible. Across a day the three plates should land each person near " +
+  "their daily calories and protein, leaving room for their own personal " +
+  "snacks. Respect diets and never-serve lists absolutely. No em dashes.";
+
+/**
+ * Anthropic Messages request for the whole-week shared-meal plan.
+ * @param {{ meals: { date: string, slot: string }[], cuisine: string, note: string, people: ReturnType<typeof sanitizePeople>, candidates: { id: string, name: string, calories: number, protein: number, cuisine: string, meal?: string }[], model: string }} args
+ */
+export function buildDinnerWeekRequest({ meals, cuisine, note, people, candidates, model }) {
+  const who = people
+    .map((p) => `[${p.id}] ${personLine(p)}${p.say ? ` | ask: "${p.say}"` : ""}`)
+    .join("\n");
+  const menu = candidates
+    .map(
+      (c) =>
+        `${c.id}: ${c.name} (${c.meal ? `${c.meal}, ` : ""}${c.calories} kcal, ${c.protein}g P${c.cuisine ? `, ${c.cuisine}` : ""})`,
+    )
+    .join("\n");
+  const ask = [
+    `Meals to plan: ${meals.map((m) => `${m.date} ${m.slot}`).join(", ")}`,
+    cuisine ? `Cuisine/theme preference: ${cuisine}` : "",
+    note ? `Household note: ${note}` : "",
+    "Plan every requested meal.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return {
+    model,
+    max_tokens: 16384,
+    system: `${DINNER_WEEK_SYSTEM}\n\nPeople at the table:\n${who}\n\nCandidate recipes:\n${menu}`,
+    tools: [DINNER_WEEK_TOOL],
+    tool_choice: { type: "tool", name: "record_dinner_week" },
+    messages: [{ role: "user", content: [{ type: "text", text: ask }] }],
+  };
+}
+
+/**
+ * Sanitize the week plan: one validated decision per requested date+slot, in
+ * requested order. A meal the model skipped, duplicated, or fumbled (bad
+ * date/slot, unknown pick, incomplete special) is simply absent — the caller
+ * reports uncovered meals honestly instead of inventing food.
+ * @param {Record<string, any> | null} input
+ * @param {string[]} candidateIds
+ * @param {string[]} personIds
+ * @param {{ date: string, slot: string }[]} meals the requested date+slot pairs
+ * @returns {({ date: string, slot: string } & NonNullable<ReturnType<typeof validateDinnerDecision>>)[]}
+ */
+export function validateDinnerWeek(input, candidateIds, personIds, meals) {
+  /** @type {Map<string, { date: string, slot: string } & NonNullable<ReturnType<typeof validateDinnerDecision>>>} */
+  const byKey = new Map();
+  const wanted = new Set(meals.map((m) => `${m.date}|${m.slot}`));
+  for (const n of Array.isArray(input?.nights) ? input.nights : []) {
+    if (typeof n !== "object" || n === null) continue;
+    const date = typeof n.date === "string" ? n.date.trim() : "";
+    // absent slot = dinner, so the pre-slot tool shape still validates
+    const slot = typeof n.slot === "string" && n.slot.trim() ? n.slot.trim() : "dinner";
+    const key = `${date}|${slot}`;
+    if (!wanted.has(key) || byKey.has(key)) continue;
+    const decision = validateDinnerDecision(n, candidateIds, personIds);
+    if (decision) byKey.set(key, { date, slot, ...decision });
+  }
+  return meals
+    .filter((m) => byKey.has(`${m.date}|${m.slot}`))
+    .map((m) => /** @type {any} */ (byKey.get(`${m.date}|${m.slot}`)));
+}
 // Pure schedule logic; the Worker's scheduled() handler feeds it real data
 // and posts the results to ntfy. All times are America/Chicago hours.
 
@@ -888,31 +1052,11 @@ export function isoWeekIdOf(dateIso) {
  *   dateIso: string,
  *   plan: Record<string, any> | null,
  *   shopping: Record<string, any> | null,
- *   daily: Record<string, any> | null,
- *   recipeName: (id: string) => string,
- *   tracks?: string[]
- * }} args weekday = "Mon".."Sun"; tracks = the profile's targets.tracks
+ *   recipeName: (id: string) => string
+ * }} args weekday = "Mon".."Sun"
  * @returns {{ title: string, body: string, tags: string, priority: string, click: string }[]}
  */
-export function buildNotifications({
-  hour,
-  weekday,
-  dateIso,
-  plan,
-  shopping,
-  daily,
-  recipeName,
-  tracks,
-}) {
-  // the profile's own daily-log tracks (targets.tracks). Absent = the legacy
-  // four, so today's David-only cron is byte-identical; the day notifications
-  // go per-profile, nobody gets nagged about a chore their app never shows
-  // (council 2026-08-02 — the adherence scoreboard had exactly this bug).
-  const logTracks = (
-    Array.isArray(tracks) && tracks.length > 0
-      ? tracks
-      : ["weight", "supplements", "water", "pushups"]
-  ).filter((t) => ["weight", "waist", "supplements", "water", "pushups", "sleep"].includes(t));
+export function buildNotifications({ hour, weekday, dateIso, plan, shopping, recipeName }) {
   /** @type {{ title: string, body: string, tags: string, priority: string, click: string }[]} */
   const out = [];
   const entries = Array.isArray(plan?.entries) ? plan.entries : [];
@@ -926,20 +1070,24 @@ export function buildNotifications({
         ? recipeName(e.recipeId)
         : String(e.freeText ?? "");
 
-  // morning check-in + the day ahead
+  // the day ahead. The "Log: ..." nag retired 2026-08-09 with the in-app
+  // check-in (David: personal tracking lives in Crystal now) — mornings with
+  // no meals to name send nothing at all.
   if (hour === 7) {
     const brk = todayEntries("breakfast").filter((e) => !e.out);
     const dinner = todayEntries("dinner").filter((e) => !e.out);
-    const lines = [`Log: ${logTracks.join(" · ")}`];
+    const lines = [];
     if (shopped && brk.length > 0) lines.push(`Breakfast: ${brk.map(mealLine).join(" · ")}`);
     if (dinner.length > 0) lines.push(`Tonight: ${dinner.map(mealLine).join(" · ")}`);
-    out.push({
-      title: "Morning check-in",
-      body: lines.join("\n"),
-      tags: "sunrise",
-      priority: "default",
-      click: APP_URL,
-    });
+    if (lines.length > 0) {
+      out.push({
+        title: "The day ahead",
+        body: lines.join("\n"),
+        tags: "sunrise",
+        priority: "default",
+        click: APP_URL,
+      });
+    }
   }
 
   // cook reminders, only for confirmed-shopped weeks and uncooked meals
@@ -993,34 +1141,17 @@ export function buildNotifications({
     });
   }
 
-  // evening catch-up: whatever today's log is still missing
+  // evening catch-up: planned meals still unconfirmed. The not-logged-yet
+  // nag retired with the in-app check-in (2026-08-09) — Crystal owns the
+  // personal tracking now.
   if (hour === 20) {
-    const day = (daily?.days ?? []).find((/** @type {any} */ d) => d.date === dateIso) ?? {};
-    /** @type {string[]} */
-    const missing = [];
-    const trackMissing = /** @type {Record<string, () => boolean>} */ ({
-      weight: () => day.weight == null,
-      waist: () => day.waist == null,
-      // supplements is a per-supplement tick map in daily.json
-      supplements: () => !Object.values(day.supplements ?? {}).some(Boolean),
-      water: () => !(Number(day.water) > 0),
-      pushups: () => !(Number(day.pushups) > 0),
-      sleep: () => !(Number(day.sleepHours) > 0),
-    });
-    for (const t of logTracks) {
-      if (trackMissing[t] && trackMissing[t]()) missing.push(t);
-    }
     const uncooked = shopped
       ? entries.filter((e) => e.date === dateIso && e.recipeId && !e.out && !e.cookedAt).length
       : 0;
-    if (missing.length > 0 || uncooked > 0) {
-      const bits = [];
-      if (missing.length > 0) bits.push(`Not logged yet: ${missing.join(" · ")}`);
-      if (uncooked > 0)
-        bits.push(`${uncooked} planned meal${uncooked === 1 ? "" : "s"} not marked cooked`);
+    if (uncooked > 0) {
       out.push({
         title: "Evening catch-up",
-        body: bits.join("\n"),
+        body: `${uncooked} planned meal${uncooked === 1 ? "" : "s"} not marked cooked`,
         tags: "clipboard",
         priority: "default",
         click: APP_URL,
@@ -1054,15 +1185,18 @@ const RATE_WINDOW_MS = 10 * 60 * 1000;
  * @param {Map<string, { count: number, windowStart: number }>} state
  * @param {string} key
  * @param {number} now epoch ms
+ * @param {number} [weight] window slots this request consumes (default 1);
+ *   /dinnerweek passes 4 — its 16k max_tokens buys ~4x the spend of any
+ *   other route, so a stolen token cannot 4x the cost ceiling for free
  * @returns {boolean} true if the request may proceed
  */
-export function allowRequest(state, key, now) {
+export function allowRequest(state, key, now, weight = 1) {
   const cur = state.get(key);
   if (!cur || now - cur.windowStart >= RATE_WINDOW_MS) {
-    state.set(key, { count: 1, windowStart: now });
+    state.set(key, { count: weight, windowStart: now });
     return true;
   }
-  cur.count++;
+  cur.count += weight;
   return cur.count <= RATE_MAX;
 }
 

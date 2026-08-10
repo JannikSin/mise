@@ -121,17 +121,40 @@ export async function scanMenu(file, diners) {
 }
 
 /**
- * One shared table dish → per-seat plate adjustments + cook notes. The
- * caller persists the result onto the table (setTableTailor).
+ * One shared table dish → per-seat plate specs (scale-first: weighed base
+ * portion + measured adjustments) + sequenced cook notes. The caller
+ * persists the result onto the table (setTableTailor).
  * @param {{ name: string, servings: number, calories: number, protein: number, carbs: number, fat: number, ingredients: string[] }} recipe
  * @param {{ id: string, name: string, goal: string, calories: number, protein: number, diet: string, avoid: string[] }[]} seats
- * @returns {Promise<{ seats: Record<string, { plate: string[], estCalories: number, estProtein: number }>, cook: string[] }>}
+ * @returns {Promise<{ seats: Record<string, { portionGrams?: number, plate: string[], estCalories: number, estProtein: number }>, cook: string[] }>}
  */
 export async function tailorTable(recipe, seats) {
   const data = await post("/tailor", { recipe, seats });
   return {
     seats: data.seats && typeof data.seats === "object" ? data.seats : {},
     cook: Array.isArray(data.cook) ? data.cook : [],
+  };
+}
+
+/**
+ * One call → a settled, people-tailored SHARED meal for every requested
+ * date+slot (the house cooks each slot once; goals survive via per-person
+ * portioning). Each meal is a full decision (bank pick or special,
+ * per-person plate specs with weighed amounts, why); `notes` reports meals
+ * the screen refused or the model skipped, so silence never reads as
+ * covered.
+ * @param {{ id: string, name: string, goal: string, calories: number, protein: number, diet: string, avoid: string[], say?: string }[]} people
+ * @param {{ id: string, name: string, calories: number, protein: number, cuisine: string, meal?: string }[]} candidates
+ * @param {{ date: string, slot: string }[]} meals date+slot pairs to plan
+ * @param {string} cuisine cuisine/theme preference, "" = none
+ * @param {string} note free-text household note, "" = none
+ * @returns {Promise<{ nights: Record<string, any>[], notes: string[] }>}
+ */
+export async function dinnerWeek(people, candidates, meals, cuisine, note) {
+  const data = await post("/dinnerweek", { people, candidates, meals, cuisine, note });
+  return {
+    nights: Array.isArray(data.nights) ? data.nights : [],
+    notes: Array.isArray(data.notes) ? data.notes : [],
   };
 }
 

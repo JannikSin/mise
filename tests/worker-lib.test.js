@@ -21,6 +21,8 @@ import {
   buildDinnerRequest,
   parseDinnerResponse,
   validateDinnerDecision,
+  buildDinnerWeekRequest,
+  validateDinnerWeek,
   hitsAvoid,
   screenTailorAvoid,
   specialAvoidHits,
@@ -310,6 +312,27 @@ test("validateTailor keeps only allowed seat ids and drops empty plates", () => 
   assert.equal(out.seats.david.estCalories, 950);
   assert.deepEqual(out.seats.david.plate, ["add 100g extra tofu", "skip nothing"]);
   assert.deepEqual(out.cook, ["hold the bread back", "plate mom's without pasta"]);
+  // no portionGrams sent → 0 (unknown), never NaN/undefined
+  assert.equal(out.seats.david.portionGrams, 0);
+});
+
+test("validateTailor: portionGrams rounds, clamps to a sane plate, junk becomes 0", () => {
+  const out = validateTailor(
+    {
+      seats: [
+        { id: "a", portionGrams: 449.6, plate: ["x"], estCalories: 1, estProtein: 1 },
+        { id: "b", portionGrams: 99999, plate: ["x"], estCalories: 1, estProtein: 1 },
+        { id: "c", portionGrams: -5, plate: ["x"], estCalories: 1, estProtein: 1 },
+        { id: "d", portionGrams: "450", plate: ["x"], estCalories: 1, estProtein: 1 },
+      ],
+      cook: [],
+    },
+    ["a", "b", "c", "d"],
+  );
+  assert.equal(out.seats.a.portionGrams, 450);
+  assert.equal(out.seats.b.portionGrams, 3000, "clamped to a single-plate ceiling");
+  assert.equal(out.seats.c.portionGrams, 0);
+  assert.equal(out.seats.d.portionGrams, 0, "a string is junk, not parsed");
 });
 
 test("buildDinnerRequest folds people, asks and candidates into the system", () => {
@@ -368,6 +391,129 @@ test("parseDinnerResponse: text is reply, a valid pick is a decision", () => {
   );
   assert.equal(done.decision.pickRecipeId, "a");
   assert.equal(done.decision.plates[0].note, "extra rice");
+});
+
+test("buildDinnerWeekRequest lists the meals, cuisine and people, and forces the tool", () => {
+  const req = buildDinnerWeekRequest({
+    meals: [
+      { date: "2026-08-10", slot: "breakfast" },
+      { date: "2026-08-10", slot: "dinner" },
+    ],
+    cuisine: "italian",
+    note: "mom home Mon-Wed only",
+    people: sanitizePeople([
+      { id: "david", name: "David", goal: "gain", calories: 3700, protein: 210 },
+    ]),
+    candidates: [
+      { id: "r1", name: "Lentil ragu", calories: 700, protein: 35, cuisine: "italian", meal: "dinner" },
+    ],
+    model: "m",
+  });
+  assert.equal(req.tool_choice.name, "record_dinner_week");
+  const text = req.messages[0].content[0].text;
+  assert.match(text, /2026-08-10 breakfast, 2026-08-10 dinner/);
+  assert.match(text, /italian/);
+  assert.match(text, /mom home Mon-Wed only/);
+  assert.match(req.system, /\[david\]/);
+  assert.match(req.system, /r1: Lentil ragu \(dinner, /);
+});
+
+test("validateDinnerWeek: one decision per requested date+slot, junk meals dropped, order kept", () => {
+  const meals = [
+    { date: "2026-08-10", slot: "breakfast" },
+    { date: "2026-08-10", slot: "dinner" },
+    { date: "2026-08-11", slot: "dinner" },
+    { date: "2026-08-12", slot: "dinner" },
+  ];
+  const good = (date, slot, pick) => ({
+    date,
+    slot,
+    pickRecipeId: pick,
+    plates: [{ id: "david", note: "450 g of the dish", estCalories: 1100, estProtein: 50 }],
+    why: "fits",
+  });
+  const out = validateDinnerWeek(
+    {
+      nights: [
+        good("2026-08-11", "dinner", "b"), // out of order — result re-sorts to request order
+        good("2026-08-10", "breakfast", "a"),
+        // absent slot defaults to dinner (pre-slot tool shape still validates)
+        { ...good("2026-08-10", "dinner", "b"), slot: undefined },
+        good("2026-08-10", "dinner", "a"), // duplicate date+slot ignored
+        good("2026-08-10", "snack", "a"), // slot never requested
+        good("2026-08-30", "dinner", "a"), // date never requested
+        { date: "2026-08-12", slot: "dinner", pickRecipeId: "nope", plates: [], why: "" }, // unknown pick
+        "junk",
+      ],
+    },
+    ["a", "b"],
+    ["david"],
+    meals,
+  );
+  assert.deepEqual(
+    out.map((n) => [n.date, n.slot, n.pickRecipeId]),
+    [
+      ["2026-08-10", "breakfast", "a"],
+      ["2026-08-10", "dinner", "b"],
+      ["2026-08-11", "dinner", "b"],
+    ],
+  );
+  assert.equal(out[0].plates[0].note, "450 g of the dish");
+});
+
+test("validateDinnerWeek returns [] for junk input", () => {
+  const meals = [{ date: "2026-08-10", slot: "dinner" }];
+  assert.deepEqual(validateDinnerWeek(null, ["a"], ["p"], meals), []);
+  assert.deepEqual(validateDinnerWeek({ nights: "x" }, ["a"], ["p"], meals), []);
+});
+
+test("specialAvoidHits screens name and instructions, not only ingredients", () => {
+  const people = [{ name: "Mom", avoid: ["peanut"] }];
+  assert.equal(
+    specialAvoidHits({ ingredients: [{ food: "tofu" }] }, people).length,
+    0,
+    "clean special passes",
+  );
+  assert.equal(
+    specialAvoidHits(
+      {
+        name: "Stir fry",
+        ingredients: [{ food: "tofu" }],
+        instructions: [{ step: 1, text: "garnish with crushed peanuts" }],
+      },
+      people,
+    ).length,
+    1,
+    "an avoided food in the instructions is as real as an ingredient row",
+  );
+});
+
+test("validateDinnerDecision clamps runaway macros before they reach stored files", () => {
+  const d = validateDinnerDecision(
+    {
+      pickRecipeId: "",
+      special: {
+        name: "Big Bowl",
+        servings: 2,
+        totalTime: 20,
+        ingredients: [
+          { qty: 1, unit: "x", food: "a" },
+          { qty: 1, unit: "x", food: "b" },
+        ],
+        instructions: ["one", "two"],
+        nutrition: { calories: 1e300, protein: 99999, carbs: 10, fat: 10 },
+      },
+      plates: [{ id: "p", note: "x", estCalories: 1e300, estProtein: -5 }],
+      why: "",
+    },
+    [],
+    ["p"],
+  );
+  assert.ok(d);
+  assert.equal(d.special.nutrition.calories, 5000);
+  assert.equal(d.special.nutrition.protein, 500);
+  assert.equal(d.plates[0].estCalories, 6000);
+  assert.equal(d.plates[0].estProtein, 0);
 });
 
 test("validateDinnerDecision rejects an unknown pick with no special", () => {
@@ -591,11 +737,18 @@ test("a table dinner reminds even without shoppedAt (someone else shopped)", () 
   assert.match(out[0].body, /Family dinner/);
 });
 
-test("morning check-in always fires at 7 and lists tonight's dinner", () => {
+test("7am names the day's meals, and stays silent when there are none", () => {
+  // the "Log: ..." nag retired 2026-08-09 — personal tracking lives in
+  // Crystal, so mornings carry meals or nothing
   const out = buildNotifications({ ...NOTIF_BASE, hour: 7, plan: PLAN_SHOPPED });
   assert.equal(out.length, 1);
-  assert.match(out[0].body, /weight/);
+  assert.ok(!/Log:/.test(out[0].body), "no log nag");
   assert.match(out[0].body, /Tonight: Lentil Bolognese/);
+  assert.deepEqual(
+    buildNotifications({ ...NOTIF_BASE, hour: 7, plan: null }),
+    [],
+    "no meals, no morning notification",
+  );
 });
 
 test("Saturday store nag fires only when unshopped with open items", () => {
@@ -622,23 +775,18 @@ test("Sunday sends the batch reminder at 10", () => {
   assert.equal(out[0].title, "Batch day");
 });
 
-test("evening catch-up names exactly what today's log is missing", () => {
-  const daily = {
-    days: [
-      { date: "2026-07-23", weight: 180, supplements: { creatine: true }, water: 0, pushups: 100 },
-    ],
-  };
-  const out = buildNotifications({ ...NOTIF_BASE, hour: 20, plan: null, daily });
+test("evening catch-up covers only uncooked meals — the log nag retired to Crystal", () => {
+  // no plan, nothing uncooked → silence (previously this hour nagged the log)
+  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 20, plan: null }), []);
+  const out = buildNotifications({ ...NOTIF_BASE, hour: 20, plan: PLAN_SHOPPED });
   assert.equal(out.length, 1);
-  assert.match(out[0].body, /water/);
-  assert.ok(!/weight/.test(out[0].body), "logged items are not nagged");
-  assert.ok(!/pushups/.test(out[0].body));
-  const done = {
-    days: [
-      { date: "2026-07-23", weight: 180, supplements: { creatine: true }, water: 3, pushups: 100 },
-    ],
+  assert.match(out[0].body, /2 planned meals not marked cooked/);
+  assert.ok(!/Not logged yet/.test(out[0].body));
+  const cooked = {
+    ...PLAN_SHOPPED,
+    entries: [{ ...PLAN_SHOPPED.entries[0], cookedAt: "2026-07-23" }],
   };
-  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 20, plan: null, daily: done }), []);
+  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 20, plan: cooked }), []);
 });
 
 test("/ask: request grounds in the sanitized snapshot, response is plain text", () => {

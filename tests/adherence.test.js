@@ -1,4 +1,4 @@
-﻿import test from "node:test";
+import test from "node:test";
 import assert from "node:assert/strict";
 import { weekAdherence, rankScoreboard } from "../app/lib/adherence.js";
 
@@ -14,6 +14,9 @@ const entry = (date, over = {}) => ({
   ...over,
 });
 
+// The daily-log component retired 2026-08-09 with the in-app check-in
+// (personal tracking lives in Crystal). Score = cooking 70 + receipt 30.
+
 test("adherence counts only finished days; today never counts against you", () => {
   const plan = {
     week: WEEK,
@@ -25,12 +28,11 @@ test("adherence counts only finished days; today never counts against you", () =
       entry("2026-07-25"), // future: not counted
     ],
   };
-  const a = weekAdherence({ plan, daily: { days: [] }, weekId: WEEK, today: TODAY });
+  const a = weekAdherence({ plan, weekId: WEEK, today: TODAY });
   assert.deepEqual(a.cooked, { done: 1, total: 2 });
-  assert.equal(a.logged.total, 12, "3 elapsed days x 4 tracks");
   assert.equal(a.shopped, true);
-  // 50*(1/2) + 30*0 + 20*1 = 45
-  assert.equal(a.score, 45);
+  // 70*(1/2) + 30*1 = 65
+  assert.equal(a.score, 65);
 });
 
 test("out and table entries never count as cookable", () => {
@@ -41,32 +43,33 @@ test("out and table entries never count as cookable", () => {
       entry("2026-07-21", { table: "t1" }),
     ],
   };
-  const a = weekAdherence({ plan, daily: null, weekId: WEEK, today: TODAY });
+  const a = weekAdherence({ plan, weekId: WEEK, today: TODAY });
   assert.deepEqual(a.cooked, { done: 0, total: 0 });
 });
 
-test("logs count per track per day; supplements is the tick map", () => {
-  const daily = {
-    days: [
-      { date: "2026-07-20", weight: 181, water: 3, pushups: 200, supplements: { creatine: true } },
-      { date: "2026-07-21", weight: 181 },
-    ],
-  };
-  const a = weekAdherence({ plan: null, daily, weekId: WEEK, today: TODAY });
-  assert.deepEqual(a.logged, { done: 5, total: 12 });
-});
-
 test("components with nothing to measure drop out and weights renormalize", () => {
-  // Monday: no elapsed days, no cookable, no log cells -> only the receipt
+  // Monday: no elapsed days, no cookable -> only the receipt
   const monday = weekAdherence({
     plan: { week: WEEK, shoppedAt: "2026-07-19", entries: [] },
-    daily: null,
     weekId: WEEK,
     today: "2026-07-20",
   });
   assert.equal(monday.score, 100, "receipt scanned = the only measurable thing, fully done");
-  const noReceipt = weekAdherence({ plan: null, daily: null, weekId: WEEK, today: "2026-07-20" });
+  const noReceipt = weekAdherence({ plan: null, weekId: WEEK, today: "2026-07-20" });
   assert.equal(noReceipt.score, 0);
+});
+
+test("all cooked + receipt = 100, no phantom log component", () => {
+  const plan = {
+    week: WEEK,
+    shoppedAt: "2026-07-20",
+    entries: [
+      entry("2026-07-20", { cookedAt: "2026-07-20" }),
+      entry("2026-07-21", { cookedAt: "2026-07-21" }),
+    ],
+  };
+  const a = weekAdherence({ plan, weekId: WEEK, today: "2026-07-22" });
+  assert.equal(a.score, 100);
 });
 
 test("rankScoreboard sorts by score desc, name as stable tiebreak", () => {
@@ -79,33 +82,4 @@ test("rankScoreboard sorts by score desc, name as stable tiebreak", () => {
     rankScoreboard(rows).map((r) => r.name),
     ["David", "Laurie", "Mom"],
   );
-});
-
-test("a profile is scored ONLY on its own tracks — a no-pushups profile can reach 100", () => {
-  // council 2026-08-02: LOG_TRACKS was hard-coded to David's four, so a
-  // loss-phase profile (tracks: sleep/weight/waist/water/dailyDozen) was
-  // scored on pushups and supplements its check-in never renders — ceiling
-  // 85 in a "fair" household competition. This pins the fix.
-  const tracks = ["sleep", "weight", "waist", "water", "dailyDozen"];
-  const days = ["2026-07-20", "2026-07-21"].map((date) => ({
-    date,
-    sleepHours: 7.5,
-    weight: 180,
-    waist: 33,
-    water: 2.5,
-    dozen: { greens: 2 },
-  }));
-  const plan = {
-    week: WEEK,
-    shoppedAt: "2026-07-20",
-    entries: [
-      { id: "a", date: "2026-07-20", slot: "dinner", recipeId: "x", servings: 1, cookedAt: "2026-07-20" },
-      { id: "b", date: "2026-07-21", slot: "dinner", recipeId: "x", servings: 1, cookedAt: "2026-07-21" },
-    ],
-  };
-  const a = weekAdherence({ plan, daily: { days }, weekId: WEEK, today: "2026-07-22", tracks });
-  assert.equal(a.score, 100, "every declared track logged, all cooked, receipt in = 100");
-  // and absent tracks keeps the legacy four (David/back-compat)
-  const legacy = weekAdherence({ plan, daily: { days }, weekId: WEEK, today: "2026-07-22" });
-  assert.ok(legacy.score < 100, "legacy default still counts pushups+supplements");
 });

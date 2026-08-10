@@ -5,6 +5,7 @@
 //   POST /menu    { image, mediaType, diners }    -> { diners: [{name, picks, skip}], notes }
 //   POST /tailor  { recipe, seats }               -> { seats: {id: {plate, est*}}, cook }
 //   POST /dinner  { messages, people, candidates } -> { reply, decision }
+//   POST /dinnerweek { people, candidates, meals, cuisine, note } -> { nights, notes }
 //   POST /onboard { messages, survey }            -> { reply, profile }
 //   POST /remedy  { text }                        -> { protocol: {teas, foods, avoid, notes} }
 // Auth: the caller proves they are David by presenting the SAME fine-grained
@@ -21,6 +22,9 @@ import {
   buildMenuRequest,
   buildTailorRequest,
   buildDinnerRequest,
+  buildDinnerWeekRequest,
+  validateDinnerWeek,
+  WEEK_MEAL_SLOTS,
   parseToolUse,
   parseOnboardResponse,
   parseDinnerResponse,
@@ -52,6 +56,29 @@ const MAX_BODY_BYTES = 6 * 1024 * 1024; // ~4.5MB image after base64
 const authCache = new Map();
 /** token-hash -> fixed-window request counter (see allowRequest) */
 const rateState = new Map();
+
+/**
+ * Bounded candidate-recipe list at the trust boundary (shared by /dinner and
+ * /dinnerweek).
+ * @param {any} input
+ * @returns {{ id: string, name: string, calories: number, protein: number, cuisine: string }[]}
+ */
+function sanitizeCandidates(input) {
+  return (Array.isArray(input) ? input : [])
+    .filter(
+      (/** @type {any} */ c) =>
+        typeof c === "object" && c !== null && typeof c.id === "string" && c.id,
+    )
+    .map((/** @type {any} */ c) => ({
+      id: String(c.id).slice(0, 80),
+      name: typeof c.name === "string" ? c.name.trim().slice(0, 80) : "",
+      calories:
+        typeof c.calories === "number" && isFinite(c.calories) ? Math.round(c.calories) : 0,
+      protein: typeof c.protein === "number" && isFinite(c.protein) ? Math.round(c.protein) : 0,
+      cuisine: typeof c.cuisine === "string" ? c.cuisine.trim().slice(0, 30) : "",
+    }))
+    .slice(0, 80);
+}
 
 /** @param {string} token */
 async function tokenKey(token) {
@@ -145,10 +172,10 @@ function chicagoNow() {
 async function runNotifications(token, topic, now, send) {
   const weekId = isoWeekIdOf(now.dateIso);
   const plan = await ghReadJson(`plans/${weekId}.json`, token);
-  // shopping + daily only matter at their hours; skip the reads otherwise
+  // shopping only matters at its hours; skip the read otherwise. (The daily
+  // log read left with the log nags, 2026-08-09 — Crystal owns tracking.)
   const wantsShopping = now.weekday === "Sat" || now.weekday === "Sun";
   const shopping = wantsShopping ? await ghReadJson("shopping.json", token) : null;
-  const daily = now.hour === 20 || !send ? await ghReadJson("fitness/daily.json", token) : null;
   // resolve only the recipe names today's entries actually need
   /** @type {Record<string, string>} */
   const names = {};
@@ -169,11 +196,11 @@ async function runNotifications(token, topic, now, send) {
   const recipeName = (/** @type {string} */ id) => names[id] ?? id;
 
   const notifications = send
-    ? buildNotifications({ ...now, plan, shopping, daily, recipeName })
+    ? buildNotifications({ ...now, plan, shopping, recipeName })
     : // preview mode: the whole day's schedule at once, so the SYS button
       // shows what WOULD fire instead of an empty list at off-hours
       [7, 10, 11, 12, 15, 17, 20].flatMap((hour) =>
-        buildNotifications({ ...now, hour, plan, shopping, daily, recipeName }),
+        buildNotifications({ ...now, hour, plan, shopping, recipeName }),
       );
 
   let sent = 0;
@@ -412,6 +439,7 @@ export default {
         "/menu",
         "/tailor",
         "/dinner",
+        "/dinnerweek",
         "/ask",
         "/notify-test",
       ].includes(url.pathname)
@@ -423,7 +451,15 @@ export default {
     if (!(await isAuthorized(token))) {
       return json(401, { error: "unauthorized" }, cors);
     }
-    if (!allowRequest(rateState, await tokenKey(/** @type {string} */ (token)), Date.now())) {
+    if (
+      !allowRequest(
+        rateState,
+        await tokenKey(/** @type {string} */ (token)),
+        Date.now(),
+        // /dinnerweek's 16k max_tokens is ~4x any other route's spend
+        url.pathname === "/dinnerweek" ? 4 : 1,
+      )
+    ) {
       return json(429, { error: "slow down — try again in a few minutes" }, cors);
     }
 
@@ -578,21 +614,7 @@ export default {
       if (url.pathname === "/dinner") {
         const messages = Array.isArray(body.messages) ? body.messages.slice(-40) : [];
         const people = sanitizePeople(body.people).filter((p) => p.id);
-        const candidates = (Array.isArray(body.candidates) ? body.candidates : [])
-          .filter(
-            (/** @type {any} */ c) =>
-              typeof c === "object" && c !== null && typeof c.id === "string" && c.id,
-          )
-          .map((/** @type {any} */ c) => ({
-            id: String(c.id).slice(0, 80),
-            name: typeof c.name === "string" ? c.name.trim().slice(0, 80) : "",
-            calories:
-              typeof c.calories === "number" && isFinite(c.calories) ? Math.round(c.calories) : 0,
-            protein:
-              typeof c.protein === "number" && isFinite(c.protein) ? Math.round(c.protein) : 0,
-            cuisine: typeof c.cuisine === "string" ? c.cuisine.trim().slice(0, 30) : "",
-          }))
-          .slice(0, 80);
+        const candidates = sanitizeCandidates(body.candidates);
         if (messages.length === 0) return json(400, { error: "messages required" }, cors);
         if (people.length === 0) return json(400, { error: "people required" }, cors);
         const resp = await callAnthropic(
@@ -630,6 +652,81 @@ export default {
           );
         }
         return json(200, turn, cors);
+      }
+      if (url.pathname === "/dinnerweek") {
+        const people = sanitizePeople(body.people).filter((p) => p.id);
+        const candidates = sanitizeCandidates(body.candidates);
+        /** @type {{ date: string, slot: string }[]} */
+        const meals = [];
+        const seen = new Set();
+        for (const m of Array.isArray(body.meals) ? body.meals : []) {
+          if (meals.length >= 21) break; // 7 days x the 3 cooked slots
+          if (typeof m !== "object" || m === null) continue;
+          const date =
+            typeof m.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(m.date) ? m.date : "";
+          const slot = typeof m.slot === "string" && WEEK_MEAL_SLOTS.includes(m.slot) ? m.slot : "";
+          if (!date || !slot || seen.has(`${date}|${slot}`)) continue;
+          seen.add(`${date}|${slot}`);
+          meals.push({ date, slot });
+        }
+        meals.sort(
+          (a, b) =>
+            a.date.localeCompare(b.date) ||
+            WEEK_MEAL_SLOTS.indexOf(a.slot) - WEEK_MEAL_SLOTS.indexOf(b.slot),
+        );
+        const cuisine = typeof body.cuisine === "string" ? body.cuisine.trim().slice(0, 60) : "";
+        const note = typeof body.note === "string" ? body.note.trim().slice(0, 300) : "";
+        if (people.length === 0) return json(400, { error: "people required" }, cors);
+        if (meals.length === 0) return json(400, { error: "meals required" }, cors);
+        const resp = await callAnthropic(
+          buildDinnerWeekRequest({
+            meals,
+            cuisine,
+            note,
+            people,
+            candidates,
+            model: env.SCAN_MODEL ?? DEFAULT_MODEL,
+          }),
+          env.ANTHROPIC_API_KEY,
+        );
+        const nights = validateDinnerWeek(
+          parseToolUse(resp, "record_dinner_week"),
+          candidates.map((c) => c.id),
+          people.map((p) => p.id),
+          meals,
+        );
+        // deterministic avoid screen AFTER the model — never an AI judgment.
+        // A special that hits a never-serve list drops its MEAL (reported),
+        // and a plate note naming an avoided food is blanked, same as /dinner.
+        const avoidById = new Map(people.map((p) => [p.id, p.avoid]));
+        /** @type {string[]} */
+        const notes = [];
+        const clean = nights.filter((n) => {
+          if (n.special) {
+            const hits = specialAvoidHits(/** @type {any} */ (n.special), people);
+            if (hits.length > 0) {
+              notes.push(
+                `${n.date} ${n.slot}: the proposed special was refused (${hits.join("; ")})`,
+              );
+              return false;
+            }
+          }
+          n.plates = n.plates.map((p) =>
+            hitsAvoid(p.note, avoidById.get(p.id) ?? []).length > 0 ? { ...p, note: "" } : p,
+          );
+          return true;
+        });
+        for (const m of meals) {
+          const label = `${m.date} ${m.slot}`;
+          if (
+            !clean.some((n) => n.date === m.date && n.slot === m.slot) &&
+            !notes.some((s) => s.startsWith(label))
+          )
+            notes.push(
+              `${label}: nothing came back for this meal — run it again or set it by hand`,
+            );
+        }
+        return json(200, { nights: clean, notes }, cors);
       }
       // /remedy
       const text = typeof body.text === "string" ? body.text.trim().slice(0, 2000) : "";

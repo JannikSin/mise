@@ -485,8 +485,28 @@ export function packHint(food, qty, unit) {
 }
 
 /**
- * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, sources: { profileId: string, checked: boolean }[] }} CombinedItem
+ * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, sources: { profileId: string, checked: boolean, qty: number, unit: string, food: string, section: string }[] }} CombinedItem
  */
+
+/**
+ * One tap on a FAMILY-trip day chip (David, 2026-08-09: "buy the first three
+ * days for mom"). `current` empty = the whole week, so the first un-tap
+ * starts from all of `allDates`. Returns the next picks array — [] means
+ * back to the whole week — or null when the tap must be ignored (no dates
+ * for the week, i.e. a malformed weekId; without the guard the first tap
+ * would silently normalise to whole-week forever).
+ * @param {string[]} current picked YYYY-MM-DD dates, [] = whole week
+ * @param {string[]} allDates every date of the week, in order
+ * @param {string} date the tapped date
+ * @returns {string[] | null}
+ */
+export function cycleDayPick(current, allDates, date) {
+  if (allDates.length === 0) return null;
+  const cur = current.length > 0 ? current : allDates;
+  const next = cur.includes(date) ? cur.filter((d) => d !== date) : [...cur, date];
+  // un-tapping the last lit day and lighting all seven both mean whole week
+  return next.length === 0 || next.length >= allDates.length ? [] : next;
+}
 
 /**
  * The other profiles whose lists join this profile's EVERYONE trip: same
@@ -541,10 +561,22 @@ export function mergeProfileLists(lists) {
   const merged = new Map();
   for (const { profileId, list } of lists) {
     for (const item of list.items ?? []) {
+      // each source carries its own contribution (qty + row identity), so a
+      // tick can write the amount actually shopped back to that profile's
+      // stored list — load-bearing when a member's contribution was narrowed
+      // to some days and their stored row still holds the whole week's amount
+      const source = {
+        profileId,
+        checked: item.checked,
+        qty: item.qty,
+        unit: item.unit,
+        food: item.food,
+        section: item.section,
+      };
       const existing = merged.get(item.id);
       if (existing) {
         existing.qty += item.qty;
-        existing.sources.push({ profileId, checked: item.checked });
+        existing.sources.push(source);
       } else {
         merged.set(item.id, {
           id: item.id,
@@ -552,7 +584,7 @@ export function mergeProfileLists(lists) {
           qty: item.qty,
           unit: item.unit,
           section: item.section,
-          sources: [{ profileId, checked: item.checked }],
+          sources: [source],
         });
       }
     }
