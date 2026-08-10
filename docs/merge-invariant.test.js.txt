@@ -1,0 +1,33 @@
+// Runnable proof for docs/per-person-plates-design.md §7.1.
+// Copy into tests/ when the build starts. Keep it green forever.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mergeFieldWise } from "../app/lib/merge.js";
+
+test("a generated row with an id FUSES two devices' generations", () => {
+  const base = { id: "t1", gen: { ingredients: [] } };
+  const a = { id: "t1", gen: { ingredients: [{ id: "r1", food: "beef" }, { id: "r2", food: "onion" }] } };
+  const b = { id: "t1", gen: { ingredients: [{ id: "r1", food: "beef" }, { id: "r3", food: "parsley" }] } };
+  const fused = mergeFieldWise(base, a, b);
+  assert.equal(fused.gen.ingredients.length, 3, "this is the bug: a union nobody computed");
+  assert.ok(fused.gen.ingredients.some((i) => i.food === "onion"));
+});
+
+test("a generated row with a date DELETES a plate", () => {
+  const base = { id: "t1", plate: [] };
+  const a = { id: "t1", plate: [{ date: "2026-08-12", who: "mom", text: "150 g chicken" }] };
+  const b = { id: "t1", plate: [{ date: "2026-08-12", who: "david", text: "300 g chicken" }] };
+  assert.equal(mergeFieldWise(base, a, b).plate.length, 1, "one plate silently vanishes");
+});
+
+test("THE CONTRACT: id-less and date-less generated rows merge atomically", () => {
+  const strip = (o) => ({ ...o, gen: { ingredients: o.gen.ingredients.map(({ id, ...r }) => r) } });
+  const base = strip({ id: "t1", gen: { ingredients: [] } });
+  const a = strip({ id: "t1", gen: { ingredients: [{ id: "r1", food: "beef" }, { id: "r2", food: "onion" }] } });
+  const b = strip({ id: "t1", gen: { ingredients: [{ id: "r1", food: "beef" }, { id: "r3", food: "parsley" }] } });
+  const out = JSON.stringify(mergeFieldWise(base, a, b).gen.ingredients);
+  assert.ok(
+    out === JSON.stringify(a.gen.ingredients) || out === JSON.stringify(b.gen.ingredients),
+    "must equal exactly one side, never a union",
+  );
+});
