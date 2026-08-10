@@ -1205,3 +1205,83 @@ test("MY cook night seeds overlap; OTHER cooks' dinners push away (David 2026-08
   const theirLunch = theirs.entries.find((e) => e.slot === "lunch" && e.date === "2026-08-03");
   assert.equal(theirLunch?.recipeId, "b-farro-lunch", "other cooks' foods push my meals away");
 });
+
+// --- Written macro floors are the enforced floors (council 2026-08-07) -----
+// The generator used to enforce a hardcoded 95% of TARGET and ignore the
+// floor fields the questionnaire writes. That silently held David to 199.5g
+// protein against a written 185, and mom to 1472.5 kcal against a written
+// 1400. A ratio can never be right here: the 1400 is hand-edited.
+
+test("generation enforces the WRITTEN floor, not a ratio of the target", () => {
+  // one dinner pool deep enough to fill all 7 days under the repeat cap, and
+  // no snacks at all, so the top-up pass cannot paper over the difference:
+  // whether a day reads SHORT is then purely the floor number in play.
+  const dinners = ["a", "b", "c", "d"].map((k) =>
+    r(`fl-${k}`, "dinner", [`f-${k}`], { protein: 60, calories: 900 }),
+  );
+  const run = (/** @type {Record<string, any>} */ macros) =>
+    generateWeek({
+      recipes: dinners,
+      targets: { macros, mealSlots: ["dinner"] },
+      pantry: { staples: [], perishables: [] },
+      weekId: "2026-W29",
+      plan: { week: "2026-W29", entries: [] },
+    }).report;
+
+  // a day maxes at 2 servings = 1800 kcal / 120 g protein.
+  // target 1900: the old ratio floor was 1805 (short every day); the written
+  // floor of 1700 is cleared by the same plan. The number the profile wrote
+  // is the number that decides.
+  const written = run({ calories: 1900, caloriesFloor: 1700, protein: 100, proteinFloor: 80 });
+  assert.equal(written.calorieShortDays.length, 0, "1700 written floor is met");
+
+  // and a written floor ABOVE what the ratio would have said still binds —
+  // the field is authoritative in both directions, not just a loosening
+  const strict = run({ calories: 1900, caloriesFloor: 1850, protein: 100, proteinFloor: 80 });
+  assert.equal(strict.calorieShortDays.length, 7, "1850 written floor is not met");
+  // the report still shows the real goal, never the floor
+  assert.equal(strict.calorieShortDays[0].target, 1900);
+});
+
+test("a profile with no written floors derives them, matching the questionnaire", async () => {
+  const { targetsFromQuestionnaire } = await import("../app/lib/fitness.js");
+  const { enforcedFloors } = await import("../app/lib/fitness.js");
+  const t = targetsFromQuestionnaire({
+    weightLb: 190,
+    heightFt: 6,
+    heightIn: 0,
+    age: 21,
+    sex: "m",
+    activity: 4,
+    goal: "gain",
+  });
+  // the survey writes the fields; the generator's derivation must agree with
+  // them exactly, so a hand-written profile and a survey one behave the same
+  assert.deepEqual(enforcedFloors({ calories: t.macros.calories, protein: t.macros.protein }), {
+    calories: t.macros.caloriesFloor,
+    protein: t.macros.proteinFloor,
+  });
+});
+
+test("David's real targets enforce 3500/185, not 3515/199.5", async () => {
+  const { enforcedFloors } = await import("../app/lib/fitness.js");
+  assert.deepEqual(
+    enforcedFloors({ calories: 3700, caloriesFloor: 3500, protein: 210, proteinFloor: 185 }),
+    { calories: 3500, protein: 185 },
+  );
+});
+
+test("mom's hand-edited 1400 wins over any formula", async () => {
+  const { enforcedFloors } = await import("../app/lib/fitness.js");
+  // the formula would say 1350; the written field says 1400 and must win
+  assert.equal(
+    enforcedFloors({ calories: 1550, caloriesFloor: 1400, protein: 110, proteinFloor: 100 })
+      .calories,
+    1400,
+  );
+});
+
+test("a zero floor is a real floor, not a missing one", async () => {
+  const { enforcedFloors } = await import("../app/lib/fitness.js");
+  assert.equal(enforcedFloors({ calories: 2000, protein: 150, proteinFloor: 0 }).protein, 0);
+});

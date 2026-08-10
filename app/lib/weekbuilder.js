@@ -23,6 +23,7 @@ import {
   slotMacroEstimate,
 } from "./plan.js";
 import { slug } from "./shopping.js";
+import { enforcedFloors } from "./fitness.js";
 
 /** deterministic 32-bit FNV-1a — the builder's only randomness source */
 function hash(/** @type {string} */ s) {
@@ -670,7 +671,7 @@ export function calorieTrimPass(plan, recipesById, bounds) {
 
 /**
  * Protein/calorie floor misses, per day, after the top-up has run. Days are
- * COMPARED against the 0.95 floors, but the report carries the real goals
+ * COMPARED against the profile's written floors, but the report carries the real goals
  * (`targets`) so the planner never displays a silently-discounted number.
  * @param {import("./plan.js").Plan} plan
  * @param {Map<string, any>} recipesById
@@ -783,8 +784,18 @@ export function poolInsufficiency(recipes, dailyDozenTargets) {
   return out;
 }
 
-const FLOOR_RATIO = 0.95;
-/** Calorie CEILING multiplier: a little over target is fine, ~9% over is not. */
+/**
+ * Calorie CEILING multiplier: a little over target is fine, ~9% over is not.
+ *
+ * The ceiling stays a RATIO where the floors stopped being one, and that
+ * asymmetry is deliberate (council 2026-08-07 asked for the ceiling rule to
+ * be decided in the same change). A floor is a number the person read and
+ * agreed to; it belongs to them and a formula must never outrank it. A
+ * ceiling is the generator's own slack allowance for its top-up passes
+ * overshooting — nobody has ever written one down. So: a written
+ * `macros.caloriesCeiling` wins if a profile ever sets one, and absent that
+ * the tolerance is 5% of target, unchanged.
+ */
 const CEILING_RATIO = 1.05;
 const COMMITTEE_SIZES = { dinner: 4, lunch: 3, breakfast: 2, smoothie: 1 };
 /**
@@ -987,7 +998,13 @@ export function generateWeek({
 
   const proteinTarget = targets?.macros?.protein ?? 210;
   const caloriesTarget = targets?.macros?.calories ?? 3400;
-  const floors = { protein: proteinTarget * FLOOR_RATIO, calories: caloriesTarget * FLOOR_RATIO };
+  // the floors the profile actually WROTE, never a ratio of the target
+  // (see enforcedFloors — this used to be caloriesTarget * 0.95)
+  const floors = enforcedFloors({
+    ...targets?.macros,
+    calories: caloriesTarget,
+    protein: proteinTarget,
+  });
   const dailyDozenPerDay = targets?.dailyDozen ?? {};
   // greedy committee scoring accumulates at week-level for efficiency (R1);
   // the REPORT is still computed per day from the actual generated plan
@@ -1151,7 +1168,7 @@ export function generateWeek({
   // Step 4.5: calorie CEILING trim, run LAST. The two passes above only ever
   // ADD servings, so days routinely overshoot the target by 5-9%; this trims
   // back down without breaking any floor those passes just secured.
-  const calorieCeiling = caloriesTarget * CEILING_RATIO;
+  const calorieCeiling = Number(targets?.macros?.caloriesCeiling) || caloriesTarget * CEILING_RATIO;
   next = calorieTrimPass(next, byId, {
     calorieCeiling,
     calorieFloor: floors.calories,

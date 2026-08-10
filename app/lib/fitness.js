@@ -331,6 +331,33 @@ export function avoidTermsFromAllergens(allergens, freeText) {
 const ACTIVITY_MULT = [1.2, 1.375, 1.55, 1.725, 1.9];
 
 /**
+ * The macro floors the week generator actually ENFORCES for a profile.
+ *
+ * A WRITTEN floor always wins. It is the number the person read, agreed to,
+ * and can hand-edit, and no formula may quietly outrank it: a written 1400 is
+ * hand-set and any ratio or derivation says something else. Only a profile
+ * that carries no written floor gets one derived, and the derivation is the
+ * same one `targetsFromQuestionnaire` writes, so a survey profile and a
+ * hand-written profile behave identically.
+ *
+ * NEVER a ratio of the target. The generator enforced 95% of target for
+ * months, which held David to 199.5 g protein against his written 185 and
+ * over-fed mom by 72.5 kcal/day, invisibly, because no screen showed the
+ * enforced number. (Council 2026-08-07; David, 2026-08-10.)
+ * @param {Record<string, any> | null | undefined} macros a targets.macros block
+ * @returns {{ calories: number, protein: number }}
+ */
+export function enforcedFloors(macros) {
+  const calories = Number(macros?.calories) || 0;
+  const protein = Number(macros?.protein) || 0;
+  const written = (/** @type {any} */ v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+  return {
+    calories: written(macros?.caloriesFloor) ?? Math.max(1200, calories - 200),
+    protein: written(macros?.proteinFloor) ?? Math.max(0, protein - 25),
+  };
+}
+
+/**
  * A complete fitness/targets.json from the add-profile questionnaire, so a
  * new household member gets working macro targets without a single hand-set
  * number. Mifflin-St Jeor BMR (imperial inputs converted internally — this
@@ -376,6 +403,9 @@ export function targetsFromQuestionnaire(q, todayIso, prefs = {}) {
   );
   const carbs = Math.max(0, Math.round((calories - proteinKcal - fat * 9) / 4));
   const phase = q.goal === "loss" ? "loss" : q.goal === "gain" ? "gain" : "recomp";
+  // one derivation, shared with the generator's fallback, so the number the
+  // survey WRITES and the number generation ENFORCES can never drift apart
+  const floors = enforcedFloors({ calories, protein });
 
   // Meal slots (survey-v2 Q11): base three, drop breakfast if skipped, add
   // smoothie when wanted AND a blender is on hand (Q16 special case — a
@@ -393,9 +423,9 @@ export function targetsFromQuestionnaire(q, todayIso, prefs = {}) {
   return {
     macros: {
       calories,
-      caloriesFloor: Math.max(1200, calories - 200),
+      caloriesFloor: floors.calories,
       protein,
-      proteinFloor: Math.max(0, protein - 25),
+      proteinFloor: floors.protein,
       fat,
       carbs,
       waterLiters: q.sex === "m" ? 3.5 : 2.7,

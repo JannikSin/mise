@@ -794,8 +794,18 @@ Seeded from the FITNESS.md system; edited rarely.
   "macros": {
     "calories": 3700,
     "caloriesFloor": 3500,
+    // ? the floor week generation ENFORCES. Written wins over any formula
+    //   (a written 1400 stays hand-set); absent = max(1200, calories - 200), the
+    //   same derivation the questionnaire writes. Never a ratio of target —
+    //   the generator enforced 0.95 x target until 2026-08-10, holding David
+    //   to 199.5 g against his written 185. See fitness.js enforcedFloors.
     "protein": 210, // grams
-    "proteinFloor": 185,
+    "proteinFloor": 185, // ? as caloriesFloor; absent = max(0, protein - 25)
+    "caloriesCeiling": 3900,
+    // ? OPTIONAL, rarely set. Above this the trim pass shaves servings back
+    //   (never through a floor). Absent = 1.05 x calories. Unlike the floors
+    //   this stays a ratio by design: a floor is a number the person agreed
+    //   to, a ceiling is the generator's own slack for its top-up passes.
     "fat": 100, // ? grams
     "carbs": 490, // ? grams
     "waterLiters": 3.5, // daily target midpoint
