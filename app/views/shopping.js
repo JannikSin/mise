@@ -681,8 +681,10 @@ export function ShoppingView({
         html`
           <div class="shotstrip">
             <p class="hint">
-              <span class="num">${shots.length}</span>
-              ${shots.length === 1 ? "photo" : "photos"} of this receipt, top to bottom. If the
+              <span class="num">${shots.length}</span>${" "}${shots.length === 1
+                ? "photo"
+                : "photos"}
+              of this receipt, top to bottom. If the
               receipt is longer than the frame, take the next one so it OVERLAPS a few lines with
               the last — the overlap is what stops a line being counted twice.
             </p>
