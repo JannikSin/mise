@@ -131,6 +131,81 @@ test("buildReceiptRequest forces the record_receipt tool with the image", () => 
   assert.equal(req.messages[0].content[0].source.data, "abc");
 });
 
+// --- multi-photo receipts (David, 2026-08-10) -----------------------------
+// A long till roll does not fit in one frame. Several overlapping photos of
+// ONE receipt travel in ONE request so the model can read the strip as a
+// continuous list; reading them separately and de-duplicating afterwards
+// cannot work, because a receipt legitimately prints the same item twice.
+
+test("buildReceiptRequest carries every photo in one request, in order", () => {
+  const req = buildReceiptRequest({
+    images: [
+      { image: "top", mediaType: "image/jpeg" },
+      { image: "middle", mediaType: "image/jpeg" },
+      { image: "bottom", mediaType: "image/png" },
+    ],
+    model: "claude-sonnet-5",
+  });
+  const content = req.messages[0].content;
+  const imgs = content.filter((/** @type {any} */ c) => c.type === "image");
+  assert.equal(req.messages.length, 1, "one request, never one per photo");
+  assert.deepEqual(
+    imgs.map((/** @type {any} */ i) => i.source.data),
+    ["top", "middle", "bottom"],
+    "order is the receipt's own order, top to bottom",
+  );
+  assert.equal(imgs[2].source.media_type, "image/png", "per-photo media type is kept");
+  // each frame is labelled, so "in order" is actionable rather than assumed
+  const labels = content
+    .filter((/** @type {any} */ c) => c.type === "text" && /^Photo \d+ of \d+:$/.test(c.text))
+    .map((/** @type {any} */ c) => c.text);
+  assert.deepEqual(labels, ["Photo 1 of 3:", "Photo 2 of 3:", "Photo 3 of 3:"]);
+});
+
+test("a multi-photo receipt is told about the overlap; a single photo is not", () => {
+  const many = buildReceiptRequest({
+    images: [
+      { image: "a", mediaType: "image/jpeg" },
+      { image: "b", mediaType: "image/jpeg" },
+    ],
+    model: "m",
+  });
+  const manyText = many.messages[0].content
+    .filter((/** @type {any} */ c) => c.type === "text")
+    .map((/** @type {any} */ c) => c.text)
+    .join(" ");
+  assert.match(manyText, /OVERLAP/i, "the overlap is stated, not hoped for");
+  assert.match(manyText, /EXACTLY ONCE/i, "and so is the do-not-double-count rule");
+  assert.match(manyText, /2 photos/, "the count is interpolated, not left as a placeholder");
+  assert.ok(!manyText.includes("%N%"), "no unreplaced placeholder reaches the model");
+  // the same instruction must NOT fire on a single photo: telling a model to
+  // watch for repeats it cannot see invites it to drop a real duplicate line
+  const one = buildReceiptRequest({ image: "a", mediaType: "image/jpeg", model: "m" });
+  const oneText = one.messages[0].content
+    .filter((/** @type {any} */ c) => c.type === "text")
+    .map((/** @type {any} */ c) => c.text)
+    .join(" ");
+  assert.ok(!/OVERLAP/i.test(oneText));
+  assert.ok(!/^Photo /m.test(oneText), "a single photo is not labelled 1 of 1");
+});
+
+test("more photos get more output room", () => {
+  const one = buildReceiptRequest({ image: "a", mediaType: "image/jpeg", model: "m" });
+  const many = buildReceiptRequest({
+    images: [
+      { image: "a", mediaType: "image/jpeg" },
+      { image: "b", mediaType: "image/jpeg" },
+    ],
+    model: "m",
+  });
+  assert.ok(many.max_tokens > one.max_tokens, "a 3-frame receipt is many more lines");
+});
+
+test("buildReceiptRequest refuses to build a request with no photo", () => {
+  assert.throws(() => buildReceiptRequest({ model: "m" }), /no receipt photo/);
+  assert.throws(() => buildReceiptRequest({ images: [], model: "m" }), /no receipt photo/);
+});
+
 test("validateReceiptItems keeps priced food lines, drops junk and non-positive prices", () => {
   const out = validateReceiptItems({
     store: "  TRADER JOE'S #703  ",

@@ -1949,9 +1949,10 @@ function App() {
 
   const handleRemoveOccasion = useCallback(
     async (/** @type {import("./lib/occasions.js").Occasion} */ o) => {
+      const dayCount = occasionDatesOf(o).length;
       if (
         !(await askConfirm(
-          `Remove ${o.name}? Those ${occasionDatesOf(o).length} days come back EMPTY, not ` +
+          `Remove ${o.name}? ${dayCount === 1 ? "That day comes" : `Those ${dayCount} days come`} back EMPTY, not ` +
             `re-planned: clearing an occasion and planning the days again are two different ` +
             `acts, and doing both at once would silently rewrite a week. Seats already taken ` +
             `off shared tables stay off — un-skipping them here could re-seat somebody who ` +

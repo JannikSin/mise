@@ -63,6 +63,9 @@ export function OccasionsView({
   const [presetId, setPresetId] = useState("");
   const [who, setWho] = useState(me);
   const [anchor, setAnchor] = useState(shiftIso(todayIso, 7));
+  // only asked for repeatable presets (a trip, a holiday stretch); a medical
+  // prep is exactly as long as it is and the field never shows
+  const [spanDays, setSpanDays] = useState(1);
   const [acknowledged, setAcknowledged] = useState(false);
   const [openDay, setOpenDay] = useState("");
   const [adding, setAdding] = useState("");
@@ -91,7 +94,12 @@ export function OccasionsView({
   const build = () => {
     const preset = presetById(presetId);
     if (!preset) return;
-    setDraft(occasionFromPreset(preset, anchor, who, { createdAt: new Date().toISOString() }));
+    setDraft(
+      occasionFromPreset(preset, anchor, who, {
+        createdAt: new Date().toISOString(),
+        days: spanDays,
+      }),
+    );
     setAcknowledged(false);
     setOpenDay("");
     setConflicts({});
@@ -229,6 +237,22 @@ export function OccasionsView({
                 }}
               />
             </label>
+            ${
+              preset.repeatable &&
+              html`<label>
+                <span class="m">How many days</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="30"
+                  value=${spanDays}
+                  onInput=${(/** @type {any} */ e) => {
+                    setSpanDays(Math.max(1, Math.min(30, Number(e.currentTarget.value) || 1)));
+                    setDraft(null);
+                  }}
+                />
+              </label>`
+            }
             <button class="primary" onClick=${build} disabled=${!anchor}>PREVIEW</button>
           </div>
         `

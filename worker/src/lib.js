@@ -117,25 +117,78 @@ const RECEIPT_SYSTEM =
   "loyalty rows. If a size is printed on the line, include it, else leave it blank.";
 
 /**
- * Anthropic Messages request body for a grocery-receipt scan.
- * @param {{ image: string, mediaType: string, model: string }} args
+ * The multi-photo rule (David, 2026-08-10). A long receipt does not fit in one
+ * frame, so the app now sends several overlapping photos of the SAME receipt.
+ * They go in ONE request rather than one request each, because the overlap
+ * problem then solves itself: the model sees the whole strip at once and can
+ * tell that the last lines of photo 2 are the first lines of photo 3. Scanning
+ * them separately and de-duplicating afterwards cannot work — a receipt
+ * legitimately prints the same item at the same price twice (two bunches of
+ * bananas rung up separately), so any "drop the repeat" rule silently loses a
+ * real line. The human review screen stays the backstop either way.
  */
-export function buildReceiptRequest({ image, mediaType, model }) {
+const RECEIPT_MULTI_NOTE =
+  "These are %N% photos of ONE single receipt, in order from the top of the " +
+  "receipt to the bottom. They deliberately OVERLAP: the last lines visible in " +
+  "one photo are usually the first lines visible in the next. Read the receipt " +
+  "as one continuous list and record each purchased line EXACTLY ONCE. Do not " +
+  "record a line twice just because it appears in two photos. Do keep two " +
+  "separate lines that genuinely appear twice on the receipt itself, at " +
+  "different places in the sequence. If the store name is visible in any " +
+  "photo, use it.";
+
+/**
+ * Anthropic Messages request body for a grocery-receipt scan.
+ *
+ * Accepts EITHER a single `image`/`mediaType` (the original shape, still used
+ * by older app builds) or an `images` array of overlapping photos of one long
+ * receipt. Several photos always travel in one request — see RECEIPT_MULTI_NOTE
+ * for why splitting them cannot dedupe correctly.
+ * @param {{
+ *   image?: string,
+ *   mediaType?: string,
+ *   images?: { image: string, mediaType: string }[],
+ *   model: string
+ * }} args
+ */
+export function buildReceiptRequest({ image, mediaType, images, model }) {
+  const shots =
+    Array.isArray(images) && images.length > 0
+      ? images
+      : image && mediaType
+        ? [{ image, mediaType }]
+        : [];
+  if (shots.length === 0) throw new Error("no receipt photo");
+
+  /** @type {Record<string, any>[]} */
+  const content = [];
+  shots.forEach((shot, i) => {
+    // label every frame so "in order, top to bottom" is something the model
+    // can actually act on rather than an assumption about array order
+    if (shots.length > 1) {
+      content.push({ type: "text", text: `Photo ${i + 1} of ${shots.length}:` });
+    }
+    content.push({
+      type: "image",
+      source: { type: "base64", media_type: shot.mediaType, data: shot.image },
+    });
+  });
+  content.push({
+    type: "text",
+    text:
+      shots.length > 1
+        ? `${RECEIPT_MULTI_NOTE.replace("%N%", String(shots.length))} Read the store and every priced food line.`
+        : "Read the store and every priced food line on this receipt.",
+  });
+
   return {
     model,
-    max_tokens: 2048,
+    // a long receipt across several photos is many more lines than one frame
+    max_tokens: shots.length > 1 ? 8192 : 2048,
     system: RECEIPT_SYSTEM,
     tools: [RECEIPT_TOOL],
     tool_choice: { type: "tool", name: "record_receipt" },
-    messages: [
-      {
-        role: "user",
-        content: [
-          { type: "image", source: { type: "base64", media_type: mediaType, data: image } },
-          { type: "text", text: "Read the store and every priced food line on this receipt." },
-        ],
-      },
-    ],
+    messages: [{ role: "user", content }],
   };
 }
 

@@ -307,18 +307,31 @@ export function ShoppingView({
   //   | { store, lines: [{name, price, size}], kept: bool[] }
   const [receipt, setReceipt] = useState(/** @type {any} */ (null));
   const receiptRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+  // Photos of ONE receipt, in order top to bottom. A long till roll does not
+  // fit in a frame (David, 2026-08-10), so shots accumulate here and are read
+  // together in a single request — see scanReceipt for why reading them
+  // separately cannot dedupe the overlap correctly.
+  const [shots, setShots] = useState(/** @type {File[]} */ ([]));
+  const MAX_SHOTS = 6;
 
-  const onReceiptPicked = async (/** @type {{ currentTarget: HTMLInputElement }} */ e) => {
-    const file = e.currentTarget.files?.[0];
+  const onReceiptPicked = (/** @type {{ currentTarget: HTMLInputElement }} */ e) => {
+    const picked = [...(e.currentTarget.files ?? [])];
     e.currentTarget.value = "";
-    if (!file || receipt === "busy") return;
+    if (picked.length === 0 || receipt === "busy") return;
+    setShots((cur) => [...cur, ...picked].slice(0, MAX_SHOTS));
+    setReceipt(null);
+  };
+
+  const readShots = async () => {
+    if (shots.length === 0 || receipt === "busy") return;
     setReceipt("busy");
     try {
-      const { store, items: lines } = await scanReceipt(file);
+      const { store, items: lines } = await scanReceipt(shots);
       if (lines.length === 0) {
         setReceipt({ notice: "no priced lines read — try a flatter, brighter shot" });
         return;
       }
+      setShots([]);
       const detected = storeSlugFromReceipt(store, prices?.stores ?? []);
       // decode each till line against THIS WEEK'S LIST before showing it.
       // The abbreviation alone is ambiguous ("BLDMD ALMND" reads as almond
@@ -640,6 +653,7 @@ export function ShoppingView({
         type="file"
         accept="image/*"
         capture="environment"
+        multiple
         style="display:none"
         onChange=${onReceiptPicked}
       />
@@ -647,13 +661,44 @@ export function ShoppingView({
         (receipt === null || receipt?.notice || receipt?.error) &&
         html`<button
           class="secondary"
-          disabled=${tokenBlocked}
+          disabled=${tokenBlocked || shots.length >= MAX_SHOTS}
           onClick=${() => receiptRef.current?.click()}
         >
-          📷 update prices from a receipt
+          ${
+            shots.length === 0
+              ? "📷 update prices from a receipt"
+              : shots.length >= MAX_SHOTS
+                ? `📷 ${MAX_SHOTS} photos — that's the limit`
+                : "📷 ANOTHER PHOTO further down"
+          }
         </button>`
       }
-      ${receipt === "busy" && html`<p class="hint">reading the receipt…</p>`}
+      ${
+        // a long receipt takes several overlapping shots: nothing is read
+        // until you say so, so the whole strip goes to the model at once
+        shots.length > 0 &&
+        receipt !== "busy" &&
+        html`
+          <div class="shotstrip">
+            <p class="hint">
+              <span class="num">${shots.length}</span>
+              ${shots.length === 1 ? "photo" : "photos"} of this receipt, top to bottom. If the
+              receipt is longer than the frame, take the next one so it OVERLAPS a few lines with
+              the last — the overlap is what stops a line being counted twice.
+            </p>
+            <div class="actions">
+              <button class="primary" disabled=${tokenBlocked} onClick=${readShots}>
+                READ ${shots.length === 1 ? "IT" : `ALL ${shots.length}`}
+              </button>
+              <button class="secondary" onClick=${() => setShots([])}>START OVER</button>
+            </div>
+          </div>
+        `
+      }
+      ${
+        receipt === "busy" &&
+        html`<p class="hint">reading the receipt…</p>`
+      }
       ${receipt?.notice && html`<p class="hint">${receipt.notice}</p>`}
       ${
         receipt?.error &&
@@ -1846,6 +1891,14 @@ export function ShoppingView({
                 </p>
               </div>
             `
+          }
+          ${
+            // THE receipt button (David, 2026-08-10: his mother stood at the
+            // till with the FAMILY list open and there was nothing to press).
+            // FAMILY is where the house shops, so FAMILY is where the receipt
+            // gets scanned. It was only ever on the personal list, which is
+            // the one list that receipt is NOT for.
+            prices && onReceiptApprove && receiptControl()
           }
           ${combined.length === 0 && html`<div class="empty">no lists to combine yet</div>`}
         `

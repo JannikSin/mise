@@ -72,15 +72,27 @@ export async function scanPhoto(file) {
 }
 
 /**
- * Grocery-receipt photo → the store and its priced food lines, for the
+ * Grocery-receipt photo(s) → the store and its priced food lines, for the
  * price-catalogue freshness loop. Same downscale + auth path as the pantry
  * scan; returns empty when the model finds nothing.
- * @param {File | Blob} file
+ *
+ * Takes one file or SEVERAL overlapping photos of one long receipt (David,
+ * 2026-08-10: a Costco receipt does not fit in a frame). All of them go in
+ * ONE request on purpose: the model reads the strip as a single continuous
+ * receipt and so can tell that the bottom of photo 2 is the top of photo 3.
+ * Scanning shot-by-shot and de-duplicating afterwards is the obvious design
+ * and it is wrong — a receipt really can print the same item at the same
+ * price twice, and any drop-the-repeat rule loses that line silently.
+ * @param {File | Blob | (File | Blob)[]} files one photo, or several in order
+ *   from the top of the receipt to the bottom
  * @returns {Promise<{ store: string, items: { name: string, price: number, size: string }[] }>}
  */
-export async function scanReceipt(file) {
-  const { image, mediaType } = await downscalePhoto(file);
-  const data = await post("/receipt", { image, mediaType });
+export async function scanReceipt(files) {
+  const list = Array.isArray(files) ? files : [files];
+  if (list.length === 0) throw new Error("no photo to read");
+  const images = [];
+  for (const f of list) images.push(await downscalePhoto(f));
+  const data = await post("/receipt", { images });
   return {
     store: typeof data.store === "string" ? data.store : "",
     items: Array.isArray(data.items) ? data.items : [],

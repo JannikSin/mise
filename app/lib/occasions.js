@@ -43,6 +43,7 @@
  *   blurb: string,
  *   anchorLabel: string,
  *   medical?: boolean,
+ *   repeatable?: boolean,
  *   disclaimer?: string,
  *   days: PresetDay[]
  * }} OccasionPreset
@@ -301,6 +302,8 @@ export const PRESETS = [
     emoji: "✈",
     blurb: "Days you are not cooking and not shopping. Nothing gets bought for them.",
     anchorLabel: "First travel day",
+    // a trip is however long the trip is: the one day repeats to fill it
+    repeatable: true,
     days: [
       {
         offset: 0,
@@ -318,8 +321,9 @@ export const PRESETS = [
     id: "holiday",
     name: "Holiday meal",
     emoji: "◈",
-    blurb: "One day the app stays out of the way entirely.",
-    anchorLabel: "The day",
+    blurb: "Days the app stays out of the way entirely. Nothing planned, nothing bought.",
+    anchorLabel: "First day",
+    repeatable: true,
     days: [
       {
         offset: 0,
@@ -375,18 +379,28 @@ export function presetById(id) {
  * @param {OccasionPreset} preset
  * @param {string} anchorIso the anchor date, YYYY-MM-DD
  * @param {string} profileId whose days these are
- * @param {{ id?: string, createdAt?: string, offTables?: boolean }} [opts]
+ * @param {{ id?: string, createdAt?: string, offTables?: boolean, days?: number }} [opts]
+ *   `days` stretches a `repeatable` preset (a trip, a holiday stretch) across
+ *   that many consecutive days; ignored for fixed-length presets
  * @returns {Occasion}
  */
 export function occasionFromPreset(preset, anchorIso, profileId, opts = {}) {
   /** @type {Record<string, OccasionDay>} */
   const days = {};
+  // A REPEATABLE preset describes one day that stretches to fit: a lake-house
+  // weekend is three travel days, not one, and nobody should have to create
+  // three occasions to say so (David, 2026-08-10). A fixed preset ignores the
+  // length entirely — a colonoscopy prep is exactly as long as it is.
+  const span = preset.repeatable ? Math.max(1, Math.min(30, Math.round(opts.days ?? 1))) : 1;
   for (const d of preset.days) {
-    days[shiftIso(anchorIso, d.offset)] = {
-      label: d.label,
-      ...(d.note ? { note: d.note } : {}),
-      items: d.items.map((i) => ({ ...i })),
-    };
+    const repeats = preset.repeatable && d.offset === 0 ? span : 1;
+    for (let k = 0; k < repeats; k++) {
+      days[shiftIso(anchorIso, d.offset + k)] = {
+        label: d.label,
+        ...(d.note ? { note: d.note } : {}),
+        items: d.items.map((i) => ({ ...i })),
+      };
+    }
   }
   const dates = Object.keys(days).sort();
   return {

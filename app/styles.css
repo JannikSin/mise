@@ -2725,3 +2725,12 @@ details.dayrow summary:focus-visible {
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+
+/* Multi-shot receipt capture: a long till roll needs several overlapping
+   photos, and nothing is read until the whole strip is collected. */
+.shotstrip {
+  margin: 8px 0;
+}
+.shotstrip .actions {
+  margin-top: 6px;
+}

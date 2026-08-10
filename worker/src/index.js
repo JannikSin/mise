@@ -50,7 +50,12 @@ import {
 const DATA_REPO = "JannikSin/mise-data";
 const DEFAULT_MODEL = "claude-sonnet-5";
 const AUTH_TTL_MS = 10 * 60 * 1000;
-const MAX_BODY_BYTES = 6 * 1024 * 1024; // ~4.5MB image after base64
+const MAX_BODY_BYTES = 16 * 1024 * 1024; // ~12MB of image after base64
+/** A long receipt takes several overlapping photos; 6 covers a very long one
+ *  and keeps the request inside MAX_BODY_BYTES at the client's 1280px cap
+ *  (~400KB base64 each). Extra shots are dropped rather than erroring: five
+ *  sixths of a receipt beats a failed scan at the till. */
+const MAX_RECEIPT_PHOTOS = 6;
 
 /** token-hash -> expiry; per-isolate, so worst case is one extra GitHub call */
 const authCache = new Map();
@@ -532,13 +537,22 @@ export default {
         return json(200, { items: validateScanItems(parseToolUse(resp, "record_items")) }, cors);
       }
       if (url.pathname === "/receipt") {
-        const image = typeof body.image === "string" ? body.image : "";
-        const mediaType = ["image/jpeg", "image/png", "image/webp"].includes(body.mediaType)
-          ? body.mediaType
-          : "";
-        if (!image || !mediaType) return json(400, { error: "image + mediaType required" }, cors);
+        // one photo (older app builds) or several overlapping shots of one
+        // long receipt, which always travel together in a single request
+        const OK_TYPES = ["image/jpeg", "image/png", "image/webp"];
+        const raw = Array.isArray(body.images)
+          ? body.images
+          : [{ image: body.image, mediaType: body.mediaType }];
+        const images = raw
+          .filter(
+            (/** @type {any} */ s) =>
+              s && typeof s.image === "string" && s.image && OK_TYPES.includes(s.mediaType),
+          )
+          .slice(0, MAX_RECEIPT_PHOTOS)
+          .map((/** @type {any} */ s) => ({ image: s.image, mediaType: s.mediaType }));
+        if (images.length === 0) return json(400, { error: "image + mediaType required" }, cors);
         const resp = await callAnthropic(
-          buildReceiptRequest({ image, mediaType, model: env.SCAN_MODEL ?? DEFAULT_MODEL }),
+          buildReceiptRequest({ images, model: env.SCAN_MODEL ?? DEFAULT_MODEL }),
           env.ANTHROPIC_API_KEY,
         );
         return json(200, validateReceiptItems(parseToolUse(resp, "record_receipt")), cors);

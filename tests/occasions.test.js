@@ -301,3 +301,48 @@ test("summarize reads like a person wrote it", () => {
   const one = occasionFromPreset(presetById("holiday"), "2026-11-26", "david");
   assert.equal(summarize(one), "Nov 26");
 });
+
+// --- repeatable presets (David, 2026-08-10) -------------------------------
+// "this weekend my parents are at a friend's lake house" is three travel
+// days, not one, and nobody should have to create three occasions to say so.
+
+test("a repeatable preset stretches across the days you ask for", () => {
+  const trip = occasionFromPreset(presetById("travel"), "2026-08-14", "mom", { days: 3 });
+  assert.deepEqual(datesOf(trip), ["2026-08-14", "2026-08-15", "2026-08-16"]);
+  for (const d of datesOf(trip)) assert.equal(trip.days[d].label, "Travelling");
+  assert.equal(summarize(trip), "3 days, Aug 14 to Aug 16");
+});
+
+test("a fixed-length preset ignores the length — a prep is as long as it is", () => {
+  const a = occasionFromPreset(presetById("colonoscopy"), "2026-08-14", "p2");
+  const b = occasionFromPreset(presetById("colonoscopy"), "2026-08-14", "p2", { days: 9 });
+  assert.deepEqual(datesOf(a), datesOf(b));
+});
+
+test("a trip length is clamped, never allowed to eat a year of plans", () => {
+  assert.equal(datesOf(occasionFromPreset(presetById("travel"), "2026-08-14", "d", { days: 0 })).length, 1);
+  assert.equal(datesOf(occasionFromPreset(presetById("travel"), "2026-08-14", "d", { days: 999 })).length, 30);
+  assert.equal(datesOf(occasionFromPreset(presetById("travel"), "2026-08-14", "d", { days: -4 })).length, 1);
+});
+
+test("a travel day buys nothing: every item is free text, no recipe", () => {
+  // the lake-house case. Nothing is cooked and nothing must reach anyone's
+  // shopping list — an entry with a recipeId WOULD be shopped
+  // (deriveShoppingList shops every entry that has one).
+  for (const id of ["travel", "holiday"]) {
+    for (const d of presetById(id).days) {
+      for (const item of d.items) {
+        assert.ok(!item.recipeId, `${id} would put ${item.recipeId} on the shopping list`);
+        assert.ok(item.freeText, `${id} has an item with nothing to show`);
+      }
+    }
+  }
+});
+
+test("a prep day DOES shop: its food has real recipes behind it", () => {
+  // the mirror of the test above, and the reason both exist: an occasion that
+  // feeds you must reach the list, an occasion that excuses you must not.
+  const prep = presetById("colonoscopy");
+  const lowResidue = prep.days.find((d) => d.label === "Low residue");
+  assert.ok(lowResidue.items.every((i) => i.recipeId));
+});
