@@ -221,9 +221,11 @@ export function TablesView({
   // an ACTIVE brigade owns the week run: the AI planner runs AS the brigade
   // (its members, its slots, its cook rotation) instead of a parallel thing
   const activeBrigade =
-    ((houseEvents ?? []).find((h) => h.house === myHouse)?.events?.brigades ?? []).find(
-      (b) => (b.until ?? "9999-12-31") >= todayIso,
-    ) ?? null;
+    ((houseEvents ?? []).find((h) => h.house === myHouse)?.events?.brigades ?? [])
+      .filter((b) => (b.until ?? "9999-12-31") >= todayIso)
+      // two overlapping brigades (one expiring today): the longest-running
+      // one owns the week run
+      .sort((a, b) => (b.until ?? "").localeCompare(a.until ?? ""))[0] ?? null;
   const mealsFor = (/** @type {string[]} */ slots) =>
     datesOfWeek(weekId)
       .filter((d) => d >= todayIso)
