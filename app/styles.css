@@ -2691,3 +2691,37 @@ details.dayrow summary:focus-visible {
   color: var(--fg);
   font: 600 12px/1 var(--mono);
 }
+
+/* Occasions: a dated override the generator hands off to. The disclaimer box
+   is deliberately loud — a colonoscopy prep that gets half-read is a wasted
+   procedure, and the clinic's own letter always outranks this app. */
+.warnbox {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--warn, #e0a34a);
+  border-radius: 10px;
+  background: rgba(224, 163, 74, 0.09);
+  line-height: 1.4;
+}
+.warnbox p {
+  margin: 0 0 8px;
+}
+.slot.muted {
+  opacity: 0.55;
+}
+/* the running-occasion banner on Plan: it must be impossible to miss on the
+   day it matters, and invisible every other day */
+.occbanner {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--warn, #e0a34a);
+  border-radius: 10px;
+  background: rgba(224, 163, 74, 0.12);
+  line-height: 1.4;
+}
+.occbanner b {
+  display: block;
+  font: 600 12px/1.4 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}

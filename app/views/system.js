@@ -289,6 +289,19 @@ export function SystemView({
       </div>
 
       <div class="tile">
+        <h2 class="k">Occasions</h2>
+        <div class="row">
+          <span class="k">Days off the plan</span>
+          <a class="secondary" href="#/occasions">OCCASIONS</a>
+        </div>
+        <p class="hint">
+          A medical prep, a holiday, travel, a race. Set the date and the app stops planning those
+          days, follows a fixed script instead, and takes that person off shared tables while it
+          runs.
+        </p>
+      </div>
+
+      <div class="tile">
         <h2 class="k">Tour</h2>
         <div class="row tourrow">
           <span class="k">Guided tour</span>

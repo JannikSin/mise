@@ -227,6 +227,8 @@ const FOOD_UNITS = {
   "ground-flaxseed": { unit: "tbsp" },
   honey: { unit: "tbsp" },
   "maple-syrup": { unit: "tbsp" },
+  sugar: { unit: "tbsp" },
+  mayonnaise: { unit: "tbsp" },
   "soy-sauce": { unit: "tbsp" },
   sriracha: { unit: "tbsp" },
   cornstarch: { unit: "tbsp" },

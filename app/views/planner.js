@@ -66,7 +66,10 @@ function monthDay(isoDate) {
  *   nextPlan: import("../lib/plan.js").Plan | null,
  *   daily: { days?: Record<string, any>[] },
  *   pantry: Record<string, any>,
- *   onPatchDay: (patch: Record<string, any>) => void
+ *   onPatchDay: (patch: Record<string, any>) => void,
+ *   occasionBanner?: {
+ *     emoji: string, name: string, when: string, label: string, note: string
+ *   } | null
  * }} props
  */
 export function PlannerView({
@@ -91,6 +94,7 @@ export function PlannerView({
   daily,
   pantry,
   onPatchDay,
+  occasionBanner = null,
 }) {
   const rootRef = useRef(/** @type {HTMLElement | null} */ (null));
   // scoreboard accordion (David's layout pick, 2026-07-23): which days are
@@ -126,6 +130,18 @@ export function PlannerView({
         </div>
         <button class="wk" aria-label="Next week" onClick=${() => onWeek(1)}>›</button>
       </div>
+
+      ${
+        // an OCCASION is the loudest thing on this screen while it runs. It is
+        // reached from Settings and otherwise invisible, so the day it matters
+        // it has to come and find you (David: "hidden-ish, not awful to find").
+        occasionBanner &&
+        html`<div class="occbanner" role="status">
+          <b>${occasionBanner.emoji} ${occasionBanner.name}${occasionBanner.when}</b>
+          ${occasionBanner.label}${occasionBanner.note ? html` ${occasionBanner.note}` : ""}
+          ${" "}<a href="#/occasions">open</a>
+        </div>`
+      }
 
       ${
         // a tap always opens the recipe now, locked or not, so this banner only

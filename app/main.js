@@ -12,7 +12,7 @@ import {
   onSyncChange,
 } from "./lib/store.js";
 import { initRouter } from "./lib/router.js";
-import { formatSyncTime, isoWeekId, localIsoDate, statusDate } from "./lib/dates.js";
+import { formatSyncTime, isoWeekId, localIsoDate, parseLocalIso, statusDate } from "./lib/dates.js";
 import { applyScanItems } from "./lib/scan.js";
 import { tailorTable, dinnerWeek } from "./lib/worker.js";
 import { ProfileGateView } from "./views/profile-gate.js";
@@ -26,6 +26,7 @@ import { PlannerView } from "./views/planner.js";
 import { ShoppingView } from "./views/shopping.js";
 import { FitnessView } from "./views/fitness.js";
 import { RemediesView } from "./views/remedies.js";
+import { OccasionsView } from "./views/occasions.js";
 import { VitalsView } from "./views/vitals.js";
 import { MenuView } from "./views/menu.js";
 import { DinnerView } from "./views/dinner.js";
@@ -98,6 +99,13 @@ import {
   brigadeTableId,
   seatServingsFor,
 } from "./lib/tables.js";
+import {
+  applyOccasion,
+  clearOccasion,
+  datesOf as occasionDatesOf,
+  shiftIso,
+  tablesToLeave,
+} from "./lib/occasions.js";
 import {
   normalizeLedger,
   ledgerPathFor,
@@ -1778,6 +1786,190 @@ function App() {
     if (items.length !== cur.items.length) updateShopping({ ...cur, items });
   }, [updateShopping]);
 
+  // ---- OCCASIONS: dated overrides that take days off the generator --------
+  // Read for EVERY profile in the house, raw, same pattern as the combined
+  // shopping lists: one person sets another's colonoscopy prep up on his phone,
+  // so the screen has to see and write somebody else's file.
+  const [occasions, setOccasions] = useState(
+    /** @type {import("./lib/occasions.js").Occasion[]} */ ([]),
+  );
+  const [occBusy, setOccBusy] = useState(false);
+  /** @type {(id: string) => string} */
+  const occasionsPathFor = (id) =>
+    id === "david" ? "occasions.json" : `profiles/${id}/occasions.json`;
+
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      readProfiles().then(async (p) => {
+        /** @type {import("./lib/occasions.js").Occasion[]} */
+        const all = [];
+        for (const pr of p.profiles) {
+          const file = /** @type {any} */ (
+            await read(occasionsPathFor(pr.id), { raw: true }).catch(() => null)
+          );
+          for (const o of file?.occasions ?? [])
+            all.push({ ...o, profileId: o.profileId ?? pr.id });
+        }
+        if (alive) setOccasions(all);
+      });
+    };
+    load();
+    const unsub = onSyncChange(load);
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [hasToken]);
+
+  // MY running (or imminent) occasion, for the Plan tab banner. The screen
+  // lives in Settings and is invisible the other 360 days of the year, so on
+  // the days it matters it has to announce itself where the food is.
+  const occasionBanner = useMemo(() => {
+    const today = localIsoDate(new Date());
+    const soon = shiftIso(today, 3);
+    const mine = occasions
+      .filter((o) => o.profileId === me && o.to >= today && o.from <= soon)
+      .sort((a, b) => a.from.localeCompare(b.from))[0];
+    if (!mine) return null;
+    const day = mine.days[today];
+    return {
+      emoji: mine.emoji,
+      name: mine.name,
+      when: day
+        ? ""
+        : ` starts ${parseLocalIso(mine.from).toLocaleDateString([], {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+          })}`,
+      label: day ? `Today: ${day.label}.` : "The plan hands off on those days.",
+      note: day?.note ?? "",
+    };
+  }, [occasions, me]);
+
+  /**
+   * Write one profile's occasions file and every week plan the occasion
+   * touches. An occasion can straddle two ISO weeks (a Sunday procedure
+   * with a Thursday prep day does), so the plan write is per week, never
+   * "this week" — that assumption is exactly how a prep day goes missing.
+   * @param {Record<string, any>} o
+   * @param {"apply" | "remove"} mode
+   */
+  const writeOccasion = useCallback(
+    async (
+      /** @type {import("./lib/occasions.js").Occasion} */ o,
+      /** @type {"apply" | "remove"} */ mode,
+    ) => {
+      const path = occasionsPathFor(o.profileId);
+      const file = /** @type {any} */ (await read(path, { raw: true }).catch(() => null));
+      const rest = (file?.occasions ?? []).filter((/** @type {any} */ x) => x.id !== o.id);
+      await write(path, { occasions: mode === "apply" ? [...rest, o] : rest }, { raw: true });
+
+      // group the occasion's dates by ISO week, then patch each plan file once
+      /** @type {Map<string, string[]>} */
+      const weeks = new Map();
+      for (const date of occasionDatesOf(o)) {
+        const wk = isoWeekId(parseLocalIso(date));
+        weeks.set(wk, [...(weeks.get(wk) ?? []), date]);
+      }
+      for (const wk of weeks.keys()) {
+        const planPath =
+          o.profileId === "david" ? `plans/${wk}.json` : `profiles/${o.profileId}/plans/${wk}.json`;
+        const cur = normalizePlan(
+          /** @type {any} */ (await read(planPath, { raw: true }).catch(() => null)),
+          wk,
+        );
+        const next = mode === "apply" ? applyOccasion(cur, o) : clearOccasion(cur, o.id);
+        await write(planPath, /** @type {any} */ (next), { raw: true });
+      }
+    },
+    [],
+  );
+
+  /**
+   * Screen a draft occasion's food against the OCCASION OWNER's diet and
+   * avoid list, not the device owner's. This is the whole reason it exists:
+   * David builds his mother's prep week on his own phone, so every recipe the
+   * picker offered was filtered through HIS allergens. Hers are the ones that
+   * matter. Returns recipeId -> reasons, empty when clean.
+   * @param {string} profileId
+   * @param {string[]} recipeIds
+   */
+  const handleScreenOccasion = useCallback(
+    async (/** @type {string} */ profileId, /** @type {string[]} */ recipeIds) => {
+      const path =
+        profileId === "david"
+          ? "fitness/targets.json"
+          : `profiles/${profileId}/fitness/targets.json`;
+      const t = /** @type {any} */ (await read(path, { raw: true }).catch(() => null));
+      const byId = recipesById([...bankRecipesRef.current, ...allRecipesRef.current]);
+      /** @type {Record<string, string[]>} */
+      const out = {};
+      for (const id of new Set(recipeIds)) {
+        const r = byId.get(id);
+        if (!r) continue;
+        const reasons = recipeConflicts(r, t?.diet, t?.avoidIngredients, t?.avoidRecipes);
+        if (reasons.length > 0) out[id] = reasons;
+      }
+      return out;
+    },
+    [],
+  );
+
+  const handleApplyOccasion = useCallback(
+    async (/** @type {import("./lib/occasions.js").Occasion} */ o) => {
+      setOccBusy(true);
+      try {
+        await writeOccasion(o, "apply");
+        setOccasions((cur) => [...cur.filter((x) => x.id !== o.id), o]);
+
+        // and off the shared tables. A seat somebody cannot eat still sizes
+        // the pot and still lands on a shopping list, so leaving it seated
+        // would feed the whole house a prep-week portion nobody eats.
+        if (o.offTables !== false) {
+          const house = myHouseOf();
+          const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+          if (cur) {
+            const today = localIsoDate(new Date());
+            const leaving = tablesToLeave(cur.tables, [o], o.profileId, today);
+            let next = cur;
+            for (const tableId of leaving) {
+              next = patchSeat(next, tableId, o.profileId, { status: "skipped" }, today);
+            }
+            if (leaving.length > 0) writeHouseEvents(house, next);
+          }
+        }
+      } finally {
+        setOccBusy(false);
+      }
+    },
+    [writeOccasion, writeHouseEvents],
+  );
+
+  const handleRemoveOccasion = useCallback(
+    async (/** @type {import("./lib/occasions.js").Occasion} */ o) => {
+      if (
+        !(await askConfirm(
+          `Remove ${o.name}? Those ${occasionDatesOf(o).length} days come back EMPTY, not ` +
+            `re-planned: clearing an occasion and planning the days again are two different ` +
+            `acts, and doing both at once would silently rewrite a week. Seats already taken ` +
+            `off shared tables stay off — un-skipping them here could re-seat somebody who ` +
+            `skipped for their own reasons.`,
+        ))
+      )
+        return;
+      setOccBusy(true);
+      try {
+        await writeOccasion(o, "remove");
+        setOccasions((cur) => cur.filter((x) => x.id !== o.id));
+      } finally {
+        setOccBusy(false);
+      }
+    },
+    [writeOccasion, askConfirm],
+  );
+
   const handleCreateTable = useCallback(
     (
       /** @type {{ name: string, date: string, slot: string, recipeId: string, seats: import("./lib/tables.js").Seat[] }} */ t,
@@ -2452,6 +2644,7 @@ function App() {
         daily=${dailyLog}
         pantry=${pantry}
         onPatchDay=${handlePatchDay}
+        occasionBanner=${occasionBanner}
       />`
     }
     ${
@@ -2562,6 +2755,20 @@ function App() {
     ${
       route.view === "ask" &&
       html`<${AskView} context=${askContext} hasToken=${hasToken} repo=${repo} />`
+    }
+    ${
+      route.view === "occasions" &&
+      html`<${OccasionsView}
+        occasions=${occasions}
+        profiles=${allProfiles}
+        me=${me}
+        recipes=${allRecipes}
+        todayIso=${localIsoDate(new Date())}
+        busy=${occBusy}
+        onScreen=${handleScreenOccasion}
+        onApply=${handleApplyOccasion}
+        onRemove=${handleRemoveOccasion}
+      />`
     }
     ${
       route.view === "dinner" &&

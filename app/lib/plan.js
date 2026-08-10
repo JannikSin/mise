@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, occasion?: string, occasionName?: string, occasionNote?: string }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[] }} Plan
  */
@@ -24,6 +24,13 @@ import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 // locked is optional; absent = unlocked (today's default, unchanged). true =
 // you've already shopped for this week — GENERATE WEEK/RE-ROLL WEEK refuse to
 // run and individual edits (add/remove/move) ask for confirmation first.
+// occasion / occasionName / occasionNote are optional; absent = a normal
+// entry. Present = this entry was placed by a dated OCCASION (app/lib/
+// occasions.js) and its DATE is held: generateWeek leaves the whole day
+// alone, exactly like a day already eaten, so no macro top-up stacks snacks
+// onto a clear-liquid prep day. `occasion` is the occasion id (also the
+// removal key), `occasionName` is what the day's banner reads, `occasionNote`
+// is the per-item instruction ("cold, through a straw").
 // out is optional; absent = a normal entry. true = this slot is an
 // EATING-OUT placeholder (free lunch, restaurant dinner): always paired with
 // pinned:true so GENERATE WEEK leaves the slot alone, carries freeText so

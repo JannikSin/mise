@@ -28,6 +28,7 @@ recipes/<id>.json         one recipe per file
 pantry.json               staples registry + perishables
 plans/<week>.json         e.g. plans/2026-W28.json
 shopping.json             current derived list + check-state
+occasions.json            dated overrides that take days off the generator
 fitness/targets.json      macro targets, adjustment rules, priority stack
 fitness/workouts.json     split templates + session log
 fitness/daily.json        daily check-ins
@@ -1071,6 +1072,89 @@ fast-follow; the purpose-recommendation hook is the reason `time` exists).
   ],
 }
 ```
+
+## Occasions — `occasions.json`
+
+Dated overrides: days the week generator must NOT plan. A medical prep, a
+holiday, travel, a race. Written by the Occasions screen (Settings ->
+Occasions), which is the whole point of the file: a new *kind* of situation
+used to require new code, and now it is data anyone can create in the app.
+
+Cross-profile like `plans/` and `shopping.json`: one person sets another's
+colonoscopy prep up on his own phone, so the writer uses `{ raw: true }` and
+the path of the occasion's OWNER, not the signed-in profile.
+
+```jsonc
+{
+  "occasions": [
+    {
+      "id": "colonoscopy-2026-03-15-p2",
+      // deterministic from preset + anchor + person, so applying the same
+      // occasion twice from two devices merges to ONE, never two
+      "name": "Colonoscopy prep",
+      "emoji": "⚕",
+      "presetId": "colonoscopy", // ? which hand-written preset it came from
+      "profileId": "mom", // whose days these are
+      "from": "2026-08-11", // first owned date (derived, not authored)
+      "to": "2026-08-15", // last owned date
+      "anchor": "2026-03-15", // ? the date the person actually knows
+      "disclaimer": "This is the standard protocol...",
+      // ? copied from the preset at creation, so an occasion already applied
+      //   keeps the wording it was accepted under even if the preset changes
+      "offTables": true,
+      // seats come off every shared table on these dates. Default true: a
+      // seat somebody cannot eat still sizes the pot and still lands on
+      // somebody's shopping list.
+      "createdAt": "2026-08-10T16:04:00Z", // ?
+      "days": {
+        "2026-08-13": {
+          "label": "Clear liquids only",
+          "note": "Nothing solid, all day...", // ? shown on the day
+          "items": [
+            { "slot": "breakfast", "recipeId": "clear-broth-mug", "servings": 1 },
+            {
+              "slot": "snack",
+              "freeText": "Bowel prep solution - timing and dose per your letter",
+              "note": "Cold, through a straw...", // ? per-item instruction
+            },
+          ],
+        },
+      },
+    },
+  ],
+}
+```
+
+**How an occasion reaches the plan.** `applyOccasion` REPLACES every entry on
+an owned date with the occasion's script (a low-residue day with yesterday's
+lentil soup still on it is not a low-residue day) and writes each entry with
+`pinned: true`, `occasion: <id>`, `occasionName`, and an optional
+`occasionNote`. Entry ids are deterministic (`occ-<occasionId>-<date>-<slot>-<i>`)
+so a two-device merge sees one entry, not two. An occasion spanning two ISO
+weeks patches BOTH plan files.
+
+**How the generator sees it.** `generateWeek` reads `entry.occasion` off the
+plan and HOLDS those dates: they are set aside untouched, exactly like a day
+already eaten. No committee fills them, no macro top-up, no Daily Dozen floor
+pass, no ceiling trim, and no shortfall line about them. The held days are
+named in `report.occasionDays` so the hand-off is stated, never silent.
+Without the hold, the top-up pass would stack four snacks onto a clear-liquid
+prep day chasing a 1400 kcal floor, which is exactly the failure the occasion
+exists to prevent.
+
+**The food.** Occasion presets place recipes tagged `occasion-only`, which
+`generatorEligible` fences out of every automatic pick permanently. Unlike
+`ai-special` there is no `promoted` escape: apple juice does not become a good
+Tuesday snack once somebody audits it. Those recipes also declare ZERO across
+every Daily Dozen food group, honestly, so no floor pass can reach for them.
+
+**Safety.** Presets are hand-written in `app/lib/occasions.js`, versioned and
+reviewed. They are never model-generated and never model-edited (council
+2026-08-07: allergy and safety intents are never model-writable). Medical
+presets carry a `disclaimer` the UI shows with an explicit acknowledgement
+before it will apply, and the draft's food is screened against the OCCASION
+OWNER's `diet`/`avoidIngredients`/`avoidRecipes` — not the device owner's,
+whose allergens filtered the picker. A conflict blocks APPLY with no override.
 
 ## Meta — `meta.json`
 

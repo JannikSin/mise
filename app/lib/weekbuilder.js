@@ -747,15 +747,27 @@ function foodGroupGapsReport(entries, recipesById, dates, dailyDozenPerDay) {
 }
 
 /**
- * The generator's trust gate: AI-invented ai-special recipes (estimated,
- * unaudited macros) may be chosen deliberately as a table or from the
- * cookbook, but never auto-planned into a deterministic week until a human
- * or Greger audit sets `promoted: true` on the recipe file.
+ * The generator's trust gate. Two classes never get auto-planned:
+ *
+ *  - `ai-special`: AI-invented recipes with estimated, unaudited macros. They
+ *    may be chosen deliberately as a table or from the cookbook, but never
+ *    auto-planned into a deterministic week until a human or Greger audit
+ *    sets `promoted: true` on the recipe file.
+ *  - `occasion-only`: food that exists to serve one dated situation — clear
+ *    broth and lemon gelatin for a colonoscopy prep, white toast for a
+ *    low-residue stretch. Nutritionally these are terrible normal meals and
+ *    the generator must never reach for them. They are placed BY an occasion,
+ *    never picked. Unlike ai-special there is no promotion escape: apple
+ *    juice does not become a good Tuesday snack once somebody audits it.
  * @param {Record<string, any>[]} recipes
  * @returns {Record<string, any>[]}
  */
 export function generatorEligible(recipes) {
-  return recipes.filter((r) => !((r.tags ?? []).includes("ai-special") && r.promoted !== true));
+  return recipes.filter((r) => {
+    const tags = r.tags ?? [];
+    if (tags.includes("occasion-only")) return false;
+    return !(tags.includes("ai-special") && r.promoted !== true);
+  });
 }
 
 /**
@@ -874,7 +886,8 @@ export function poolAdequacy(recipes, targets) {
  *   poolInsufficient: { reason: string, suggestion: string }[],
  *   calorieOverDays: { date: string, calories: number, ceiling: number }[],
  *   timeBudgetRelaxed: string[],
- *   outDays: { date: string, slots: string[], estCalories: number, estProtein: number }[]
+ *   outDays: { date: string, slots: string[], estCalories: number, estProtein: number }[],
+ *   occasionDays: { date: string, occasion: string, name: string }[]
  * }} WeekReport
  */
 
@@ -929,7 +942,19 @@ export function generateWeek({
   const recentSet = new Set(recentRecipeIds);
   const dates = datesOfWeek(weekId);
   const isPast = (/** @type {string} */ d) => Boolean(today) && d < /** @type {string} */ (today);
-  const liveDates = dates.filter((d) => !isPast(d));
+  // OCCASION days are HELD (David, 2026-08-10). A dated override — a medical
+  // prep, a holiday, a travel stretch — replaces those days with a fixed
+  // script the person already accepted, and generation hands off completely:
+  // same treatment as a day already eaten. Without this the macro top-up
+  // would stack four snacks onto a clear-liquid colonoscopy-prep day trying
+  // to reach a 1400 kcal floor, which is exactly the failure the occasion
+  // exists to prevent. Held dates are read off the ENTRIES (`e.occasion`),
+  // not passed in, so a device that syncs the plan gets the hold for free.
+  const heldDates = new Set(
+    plan.entries.filter((e) => e.occasion && !isPast(e.date)).map((e) => e.date),
+  );
+  const isHeld = (/** @type {string} */ d) => heldDates.has(d);
+  const liveDates = dates.filter((d) => !isPast(d) && !isHeld(d));
   const byId = recipesById(recipes);
   const useSoonFoods = (pantry.perishables ?? [])
     .filter((/** @type {any} */ p) => p.useSoon)
@@ -976,9 +1001,13 @@ export function generateWeek({
   // the floor/top-up/trim passes derive their date lists from plan.entries,
   // so keeping past entries out of the working plan is what keeps every
   // pass (and the report) off days already eaten.
-  const pastEntries = plan.entries.filter((e) => isPast(e.date));
+  // held (occasion) entries ride along with the past ones: set aside whole,
+  // untouched by every pass, merged back at the end. A non-occasion entry
+  // that happens to sit on a held day goes with them rather than being
+  // cleared, so an occasion never silently deletes something hand-placed.
+  const pastEntries = plan.entries.filter((e) => isPast(e.date) || isHeld(e.date));
   const pinnedEntries = plan.entries
-    .filter((e) => e.pinned && !isPast(e.date))
+    .filter((e) => e.pinned && !isPast(e.date) && !isHeld(e.date))
     .map((e) =>
       e.out && e.estCalories == null ? { ...e, ...slotMacroEstimate(recipes, e.slot) } : e,
     );
@@ -1131,7 +1160,7 @@ export function generateWeek({
   let dinnerCursor = 0;
 
   dates.forEach((date, i) => {
-    if (isPast(date)) return; // day already eaten — index i stays weekday-true
+    if (isPast(date) || isHeld(date)) return; // eaten, or an occasion owns it
     if (mealSlotSet.has("breakfast")) {
       fill(date, "breakfast", committees.breakfast[i % Math.max(1, committees.breakfast.length)]);
     }
@@ -1277,6 +1306,13 @@ export function generateWeek({
       calorieOverDays,
       timeBudgetRelaxed,
       outDays,
+      // said out loud, never silent: these days were not planned, an
+      // occasion owns them and generation deliberately did not touch them
+      occasionDays: [...heldDates].sort().map((date) => ({
+        date,
+        occasion: plan.entries.find((e) => e.date === date && e.occasion)?.occasion ?? "",
+        name: plan.entries.find((e) => e.date === date && e.occasionName)?.occasionName ?? "",
+      })),
     },
   };
 }
