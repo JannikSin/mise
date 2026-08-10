@@ -1359,7 +1359,7 @@ test("the Daily Dozen pass will not blow the calorie ceiling to close a gap", ()
 });
 
 test("a profile that needs dense protein is picked dense food, not more food", () => {
-  // A small loss profile can need 110 g inside 1550 kcal — 28% of her calories from protein —
+  // A small loss profile needs 110 g inside 1550 kcal, 28% from protein,
   // while much of the bank sits near 20%. Picking on absolute grams handed
   // her meals that could not reach her protein without extra calories, and
   // the top-up then added them. Picking on DENSITY hands her food that fits.

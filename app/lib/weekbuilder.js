@@ -238,7 +238,7 @@ export function pickCommittee(candidates, opts = {}) {
   // (protein g x 4 / daily kcal). Absent = the old profile-blind gram count.
   //
   // This exists because a gram count is the wrong unit for a small profile
-  // (David, 2026-08-10). A small loss profile can need 110 g inside 1550 kcal, which is 28% of
+  // (David, 2026-08-10). A small loss profile can need 110 g inside 1550 kcal, 28% of
   // her calories from protein, while her breakfast and snack pools sit near
   // 20%. Picking on absolute grams handed her meals that could not reach her
   // protein without extra calories, so the top-up pass added them and her day

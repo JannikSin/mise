@@ -99,7 +99,7 @@ test("colonoscopy preset lands its days around the procedure date", () => {
   assert.equal(o.from, "2026-08-11");
   assert.equal(o.to, "2026-08-15");
   assert.equal(o.days["2026-08-13"].label, "Clear liquids only");
-  assert.equal(o.profileId, "mom");
+  assert.equal(o.profileId, "p2");
   assert.equal(o.offTables, true, "an occasion takes you off shared tables by default");
 });
 
@@ -252,25 +252,25 @@ test("a hand-placed entry on an occasion day survives GENERATE instead of being 
 });
 
 test("occasionOn finds the owning occasion, and only for the right person", () => {
-  const mom = occasionFromPreset(presetById("colonoscopy"), "2026-08-14", "p2");
+  const held = occasionFromPreset(presetById("colonoscopy"), "2026-08-14", "p2");
   const dad = occasionFromPreset(presetById("travel"), "2026-08-13", "dad");
-  const all = [mom, dad];
-  assert.equal(occasionOn(all, "2026-08-13", "mom")?.id, mom.id);
+  const all = [held, dad];
+  assert.equal(occasionOn(all, "2026-08-13", "p2")?.id, held.id);
   assert.equal(occasionOn(all, "2026-08-13", "dad")?.id, dad.id);
   assert.equal(occasionOn(all, "2026-08-13", "david"), null);
-  assert.equal(occasionOn(all, "2026-08-20", "mom"), null);
+  assert.equal(occasionOn(all, "2026-08-20", "p2"), null);
 });
 
 test("tablesToLeave names every future table the person is still seated at", () => {
-  const mom = occasionFromPreset(presetById("colonoscopy"), "2026-08-14", "p2");
+  const held = occasionFromPreset(presetById("colonoscopy"), "2026-08-14", "p2");
   const tables = [
-    { id: "t-past", date: "2026-08-11", seats: [{ id: "mom" }, { id: "david" }] },
-    { id: "t1", date: "2026-08-13", seats: [{ id: "mom" }, { id: "david" }] },
-    { id: "t2", date: "2026-08-14", seats: [{ id: "mom", status: "skipped" }] },
-    { id: "t3", date: "2026-08-20", seats: [{ id: "mom" }] },
+    { id: "t-past", date: "2026-08-11", seats: [{ id: "p2" }, { id: "david" }] },
+    { id: "t1", date: "2026-08-13", seats: [{ id: "p2" }, { id: "david" }] },
+    { id: "t2", date: "2026-08-14", seats: [{ id: "p2", status: "skipped" }] },
+    { id: "t3", date: "2026-08-20", seats: [{ id: "p2" }] },
     { id: "t4", date: "2026-08-13", seats: [{ id: "david" }] },
   ];
-  assert.deepEqual(tablesToLeave(tables, [mom], "mom", "2026-08-12"), ["t1"]);
+  assert.deepEqual(tablesToLeave(tables, [held], "p2", "2026-08-12"), ["t1"]);
   // t-past: before today, history is not rewritten
   // t2: already skipped
   // t3: outside the occasion
@@ -307,7 +307,7 @@ test("summarize reads like a person wrote it", () => {
 // days, not one, and nobody should have to create three occasions to say so.
 
 test("a repeatable preset stretches across the days you ask for", () => {
-  const trip = occasionFromPreset(presetById("travel"), "2026-08-14", "mom", { days: 3 });
+  const trip = occasionFromPreset(presetById("travel"), "2026-08-14", "p3", { days: 3 });
   assert.deepEqual(datesOf(trip), ["2026-08-14", "2026-08-15", "2026-08-16"]);
   for (const d of datesOf(trip)) assert.equal(trip.days[d].label, "Travelling");
   assert.equal(summarize(trip), "3 days, Aug 14 to Aug 16");
@@ -350,7 +350,7 @@ test("a prep day DOES shop: its food has real recipes behind it", () => {
 test("the custom occasion is a real escape hatch: named, any length, no rules", () => {
   const custom = presetById("custom");
   assert.ok(custom.custom && custom.repeatable, "blank AND stretchable, or it is not an escape hatch");
-  const o = occasionFromPreset(custom, "2026-08-14", "mom", { days: 3, name: "  lake house  " });
+  const o = occasionFromPreset(custom, "2026-08-14", "p3", { days: 3, name: "  lake house  " });
   assert.equal(o.name, "lake house", "named by the person, trimmed");
   assert.deepEqual(datesOf(o), ["2026-08-14", "2026-08-15", "2026-08-16"]);
   assert.ok(!custom.medical && !custom.disclaimer, "no medical claim on a blank one");

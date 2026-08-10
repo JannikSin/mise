@@ -85,7 +85,7 @@ test("rankScoreboard sorts by score desc, name as stable tiebreak", () => {
 });
 
 test("an occasion day never counts against the score", () => {
-  // a medical-prep week: she ate exactly what the app told her to. If those
+  // a medical-prep week: the person ate exactly what the app told them to. If those
   // meals counted as uncooked she would be punished for complying.
   const week = "2026-W33";
   const base = {

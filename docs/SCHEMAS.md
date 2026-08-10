@@ -1118,23 +1118,24 @@ holiday, travel, a race. Written by the Occasions screen (Settings ->
 Occasions), which is the whole point of the file: a new *kind* of situation
 used to require new code, and now it is data anyone can create in the app.
 
-Cross-profile like `plans/` and `shopping.json`: one person sets another's
-colonoscopy prep up on his own phone, so the writer uses `{ raw: true }` and
-the path of the occasion's OWNER, not the signed-in profile.
+Cross-profile like `plans/` and `shopping.json`: one person can set a
+medical prep up for another on their own phone, so the writer uses
+`{ raw: true }` and the path of the occasion's OWNER, not the signed-in
+profile.
 
 ```jsonc
 {
   "occasions": [
     {
-      "id": "colonoscopy-2026-03-15-p2",
+      "id": "colonoscopy-2026-03-15-p2", // example values throughout
       // deterministic from preset + anchor + person, so applying the same
       // occasion twice from two devices merges to ONE, never two
       "name": "Colonoscopy prep",
       "emoji": "⚕",
       "presetId": "colonoscopy", // ? which hand-written preset it came from
-      "profileId": "mom", // whose days these are
-      "from": "2026-08-11", // first owned date (derived, not authored)
-      "to": "2026-08-15", // last owned date
+      "profileId": "p2", // whose days these are
+      "from": "2026-03-12", // first owned date (derived, not authored)
+      "to": "2026-03-16", // last owned date
       "anchor": "2026-03-15", // ? the date the person actually knows
       "disclaimer": "This is the standard protocol...",
       // ? copied from the preset at creation, so an occasion already applied
