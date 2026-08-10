@@ -24,6 +24,7 @@ import {
 } from "./plan.js";
 import { slug } from "./shopping.js";
 import { enforcedFloors } from "./fitness.js";
+import { seatServingsFor } from "./tables.js";
 
 /** deterministic 32-bit FNV-1a — the builder's only randomness source */
 function hash(/** @type {string} */ s) {
@@ -211,7 +212,8 @@ export function foodGroupGapBonus(recipe, coverageSoFar, targets) {
  *   recentRecipeIds?: Set<string> | string[],
  *   cuisinePrefs?: { loved: string[], avoided: string[] },
  *   budget?: "tight" | "normal" | "loose",
- *   breakfastStyle?: string
+ *   breakfastStyle?: string,
+ *   proteinRatioNeeded?: number
  * }} [opts]
  * @returns {Record<string, any>[]}
  */
@@ -232,6 +234,17 @@ export function pickCommittee(candidates, opts = {}) {
   const coverageSoFar = opts.coverageSoFar ?? {};
   const dailyDozenTargets = opts.dailyDozenTargets ?? {};
   const dislikes = opts.dislikeIngredients ?? [];
+  // What FRACTION of this profile's calories has to come from protein
+  // (protein g x 4 / daily kcal). Absent = the old profile-blind gram count.
+  //
+  // This exists because a gram count is the wrong unit for a small profile
+  // (David, 2026-08-10). A small loss profile can need 110 g inside 1550 kcal, which is 28% of
+  // her calories from protein, while her breakfast and snack pools sit near
+  // 20%. Picking on absolute grams handed her meals that could not reach her
+  // protein without extra calories, so the top-up pass added them and her day
+  // ran over its ceiling. Picking on DENSITY hands her the food that already
+  // fits — her bank has plenty of it, up to 45%.
+  const needRatio = Number(opts.proteinRatioNeeded) || 0;
   // "eaten too much of lately" (survey: break the year-long rut). Softer than
   // a dislike: a mild tie-loser so the week drifts toward variety without ever
   // banning the food outright.
@@ -273,11 +286,21 @@ export function pickCommittee(candidates, opts = {}) {
     if (breakfastStyle && matchesBreakfastStyle(r, breakfastStyle)) b += 1.5;
     return b;
   };
+  /** Protein score: density against what the profile needs, or the old
+   *  absolute gram nudge when no ratio was supplied. Bounded so it nudges
+   *  the pick rather than overriding ingredient overlap outright. */
+  const proteinTerm = (/** @type {Record<string, any>} */ r) => {
+    const cal = r.nutrition?.calories ?? 0;
+    const prot = r.nutrition?.protein ?? 0;
+    if (!needRatio || cal <= 0) return prot / 200;
+    const ratio = (prot * 4) / cal;
+    return Math.max(-1.5, Math.min(1.5, ((ratio - needRatio) / needRatio) * 2));
+  };
   const bonus = (/** @type {Record<string, any>} */ r) =>
     foodMatchCount(r, useSoon) * 3 +
     foodMatchCount(r, onHand) * 1 +
     foodMatchCount(r, avoidOverlap) * -0.75 +
-    (r.nutrition?.protein ?? 0) / 200 +
+    proteinTerm(r) +
     foodGroupGapBonus(r, coverageSoFar, dailyDozenTargets) * 2 +
     tasteBonus(r) +
     (recent.has(r.id) ? -2.5 : 0) +
@@ -402,10 +425,16 @@ function dayGroupTotal(entries, recipesById, date, group) {
  * @param {Record<string, any>[]} pool
  * @param {Map<string, any>} recipesById
  * @param {Record<string, number>} floors
+ * @param {{ calorieCeiling?: number }} [opts] when a ceiling is given, this
+ *   pass stops trading calories for food groups at any price: a serving bump
+ *   that would cross the ceiling is refused so the cheaper lever runs
+ *   instead, and the added-recipe lever prefers the candidate that closes the
+ *   gap for the fewest calories. Absent = the old unbounded behavior.
  * @returns {import("./plan.js").Plan}
  */
-export function foodGroupFloorPass(plan, pool, recipesById, floors) {
+export function foodGroupFloorPass(plan, pool, recipesById, floors, opts = {}) {
   const candidates = pool.filter((r) => r.effort !== "project");
+  const ceiling = Number(opts.calorieCeiling) || Infinity;
   const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
   let next = plan;
 
@@ -434,10 +463,20 @@ export function foodGroupFloorPass(plan, pool, recipesById, floors) {
       for (const entry of contributors) {
         if (dayGroupTotal(next.entries, recipesById, date, group) >= floor) break;
         let servings = entry.servings;
+        const perServing = recipesById.get(/** @type {string} */ (entry.recipeId))?.nutrition
+          ?.calories ?? 0;
         while (
           servings + 0.5 <= MAX_ENTRY_SERVINGS &&
           dayGroupTotal(next.entries, recipesById, date, group) < floor
         ) {
+          // a bump that would blow the day's calorie ceiling is refused, and
+          // lever 2 below closes the gap with something cheap instead. This is
+          // the difference between reaching 3 bean servings by growing a 540
+          // kcal farro bowl to 1.75x and reaching it with a 95 kcal edamame
+          // side — on a 1550 kcal loss profile the first one costs the day.
+          if (dayTotals(next.entries, recipesById, date).calories + perServing * 0.5 > ceiling) {
+            break;
+          }
           servings += 0.5;
           next = {
             ...next,
@@ -461,9 +500,15 @@ export function foodGroupFloorPass(plan, pool, recipesById, floors) {
       for (const c of candidates) {
         const contribution = c.foodGroups?.[group] ?? 0;
         if (contribution <= 0) continue;
+        // with a ceiling in play, what matters is calories per serving of the
+        // group closed, not raw contribution: a cheap side that has to be
+        // eaten twice still beats a dense bowl eaten once
+        const kcalPerUnit = (c.nutrition?.calories ?? 0) / contribution;
+        const costPenalty = Number.isFinite(ceiling) ? kcalPerUnit / 40 : 0;
         const score =
           overlapWith(c, weekFoodPool) * 10 +
-          contribution +
+          contribution -
+          costPenalty +
           (hash(`${c.id}|${date}|${group}`) % 997) / 9970;
         if (score > bestScore) {
           bestScore = score;
@@ -1124,6 +1169,7 @@ export function generateWeek({
         coverageSoFar,
         dailyDozenTargets: dailyDozenWeekly,
         dislikeIngredients: targets?.dislikeIngredients,
+        proteinRatioNeeded: caloriesTarget > 0 ? (proteinTarget * 4) / caloriesTarget : 0,
         tiredOf: targets?.tiredOf,
         recentRecipeIds: recentSet,
         cuisinePrefs: targets?.cuisinePrefs,
@@ -1145,6 +1191,35 @@ export function generateWeek({
     }
   }
 
+  // PORTIONS ARE SIZED TO THE PERSON, not hardcoded to one serving (David,
+  // 2026-08-10: his mother's plan ran over her calorie ceiling all seven days
+  // while she was trying to lose weight).
+  //
+  // The bank is shared, so its recipes are written at one size. A 540 kcal
+  // farro bowl is a sensible lunch inside a 3700 kcal day and a third of a
+  // 1550 kcal day. Filling every slot with exactly 1 serving therefore
+  // over-fed the smallest profile before a single pass ran, and the reactive
+  // passes then made it worse: the only lever they had was to bump a serving
+  // 1 -> 2, which adds another 540 kcal to a day with 1550 in it. The ceiling
+  // trim could not undo that without breaking the Daily Dozen floor the bump
+  // had just satisfied, so the day simply stayed over.
+  //
+  // This is the same "one pot, different plates" rule a shared table already
+  // uses, so it reuses that exact function rather than inventing a second
+  // portion model that could disagree with it.
+  //
+  // Only PROACTIVE_SHARE of the day is spent here. The rest is deliberate
+  // headroom for the reactive passes — the Daily Dozen floor pass and the
+  // macro top-up both work by adding snacks, and a day already sized to 100%
+  // has nowhere to put them.
+  const PROACTIVE_SHARE = 0.85;
+  const portionTargets = {
+    ...targets,
+    macros: { ...(targets?.macros ?? {}), calories: caloriesTarget * PROACTIVE_SHARE },
+  };
+  const portionFor = (/** @type {string} */ slot, /** @type {Record<string, any>} */ recipe) =>
+    seatServingsFor(portionTargets, slot, recipe);
+
   const fill = (
     /** @type {string} */ date,
     /** @type {string} */ slot,
@@ -1152,7 +1227,7 @@ export function generateWeek({
   ) => {
     if (!recipe) return;
     if (entriesAt(next.entries, date, slot).length > 0) return; // never overwrite (pins included)
-    next = addEntry(next, date, slot, { recipeId: recipe.id, servings: 1 });
+    next = addEntry(next, date, slot, { recipeId: recipe.id, servings: portionFor(slot, recipe) });
   };
 
   const dinnerRotation = hash(`${weekId}|${salt}|dinner`) % Math.max(1, committees.dinner.length);
@@ -1184,7 +1259,9 @@ export function generateWeek({
   // 2026-07-10 Opus audit) — must run BEFORE macroTopUp so the calorie/
   // protein top-up sees each day's post-floor totals, not the other way
   // around.
-  next = foodGroupFloorPass(next, pool("snack"), byId, dailyGroupFloors);
+  next = foodGroupFloorPass(next, pool("snack"), byId, dailyGroupFloors, {
+    calorieCeiling: Number(targets?.macros?.caloriesCeiling) || caloriesTarget * CEILING_RATIO,
+  });
 
   // Step 4: macro top-up (calories + protein). Uses the FULL snack pool, not
   // just the ingredient-overlap committee: the committee optimizes for a

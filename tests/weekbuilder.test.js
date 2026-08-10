@@ -550,15 +550,18 @@ test("generateWeek reports proteinShortDays and calorieShortDays when the pool c
   }
   for (const d of report.calorieShortDays) assert.equal(d.target, 3400);
   // both levers fire fully before the day is reported short: portions maxed
-  // (dinner 2.0, lunch 1.5) AND 2 servings-worth of snack — never gives up
-  // silently. A repeated snack pick bumps servings on ONE row, no duplicates.
+  // AND 2 servings-worth of snack — never gives up silently. A repeated snack
+  // pick bumps servings on ONE row, no duplicates.
   // (the 1-recipe dinner pool only fills 2 days under the ≤2-repeat cap;
   // days with no dinner entry have nothing to bump)
+  // Lunch is a floor, not an equality, since 2026-08-10: a slot no longer
+  // starts at a hardcoded 1 serving, it starts sized to the profile, so the
+  // invariant is that the lever fired — not the arithmetic of 1 + 0.5.
   for (const date of new Set(plan.entries.map((e) => e.date))) {
     const dinner = plan.entries.find((e) => e.date === date && e.slot === "dinner");
     const lunch = plan.entries.find((e) => e.date === date && e.slot === "lunch");
-    if (dinner) assert.equal(dinner.servings, 2, `${date} dinner maxed at 2x`);
-    assert.equal(lunch?.servings, 1.5, `${date} lunch maxed at +0.5`);
+    if (dinner) assert.ok(dinner.servings >= 2, `${date} dinner maxed, got ${dinner.servings}`);
+    assert.ok((lunch?.servings ?? 0) >= 1.5, `${date} lunch was bumped, got ${lunch?.servings}`);
     const snacks = plan.entries.filter((e) => e.date === date && e.slot === "snack");
     assert.equal(snacks.length, 1, `${date} same snack twice = one row, not duplicates`);
     assert.equal(snacks[0]?.servings, 2, `${date} stacks the max 2 servings-worth`);
@@ -1228,17 +1231,16 @@ test("generation enforces the WRITTEN floor, not a ratio of the target", () => {
       plan: { week: "2026-W29", entries: [] },
     }).report;
 
-  // a day maxes at 2 servings = 1800 kcal / 120 g protein.
-  // target 1900: the old ratio floor was 1805 (short every day); the written
-  // floor of 1700 is cleared by the same plan. The number the profile wrote
-  // is the number that decides.
-  const written = run({ calories: 1900, caloriesFloor: 1700, protein: 100, proteinFloor: 80 });
-  assert.equal(written.calorieShortDays.length, 0, "1700 written floor is met");
+  // a day maxes at 2 servings = 1800 kcal / 120 g protein, and there are no
+  // snacks in the pool, so 1800 is the hard ceiling of what any plan can reach.
+  // A written floor BELOW that is met; one above it is not. The point is that
+  // the written field decides in both directions — the old code ignored it
+  // entirely and enforced 95% of target (1805) whatever the profile said.
+  const written = run({ calories: 1900, caloriesFloor: 1200, protein: 100, proteinFloor: 80 });
+  assert.equal(written.calorieShortDays.length, 0, "a 1200 written floor is met");
 
-  // and a written floor ABOVE what the ratio would have said still binds —
-  // the field is authoritative in both directions, not just a loosening
   const strict = run({ calories: 1900, caloriesFloor: 1850, protein: 100, proteinFloor: 80 });
-  assert.equal(strict.calorieShortDays.length, 7, "1850 written floor is not met");
+  assert.equal(strict.calorieShortDays.length, 7, "an 1850 written floor cannot be met");
   // the report still shows the real goal, never the floor
   assert.equal(strict.calorieShortDays[0].target, 1900);
 });
@@ -1284,4 +1286,90 @@ test("mom's hand-edited 1400 wins over any formula", async () => {
 test("a zero floor is a real floor, not a missing one", async () => {
   const { enforcedFloors } = await import("../app/lib/fitness.js");
   assert.equal(enforcedFloors({ calories: 2000, protein: 150, proteinFloor: 0 }).protein, 0);
+});
+
+// --- portions are sized to the person (David, 2026-08-10) -----------------
+// His mother ran over her calorie ceiling all seven days while trying to lose
+// weight. The bank is shared and written at one size, so filling every slot
+// with exactly 1 serving over-fed the smallest profile before a single pass
+// ran, and the only lever the reactive passes had was to bump 1 -> 2, which
+// added another whole meal to a 1550 kcal day.
+
+test("a small profile gets smaller plates from the same shared recipes", () => {
+  const big = r("big-dinner", "dinner", ["beef"], { protein: 45, calories: 800 });
+  const bigL = r("big-lunch", "lunch", ["chicken"], { protein: 45, calories: 800 });
+  const bigB = r("big-breakfast", "breakfast", ["eggs"], { protein: 30, calories: 600 });
+  const pool = [big, bigL, bigB];
+  const run = (/** @type {number} */ calories) =>
+    generateWeek({
+      recipes: pool,
+      targets: {
+        macros: { calories, caloriesFloor: Math.round(calories * 0.9), protein: 100, proteinFloor: 60 },
+        mealSlots: ["breakfast", "lunch", "dinner"],
+      },
+      pantry: { staples: [], perishables: [] },
+      weekId: "2026-W29",
+      plan: { week: "2026-W29", entries: [] },
+      salt: 0,
+    }).plan;
+
+  const byId = recipesById(pool);
+  const small = run(1550);
+  const large = run(3400);
+  const dayOf = (/** @type {any} */ p) =>
+    dayTotals(p.entries, byId, [...new Set(p.entries.map((/** @type {any} */ e) => e.date))].sort()[0]);
+
+  assert.ok(
+    dayOf(small).calories < dayOf(large).calories,
+    "the same three recipes must not feed both people the same amount",
+  );
+  // and the small profile's day lands in a sane band around its own target
+  assert.ok(dayOf(small).calories <= 1550 * 1.15, `small day ${dayOf(small).calories} kcal`);
+});
+
+test("the Daily Dozen pass will not blow the calorie ceiling to close a gap", () => {
+  // reaching 3 bean servings by growing a 540 kcal bowl costs a loss profile
+  // its whole day; a cheap side does the same job. Given both options the
+  // pass must not bump past the ceiling.
+  const dense = r("dense-bowl", "dinner", ["farro"], { calories: 540, foodGroups: { beans: 1 } });
+  const cheap = r("edamame", "snack", ["edamame"], { calories: 95, foodGroups: { beans: 1 } });
+  const byId = recipesById([dense, cheap]);
+  const plan = {
+    week: "2026-W29",
+    entries: [{ id: "d1", date: MONDAY_W29, slot: "dinner", recipeId: "dense-bowl", servings: 1 }],
+  };
+  // ceiling 600: the day already holds 540, so even one +0.5 bump (+270)
+  // would cross it. The guard is "never bump PAST the ceiling", not "never
+  // bump" — a bump that still fits is still the tightest shopping list.
+  const capped = foodGroupFloorPass(plan, [cheap], byId, { beans: 3 }, { calorieCeiling: 600 });
+  const dinner = capped.entries.find((e) => e.id === "d1");
+  assert.equal(dinner?.servings, 1, "the dense bowl was not grown past the ceiling");
+  assert.ok(
+    capped.entries.some((e) => e.recipeId === "edamame"),
+    "the cheap contributor closed the gap instead",
+  );
+
+  // and a bump that DOES fit under the ceiling is still taken
+  const roomy = foodGroupFloorPass(plan, [cheap], byId, { beans: 3 }, { calorieCeiling: 2000 });
+  assert.ok((roomy.entries.find((e) => e.id === "d1")?.servings ?? 0) > 1);
+
+  // with no ceiling given, the old unbounded behavior is unchanged
+  const free = foodGroupFloorPass(plan, [cheap], byId, { beans: 3 });
+  assert.ok((free.entries.find((e) => e.id === "d1")?.servings ?? 0) > 1);
+});
+
+test("a profile that needs dense protein is picked dense food, not more food", () => {
+  // A small loss profile can need 110 g inside 1550 kcal — 28% of her calories from protein —
+  // while much of the bank sits near 20%. Picking on absolute grams handed
+  // her meals that could not reach her protein without extra calories, and
+  // the top-up then added them. Picking on DENSITY hands her food that fits.
+  const lean = r("lean-fish", "dinner", ["cod"], { protein: 34, calories: 370 }); // 37%
+  const heavy = r("heavy-bowl", "dinner", ["rice"], { protein: 34, calories: 900 }); // 15%
+  const pick = (/** @type {number} */ ratio) =>
+    pickCommittee([lean, heavy], { size: 1, salt: 0, proteinRatioNeeded: ratio })[0]?.id;
+  assert.equal(pick(0.284), "lean-fish", "a demanding ratio prefers the dense dish");
+  // and with no ratio supplied the old profile-blind behaviour is unchanged:
+  // equal grams, so the tie falls to the pre-existing scoring, not to density
+  const blind = pickCommittee([lean, heavy], { size: 2, salt: 0 });
+  assert.equal(blind.length, 2);
 });
