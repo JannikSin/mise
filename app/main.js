@@ -1928,6 +1928,9 @@ function App() {
         protein: /** @type {number} */ (t?.macros?.protein ?? 0),
         diet: /** @type {string} */ (t?.diet ?? "omnivore"),
         avoid: /** @type {string[]} */ (t?.avoidIngredients ?? []),
+        // client-side only (the Worker's sanitizePeople drops it): the week
+        // planner screens candidate recipes with the full predicate
+        avoidRecipes: /** @type {string[]} */ (t?.avoidRecipes ?? []),
       });
     }
     return out;
@@ -2092,6 +2095,16 @@ function App() {
       const facts = await handleDinerFacts(participantIds);
       const candidates = bankRecipesRef.current
         .filter((r) => ["breakfast", "lunch", "dinner"].includes(r.mealType))
+        // the model never sees ingredients, so a bank pick that hits ANY
+        // participant's diet/avoid screen must never reach it — otherwise the
+        // pick derives as a conflict banner on that person's phone and the
+        // family eats a table that person's plan refuses (mom's onion
+        // shawarma, 2026-08-09). Same predicate the derivation enforces.
+        .filter((r) =>
+          facts.every(
+            (f) => recipeConflicts(r, f.diet, f.avoid, f.avoidRecipes ?? []).length === 0,
+          ),
+        )
         .map((r) => ({
           id: /** @type {string} */ (r.id),
           name: /** @type {string} */ (r.name),
