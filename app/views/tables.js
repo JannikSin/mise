@@ -26,6 +26,7 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onRemoveTable: (house: string, id: string) => void,
  *   onSetBuyer?: (house: string, tableId: string, buyerId: string | null) => void,
  *   onPatchSeat: (house: string, tableId: string, patch: Partial<import("../lib/tables.js").Seat>) => void,
+ *   onSameForEveryone?: (house: string, tableId: string, same: boolean) => void,
  *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>,
  *   onTailorTable: (house: string, tableId: string) => Promise<void>,
  *   onDinnerWeek?: (participantIds: string[], meals: { date: string, slot: string }[], cuisine: string, note: string, away?: Record<string, string[]>, brigade?: import("../lib/tables.js").Brigade | null) => Promise<{ made: { date: string, slot: string, name: string, why: string }[], notes: string[] }>,
@@ -51,6 +52,7 @@ export function TablesView({
   onRemoveTable,
   onSetBuyer = undefined,
   onPatchSeat,
+  onSameForEveryone,
   onSeatScreen,
   onTailorTable,
   onDinnerWeek = undefined,
@@ -102,6 +104,32 @@ export function TablesView({
     }
     setTailorBusy(null);
   };
+
+  // TAILORING IS THE DEFAULT, not a button (David, 2026-08-10: "the norm
+  // should be following exactly what you should be doing"). Every upcoming
+  // shared table in my house tailors itself once, unless somebody explicitly
+  // said everyone eats the same tonight.
+  //
+  // Three guards, because this spends an AI call and runs inside a render
+  // effect: ONE table at a time (tailorBusy), never the same table twice
+  // (`tried`, which also absorbs failures so a broken table cannot retry
+  // forever), and never while the token is missing. A table that fails keeps
+  // its manual button, so nothing becomes unreachable.
+  const [tried, setTried] = useState(/** @type {Record<string, boolean>} */ ({}));
+  useEffect(() => {
+    if (tokenBlocked || tailorBusy) return;
+    const next = myTables.find(
+      ({ house, t }) =>
+        house === myHouse &&
+        !t.tailor &&
+        !t.sameForEveryone &&
+        !tried[t.id] &&
+        (t.seats ?? []).some((sx) => sx.status !== "skipped"),
+    );
+    if (!next) return;
+    setTried((cur) => ({ ...cur, [next.t.id]: true }));
+    void runTailor(next.house, next.t.id);
+  });
 
   // BRIGADE state. A brigade is a standing table: people who live together
   // and eat the same meals. Only same-house profiles can be members, which is
@@ -380,13 +408,17 @@ export function TablesView({
               : html`<div class="d hint">🛒 nobody has claimed the groceries yet</div>`
           }
           <div class="d num">
-            ${(t.seats ?? [])
-              .map((s) => `${nameOf(s.id)} ×${s.servings}${s.status === "skipped" ? " (out)" : ""}`)
-              .join(" · ")}
-            · cook total
-            ×${(t.seats ?? [])
-              .filter((s) => s.status !== "skipped")
-              .reduce((sum, s) => sum + (Number(s.servings) || 0), 0)}
+            ${
+              // NO SERVING COUNTS (David, 2026-08-10). "David ×2.5 · Mom ×0.75
+              // · cook total ×9.75" reads as "am I eating two and a half
+              // servings?" and "am I cooking nine servings?", neither of which
+              // means anything to a person. A serving is a denominator for the
+              // macros, not an amount anybody should eat. Say WHO is eating;
+              // each person's actual plate is the tailored line below.
+              (t.seats ?? [])
+                .map((s) => `${nameOf(s.id)}${s.status === "skipped" ? " (out)" : ""}`)
+                .join(" · ")
+            }
           </div>
           ${
             conflicted &&
@@ -424,9 +456,19 @@ export function TablesView({
             tailorErr[t.id] &&
             html`<div class="d num redflag" role="status">${tailorErr[t.id]}</div>`
           }
+          ${
+            t.sameForEveryone &&
+            html`<div class="d hint">
+              🍲 everyone eats the same tonight — no per-person plates
+            </div>`
+          }
           <div class="actions wrap">
             ${
+              // tailoring runs by itself now; this button only exists to RETRY
+              // a table that failed, or to redo one after a seat changed
               mySeat &&
+              !t.sameForEveryone &&
+              (t.tailor || tailorErr[t.id] || tailorBusy === t.id) &&
               html`<button
                 class="secondary"
                 disabled=${
@@ -436,13 +478,19 @@ export function TablesView({
                 }
                 onClick=${() => runTailor(house, t.id)}
               >
-                ${
-                  tailorBusy === t.id
-                    ? "TAILORING…"
-                    : t.tailor
-                      ? "✨ RE-TAILOR"
-                      : "✨ TAILOR PLATES"
-                }
+                ${tailorBusy === t.id ? "TAILORING…" : "✨ REDO PLATES"}
+              </button>`
+            }
+            ${
+              // the EXCEPTION now takes the tap, not the rule
+              mySeat &&
+              house === myHouse &&
+              onSameForEveryone &&
+              html`<button
+                class="secondary"
+                onClick=${() => onSameForEveryone(house, t.id, !t.sameForEveryone)}
+              >
+                ${t.sameForEveryone ? "✨ TAILOR IT AFTER ALL" : "🍲 SAME FOR EVERYONE"}
               </button>`
             }
             ${

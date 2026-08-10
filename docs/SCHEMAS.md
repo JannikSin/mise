@@ -687,6 +687,26 @@ even the same slot — merge without losing either entry.
 
 Absent `pinned` = unpinned (default behavior today, unchanged for existing data).
 
+**`sameForEveryone` (table field, optional; absent = tailored).** Plate
+tailoring is the DEFAULT as of 2026-08-10: every upcoming table in your own
+house tailors itself once, automatically, because following the plan should be
+what happens when nobody does anything. This flag is the opt-out for one meal
+("everyone eats the same tonight"), and setting it DROPS any existing `tailor`
+block, because those plates are exactly what the person just rejected.
+Clearing it removes the field entirely and the auto-tailor picks the table up
+again. Per-table on purpose: a cheat night is one dinner, not a new way of
+eating. The auto-run is guarded to one table at a time and never retries a
+table it has already attempted, so a failing table cannot loop on an AI call.
+
+**NO SERVING COUNTS IN ANYTHING A PERSON READS (2026-08-10).** `servings` on a
+recipe remains the denominator its macros are quoted against, and seat
+`servings` remains the pot-share scalar. Neither is an amount of food anybody
+should eat, and printing them invited exactly the wrong reading: the app used
+to say "cooking 0.75 of 3", "cook x9.75", and "David x2.5 - Mom x0.75", which a
+person reads as "am I eating two and a half servings?" (David: "what are you
+trying to do, make me fat?"). Every user-facing surface now names WHOSE food it
+is and lets the ingredient amounts carry the quantity. Keep it that way.
+
 **`potFromBank` (shared-table pot lines only; absent = a normal entry).** A
 cook/buyer's derived shopping pseudo-entry carries the BANK recipe's id and the
 whole pot's serving total. `deriveShoppingList` resolves `recipeId` through the

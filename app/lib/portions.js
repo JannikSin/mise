@@ -91,7 +91,7 @@ export function cookPlan(recipe, plannedServings) {
         ...i,
         qty: scaleQty(Number(i.qty) || 0, i.unit, ratio),
       })),
-      note: `Scaled up for the table: makes ${eat} servings (${Math.round(ratio * 100) / 100}× the recipe). Amounts below are the full batch.`,
+      note: `Amounts below are the WHOLE POT for everyone eating. Cook this much; each person's own plate comes off it.`,
     };
   }
 
@@ -103,7 +103,7 @@ export function cookPlan(recipe, plannedServings) {
       eatServings: eat,
       extraServings: 0,
       ingredients,
-      note: makes > 1 ? `Makes ${makes} servings — you're eating all of it.` : "",
+      note: "",
     };
   }
 
@@ -117,8 +117,8 @@ export function cookPlan(recipe, plannedServings) {
       extraServings: extra,
       ingredients, // cook the full batch on purpose
       note:
-        `Batch: makes ${makes}. Eat ${eat} now, save the other ${extra} for later days. ` +
-        `Don't eat the extra tonight — the plan schedules it as leftovers.`,
+        `Cook the whole batch. Eat your plate now and put the rest in the fridge — ` +
+        `the plan has already scheduled it as leftovers, so don't eat the extra tonight.`,
     };
   }
 
@@ -133,6 +133,6 @@ export function cookPlan(recipe, plannedServings) {
       ...i,
       qty: scaleQty(Number(i.qty) || 0, i.unit, ratio),
     })),
-    note: `Scaled to your meal (${eat} serving${eat === 1 ? "" : "s"}). Cook only this much, nothing extra to overeat.`,
+    note: "Amounts below are YOUR plate. Cook only this much, so there is nothing extra to overeat.",
   };
 }

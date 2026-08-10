@@ -10,7 +10,7 @@ import { recipeConflicts, SLOT_KEYS } from "./plan.js";
  * @typedef {{ id: string, servings: number, status?: "in" | "skipped" }} Seat seat id = profileId
  * @typedef {{ portionGrams?: number, plate: string[], estCalories: number, estProtein: number }} TailorSeat scale-first: portionGrams = weighed grams of the finished dish on this plate (absent/0 on pre-scale tailors)
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
- * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string }} TableEvent
+ * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, sameForEveryone?: boolean }} TableEvent
  * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string }} Brigade
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
@@ -510,6 +510,43 @@ export function setTableBuyer(events, tableId, buyerId, today) {
         return rest;
       }
       return { ...t, buyerId };
+    }),
+  };
+}
+
+/**
+ * "Everyone eats the same tonight" — the EXCEPTION, not the default (David,
+ * 2026-08-10). Tailoring now runs automatically on every upcoming table,
+ * because following the plan should be what happens when nobody does
+ * anything. Setting this flag opts one meal out: no per-person plates, one
+ * dish, serve it how you like. Clearing it drops the field entirely
+ * (absent = tailored, per the SCHEMAS "absent != null" convention) and the
+ * auto-tailor picks the table up again.
+ *
+ * Deliberately per-TABLE and not a profile setting: a cheat night is one
+ * dinner, not a new way of eating.
+ * @param {HouseEvents} events
+ * @param {string} tableId
+ * @param {boolean} same
+ * @param {string} [today] prunes past-retention tables like every CRUD write
+ * @returns {HouseEvents}
+ */
+export function setTableSameForEveryone(events, tableId, same, today) {
+  const base = today ? pruneTables(events, today) : events;
+  return {
+    ...base,
+    tables: base.tables.map((t) => {
+      if (t.id !== tableId) return t;
+      if (!same) {
+        const rest = { ...t };
+        delete rest.sameForEveryone;
+        return rest;
+      }
+      // dropping any existing tailor is the point: the plates are what the
+      // person just said they do not want tonight
+      const rest = { ...t, sameForEveryone: true };
+      delete rest.tailor;
+      return rest;
     }),
   };
 }

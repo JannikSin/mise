@@ -67,9 +67,18 @@ export function RecipeView({ recipe, loading, from, servings, entryId, unshopped
       <div class="meta num">
         ${recipe.totalTime}m ·${" "}
         ${
+          // NO SERVING COUNTS (David, 2026-08-10). "cooking 0.75 of 3" and
+          // "makes 9.75 servings" are the app talking to itself. A serving is
+          // only a denominator for the macros; it is not an amount of food any
+          // particular person should eat, and printing it invites exactly the
+          // wrong reading ("am I eating three servings?"). The amounts listed
+          // below are already scaled to whoever is cooking, so say WHOSE food
+          // this is and let the ingredient list carry the quantity.
           plan.mode === "single"
-            ? html`cooking ${plan.cookServings} of ${recipe.servings}`
-            : html`serves ${recipe.servings}`
+            ? html`your plate`
+            : plan.mode === "scaled"
+              ? html`the whole pot`
+              : html`makes extra on purpose`
         }
         · ${recipe.effort}
         ${(recipe.purpose ?? []).map((/** @type {string} */ p) => html`<span class="tag ${p}">${p === "pre-activity" ? "pre-act" : p}</span>`)}

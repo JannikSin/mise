@@ -7,6 +7,7 @@ import {
   removeTable,
   patchSeat,
   setTableTailor,
+  setTableSameForEveryone,
   setTableBuyer,
   pruneTables,
   stripTableEntries,
@@ -447,4 +448,36 @@ test("setTableBuyer claims and releases; clearing writes the field OUT (absent, 
   assert.equal(claimed.tables[0].buyerId, "mom");
   const released = setTableBuyer(claimed, "t1", null, "2026-07-24");
   assert.ok(!("buyerId" in released.tables[0]), "absent, per SCHEMAS conventions");
+});
+
+// --- tailoring is the default; sameForEveryone is the exception -----------
+// David, 2026-08-10: "the norm should be tailoring, the norm should be
+// following exactly what you should be doing. A button to UN-tailor."
+
+test("sameForEveryone opts one meal out and drops its plates", () => {
+  const base = {
+    house: "home",
+    tables: [
+      {
+        id: "t1",
+        name: "kofta",
+        date: "2026-07-24",
+        slot: "dinner",
+        recipeId: "kebab",
+        seats: [{ id: "david", servings: 2 }],
+        tailor: { at: "2026-07-23", seats: { david: { plate: ["x"] } }, cook: [] },
+      },
+    ],
+    brigades: [],
+  };
+  const off = setTableSameForEveryone(base, "t1", true, "2026-07-20");
+  assert.equal(off.tables[0].sameForEveryone, true);
+  assert.equal(off.tables[0].tailor, undefined, "the plates it just rejected are dropped");
+
+  // clearing removes the field entirely (absent = tailored, SCHEMAS convention)
+  const back = setTableSameForEveryone(off, "t1", false, "2026-07-20");
+  assert.ok(!("sameForEveryone" in back.tables[0]), "absent, not false");
+
+  // and it never touches another table
+  assert.equal(setTableSameForEveryone(base, "nope", true, "2026-07-20").tables[0].tailor?.at, "2026-07-23");
 });

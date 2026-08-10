@@ -94,6 +94,7 @@ import {
   removeBrigade,
   materializeBrigade,
   setTableTailor,
+  setTableSameForEveryone,
   setTableBuyer,
   cookOf,
   brigadeTableId,
@@ -2013,6 +2014,18 @@ function App() {
     [writeHouseEvents, askConfirm],
   );
 
+  const handleSameForEveryone = useCallback(
+    (/** @type {string} */ house, /** @type {string} */ tableId, /** @type {boolean} */ same) => {
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      if (!cur) return;
+      writeHouseEvents(
+        house,
+        setTableSameForEveryone(cur, tableId, same, localIsoDate(new Date())),
+      );
+    },
+    [writeHouseEvents],
+  );
+
   const handlePatchSeat = useCallback(
     (
       /** @type {string} */ house,
@@ -2754,6 +2767,7 @@ function App() {
         onPatchSeat=${handlePatchSeat}
         onSeatScreen=${handleSeatScreen}
         onTailorTable=${handleTailorTable}
+        onSameForEveryone=${handleSameForEveryone}
         onDinnerWeek=${handleDinnerWeek}
         scoreboard=${scoreboard}
         weekId=${weekId}

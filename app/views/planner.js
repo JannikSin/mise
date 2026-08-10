@@ -395,8 +395,8 @@ export function PlannerView({
                     // cookTotal only exists on the cook's own device — the one
                     // honest "it's your night" signal available in this view
                     /** @type {any} */ (dayTable).cookTotal
-                      ? html`🍽 family dinner — <strong>👨‍🍳 your night to cook</strong> (batch
-                          ×${/** @type {any} */ (dayTable).cookTotal})`
+                      ? html`🍽 family dinner — <strong>👨‍🍳 your night to cook</strong> (cooking
+                          for everyone seated)`
                       : html`🍽 family dinner — you're seated, nothing to
                         shop${
                           /** @type {any} */ (dayTable).cookName
@@ -498,7 +498,7 @@ export function PlannerView({
                                   <span class="chipbody">
                                     <span class="n">
                                       ${name}${entry.table && html` <span class="usesoon">table</span>`}
-                                      ${entry.cookTotal && html` <span class="usesoon">cook ×${entry.cookTotal}</span>`}
+                                      ${entry.cookTotal && html` <span class="usesoon">you cook</span>`}
                                       ${entry.cookedAt && html` <span class="usesoon cookedchip">✓ cooked</span>`}
                                       ${
                                         /** @type {any} */ (entry).plate &&

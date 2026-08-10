@@ -39,7 +39,9 @@ test("cookPlan single mode scales an everyday recipe down to the meal", () => {
     p.ingredients.map((i) => i.qty),
     [14, 1],
   );
-  assert.match(p.note, /Scaled to your meal/);
+  // no serving counts in anything a person reads (David, 2026-08-10)
+  assert.match(p.note, /YOUR plate/);
+  assert.ok(!/serving/i.test(p.note), p.note);
 });
 
 test("cookPlan batch mode cooks the full batch and banks the rest", () => {
@@ -57,7 +59,8 @@ test("cookPlan batch mode cooks the full batch and banks the rest", () => {
     p.ingredients.map((i) => i.qty),
     [2],
   ); // unscaled
-  assert.match(p.note, /save the other 3.75/);
+  assert.match(p.note, /fridge/);
+  assert.ok(!/serving/i.test(p.note), p.note);
 });
 
 test("cookPlan full mode: cooking the whole recipe (or cookbook browse) doesn't scale", () => {
@@ -91,7 +94,8 @@ test("cooking MORE than the recipe makes scales every ingredient UP (family batc
   assert.equal(plan.cookServings, 5.75);
   assert.equal(plan.ingredients[0].qty, 862.5, "300 g × 5.75/2");
   assert.equal(plan.ingredients[1].qty, 3, "counts round to a cookable half");
-  assert.ok(plan.note.includes("2.88×") || plan.note.includes("2.87×"), plan.note);
+  assert.match(plan.note, /WHOLE POT/);
+  assert.ok(!/serving/i.test(plan.note), plan.note);
   // exact yield unchanged: still mode full, unscaled
   assert.equal(cookPlan(recipe, 2).mode, "full");
 });
