@@ -2036,7 +2036,10 @@ function App() {
       /** @type {Record<string, { plate: string[], estCalories: number, estProtein: number }>} */
       const seats = {};
       for (const p of decision.plates ?? []) {
-        if (p.note)
+        // plates only for people actually seated at THIS meal — attendance
+        // can exclude someone from a day, and the model may still have
+        // written them a plate
+        if (p.note && participantIds.includes(p.id))
           seats[p.id] = { plate: [p.note], estCalories: p.estCalories, estProtein: p.estProtein };
       }
       return Object.keys(seats).length > 0 && newTable
@@ -2084,6 +2087,7 @@ function App() {
       /** @type {{ date: string, slot: string }[]} */ meals,
       /** @type {string} */ cuisine,
       /** @type {string} */ note,
+      /** @type {Record<string, string[]>} */ away = {},
     ) => {
       const facts = await handleDinerFacts(participantIds);
       const candidates = bankRecipesRef.current
@@ -2096,7 +2100,7 @@ function App() {
           cuisine: /** @type {string} */ (r.cuisine ?? ""),
           meal: /** @type {string} */ (r.mealType),
         }));
-      const { nights, notes } = await dinnerWeek(facts, candidates, meals, cuisine, note);
+      const { nights, notes } = await dinnerWeek(facts, candidates, meals, cuisine, note, away);
       const today = localIsoDate(new Date());
       const me = activeProfile();
       const house = myHouseOf();
@@ -2114,10 +2118,17 @@ function App() {
       /** @type {{ date: string, slot: string, name: string, why: string }[]} */
       const made = [];
       for (const { n, recipeId } of resolved) {
+        // attendance: someone marked away for a date is seated on NONE of
+        // that day's tables — portions, plates and the buy shrink with them
+        const present = participantIds.filter((id) => !(away[id] ?? []).includes(n.date));
+        if (present.length === 0) {
+          notes.push(`${n.date} ${n.slot ?? "dinner"}: everyone is away — no table set`);
+          continue;
+        }
         cur = tableFromDecision(
           cur,
           n,
-          participantIds,
+          present,
           recipeId,
           n.date,
           n.slot ?? "dinner",

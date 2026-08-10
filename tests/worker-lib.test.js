@@ -418,6 +418,27 @@ test("buildDinnerWeekRequest lists the meals, cuisine and people, and forces the
   assert.match(req.system, /r1: Lentil ragu \(dinner, /);
 });
 
+test("buildDinnerWeekRequest carries attendance so an away day plans no plate", () => {
+  const req = buildDinnerWeekRequest({
+    meals: [
+      { date: "2026-08-13", slot: "dinner" },
+      { date: "2026-08-14", slot: "dinner" },
+    ],
+    cuisine: "",
+    note: "",
+    away: { mom: ["2026-08-13", "2026-08-14"] },
+    people: sanitizePeople([
+      { id: "david", name: "David", goal: "gain", calories: 3700, protein: 210 },
+      { id: "mom", name: "Mom", goal: "loss", calories: 1500, protein: 100 },
+    ]),
+    candidates: [],
+    model: "m",
+  });
+  const text = req.messages[0].content[0].text;
+  assert.match(text, /\[mom\] is NOT at the table on 2026-08-13, 2026-08-14/);
+  assert.match(text, /no plate those days/);
+});
+
 test("validateDinnerWeek: one decision per requested date+slot, junk meals dropped, order kept", () => {
   const meals = [
     { date: "2026-08-10", slot: "breakfast" },

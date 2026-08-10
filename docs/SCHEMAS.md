@@ -508,7 +508,10 @@ Rules (binding, from the Tribunal gate):
 - WEEK OF MEALS (Tables tab, Worker `/dinnerweek`, 2026-08-09): one call
   plans every remaining breakfast/lunch/dinner that has no table yet —
   people picked, slots picked (snacks/smoothies stay personal, never planned
-  here), optional cuisine/theme, per-meal bank pick or special, per-person
+  here), per-person ATTENDANCE days (`away`: personId → dates; an away day
+  seats that person on NONE of the day's tables, so cook totals, plates and
+  the buy all shrink with the seat, and the model is told to plan them no
+  plate), optional cuisine/theme, per-meal bank pick or special, per-person
   plate specs with weighed gram amounts so each person lands near their own
   daily calories/protein while the house cooks each slot ONCE. Each meal
   lands as an ordinary table via the same apply path as `/dinner` (specials

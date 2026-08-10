@@ -676,6 +676,21 @@ export default {
         );
         const cuisine = typeof body.cuisine === "string" ? body.cuisine.trim().slice(0, 60) : "";
         const note = typeof body.note === "string" ? body.note.trim().slice(0, 300) : "";
+        // attendance: personId → dates they are NOT at the table. Ids must
+        // name someone in `people`, dates must be requested meal dates.
+        const mealDates = new Set(meals.map((m) => m.date));
+        const personIdSet = new Set(people.map((p) => p.id));
+        /** @type {Record<string, string[]>} */
+        const away = {};
+        if (typeof body.away === "object" && body.away !== null) {
+          for (const [id, dates] of Object.entries(body.away)) {
+            if (!personIdSet.has(id) || !Array.isArray(dates)) continue;
+            const clean = [
+              ...new Set(dates.filter((d) => typeof d === "string" && mealDates.has(d))),
+            ].sort();
+            if (clean.length > 0) away[id] = clean.slice(0, 7);
+          }
+        }
         if (people.length === 0) return json(400, { error: "people required" }, cors);
         if (meals.length === 0) return json(400, { error: "meals required" }, cors);
         const resp = await callAnthropic(
@@ -683,6 +698,7 @@ export default {
             meals,
             cuisine,
             note,
+            away,
             people,
             candidates,
             model: env.SCAN_MODEL ?? DEFAULT_MODEL,

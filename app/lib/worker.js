@@ -148,10 +148,12 @@ export async function tailorTable(recipe, seats) {
  * @param {{ date: string, slot: string }[]} meals date+slot pairs to plan
  * @param {string} cuisine cuisine/theme preference, "" = none
  * @param {string} note free-text household note, "" = none
+ * @param {Record<string, string[]>} [away] personId → dates they are NOT at
+ *   the table (no plate planned for them those days)
  * @returns {Promise<{ nights: Record<string, any>[], notes: string[] }>}
  */
-export async function dinnerWeek(people, candidates, meals, cuisine, note) {
-  const data = await post("/dinnerweek", { people, candidates, meals, cuisine, note });
+export async function dinnerWeek(people, candidates, meals, cuisine, note, away = {}) {
+  const data = await post("/dinnerweek", { people, candidates, meals, cuisine, note, away });
   return {
     nights: Array.isArray(data.nights) ? data.nights : [],
     notes: Array.isArray(data.notes) ? data.notes : [],

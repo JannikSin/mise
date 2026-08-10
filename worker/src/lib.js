@@ -953,9 +953,9 @@ const DINNER_WEEK_SYSTEM =
 
 /**
  * Anthropic Messages request for the whole-week shared-meal plan.
- * @param {{ meals: { date: string, slot: string }[], cuisine: string, note: string, people: ReturnType<typeof sanitizePeople>, candidates: { id: string, name: string, calories: number, protein: number, cuisine: string, meal?: string }[], model: string }} args
+ * @param {{ meals: { date: string, slot: string }[], cuisine: string, note: string, away?: Record<string, string[]>, people: ReturnType<typeof sanitizePeople>, candidates: { id: string, name: string, calories: number, protein: number, cuisine: string, meal?: string }[], model: string }} args
  */
-export function buildDinnerWeekRequest({ meals, cuisine, note, people, candidates, model }) {
+export function buildDinnerWeekRequest({ meals, cuisine, note, away, people, candidates, model }) {
   const who = people
     .map((p) => `[${p.id}] ${personLine(p)}${p.say ? ` | ask: "${p.say}"` : ""}`)
     .join("\n");
@@ -965,8 +965,15 @@ export function buildDinnerWeekRequest({ meals, cuisine, note, people, candidate
         `${c.id}: ${c.name} (${c.meal ? `${c.meal}, ` : ""}${c.calories} kcal, ${c.protein}g P${c.cuisine ? `, ${c.cuisine}` : ""})`,
     )
     .join("\n");
+  const attendance = Object.entries(away ?? {})
+    .map(
+      ([id, dates]) =>
+        `[${id}] is NOT at the table on ${dates.join(", ")} — plan them no plate those days; size those days' pots for the people who ARE there`,
+    )
+    .join("\n");
   const ask = [
     `Meals to plan: ${meals.map((m) => `${m.date} ${m.slot}`).join(", ")}`,
+    attendance ? `Attendance:\n${attendance}` : "",
     cuisine ? `Cuisine/theme preference: ${cuisine}` : "",
     note ? `Household note: ${note}` : "",
     "Plan every requested meal.",

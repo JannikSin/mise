@@ -28,7 +28,7 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onPatchSeat: (house: string, tableId: string, patch: Partial<import("../lib/tables.js").Seat>) => void,
  *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>,
  *   onTailorTable: (house: string, tableId: string) => Promise<void>,
- *   onDinnerWeek?: (participantIds: string[], meals: { date: string, slot: string }[], cuisine: string, note: string) => Promise<{ made: { date: string, slot: string, name: string, why: string }[], notes: string[] }>,
+ *   onDinnerWeek?: (participantIds: string[], meals: { date: string, slot: string }[], cuisine: string, note: string, away?: Record<string, string[]>) => Promise<{ made: { date: string, slot: string, name: string, why: string }[], notes: string[] }>,
  *   scoreboard: { id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, shopped: boolean }[],
  *   weekId: string,
  *   onCreateBrigade: (b: { name: string, memberIds: string[], slots: string[], cookId?: string, from: string, until: string }) => void,
@@ -200,7 +200,7 @@ export function TablesView({
   // dinner that has none yet. Snacks and smoothies stay personal on purpose.
   const WEEK_SLOTS = ["breakfast", "lunch", "dinner"];
   const [weekForm, setWeekForm] = useState(
-    /** @type {null | { unpicked: string[], slots: string[], cuisine: string, note: string }} */ (
+    /** @type {null | { unpicked: string[], slots: string[], away: Record<string, string[]>, cuisine: string, note: string }} */ (
       null
     ),
   );
@@ -238,6 +238,13 @@ export function TablesView({
     if (!weekForm || !onDinnerWeek || weekBusy) return;
     const ids = houseMates.map((p) => p.id).filter((id) => !weekForm.unpicked.includes(id));
     if (ids.length === 0 || weekMeals.length === 0) return;
+    // attendance: only picked people, only days actually being planned
+    /** @type {Record<string, string[]>} */
+    const away = {};
+    for (const id of ids) {
+      const days = (weekForm.away[id] ?? []).filter((d) => weekMeals.some((m) => m.date === d));
+      if (days.length > 0) away[id] = days;
+    }
     setWeekBusy(true);
     setWeekErr("");
     try {
@@ -246,6 +253,7 @@ export function TablesView({
         weekMeals,
         weekForm.cuisine.trim(),
         weekForm.note.trim(),
+        away,
       );
       setWeekResult(result);
       setWeekForm(null);
@@ -504,7 +512,13 @@ export function TablesView({
             onClick=${() => {
               setWeekResult(null);
               setWeekErr("");
-              setWeekForm({ unpicked: [], slots: [...WEEK_SLOTS], cuisine: "", note: "" });
+              setWeekForm({
+                unpicked: [],
+                slots: [...WEEK_SLOTS],
+                away: {},
+                cuisine: "",
+                note: "",
+              });
             }}
           >
             🗓 PLAN THE WEEK'S MEALS
@@ -575,6 +589,51 @@ export function TablesView({
               `;
             })}
           </div>
+          ${(() => {
+            // WHICH DAYS each person is at the table (David, 2026-08-09:
+            // "mom home Mon-Wed only" should come OFF the portions, not just
+            // the shopping). All lit = every planned day; un-light a day and
+            // that person is seated on NONE of that day's tables — cook
+            // totals, plates and the buy all shrink with the seat.
+            const dayDates = [...new Set(weekMeals.map((m) => m.date))];
+            const picked = houseMates.filter((p) => !weekForm.unpicked.includes(p.id));
+            if (dayDates.length < 2 || picked.length === 0) return "";
+            return html`
+              <p class="hint">Days at the table (un-light the days someone is away):</p>
+              ${picked.map((p) => {
+                const away = weekForm.away[p.id] ?? [];
+                return html`
+                  <div key=${p.id}>
+                    <div class="d">${p.emoji ?? ""} ${p.name ?? p.id}</div>
+                    <div
+                      class="chips wrapchips"
+                      role="group"
+                      aria-label="Days ${p.name ?? p.id} eats at the table"
+                    >
+                      ${dayDates.map((d) => {
+                        const on = !away.includes(d);
+                        return html`<button
+                          key=${d}
+                          class=${on ? "chip on" : "chip"}
+                          aria-pressed=${on}
+                          onClick=${() =>
+                            setWeekForm({
+                              ...weekForm,
+                              away: {
+                                ...weekForm.away,
+                                [p.id]: on ? [...away, d] : away.filter((x) => x !== d),
+                              },
+                            })}
+                        >
+                          ${parseLocalIso(d).toLocaleDateString([], { weekday: "short" })}
+                        </button>`;
+                      })}
+                    </div>
+                  </div>
+                `;
+              })}
+            `;
+          })()}
           ${
             cuisineChips.length > 0 &&
             html`<div class="chips wrapchips" role="group" aria-label="Cuisine">
