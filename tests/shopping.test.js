@@ -293,15 +293,23 @@ test("per-serving scaling divides by the recipe's own servings", () => {
   assert.equal(tuna.qty, 1); // 2 cans / 2 recipe servings * 1 planned serving
 });
 
-test("staple-flagged ingredients are excluded", () => {
-  const list = deriveShoppingList(PLAN, RECIPES, { staples: [], perishables: [] });
+test("staple-flagged ingredients are BOUGHT unless the pantry registry owns them", () => {
+  // David, 2026-08-09: "staples run out — assume I don't have it if it was
+  // not in the pantry scan." The recipe author's `staple: true` guess no
+  // longer suppresses buying; only pantry onHand does.
+  const empty = deriveShoppingList(PLAN, RECIPES, { staples: [], perishables: [] });
+  assert.ok(empty.items.find((i) => i.food === "white rice"), "unowned staple-tag is bought");
+  assert.ok(empty.items.find((i) => i.food === "onion"));
+  const owned = deriveShoppingList(PLAN, RECIPES, {
+    staples: [
+      { id: "white-rice", name: "white rice", section: "dry-goods", onHand: true, runningLow: false },
+    ],
+    perishables: [],
+  });
   assert.equal(
-    list.items.find((i) => i.food === "white rice"),
+    owned.items.find((i) => i.food === "white rice"),
     undefined,
-  );
-  assert.equal(
-    list.items.find((i) => i.food === "onion"),
-    undefined,
+    "a scanned/owned registry row still suppresses the buy",
   );
 });
 

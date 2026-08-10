@@ -284,17 +284,21 @@ export function deriveTables(houses, ctx) {
       const mySeat = live.find((s) => s.id === ctx.profileId);
       if (!mySeat) continue;
 
+      // conflict banners are for meals still AHEAD: an old table that
+      // already happened cannot be acted on, and mom's phone showing four
+      // July onion-dinner warnings in mid-August is pure noise (2026-08-09)
+      const past = t.date < ctx.today;
       if (!recipe) {
         // a table on a non-bank recipe (someone's personal variant) has no
         // honest macros for anyone else — surface it, never silently no-op
         // a family dinner out of existence (Red Team F4)
-        conflicts.push({ table: t, reasons: ["recipe not in the shared bank"] });
+        if (!past) conflicts.push({ table: t, reasons: ["recipe not in the shared bank"] });
         continue;
       }
 
       const reasons = recipeConflicts(recipe, ctx.diet, ctx.avoid, ctx.avoidRecipes);
       if (reasons.length > 0) {
-        conflicts.push({ table: t, reasons });
+        if (!past) conflicts.push({ table: t, reasons });
         continue; // no pin, no macros — never a backdoor around the screen
       }
       const key = slotKey;

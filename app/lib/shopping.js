@@ -119,9 +119,13 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
     for (const ing of recipe.ingredients ?? []) {
       const canon = canonicalFood(ing.food);
       // a nameless ingredient row (partial/hand-edited recipe JSON) cannot be
-      // shopped — skip it rather than emit an "undefined" row
-      if (!ing.food || ing.staple || onHandSlugs.has(slug(ing.food)) || onHandSlugs.has(canon))
-        continue;
+      // shopped — skip it rather than emit an "undefined" row.
+      // The recipe-side `staple: true` tag no longer suppresses buying
+      // (David, 2026-08-09: "staples run out — assume I don't have it if it
+      // was not in the pantry scan"). Ownership is asserted ONLY by the
+      // pantry registry (onHand, written by scans and P+), never by a
+      // recipe author's guess about what the kitchen keeps.
+      if (!ing.food || onHandSlugs.has(slug(ing.food)) || onHandSlugs.has(canon)) continue;
       // A known food merges to ONE row in its own preferred unit, whatever
       // unit the recipe wrote (this is the broccoli fix). An unknown food
       // keeps the unit in its id, exactly as before, so two different things

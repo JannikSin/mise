@@ -9,9 +9,9 @@
 export const TOUR_TABS = /** @type {const} */ ({
   "#/plan": "PLAN",
   "#/list": "LIST",
-  "#/tables": "CARNET",
+  "#/tables": "TODAY",
   "#/train": "TRAIN",
-  "#/system": "SYS",
+  "#/system": "SETTINGS",
 });
 
 /**
@@ -48,7 +48,7 @@ export const TOUR_STEPS = [
     route: "#/tables",
     selector: ".tablecard",
     title: "Tables — shared meals",
-    text: "One shared dish, everyone seated at their own portion, each person's day replans around it. Set one here, tailor the plates, or talk out tonight's dinner.",
+    text: "One shared dish, everyone seated at their own portion, each person's day replans around it. PLAN THE WEEK'S MEALS sets the whole family week in one tap; tailor the plates, or talk out tonight's dinner.",
   },
   {
     route: "#/plan",
@@ -102,7 +102,7 @@ export const TOUR_STEPS = [
     route: "#/list",
     selector: ".chips",
     title: "Pantry and house",
-    text: "PANTRY holds what you own: ticked groceries flow in via ADD TO PANTRY, P+ marks things you already had. EVERYONE merges your house's lists into one trip.",
+    text: "PANTRY holds what you own: ticked groceries flow in via ADD TO PANTRY, P+ marks things you already had. FAMILY merges your house's lists into one trip.",
   },
   {
     route: "#/train",
@@ -113,7 +113,7 @@ export const TOUR_STEPS = [
   {
     route: "#/system",
     selector: ".tourrow",
-    title: "SYS is the control room",
+    title: "Settings is the control room",
     text: "Token, profiles, house moves, data export, and this tour again, right here, any time.",
   },
 ];

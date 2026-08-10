@@ -293,7 +293,10 @@ particularly on client-side caching, since this app is offline-first.
       "food": "chicken thigh",
       "note": "boneless, thin-sliced", // ?
       "optional": false, // ? default false
-      "staple": false, // ? true = assume on hand, excluded from shopping
+      "staple": false, // ? LEGACY LABEL ONLY (2026-08-09, David: "staples
+      //   run out"): the tag no longer suppresses buying — ownership is
+      //   asserted only by pantry.json onHand (scans + P+). Kept in the
+      //   schema as a display hint and for the weekbuilder's overlap scoring.
     },
   ],
   "instructions": [{ "step": 1, "text": "Slice chicken thin against the grain." }],
