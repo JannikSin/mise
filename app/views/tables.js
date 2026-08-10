@@ -118,13 +118,25 @@ export function TablesView({
   const [tried, setTried] = useState(/** @type {Record<string, boolean>} */ ({}));
   useEffect(() => {
     if (tokenBlocked || tailorBusy) return;
+    // ONE DEVICE PER TABLE. Four family phones open the app and would each
+    // auto-tailor the same 21 tables: four times the AI spend, and four
+    // concurrent writes racing on one table's tailor block. The effective
+    // cook owns it — the same rule cookOf uses everywhere else, so every
+    // device agrees on the owner without talking to each other, and a skipped
+    // cook hands the job to the first present seat rather than stranding it.
+    const ownsTailoring = (/** @type {any} */ t) => {
+      const live = (t.seats ?? []).filter((/** @type {any} */ sx) => sx.status !== "skipped");
+      const namedOk = live.some((/** @type {any} */ sx) => sx.id === t.cookId);
+      return (namedOk ? t.cookId : live[0]?.id) === me;
+    };
     const next = myTables.find(
       ({ house, t }) =>
         house === myHouse &&
         !t.tailor &&
         !t.sameForEveryone &&
         !tried[t.id] &&
-        (t.seats ?? []).some((sx) => sx.status !== "skipped"),
+        (t.seats ?? []).some((sx) => sx.status !== "skipped") &&
+        ownsTailoring(t),
     );
     if (!next) return;
     setTried((cur) => ({ ...cur, [next.t.id]: true }));
