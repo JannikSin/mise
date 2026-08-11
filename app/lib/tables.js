@@ -7,7 +7,7 @@
 import { recipeConflicts, SLOT_KEYS } from "./plan.js";
 
 /**
- * @typedef {{ id: string, servings: number, status?: "in" | "skipped" }} Seat seat id = profileId
+ * @typedef {{ id: string, servings: number, rawServings?: number, status?: "in" | "skipped" }} Seat seat id = profileId
  * @typedef {{ portionGrams?: number, plate: string[], estCalories: number, estProtein: number }} TailorSeat scale-first: portionGrams = weighed grams of the finished dish on this plate (absent/0 on pre-scale tailors)
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
  * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, sameForEveryone?: boolean, cookedAt?: string }} TableEvent
@@ -627,9 +627,28 @@ const BRIGADE_SERVINGS_MAX = 3;
  * @returns {number}
  */
 export function seatServingsFor(targets, slot, recipe) {
+  const raw = seatServingsRaw(targets, slot, recipe);
+  if (raw === null) return 1;
+  const quarters = Math.round(raw * 4) / 4;
+  return Math.min(BRIGADE_SERVINGS_MAX, Math.max(SERVINGS_MIN, quarters));
+}
+
+/**
+ * The RAW, unrounded, unclamped appetite ratio (sigma, per-person-plates
+ * spec 4.3): the solve's target side divides by THIS so it is never asked
+ * to close a gap that is pure quantization. Null when it cannot be
+ * computed (no targets, no calories, empty slots) - the spec's rung 0d.
+ * Stored on seats as `rawServings` in the SAME materialization write as
+ * `servings`, so the pair is stale together or fresh together.
+ * @param {Record<string, any> | undefined} targets
+ * @param {string} slot
+ * @param {Record<string, any>} recipe
+ * @returns {number | null}
+ */
+export function seatServingsRaw(targets, slot, recipe) {
   const perServing = recipe?.nutrition?.calories ?? 0;
   const dayCalories = targets?.macros?.calories ?? 0;
-  if (perServing <= 0 || dayCalories <= 0) return 1;
+  if (perServing <= 0 || dayCalories <= 0) return null;
   const slots =
     Array.isArray(targets?.mealSlots) && targets.mealSlots.length > 0
       ? targets.mealSlots
@@ -637,11 +656,29 @@ export function seatServingsFor(targets, slot, recipe) {
   const weightOf = (/** @type {string} */ s) =>
     SLOT_WEIGHT[/** @type {keyof typeof SLOT_WEIGHT} */ (s)] ?? 1;
   const total = slots.reduce((sum, /** @type {string} */ s) => sum + weightOf(s), 0);
-  if (total <= 0) return 1;
+  if (total <= 0) return null;
   const slotCalories = dayCalories * (weightOf(slot) / total);
-  const raw = slotCalories / perServing;
-  const quarters = Math.round(raw * 4) / 4;
-  return Math.min(BRIGADE_SERVINGS_MAX, Math.max(SERVINGS_MIN, quarters));
+  return slotCalories / perServing;
+}
+
+/**
+ * The slot's share of a member's day (same weights seatServingsFor uses),
+ * exported so the solve derives the calorie and protein targets from the
+ * already use (spec 4.3: P* = targets.protein x slot calorie share).
+ * @param {Record<string, any> | undefined} targets
+ * @param {string} slot
+ * @returns {number}
+ */
+export function slotShareFor(targets, slot) {
+  const slots =
+    Array.isArray(targets?.mealSlots) && targets.mealSlots.length > 0
+      ? targets.mealSlots
+      : ["breakfast", "lunch", "dinner"];
+  const weightOf = (/** @type {string} */ s) =>
+    SLOT_WEIGHT[/** @type {keyof typeof SLOT_WEIGHT} */ (s)] ?? 1;
+  const total = slots.reduce((sum, /** @type {string} */ s) => sum + weightOf(s), 0);
+  if (total <= 0) return 0;
+  return weightOf(slot) / total;
 }
 
 /**
@@ -825,10 +862,18 @@ export function materializeBrigade(events, brigade, ctx) {
       // cook would shop for it; a new recipe recomputes from targets.
       const seats = members.map((m) => {
         const old = existing?.seats?.find((s) => s.id === m.id);
-        const carried = existing?.recipeId === meal.id ? old?.servings : undefined;
+        const sameRecipe = existing?.recipeId === meal.id;
+        const carried = sameRecipe ? old?.servings : undefined;
+        // rawServings carries and recomputes UNDER THE SAME GATE as
+        // servings (spec 10, loop-2 C2): carrying one while recomputing
+        // the other trips the manual-override detector and silently
+        // degrades the seat to sigma := s_p.
+        const carriedRaw = sameRecipe ? /** @type {any} */ (old)?.rawServings : undefined;
+        const raw = carriedRaw ?? seatServingsRaw(ctx.targetsById.get(m.id), slot, meal);
         return {
           id: m.id,
           servings: carried ?? seatServingsFor(ctx.targetsById.get(m.id), slot, meal),
+          ...(raw !== null && raw !== undefined ? { rawServings: Math.round(raw * 1000) / 1000 } : {}),
           ...(old?.status ? { status: old.status } : {}),
         };
       });
