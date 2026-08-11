@@ -1,4 +1,4 @@
-// Runnable proof for docs/per-person-plates-design.md §7.1.
+// Runnable proof for docs/per-person-plates-design.md §8.1.
 // Copy into tests/ when the build starts. Keep it green forever.
 import test from "node:test";
 import assert from "node:assert/strict";
