@@ -48,6 +48,8 @@ import {
 } from "./lib.js";
 
 const DATA_REPO = "JannikSin/mise-data";
+import { callModel, providerConfigured } from "./provider.js";
+
 const DEFAULT_MODEL = "claude-sonnet-5";
 const AUTH_TTL_MS = 10 * 60 * 1000;
 const MAX_BODY_BYTES = 16 * 1024 * 1024; // ~12MB of image after base64
@@ -225,26 +227,6 @@ async function runNotifications(token, topic, now, send) {
     }
   }
   return { sent, preview: notifications.map((n) => ({ title: n.title, body: n.body })) };
-}
-
-/**
- * @param {Record<string, any>} body Anthropic Messages request
- * @param {string} apiKey
- */
-async function callAnthropic(body, apiKey) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    throw new Error(`anthropic ${res.status}`);
-  }
-  return res.json();
 }
 
 /**
@@ -504,8 +486,8 @@ export default {
       }
     }
 
-    if (!env.ANTHROPIC_API_KEY) {
-      return json(503, { error: "ANTHROPIC_API_KEY not configured yet" }, cors);
+    if (!providerConfigured(env)) {
+      return json(503, { error: "AI provider not configured yet" }, cors);
     }
 
     // size-cap on the ACTUAL bytes read, not the client-claimed header
@@ -530,9 +512,9 @@ export default {
           ? body.mediaType
           : "";
         if (!image || !mediaType) return json(400, { error: "image + mediaType required" }, cors);
-        const resp = await callAnthropic(
+        const resp = await callModel(
           buildScanRequest({ image, mediaType, model: env.SCAN_MODEL ?? DEFAULT_MODEL }),
-          env.ANTHROPIC_API_KEY,
+          env,
         );
         return json(200, { items: validateScanItems(parseToolUse(resp, "record_items")) }, cors);
       }
@@ -551,9 +533,9 @@ export default {
           .slice(0, MAX_RECEIPT_PHOTOS)
           .map((/** @type {any} */ s) => ({ image: s.image, mediaType: s.mediaType }));
         if (images.length === 0) return json(400, { error: "image + mediaType required" }, cors);
-        const resp = await callAnthropic(
+        const resp = await callModel(
           buildReceiptRequest({ images, model: env.SCAN_MODEL ?? DEFAULT_MODEL }),
-          env.ANTHROPIC_API_KEY,
+          env,
         );
         return json(200, validateReceiptItems(parseToolUse(resp, "record_receipt")), cors);
       }
@@ -561,9 +543,9 @@ export default {
         const messages = Array.isArray(body.messages) ? body.messages.slice(-40) : [];
         const survey = typeof body.survey === "object" && body.survey ? body.survey : {};
         if (messages.length === 0) return json(400, { error: "messages required" }, cors);
-        const resp = await callAnthropic(
+        const resp = await callModel(
           buildOnboardRequest({ messages, survey, model: env.SCAN_MODEL ?? DEFAULT_MODEL }),
-          env.ANTHROPIC_API_KEY,
+          env,
         );
         return json(200, parseOnboardResponse(resp), cors);
       }
@@ -575,9 +557,9 @@ export default {
         const diners = sanitizePeople(body.diners);
         if (!image || !mediaType) return json(400, { error: "image + mediaType required" }, cors);
         if (diners.length === 0) return json(400, { error: "diners required" }, cors);
-        const resp = await callAnthropic(
+        const resp = await callModel(
           buildMenuRequest({ image, mediaType, diners, model: env.SCAN_MODEL ?? DEFAULT_MODEL }),
-          env.ANTHROPIC_API_KEY,
+          env,
         );
         return json(200, validateMenuReport(parseToolUse(resp, "record_menu")), cors);
       }
@@ -598,9 +580,9 @@ export default {
         const seats = sanitizePeople(body.seats).filter((s) => s.id);
         if (!recipe.name) return json(400, { error: "recipe required" }, cors);
         if (seats.length === 0) return json(400, { error: "seats required" }, cors);
-        const resp = await callAnthropic(
+        const resp = await callModel(
           buildTailorRequest({ recipe, seats, model: env.SCAN_MODEL ?? DEFAULT_MODEL }),
-          env.ANTHROPIC_API_KEY,
+          env,
         );
         // deterministic avoid screen AFTER the model — never an AI judgment
         return json(
@@ -619,9 +601,9 @@ export default {
         const messages = Array.isArray(body.messages) ? body.messages.slice(-30) : [];
         if (messages.length === 0) return json(400, { error: "messages required" }, cors);
         const context = sanitizeAskContext(body.context);
-        const resp = await callAnthropic(
+        const resp = await callModel(
           buildAskRequest({ messages, context, model: env.SCAN_MODEL ?? DEFAULT_MODEL }),
-          env.ANTHROPIC_API_KEY,
+          env,
         );
         return json(200, parseAskResponse(resp), cors);
       }
@@ -631,14 +613,14 @@ export default {
         const candidates = sanitizeCandidates(body.candidates);
         if (messages.length === 0) return json(400, { error: "messages required" }, cors);
         if (people.length === 0) return json(400, { error: "people required" }, cors);
-        const resp = await callAnthropic(
+        const resp = await callModel(
           buildDinnerRequest({
             messages,
             people,
             candidates,
             model: env.SCAN_MODEL ?? DEFAULT_MODEL,
           }),
-          env.ANTHROPIC_API_KEY,
+          env,
         );
         const turn = parseDinnerResponse(
           resp,
@@ -707,7 +689,7 @@ export default {
         }
         if (people.length === 0) return json(400, { error: "people required" }, cors);
         if (meals.length === 0) return json(400, { error: "meals required" }, cors);
-        const resp = await callAnthropic(
+        const resp = await callModel(
           buildDinnerWeekRequest({
             meals,
             cuisine,
@@ -717,7 +699,7 @@ export default {
             candidates,
             model: env.SCAN_MODEL ?? DEFAULT_MODEL,
           }),
-          env.ANTHROPIC_API_KEY,
+          env,
         );
         const nights = validateDinnerWeek(
           parseToolUse(resp, "record_dinner_week"),
@@ -761,9 +743,9 @@ export default {
       // /remedy
       const text = typeof body.text === "string" ? body.text.trim().slice(0, 2000) : "";
       if (!text) return json(400, { error: "text required" }, cors);
-      const resp = await callAnthropic(
+      const resp = await callModel(
         buildRemedyRequest({ text, model: env.REMEDY_MODEL ?? DEFAULT_MODEL }),
-        env.ANTHROPIC_API_KEY,
+        env,
       );
       return json(200, { protocol: validateProtocol(parseToolUse(resp, "record_protocol")) }, cors);
     } catch (e) {

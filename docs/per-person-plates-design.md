@@ -185,6 +185,25 @@ Evening 0 and sessions 1-3 can run in either order or the same week.
    and the serve step still ships as an honestly labeled portioning aid.
    All clear: GO, and these numbers become the fidelity baseline (§12).
 
+### 3.1 RESULTS, run 2026-08-10 evening on the real cloned data
+
+- **Share query: 41.0% — PASSES** the 40% bar (18 overlapping days,
+  shared-table kcal vs her own-plan kcal).
+- **Paper ceiling: FAILS.** Median achievable movement 6.2 g/1000 kcal
+  against the +10 bar, on her five most-cooked shared dinners. The
+  decisive fact: those dinners now sit at NATIVE densities of 68-86
+  g/1000 kcal against her target of 71: the v73 fixes (density-aware
+  picking + per-person portion sizing) already closed the gap the engine
+  was conceived for. On low-carb dishes the solve physically cannot move
+  density down (no carbs to grow) and clamps in place.
+- **Clamp census: 1 of 20 binds** (seat A's dinner appetite 3.13 vs the
+  3.0 cap on salmon-spinach). Minor.
+- **Standing verdict: the engine build (deploys 2a/2b, data authoring,
+  tag drip) is HELD by this gate per §3.5.** David can override in one
+  line; absent that, the remaining levers the data points at are her SOLO
+  meals (59% of calories) and the standing 110 g/1550 kcal target
+  decision in the lane. The serve step (deploy 1) shipped and stands.
+
 ---
 
 ## 4. The transform: a 2x2 solve in RELATIVE form
@@ -1187,12 +1206,17 @@ of the solve as a proposer, never downstream as a fallback for it.
 
 ### 16.2 The integration contract, built now
 
-1. **One AI gateway.** Every model call in the Worker routes through a
-   single module speaking the OpenAI-compatible chat-completions +
-   tool-calling contract, provider set by env config
-   (`{baseURL, apiKey, model, visionModel}`). Swapping Anthropic for the
-   Mac Studio is a config change, zero code. (Ollama, llama.cpp server,
-   and LM Studio all expose this contract.)
+1. **One AI gateway.** BUILT 2026-08-10: `worker/src/provider.js`
+   `callModel()` is the single seam every Worker model call routes
+   through. Internally the contract stays Anthropic Messages shape end to
+   end (requests from lib.js builders, responses as content blocks, so no
+   downstream parser ever branches on provider); the gateway carries two
+   adapters: native Anthropic (default, byte-identical to the old path)
+   and an OpenAI-compatible chat-completions adapter (the contract
+   Ollama, llama.cpp server, and LM Studio speak) that translates both
+   directions at this one seam. Provider is env config: `AI_PROVIDER`,
+   `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY`. Swapping in the Mac Studio is
+   a config change, zero code.
 2. **The Mac reaches the Worker via a Cloudflare Tunnel** to the local
    inference server. The Worker keeps owning auth, rate limits, and
    response clamping; only its upstream URL changes. Phones never talk to
