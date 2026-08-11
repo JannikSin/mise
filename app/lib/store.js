@@ -222,6 +222,25 @@ export async function read(path, opts) {
 }
 
 /**
+ * Cached-first read that also reports PROVENANCE, for the frozen-pot input
+ * fingerprint (per-person-plates-design §10, Red Team R1/N5): `sha` is the
+ * GitHub blob sha — content-addressed and identical on every device that
+ * has fetched the same bytes, unlike the local `rev` write counter, which
+ * would report skew that does not exist. A dirty (locally-edited,
+ * unflushed) record stamps dirty: its sha is stale by construction.
+ * @param {string} path
+ * @param {{ raw?: boolean }} [opts]
+ * @returns {Promise<{ data: Record<string, unknown> | null, sha: string | null, dirty: boolean }>}
+ */
+export async function readMeta(path, opts) {
+  const finalPath = opts?.raw ? path : scoped(path);
+  const rec = await dbGet(finalPath);
+  void revalidate(finalPath);
+  if (!rec) return { data: null, sha: null, dirty: false };
+  return { data: rec.data, sha: rec.sha ?? null, dirty: Boolean(rec.dirty) };
+}
+
+/**
  * @param {string} scopedPath already-final path (caller applied scoping)
  * @returns {Promise<void>}
  */

@@ -5,12 +5,13 @@
 // the next sync tick. Derived entries are NEVER persisted into a plan file
 // (main.js strips `e.table` before every plan write).
 import { recipeConflicts, SLOT_KEYS } from "./plan.js";
+import { parsePot } from "./synth.js";
 
 /**
  * @typedef {{ id: string, servings: number, rawServings?: number, status?: "in" | "skipped" }} Seat seat id = profileId
  * @typedef {{ portionGrams?: number, plate: string[], estCalories: number, estProtein: number }} TailorSeat scale-first: portionGrams = weighed grams of the finished dish on this plate (absent/0 on pre-scale tailors)
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
- * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, sameForEveryone?: boolean, cookedAt?: string }} TableEvent
+ * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, sameForEveryone?: boolean, cookedAt?: string, pot?: string }} TableEvent
  * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string }} Brigade
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
@@ -286,12 +287,17 @@ export function deriveTables(houses, ctx) {
             // through the merged pool (her variant is correct for her own
             // plate), so the distinction has to travel on the entry; a single
             // lookup map cannot carry it, because both meanings share one id.
+            // A FROZEN POT (solved tables only, spec §10) overrides the
+            // quantities wholesale: deriveTables reads t.pot when present and
+            // computes only when absent. Invalid pots drop to the plain path.
+            const frozen = parsePot(/** @type {any} */ (t).pot, recipe);
             cookExtras.push(
               /** @type {any} */ ({
                 recipeId: t.recipeId,
                 date: t.date,
                 servings: total,
                 potFromBank: true,
+                ...(frozen ? { potRows: frozen.rows } : {}),
               }),
             );
           }
@@ -543,10 +549,41 @@ export function setTableSameForEveryone(events, tableId, same, today) {
         return rest;
       }
       // dropping any existing tailor is the point: the plates are what the
-      // person just said they do not want tonight
-      const rest = { ...t, sameForEveryone: true };
+      // person just said they do not want tonight. The frozen pot goes with
+      // it (Tribunal loop-2 N9): a solved pot must not keep driving the buy
+      // under a flag that promises no per-person plates.
+      const rest = /** @type {Record<string, any>} */ ({ ...t, sameForEveryone: true });
       delete rest.tailor;
-      return rest;
+      delete rest.pot;
+      return /** @type {TableEvent} */ (rest);
+    }),
+  };
+}
+
+/**
+ * Write (or clear, with null) a table's FROZEN POT string (spec §10). The
+ * pot is the contract for money and buying; it freezes at buy-claim or at
+ * COOKED, whichever fires first, and ONLY in solved mode — the caller
+ * computes the string via synth.js freezePotString and passes null for
+ * uniform tables. Stored as a string so the merge treats it atomically.
+ * @param {HouseEvents} events
+ * @param {string} tableId
+ * @param {string | null} potString
+ * @param {string} today
+ * @returns {HouseEvents}
+ */
+export function setTablePot(events, tableId, potString, today) {
+  const base = pruneTables(events, today);
+  return {
+    ...base,
+    tables: base.tables.map((t) => {
+      if (t.id !== tableId) return t;
+      if (!potString) {
+        const rest = /** @type {Record<string, any>} */ ({ ...t });
+        delete rest.pot;
+        return /** @type {TableEvent} */ (rest);
+      }
+      return /** @type {TableEvent} */ ({ ...t, pot: potString });
     }),
   };
 }
@@ -611,7 +648,7 @@ export function setTableTailor(events, tableId, tailor, today) {
 const SLOT_WEIGHT = { breakfast: 1, lunch: 1.15, dinner: 1.3, smoothie: 0.7, snack: 0.5 };
 
 /** Brigade portions are tighter than hand-set table portions. */
-const BRIGADE_SERVINGS_MAX = 3;
+export const BRIGADE_SERVINGS_MAX = 3;
 
 /**
  * How many servings of `recipe` this member eats at `slot`, from their own
@@ -869,11 +906,20 @@ export function materializeBrigade(events, brigade, ctx) {
         // the other trips the manual-override detector and silently
         // degrades the seat to sigma := s_p.
         const carriedRaw = sameRecipe ? /** @type {any} */ (old)?.rawServings : undefined;
-        const raw = carriedRaw ?? seatServingsRaw(ctx.targetsById.get(m.id), slot, meal);
+        const rawExact = carriedRaw ?? seatServingsRaw(ctx.targetsById.get(m.id), slot, meal);
+        // BOTH numbers derive from the SAME 3-decimal value (review 2b #4):
+        // rounding raw after computing servings from the unrounded value
+        // opens a ~0.2% window where the manual-override detector falsely
+        // reclassifies an untouched seat as hand-edited, silently.
+        const raw3 = rawExact === null || rawExact === undefined ? undefined : Math.round(rawExact * 1000) / 1000;
+        const fromRaw =
+          raw3 === undefined
+            ? undefined
+            : Math.min(BRIGADE_SERVINGS_MAX, Math.max(SERVINGS_MIN, Math.round(raw3 * 4) / 4));
         return {
           id: m.id,
-          servings: carried ?? seatServingsFor(ctx.targetsById.get(m.id), slot, meal),
-          ...(raw !== null && raw !== undefined ? { rawServings: Math.round(raw * 1000) / 1000 } : {}),
+          servings: carried ?? fromRaw ?? seatServingsFor(ctx.targetsById.get(m.id), slot, meal),
+          ...(raw3 !== undefined ? { rawServings: raw3 } : {}),
           ...(old?.status ? { status: old.status } : {}),
         };
       });
@@ -896,6 +942,9 @@ export function materializeBrigade(events, brigade, ctx) {
         ...(existing?.buyerId ? { buyerId: existing.buyerId } : {}),
         ...(sameDish && existing?.cookedAt ? { cookedAt: existing.cookedAt } : {}),
         ...(sameDish && existing?.sameForEveryone ? { sameForEveryone: true } : {}),
+        ...(sameDish && /** @type {any} */ (existing)?.pot
+          ? { pot: /** @type {any} */ (existing).pot }
+          : {}),
         fromBrigade: brigade.id,
       });
       made++;

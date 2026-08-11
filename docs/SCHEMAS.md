@@ -444,9 +444,31 @@ before every plan write).
       //   buyer, falling back to the cook for unclaimed tables.
       "seats": [
         // seat id = profileId — id-keyed so concurrent seat edits merge
-        { "id": "david", "servings": 1.5 },
+        { "id": "david", "servings": 1.5, "rawServings": 1.482 },
+        // ? rawServings: the UNROUNDED, UNCLAMPED appetite ratio (sigma,
+        //   per-person-plates-design §4.3), written in the SAME
+        //   materialization write as servings so the pair is stale together
+        //   or fresh together, and carried/recomputed under the same
+        //   recipe-unchanged gate. The solve's target side divides by this;
+        //   a seat whose servings no longer equal round(clamp(rawServings))
+        //   was HAND-EDITED and the solve treats the human's number as the
+        //   target (sigma := servings). Absent on legacy seats = same rule.
         { "id": "mom", "servings": 1, "status": "skipped" }, // ? absent = in
       ],
+      "pot": "{\"synthV\":1,...}", // ? THE FROZEN POT (per-person-plates-design
+      //   §10): the contract for MONEY AND BUYING, nothing else. A JSON
+      //   STRING on purpose — mergeFieldWise treats strings atomically, so
+      //   two devices' freezes can never interleave field-wise. Parsed shape:
+      //   { synthV, inputs: { recipeRev, targets: { <profileId>:
+      //   <github-blob-sha | "dirty" | "missing"> } }, synthMode: "solved",
+      //   rows: [{ food, unit, qty }] }. Written ONLY in solved mode, by
+      //   setTablePot at buy-claim or COOKED (first trigger wins); dropped
+      //   by unclaim-while-uncooked and by sameForEveryone; validated on
+      //   every read (parsePot: full row identity vs the bank recipe,
+      //   finite qtys, no merge keys) and DROPPED to the plain path when
+      //   invalid. Survives brigade regeneration only while the recipe is
+      //   unchanged. ABSENT on every uniform table — which today is all of
+      //   them (zero assembly tags), the inert-deploy guarantee.
       "cookedAt": "2026-07-24", // ? the serve step's COOKED confirmation
       //   (per-person-plates-design §7.2). Set once by setTableCooked, never
       //   cleared (you cannot un-cook food, same rule as a plan entry's
@@ -857,6 +879,14 @@ Seeded from the FITNESS.md system; edited rarely.
     "carbs": 490, // ? grams
     "waterLiters": 3.5, // daily target midpoint
   },
+  // ? PLATE-scale engine fields (per-person-plates-design §4.5), all
+  //   optional, all under macros, all DISTINCT from the day-level floors
+  //   above (Tribunal: reusing those names made rung 3 fire on every plate):
+  //   "plateProteinCapG": 100,   // max grams of PROTEIN (the macro) on one
+  //                              // plate; ABSENT = 100, never silently off
+  //   "plateCaloriesCap": 2500,  // max kcal on one plate; absent = 2500
+  //   "plateCaloriesFloor": 300, // refuse-loudly floors, checked on the
+  //   "plateProteinFloor": 15,   // PLATE, solved mode only; absent = OFF
   "adjustmentRule": "Weigh most mornings…", // plain-text calorie adjustment rule
   "phase": "gain", // ? gain | loss | recomp | cut, current training phase.
   //   The add-profile questionnaire only ever emits

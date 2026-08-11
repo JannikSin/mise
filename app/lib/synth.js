@@ -13,7 +13,7 @@
 // is untouchable. Callers pass `weekShopped`; when true the transform runs
 // rung 0f and returns uniform regardless of tags. No change may affect a
 // bought week unless explicitly, explicitly, explicitly stated.
-import { SERVINGS_MIN } from "./tables.js";
+import { SERVINGS_MIN, BRIGADE_SERVINGS_MAX } from "./tables.js";
 import { scaleQty } from "./portions.js";
 
 // ---------------------------------------------------------------------------
@@ -341,7 +341,7 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
   if (!Number.isFinite(sigma) || sigma <= 0) sigma = s; // rung 0d shape: no raw stored
   else {
     const quarters = Math.round(sigma * 4) / 4;
-    const expected = Math.min(3, Math.max(SERVINGS_MIN, quarters));
+    const expected = Math.min(BRIGADE_SERVINGS_MAX, Math.max(SERVINGS_MIN, quarters));
     if (Math.abs(expected - s) > 1e-9) sigma = s; // manual override
   }
   if (!Number.isFinite(sigma) || sigma <= 0) return uniform("0d-bad-sigma");
@@ -501,4 +501,89 @@ export function synthesize({ recipe, seats, targetsById, slotShares, weekShopped
     rows,
     bySeat,
   };
+}
+
+// ---------------------------------------------------------------------------
+// THE FROZEN POT (spec §10): the contract for MONEY AND BUYING, and nothing
+// else. Serialized to a STRING so mergeFieldWise treats it atomically (last
+// writer wins whole, never a field-wise interleave of two freezes). Frozen
+// only when synthMode is "solved" — an unclaimed-or-uniform table has no
+// pot and runs today's paths, which is what makes this deploy inert.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the frozen pot string for a table, or null when there is nothing to
+ * freeze (uniform mode, refused synthesis, no rows).
+ * @param {{
+ *   recipe: Record<string, any>,
+ *   seats: { id: string, servings: number, rawServings?: number, status?: string }[],
+ *   targetsById: Map<string, Record<string, any> | null>,
+ *   slotShares: Record<string, number>,
+ *   weekShopped?: boolean,
+ *   targetShas?: Record<string, string>,
+ * }} args
+ * @returns {string | null}
+ */
+export function freezePotString({ recipe, seats, targetsById, slotShares, weekShopped, targetShas }) {
+  const out = synthesize({ recipe, seats, targetsById, slotShares, weekShopped });
+  if (out.synthMode !== "solved" || !out.rows) return null;
+  const fingerprint = {
+    recipeRev: recipeRevOf(recipe),
+    targets: targetShas ?? {},
+  };
+  return JSON.stringify({
+    synthV: SYNTH_V,
+    inputs: fingerprint,
+    synthMode: "solved",
+    rows: out.rows.map((/** @type {any} */ r) => ({ food: r.food, unit: r.unit, qty: r.qty })),
+  });
+}
+
+/** content hash of the inputs that shape the pot: ingredients + servings + tag */
+export function recipeRevOf(/** @type {Record<string, any>} */ recipe) {
+  const basis = JSON.stringify({
+    s: recipe?.servings ?? 1,
+    a: recipe?.assembly ?? "",
+    i: (recipe?.ingredients ?? []).map((/** @type {any} */ x) => [x.food, x.qty, x.unit, x.part ?? "", Boolean(x.atPlating)]),
+  });
+  // djb2: deterministic, tiny, no crypto dependency, not security-bearing
+  let h = 5381;
+  for (let i = 0; i < basis.length; i++) h = ((h << 5) + h + basis.charCodeAt(i)) | 0;
+  return String(h >>> 0);
+}
+
+/**
+ * Parse and VALIDATE a frozen pot against the bank recipe (spec §10,
+ * Engineer H3): inside try/catch so a malformed string drops THE POT with
+ * the caller told why, never the table; full §4.8 identity (every row's
+ * food, in order — a permuted pot passes a length check); finite
+ * quantities; no merge keys on rows (§8.1).
+ * @param {string | undefined} potString
+ * @param {Record<string, any> | undefined} bankRecipe
+ * @returns {{ synthV: number, rows: { food: string, unit: string, qty: number }[] } | null}
+ */
+export function parsePot(potString, bankRecipe) {
+  if (typeof potString !== "string" || !potString) return null;
+  try {
+    const pot = JSON.parse(potString);
+    if (pot?.synthMode !== "solved" || !Array.isArray(pot.rows)) return null;
+    const ings = bankRecipe?.ingredients ?? [];
+    if (pot.rows.length !== ings.length) return null;
+    for (let i = 0; i < pot.rows.length; i++) {
+      const row = pot.rows[i];
+      if (row.food !== ings[i].food || row.unit !== ings[i].unit) return null;
+      // typeof check on purpose: JSON.stringify(NaN) becomes null, and
+      // Number(null) is 0 — finite, and wrong. Only a real number passes.
+      if (typeof row.qty !== "number" || !Number.isFinite(row.qty) || row.qty < 0) return null;
+      if ("id" in row || "date" in row) return null; // §8.1: never merge-keyed
+    }
+    // sanitize: only the contract fields survive into consumers (money,
+    // shopping) — extra keys in a hand-editable shared file die here
+    return {
+      synthV: Number(pot.synthV) || 0,
+      rows: pot.rows.map((/** @type {any} */ r) => ({ food: r.food, unit: r.unit, qty: r.qty })),
+    };
+  } catch {
+    return null;
+  }
 }

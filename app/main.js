@@ -5,6 +5,7 @@ import {
   initStore,
   write,
   read,
+  readMeta,
   readCollection,
   readProfiles,
   activeProfile,
@@ -91,6 +92,8 @@ import {
   removeTable,
   patchSeat,
   setTableCooked,
+  setTablePot,
+  slotShareFor,
   addBrigade,
   removeBrigade,
   materializeBrigade,
@@ -109,6 +112,7 @@ import {
   tablesToLeave,
 } from "./lib/occasions.js";
 import { buildServe } from "./lib/serve.js";
+import { freezePotString, parsePot } from "./lib/synth.js";
 import {
   normalizeLedger,
   ledgerPathFor,
@@ -1743,9 +1747,94 @@ function App() {
     [updateShopping, me],
   );
 
+  // Every profile's targets IN STATE, cached-first (per-person-plates spec
+  // 10 / Engineer H1): deriving plates and freezing pots needs each seated
+  // profile's targets synchronously. Reads are intentionally house-wide
+  // (spec 8.7); shas ride along for the frozen pot's input fingerprint.
+  const [houseTargets, setHouseTargets] = useState(
+    /** @type {Map<string, { data: Record<string, any> | null, sha: string | null, dirty: boolean }>} */ (
+      new Map()
+    ),
+  );
+  const houseTargetsRef = useRef(houseTargets);
+  houseTargetsRef.current = houseTargets;
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      readProfiles().then(async (p) => {
+        const map = new Map();
+        for (const pr of p.profiles) {
+          const path =
+            pr.id === "david" ? "fitness/targets.json" : `profiles/${pr.id}/fitness/targets.json`;
+          const rec = await readMeta(path, { raw: true }).catch(() => ({
+            data: null,
+            sha: null,
+            dirty: false,
+          }));
+          map.set(pr.id, rec);
+        }
+        if (alive) setHouseTargets(map);
+      });
+    };
+    load();
+    const unsub = onSyncChange(load);
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [hasToken]);
+
+  /**
+   * THE SHOPPED-WEEK FREEZE (David, 2026-08-10): a bought week is
+   * untouchable. A table is treated as shopped when its date falls in the
+   * current plan week and that plan is marked shopped. Future weeks are
+   * unshopped by definition; past dates are frozen by definition.
+   */
+  const weekShoppedFor = async (/** @type {string} */ date) => {
+    const today = localIsoDate(new Date());
+    if (date < today) return true;
+    // the TABLE's week, for the WHOLE HOUSE (review 2b #3): the shopper is
+    // usually not the claimer, and planRef holds whichever week is being
+    // VIEWED. Cached-first reads, so instant and offline-correct.
+    const week = isoWeekId(parseLocalIso(date));
+    const p = await readProfiles().catch(() => ({ profiles: [] }));
+    for (const pr of p.profiles) {
+      const path =
+        pr.id === "david" ? `plans/${week}.json` : `profiles/${pr.id}/plans/${week}.json`;
+      const theirs = /** @type {any} */ (await read(path, { raw: true }).catch(() => null));
+      if (theirs?.shoppedAt) return true;
+    }
+    return false;
+  };
+
+  /** Freeze a table's pot per spec 10. Solved-only: null in uniform mode. */
+  const potStringFor = async (/** @type {import("./lib/tables.js").TableEvent} */ t) => {
+    const recipe = bankRecipesRef.current.find((r) => r.id === t.recipeId);
+    if (!recipe || t.sameForEveryone) return null;
+    const targetsById = new Map();
+    /** @type {Record<string, string>} */
+    const shas = {};
+    /** @type {Record<string, number>} */
+    const slotShares = {};
+    for (const s of t.seats ?? []) {
+      const rec = houseTargetsRef.current.get(s.id);
+      targetsById.set(s.id, /** @type {any} */ (rec?.data ?? null));
+      shas[s.id] = rec?.dirty ? "dirty" : (rec?.sha ?? "missing");
+      slotShares[s.id] = slotShareFor(/** @type {any} */ (rec?.data), t.slot);
+    }
+    return freezePotString({
+      recipe,
+      seats: /** @type {any} */ (t.seats ?? []),
+      targetsById,
+      slotShares,
+      weekShopped: await weekShoppedFor(t.date),
+      targetShas: shas,
+    });
+  };
+
   /** claim (or release) ONE dinner's groceries from its card */
   const handleSetBuyer = useCallback(
-    (
+    async (
       /** @type {string} */ house,
       /** @type {string} */ tableId,
       /** @type {string | null} */ buyerId,
@@ -1753,7 +1842,26 @@ function App() {
       if (house !== myHouseOf()) return;
       const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
       if (!cur) return;
-      const next = setTableBuyer(cur, tableId, buyerId, localIsoDate(new Date()));
+      let next = setTableBuyer(cur, tableId, buyerId, localIsoDate(new Date()));
+      // THE FREEZE (spec 10): FIRST TRIGGER WINS. A claim freezes a solved
+      // pot only when no VALID one exists (a buyer swap must never silently
+      // recompute the money contract after groceries may be bought; only
+      // REDO PLATES re-freezes, deliberately). A broken or orphaned pot is
+      // repaired here, same C5 semantics as the cooked trigger. Releasing
+      // the claim drops the pot only while the meal is uncooked. Uniform
+      // tables produce null and carry no pot - the inert path.
+      const claimed = next.tables.find((x) => x.id === tableId);
+      if (claimed) {
+        const recipe = bankRecipesRef.current.find((r) => r.id === claimed.recipeId);
+        if (buyerId) {
+          if (!parsePot(claimed.pot, recipe)) {
+            const pot = await potStringFor(claimed);
+            if (pot) next = setTablePot(next, tableId, pot, localIsoDate(new Date()));
+          }
+        } else if (!claimed.cookedAt) {
+          next = setTablePot(next, tableId, null, localIsoDate(new Date()));
+        }
+      }
       writeHouseEvents(house, next);
       rebuildListWithEvents(house, next);
     },
@@ -1920,10 +2028,26 @@ function App() {
   // batch consumption for shared pots is deploy-2 scope, and guessing at it
   // now would eat food twice once the frozen pot lands.
   const handleMarkTableCooked = useCallback(
-    (/** @type {string} */ tableId) => {
+    async (/** @type {string} */ tableId) => {
       for (const { house, events } of houseEventsRef.current) {
-        if (!events.tables.some((t) => t.id === tableId)) continue;
-        writeHouseEvents(house, setTableCooked(events, tableId, localIsoDate(new Date()), localIsoDate(new Date())));
+        const t = events.tables.find((x) => x.id === tableId);
+        if (!t) continue;
+        const today = localIsoDate(new Date());
+        let next = setTableCooked(events, tableId, today, today);
+        // second freeze trigger (spec 10): COOKED freezes a solved pot when
+        // no VALID one exists. PARSE-AND-VALIDATE the raw field (loop-2 C5)
+        // so a malformed, permuted, or orphaned pot (a pot on a table with
+        // neither buyer nor cooked stamp, the N5 merge state, checked on
+        // the PRE-write table) gets REPAIRED rather than laundered into a
+        // legitimate-looking money contract by the cookedAt stamp.
+        const recipe = bankRecipesRef.current.find((r) => r.id === t.recipeId);
+        const orphan = Boolean(t.pot) && !t.buyerId && !t.cookedAt;
+        const stored = next.tables.find((x) => x.id === tableId);
+        if (stored && (orphan || !parsePot(stored.pot, recipe))) {
+          const pot = await potStringFor(stored);
+          next = setTablePot(next, tableId, pot ?? null, today);
+        }
+        writeHouseEvents(house, next);
         return;
       }
     },

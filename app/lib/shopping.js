@@ -127,8 +127,18 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
         ? bankById.get(entry.recipeId)
         : recipesById.get(entry.recipeId);
     if (!recipe) continue;
-    const perServing = entry.servings / (recipe.servings || 1);
-    for (const ing of recipe.ingredients ?? []) {
+    // FROZEN POT rows (per-person-plates-design §10/§11.3): when a solved
+    // table froze its pot, the buy IS those rows — absolute quantities,
+    // never multiplied by perServing, but still routed through the same
+    // ident canonicalization every other line gets (loop-2 N13: pantry
+    // subtraction stops matching otherwise). Uniform tables carry no
+    // potRows and take the unchanged path below.
+    const potRows = /** @type {{ food: string, unit: string, qty: number }[] | undefined} */ (
+      /** @type {any} */ (entry).potRows
+    );
+    const rows = potRows ?? recipe.ingredients ?? [];
+    const perServing = potRows ? 1 : entry.servings / (recipe.servings || 1);
+    for (const ing of rows) {
       const canon = canonicalFood(ing.food);
       // a nameless ingredient row (partial/hand-edited recipe JSON) cannot be
       // shopped — skip it rather than emit an "undefined" row.

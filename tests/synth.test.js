@@ -193,3 +193,128 @@ test("PLATE_GRAMS entries are physically plausible", () => {
     }
   }
 });
+
+// ---- frozen pot (spec §10) ----
+import { freezePotString, parsePot, recipeRevOf } from "../app/lib/synth.js";
+import { setTablePot, setTableSameForEveryone } from "../app/lib/tables.js";
+
+test("freezePotString: uniform tables freeze NOTHING (the inert-deploy guarantee)", () => {
+  const s = freezePotString({
+    recipe: { ...RECIPE, assembly: undefined },
+    seats: [{ id: "a", servings: 1 }],
+    targetsById: new Map([["a", TARGETS]]),
+    slotShares: { a: SLOT_SHARE },
+  });
+  assert.equal(s, null);
+});
+
+test("freezePotString: a solved table freezes rows + fingerprint; parsePot round-trips", () => {
+  const s = freezePotString({
+    recipe: RECIPE,
+    seats: [{ id: "a", servings: 0.75, rawServings: 0.77 }],
+    targetsById: new Map([["a", TARGETS]]),
+    slotShares: { a: SLOT_SHARE },
+    targetShas: { a: "sha-abc" },
+  });
+  assert.ok(s);
+  const pot = parsePot(s, RECIPE);
+  assert.ok(pot);
+  assert.equal(pot.rows.length, RECIPE.ingredients.length);
+  assert.equal(JSON.parse(s).inputs.recipeRev, recipeRevOf(RECIPE));
+  assert.equal(JSON.parse(s).inputs.targets.a, "sha-abc");
+});
+
+test("freezePotString respects the SHOPPED-WEEK FREEZE", () => {
+  const s = freezePotString({
+    recipe: RECIPE,
+    seats: [{ id: "a", servings: 0.75, rawServings: 0.77 }],
+    targetsById: new Map([["a", TARGETS]]),
+    slotShares: { a: SLOT_SHARE },
+    weekShopped: true,
+  });
+  assert.equal(s, null, "a bought week can never grow a pot");
+});
+
+test("parsePot refuses corruption: permuted rows, NaN, merge keys, junk JSON", () => {
+  const good = freezePotString({
+    recipe: RECIPE,
+    seats: [{ id: "a", servings: 0.75, rawServings: 0.77 }],
+    targetsById: new Map([["a", TARGETS]]),
+    slotShares: { a: SLOT_SHARE },
+  });
+  const pot = JSON.parse(good);
+  const swapped = { ...pot, rows: [pot.rows[1], pot.rows[0], ...pot.rows.slice(2)] };
+  assert.equal(parsePot(JSON.stringify(swapped), RECIPE), null, "a PERMUTED pot must not pass");
+  const nan = { ...pot, rows: pot.rows.map((r, i) => (i === 0 ? { ...r, qty: NaN } : r)) };
+  assert.equal(parsePot(JSON.stringify(nan), RECIPE), null);
+  const keyed = { ...pot, rows: pot.rows.map((r, i) => (i === 0 ? { ...r, id: "x" } : r)) };
+  assert.equal(parsePot(JSON.stringify(keyed), RECIPE), null, "merge-keyed rows re-open the union bug");
+  assert.equal(parsePot("{oops", RECIPE), null, "malformed JSON drops the pot, never throws");
+  assert.equal(parsePot(undefined, RECIPE), null);
+});
+
+test("sameForEveryone DROPS the frozen pot (loop-2 N9)", () => {
+  const base = {
+    tables: [{ id: "t1", name: "x", date: "2026-09-10", slot: "dinner", recipeId: "chicken-rice", seats: [{ id: "a", servings: 1 }], pot: '{"synthMode":"solved","rows":[]}' }],
+  };
+  const off = setTableSameForEveryone(base, "t1", true, "2026-09-01");
+  assert.equal(off.tables[0].pot, undefined, "a solved pot must not drive the buy under the opt-out flag");
+});
+
+test("setTablePot writes and clears atomically-mergeable strings", () => {
+  const base = { tables: [{ id: "t1", name: "x", date: "2026-09-10", slot: "dinner", recipeId: "r", seats: [{ id: "a", servings: 1 }] }] };
+  const withPot = setTablePot(base, "t1", '{"synthMode":"solved"}', "2026-09-01");
+  assert.equal(typeof withPot.tables[0].pot, "string");
+  const cleared = setTablePot(withPot, "t1", null, "2026-09-01");
+  assert.ok(!("pot" in cleared.tables[0]), "absent, not null, per SCHEMAS convention");
+});
+
+// ---- reviewer-required coverage: shopping potRows + brigade carry ----
+import { deriveShoppingList } from "../app/lib/shopping.js";
+import { materializeBrigade } from "../app/lib/tables.js";
+
+test("deriveShoppingList: frozen potRows are ABSOLUTE and ident-canonicalized (N13)", () => {
+  const bank = new Map([["chicken-rice", { ...RECIPE, assembly: undefined }]]);
+  const plan = {
+    week: "2026-W37",
+    entries: [
+      {
+        recipeId: "chicken-rice",
+        date: "2026-09-10",
+        servings: 2.5,
+        potFromBank: true,
+        potRows: [
+          { food: "chicken breast", unit: "g", qty: 500 },
+          { food: "rice", unit: "cup", qty: 2.25 },
+          { food: "broccoli", unit: "g", qty: 250 },
+          { food: "olive oil", unit: "tbsp", qty: 1.67 },
+        ],
+      },
+    ],
+  };
+  const list = deriveShoppingList(plan, bank, { staples: [], perishables: [] }, { items: [] }, undefined, undefined, bank);
+  const chicken = list.items.find((i) => i.food.toLowerCase().includes("chicken"));
+  assert.ok(chicken, "pot row reached the list");
+  // ABSOLUTE: 500 g, never 500 x (servings / recipe.servings)
+  const grams = chicken.unit === "kg" ? chicken.qty * 1000 : chicken.qty;
+  assert.ok(Math.abs(grams - 500) < 1, `expected 500 g, got ${chicken.qty} ${chicken.unit}`);
+});
+
+test("materializeBrigade carries pot + rawServings ONLY while the dish is unchanged", () => {
+  const targets = new Map([["a", TARGETS], ["b", TARGETS]]);
+  const profiles = new Map([
+    ["a", { id: "a", household: "h" }],
+    ["b", { id: "b", household: "h" }],
+  ]);
+  const brigade = { id: "b1", name: "x", memberIds: ["a", "b"], slots: ["dinner"], cookId: "a", from: "2026-09-07", until: "2026-09-13" };
+  const bank = new Map([["chicken-rice", { ...RECIPE, mealType: "dinner", assembly: undefined }]]);
+  const ctx = { dates: ["2026-09-08"], today: "2026-09-07", house: "h", profilesById: profiles, targetsById: targets, bankById: bank };
+  const first = materializeBrigade({ tables: [] }, brigade, ctx).events;
+  const t0 = first.tables[0];
+  assert.ok(typeof t0.seats[0].rawServings === "number", "rawServings stored with servings");
+  const marked = { ...first, tables: first.tables.map((t) => ({ ...t, pot: '{"synthMode":"solved","rows":[]}' })) };
+  const regen = materializeBrigade(marked, brigade, { ...ctx, regenerate: true }).events;
+  assert.equal(regen.tables[0].pot, '{"synthMode":"solved","rows":[]}', "same dish: pot carries");
+  const swapped = materializeBrigade(marked, brigade, { ...ctx, regenerate: true, bankById: new Map([["other", { ...RECIPE, id: "other", mealType: "dinner" }]]) }).events;
+  assert.equal(swapped.tables[0].pot, undefined, "swapped dish: a stale pot must NOT follow");
+});

@@ -198,11 +198,37 @@ Evening 0 and sessions 1-3 can run in either order or the same week.
   density down (no carbs to grow) and clamps in place.
 - **Clamp census: 1 of 20 binds** (seat A's dinner appetite 3.13 vs the
   3.0 cap on salmon-spinach). Minor.
-- **Standing verdict: the engine build (deploys 2a/2b, data authoring,
-  tag drip) is HELD by this gate per §3.5.** David can override in one
-  line; absent that, the remaining levers the data points at are her SOLO
-  meals (59% of calories) and the standing 110 g/1550 kcal target
-  decision in the lane. The serve step (deploy 1) shipped and stands.
+- **OVERRIDDEN by David the same night, in his words: "build the
+  engine."** The gate's finding stands on the record (the engine's value
+  on her CURRENT dinners is small); the build proceeds on his authority,
+  with his added invariant now load-bearing everywhere: **A SHOPPED WEEK
+  IS FROZEN** (rung 0f — no tag, solve, or pot may touch a bought week;
+  the upcoming week cooks exactly as planned from the bought
+  ingredients; the drip begins ~4 weeks out, no earlier than
+  2026-09-07).
+
+### 3.2 Build state as of 2026-08-10 (late night)
+
+SHIPPED, all inert (zero tags exist, so every path is uniform = today):
+deploy 2a complete (`app/lib/synth.js`: relative solve, rung ladder incl.
+0f, clamps + absolute caps, MACRO/PLATE_GRAMS/PLATE_ADDABLE, part
+keywords, `seatServingsRaw` + stored `seats[].rawServings`); deploy 2b
+CORE (frozen pot: freeze/parse/validate, `setTablePot`, both freeze
+triggers wired at claim + COOKED, sameForEveryone drops the pot,
+regeneration carry, `readMeta` sha fingerprints, house-wide `targetsById`
+state, shopping-list `potRows` branch through ident canonicalization).
+20 engine tests, 567 total.
+
+REMAINING BEFORE THE FIRST TAG IS EVER WRITTEN (hard rule; the drip may
+not start without these): §11.1 money shares from plating lines + named
+remainder, §11.2 `groupScale` Daily Dozen credits, §11.5 recipe view
+rendering the synthesized pot in solved mode, §11.4 top-ups into the buy,
+serve-step solved plate lines (grams/quarters per §7.3), the weekly
+tailored/uniform instrument line, the §10/R6 claim-time missing-targets
+warning ("buying without seat B's plan, not synced here" — the
+fingerprint already stamps missing/dirty; nothing announces it yet), and
+David's one-hour classification session. Roughly one more build session,
+weeks before it is needed.
 
 ---
 
