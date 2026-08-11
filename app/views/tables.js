@@ -446,22 +446,15 @@ export function TablesView({
             </div>`
           }
           ${
+            // the stacked all-four-people plate list is DELETED (spec §7.4:
+            // "the stacked list on the table card — audience: nobody"). The
+            // cook sees every plate on the SERVE STEP, the last step of Cook
+            // Mode; each person sees their own line on their own plan. One
+            // quiet line says the plates exist and where they live now.
             t.tailor &&
-            html`<div class="d" role="status">
-              ${Object.entries(t.tailor.seats ?? {}).map(
-                ([sid, notes]) => html`
-                  <div class="d" key=${sid}>
-                    ✨ ${nameOf(sid)}:
-                    ${(notes.portionGrams ?? 0) > 0 ? `⚖ ${notes.portionGrams} g of the dish · ` : ""}${notes.plate.join(
-                      " · ",
-                    )}
-                    <span class="num"> · ~${notes.estCalories} kcal · ${notes.estProtein}P</span>
-                  </div>
-                `,
-              )}
-              ${(t.tailor.cook ?? []).map(
-                (/** @type {string} */ c) => html`<div class="hint" key=${c}>👨‍🍳 ${c}</div>`,
-              )}
+            !t.sameForEveryone &&
+            html`<div class="d hint" role="status">
+              ✨ plates are set: the cook sees them on the serve step, yours is on your plan
             </div>`
           }
           ${

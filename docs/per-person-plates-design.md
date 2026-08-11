@@ -786,16 +786,23 @@ ran on whichever device created the table first, the least-informed-device
 failure relocated into the highest-consequence path). The buildable
 mechanism, two layers plus an honest residual:
 
-- **The owner's device is the enforcement point.** The unseat sweep
-  re-runs on the occasion owner's device at app open, covering tables
-  materialized after the occasion was created. **The sweep is ONLY the
-  seat-patch block** (`tablesToLeave` + `patchSeat` + `writeHouseEvents`,
-  which is idempotent: already-skipped seats are filtered). It must NEVER
-  call `writeOccasion`/`applyOccasion` (loop-2 Red Team C1: that path
-  drops and regenerates every plan entry on the occasion's dates, so
-  re-running the full `handleApplyOccasion` callback at app open would
-  silently wipe anything the owner recorded on those days, every launch,
-  on the exact path this section promises "never regenerated").
+- **Every device is an enforcement point** (amended at build time with the
+  code reviewer: the app already loads EVERY profile's occasions into each
+  device's cache, so restricting the sweep to the owner's device would
+  throw away coverage the data already pays for; a prep seat is protected
+  as soon as ANY device opens). The unseat sweep re-runs at app open and
+  on sync, over cached occasions, covering tables materialized after the
+  occasion was created. **The sweep is ONLY the seat-patch block**
+  (`tablesToLeave` + `patchSeat` + `writeHouseEvents`, idempotent:
+  already-skipped seats are filtered). It must NEVER call
+  `writeOccasion`/`applyOccasion` (loop-2 Red Team C1: that path drops and
+  regenerates every plan entry on the occasion's dates). The stored
+  `profileId` inside an occasions file is IGNORED; the file's directory is
+  the authority (an auto-write loop must not honor a spoofable field:
+  security review M1). Accepted trade, stated: a device holding a
+  STALE-CACHED deleted occasion re-skips the seat until it syncs the
+  deletion; the window is one sync, and the manual un-skip on the table
+  card remains the human override in the meantime.
 - **Derive-time belt:** `deriveTables` (which every device runs at every
   render, and which is ALLOWED to be device-dependent, unlike the
   materializer) checks cached occasion data and suppresses tailoring for

@@ -25,6 +25,7 @@
   --signal: #3ddc84;
   --signal-dark: #22b866;
   --amber: #ffb224;
+  --warn: #e0a34a;
   --recover: #4cc3ff;
   --preact: #ff7849;
   --satiety: #d2a8ff;
@@ -674,6 +675,45 @@ summary.block-title {
   line-height: 1.35;
   letter-spacing: -0.01em;
   overflow-y: auto;
+}
+
+/* The serve step (per-person-plates spec §7.3): four seats on one screen,
+   no scroll at phone height, one big COOKED tap below. Names lead, bare
+   noun phrases follow, no macros anywhere on this screen. */
+.cook .serve {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cook .serve-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--dim);
+}
+.cook .serve-sub {
+  font-size: 15px;
+  color: var(--dim);
+  margin-bottom: 4px;
+}
+.cook .serve-seat {
+  border-left: 3px solid var(--line);
+  padding-left: 10px;
+}
+.cook .serve-seat.aside {
+  border-left-color: var(--warn);
+}
+.cook .serve-name {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+.cook .serve-line {
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.3;
 }
 
 .cook .nav {

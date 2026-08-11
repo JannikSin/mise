@@ -244,6 +244,64 @@ export function recipeConflicts(recipe, diet, avoid, avoidRecipes) {
 }
 
 /**
+ * Hand-written allergen-family synonyms (per-person-plates-design §8.2).
+ * The substring screen alone misses family members ("onion" never matches
+ * "leek"), and the AI tailor that used to be a weak semantic backstop is
+ * being retired. SOFT TIER ONLY: these expand the serve-step notes below,
+ * never the hard recipeConflicts screen — widening that predicate would
+ * silently shrink every recipe pool in the app (it has eight call sites,
+ * including the week generator and the brigade intersection screen).
+ * Promoting a family into the hard screen is a separate, data-reviewed
+ * change with a pool-size test.
+ */
+const AVOID_FAMILIES = /** @type {Record<string, string[]>} */ ({
+  onion: ["onion", "shallot", "scallion", "leek", "chive", "ramp"],
+  shallot: ["onion", "shallot", "scallion", "leek", "chive", "ramp"],
+});
+
+/** @param {string[] | undefined} avoid @returns {string[]} lowercase terms + family synonyms */
+export function expandAvoidTerms(avoid) {
+  const out = new Set();
+  for (const t of avoid ?? []) {
+    const term = String(t).toLowerCase().trim();
+    if (!term) continue;
+    out.add(term);
+    for (const syn of AVOID_FAMILIES[term] ?? []) out.add(syn);
+  }
+  return [...out];
+}
+
+/**
+ * The SOFT seating tier (per-person-plates-design §8.2): matches the hard
+ * screen deliberately skips. Two sources: `optional: true` ingredient rows
+ * (which never unseat, but must never be silently plated to the person
+ * avoiding them — Red Team walked an optional red-onion garnish straight
+ * onto an un-skippable serve line), and family-synonym matches on any row.
+ * Returns the matched food names, empty = nothing to note. A match here
+ * NEVER unseats; it turns into a named note on the serve step.
+ * @param {Record<string, any>} recipe
+ * @param {string[]} [avoid]
+ * @returns {string[]} matched ingredient food names, deduped
+ */
+export function softAvoidMatches(recipe, avoid) {
+  const hard = (avoid ?? []).map((t) => String(t).toLowerCase()).filter(Boolean);
+  const soft = expandAvoidTerms(avoid);
+  /** @type {string[]} */
+  const out = [];
+  for (const ing of recipe.ingredients ?? []) {
+    const food = String(ing.food ?? "").toLowerCase();
+    const hitsSoft = soft.some((t) => food.includes(t));
+    if (!hitsSoft) continue;
+    const hitsHard = hard.some((t) => food.includes(t));
+    // non-optional hard hits already unseat via recipeConflicts; everything
+    // else (optional rows, synonym-only matches) is the soft tier
+    if (!ing.optional && hitsHard) continue;
+    if (!out.includes(String(ing.food))) out.push(String(ing.food));
+  }
+  return out;
+}
+
+/**
  * Monday..Sunday ISO dates of an ISO week id like "2026-W28".
  * @param {string} weekId
  * @returns {string[]}

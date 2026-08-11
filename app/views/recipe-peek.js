@@ -24,11 +24,12 @@ import { formatRecipeQty } from "../lib/shopping.js";
  *   recipe: Record<string, any> | null,
  *   servings?: number,
  *   entryId?: string,
+ *   tableId?: string,
  *   unshopped?: boolean,
  *   onClose: () => void
  * }} props
  */
-export function RecipePeek({ recipe, servings, entryId, unshopped = false, onClose }) {
+export function RecipePeek({ recipe, servings, entryId, tableId, unshopped = false, onClose }) {
   useEffect(() => {
     const onKey = (/** @type {KeyboardEvent} */ e) => {
       if (e.key === "Escape") onClose();
@@ -41,7 +42,9 @@ export function RecipePeek({ recipe, servings, entryId, unshopped = false, onClo
   const plan = cookPlan(recipe, servings);
   const cookHref = `#/recipe/${encodeURIComponent(recipe.id)}/cook?from=plan&servings=${
     servings && servings > 0 ? servings : (recipe.servings ?? 1)
-  }${entryId ? `&entry=${encodeURIComponent(entryId)}` : ""}`;
+  }${entryId ? `&entry=${encodeURIComponent(entryId)}` : ""}${
+    tableId ? `&table=${encodeURIComponent(tableId)}` : ""
+  }`;
 
   return html`
     <div

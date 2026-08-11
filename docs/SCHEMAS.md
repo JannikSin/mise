@@ -447,6 +447,14 @@ before every plan write).
         { "id": "david", "servings": 1.5 },
         { "id": "mom", "servings": 1, "status": "skipped" }, // ? absent = in
       ],
+      "cookedAt": "2026-07-24", // ? the serve step's COOKED confirmation
+      //   (per-person-plates-design §7.2). Set once by setTableCooked, never
+      //   cleared (you cannot un-cook food, same rule as a plan entry's
+      //   cookedAt). ABSENT = not confirmed. Survives brigade regeneration
+      //   only while the recipe is unchanged — carried onto a swapped dish
+      //   it would mark a meal cooked that never was. This is the adoption
+      //   signal the plates instrument reads; nothing else records that a
+      //   shared meal actually happened.
       "tailor": {
         // ? AI plate-tailoring (Worker /tailor or the dinner discussion):
         //   one shared pot, per-seat plating adjustments toward each seat's

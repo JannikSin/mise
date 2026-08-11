@@ -529,3 +529,30 @@ test("a grocery claim survives brigade regeneration, like a skip does", () => {
     "\"I'm buying Wednesday\" is a decision, not a detail to rebuild away",
   );
 });
+
+test("cookedAt and sameForEveryone survive regeneration ONLY while the dish is unchanged", () => {
+  // per-person-plates-design §10 (Tribunal loop-2 N3/C3): the regeneration
+  // rebuild-from-field-list used to drop these; carried unconditionally they
+  // would stamp a cooked flag onto a swapped dish.
+  const first = materializeBrigade({ tables: [] }, BRIGADE, ctx()).events;
+  const t0 = first.tables[0];
+  const marked = {
+    ...first,
+    tables: first.tables.map((t) =>
+      t.id === t0.id ? { ...t, cookedAt: "2026-07-27", sameForEveryone: true } : t,
+    ),
+  };
+  // same pool -> same dish on regenerate -> both fields carry
+  const regen = materializeBrigade(marked, BRIGADE, ctx({ regenerate: true })).events;
+  const same = regen.tables.find((t) => t.id === t0.id);
+  assert.equal(same?.cookedAt, "2026-07-27");
+  assert.equal(same?.sameForEveryone, true);
+  // shrink the pool so the pick CHANGES -> neither field may follow the swap
+  const smallBank = new Map([...BANK].filter(([id]) => id !== t0.recipeId));
+  const swapped = materializeBrigade(marked, BRIGADE, ctx({ regenerate: true, bankById: smallBank }))
+    .events;
+  const after = swapped.tables.find((t) => t.id === t0.id);
+  assert.ok(after && after.recipeId !== t0.recipeId, "the dish actually changed");
+  assert.equal(after.cookedAt, undefined, "a swapped dish is NOT already cooked");
+  assert.equal(after.sameForEveryone, undefined, "a swapped dish is NOT already opted out");
+});

@@ -90,6 +90,7 @@ import {
   addTable,
   removeTable,
   patchSeat,
+  setTableCooked,
   addBrigade,
   removeBrigade,
   materializeBrigade,
@@ -107,6 +108,7 @@ import {
   shiftIso,
   tablesToLeave,
 } from "./lib/occasions.js";
+import { buildServe } from "./lib/serve.js";
 import {
   normalizeLedger,
   ledgerPathFor,
@@ -141,7 +143,7 @@ function App() {
   // for anyone whose household list was non-empty (2026-07-26).
   const me = activeProfile() ?? "david";
   const [route, setRoute] = useState(
-    /** @type {{ view: string, id?: string, from?: string, servings?: number, entry?: string }} */ ({
+    /** @type {{ view: string, id?: string, from?: string, servings?: number, entry?: string, table?: string }} */ ({
       view: "home",
     }),
   );
@@ -1138,7 +1140,9 @@ function App() {
 
   // tapping a planned meal opens it as a card over the plan
   const [peek, setPeek] = useState(
-    /** @type {{ recipeId: string, servings?: number, entryId?: string } | null} */ (null),
+    /** @type {{ recipeId: string, servings?: number, entryId?: string, tableId?: string } | null} */ (
+      null
+    ),
   );
   const handleOpenEntry = useCallback((/** @type {Record<string, any>} */ entry) => {
     const rid = entry.recipeId ?? entry.viewRecipeId;
@@ -1147,6 +1151,9 @@ function App() {
       recipeId: rid,
       servings: entry.cookTotal ?? entry.servings ?? 1,
       entryId: entry.table ? undefined : entry.id,
+      // a table meal carries its table id instead, so Cook Mode can end on
+      // the serve step and confirm the TABLE cooked (spec §7.2)
+      ...(entry.table ? { tableId: entry.table } : {}),
     });
   }, []);
 
@@ -1819,7 +1826,13 @@ function App() {
             await read(occasionsPathFor(pr.id), { raw: true }).catch(() => null)
           );
           for (const o of file?.occasions ?? [])
-            all.push({ ...o, profileId: o.profileId ?? pr.id });
+            // the DIRECTORY is the authority on whose occasion this is
+            // (writeOccasion always writes to the owner's path). A stored
+            // profileId is ignored: the §8.8 sweep auto-writes shared state
+            // from this data, and honoring a spoofed field would let one
+            // corrupt file silently skip ANOTHER person's seats
+            // household-wide on every device (security review M1).
+            all.push({ ...o, profileId: pr.id });
         }
         if (alive) setOccasions(all);
       });
@@ -1831,6 +1844,91 @@ function App() {
       unsub();
     };
   }, [hasToken]);
+
+  // THE OCCASION SWEEP (per-person-plates-design §8.8): tables materialized
+  // AFTER an occasion was applied never met tablesToLeave, so a prep-day
+  // seat could quietly come back. Every device re-runs the seat-patch block
+  // over its cached occasions at load and on sync — idempotent (already-
+  // skipped seats are filtered), and ONLY the seat patch: never
+  // writeOccasion/applyOccasion, which drop and regenerate plan entries on
+  // the occasion's dates and would wipe recorded days on every app open
+  // (Tribunal loop-2 C1).
+  useEffect(() => {
+    if (occasions.length === 0 || houseEvents.length === 0) return;
+    const today = localIsoDate(new Date());
+    for (const { house, events } of houseEvents) {
+      let next = events;
+      let changed = 0;
+      for (const o of occasions) {
+        if (o.offTables === false) continue;
+        for (const tableId of tablesToLeave(next.tables, [o], o.profileId, today)) {
+          next = patchSeat(next, tableId, o.profileId, { status: "skipped" }, today);
+          changed++;
+        }
+      }
+      if (changed > 0) writeHouseEvents(house, next);
+    }
+  }, [occasions, houseEvents]);
+
+  // Seat rules for the SERVE STEP (spec §7.1): the cook's device screens
+  // every seat with whatever it has cached — cached-first reads, so this is
+  // instant when synced and silently rule-less when a seat's file has never
+  // reached this phone (the hard screen still protects that person on their
+  // own device; this only decides what the cook is told).
+  const [serveRules, setServeRules] = useState(
+    /** @type {Record<string, { diet?: string, avoidIngredients?: string[], avoidRecipes?: string[] } | null>} */ ({}),
+  );
+  useEffect(() => {
+    if (route.view !== "cook" || !route.table) return;
+    const t = houseEventsRef.current
+      .flatMap((h) => h.events.tables)
+      .find((x) => x.id === route.table);
+    if (!t) return;
+    let alive = true;
+    (async () => {
+      /** @type {Record<string, any>} */
+      const rules = {};
+      // only seats belonging to REAL profiles: a corrupt seat id from the
+      // shared events file must not steer a path (security review L1)
+      const known = new Set(allProfilesRef.current.map((p) => p.id));
+      for (const s of t.seats ?? []) {
+        if (!known.has(s.id) || s.status === "skipped") continue;
+        const path =
+          s.id === "david" ? "fitness/targets.json" : `profiles/${s.id}/fitness/targets.json`;
+        const tg = /** @type {any} */ (await read(path, { raw: true }).catch(() => null));
+        rules[s.id] = tg
+          ? {
+              diet: tg.diet,
+              avoidIngredients: tg.avoidIngredients,
+              avoidRecipes: tg.avoidRecipes,
+            }
+          : null;
+      }
+      if (alive) setServeRules(rules);
+    })();
+    return () => {
+      alive = false;
+    };
+    // houseEvents is a dep on purpose (ui-review B2): on a cold PWA open the
+    // effect fires before the events cache loads, finds no table and bails;
+    // without the dep it never re-runs and a conflicted seat would render as
+    // a plain plate line. Re-runs are cached-first reads, cheap.
+  }, [route.view, route.table, houseEvents]);
+
+  // COOKED for a table (spec §7.2): set-once on the table event, the only
+  // honest adoption signal the instrument has. No pantry consumption here —
+  // batch consumption for shared pots is deploy-2 scope, and guessing at it
+  // now would eat food twice once the frozen pot lands.
+  const handleMarkTableCooked = useCallback(
+    (/** @type {string} */ tableId) => {
+      for (const { house, events } of houseEventsRef.current) {
+        if (!events.tables.some((t) => t.id === tableId)) continue;
+        writeHouseEvents(house, setTableCooked(events, tableId, localIsoDate(new Date()), localIsoDate(new Date())));
+        return;
+      }
+    },
+    [writeHouseEvents],
+  );
 
   // MY running (or imminent) occasion, for the Plan tab banner. The screen
   // lives in Settings and is invisible the other 360 days of the year, so on
@@ -2589,6 +2687,21 @@ function App() {
   if (route.view === "cook") {
     // key: hook state (current step) must reset when the recipe changes
     const cookEntry = route.entry ? plan.entries.find((e) => e.id === route.entry) : undefined;
+    // a TABLE cook ends on the serve step (spec §7.2). The table renders
+    // from live state; the serve model derives from stored seats + whatever
+    // seat rules this device has cached (spec §7.1: mass share, deploy 1).
+    const cookTable = route.table
+      ? houseEvents.flatMap((h) => h.events.tables).find((t) => t.id === route.table)
+      : undefined;
+    const serve =
+      cookTable && !cookTable.sameForEveryone
+        ? buildServe(
+            cookTable,
+            bankRecipes.find((r) => r.id === cookTable.recipeId),
+            allProfiles,
+            serveRules,
+          )
+        : null;
     return html`<${CookView}
       key=${route.id}
       recipe=${recipeById(route.id)}
@@ -2596,8 +2709,11 @@ function App() {
       from=${route.from}
       servings=${route.servings}
       entryId=${cookEntry?.id}
-      cooked=${Boolean(cookEntry?.cookedAt)}
+      tableId=${cookTable?.id}
+      serve=${serve}
+      cooked=${Boolean(cookEntry?.cookedAt || cookTable?.cookedAt)}
       onCooked=${handleMarkCooked}
+      onCookedTable=${handleMarkTableCooked}
     />`;
   }
 
@@ -2678,6 +2794,7 @@ function App() {
         from=${route.from}
         servings=${route.servings}
         entryId=${route.entry}
+        tableId=${route.table}
         unshopped=${!(/** @type {any} */ (plan)?.shoppedAt || houseShopped)}
       />`
     }
@@ -2884,6 +3001,7 @@ function App() {
         recipe=${recipeById(peek.recipeId) ?? null}
         servings=${peek.servings}
         entryId=${peek.entryId}
+        tableId=${peek.tableId}
         unshopped=${!(/** @type {any} */ (plan)?.shoppedAt || houseShopped)}
         onClose=${() => setPeek(null)}
       />`

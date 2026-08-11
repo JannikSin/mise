@@ -2,7 +2,7 @@
 
 /**
  * @param {string} hash
- * @returns {{ view: string, id?: string, from?: string, servings?: number, entry?: string }}
+ * @returns {{ view: string, id?: string, from?: string, servings?: number, entry?: string, table?: string }}
  */
 export function parseRoute(hash) {
   // optional ?from=<origin> query (e.g. #/recipe/x?from=today) tells the
@@ -41,7 +41,7 @@ export function parseRoute(hash) {
       } catch {
         return { view: "plan" }; // malformed percent-sequence in the hash
       }
-      /** @type {{ view: string, id: string, from?: string, servings?: number, entry?: string }} */
+      /** @type {{ view: string, id: string, from?: string, servings?: number, entry?: string, table?: string }} */
       const route = { view: sub === "cook" ? "cook" : "recipe", id: decoded };
       const params = new URLSearchParams(query);
       const from = params.get("from");
@@ -52,6 +52,10 @@ export function parseRoute(hash) {
       // planned meal as cooked (the honest-eaten rule)
       const entry = params.get("entry");
       if (entry) route.entry = entry;
+      // ?table=<table id> is the table-meal equivalent: Cook mode ends on
+      // the serve step and COOKED confirms the TABLE (spec §7.2)
+      const table = params.get("table");
+      if (table) route.table = table;
       return route;
     }
     default:

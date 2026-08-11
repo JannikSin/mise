@@ -7,6 +7,7 @@ import {
   removeTable,
   patchSeat,
   setTableTailor,
+  setTableCooked,
   setTableSameForEveryone,
   setTableBuyer,
   pruneTables,
@@ -480,4 +481,27 @@ test("sameForEveryone opts one meal out and drops its plates", () => {
 
   // and it never touches another table
   assert.equal(setTableSameForEveryone(base, "nope", true, "2026-07-20").tables[0].tailor?.at, "2026-07-23");
+});
+
+test("setTableCooked is set-once: the serve step's COOKED cannot be re-stamped", () => {
+  const base = {
+    tables: [
+      {
+        id: "t1",
+        name: "kofta",
+        date: "2026-07-24",
+        slot: "dinner",
+        recipeId: "kebab",
+        seats: [{ id: "david", servings: 2 }],
+      },
+    ],
+  };
+  const cooked = setTableCooked(base, "t1", "2026-07-24", "2026-07-24");
+  assert.equal(cooked.tables[0].cookedAt, "2026-07-24");
+  // a second confirmation days later must not move the date — you cannot
+  // un-cook or re-cook food, and the instrument reads this field
+  const again = setTableCooked(cooked, "t1", "2026-07-26", "2026-07-26");
+  assert.equal(again.tables[0].cookedAt, "2026-07-24");
+  // and it never touches another table
+  assert.equal(setTableCooked(base, "nope", "2026-07-24", "2026-07-24").tables[0].cookedAt, undefined);
 });

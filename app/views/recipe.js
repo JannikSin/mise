@@ -20,25 +20,28 @@ const DEFAULT_ORIGIN = { hash: "#/cookbook", label: "← COOKBOOK" };
 const originOf = (from) => (from && ORIGINS[from]) || DEFAULT_ORIGIN;
 
 /**
- * Query suffix carrying the backlink origin, the planned portion, AND the
- * plan-entry id through to Cook mode, so cooking stays scaled to the meal
- * and DONE can confirm the right entry as cooked.
+ * Query suffix carrying the backlink origin, the planned portion, the
+ * plan-entry id AND the table id through to Cook mode, so cooking stays
+ * scaled to the meal and the last step can confirm the right thing cooked
+ * (a plan entry, or a table via the serve step).
  * @param {string | undefined} from
  * @param {number} [servings]
  * @param {string} [entryId]
+ * @param {string} [tableId]
  */
-const cookSuffix = (from, servings, entryId) => {
+const cookSuffix = (from, servings, entryId, tableId) => {
   const parts = [];
   if (from && ORIGINS[from]) parts.push(`from=${encodeURIComponent(from)}`);
   if (servings && servings > 0) parts.push(`servings=${servings}`);
   if (entryId) parts.push(`entry=${encodeURIComponent(entryId)}`);
+  if (tableId) parts.push(`table=${encodeURIComponent(tableId)}`);
   return parts.length ? `?${parts.join("&")}` : "";
 };
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, unshopped?: boolean }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, tableId?: string, unshopped?: boolean }} props
  */
-export function RecipeView({ recipe, loading, from, servings, entryId, unshopped = false }) {
+export function RecipeView({ recipe, loading, from, servings, entryId, tableId, unshopped = false }) {
   const origin = originOf(from);
   // the recipe page holds the screen as well as Cook mode. Reading the steps
   // off THIS page with full hands is exactly when it used to sleep, because
@@ -155,7 +158,7 @@ export function RecipeView({ recipe, loading, from, servings, entryId, unshopped
         <button
           class="ask"
           onClick=${() =>
-            (location.hash = `#/recipe/${encodeURIComponent(recipe.id)}/cook${cookSuffix(from, servings, entryId)}`)}
+            (location.hash = `#/recipe/${encodeURIComponent(recipe.id)}/cook${cookSuffix(from, servings, entryId, tableId)}`)}
         >
           COOK MODE
           <small>big text · step by step</small>
@@ -226,10 +229,26 @@ export function RecipeView({ recipe, loading, from, servings, entryId, unshopped
  * Full-screen cooking mode: one big step at a time, screen kept awake. When
  * opened from a planned meal (entryId), the last step's button confirms the
  * meal COOKED — the honest-state rule: only a confirmation marks it eaten.
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, cooked?: boolean, onCooked?: (entryId: string) => void }} props
+ *
+ * When opened from a TABLE (tableId + serve), the SERVE STEP is appended as
+ * the final step (per-person-plates-design §7.2): you cannot mark a shared
+ * meal cooked without passing the screen that says who gets what. That is
+ * structural, not a hope that people scroll.
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, cooked?: boolean, onCooked?: (entryId: string) => void, tableId?: string, serve?: import("../lib/serve.js").ServeModel | null, onCookedTable?: (tableId: string) => void }} props
  */
-export function CookView({ recipe, loading, from, servings, entryId, cooked, onCooked }) {
-  const [step, setStep] = useState(0);
+export function CookView({
+  recipe,
+  loading,
+  from,
+  servings,
+  entryId,
+  cooked,
+  onCooked,
+  tableId,
+  serve,
+  onCookedTable,
+}) {
+  const [rawStep, setStep] = useState(0);
   const [awake, setAwake] = useState(
     /** @type {import("../lib/awake.js").AwakeState} */ ({
       held: false,
@@ -251,6 +270,10 @@ export function CookView({ recipe, loading, from, servings, entryId, cooked, onC
   // told him to "use the batch chicken" and never said how — the ahead-of-
   // time work must live in the same step flow, not on a tile he already
   // scrolled past)
+  // the serve step is the LAST step of a table cook, and its button is the
+  // COOKED button — who-gets-what is on the way out, not on a card nobody
+  // finds (spec §6.1/§7.2: "that is the same disease relocated")
+  const hasServe = Boolean(tableId && serve && serve.rows.length > 0);
   const steps = [
     ...(recipe.batchPrep?.sundayComponent
       ? [
@@ -261,14 +284,24 @@ export function CookView({ recipe, loading, from, servings, entryId, cooked, onC
         ]
       : []),
     ...(recipe.instructions ?? []),
+    ...(hasServe ? [{ serve: true, text: "" }] : []),
   ];
   const last = steps.length - 1;
+  // clamp: if the serve step vanishes mid-cook (a housemate toggles
+  // sameForEveryone and the sync lands), a user parked on the old last step
+  // must land on the new one, never a blank STEP n+1/n
+  const step = Math.min(rawStep, last);
+  const onServe = hasServe && step === last;
   const plan = cookPlan(recipe, servings);
   // exit lands back on the recipe, keeping ?from= AND the portion so the
   // recipe there stays scaled to the same meal
-  const back = `#/recipe/${encodeURIComponent(recipe.id)}${cookSuffix(from, servings, entryId)}`;
+  const back = `#/recipe/${encodeURIComponent(recipe.id)}${cookSuffix(from, servings, entryId, tableId)}`;
   const finish = () => {
-    if (entryId && onCooked && !cooked) onCooked(entryId);
+    // mutually exclusive on purpose: app-built links carry one or the other,
+    // and a hand-crafted URL carrying both must not confirm two things with
+    // one tap (security review L2). Table wins: the serve step is its gate.
+    if (tableId && onCookedTable && !cooked) onCookedTable(tableId);
+    else if (entryId && onCooked && !cooked) onCooked(entryId);
     location.hash = back;
   };
 
@@ -294,7 +327,31 @@ export function CookView({ recipe, loading, from, servings, entryId, cooked, onC
         html`<div class="cook-portion awakewhy">⚠ ${awake.reason}</div>`
       }
       ${step === 0 && plan.note && html`<div class="cook-portion">${plan.note}</div>`}
-      <div class="steptext">${steps[step]?.text}</div>
+      ${
+        onServe
+          ? html`<div class="serve">
+              <div class="serve-title">SERVE</div>
+              <div class="serve-sub">Amounts for tonight's table.</div>
+              ${serve?.rows.map((r) =>
+                r.kind === "aside"
+                  ? html`<div class="serve-seat aside" key=${r.id}>
+                      <div class="serve-name">SET ASIDE</div>
+                      <div class="serve-line">
+                        ${r.name.toUpperCase()}'s portion, ${r.fraction}, set apart${r.note ? ` (${r.note})` : ""}
+                      </div>
+                    </div>`
+                  : html`<div class="serve-seat" key=${r.id}>
+                      <div class="serve-name">${r.name.toUpperCase()}</div>
+                      <div class="serve-line">${r.fraction}</div>
+                      ${r.note && html`<div class="serve-line hint">${r.note}</div>`}
+                    </div>`,
+              )}
+              ${serve?.cookNotes.map(
+                (c, i) => html`<div class="hint" key=${i}>👨‍🍳 ${c}</div>`,
+              )}
+            </div>`
+          : html`<div class="steptext">${steps[step]?.text}</div>`
+      }
       <div class="nav">
         <button onClick=${() => setStep(Math.max(0, step - 1))} disabled=${step === 0}>
           ← PREV
@@ -303,7 +360,7 @@ export function CookView({ recipe, loading, from, servings, entryId, cooked, onC
           step < last
             ? html`<button class="next" onClick=${() => setStep(step + 1)}>NEXT →</button>`
             : html`<button class="next" onClick=${finish}>
-                ${entryId && !cooked ? "COOKED ✓" : "DONE ✓"}
+                ${(entryId || tableId) && !cooked ? "COOKED ✓" : "DONE ✓"}
               </button>`
         }
       </div>

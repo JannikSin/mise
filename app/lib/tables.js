@@ -10,7 +10,7 @@ import { recipeConflicts, SLOT_KEYS } from "./plan.js";
  * @typedef {{ id: string, servings: number, status?: "in" | "skipped" }} Seat seat id = profileId
  * @typedef {{ portionGrams?: number, plate: string[], estCalories: number, estProtein: number }} TailorSeat scale-first: portionGrams = weighed grams of the finished dish on this plate (absent/0 on pre-scale tailors)
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
- * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, sameForEveryone?: boolean }} TableEvent
+ * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, sameForEveryone?: boolean, cookedAt?: string }} TableEvent
  * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string }} Brigade
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
@@ -552,6 +552,27 @@ export function setTableSameForEveryone(events, tableId, same, today) {
 }
 
 /**
+ * Confirm a table's meal COOKED (per-person-plates-design §7.2): the serve
+ * step's button writes this, and it is the only honest adoption signal the
+ * instrument has. Set-once by design — you cannot un-cook food, same rule
+ * as a plan entry's cookedAt. Pure.
+ * @param {HouseEvents} events
+ * @param {string} tableId
+ * @param {string} dateIso local YYYY-MM-DD of the confirmation
+ * @param {string} today prune anchor, like every other CRUD write
+ * @returns {HouseEvents}
+ */
+export function setTableCooked(events, tableId, dateIso, today) {
+  const base = pruneTables(events, today);
+  return {
+    ...base,
+    tables: base.tables.map((t) =>
+      t.id === tableId && !t.cookedAt ? { ...t, cookedAt: dateIso } : t,
+    ),
+  };
+}
+
+/**
  * Attach (or replace) a table's AI plate-tailoring result. Whitelisted like
  * patchSeat: only the known keys land in the file. Pure.
  * @param {HouseEvents} events
@@ -812,6 +833,11 @@ export function materializeBrigade(events, brigade, ctx) {
         };
       });
 
+      // fields that survive regeneration ONLY while the dish is unchanged
+      // (per-person-plates-design §10): a cooked flag or an opt-out carried
+      // onto a swapped meal would mark a dish cooked that never was, or
+      // silently opt a new dish out of tailoring
+      const sameDish = existing?.recipeId === meal.id;
       byId.set(id, {
         id,
         name: brigade.name,
@@ -823,6 +849,8 @@ export function materializeBrigade(events, brigade, ctx) {
         // a grocery claim survives regeneration like a skip does: "I'm
         // buying Wednesday" is a decision, not a detail to rebuild away
         ...(existing?.buyerId ? { buyerId: existing.buyerId } : {}),
+        ...(sameDish && existing?.cookedAt ? { cookedAt: existing.cookedAt } : {}),
+        ...(sameDish && existing?.sameForEveryone ? { sameForEveryone: true } : {}),
         fromBrigade: brigade.id,
       });
       made++;
