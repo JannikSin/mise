@@ -929,8 +929,7 @@ export function ShoppingView({
             </div>`;
           })}
           <p class="hint">
-            shares follow servings; settle in the real world (Venmo, cash), then tap SETTLED.
-          </p>
+            you pay for what you eat: your share of the food is your share of the bill, so two thirds of the food means two thirds of the cost, never an automatic even split. Settle in the real world (Venmo, cash), then tap SETTLED.</p>
         </div>`
       }
       ${

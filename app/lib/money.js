@@ -9,6 +9,7 @@
 // prices.json (receipt-refreshed when the scanner runs); rows the catalogue
 // cannot price make the total a FLOOR and mark the entry `estimate`.
 import { itemCost } from "./prices.js";
+import { parsePot } from "./synth.js";
 
 /**
  * @typedef {{ id: string, date: string, payerId: string, total: number, estimate: boolean, shares: Record<string, number>, settled?: boolean }} LedgerEntry
@@ -74,8 +75,72 @@ export function recipeServingCost(recipe, catalogue, store) {
 export function ledgerEntryFor(t, cookId, recipe, catalogue, store, profilesById) {
   const seats = (t.seats ?? []).filter((s) => s.status !== "skipped" && profilesById.has(s.id));
   if (seats.length === 0) return null;
+
+  // PAY FOR WHAT YOU EAT, exactly (David, 2026-08-10 + per-person-plates
+  // spec §11.1): a SOLVED table's frozen pot carries each seat's share of
+  // each row, so shares are costed per row per seat through itemCost —
+  // David eating 2.5x the chicken and 0.7x the rice is not a
+  // servings-proportional split, and chicken is the expensive row. A seat
+  // whose food was SET ASIDE still appears in perSeat and still pays: the
+  // food is theirs, it went in the fridge for them. Falls back to the
+  // servings-proportional rule below whenever no valid frozen pot exists
+  // (every uniform table, i.e. all of them until the drip).
+  const pot = parsePot(/** @type {any} */ (t).pot, recipe);
+  if (pot && pot.rows.some((r) => r.perSeat)) {
+    // billable = people AT THIS TABLE (any status: a post-buy skip's food
+    // was bought for them and they still pay). Household membership alone
+    // is NOT enough — a hand-edited perSeat naming an absent housemate
+    // must never move the bill onto someone who was not at dinner.
+    const atTable = new Set((t.seats ?? []).map((s) => s.id).filter((id) => profilesById.has(id)));
+    /** @type {Record<string, number>} */
+    const shares = {};
+    let anyPriced = false;
+    // rung-3 top-ups are excluded from BILLING on purpose: the catalogue
+    // prices gram rows at the whole package (25 g of peanut butter would
+    // bill a jar), so their cost floors at 0 and flags the entry estimate.
+    // They still reach the BUY through the shopping list's potRows.
+    let est = (pot.topUps ?? []).length > 0;
+    for (const row of pot.rows) {
+      if (!row.perSeat) {
+        est = true; // a sanitized-away map is an unpriced row: floor + flag
+        continue;
+      }
+      const rowCost = itemCost({ food: row.food, qty: row.qty, unit: row.unit }, catalogue, store);
+      if (!rowCost || !(rowCost.cost > 0)) {
+        est = true; // an unpriceable row floors at 0, flagged, same as today
+        continue;
+      }
+      anyPriced = true;
+      if (rowCost.estimate) est = true;
+      const rowQty = Number(row.qty) || 0;
+      if (rowQty <= 0) continue;
+      for (const [seatId, q] of Object.entries(row.perSeat ?? {})) {
+        if (!atTable.has(seatId)) {
+          est = true; // a departed seat's share is dropped, and the total says so
+          continue;
+        }
+        const share = (rowCost.cost * Number(q)) / rowQty;
+        shares[seatId] = (shares[seatId] ?? 0) + share;
+      }
+    }
+    if (anyPriced && Object.keys(shares).length > 0) {
+      let total2 = 0;
+      for (const id of Object.keys(shares)) {
+        shares[id] = Math.round((shares[id] ?? 0) * 100) / 100;
+        total2 += shares[id] ?? 0;
+      }
+      const total = Math.round(total2 * 100) / 100;
+      return { id: t.id, date: t.date, payerId: cookId, total, estimate: est, shares, settled: false };
+    }
+  }
+
   const { perServing, estimate } = recipeServingCost(recipe, catalogue, store);
   if (perServing <= 0) return null; // nothing priceable: no honest debt to record
+  // a PLATED table that reaches recording without a valid pot (merge race,
+  // never claimed, corrupt string) bills by this path WITH the estimate
+  // flag (spec §11.1): the bill must never look authoritative when the
+  // exact contract was lost
+  const lostPot = recipe.assembly === "plated" && !(/** @type {any} */ (t).sameForEveryone);
   /** @type {Record<string, number>} */
   const shares = {};
   let total = 0;
@@ -90,7 +155,7 @@ export function ledgerEntryFor(t, cookId, recipe, catalogue, store, profilesById
     date: t.date,
     payerId: cookId,
     total: Math.round(total * 100) / 100,
-    estimate,
+    estimate: estimate || lostPot,
     shares,
     settled: false,
   };

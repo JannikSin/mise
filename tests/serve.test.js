@@ -165,3 +165,45 @@ test("cook sequencing notes ride along; no numbers are invented", () => {
   const m = buildServe(t, RECIPE, PROFILES, {});
   assert.deepEqual(m.cookNotes, ["hold the bread back"]);
 });
+
+// SOLVED plate lines (spec §7.3): grams to nearest 25, cups in quarters,
+// veg as words, flavor silent, layout unchanged (same rows, extra lines).
+test("solved synth renders per-seat lines: grams/quarter-cups/veg words, flavor silent", () => {
+  const t = table({
+    seats: [
+      { id: "a", servings: 1 },
+      { id: "b", servings: 1 },
+    ],
+  });
+  const synth = {
+    synthMode: "solved",
+    rows: [
+      { food: "ground beef", unit: "g", part: "protein", perSeat: { a: 262, b: 138 } },
+      { food: "rice", unit: "cup", part: "carbfat", perSeat: { a: 0.62, b: 1.4 } },
+      { food: "red onion", unit: "unit", part: "veg", perSeat: { a: 0.25, b: 0.25 } },
+    ],
+    bySeat: {
+      a: { synthMode: "solved", topUp: { food: "egg", grams: 100 } },
+      b: { synthMode: "solved" },
+    },
+  };
+  const m = buildServe(t, RECIPE, PROFILES, {}, synth);
+  const a = m.rows.find((r) => r.id === "a");
+  const b = m.rows.find((r) => r.id === "b");
+  assert.deepEqual(a.lines, ["250 g ground beef", "1/2 cup rice", "with red onion", "100 g egg on the side"]);
+  assert.deepEqual(b.lines, ["150 g ground beef", "1 1/2 cups rice", "with red onion"]);
+  assert.ok(a.fraction, "the mass-share fraction survives as the fallback field");
+  assert.ok(!JSON.stringify(m).includes("protein\":"), "no macros on the serve screen");
+});
+
+test("uniform synth changes NOTHING on the serve screen (inert-deploy guarantee)", () => {
+  const t = table({
+    seats: [
+      { id: "a", servings: 2 },
+      { id: "b", servings: 1 },
+    ],
+  });
+  const without = buildServe(t, RECIPE, PROFILES, {});
+  const withUniform = buildServe(t, RECIPE, PROFILES, {}, { synthMode: "uniform", rows: null, bySeat: {} });
+  assert.deepEqual(withUniform, without);
+});

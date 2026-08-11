@@ -109,3 +109,70 @@ test("balancesFor nets both directions and settleBetween clears the pair", () =>
   assert.deepEqual(balancesFor(settled, "david"), []);
   assert.ok(settled.entries.every((e) => e.settled));
 });
+
+// PAY FOR WHAT YOU EAT (David 2026-08-10, spec §11.1): a valid frozen pot
+// with perSeat rows bills each seat their exact share of each row's cost.
+test("ledgerEntryFor: frozen pot perSeat shares beat servings-proportional; top-ups bill the eater", () => {
+  const pot = JSON.stringify({
+    synthV: 1,
+    synthMode: "solved",
+    rows: [
+      { food: "chicken thigh", unit: "lb", qty: 1, perSeat: { david: 0.75, mom: 0.25 } },
+      { food: "rice", unit: "x", qty: 1, perSeat: { david: 0.4, mom: 0.6 } },
+      { food: "mystery herb", unit: "x", qty: 1, perSeat: { david: 0.5, mom: 0.5 } },
+    ],
+    topUps: [{ food: "chicken thigh", unit: "g", qty: 100, perSeat: { david: 100 } }],
+  });
+  const t2 = { ...TABLE, pot };
+  const e = ledgerEntryFor(t2, "david", RECIPE, CATALOGUE, "tj", PROFILES);
+  assert.ok(e);
+  // chicken $6/lb: david 4.50, mom 1.50; rice $3 x1 (unit x = whole bag):
+  // david 1.20, mom 1.80; herb unpriceable -> estimate, costs nothing.
+  // The TOP-UP IS NOT BILLED (Red Team: gram rows price at the whole
+  // package) - it floors at 0 and flags the entry estimate instead.
+  assert.equal(e.shares.david, 4.5 + 1.2, "top-up grams never bill at package price");
+  assert.equal(e.estimate, true, "unpriceable herb + unbilled top-up flag the entry");
+  assert.ok(e.shares.david > e.shares.mom, "the bigger protein plate owes more");
+  const evenSplit = Math.abs(e.shares.david - e.shares.mom) < 0.01;
+  assert.ok(!evenSplit, "never an even split when plates differ");
+  const sum = Math.round((e.shares.david + e.shares.mom) * 100) / 100;
+  assert.ok(Math.abs(sum - e.total) <= 0.02, "shares sum to the total");
+});
+
+test("ledgerEntryFor: a table with NO pot falls back to servings-proportional (today's path)", () => {
+  const e = ledgerEntryFor(TABLE, "david", RECIPE, CATALOGUE, "tj", PROFILES);
+  assert.ok(e);
+  assert.ok(Math.abs(e.shares.david - 2 * e.shares.mom) < 0.02, "2 servings owes twice 1");
+});
+
+test("ledgerEntryFor: a perSeat naming someone NOT at the table never bills them", () => {
+  const pot = JSON.stringify({
+    synthV: 1,
+    synthMode: "solved",
+    rows: [
+      { food: "chicken thigh", unit: "lb", qty: 1, perSeat: { sister: 1 } },
+      { food: "rice", unit: "x", qty: 1, perSeat: { david: 0.5, mom: 0.5 } },
+      { food: "mystery herb", unit: "x", qty: 1, perSeat: { david: 0.5, mom: 0.5 } },
+    ],
+  });
+  const profiles = new Map([...PROFILES, ["sister", { id: "sister" }]]);
+  const e = ledgerEntryFor({ ...TABLE, pot }, "david", RECIPE, CATALOGUE, "tj", profiles);
+  assert.ok(e);
+  assert.equal(e.shares.sister, undefined, "not at the table = never billed");
+  assert.equal(e.estimate, true, "the dropped share makes the total a flagged floor");
+});
+
+test("parsePot: a perSeat that does not sum to the row qty dies (money conservation)", () => {
+  const pot = JSON.stringify({
+    synthV: 1,
+    synthMode: "solved",
+    rows: [
+      { food: "chicken thigh", unit: "lb", qty: 1, perSeat: { david: 0.001, mom: 1000 } },
+      { food: "rice", unit: "x", qty: 1 },
+      { food: "mystery herb", unit: "x", qty: 1 },
+    ],
+  });
+  const e = ledgerEntryFor({ ...TABLE, pot }, "david", RECIPE, CATALOGUE, "tj", PROFILES);
+  assert.ok(e, "falls back to servings-proportional");
+  assert.ok(Math.abs(e.shares.david - 2 * e.shares.mom) < 0.02, "hand-edited pot cannot move the bill");
+});

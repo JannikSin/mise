@@ -2,7 +2,7 @@ import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 import { datesOfWeek, recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { parseLocalIso } from "../lib/dates.js";
-import { SERVINGS_MIN, SERVINGS_MAX } from "../lib/tables.js";
+import { SERVINGS_MIN, SERVINGS_MAX, resolveHead } from "../lib/tables.js";
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
@@ -25,6 +25,9 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onCreateTable: (t: { name: string, date: string, slot: string, recipeId: string, seats: import("../lib/tables.js").Seat[] }) => void,
  *   onRemoveTable: (house: string, id: string) => void,
  *   onSetBuyer?: (house: string, tableId: string, buyerId: string | null) => void,
+ *   onSetHead?: (house: string, tableId: string, headId: string) => void,
+ *   liveSynthFor?: (t: import("../lib/tables.js").TableEvent) => { synthMode: string } | null,
+ *   missingPlanWarning?: (t: import("../lib/tables.js").TableEvent) => string | null,
  *   onPatchSeat: (house: string, tableId: string, patch: Partial<import("../lib/tables.js").Seat>) => void,
  *   onSameForEveryone?: (house: string, tableId: string, same: boolean) => void,
  *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>,
@@ -51,6 +54,9 @@ export function TablesView({
   onCreateTable,
   onRemoveTable,
   onSetBuyer = undefined,
+  onSetHead = undefined,
+  liveSynthFor = undefined,
+  missingPlanWarning = undefined,
   onPatchSeat,
   onSameForEveryone,
   onSeatScreen,
@@ -81,6 +87,21 @@ export function TablesView({
         .map((t) => ({ house, t })),
     )
     .sort((a, b) => a.t.date.localeCompare(b.t.date) || a.t.slot.localeCompare(b.t.slot));
+  // THE INSTRUMENT (spec §12): how much the engine is actually doing this
+  // week, derived LIVE at render (never from frozen pots — pots only exist
+  // on solved tables, so a pot census flatters the engine). Aggregate
+  // counts only: this is a shared surface. With zero tagged recipes it
+  // reads "0 tailored", which is the line's whole job — it must be able to
+  // say, plainly, that the engine is doing nothing.
+  const synthCounts = liveSynthFor
+    ? myTables.reduce(
+        (acc, { t }) => {
+          const solved = liveSynthFor(t)?.synthMode === "solved";
+          return { tailored: acc.tailored + (solved ? 1 : 0), uniform: acc.uniform + (solved ? 0 : 1) };
+        },
+        { tailored: 0, uniform: 0 },
+      )
+    : null;
   const conflictIds = new Set((tableConflicts ?? []).map((c) => c.table.id));
   const collisionIds = new Set((tableCollisions ?? []).map((t) => t.id));
   const nameOf = (/** @type {string} */ id) =>
@@ -374,6 +395,17 @@ export function TablesView({
         <a href="#/dinner">tonight's dinner</a>.
       </p>`
     }
+    ${
+      // David-facing diagnostic (the §12 instrument's visible edge): gated
+      // by the scoreboard capability so family phones never see engine
+      // jargon; label says "upcoming" because myTables is not week-bounded
+      showScoreboard &&
+      synthCounts &&
+      myTables.length > 0 &&
+      html`<p class="hint" role="status">
+        plates engine, upcoming: ${synthCounts.tailored} tailored · ${synthCounts.uniform} uniform
+      </p>`
+    }
     ${myTables.map(({ house, t }) => {
       const mySeat = (t.seats ?? []).find((s) => s.id === me);
       const skipped = mySeat?.status === "skipped";
@@ -387,6 +419,8 @@ export function TablesView({
           ? t.cookId
           : ((t.seats ?? []).find((s) => s.status !== "skipped")?.id ?? t.cookId ?? "")
       );
+      const headId = resolveHead(t, profiles ?? []);
+      const planWarn = !t.buyerId && missingPlanWarning ? missingPlanWarning(t) : null;
       return html`
         <div class="tile tablecard ${skipped ? "skipped" : ""}" key=${t.id}>
           <div class="k">
@@ -406,6 +440,25 @@ export function TablesView({
                 cookShown !== t.cookId
                   ? html`<span class="hint"> (${nameOf(t.cookId)} is out)</span>`
                   : ""
+              }
+            </div>`
+          }
+          ${
+            // the HEAD (spec §9): one named person whose plate decisions win
+            // for this table. Resolution chain lives in resolveHead; only a
+            // human tap ever writes headId (B5). Shown as "<name>'s table",
+            // David's register, not a title. The second line tells a
+            // non-head where the REDO PLATES button went, instead of
+            // letting it silently vanish on them.
+            headId &&
+            html`<div class="d">
+              🪑 <strong>${nameOf(headId)}${headId === me ? " (you)" : ""}</strong>'s table
+              ${
+                headId !== me &&
+                mySeat &&
+                !t.sameForEveryone &&
+                (t.tailor || tailorErr[t.id]) &&
+                html`<span class="hint"> · only ${nameOf(headId)} can redo these plates</span>`
               }
             </div>`
           }
@@ -446,6 +499,12 @@ export function TablesView({
             </div>`
           }
           ${
+            // R6: only a CONFIGURED seat whose plan never synced to this
+            // device warns, anchored to the claim about to happen — an
+            // unconfigured seat is a normal plate and stays silent
+            planWarn && html`<div class="d num redflag" role="status">⚠ ${planWarn}</div>`
+          }
+          ${
             // the stacked all-four-people plate list is DELETED (spec §7.4:
             // "the stacked list on the table card — audience: nobody"). The
             // cook sees every plate on the SERVE STEP, the last step of Cook
@@ -471,7 +530,10 @@ export function TablesView({
             ${
               // tailoring runs by itself now; this button only exists to RETRY
               // a table that failed, or to redo one after a seat changed
+              // the head's control (spec §9): only the person who sets this
+              // table redoes its plates — absent for everyone else, not greyed
               mySeat &&
+              headId === me &&
               !t.sameForEveryone &&
               (t.tailor || tailorErr[t.id] || tailorBusy === t.id) &&
               html`<button
@@ -484,6 +546,17 @@ export function TablesView({
                 onClick=${() => runTailor(house, t.id)}
               >
                 ${tailorBusy === t.id ? "TAILORING…" : "✨ REDO PLATES"}
+              </button>`
+            }
+            ${
+              // any seated person can take the table (spec §9): one tap, the
+              // card's own line names who has it, no confirmation ceremony
+              mySeat &&
+              onSetHead &&
+              headId !== me &&
+              house === myHouse &&
+              html`<button class="secondary" onClick=${() => onSetHead(house, t.id, me)}>
+                🪑 I'LL SET THE PLATES
               </button>`
             }
             ${

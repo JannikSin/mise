@@ -219,16 +219,61 @@ regeneration carry, `readMeta` sha fingerprints, house-wide `targetsById`
 state, shopping-list `potRows` branch through ident canonicalization).
 20 engine tests, 567 total.
 
+BUILT 2026-08-10, evening session 2 (all pre-drip consumers): §11.1
+money shares from the frozen pot's perSeat rows (pay-for-what-you-eat
+exactly, servings-proportional fallback, note in the money tile), §11.2
+`groupScale` Daily Dozen credits (quartized to the RENDERED amount),
+§11.5 recipe view rendering the synthesized pot in solved mode, §11.4
+rung-3 top-ups (solve-side emission under both caps, pot `topUps` array,
+priced into the buy, billed to the eating seat, spoken on the serve
+step), serve-step solved plate lines (grams nearest 25 / cup quarters /
+veg words / flavor silent, §7.3), the weekly tailored/uniform instrument
+line on Tables (derived live, never from pots), the §10/R6 claim-time
+missing-plan warning (configured seats only — profile has a `phase` —
+fires on the table card pre-claim and on the serve step pre-freeze), and
+§9 `headId` (human-tap-only writer, cook→profiles-order fallback chain,
+TAKE THIS TABLE, REDO PLATES gated on the head).
+
+Tribunal final gate (same evening, five reviewers): Red Team's veto
+items all closed in-session — perSeat conservation check in parsePot
+(shares must sum to the row qty), billing restricted to seats AT the
+table, sanitized-away rows flag `estimate`, topUps bounded (max 8 rows,
+500 g each from the solve, 2000 g parse ceiling) and EXCLUDED from
+billing (gram rows price at whole packages; they floor at 0 and flag
+estimate, still reaching the buy), the R6 warning gated on the engine.
+Engineer/Realist fixes: resolveHead ignores skip status per §9 verbatim,
+groupScale restricted to wholeGrains (flax/nuts resolve to flavor and
+never move), render-time consumers honor rung 0f through a sync
+shopped-weeks mirror unless a valid pot proves the buy was solved, the
+frozen pot outranks a live re-solve on the recipe page, pot perSeat is
+normalized to the stored qty, the pot input fingerprint survives
+parsePot, a lost pot (merge race) bills fallback WITH the estimate flag,
+serve veg lines fold to one, aside seats on solved tables speak solved
+amounts.
+
 REMAINING BEFORE THE FIRST TAG IS EVER WRITTEN (hard rule; the drip may
-not start without these): §11.1 money shares from plating lines + named
-remainder, §11.2 `groupScale` Daily Dozen credits, §11.5 recipe view
-rendering the synthesized pot in solved mode, §11.4 top-ups into the buy,
-serve-step solved plate lines (grams/quarters per §7.3), the weekly
-tailored/uniform instrument line, the §10/R6 claim-time missing-targets
-warning ("buying without seat B's plan, not synced here" — the
-fingerprint already stamps missing/dirty; nothing announces it yet), and
-David's one-hour classification session. Roughly one more build session,
-weeks before it is needed.
+not start without these): David's one-hour classification session, and
+the explicit-override escape hatch for a bought week (David specified
+it; deliberately deferred until someone actually needs to change a
+bought week — the freeze itself is live as rung 0f).
+
+DEFERRED WITH THE DRIP (known gaps, none fire at zero tags):
+- §12's full instrument (hit/clamped/degenerate shares, median density
+  miss over pinned tagged ids, persisted to instrument.json, home in the
+  SYS view). Tonight ships only the tailored/uniform count line on
+  Tables, David-gated. The kill review must not run on the line alone.
+- §9's remaining head controls (change that meal's cook, adjust a seat's
+  servings from the head card). Only REDO PLATES gating shipped.
+- §11.1's named remainder: a DEPARTED seat's perSeat share is dropped
+  and flags `estimate`, not billed to a named person. Billing an absent
+  person without their tap needs David's ruling.
+- Target-staleness detection at claim time: parsePot now returns the
+  input fingerprint, but nothing compares a frozen target sha against
+  the current one yet. A stale-but-synced cache freezes silently.
+- Merge race residual: release-claim racing COOKED can erase pot and
+  buyerId whole (field-wise merge sees deletions win). The bill then
+  falls back servings-proportional WITH the estimate flag; the payer can
+  flip to the cook. Real fix needs merge-level semantics.
 
 ---
 
@@ -955,7 +1000,7 @@ durable stored inputs per §7.3).
                          // atomically, last writer wins whole, no
                          // field-wise interleave of two freezes
 // parsed shape:
-{ "synthV": 3,                        // algorithm version, render-as-is
+{ "synthV": 1,                        // algorithm version (SYNTH_V in synth.js), render-as-is
                                       // both directions, never recompute
   "inputs": {
     "recipeRev": "<content hash of ingredients+servings+assembly>",

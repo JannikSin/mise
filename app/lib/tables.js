@@ -5,13 +5,13 @@
 // the next sync tick. Derived entries are NEVER persisted into a plan file
 // (main.js strips `e.table` before every plan write).
 import { recipeConflicts, SLOT_KEYS } from "./plan.js";
-import { parsePot } from "./synth.js";
+import { parsePot, solveSeat } from "./synth.js";
 
 /**
  * @typedef {{ id: string, servings: number, rawServings?: number, status?: "in" | "skipped" }} Seat seat id = profileId
  * @typedef {{ portionGrams?: number, plate: string[], estCalories: number, estProtein: number }} TailorSeat scale-first: portionGrams = weighed grams of the finished dish on this plate (absent/0 on pre-scale tailors)
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
- * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, sameForEveryone?: boolean, cookedAt?: string, pot?: string }} TableEvent
+ * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string }} TableEvent
  * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string }} Brigade
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
@@ -178,7 +178,8 @@ export function cookOf(t, house, profilesById) {
  *   bankById: Map<string, any>,
  *   ownEntries: Record<string, any>[],
  *   today: string,
- *   profilesById?: Map<string, any>
+ *   profilesById?: Map<string, any>,
+ *   myTargets?: Record<string, any> | null
  * }} ctx
  * @returns {{
  *   entries: Record<string, any>[],
@@ -297,7 +298,10 @@ export function deriveTables(houses, ctx) {
                 date: t.date,
                 servings: total,
                 potFromBank: true,
-                ...(frozen ? { potRows: frozen.rows } : {}),
+                // rung-3 top-ups are part of the buy (§11.4): appended to
+                // the pot rows so the list prices and displays them like any
+                // other line, absolute grams, no perServing multiply
+                ...(frozen ? { potRows: [...frozen.rows, ...(frozen.topUps ?? [])] } : {}),
               }),
             );
           }
@@ -333,6 +337,39 @@ export function deriveTables(houses, ctx) {
       derivedSlots.add(key);
 
       const servings = clampServings(mySeat.servings);
+      // MY plate's bucket multipliers, for Daily Dozen credit scaling
+      // (spec §11.2). Uniform (untagged, unshopped-guard is the caller's
+      // weekShopped concern at freeze time; credits are display-side and
+      // follow the live solve) -> all 1 -> groupScale omitted entirely.
+      const mySolve =
+        recipe.assembly === "plated" && !t.sameForEveryone && ctx.myTargets
+          ? solveSeat({
+              recipe,
+              assembly: recipe.assembly,
+              seat: /** @type {any} */ (mySeat),
+              targets: ctx.myTargets,
+              slotShare: slotShareFor(ctx.myTargets, t.slot),
+            })
+          : null;
+      // CREDIT WHAT YOU RENDER (§4.2, Loyalist): the serve step rounds cup
+      // amounts to quarters, so the credit multiplier is the QUARTIZED
+      // beta, never the float — the scoreboard must not credit food the
+      // instruction never conveyed. Floor 0.25: a rendered spoonful is
+      // still food.
+      const qtr = mySolve ? Math.max(0.25, Math.round(mySolve.beta * 4) / 4) : 1;
+      const groupScale =
+        mySolve && mySolve.synthMode === "solved"
+          ? {
+              // ONLY wholeGrains scales: its foods (rice, oats, bread…)
+              // genuinely resolve to the carbfat bucket beta moves. Flax,
+              // most nuts and seeds resolve to FLAVOR — the seat eats 100%
+              // of them — and beans can resolve to protein (alpha). Crediting
+              // those at beta would shrink credit for food fully eaten
+              // (credit-what-you-render, inverted). Per-food part-aware
+              // credit can extend this later.
+              wholeGrains: qtr,
+            }
+          : null;
       const myTailor = t.tailor?.seats?.[ctx.profileId];
       const n = recipe.nutrition ?? {};
       const knownTotal = known.reduce((sum, s2) => sum + clampServings(s2.servings), 0);
@@ -373,6 +410,7 @@ export function deriveTables(houses, ctx) {
         // my seat's AI plate-tailoring, if the table has been tailored —
         // view-only, stripped with the rest of the derived entry
         ...(myTailor ? { plate: myTailor.plate } : {}),
+        ...(groupScale ? { groupScale } : {}),
       });
     }
   }
@@ -607,6 +645,54 @@ export function setTableCooked(events, tableId, dateIso, today) {
       t.id === tableId && !t.cookedAt ? { ...t, cookedAt: dateIso } : t,
     ),
   };
+}
+
+/**
+ * Name (or clear) the table's head — the ONE person whose plate decisions
+ * win for this table (per-person-plates-design §9). Written ONLY by a
+ * human tap (B5: a device-stamped head at materialization would break the
+ * byte-identical offline-merge contract). Pure.
+ * @param {HouseEvents} events
+ * @param {string} tableId
+ * @param {string | null} headId null = clear, fall back to the default chain
+ * @param {string} today prune anchor, like every other CRUD write
+ * @returns {HouseEvents}
+ */
+export function setTableHead(events, tableId, headId, today) {
+  const base = pruneTables(events, today);
+  return {
+    ...base,
+    tables: base.tables.map((t) => {
+      if (t.id !== tableId) return t;
+      if (headId === null) {
+        const rest = { ...t };
+        delete rest.headId;
+        return rest;
+      }
+      return { ...t, headId };
+    }),
+  };
+}
+
+/**
+ * Who sets this table (spec §9 resolution chain): the tapped head if they
+ * are seated and present, else the effective cook, else the first present
+ * seat in profiles.json order (the only merge-stable order we have).
+ * @param {TableEvent} t
+ * @param {Record<string, any>[]} profilesOrder profiles.json order
+ * @returns {string | null}
+ */
+export function resolveHead(t, profilesOrder) {
+  // SEATED means in the seats array AT ALL, ignoring skip status (spec §9,
+  // verbatim): cookOf filters skipped seats, so reusing it here would mean
+  // tapping "skip mine" silently moves the head — the exact bug §9 names.
+  // Someone cooking-but-eating-late keeps their table.
+  const seated = new Set((t.seats ?? []).map((s) => s.id));
+  const head = t.headId;
+  if (typeof head === "string" && seated.has(head)) return head;
+  if (t.cookId && seated.has(t.cookId)) return t.cookId;
+  for (const p of profilesOrder) if (seated.has(p.id)) return p.id;
+  return null;
 }
 
 /**
@@ -940,6 +1026,9 @@ export function materializeBrigade(events, brigade, ctx) {
         // a grocery claim survives regeneration like a skip does: "I'm
         // buying Wednesday" is a decision, not a detail to rebuild away
         ...(existing?.buyerId ? { buyerId: existing.buyerId } : {}),
+        // the tapped head is about PEOPLE, not the dish: it survives even a
+        // dish swap (resolveHead re-validates presence at read time anyway)
+        ...(existing?.headId ? { headId: existing.headId } : {}),
         ...(sameDish && existing?.cookedAt ? { cookedAt: existing.cookedAt } : {}),
         ...(sameDish && existing?.sameForEveryone ? { sameForEveryone: true } : {}),
         ...(sameDish && /** @type {any} */ (existing)?.pot

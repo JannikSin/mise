@@ -100,6 +100,7 @@ import {
   setTableTailor,
   setTableSameForEveryone,
   setTableBuyer,
+  setTableHead,
   cookOf,
   brigadeTableId,
   seatServingsFor,
@@ -112,7 +113,7 @@ import {
   tablesToLeave,
 } from "./lib/occasions.js";
 import { buildServe } from "./lib/serve.js";
-import { freezePotString, parsePot } from "./lib/synth.js";
+import { freezePotString, parsePot, synthesize } from "./lib/synth.js";
 import {
   normalizeLedger,
   ledgerPathFor,
@@ -1597,6 +1598,7 @@ function App() {
         ownEntries: plan.entries,
         today: localIsoDate(new Date()),
         profilesById,
+        myTargets: targets,
       });
     } catch {
       return { entries: [], conflicts: [], collisions: [], cookExtras: [], allCookExtras: [] };
@@ -1784,6 +1786,39 @@ function App() {
     };
   }, [hasToken]);
 
+  // sync mirror of weekShoppedFor for RENDER-TIME consumers (serve step,
+  // recipe view, credits, instrument): which upcoming weeks are known
+  // bought. Fails toward FROZEN while loading — rung 0f's direction.
+  const [shoppedWeeks, setShoppedWeeks] = useState(/** @type {Set<string> | null} */ (null));
+  const shoppedWeeksRef = useRef(shoppedWeeks);
+  shoppedWeeksRef.current = shoppedWeeks;
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const today = localIsoDate(new Date());
+      const weeks = new Set([isoWeekId(new Date()), isoWeekId(parseLocalIso(shiftIso(today, 7)))]);
+      const out = new Set();
+      for (const w of weeks) {
+        const p = await readProfiles().catch(() => ({ profiles: [] }));
+        for (const pr of p.profiles) {
+          const path = pr.id === "david" ? `plans/${w}.json` : `profiles/${pr.id}/plans/${w}.json`;
+          const theirs = /** @type {any} */ (await read(path, { raw: true }).catch(() => null));
+          if (theirs?.shoppedAt) {
+            out.add(w);
+            break;
+          }
+        }
+      }
+      if (alive) setShoppedWeeks(out);
+    };
+    void load();
+    const unsub = onSyncChange(() => void load());
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [hasToken]);
+
   /**
    * THE SHOPPED-WEEK FREEZE (David, 2026-08-10): a bought week is
    * untouchable. A table is treated as shopped when its date falls in the
@@ -1805,6 +1840,68 @@ function App() {
       if (theirs?.shoppedAt) return true;
     }
     return false;
+  };
+
+  /**
+   * Live plate solve for one table, from this device's cached targets.
+   * Plating always derives LIVE (spec §10: the frozen pot is a contract for
+   * money and buying, never for what lands on a plate) so no weekShopped
+   * freeze applies here. Null unless the recipe is tagged `plated`.
+   * @param {import("./lib/tables.js").TableEvent} t
+   */
+  const liveSynthFor = (/** @type {import("./lib/tables.js").TableEvent} */ t) => {
+    const recipe = bankRecipesRef.current.find((r) => r.id === t.recipeId);
+    if (!recipe || recipe.assembly !== "plated" || t.sameForEveryone) return null;
+    // rung 0f for render-time consumers: on a BOUGHT week with NO frozen
+    // pot, the food in the house is uniform quantities — a solved plate
+    // instruction would tell the cook to serve food that was never bought.
+    // A valid pot means the buy WAS solved, so solved plates are honest.
+    // Unknown (still loading) fails toward frozen.
+    if (!parsePot(/** @type {any} */ (t).pot, recipe)) {
+      const today = localIsoDate(new Date());
+      const wk = isoWeekId(parseLocalIso(t.date));
+      const frozen =
+        t.date < today || shoppedWeeksRef.current === null || shoppedWeeksRef.current.has(wk);
+      if (frozen) return null;
+    }
+    const targetsById = new Map();
+    /** @type {Record<string, number>} */
+    const slotShares = {};
+    for (const s of t.seats ?? []) {
+      const rec = houseTargetsRef.current.get(s.id);
+      targetsById.set(s.id, /** @type {any} */ (rec?.data ?? null));
+      slotShares[s.id] = slotShareFor(/** @type {any} */ (rec?.data), t.slot);
+    }
+    return synthesize({ recipe, seats: /** @type {any} */ (t.seats ?? []), targetsById, slotShares });
+  };
+
+  /**
+   * Claim-time missing-plan warning (spec R6): only a CONFIGURED seat (their
+   * profile carries a fitness phase, meaning a plan exists somewhere) whose
+   * targets are unreadable or unsynced on THIS device warns. An unconfigured
+   * seat is a normal plate, never a warning — that distinction is what keeps
+   * the warning from crying wolf into silence.
+   * @param {import("./lib/tables.js").TableEvent} t
+   * @returns {string | null}
+   */
+  const missingPlanWarning = (/** @type {import("./lib/tables.js").TableEvent} */ t) => {
+    // gated on the ENGINE (Red Team 6): at zero tags a plan affects
+    // nothing about this dinner, and a warning about a plan with no effect
+    // is the wolf-cry R6 exists to prevent
+    const recipe = bankRecipesRef.current.find((r) => r.id === t.recipeId);
+    if (!recipe || recipe.assembly !== "plated" || t.sameForEveryone) return null;
+    const names = [];
+    for (const s of t.seats ?? []) {
+      if (s.status === "skipped") continue;
+      const prof = allProfilesRef.current.find((p) => p.id === s.id);
+      if (!prof?.phase) continue; // unconfigured seat: normal plate, no warning
+      const rec = houseTargetsRef.current.get(s.id);
+      if (!rec || rec.data === null || rec.dirty) names.push(prof.name ?? s.id);
+    }
+    if (names.length === 0) return null;
+    return names.length === 1
+      ? `buying without ${names[0]}'s food plan on this phone`
+      : `buying without food plans for ${names.join(" and ")} on this phone`;
   };
 
   /** Freeze a table's pot per spec 10. Solved-only: null in uniform mode. */
@@ -1869,6 +1966,19 @@ function App() {
     // identity-stable; body (call-time) reference is safe, the dep array
     // must not touch it (TDZ at definition time)
     [rebuildListWithEvents],
+  );
+
+  /** name the table's head — written ONLY by this human tap (spec §9/B5) */
+  const handleSetHead = useCallback(
+    (/** @type {string} */ house, /** @type {string} */ tableId, /** @type {string} */ headId) => {
+      if (house !== myHouseOf()) return;
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      if (!cur) return;
+      const next = setTableHead(cur, tableId, headId, localIsoDate(new Date()));
+      writeHouseEvents(house, next);
+    },
+    // writeHouseEvents: body-only reference, TDZ — see handleSetBuyer
+    [],
   );
 
   /** claim every unclaimed upcoming dinner (true) or release my claims (false) */
@@ -2824,8 +2934,16 @@ function App() {
             bankRecipes.find((r) => r.id === cookTable.recipeId),
             allProfiles,
             serveRules,
+            liveSynthFor(cookTable),
           )
         : null;
+    // the R6 warning fires here too (spec 10 C6): cooking triggers the
+    // freeze, so a serve step reached before anyone claimed the buy is the
+    // last honest moment to say a configured seat's plan never synced here
+    if (serve && cookTable && !cookTable.buyerId && !cookTable.cookedAt) {
+      const warn = missingPlanWarning(cookTable);
+      if (warn) serve.cookNotes = [...serve.cookNotes, warn];
+    }
     return html`<${CookView}
       key=${route.id}
       recipe=${recipeById(route.id)}
@@ -2919,6 +3037,22 @@ function App() {
         servings=${route.servings}
         entryId=${route.entry}
         tableId=${route.table}
+        potRows=${(() => {
+          // spec 11.5: a solved table's recipe page shows TONIGHT'S pot.
+          // Uniform (every untagged dish) renders cookPlan verbatim. Once a
+          // pot is FROZEN it is the contract for what was bought (spec 10)
+          // and wins over a live re-solve; live covers pre-freeze only.
+          if (!route.table) return undefined;
+          const rt = houseEvents.flatMap((h) => h.events.tables).find((x) => x.id === route.table);
+          if (!rt) return undefined;
+          const bank = bankRecipes.find((r) => r.id === rt.recipeId);
+          const frozen = parsePot(/** @type {any} */ (rt).pot, bank);
+          if (frozen) return frozen.rows.map((r) => ({ food: r.food, unit: r.unit, qty: r.qty }));
+          const s = liveSynthFor(rt);
+          return s?.synthMode === "solved"
+            ? s.rows.map((/** @type {any} */ r) => ({ food: r.food, unit: r.unit, qty: r.qty }))
+            : undefined;
+        })()}
         unshopped=${!(/** @type {any} */ (plan)?.shoppedAt || houseShopped)}
       />`
     }
@@ -3005,6 +3139,9 @@ function App() {
         onCreateTable=${handleCreateTable}
         onRemoveTable=${handleRemoveTable}
         onSetBuyer=${handleSetBuyer}
+        onSetHead=${handleSetHead}
+        liveSynthFor=${liveSynthFor}
+        missingPlanWarning=${missingPlanWarning}
         onPatchSeat=${handlePatchSeat}
         onSeatScreen=${handleSeatScreen}
         onTailorTable=${handleTailorTable}

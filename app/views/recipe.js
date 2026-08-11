@@ -39,9 +39,9 @@ const cookSuffix = (from, servings, entryId, tableId) => {
 };
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, tableId?: string, unshopped?: boolean }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, tableId?: string, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean }} props
  */
-export function RecipeView({ recipe, loading, from, servings, entryId, tableId, unshopped = false }) {
+export function RecipeView({ recipe, loading, from, servings, entryId, tableId, potRows, unshopped = false }) {
   const origin = originOf(from);
   // the recipe page holds the screen as well as Cook mode. Reading the steps
   // off THIS page with full hands is exactly when it used to sleep, because
@@ -62,7 +62,30 @@ export function RecipeView({ recipe, loading, from, servings, entryId, tableId, 
   const n = recipe.nutrition ?? {};
   // portion-aware: cook exactly what the plan says to eat, not the whole
   // recipe (the fix for cooking a serves-2 dish and eating both portions)
-  const plan = cookPlan(recipe, servings);
+  const basePlan = cookPlan(recipe, servings);
+  // SOLVED tables (per-person-plates spec §7.5/§11.5): the ingredient
+  // column shows TONIGHT'S pot for this table — arithmetic, not AI; same
+  // name, same steps, SAME WORDS forever, only the numbers change. So the
+  // pot quantities are merged ONTO the recipe's own rows by index, keeping
+  // prep notes and pantry marks, and only when every row's food+unit
+  // matches — a personal variant of the same id must never render the
+  // bank's foods (the potFromBank bug class). Batch recipes keep their
+  // save-the-extra note: the leftovers instruction is safety-relevant.
+  const plan = (() => {
+    const ings = basePlan.ingredients ?? [];
+    if (!potRows || potRows.length !== ings.length) return basePlan;
+    const merged = ings.map((ing, i) => {
+      const p = potRows[i];
+      return p && p.food === ing.food && p.unit === ing.unit ? { ...ing, qty: p.qty } : null;
+    });
+    if (merged.some((x) => x === null)) return basePlan;
+    return {
+      ...basePlan,
+      ingredients: /** @type {Record<string, any>[]} */ (merged),
+      mode: basePlan.mode === "batch" ? basePlan.mode : "scaled",
+      note: basePlan.mode === "batch" ? basePlan.note : "Amounts for tonight's table.",
+    };
+  })();
   return html`
     <div class="view detail">
       <a class="backlink" href=${origin.hash}>${origin.label}</a>
@@ -342,7 +365,13 @@ export function CookView({
                     </div>`
                   : html`<div class="serve-seat" key=${r.id}>
                       <div class="serve-name">${r.name.toUpperCase()}</div>
-                      <div class="serve-line">${r.fraction}</div>
+                      ${
+                        r.lines && r.lines.length > 0
+                          ? r.lines.map(
+                              (line, i) => html`<div class="serve-line" key=${i}>${line}</div>`,
+                            )
+                          : html`<div class="serve-line">${r.fraction}</div>`
+                      }
                       ${r.note && html`<div class="serve-line hint">${r.note}</div>`}
                     </div>`,
               )}

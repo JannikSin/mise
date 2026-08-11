@@ -2,7 +2,7 @@
 // spec rule that a review found breakable without it.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MACRO, PLATE_GRAMS, partOf, solveSeat, synthesize } from "../app/lib/synth.js";
+import { MACRO, PLATE_GRAMS, PLATE_ADDABLE, partOf, solveSeat, synthesize } from "../app/lib/synth.js";
 
 const RECIPE = {
   id: "chicken-rice",
@@ -317,4 +317,85 @@ test("materializeBrigade carries pot + rawServings ONLY while the dish is unchan
   assert.equal(regen.tables[0].pot, '{"synthMode":"solved","rows":[]}', "same dish: pot carries");
   const swapped = materializeBrigade(marked, brigade, { ...ctx, regenerate: true, bankById: new Map([["other", { ...RECIPE, id: "other", mealType: "dinner" }]]) }).events;
   assert.equal(swapped.tables[0].pot, undefined, "swapped dish: a stale pot must NOT follow");
+});
+
+// ---------------------------------------------------------------------------
+// rung 3: plate floors + top-ups (spec §4.5/§4.7/§11.4)
+// ---------------------------------------------------------------------------
+
+test("rung 3: NO floor set means NO top-up machinery at all", () => {
+  const r = solveSeat({ recipe: RECIPE, assembly: "plated", seat: seat(1), targets: TARGETS, slotShare: SLOT_SHARE });
+  assert.equal(r.topUp, undefined);
+  assert.notEqual(r.rung, "3-floor");
+});
+
+test("rung 3: a present floor below the plate emits a capped top-up, never a bent clamp", () => {
+  const t2 = {
+    ...TARGETS,
+    macros: { ...TARGETS.macros, plateProteinFloor: 60 },
+  };
+  const r = solveSeat({ recipe: RECIPE, assembly: "plated", seat: seat(1), targets: t2, slotShare: SLOT_SHARE });
+  assert.equal(r.synthMode, "solved");
+  if (r.topUp) {
+    assert.equal(r.rung, "3-floor");
+    assert.ok(r.topUp.grams >= 25 && r.topUp.grams % 25 === 0, `grams ${r.topUp.grams}`);
+    assert.ok(PLATE_ADDABLE.includes(r.topUp.food));
+  } else {
+    // floor already met by the solve: also legal, but then no rung-3 marker
+    assert.notEqual(r.rung, "3-floor");
+  }
+});
+
+test("rung 3: a floor no top-up can close under the caps SURFACES the gap loudly", () => {
+  const t2 = {
+    ...TARGETS,
+    macros: {
+      ...TARGETS.macros,
+      plateProteinFloor: 200,
+      plateProteinCapG: 90, // floor above the cap: unclosable by construction
+    },
+  };
+  const r = solveSeat({ recipe: RECIPE, assembly: "plated", seat: seat(1), targets: t2, slotShare: SLOT_SHARE });
+  assert.equal(r.synthMode, "solved");
+  assert.equal(r.topUp, undefined);
+  assert.equal(r.rung, "3-floor");
+  assert.match(String(r.note), /below the floor/);
+});
+
+test("synthesize aggregates top-ups by food with per-seat grams; freeze/parse round-trips them", () => {
+  const t2 = { ...TARGETS, macros: { ...TARGETS.macros, plateProteinFloor: 60 } };
+  const targetsById = new Map([
+    ["a", t2],
+    ["b", t2],
+  ]);
+  const seats = [
+    { id: "a", servings: 1, rawServings: 1 },
+    { id: "b", servings: 1, rawServings: 1 },
+  ];
+  const slotShares = { a: SLOT_SHARE, b: SLOT_SHARE };
+  const out = synthesize({ recipe: RECIPE, seats, targetsById, slotShares });
+  assert.equal(out.synthMode, "solved");
+  for (const row of out.topUps ?? []) {
+    assert.equal(row.unit, "g");
+    const per = Object.values(row.perSeat).reduce((x, y) => x + y, 0);
+    assert.ok(Math.abs(per - row.qty) < 1e-9, "per-seat grams must sum to the row");
+  }
+  const pot = freezePotString({ recipe: RECIPE, seats, targetsById, slotShares });
+  const parsed = parsePot(pot, RECIPE);
+  assert.ok(parsed);
+  if ((out.topUps ?? []).length > 0) {
+    assert.ok(parsed.topUps && parsed.topUps.length === out.topUps.length);
+  }
+});
+
+test("parsePot drops a corrupt topUps array but keeps the pot (honest floor for money)", () => {
+  const t2 = { ...TARGETS, macros: { ...TARGETS.macros, plateProteinFloor: 60 } };
+  const targetsById = new Map([["a", t2]]);
+  const seats = [{ id: "a", servings: 1, rawServings: 1 }];
+  const pot = freezePotString({ recipe: RECIPE, seats, targetsById, slotShares: { a: SLOT_SHARE } });
+  const obj = JSON.parse(pot);
+  obj.topUps = [{ food: "egg", unit: "g", qty: NaN }];
+  const parsed = parsePot(JSON.stringify(obj), RECIPE);
+  assert.ok(parsed, "pot survives");
+  assert.equal(parsed.topUps, undefined, "bad top-ups die alone");
 });

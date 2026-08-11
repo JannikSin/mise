@@ -311,6 +311,7 @@ const DEFAULT_CALORIES_CAP = 2500;
  *   alpha: number, beta: number,
  *   rung: string,
  *   note?: string,
+ *   topUp?: { food: string, grams: number },
  *   hit?: { calories: number, protein: number, targetCalories: number, targetProtein: number },
  * }}
  */
@@ -427,12 +428,58 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
   const residual = Math.abs(s / sigma - 1) > 0.1;
   const hit = clamped || residual ? { calories: achC, protein: achP, targetCalories: tgtC, targetProtein: tgtP } : undefined;
 
+  // rung 3 (§4.5/§4.7): a PRESENT plate floor, and only then. Never bend
+  // the clamps — emit a top-up from PLATE_ADDABLE if one closes the gap
+  // without breaching either cap, else surface the gap. Loudly either way.
+  const floorC = Number(targets.macros.plateCaloriesFloor);
+  const floorP = Number(targets.macros.plateProteinFloor);
+  const needC = floorC > 0 ? floorC - plateC() : 0;
+  const needP = floorP > 0 ? floorP - plateP() : 0;
+  /** @type {{ food: string, grams: number } | undefined} */
+  let topUp;
+  let floorNote = "";
+  if (needC > 1 || needP > 1) {
+    for (const food of PLATE_ADDABLE) {
+      const m = MACRO[food];
+      if (!m) continue;
+      // grams that close BOTH present gaps; a food too protein-thin to ever
+      // close a protein gap is skipped rather than piled to absurdity
+      let g0 = needC > 0 ? (needC / m[0]) * 100 : 0;
+      if (needP > 0) g0 = m[1] > 0 ? Math.max(g0, (needP / m[1]) * 100) : NaN;
+      if (!Number.isFinite(g0) || g0 > 500) continue;
+      const grams = Math.max(25, Math.ceil(g0 / 25) * 25);
+      // RE-CHECK BOTH CAPS after the top-up (§4.5 order of operations)
+      const okP = plateP() + (grams * m[1]) / 100 <= capP;
+      const okC = plateC() + (grams * m[0]) / 100 <= capC;
+      if (okP && okC) {
+        topUp = { food, grams };
+        break;
+      }
+    }
+    if (!topUp) {
+      floorNote = "this plate lands below the floor and no top-up fits under the caps";
+    }
+  }
+
+  // the top-up is eaten: achieved-vs-target must include it (a human reads
+  // this as what landed on their plate, not as solver internals)
+  const hitOut =
+    hit && topUp
+      ? {
+          ...hit,
+          calories: hit.calories + Math.round((topUp.grams * (MACRO[topUp.food]?.[0] ?? 0)) / 100),
+          protein: hit.protein + Math.round((topUp.grams * (MACRO[topUp.food]?.[1] ?? 0)) / 100),
+        }
+      : hit;
+
   return {
     synthMode: "solved",
     alpha,
     beta,
-    rung: clamped ? "2-clamped" : "solved",
-    ...(hit ? { hit } : {}),
+    rung: topUp || floorNote ? "3-floor" : clamped ? "2-clamped" : "solved",
+    ...(topUp ? { topUp } : {}),
+    ...(floorNote ? { note: floorNote } : {}),
+    ...(hitOut ? { hit: hitOut } : {}),
   };
 }
 
@@ -452,7 +499,13 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
  */
 export function synthesize({ recipe, seats, targetsById, slotShares, weekShopped }) {
   const assembly = recipe?.assembly;
-  const live = (seats ?? []).filter((x) => x.status !== "skipped");
+  // sorted by id: perSeat/topUps key order must not depend on the seats
+  // array order, which the merge rebuilds — two devices freezing identical
+  // inputs must emit identical pot strings
+  const live = (seats ?? [])
+    .filter((x) => x.status !== "skipped")
+    .slice()
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
   /** @type {Record<string, ReturnType<typeof solveSeat>>} */
   const bySeat = {};
   let anySolved = false;
@@ -496,10 +549,28 @@ export function synthesize({ recipe, seats, targetsById, slotShares, weekShopped
     }
   }
 
+  // rung-3 top-ups, aggregated by food into rows-shaped entries (unit g)
+  // so the buy, the pot and the money paths all consume them identically
+  /** @type {{ food: string, unit: string, qty: number, perSeat: Record<string, number> }[]} */
+  const topUps = [];
+  for (const seat of live) {
+    const r = bySeat[seat.id];
+    if (!r || !r.topUp) continue;
+    const { food, grams } = r.topUp;
+    let row = topUps.find((x) => x.food === food);
+    if (!row) {
+      row = { food, unit: "g", qty: 0, perSeat: {} };
+      topUps.push(row);
+    }
+    row.qty += grams;
+    row.perSeat[seat.id] = (row.perSeat[seat.id] ?? 0) + grams;
+  }
+
   return {
     synthMode: anySolved ? /** @type {const} */ ("solved") : /** @type {const} */ ("uniform"),
     rows,
     bySeat,
+    topUps,
   };
 }
 
@@ -531,11 +602,39 @@ export function freezePotString({ recipe, seats, targetsById, slotShares, weekSh
     recipeRev: recipeRevOf(recipe),
     targets: targetShas ?? {},
   };
+  const round3 = (/** @type {number} */ n) => Math.round(n * 1000) / 1000;
   return JSON.stringify({
     synthV: SYNTH_V,
     inputs: fingerprint,
     synthMode: "solved",
-    rows: out.rows.map((/** @type {any} */ r) => ({ food: r.food, unit: r.unit, qty: r.qty })),
+    // perSeat rides along so MONEY can bill pay-for-what-you-eat exactly
+    // (David, 2026-08-10: "if it's split two thirds a third, one person
+    // should pay two thirds") — each seat's share of each row, costed per
+    // row at recording time. Rounded to 3dp; the pot qty stays the truth.
+    rows: out.rows.map((/** @type {any} */ r) => {
+      // perSeat is NORMALIZED to the stored qty (Realist R8): qty went
+      // through scaleQty (counted units round to halves), so raw per-seat
+      // floats can sum to 3.2 against a stored 3. Scaling preserves every
+      // seat's FRACTION — the thing money divides by qty — and makes the
+      // conservation check exact instead of tolerance-dependent.
+      const rawSum = Object.values(r.perSeat ?? {}).reduce(
+        (/** @type {number} */ a, /** @type {any} */ b) => a + Number(b),
+        0,
+      );
+      const k = rawSum > 0 ? r.qty / rawSum : 0;
+      return {
+        food: r.food,
+        unit: r.unit,
+        qty: r.qty,
+        perSeat: Object.fromEntries(
+          Object.entries(r.perSeat ?? {}).map(([id, q]) => [id, round3(/** @type {number} */ (q) * k)]),
+        ),
+      };
+    }),
+    // rung-3 top-ups ride in the buy contract too (§11.4): whole grams,
+    // outside the §4.8 row-identity check (they are ADDED food, not recipe
+    // rows), each seat's grams named so money bills the eater
+    ...(out.topUps && out.topUps.length > 0 ? { topUps: out.topUps } : {}),
   });
 }
 
@@ -560,7 +659,7 @@ export function recipeRevOf(/** @type {Record<string, any>} */ recipe) {
  * quantities; no merge keys on rows (§8.1).
  * @param {string | undefined} potString
  * @param {Record<string, any> | undefined} bankRecipe
- * @returns {{ synthV: number, rows: { food: string, unit: string, qty: number }[] } | null}
+ * @returns {{ synthV: number, inputs?: { recipeRev: string, targets: Record<string, string> }, rows: { food: string, unit: string, qty: number, perSeat?: Record<string, number> }[], topUps?: { food: string, unit: string, qty: number, perSeat?: Record<string, number> }[] } | null}
  */
 export function parsePot(potString, bankRecipe) {
   if (typeof potString !== "string" || !potString) return null;
@@ -578,10 +677,72 @@ export function parsePot(potString, bankRecipe) {
       if ("id" in row || "date" in row) return null; // §8.1: never merge-keyed
     }
     // sanitize: only the contract fields survive into consumers (money,
-    // shopping) — extra keys in a hand-editable shared file die here
+    // shopping) — extra keys in a hand-editable shared file die here.
+    // perSeat entries must be real finite numbers or the row's map is
+    // dropped wholesale (money then falls back to servings, honestly).
+    const cleanPerSeat = (/** @type {any} */ r) => {
+      const per = r.perSeat && typeof r.perSeat === "object" ? r.perSeat : null;
+      if (!per) return undefined;
+      const vals = Object.values(per);
+      if (!vals.every((q) => typeof q === "number" && Number.isFinite(q) && q >= 0)) return undefined;
+      // CONSERVATION (Red Team, final gate): perSeat is a MONEY multiplier
+      // in a hand-editable shared file. The shares must sum to the row's
+      // qty (1% + rounding tolerance) or the whole map dies — otherwise one
+      // edited value bills a seat any number at all.
+      const sum = vals.reduce((a, b) => a + Number(b), 0);
+      const qty = Number(r.qty) || 0;
+      if (!(qty > 0) || Math.abs(sum - qty) > Math.max(0.01 * qty, 0.01)) return undefined;
+      return Object.fromEntries(Object.entries(per).map(([k, v]) => [String(k), Number(v)]));
+    };
+    // top-ups are OPTIONAL and validated on their own terms (added food,
+    // outside the recipe-identity check): real name, gram unit, real qty.
+    // One bad top-up drops the whole array, never the pot — money then
+    // bills the recipe rows only, an honest floor.
+    /** @type {any[] | undefined} */
+    let topUps;
+    // BOUNDED (Red Team): the solve emits at most one top-up per seat, each
+    // ≤ 500 g — anything past 8 rows or 500 g/row is a hand-edited file,
+    // and an unbounded array walks straight into the buy and the bill
+    if (Array.isArray(pot.topUps) && pot.topUps.length <= 8) {
+      const ok = pot.topUps.every(
+        (/** @type {any} */ r) =>
+          typeof r?.food === "string" &&
+          r.food &&
+          r.unit === "g" &&
+          typeof r.qty === "number" &&
+          Number.isFinite(r.qty) &&
+          r.qty > 0 &&
+          r.qty <= 2000 &&
+          !("id" in r) &&
+          !("date" in r),
+      );
+      if (ok) {
+        topUps = pot.topUps.map((/** @type {any} */ r) => {
+          const clean = cleanPerSeat(r);
+          return { food: r.food, unit: "g", qty: r.qty, ...(clean ? { perSeat: clean } : {}) };
+        });
+      }
+    }
+    // the input fingerprint survives the parse (Realist: it was written
+    // and then never readable) so a consumer CAN compare a frozen target
+    // sha against the current one; sanitized to plain strings
+    const inputs =
+      pot.inputs && typeof pot.inputs === "object"
+        ? {
+            recipeRev: String(pot.inputs.recipeRev ?? ""),
+            targets: Object.fromEntries(
+              Object.entries(pot.inputs.targets ?? {}).map(([k, v]) => [String(k), String(v)]),
+            ),
+          }
+        : undefined;
     return {
       synthV: Number(pot.synthV) || 0,
-      rows: pot.rows.map((/** @type {any} */ r) => ({ food: r.food, unit: r.unit, qty: r.qty })),
+      ...(inputs ? { inputs } : {}),
+      rows: pot.rows.map((/** @type {any} */ r) => {
+        const clean = cleanPerSeat(r);
+        return { food: r.food, unit: r.unit, qty: r.qty, ...(clean ? { perSeat: clean } : {}) };
+      }),
+      ...(topUps && topUps.length > 0 ? { topUps } : {}),
     };
   } catch {
     return null;

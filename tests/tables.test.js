@@ -8,6 +8,8 @@ import {
   patchSeat,
   setTableTailor,
   setTableCooked,
+  setTableHead,
+  resolveHead,
   setTableSameForEveryone,
   setTableBuyer,
   pruneTables,
@@ -504,4 +506,48 @@ test("setTableCooked is set-once: the serve step's COOKED cannot be re-stamped",
   assert.equal(again.tables[0].cookedAt, "2026-07-24");
   // and it never touches another table
   assert.equal(setTableCooked(base, "nope", "2026-07-24", "2026-07-24").tables[0].cookedAt, undefined);
+});
+
+// THE HEAD (spec §9): human-tap-only writer + presence-aware resolution.
+test("setTableHead writes only by tap; resolveHead falls through head -> cook -> profiles order", () => {
+  const today = "2026-08-10";
+  let ev = normalizeEvents({
+    tables: [
+      {
+        id: "h1",
+        name: "dinner",
+        date: "2026-08-12",
+        slot: "dinner",
+        recipeId: "r",
+        cookId: "b",
+        seats: [
+          { id: "b", servings: 1 },
+          { id: "a", servings: 1 },
+          { id: "c", servings: 1 },
+        ],
+      },
+    ],
+  });
+  const order = [{ id: "a" }, { id: "b" }, { id: "c" }];
+  // no head tapped: the cook sets the table
+  assert.equal(resolveHead(ev.tables[0], order), "b");
+  ev = setTableHead(ev, "h1", "c", today);
+  assert.equal(ev.tables[0].headId, "c");
+  assert.equal(resolveHead(ev.tables[0], order), "c");
+  // SEATED IGNORES SKIP STATUS (spec §9, verbatim): the tapped head who
+  // taps "skip mine" (cooking, eating late) KEEPS the table — reusing a
+  // presence filter here is the exact bug §9 names about cookOf
+  const skipped = { ...ev.tables[0], seats: ev.tables[0].seats.map((s) => (s.id === "c" ? { ...s, status: "skipped" } : s)) };
+  assert.equal(resolveHead(skipped, order), "c");
+  // an UNSEATED head (removed from the table entirely) falls to the cook
+  const gone = { ...ev.tables[0], seats: ev.tables[0].seats.filter((s) => s.id !== "c") };
+  assert.equal(resolveHead(gone, order), "b");
+  // cook also unseated: first SEATED profile in PROFILES order, any status
+  const both = { ...gone, seats: gone.seats.filter((s) => s.id !== "b") };
+  assert.equal(resolveHead(both, order), "a");
+  // nobody seated at all: null, never a guess
+  assert.equal(resolveHead({ ...ev.tables[0], seats: [] }, order), null);
+  // clearing restores the default chain
+  ev = setTableHead(ev, "h1", null, today);
+  assert.equal(ev.tables[0].headId, undefined);
 });

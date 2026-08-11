@@ -461,7 +461,12 @@ before every plan write).
       //   two devices' freezes can never interleave field-wise. Parsed shape:
       //   { synthV, inputs: { recipeRev, targets: { <profileId>:
       //   <github-blob-sha | "dirty" | "missing"> } }, synthMode: "solved",
-      //   rows: [{ food, unit, qty }] }. Written ONLY in solved mode, by
+      //   rows: [{ food, unit, qty, perSeat: { <profileId>: qty } }],
+      //   topUps?: [{ food, unit: "g", qty, perSeat }] }. perSeat is each
+      //   seat's share of the row, 3dp, so money bills pay-for-what-you-eat
+      //   exactly; topUps are rung-3 floor top-ups (added food, validated
+      //   outside the row-identity check, priced into the buy and billed to
+      //   the eating seat). Written ONLY in solved mode, by
       //   setTablePot at buy-claim or COOKED (first trigger wins); dropped
       //   by unclaim-while-uncooked and by sameForEveryone; validated on
       //   every read (parsePot: full row identity vs the bank recipe,
@@ -469,6 +474,15 @@ before every plan write).
       //   invalid. Survives brigade regeneration only while the recipe is
       //   unchanged. ABSENT on every uniform table — which today is all of
       //   them (zero assembly tags), the inert-deploy guarantee.
+      "headId": "mom", // ? THE HEAD (per-person-plates-design §9): the one
+      //   person whose plate decisions win for this table. Written ONLY by
+      //   a human tap (setTableHead; TAKE THIS TABLE) — never stamped at
+      //   materialization, which would break byte-identical offline merges.
+      //   ABSENT = default chain: resolveHead falls through cook → first
+      //   present seat in profiles.json order, re-validating presence on
+      //   every read. Survives brigade regeneration even across a dish swap
+      //   (it is about people, not food). Gates REDO PLATES; shown as
+      //   "<name>'s table".
       "cookedAt": "2026-07-24", // ? the serve step's COOKED confirmation
       //   (per-person-plates-design §7.2). Set once by setTableCooked, never
       //   cleared (you cannot un-cook food, same rule as a plan entry's

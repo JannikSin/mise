@@ -397,7 +397,13 @@ function dayGroupTotal(entries, recipesById, date, group) {
     // floor pass stack snacks for greens dinner already served (review #7)
     const rid = e.recipeId ?? /** @type {any} */ (e).viewRecipeId;
     if (e.date !== date || !rid) continue;
-    total += (recipesById.get(rid)?.foodGroups?.[group] ?? 0) * e.servings;
+    // groupScale (per-person-plates spec §11.2): a SOLVED table plate can
+    // carry less of a bucket than the recipe's per-serving figure — a loss
+    // seat at beta 0.4 gets 40% of the flaxseed, and crediting the full
+    // figure would silently overstate the Daily Dozen. Absent (every
+    // uniform entry) = 1, today's arithmetic exactly.
+    const scale = /** @type {any} */ (e).groupScale?.[group] ?? 1;
+    total += (recipesById.get(rid)?.foodGroups?.[group] ?? 0) * e.servings * scale;
   }
   return total;
 }
