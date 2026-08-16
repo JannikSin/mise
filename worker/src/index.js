@@ -335,12 +335,19 @@ async function fetchRecipeUrl(rawUrl) {
       url = new URL(loc, url); // re-checked https at the top of the next hop
       continue;
     }
-    if (res.status === 401 || res.status === 403 || res.status === 429) {
+    if (res.status === 429) {
+      throw new Error("that site is rate-limiting; wait a few minutes and try again");
+    }
+    if (res.status === 401 || res.status === 403) {
       throw new Error(
         "that site blocks automated readers. Photograph the page instead (photo scans render but do not save yet)",
       );
     }
-    if (!res.ok) throw new Error(`the page answered ${res.status}`);
+    if (!res.ok) {
+      throw new Error(
+        `the page answered ${res.status}; photograph it instead (photo scans render but do not save yet)`,
+      );
+    }
     const type = (res.headers.get("content-type") ?? "").toLowerCase();
     if (!type.includes("text/html") && !type.includes("text/plain")) {
       throw new Error(`the page is ${type.split(";")[0] || "not text"}, recipe pages only`);
@@ -840,7 +847,11 @@ export default {
           Array.isArray(body.diners) &&
           body.diners.some((/** @type {any} */ d) => d?.unconfirmed === true)
         ) {
-          return json(422, { error: "a diner's restrictions are unconfirmed; sync and retry" }, cors);
+          return json(
+            422,
+            { error: "a diner's restrictions are unconfirmed; sync and retry, or unpick them" },
+            cors,
+          );
         }
         const diners = sanitizePeople(body.diners).filter((d) => d.id);
         const context = sanitizeAnnotateContext(body.context);
@@ -861,7 +872,11 @@ export default {
           }
           extracted = extractRecipeFromHtml(page);
           if (normalize(extracted).length < 80) {
-            return json(422, { error: "no readable recipe on that page" }, cors);
+            return json(
+              422,
+              { error: "no readable recipe on that page; photograph it instead (photo scans render but do not save yet)" },
+              cors,
+            );
           }
         } else {
           image = typeof body.image === "string" ? body.image : "";
@@ -908,6 +923,8 @@ export default {
         // call 2: annotation, validated fail-closed, one retry (H2)
         /** @type {ReturnType<typeof validateAnnotation>} */
         let v = { ok: false, errors: ["not run"] };
+        /** @type {Record<string, any> | null} */
+        let priorAttempt = null;
         for (let attempt = 0; attempt < 2 && !v.ok; attempt++) {
           const resp = await callModel(
             buildAnnotateRequest({
@@ -916,14 +933,17 @@ export default {
               diners,
               context,
               refusalForced: refusal.length > 0,
-              // the retry is INFORMED: attempt 2 gets attempt 1's validator
-              // reasons, so it is a correction rather than a fresh sample
+              // the retry is INFORMED: attempt 2 sees attempt 1's own output
+              // and the validator's reasons, so it corrects instead of
+              // resampling blind
               priorErrors: attempt > 0 ? v.errors : undefined,
+              priorAttempt: attempt > 0 ? priorAttempt : undefined,
               model: env.SCAN_MODEL ?? DEFAULT_MODEL,
             }),
             env,
           );
-          v = validateAnnotation(parseToolUse(resp, "record_annotation"), {
+          priorAttempt = parseToolUse(resp, "record_annotation");
+          v = validateAnnotation(priorAttempt, {
             objective,
             transcriptNorm,
             extractedNorm,
@@ -979,7 +999,10 @@ export default {
           transcriptNorm: normalize(transcription),
           extractedNorm: normalize(extracted),
           path,
-          refusalForced: false,
+          // the refusal net re-runs on the write path too (loop 2 R7): a
+          // replayed refusal-class source with a laundered mode must not write
+          refusalForced:
+            refusalHits(`${normalize(transcription)} ${normalize(extracted)}`).length > 0,
         });
         if (!v.ok) return json(422, { error: "revalidation failed, nothing written", details: v.errors.slice(0, 6) }, cors);
         const save = saveEligible(v.result, path);

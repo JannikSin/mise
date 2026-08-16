@@ -394,8 +394,10 @@ test("sanitizeAnnotateContext bounds everything; hbpSlug is repo-safe", () => {
 
 // ---- Tribunal final-gate fixes (loop 1) ------------------------------------
 
-test("a doneness figure BELOW the band still hits the safety line (RT B1)", () => {
-  // 10 C done-fish sat under the old 40-99 C band gate and passed clean
+test("a doneness figure BELOW the band still hits the safety line (RT B1 + R5)", () => {
+  // 10 C done-fish sat under the old 40-99 C band gate and passed clean;
+  // since loop 2 it rejects OUTRIGHT, risk flag or not, because no
+  // legitimate doneness lives below 49 C (that is storage, not cooking)
   const src2 = SRC + " Chill the salmon at 10 C overnight.";
   const ctx2 = { ...CTX, transcriptNorm: normalize(src2), extractedNorm: normalize(src2) };
   const cold = good();
@@ -413,11 +415,18 @@ test("a doneness figure BELOW the band still hits the safety line (RT B1)", () =
 
   cold.riskGroups = true;
   const flagged = validateAnnotation(cold, ctx2);
-  assert.equal(flagged.ok, true, JSON.stringify(/** @type {any} */ (flagged).errors ?? []));
+  assert.equal(flagged.ok, false, "the risk flag does not launder a storage temperature");
+
+  // a REAL tier-2 figure (50 C salmon) still works exactly as designed
+  const src3 = SRC + " Pull the salmon at 50 C.";
+  const ctx3 = { ...CTX, transcriptNorm: normalize(src3), extractedNorm: normalize(src3) };
+  cold.steps[1].temps = [{ label: "done-fish", unit: "C", fromSource: true, value: 50 }];
+  const real = validateAnnotation(cold, ctx3);
+  assert.equal(real.ok, true, JSON.stringify(/** @type {any} */ (real).errors ?? []));
   assert.equal(
-    saveEligible(/** @type {any} */ (flagged).result, "url").ok,
+    saveEligible(/** @type {any} */ (real).result, "url").ok,
     false,
-    "and even flagged it renders only, never saves",
+    "renders with the risk line, never saves",
   );
 });
 
@@ -553,7 +562,7 @@ test("saved instructions KEEP the temps and margin notes (Realist 5)", () => {
     pantryStaples: [],
   });
   assert.ok(
-    recipe.instructions[0].text.includes("71 \u00b0C (done-ground)"),
+    recipe.instructions[0].text.includes("71 \u00b0C (ground meat done temp)"),
     "the supplied doneness figure survives into the text every view renders",
   );
   assert.ok(recipe.instructions[0].text.includes("crust is flavor"), "margin notes survive too");
@@ -610,6 +619,113 @@ test("extractRecipeFromHtml splits a single-blob method and keeps name-only step
   const out = extractRecipeFromHtml(html);
   assert.ok(out.includes("2. Whisk the eggs"), "the blob split into real steps");
   assert.ok(out.includes("Serve with cream."), "a name-only step is kept");
+});
+
+// ---- Tribunal final-gate fixes (loop 2) ------------------------------------
+
+test("process labels carry physical lines: a 50 C hold and a 45 C fridge reject (R1)", () => {
+  const src2 = SRC + " Keep it in the warming drawer at 50 C. Refrigerate at 45 C.";
+  const ctx2 = { ...CTX, transcriptNorm: normalize(src2), extractedNorm: normalize(src2) };
+
+  const danger = good();
+  danger.steps[2].temps = [{ label: "hold", unit: "C", fromSource: true, value: 50 }];
+  const v1 = validateAnnotation(danger, ctx2);
+  assert.equal(v1.ok, false, "50 C is the danger zone, not a hold");
+  assert.ok(/** @type {any} */ (v1).errors.some((e) => e.includes("hot-holding")));
+
+  const warm = good();
+  warm.steps[2].temps = [{ label: "fridge", unit: "C", fromSource: true, value: 45 }];
+  const v2 = validateAnnotation(warm, ctx2);
+  assert.equal(v2.ok, false, "45 C is not refrigeration");
+
+  const fine = good();
+  fine.steps[2].temps = [{ label: "hold", unit: "C", fromSource: true, value: 60 }];
+  const src3 = SRC + " Keep the pot warm at 60 C.";
+  const v3 = validateAnnotation(fine, {
+    ...CTX,
+    transcriptNorm: normalize(src3),
+    extractedNorm: normalize(src3),
+  });
+  assert.equal(v3.ok, true, "a real 60 C hot-hold still passes");
+});
+
+test("a sub-57 C hold cannot launder an undercook past the process floor (R2)", () => {
+  const src2 =
+    "Sloppy Joes. Serves 4. Ingredients: 500 g ground beef, buns. " +
+    "Method: 1. Cook the mixture through. 2. Keep it in the pan at 50 C until the buns are ready. 3. Serve.";
+  const ctx2 = { ...CTX, transcriptNorm: normalize(src2), extractedNorm: normalize(src2) };
+  const sly = good();
+  sly.title = "Sloppy Joes";
+  sly.sourceQuote = "Keep it in the pan";
+  sly.ingredients = [
+    { food: "ground beef", grams: 500 },
+    { food: "buns", grams: 200 },
+  ];
+  sly.steps = [
+    { n: 1, title: "Cook", text: "Cook the mixture through.", notes: [], temps: [] },
+    {
+      n: 2,
+      title: "Hold",
+      text: "Keep it in the pan until the buns are ready.",
+      notes: [],
+      temps: [{ label: "hold", unit: "C", fromSource: true, value: 50 }],
+    },
+    { n: 3, title: "Serve", text: "Serve on the buns.", notes: [], temps: [] },
+  ];
+  const v = validateAnnotation(sly, ctx2);
+  assert.equal(v.ok, false, "50 C is the danger zone whatever the label says");
+  assert.ok(/** @type {any} */ (v).errors.some((e) => e.includes("hot-holding")));
+});
+
+test("a spelled-out figure cannot ride a unit token past the sweep (R3)", () => {
+  const spelled = good();
+  spelled.steps[0].notes = ["pull them at one hundred forty degrees F for a juicier crumb"];
+  const v = validateAnnotation(spelled, CTX);
+  assert.equal(v.ok, false);
+  assert.ok(/** @type {any} */ (v).errors.some((e) => e.includes("no readable figure")));
+});
+
+test("extractTemps reads every common range spelling (R4)", () => {
+  assert.deepEqual(extractTemps(normalize("140\u00b0-160\u00b0F")), [
+    { value: 140, unit: "F" },
+    { value: 160, unit: "F" },
+  ]);
+  assert.deepEqual(extractTemps(normalize("between 140 and 160 F")), [
+    { value: 140, unit: "F" },
+    { value: 160, unit: "F" },
+  ]);
+  assert.deepEqual(extractTemps(normalize("140/160 F")), [
+    { value: 140, unit: "F" },
+    { value: 160, unit: "F" },
+  ]);
+  // and no false low end on an unrelated "and"
+  assert.deepEqual(extractTemps(normalize("bake at 180 C and rest 5 minutes")), [
+    { value: 180, unit: "C" },
+  ]);
+});
+
+test("a room label gives ambient figures a legal declaration (R8)", () => {
+  const src2 = SRC + " Rest the dough at 22 C before shaping.";
+  const ctx2 = { ...CTX, transcriptNorm: normalize(src2), extractedNorm: normalize(src2) };
+  const ambient = good();
+  ambient.steps[1].text = "Rest the dough at room temperature before shaping.";
+  ambient.steps[1].temps = [{ label: "room", unit: "C", fromSource: true, value: 22 }];
+  const v = validateAnnotation(ambient, ctx2);
+  assert.equal(v.ok, true, JSON.stringify(/** @type {any} */ (v).errors ?? []));
+});
+
+test("saved instruction text uses the cook-facing label names (ENG F5 note)", () => {
+  const v = validateAnnotation(good(), CTX);
+  const recipe = annotationToRecipe(/** @type {any} */ (v).result, {
+    id: "hbp-x",
+    sourceUrl: "https://example.com",
+    transcription: SRC,
+    pantryStaples: [],
+  });
+  assert.ok(
+    recipe.instructions[0].text.includes("(ground meat done temp)"),
+    "the enum code stays out of the kitchen",
+  );
 });
 
 // ---- parity with the P1 skill (one home per side, gate F2) -----------------

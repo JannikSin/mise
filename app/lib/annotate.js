@@ -242,6 +242,11 @@ export function resultHumanText(result) {
     ...(r.planFit ?? []),
     ...(r.allergensFound ?? []),
     r.refusalReason,
+    r.cuisine,
+    r.deal?.time,
+    r.deal?.cost,
+    r.deal?.buys,
+    r.deal?.skipIf,
   ]
     .filter(Boolean)
     .join(" ");

@@ -28,6 +28,7 @@ const TEMP_LABEL_NAMES = /** @type {Record<string, string>} */ ({
   fry: "oil temp",
   fridge: "fridge",
   proof: "proof",
+  room: "room temp",
 });
 
 // a finished scan survives a reload or an accidental tab-away (a two-model
@@ -96,6 +97,12 @@ export function AnnotateView({
       const raw = sessionStorage.getItem(STASH_KEY);
       if (!raw) return;
       const stash = JSON.parse(raw);
+      // a stale stash silently showing last week's recipe is worse than an
+      // empty screen; 30 minutes covers the save-after-reload case
+      if (typeof stash?.at === "number" && Date.now() - stash.at > 30 * 60 * 1000) {
+        sessionStorage.removeItem(STASH_KEY);
+        return;
+      }
       if (stash?.resp?.result) {
         setScan(stash.resp);
         setDiners(Array.isArray(stash.facts) ? stash.facts : []);
@@ -192,7 +199,7 @@ export function AnnotateView({
       try {
         sessionStorage.setItem(
           STASH_KEY,
-          JSON.stringify({ resp, facts, url: file ? "" : url.trim() }),
+          JSON.stringify({ resp, facts, url: file ? "" : url.trim(), at: Date.now() }),
         );
       } catch {
         // full storage must not break the scan
@@ -385,9 +392,19 @@ export function AnnotateView({
                 ? html`
                     <div class="d"><b>NOT MOVED.</b> ${result.refusalReason}</div>
                     <div class="d hint">
-                      this recipe's numbers matter for food safety, so the app will not change them.
-                      it is shown exactly as written, with unit conversions alongside. cook it
-                      as-is, or pick something from the cookbook instead.
+                      something here reads as a preserving, fermenting or curing process
+                      ${
+                        typeof scan === "object" &&
+                        scan !== null &&
+                        "refusalTokens" in scan &&
+                        Array.isArray(scan.refusalTokens) &&
+                        scan.refusalTokens.length > 0
+                          ? `(matched: ${scan.refusalTokens.slice(0, 3).join(", ")})`
+                          : ""
+                      },
+                      and those numbers matter for food safety, so the app will not change them. it
+                      is shown exactly as written, with unit conversions alongside. cook it as-is,
+                      or pick something from the cookbook instead.
                     </div>
                   `
                 : result.mode === "abandon"

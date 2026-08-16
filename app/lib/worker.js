@@ -44,6 +44,7 @@ async function post(path, body) {
   if (!token) throw new Error("connect token in SYS first");
   if (!navigator.onLine) throw new Error("no signal — the offline tools above still work");
   let res;
+  const startedAt = Date.now();
   try {
     res = await fetch(WORKER_URL + path, {
       method: "POST",
@@ -56,8 +57,20 @@ async function post(path, body) {
       signal: AbortSignal.timeout(180000),
     });
   } catch (err) {
-    if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+    // some engines surface an abort as TypeError/Error rather than a
+    // DOMException; match on the name, not the class
+    const name = err instanceof Error || err instanceof DOMException ? err.name : "";
+    if (name === "TimeoutError" || name === "AbortError") {
       throw new Error("that took too long and timed out. Try again in a minute.", { cause: err });
+    }
+    // iOS Safari gives up on a long-silent request around 60s and surfaces
+    // it as a plain network error. If we had been going a while, that is a
+    // drop, not a missing signal; saying "no signal" there is a lie.
+    if (Date.now() - startedAt > 20000) {
+      throw new Error(
+        "the connection dropped mid-request (locking the phone or switching apps can do this). Try again.",
+        { cause: err },
+      );
     }
     // fetch network failures are technical strings ("Failed to fetch") —
     // never show those to David

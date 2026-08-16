@@ -81,7 +81,11 @@ const anthropicResponse = (/** @type {string} */ name, /** @type {any} */ input)
  * @param {any[]} annotations
  */
 function stubFetch(annotations) {
-  const calls = { anthropic: 0, ghWrites: /** @type {any[]} */ ([]) };
+  const calls = {
+    anthropic: 0,
+    ghWrites: /** @type {any[]} */ ([]),
+    prompts: /** @type {string[]} */ ([]),
+  };
   const real = globalThis.fetch;
   // @ts-expect-error test stub
   globalThis.fetch = async (/** @type {any} */ input, /** @type {any} */ init) => {
@@ -99,6 +103,7 @@ function stubFetch(annotations) {
     if (url.startsWith("https://api.anthropic.com/")) {
       calls.anthropic++;
       const body = JSON.parse(init.body);
+      calls.prompts.push(String(body.messages?.[0]?.content?.[0]?.text ?? ""));
       const tool = body.tool_choice?.name;
       if (tool === "record_transcription") {
         return anthropicResponse("record_transcription", { text: SRC });
@@ -196,6 +201,9 @@ test("the retry is informed and bounded: bad then good = 200 after exactly 3 mod
     });
     assert.equal(res.status, 200);
     assert.equal(calls.anthropic, 3, "transcribe + reject + informed retry");
+    // the retry is INFORMED: attempt 2's prompt carries attempt 1's reasons
+    assert.ok(!calls.prompts[1].includes("previous attempt was rejected"));
+    assert.ok(calls.prompts[2].includes("score arithmetic"));
   } finally {
     restore();
   }
@@ -236,6 +244,30 @@ test("an unconfirmed diner is refused server-side before any model call (C1 twin
   }
 });
 
+test("a replayed refusal-class source cannot save with a laundered mode (R7)", async () => {
+  const { calls, restore } = stubFetch([goodAnnotation()]);
+  try {
+    const scan = await post("/annotate", {
+      url: "https://recipes.example/chili",
+      objective: "taste",
+      diners: [],
+    });
+    const data = await scan.json();
+    const res = await post("/annotate-save", {
+      result: data.result,
+      transcription: data.transcription + " Process the jars in a water bath.",
+      extracted: data.extracted + " Process the jars in a water bath.",
+      path: data.path,
+      sourceUrl: data.sourceUrl,
+      pantryStaples: [],
+    });
+    assert.equal(res.status, 422, "the refusal net re-runs on the write path");
+    assert.equal(calls.ghWrites.length, 0, "nothing written");
+  } finally {
+    restore();
+  }
+});
+
 test("/annotate-save revalidates, refuses the photo path, and writes the canonical shape", async () => {
   const { calls, restore } = stubFetch([goodAnnotation()]);
   try {
@@ -268,7 +300,7 @@ test("/annotate-save revalidates, refuses the photo path, and writes the canonic
       decodeURIComponent(escape(atob(calls.ghWrites[0].body.content))),
     );
     assert.equal(written.instructions[0].step, 1);
-    assert.ok(written.instructions[0].text.includes("71 °C (done-ground)"));
+    assert.ok(written.instructions[0].text.includes("71 °C (ground meat done temp)"));
     assert.equal(written.hbp.score, 70);
   } finally {
     restore();
