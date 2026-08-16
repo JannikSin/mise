@@ -96,7 +96,7 @@
     ".sg-row button{flex:0 0 auto;border-radius:9px;border:1px solid #333844;background:#232733;" +
     "color:#f2f4f8;font:inherit;padding:9px 15px;cursor:pointer}" +
     ".sg-send{background:#2563eb !important;border-color:#2563eb !important;font-weight:600}" +
-    ".sg-mic{border-radius:50% !important;width:40px;padding:9px 0 !important}" +
+    ".sg-mic{border-radius:50% !important;width:40px;height:40px;box-sizing:border-box;padding:9px 0 !important}" +
     ".sg-stat{font-size:12.5px;opacity:.72;margin-left:auto;text-align:right}";
 
   var style = document.createElement("style");
@@ -154,15 +154,20 @@
     mic.setAttribute("aria-label", "Record the change out loud");
     var rec = null;
     var chunks = [];
+    var acquiring = false;
+    var cancelled = false;   // shut() mid-recording means cancel, never send
     mic.addEventListener("click", function () {
       if (rec && rec.state === "recording") { rec.stop(); return; }
+      if (acquiring) return;
       if (!keyOf()) { stat.textContent = "needs the Crystal key first"; return; }
       if (!navigator.onLine) { stat.textContent = "no signal; type it instead"; return; }
       if (!navigator.mediaDevices || !window.MediaRecorder) {
         stat.textContent = "this browser cannot record; type it";
         return;
       }
+      acquiring = true;
       navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+        acquiring = false;
         var mime = MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "audio/webm";
         rec = new MediaRecorder(stream, { mimeType: mime });
         chunks = [];
@@ -170,6 +175,7 @@
         rec.onstop = function () {
           stream.getTracks().forEach(function (t) { t.stop(); });
           mic.textContent = "🎙";
+          if (cancelled) return;
           var blob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || mime });
           stat.textContent = "sending...";
           fetch(WORKER + "/deskaudio?app=" + encodeURIComponent(APP)
@@ -188,6 +194,7 @@
         mic.textContent = "⏹";
         stat.textContent = "recording... tap to stop";
       }).catch(function () {
+        acquiring = false;
         stat.textContent = "mic unavailable; type it instead";
       });
     });
@@ -227,6 +234,9 @@
     wrap.appendChild(panel);
 
     function shut() {
+      // closing mid-recording releases the mic AND drops the take: a closed
+      // panel means cancel, so onstop must not upload it
+      if (rec && rec.state === "recording") { cancelled = true; rec.stop(); }
       wrap.remove();
       document.removeEventListener("keydown", onEsc);
       btn.focus();
