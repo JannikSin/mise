@@ -1902,6 +1902,12 @@ export function normalize(text) {
     .replace(/\bdeg(?:rees?)?\.?\s*(?:°\s*)?(f\b|fahrenheit\b)/gi, "°F")
     .replace(/\b(celsius|centigrade)\b/gi, "°C")
     .replace(/\bfahrenheit\b/gi, "°F");
+  // UNIT-LESS spelled degrees ("140 degrees" with no letter) become a bare
+  // degree sign the scans read in both units. P1's check.ps1 carries the
+  // same rule and the reason: a unit spelling the sweep cannot read is a
+  // hole in the backstop; "pull it at 140 degrees" is an instruction to a
+  // cook whatever letter the author omitted. (Tribunal loop 3, CRITICAL-1)
+  t = t.replace(/(\d)\s*deg(?:rees?)?\.?(?!\s*(?:°\s*)?[cf]\b)/gi, "$1 °");
   // comma decimals ("71,5 °C") to dots
   t = t.replace(/(\d),(\d)/g, "$1.$2");
   return t.replace(/\s+/g, " ").trim();
@@ -1914,20 +1920,49 @@ export function normalize(text) {
  * @param {string} normText
  * @returns {{ value: number, unit: "C" | "F" }[]}
  */
+/** the unit-carrying temperature pattern, range-aware; ONE source of truth
+ *  shared by extractTemps and the leftover-unit check so an exemption can
+ *  only ever be derived from what the parser actually consumed */
+const TEMP_RX_SRC =
+  "(?:(\\d{1,3}(?:\\.\\d+)?)\\s*°?\\s*(?:-|\\/|to|and)\\s*)?(\\d{1,3}(?:\\.\\d+)?)\\s*°?\\s*([cf])\\b";
+/** a figure with a bare degree sign and NO unit letter ("140 °", from the
+ *  normalize of "140 degrees") */
+const BARE_DEG_RX_SRC = "(\\d{1,3}(?:\\.\\d+)?)\\s*°(?!\\s*[cf])";
+
+/**
+ * @param {string} normText
+ * @returns {{ value: number, unit: "C" | "F" }[]}
+ */
 export function extractTemps(normText) {
   /** @type {{ value: number, unit: "C" | "F" }[]} */
   const out = [];
   // case-insensitive, and range-aware: "140-160 °F" and "50 to 54 C" yield
   // BOTH readings, because the LOW end of a range is the one the sweep and
   // the floors exist to catch (Tribunal final gate, Red Team B2).
-  const rx = /(?:(\d{1,3}(?:\.\d+)?)\s*°?\s*(?:-|\/|to|and)\s*)?(\d{1,3}(?:\.\d+)?)\s*°?\s*([cf])\b/gi;
+  const rx = new RegExp(TEMP_RX_SRC, "gi");
   let m;
-  while ((m = rx.exec(String(normText))) !== null) {
+  const t = String(normText);
+  while ((m = rx.exec(t)) !== null) {
     const unit = /** @type {"C" | "F"} */ ((m[3] ?? "C").toUpperCase());
     if (m[1] !== undefined) out.push({ value: Number(m[1]), unit });
     out.push({ value: Number(m[2]), unit });
   }
-  return out;
+  // unit-LESS degrees ("pull it at 140 degrees") read as BOTH units: only
+  // the F reading of 140 sits in the band, and the C reading of 63 does, so
+  // a single conservative reading would leave one half of the hole open
+  // (Tribunal loop 3, CRITICAL-1; P1's check.ps1 line 84 is the precedent)
+  const bare = new RegExp(BARE_DEG_RX_SRC, "gi");
+  while ((m = bare.exec(t)) !== null) {
+    out.push({ value: Number(m[1]), unit: "C" }, { value: Number(m[1]), unit: "F" });
+  }
+  // deduped: the bare-degree pass re-reads the low end of "140°-160°F"
+  const seen = new Set();
+  return out.filter((x) => {
+    const k = `${x.value}|${x.unit}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 /** the band the unlabelled sweep polices. Widened from 40 C down to 20 C
@@ -2589,11 +2624,14 @@ export function validateAnnotation(input, ctx) {
       }
     }
     // a spelled-out figure ("one hundred forty °F") is invisible to the
-    // digit scan; a unit token with no readable figure attached is the
-    // tell (loop 2 R3). Ranges legitimately yield MORE figures than unit
-    // tokens, so the test is strictly fewer.
-    const unitTokens = (respText.match(/°\s*[cf]\b/gi) ?? []).length;
-    if (extractTemps(respText).length < unitTokens) {
+    // digit scan. The exemption is POSITIONAL, derived from exactly the
+    // spans the parser consumed, never a count that a legal range elsewhere
+    // could pay for (Tribunal loop 3, CRITICAL-2; P1's check.ps1 rule:
+    // anything the parser cannot read is an error, not an exemption).
+    const leftovers = respText
+      .replace(new RegExp(TEMP_RX_SRC, "gi"), " ")
+      .replace(new RegExp(BARE_DEG_RX_SRC, "gi"), " ");
+    if (/°\s*[cf]\b|°/i.test(leftovers)) {
       bad("a temperature unit in the response with no readable figure attached");
     }
   }

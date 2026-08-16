@@ -686,10 +686,11 @@ test("a spelled-out figure cannot ride a unit token past the sweep (R3)", () => 
 });
 
 test("extractTemps reads every common range spelling (R4)", () => {
-  assert.deepEqual(extractTemps(normalize("140\u00b0-160\u00b0F")), [
-    { value: 140, unit: "F" },
-    { value: 160, unit: "F" },
-  ]);
+  // superset assertion: the bare-degree pass may add a harmless out-of-band
+  // extra reading of the low end; both F readings must be present
+  const degRange = extractTemps(normalize("140\u00b0-160\u00b0F"));
+  assert.ok(degRange.some((t) => t.value === 140 && t.unit === "F"));
+  assert.ok(degRange.some((t) => t.value === 160 && t.unit === "F"));
   assert.deepEqual(extractTemps(normalize("between 140 and 160 F")), [
     { value: 140, unit: "F" },
     { value: 160, unit: "F" },
@@ -726,6 +727,46 @@ test("saved instruction text uses the cook-facing label names (ENG F5 note)", ()
     recipe.instructions[0].text.includes("(ground meat done temp)"),
     "the enum code stays out of the kitchen",
   );
+});
+
+// ---- Tribunal final-gate fixes (loop 3) ------------------------------------
+
+test("unit-less 'degrees' prose is read in BOTH units and must be declared (C1)", () => {
+  // "pull the chicken at 140 degrees" means 140 F to a US cook (60 C
+  // poultry); with no unit letter it used to be invisible to every net and
+  // SAVED. The F reading of 140 sits in the band and now convicts it.
+  const sneaky = good();
+  sneaky.steps[2].text = "Pull the chicken the moment the thickest part reads 140 degrees, then rest.";
+  const v = validateAnnotation(sneaky, CTX);
+  assert.equal(v.ok, false);
+  assert.ok(/** @type {any} */ (v).errors.some((e) => e.includes("140")));
+  // and the low spelled figure too: "63 degrees" convicts via its C reading
+  const low = good();
+  low.steps[2].text = "Bake until the centre reads 63 degrees.";
+  const v2 = validateAnnotation(low, CTX);
+  assert.equal(v2.ok, false);
+});
+
+test("a legal range cannot PAY for a smuggled figure-less unit (C2)", () => {
+  // the old check compared counts: one range = two figures for one unit
+  // token, and that surplus bought a spelled-out figure elsewhere
+  const src2 = SRC + " Hold the pan between 57 and 60 \u00b0C while the rest finishes.";
+  const ctx2 = { ...CTX, transcriptNorm: normalize(src2), extractedNorm: normalize(src2) };
+  const payer = good();
+  payer.riskGroups = false;
+  payer.steps[1].text = "Hold the pan between 57 and 60 \u00b0C while the rest finishes.";
+  payer.steps[1].temps = [
+    { label: "hold", unit: "C", fromSource: true, value: 57 },
+    { label: "hold", unit: "C", fromSource: true, value: 60 },
+  ];
+  payer.steps[2].notes = ["pull the fillet at one hundred forty \u00b0F, then rest"];
+  const v = validateAnnotation(payer, ctx2);
+  assert.equal(v.ok, false);
+  assert.ok(/** @type {any} */ (v).errors.some((e) => e.includes("no readable figure")));
+  // control: without the smuggled note the same declared range is fine
+  payer.steps[2].notes = [];
+  const clean = validateAnnotation(payer, ctx2);
+  assert.equal(clean.ok, true, JSON.stringify(/** @type {any} */ (clean).errors ?? []));
 });
 
 // ---- parity with the P1 skill (one home per side, gate F2) -----------------
