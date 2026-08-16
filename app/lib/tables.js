@@ -4,7 +4,7 @@
 // cross-profile writes, ever. Cancel/edit = one file edit, propagates on
 // the next sync tick. Derived entries are NEVER persisted into a plan file
 // (main.js strips `e.table` before every plan write).
-import { recipeConflicts, SLOT_KEYS } from "./plan.js";
+import { recipeConflicts, SLOT_KEYS, untrustedForAutoPlan } from "./plan.js";
 import { parsePot, solveSeat } from "./synth.js";
 
 /**
@@ -823,9 +823,11 @@ export function brigadePool(bankById, members, slot) {
   for (const recipe of bankById.values()) {
     if (recipe.mealType && recipe.mealType !== slot) continue;
     if ((recipe.nutrition?.calories ?? 0) <= 0) continue;
-    // an AI-invented special is choosable deliberately, never auto-planned
-    // (council 2026-07-23: "AI at the table, never in the plan")
-    if (recipe.source === "ai-special" && !recipe.promoted) continue;
+    // an AI-written recipe is choosable deliberately, never auto-planned
+    // (council 2026-07-23: "AI at the table, never in the plan"). Shared
+    // TAG-keyed predicate: the old `recipe.source` check here was dead code,
+    // production writes tags:["ai-special"] and never a source key.
+    if (untrustedForAutoPlan(recipe)) continue;
     // a recipe any member has banned outright (targets.avoidRecipes) never
     // reaches the shared pot — intersection, same as the diet screens
     if (members.some((m) => (m.avoidRecipes ?? []).includes(recipe.id))) continue;

@@ -15,6 +15,7 @@ import {
 import { initRouter } from "./lib/router.js";
 import { formatSyncTime, isoWeekId, localIsoDate, parseLocalIso, statusDate } from "./lib/dates.js";
 import { applyScanItems } from "./lib/scan.js";
+import { dinerFacts } from "./lib/annotate.js";
 import { tailorTable, dinnerWeek } from "./lib/worker.js";
 import { ProfileGateView } from "./views/profile-gate.js";
 import { CookbookView } from "./views/cookbook.js";
@@ -2468,19 +2469,10 @@ function App() {
     for (const id of ids) {
       const p = allProfilesRef.current.find((x) => x.id === id);
       const path = id === "david" ? "fitness/targets.json" : `profiles/${id}/fitness/targets.json`;
+      // a failed read maps to unconfirmed:true (fail-closed split, C1) — the
+      // catch keeps the null, dinerFacts makes it distinguishable from clean
       const t = /** @type {any} */ (await read(path, { raw: true }).catch(() => null));
-      out.push({
-        id,
-        name: /** @type {string} */ (p?.name ?? id),
-        goal: /** @type {string} */ (t?.phase ?? "maintain"),
-        calories: /** @type {number} */ (t?.macros?.calories ?? 0),
-        protein: /** @type {number} */ (t?.macros?.protein ?? 0),
-        diet: /** @type {string} */ (t?.diet ?? "omnivore"),
-        avoid: /** @type {string[]} */ (t?.avoidIngredients ?? []),
-        // client-side only (the Worker's sanitizePeople drops it): the week
-        // planner screens candidate recipes with the full predicate
-        avoidRecipes: /** @type {string[]} */ (t?.avoidRecipes ?? []),
-      });
+      out.push(dinerFacts(id, /** @type {string} */ (p?.name ?? id), t));
     }
     return out;
   }, []);

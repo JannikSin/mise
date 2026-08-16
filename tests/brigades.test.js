@@ -108,12 +108,25 @@ test("the pool is the INTERSECTION of every member's screen, never the union", (
   );
 });
 
-test("an unpromoted AI special is never auto-planned into a brigade", () => {
-  const bank = new Map([...BANK, ["ai", recipe("ai", 500, { source: "ai-special" })]]);
+test("an unpromoted AI recipe is never auto-planned into a brigade", () => {
+  // TAG-shaped fixtures, the shape production actually writes. The old test
+  // used {source:"ai-special"}, a shape no recipe on disk carries, so it was
+  // green on a dead fence while real ai-specials rode into the shared pot.
+  const bank = new Map([
+    ...BANK,
+    ["ai", recipe("ai", 500, { tags: ["ai-special"] })],
+    ["hbp", recipe("hbp", 500, { tags: ["hbp-annotated"] })],
+    ["ok", recipe("ok", 500, { tags: ["ai-special"], promoted: true })],
+  ]);
   const pool = brigadePool(bank, [{ id: "mom" }, { id: "laurie" }], "dinner");
   assert.ok(
     !pool.some((r) => r.id === "ai"),
     "council 2026-07-23: AI at the table, not in the plan",
+  );
+  assert.ok(!pool.some((r) => r.id === "hbp"), "an unpromoted hbp-annotated scan is fenced too");
+  assert.ok(
+    pool.some((r) => r.id === "ok"),
+    "a promoted AI recipe has been audited and may auto-plan",
   );
 });
 

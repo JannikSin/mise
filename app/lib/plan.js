@@ -211,6 +211,25 @@ export function mergeRecipePool(bank, own, phase, avoid, diet, avoidRecipes) {
 }
 
 /**
+ * THE auto-plan trust fence, shared by the week generator and the brigade
+ * pool so the two gates can never drift apart again. An AI-written recipe —
+ * invented (`ai-special`) or annotated-from-source (`hbp-annotated`) — is
+ * choosable deliberately from the cookbook but never auto-planned until a
+ * human sets `promoted: true` (council 2026-07-23: "AI at the table, never
+ * in the plan"). Keyed on TAGS, the field the writers actually set: the old
+ * brigade fence keyed on `recipe.source`, which no recipe on disk carries,
+ * so it never fired.
+ * @param {Record<string, any>} recipe
+ * @returns {boolean} true when auto-planners must skip this recipe
+ */
+export function untrustedForAutoPlan(recipe) {
+  const tags = recipe.tags ?? [];
+  return (
+    (tags.includes("ai-special") || tags.includes("hbp-annotated")) && recipe.promoted !== true
+  );
+}
+
+/**
  * THE shared diet/avoid screen (Tribunal amendment 1): the same predicate
  * mergeRecipePool filters with, exported so table creation and derivation
  * can never bypass it. Returns human-readable conflict reasons, empty =

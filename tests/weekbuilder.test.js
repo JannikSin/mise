@@ -1075,6 +1075,15 @@ test("generatorEligible: unpromoted ai-specials are fenced out, promoted ones pa
   );
 });
 
+test("generatorEligible: unpromoted hbp-annotated scans are fenced like ai-specials", () => {
+  const scan = { ...r("hbp-duck", "dinner", ["duck"]), tags: ["hbp-annotated"] };
+  const audited = { ...r("hbp-chili", "dinner", ["beans"]), tags: ["hbp-annotated"], promoted: true };
+  assert.deepEqual(
+    generatorEligible([scan, audited]).map((x) => x.id),
+    ["hbp-chili"],
+  );
+});
+
 test("generateWeek never auto-plans an unpromoted ai-special (council fence)", () => {
   // the special is the ONLY dinner in the pool: the fence must leave dinner
   // empty-handed rather than quietly planning the unaudited invention

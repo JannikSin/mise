@@ -21,6 +21,7 @@ import {
   entriesAt,
   recipesById,
   slotMacroEstimate,
+  untrustedForAutoPlan,
 } from "./plan.js";
 import { slug } from "./shopping.js";
 import { enforcedFloors } from "./fitness.js";
@@ -800,10 +801,11 @@ function foodGroupGapsReport(entries, recipesById, dates, dailyDozenPerDay) {
 /**
  * The generator's trust gate. Two classes never get auto-planned:
  *
- *  - `ai-special`: AI-invented recipes with estimated, unaudited macros. They
- *    may be chosen deliberately as a table or from the cookbook, but never
- *    auto-planned into a deterministic week until a human or Greger audit
- *    sets `promoted: true` on the recipe file.
+ *  - `ai-special` / `hbp-annotated`: AI-written recipes (invented specials,
+ *    HBP-annotated scans). They may be chosen deliberately as a table or from
+ *    the cookbook, but never auto-planned into a deterministic week until a
+ *    human or Greger audit sets `promoted: true` on the recipe file. The
+ *    predicate is shared with brigadePool via plan.js.
  *  - `occasion-only`: food that exists to serve one dated situation — clear
  *    broth and lemon gelatin for a colonoscopy prep, white toast for a
  *    low-residue stretch. Nutritionally these are terrible normal meals and
@@ -817,7 +819,7 @@ export function generatorEligible(recipes) {
   return recipes.filter((r) => {
     const tags = r.tags ?? [];
     if (tags.includes("occasion-only")) return false;
-    return !(tags.includes("ai-special") && r.promoted !== true);
+    return !untrustedForAutoPlan(r);
   });
 }
 
