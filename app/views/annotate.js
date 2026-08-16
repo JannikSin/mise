@@ -275,7 +275,9 @@ export function AnnotateView({
       <div class="hero"><h1>Recipe scan</h1></div>
       <p class="hint">
         found a recipe? paste its link or photograph the page. the engine converts it to grams, pins
-        real temperatures, and bends it toward the plan without changing the dish.
+        real temperatures, and bends it toward the plan without changing the dish. recipes built on
+        preserving or fermenting (bread starters, canning, curing, sous vide) are shown as written
+        but never saved: their numbers are food-safety controls.
       </p>
 
       <h2 class="block-title">Objective</h2>
