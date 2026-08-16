@@ -88,9 +88,7 @@ export function OccasionsView({
       // no shelf: the whole bank, filtered by what they type. Capped so the
       // picker never renders 400 chips on a phone.
       const q = foodFilter.trim().toLowerCase();
-      return recipes
-        .filter((r) => !q || String(r.name).toLowerCase().includes(q))
-        .slice(0, 24);
+      return recipes.filter((r) => !q || String(r.name).toLowerCase().includes(q)).slice(0, 24);
     }
     return recipes.filter(
       (r) => (r.tags ?? []).includes("occasion-only") && (r.tags ?? []).includes(tag),
@@ -152,7 +150,9 @@ export function OccasionsView({
   /** Edit one day of the draft in place. @param {string} date @param {(d: any) => any} fn */
   const editDay = (/** @type {string} */ date, /** @type {(d: any) => any} */ fn) =>
     setDraft((cur) =>
-      cur ? /** @type {any} */ ({ ...cur, days: { ...cur.days, [date]: fn(cur.days[date]) } }) : cur,
+      cur
+        ? /** @type {any} */ ({ ...cur, days: { ...cur.days, [date]: fn(cur.days[date]) } })
+        : cur,
     );
 
   const dropItem = (/** @type {string} */ date, /** @type {number} */ idx) =>
@@ -395,9 +395,9 @@ export function OccasionsView({
                                 ${
                                   shelf
                                     ? html`Only ${SHELVES.find((s) => s.tag === shelf)?.label} show
-                                        here. That is deliberate: this day has rules.`
+                                      here. That is deliberate: this day has rules.`
                                     : html`Anything in the cookbook. A custom occasion has no rules
-                                        — you are the rule.`
+                                      — you are the rule.`
                                 }
                               </p>
                             `

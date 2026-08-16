@@ -130,7 +130,15 @@ export function ledgerEntryFor(t, cookId, recipe, catalogue, store, profilesById
         total2 += shares[id] ?? 0;
       }
       const total = Math.round(total2 * 100) / 100;
-      return { id: t.id, date: t.date, payerId: cookId, total, estimate: est, shares, settled: false };
+      return {
+        id: t.id,
+        date: t.date,
+        payerId: cookId,
+        total,
+        estimate: est,
+        shares,
+        settled: false,
+      };
     }
   }
 

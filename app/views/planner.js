@@ -142,7 +142,6 @@ export function PlannerView({
           ${" "}<a href="#/occasions">open</a>
         </div>`
       }
-
       ${
         // a tap always opens the recipe now, locked or not, so this banner only
         // has to say why GENERATE is refusing
@@ -395,8 +394,8 @@ export function PlannerView({
                     // cookTotal only exists on the cook's own device — the one
                     // honest "it's your night" signal available in this view
                     /** @type {any} */ (dayTable).cookTotal
-                      ? html`🍽 family dinner — <strong>👨‍🍳 your night to cook</strong> (cooking
-                          for everyone seated)`
+                      ? html`🍽 family dinner — <strong>👨‍🍳 your night to cook</strong> (cooking for
+                          everyone seated)`
                       : html`🍽 family dinner — you're seated, nothing to
                         shop${
                           /** @type {any} */ (dayTable).cookName

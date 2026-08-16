@@ -239,7 +239,12 @@ const PART_KEYWORDS = /** @type {[string, Part][]} */ ([
  */
 export function partOf(ing) {
   const explicit = ing?.part;
-  if (explicit === "protein" || explicit === "carbfat" || explicit === "veg" || explicit === "flavor") {
+  if (
+    explicit === "protein" ||
+    explicit === "carbfat" ||
+    explicit === "veg" ||
+    explicit === "flavor"
+  ) {
     return explicit;
   }
   const food = String(ing?.food ?? "").toLowerCase();
@@ -339,7 +344,8 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
   // servings' provenance; a HAND-EDITED seat (servings != round(clamp(raw)))
   // means the human's number IS the target: sigma := s_p.
   let sigma = Number(seat.rawServings);
-  if (!Number.isFinite(sigma) || sigma <= 0) sigma = s; // rung 0d shape: no raw stored
+  if (!Number.isFinite(sigma) || sigma <= 0)
+    sigma = s; // rung 0d shape: no raw stored
   else {
     const quarters = Math.round(sigma * 4) / 4;
     const expected = Math.min(BRIGADE_SERVINGS_MAX, Math.max(SERVINGS_MIN, quarters));
@@ -367,7 +373,11 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
   const rawC = raw.protein[0] + raw.carbfat[0] + raw.veg[0];
   const rawP = raw.protein[1] + raw.carbfat[1] + raw.veg[1];
   // rung 0b: zero-denominator guard (§4.4) — an all-flavor or unbridged dish
-  if (!(rawC > 0) || !(rawP > 0) || missing) return uniform("1-degenerate", "this dish is one thing nutritionally; only the amount can change");
+  if (!(rawC > 0) || !(rawP > 0) || missing)
+    return uniform(
+      "1-degenerate",
+      "this dish is one thing nutritionally; only the amount can change",
+    );
 
   const kC = n.calories / rawC;
   const kP = n.protein / rawP;
@@ -387,7 +397,10 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
   const norm = Math.hypot(Cpro, Ccf) * Math.hypot(Ppro, Pcf);
   // rung 1: RELATIVE conditioning, never a unitless epsilon (spec §4.6)
   if (!(norm > 0) || Math.abs(det) < 0.05 * norm) {
-    return uniform("1-degenerate", "this dish is one thing nutritionally; only the amount can change");
+    return uniform(
+      "1-degenerate",
+      "this dish is one thing nutritionally; only the amount can change",
+    );
   }
   let alpha = (Cs * Pcf - Ccf * Ps) / det;
   let beta = (Cpro * Ps - Cs * Ppro) / det;
@@ -402,8 +415,14 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
 
   // absolute plate caps (§4.5): the REAL ceiling — the composite relative
   // range reaches 20x through a hand-edited seat, so these never come off
-  const capP = Number(targets.macros.plateProteinCapG) > 0 ? Number(targets.macros.plateProteinCapG) : DEFAULT_PROTEIN_CAP_G;
-  const capC = Number(targets.macros.plateCaloriesCap) > 0 ? Number(targets.macros.plateCaloriesCap) : DEFAULT_CALORIES_CAP;
+  const capP =
+    Number(targets.macros.plateProteinCapG) > 0
+      ? Number(targets.macros.plateProteinCapG)
+      : DEFAULT_PROTEIN_CAP_G;
+  const capC =
+    Number(targets.macros.plateCaloriesCap) > 0
+      ? Number(targets.macros.plateCaloriesCap)
+      : DEFAULT_CALORIES_CAP;
   const plateP = () => s * (alpha * Ppro + beta * Pcf + Pveg + Pfla);
   const plateC = () => s * (alpha * Cpro + beta * Ccf + Cveg + Cfla);
   // the ABSOLUTE caps outrank the relative clamp floors on purpose: a cap
@@ -426,7 +445,10 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
   const tgtC = Math.round(targets.macros.calories * slotShare);
   const tgtP = Math.round(targets.macros.protein * slotShare);
   const residual = Math.abs(s / sigma - 1) > 0.1;
-  const hit = clamped || residual ? { calories: achC, protein: achP, targetCalories: tgtC, targetProtein: tgtP } : undefined;
+  const hit =
+    clamped || residual
+      ? { calories: achC, protein: achP, targetCalories: tgtC, targetProtein: tgtP }
+      : undefined;
 
   // rung 3 (§4.5/§4.7): a PRESENT plate floor, and only then. Never bend
   // the clamps — emit a top-up from PLATE_ADDABLE if one closes the gap
@@ -536,16 +558,31 @@ export function synthesize({ recipe, seats, targetsById, slotShares, weekShopped
       perSeat[seat.id] = q;
       total += q;
     }
-    return { food: ing.food, unit: ing.unit, part, qty: scaleQty(total, ing.unit, 1), raw: total, perSeat };
+    return {
+      food: ing.food,
+      unit: ing.unit,
+      part,
+      qty: scaleQty(total, ing.unit, 1),
+      raw: total,
+      perSeat,
+    };
   });
 
   // float tripwire (§5.4.2): catches NaN and unit mishandling, nothing more
   for (const row of rows) {
     const sum = Object.values(row.perSeat).reduce((a, b) => a + b, 0);
-    const tol = Math.max(0.01 * Math.abs(row.raw), row.unit === "g" || row.unit === "ml" ? 0.01 : 0.5);
+    const tol = Math.max(
+      0.01 * Math.abs(row.raw),
+      row.unit === "g" || row.unit === "ml" ? 0.01 : 0.5,
+    );
     if (!Number.isFinite(sum) || Math.abs(sum - row.raw) > tol) {
       // refuse the TAILORING, never the dinner (§5.4)
-      return { synthMode: /** @type {const} */ ("uniform"), rows: null, bySeat: {}, refused: "conservation" };
+      return {
+        synthMode: /** @type {const} */ ("uniform"),
+        rows: null,
+        bySeat: {},
+        refused: "conservation",
+      };
     }
   }
 
@@ -595,7 +632,14 @@ export function synthesize({ recipe, seats, targetsById, slotShares, weekShopped
  * }} args
  * @returns {string | null}
  */
-export function freezePotString({ recipe, seats, targetsById, slotShares, weekShopped, targetShas }) {
+export function freezePotString({
+  recipe,
+  seats,
+  targetsById,
+  slotShares,
+  weekShopped,
+  targetShas,
+}) {
   const out = synthesize({ recipe, seats, targetsById, slotShares, weekShopped });
   if (out.synthMode !== "solved" || !out.rows) return null;
   const fingerprint = {
@@ -627,7 +671,10 @@ export function freezePotString({ recipe, seats, targetsById, slotShares, weekSh
         unit: r.unit,
         qty: r.qty,
         perSeat: Object.fromEntries(
-          Object.entries(r.perSeat ?? {}).map(([id, q]) => [id, round3(/** @type {number} */ (q) * k)]),
+          Object.entries(r.perSeat ?? {}).map(([id, q]) => [
+            id,
+            round3(/** @type {number} */ (q) * k),
+          ]),
         ),
       };
     }),
@@ -643,7 +690,13 @@ export function recipeRevOf(/** @type {Record<string, any>} */ recipe) {
   const basis = JSON.stringify({
     s: recipe?.servings ?? 1,
     a: recipe?.assembly ?? "",
-    i: (recipe?.ingredients ?? []).map((/** @type {any} */ x) => [x.food, x.qty, x.unit, x.part ?? "", Boolean(x.atPlating)]),
+    i: (recipe?.ingredients ?? []).map((/** @type {any} */ x) => [
+      x.food,
+      x.qty,
+      x.unit,
+      x.part ?? "",
+      Boolean(x.atPlating),
+    ]),
   });
   // djb2: deterministic, tiny, no crypto dependency, not security-bearing
   let h = 5381;
@@ -684,7 +737,8 @@ export function parsePot(potString, bankRecipe) {
       const per = r.perSeat && typeof r.perSeat === "object" ? r.perSeat : null;
       if (!per) return undefined;
       const vals = Object.values(per);
-      if (!vals.every((q) => typeof q === "number" && Number.isFinite(q) && q >= 0)) return undefined;
+      if (!vals.every((q) => typeof q === "number" && Number.isFinite(q) && q >= 0))
+        return undefined;
       // CONSERVATION (Red Team, final gate): perSeat is a MONEY multiplier
       // in a hand-editable shared file. The shares must sum to the row's
       // qty (1% + rounding tolerance) or the whole map dies — otherwise one

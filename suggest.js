@@ -45,6 +45,62 @@
     return h.slice(0, 80) || "home";
   }
 
+  // ---------- the audio queue ----------
+  // Voice notes must work on a train: blobs are too big for localStorage, so
+  // they queue in their own tiny IndexedDB store and flush exactly like the
+  // text queue when signal returns. A 4xx (not 401) means the Worker refused
+  // these bytes forever; drop them rather than retry a poisoned blob.
+  function adb() {
+    return new Promise(function (res, rej) {
+      var r = indexedDB.open("suggest-audio", 1);
+      r.onupgradeneeded = function () {
+        r.result.createObjectStore("blobs", { keyPath: "id", autoIncrement: true });
+      };
+      r.onsuccess = function () { res(r.result); };
+      r.onerror = function () { rej(r.error); };
+    });
+  }
+  function atx(mode, fn) {
+    return adb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var t = db.transaction("blobs", mode);
+        var out = fn(t.objectStore("blobs"));
+        t.oncomplete = function () { res(out && out.result !== undefined ? out.result : out); };
+        t.onerror = function () { rej(t.error); };
+      });
+    });
+  }
+  function aAdd(rec) { return atx("readwrite", function (s) { return s.add(rec); }); }
+  function aAll() {
+    return atx("readonly", function (s) { return s.getAll(); })
+      .then(function (v) { return v || []; })
+      .catch(function () { return []; });
+  }
+  function aDel(id) { return atx("readwrite", function (s) { return s.delete(id); }); }
+
+  var aSending = false;
+  function aFlush() {
+    if (aSending || !navigator.onLine) return;
+    var k = keyOf();
+    if (!k) return;
+    aAll().then(function (all) {
+      if (!all.length) return;
+      aSending = true;
+      var item = all[0];
+      fetch(WORKER + "/deskaudio?app=" + encodeURIComponent(item.app)
+          + "&route=" + encodeURIComponent(item.route), {
+        method: "POST",
+        headers: { "content-type": item.type || "audio/mp4", "x-brief-key": k },
+        body: item.blob,
+      }).then(function (r) {
+        aSending = false;
+        if (r.ok || (r.status >= 400 && r.status < 500 && r.status !== 401)) {
+          aDel(item.id).then(function () { paintCount(); aFlush(); });
+        }
+      }).catch(function () { aSending = false; });
+    });
+  }
+
   // ---------- the pipe ----------
   var sending = false;
   function flush() {
@@ -114,9 +170,12 @@
   btn.appendChild(badge);
 
   function paintCount() {
-    var n = qGet().length;
-    badge.hidden = n === 0;
-    badge.textContent = n > 9 ? "9+" : String(n);
+    // the badge counts everything still waiting to send, spoken included
+    aAll().then(function (a) {
+      var n = qGet().length + a.length;
+      badge.hidden = n === 0;
+      badge.textContent = n > 9 ? "9+" : String(n);
+    });
   }
 
   function openPanel() {
@@ -160,7 +219,6 @@
       if (rec && rec.state === "recording") { rec.stop(); return; }
       if (acquiring) return;
       if (!keyOf()) { stat.textContent = "needs the Crystal key first"; return; }
-      if (!navigator.onLine) { stat.textContent = "no signal; type it instead"; return; }
       if (!navigator.mediaDevices || !window.MediaRecorder) {
         stat.textContent = "this browser cannot record; type it";
         return;
@@ -177,17 +235,19 @@
           mic.textContent = "🎙";
           if (cancelled) return;
           var blob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || mime });
-          stat.textContent = "sending...";
-          fetch(WORKER + "/deskaudio?app=" + encodeURIComponent(APP)
-              + "&route=" + encodeURIComponent(routeNow()), {
-            method: "POST",
-            headers: { "content-type": blob.type || "audio/mp4", "x-brief-key": keyOf() },
-            body: blob,
-          }).then(function (r) {
-            stat.textContent = r.ok ? "recorded; transcribes within the hour" : "the Worker refused it";
-          }).catch(function () {
-            stat.textContent = "did not send; signal dropped, say it again";
-          });
+          // queue first, send second: a train tunnel between stop and send
+          // must not eat the take
+          aAdd({ app: APP, route: routeNow(), type: blob.type, blob: blob, at: new Date().toISOString() })
+            .then(function () {
+              paintCount();
+              stat.textContent = navigator.onLine
+                ? "recorded; transcribes within the hour"
+                : "recorded; sends when signal returns";
+              aFlush();
+            })
+            .catch(function () {
+              stat.textContent = "this phone would not store the recording";
+            });
         };
         rec.start(5000);
         setTimeout(function () { if (rec && rec.state === "recording") rec.stop(); }, 180000);
@@ -282,6 +342,7 @@
     document.body.appendChild(btn);
     paintCount();
     flush();
+    aFlush();
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", mount);
@@ -289,6 +350,6 @@
     mount();
   }
 
-  window.addEventListener("online", flush);
-  window.addEventListener("focus", flush);
+  window.addEventListener("online", function () { flush(); aFlush(); });
+  window.addEventListener("focus", function () { flush(); aFlush(); });
 })();

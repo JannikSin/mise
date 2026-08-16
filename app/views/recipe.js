@@ -41,7 +41,16 @@ const cookSuffix = (from, servings, entryId, tableId) => {
 /**
  * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, tableId?: string, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean }} props
  */
-export function RecipeView({ recipe, loading, from, servings, entryId, tableId, potRows, unshopped = false }) {
+export function RecipeView({
+  recipe,
+  loading,
+  from,
+  servings,
+  entryId,
+  tableId,
+  potRows,
+  unshopped = false,
+}) {
   const origin = originOf(from);
   // the recipe page holds the screen as well as Cook mode. Reading the steps
   // off THIS page with full hands is exactly when it used to sleep, because
@@ -360,7 +369,8 @@ export function CookView({
                   ? html`<div class="serve-seat aside" key=${r.id}>
                       <div class="serve-name">SET ASIDE</div>
                       <div class="serve-line">
-                        ${r.name.toUpperCase()}'s portion, ${r.fraction}, set apart${r.note ? ` (${r.note})` : ""}
+                        ${r.name.toUpperCase()}'s portion, ${r.fraction}, set
+                        apart${r.note ? ` (${r.note})` : ""}
                       </div>
                     </div>`
                   : html`<div class="serve-seat" key=${r.id}>
@@ -375,9 +385,7 @@ export function CookView({
                       ${r.note && html`<div class="serve-line hint">${r.note}</div>`}
                     </div>`,
               )}
-              ${serve?.cookNotes.map(
-                (c, i) => html`<div class="hint" key=${i}>👨‍🍳 ${c}</div>`,
-              )}
+              ${serve?.cookNotes.map((c, i) => html`<div class="hint" key=${i}>👨‍🍳 ${c}</div>`)}
             </div>`
           : html`<div class="steptext">${steps[step]?.text}</div>`
       }

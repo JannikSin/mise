@@ -125,13 +125,13 @@ Verified in code and live data on 2026-08-10. Re-verify before trusting.
 David's "multiply by your profile" is a deterministic function. Build the
 transform as pure closed-form arithmetic:
 
-| | AI tailor (today) | Transform (this spec) |
-|---|---|---|
-| same input, same output | no | yes |
-| works offline | no | yes |
-| cost per table | one API call (unchanged until the drip starts, then zero) | zero |
-| testable | not really | fully |
-| two phones agree | only by luck | when their inputs agree; §10 states exactly when that holds and what happens when it does not |
+|                         | AI tailor (today)                                         | Transform (this spec)                                                                         |
+| ----------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| same input, same output | no                                                        | yes                                                                                           |
+| works offline           | no                                                        | yes                                                                                           |
+| cost per table          | one API call (unchanged until the drip starts, then zero) | zero                                                                                          |
+| testable                | not really                                                | fully                                                                                         |
+| two phones agree        | only by luck                                              | when their inputs agree; §10 states exactly when that holds and what happens when it does not |
 
 **There is no AI fallback, and no AI prose survives either** (Tribunal
 Ledger): keeping "prose cook notes" on `TAILOR_TOOL` keeps the whole Worker
@@ -258,6 +258,7 @@ it; deliberately deferred until someone actually needs to change a
 bought week — the freeze itself is live as rung 0f).
 
 DEFERRED WITH THE DRIP (known gaps, none fire at zero tags):
+
 - §12's full instrument (hit/clamped/degenerate shares, median density
   miss over pinned tagged ids, persisted to instrument.json, home in the
   SYS view). Tonight ships only the tailored/uniform count line on
@@ -413,10 +414,10 @@ C[part] = raw_C[part] * kC ;  P[part] = raw_P[part] * kP
 
 Clamps on **α and β**:
 
-| `phase` | α (protein) | β (carbfat) |
-|---|---|---|
-| gain | [0.80, 2.00] | [0.60, 1.60] |
-| loss / cut | [0.80, 1.75] | [0.30, 1.20] |
+| `phase`           | α (protein)  | β (carbfat)  |
+| ----------------- | ------------ | ------------ |
+| gain              | [0.80, 2.00] | [0.60, 1.60] |
+| loss / cut        | [0.80, 1.75] | [0.30, 1.20] |
 | recomp / maintain | [0.75, 1.50] | [0.60, 1.40] |
 
 **The composite bound, stated because v2 did not multiply its own bounds
@@ -470,14 +471,14 @@ live-tagged subset in the weekly instrument the same way (Historian).
    (The field is named `synthMode` everywhere: `cookPlan` already returns
    its own `mode` in the same render path, and one word carrying two
    enums is a 3am bug: re-review N7/N8.)
-0b. `Σ raw_C <= 0 || Σ raw_P <= 0` → uniform, no macro output (§4.4).
-0c. Any seat the rendering device KNOWS to be occasion-held → suppression
+   0b. `Σ raw_C <= 0 || Σ raw_P <= 0` → uniform, no macro output (§4.4).
+   0c. Any seat the rendering device KNOWS to be occasion-held → suppression
    per §8.8. (v2.1's "unreadable occasion state → uniform" was
    unimplementable: a null occasions read is the NORMAL state for a
    profile that never created one, so the rung would have either fired on
    nearly every table or been coded as null-means-empty, restoring the
    fail-open. §8.8 now states the real mechanism and the residual.)
-0d. σ_p not finite or ≤ 0 → uniform for that seat (§4.3).
+   0d. σ_p not finite or ≤ 0 → uniform for that seat (§4.3).
 1. Degenerate or ill-conditioned solve (§4.6): uniform, note: "this dish
    is one thing nutritionally; only the amount changes."
 2. A clamp binds: clamp, recompute achieved macros **from the clamped
@@ -504,8 +505,8 @@ stops the drip.
 ### 4.8 The transform may NEVER
 
 - Add, remove or substitute an ingredient. `pot.rows.length ===
-  recipe.ingredients.length` and `pot.rows[i].food ===
-  recipe.ingredients[i].food` for every i. **Test it.**
+recipe.ingredients.length` and `pot.rows[i].food ===
+recipe.ingredients[i].food` for every i. **Test it.**
 - Change a `food` or a `unit`.
 - Scale a `flavor` row by anything but `s_p`.
 - See `diet`, `allergens`, `avoidIngredients` or `avoidRecipes`. Those
@@ -562,12 +563,12 @@ forever, correctly.
 
 `Q[i] = Σ_p q[i][p]`, always.
 
-| Condition | Emit |
-|---|---|
-| `assembly === "mixed"` | pot only; plating is ONE mass line per person |
-| all `q[i][p]` equal | pot only, no plating line |
-| `part === "flavor"` (incl. in-pan fats) | pot only; rides at each eater's mass share |
-| `plated` and portionable | pot **and** a plating line per seat |
+| Condition                               | Emit                                          |
+| --------------------------------------- | --------------------------------------------- |
+| `assembly === "mixed"`                  | pot only; plating is ONE mass line per person |
+| all `q[i][p]` equal                     | pot only, no plating line                     |
+| `part === "flavor"` (incl. in-pan fats) | pot only; rides at each eater's mass share    |
+| `plated` and portionable                | pot **and** a plating line per seat           |
 
 No split-cook branch, deliberately. Under `mixed`, changing composition
 needs two pots, not worth it for four people: emit a compromise note.
@@ -645,13 +646,13 @@ for a seat that skips after the buy.
 
 ## 6. The data plan
 
-| Table | Size | Author |
-|---|---|---|
-| `MACRO` per 100 g | ~118 foods x 2-4 | **AI-drafted** (§4.4 normalization cancels proportional error), guarded by §6.2 |
-| `PLATE_GRAMS` | **~25 entries**, plated dishes only | **HAND-ENTERED.** Normalization does NOT protect gram weights: a wrong weight changes the physical pot, plate, list, and money. Lives in `app/lib/synth.js`, NOT in `FOOD_UNITS`, whose own header says "never nutrition-grade" (Engineer M7: v2 left these homeless) |
-| `PLATE_ADDABLE` | ~15 foods | AI-drafted, David skims |
-| `assembly` tags | 107 classified, ~25 written | David, §5.1 |
-| `part` labels | plated set only, ~250 rows | keyword-derived, human-read at classification (§5.1) |
+| Table             | Size                                | Author                                                                                                                                                                                                                                                                |
+| ----------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MACRO` per 100 g | ~118 foods x 2-4                    | **AI-drafted** (§4.4 normalization cancels proportional error), guarded by §6.2                                                                                                                                                                                       |
+| `PLATE_GRAMS`     | **~25 entries**, plated dishes only | **HAND-ENTERED.** Normalization does NOT protect gram weights: a wrong weight changes the physical pot, plate, list, and money. Lives in `app/lib/synth.js`, NOT in `FOOD_UNITS`, whose own header says "never nutrition-grade" (Engineer M7: v2 left these homeless) |
+| `PLATE_ADDABLE`   | ~15 foods                           | AI-drafted, David skims                                                                                                                                                                                                                                               |
+| `assembly` tags   | 107 classified, ~25 written         | David, §5.1                                                                                                                                                                                                                                                           |
+| `part` labels     | plated set only, ~250 rows          | keyword-derived, human-read at classification (§5.1)                                                                                                                                                                                                                  |
 
 Each `MACRO` entry states RAW or COOKED, matching how the bank writes the
 food (~30% on protein density; the documented failure axis of every
@@ -760,11 +761,11 @@ in prose but not in the copy spec does not exist.)
 
 ### 7.4 One source, two projections
 
-| Where | Audience | Shows |
-|---|---|---|
-| Serve step, in Cook Mode | the cook, at the stove | all plates |
-| Today | you, on your phone | your one line |
-| The stacked list on the table card | nobody | delete it |
+| Where                              | Audience               | Shows         |
+| ---------------------------------- | ---------------------- | ------------- |
+| Serve step, in Cook Mode           | the cook, at the stove | all plates    |
+| Today                              | you, on your phone     | your one line |
+| The stacked list on the table card | nobody                 | delete it     |
 
 Plus one **private projection** (Lawyer): each configured seat can see
 their own achieved numbers in their own profile view. The serve screen
@@ -1040,7 +1041,7 @@ durable stored inputs per §7.3).
   every unconfigured seat or is tuned to silence).
 - **`materializeBrigade`'s regeneration branch carries `pot`, `cookedAt`,
   and `sameForEveryone` forward, GATED on `existing.recipeId ===
-  meal.id`, the same gate `servings` already uses** (re-review N3 +
+meal.id`, the same gate `servings` already uses** (re-review N3 +
   loop-2 C3: unconditional carry would stamp a cooked flag and a stale
   pot onto a swapped dish; the pot self-heals via identity validation,
   `cookedAt` does not and it is §12's adoption signal). `rawServings`
@@ -1172,16 +1173,16 @@ teardown's parallel tracks (a scheduling fiction for one builder at
 1h/weekday). Ledger re-priced v2's "one evening" honestly: the engine is
 6-8 sessions, split on the fault line the design itself provides.
 
-| When | What | Gate |
-|---|---|---|
-| **Evening 0 (any time before session 4, NOT blocking deploy 1)** | §3 GO/NO-GO on paper: thresholds written first, share query, ceiling, clamp-bind census | kills or confirms the ENGINE before any engine code |
-| **Sessions 1-3** | **Deploy 1: the serve step** from stored-seat mass share (§7.1), `cookedAt` plumbing incl. its `materializeBrigade` carry-forward (§7.2, §10), the §8.2 seating closure + soft-tier synonym map, the §8.8 owner-device occasion sweep trigger, Today one line, stacked list deleted. Real scope, priced (v2's "Tue-Wed" ignored §1.9) | ship, then stop |
-| **Deploy-1 day, 15 min** | Kill criterion into Crystal (§12); §15 public-repo scrub decisions to David | |
-| **~2 weeks** | **The soak. Nothing lands.** Watch `cookedAt` on cooked tables; low adoption = the problem is the screen, no engine lands on top of it | adoption |
-| **Sessions 4-9, two commits, both inert** | **Deploy 2a:** `synth.js` (solve §4.3, rung ladder, clamps/caps, PLATE_GRAMS, MACRO), the `seatServingsFor` raw accessor + `seats[].rawServings`, the `store.js` read change exposing `{data, sha, dirty}`, the `keyOf` export + §8.1 assert, all §6.2 + §4.3 tests, validation run. **Deploy 2b (days later):** the six §11 consumer fixes + frozen-pot machinery incl. carry-forward test (§10) + `targetsById` state map + SystemView prop threading + `instrument.json` + SCHEMAS.md. Both no-ops by rung 0 and solved-only freezing; inertness asserted at pot/list/ledger (§11); validation counts in the 2a commit message. Fix `docs/merge-invariant.test.js.txt` header to point at §8.1 (it cites v1's §7.1) | validation counts |
-| **One hour, same week** | David classifies all 107 (assembly + plated-set part labels), ordered queue | |
-| **Then, ~5/week** | **The drip:** tags written as dishes come up, solvable first, stove-confirmed once each. First tag also retires the AI tailor (§11.6). ~25 total | per-recipe flag, reversible forward |
-| **2026-11-15** | Kill review fires | David pulls or extends |
+| When                                                             | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Gate                                                |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| **Evening 0 (any time before session 4, NOT blocking deploy 1)** | §3 GO/NO-GO on paper: thresholds written first, share query, ceiling, clamp-bind census                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | kills or confirms the ENGINE before any engine code |
+| **Sessions 1-3**                                                 | **Deploy 1: the serve step** from stored-seat mass share (§7.1), `cookedAt` plumbing incl. its `materializeBrigade` carry-forward (§7.2, §10), the §8.2 seating closure + soft-tier synonym map, the §8.8 owner-device occasion sweep trigger, Today one line, stacked list deleted. Real scope, priced (v2's "Tue-Wed" ignored §1.9)                                                                                                                                                                                                                                                                                                                                                                                  | ship, then stop                                     |
+| **Deploy-1 day, 15 min**                                         | Kill criterion into Crystal (§12); §15 public-repo scrub decisions to David                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |                                                     |
+| **~2 weeks**                                                     | **The soak. Nothing lands.** Watch `cookedAt` on cooked tables; low adoption = the problem is the screen, no engine lands on top of it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | adoption                                            |
+| **Sessions 4-9, two commits, both inert**                        | **Deploy 2a:** `synth.js` (solve §4.3, rung ladder, clamps/caps, PLATE_GRAMS, MACRO), the `seatServingsFor` raw accessor + `seats[].rawServings`, the `store.js` read change exposing `{data, sha, dirty}`, the `keyOf` export + §8.1 assert, all §6.2 + §4.3 tests, validation run. **Deploy 2b (days later):** the six §11 consumer fixes + frozen-pot machinery incl. carry-forward test (§10) + `targetsById` state map + SystemView prop threading + `instrument.json` + SCHEMAS.md. Both no-ops by rung 0 and solved-only freezing; inertness asserted at pot/list/ledger (§11); validation counts in the 2a commit message. Fix `docs/merge-invariant.test.js.txt` header to point at §8.1 (it cites v1's §7.1) | validation counts                                   |
+| **One hour, same week**                                          | David classifies all 107 (assembly + plated-set part labels), ordered queue                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |                                                     |
+| **Then, ~5/week**                                                | **The drip:** tags written as dishes come up, solvable first, stove-confirmed once each. First tag also retires the AI tailor (§11.6). ~25 total                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | per-recipe flag, reversible forward                 |
+| **2026-11-15**                                                   | Kill review fires                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | David pulls or extends                              |
 
 **Out of scope, cut by council: cook rotation.** Zero correctness content,
 real money exposure, moves the same subsystem deploy 2b moves. The

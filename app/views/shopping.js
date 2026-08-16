@@ -681,12 +681,12 @@ export function ShoppingView({
         html`
           <div class="shotstrip">
             <p class="hint">
-              <span class="num">${shots.length}</span>${" "}${shots.length === 1
-                ? "photo"
-                : "photos"}
-              of this receipt, top to bottom. If the
-              receipt is longer than the frame, take the next one so it OVERLAPS a few lines with
-              the last — the overlap is what stops a line being counted twice.
+              <span class="num">${shots.length}</span>${" "}${
+                shots.length === 1 ? "photo" : "photos"
+              }
+              of this receipt, top to bottom. If the receipt is longer than the frame, take the next
+              one so it OVERLAPS a few lines with the last — the overlap is what stops a line being
+              counted twice.
             </p>
             <div class="actions">
               <button class="primary" disabled=${tokenBlocked} onClick=${readShots}>
@@ -697,10 +697,7 @@ export function ShoppingView({
           </div>
         `
       }
-      ${
-        receipt === "busy" &&
-        html`<p class="hint">reading the receipt…</p>`
-      }
+      ${receipt === "busy" && html`<p class="hint">reading the receipt…</p>`}
       ${receipt?.notice && html`<p class="hint">${receipt.notice}</p>`}
       ${
         receipt?.error &&
@@ -929,7 +926,10 @@ export function ShoppingView({
             </div>`;
           })}
           <p class="hint">
-            you pay for what you eat: your share of the food is your share of the bill, so two thirds of the food means two thirds of the cost, never an automatic even split. Settle in the real world (Venmo, cash), then tap SETTLED.</p>
+            you pay for what you eat: your share of the food is your share of the bill, so two
+            thirds of the food means two thirds of the cost, never an automatic even split. Settle
+            in the real world (Venmo, cash), then tap SETTLED.
+          </p>
         </div>`
       }
       ${
@@ -1645,7 +1645,15 @@ export function ShoppingView({
             const dayRows = [
               ...(tripOff.has(me)
                 ? []
-                : [{ profileId: me, name: "You", emoji: ownEmoji, plan: myPlan ?? plan, list: shopping }]),
+                : [
+                    {
+                      profileId: me,
+                      name: "You",
+                      emoji: ownEmoji,
+                      plan: myPlan ?? plan,
+                      list: shopping,
+                    },
+                  ]),
               ...tripOthers,
             ];
             if (dayRows.length === 0) return "";
@@ -1669,10 +1677,10 @@ export function ShoppingView({
                 html`<div class="tile">
                   <div class="k">Buy for only some of someone's days</div>
                   <p class="hint">
-                    All days lit = their whole week. Un-light days to leave them out of this trip
-                    — their meals stay planned, just not bought yet. Picks are for this week only;
-                    a new week starts whole again. To shop NONE of someone's days, toggle them off
-                    the trip above.
+                    All days lit = their whole week. Un-light days to leave them out of this trip —
+                    their meals stay planned, just not bought yet. Picks are for this week only; a
+                    new week starts whole again. To shop NONE of someone's days, toggle them off the
+                    trip above.
                   </p>
                   ${dayRows.map((p) => {
                     const picked = tripDays[p.profileId] ?? [];
@@ -1724,8 +1732,8 @@ export function ShoppingView({
                           misses > 0 &&
                           html`<p class="hint scanerr" role="status">
                             ⚠ ${misses} of ${p.name}'s picked-day
-                            ${misses === 1 ? "meal uses a recipe" : "meals use recipes"} this
-                            phone can't see — their whole list rides along instead of narrowing.
+                            ${misses === 1 ? "meal uses a recipe" : "meals use recipes"} this phone
+                            can't see — their whole list rides along instead of narrowing.
                           </p>`
                         }
                       </div>

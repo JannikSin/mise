@@ -187,7 +187,10 @@ function plateLines(synth, seatId) {
         continue;
       }
       const whole = Math.floor(quarters);
-      const frac = { 0: "", 0.25: "1/4", 0.5: "1/2", 0.75: "3/4" }[Math.round((quarters - whole) * 100) / 100] ?? "";
+      const frac =
+        { 0: "", 0.25: "1/4", 0.5: "1/2", 0.75: "3/4" }[
+          Math.round((quarters - whole) * 100) / 100
+        ] ?? "";
       const label = whole > 0 ? (frac ? `${whole} ${frac}` : String(whole)) : frac;
       out.push(`${label} cup${quarters > 1 ? "s" : ""} ${food}`);
       continue;

@@ -97,7 +97,10 @@ export function TablesView({
     ? myTables.reduce(
         (acc, { t }) => {
           const solved = liveSynthFor(t)?.synthMode === "solved";
-          return { tailored: acc.tailored + (solved ? 1 : 0), uniform: acc.uniform + (solved ? 0 : 1) };
+          return {
+            tailored: acc.tailored + (solved ? 1 : 0),
+            uniform: acc.uniform + (solved ? 0 : 1),
+          };
         },
         { tailored: 0, uniform: 0 },
       )
@@ -522,9 +525,7 @@ export function TablesView({
           }
           ${
             t.sameForEveryone &&
-            html`<div class="d hint">
-              🍲 everyone eats the same tonight — no per-person plates
-            </div>`
+            html`<div class="d hint">🍲 everyone eats the same tonight — no per-person plates</div>`
           }
           <div class="actions wrap">
             ${
@@ -632,7 +633,8 @@ export function TablesView({
         activeBrigade &&
         activeBrigade.rotateCooks &&
         html`<p class="hint" role="note">
-          👨‍🍳 ${(() => {
+          👨‍🍳
+          ${(() => {
             const out = [];
             const start = new Date(`${todayIso}T12:00:00`);
             for (let i = 0; i < 7; i++) {
@@ -640,9 +642,7 @@ export function TablesView({
               d.setDate(d.getDate() + i);
               const iso = d.toISOString().slice(0, 10);
               if (iso < activeBrigade.from || iso > activeBrigade.until) continue;
-              const off = Math.round(
-                (Date.parse(iso) - Date.parse(activeBrigade.from)) / 86400000,
-              );
+              const off = Math.round((Date.parse(iso) - Date.parse(activeBrigade.from)) / 86400000);
               const ids = activeBrigade.memberIds;
               const id = ids[((off % ids.length) + ids.length) % ids.length];
               const p = (profiles ?? []).find((x) => x.id === id);
@@ -727,10 +727,10 @@ export function TablesView({
             🗓 ${activeBrigade ? `${activeBrigade.name} · the week's meals` : "The week's meals"}
           </div>
           <p class="hint">
-            the house cooks each meal ONCE and everyone eats the same food — each plate is
-            portioned in grams to that person's own calories, protein and diet. Meals that
-            already have a table at this house (or that you're seated at elsewhere) are left
-            alone; snacks and smoothies stay personal.
+            the house cooks each meal ONCE and everyone eats the same food — each plate is portioned
+            in grams to that person's own calories, protein and diet. Meals that already have a
+            table at this house (or that you're seated at elsewhere) are left alone; snacks and
+            smoothies stay personal.
           </p>
           <div class="chips wrapchips" role="group" aria-label="Meals to cover">
             ${WEEK_SLOTS.map((slot) => {
@@ -907,9 +907,9 @@ export function TablesView({
           ${
             weekResult.made.length > 0
               ? html`<p class="hint">
-                  each meal is a real table above with your grocery claim already on it — BUILD
-                  the List and you can shop today. Not feeling one? Cancel that table and set it
-                  by hand.
+                  each meal is a real table above with your grocery claim already on it — BUILD the
+                  List and you can shop today. Not feeling one? Cancel that table and set it by
+                  hand.
                 </p>`
               : html`<p class="hint">nothing changed — run it again or set meals by hand below.</p>`
           }
