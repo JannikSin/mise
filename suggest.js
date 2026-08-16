@@ -96,6 +96,7 @@
     ".sg-row button{flex:0 0 auto;border-radius:9px;border:1px solid #333844;background:#232733;" +
     "color:#f2f4f8;font:inherit;padding:9px 15px;cursor:pointer}" +
     ".sg-send{background:#2563eb !important;border-color:#2563eb !important;font-weight:600}" +
+    ".sg-mic{border-radius:50% !important;width:40px;padding:9px 0 !important}" +
     ".sg-stat{font-size:12.5px;opacity:.72;margin-left:auto;text-align:right}";
 
   var style = document.createElement("style");
@@ -140,6 +141,57 @@
 
     var row = document.createElement("div");
     row.className = "sg-row";
+
+    // The mic: same recorder pattern as Crystal's bubble, posting straight to
+    // /deskaudio with this app + page attached, so the drain's faster-whisper
+    // transcript files against this app like a typed note. Online-only on
+    // purpose: an audio blob is too big for the localStorage queue, and a
+    // failed send says so instead of pretending.
+    var mic = document.createElement("button");
+    mic.type = "button";
+    mic.className = "sg-mic";
+    mic.textContent = "🎙";
+    mic.setAttribute("aria-label", "Record the change out loud");
+    var rec = null;
+    var chunks = [];
+    mic.addEventListener("click", function () {
+      if (rec && rec.state === "recording") { rec.stop(); return; }
+      if (!keyOf()) { stat.textContent = "needs the Crystal key first"; return; }
+      if (!navigator.onLine) { stat.textContent = "no signal; type it instead"; return; }
+      if (!navigator.mediaDevices || !window.MediaRecorder) {
+        stat.textContent = "this browser cannot record; type it";
+        return;
+      }
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+        var mime = MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "audio/webm";
+        rec = new MediaRecorder(stream, { mimeType: mime });
+        chunks = [];
+        rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+        rec.onstop = function () {
+          stream.getTracks().forEach(function (t) { t.stop(); });
+          mic.textContent = "🎙";
+          var blob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || mime });
+          stat.textContent = "sending...";
+          fetch(WORKER + "/deskaudio?app=" + encodeURIComponent(APP)
+              + "&route=" + encodeURIComponent(routeNow()), {
+            method: "POST",
+            headers: { "content-type": blob.type || "audio/mp4", "x-brief-key": keyOf() },
+            body: blob,
+          }).then(function (r) {
+            stat.textContent = r.ok ? "recorded; transcribes within the hour" : "the Worker refused it";
+          }).catch(function () {
+            stat.textContent = "did not send; signal dropped, say it again";
+          });
+        };
+        rec.start(5000);
+        setTimeout(function () { if (rec && rec.state === "recording") rec.stop(); }, 180000);
+        mic.textContent = "⏹";
+        stat.textContent = "recording... tap to stop";
+      }).catch(function () {
+        stat.textContent = "mic unavailable; type it instead";
+      });
+    });
+
     var send = document.createElement("button");
     send.type = "button";
     send.className = "sg-send";
@@ -167,6 +219,7 @@
       panel.appendChild(where);
       panel.appendChild(ta);
     }
+    row.appendChild(mic);
     row.appendChild(send);
     row.appendChild(close);
     row.appendChild(stat);
@@ -189,6 +242,10 @@
       if (keyInput && keyInput.value.trim()) {
         try { localStorage.setItem("crystal.key", keyInput.value.trim()); } catch (e) {}
       }
+      // Hard gate, not a silent queue: without the key a note would sit in
+      // localStorage forever while the panel said "sent". Only the key holder
+      // (David) sends from here; that possession IS the per-person gate.
+      if (!keyOf()) { stat.textContent = "needs the Crystal key first"; return; }
       var q = qGet();
       q.push({
         app: APP,
