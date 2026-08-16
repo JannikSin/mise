@@ -358,6 +358,10 @@ particularly on client-side caching, since this app is offline-first.
     "summary": ["everything in grams"],
     "planFit": ["+50 g rice toward the 3700 target"],
     "steps": [
+      // hbp.steps[].n matches instructions[].step: join on that to place
+      // margin notes and temps against the right step in a future richer
+      // renderer. (The save transform ALSO folds temps + notes into
+      // instructions[].text, so every existing view renders them already.)
       {
         "n": 1,
         "notes": ["crust is flavor"],

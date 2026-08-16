@@ -74,6 +74,11 @@ const DERIVATIVES = {
     "yogurt",
     "cheese",
     "parmesan",
+    "mozzarella",
+    "ricotta",
+    "cheddar",
+    "brie",
+    "mascarpone",
     "whey",
     "casein",
     "milk powder",
@@ -179,7 +184,9 @@ export function expandAvoid(avoid) {
   for (const term of avoid ?? []) {
     push(String(term));
     const key = String(term).trim().toLowerCase();
-    const row = DERIVATIVES[key] ?? DERIVATIVES[DERIVATIVE_ALIASES[key] ?? ""];
+    const canonical = DERIVATIVE_ALIASES[key];
+    if (canonical) push(canonical); // "eggs" must also screen the singular "egg"
+    const row = DERIVATIVES[key] ?? DERIVATIVES[canonical ?? ""];
     for (const d of row ?? []) push(d);
   }
   return out;
@@ -212,5 +219,30 @@ export function screenTextForDiners(text, diners) {
 export function unconfirmedReason(diners) {
   const names = (diners ?? []).filter((d) => d.unconfirmed).map((d) => d.name);
   if (names.length === 0) return "";
-  return `${names.join(" and ")}'s restrictions could not be read, not checked. Sync and try again.`;
+  return `${names.join(" and ")}'s restrictions could not be read, not checked. Sync and retry, or unpick them.`;
+}
+
+/**
+ * The human-readable text of a scan result, for the untruncated client
+ * allergen screen. Deliberately NOT JSON.stringify (Tribunal F1: a diner
+ * avoiding "nut" would hard-stop every scan on the word "nutrition", and
+ * "egg" on a done-egg temperature label). Covers everything a person could
+ * eat or read: title, ingredient foods and notes, step text and notes,
+ * summary, planFit and the found-allergen list.
+ * @param {Record<string, any>} result a validated /annotate result
+ * @returns {string}
+ */
+export function resultHumanText(result) {
+  const r = result ?? {};
+  return [
+    r.title,
+    ...(r.ingredients ?? []).flatMap((/** @type {any} */ i) => [i.food, i.note, i.wasOriginal]),
+    ...(r.steps ?? []).flatMap((/** @type {any} */ s) => [s.title, s.text, ...(s.notes ?? [])]),
+    ...(r.summary ?? []),
+    ...(r.planFit ?? []),
+    ...(r.allergensFound ?? []),
+    r.refusalReason,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }

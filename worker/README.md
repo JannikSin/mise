@@ -44,9 +44,14 @@ already stores; revoke it once, all die).
   behind an SSRF fence (https-only, manual redirects re-checked per hop,
   3 MB streamed cap, truthful UA) and are extracted (JSON-LD Recipe first)
   before any model sees them; the model's `sourceQuote` must be contained in
-  that same extracted buffer. A validator reject means an error state and no
-  recipe, one retry (H2). One structured console line per run is the ledger
-  (H1): metadata only, never source text.
+  that same extracted buffer. When a page carries no JSON-LD Recipe the
+  extraction falls back to the whole stripped page (capped 50 KB), so on that
+  path quote containment and the refusal token scan read page furniture too:
+  containment is a weaker guarantee there, and the token scan can fire on
+  sidebar prose (the fail-safe direction). A validator reject means an error
+  state and no recipe, one INFORMED retry carrying the validator's reasons
+  (H2). One structured console line per run is the ledger (H1): metadata
+  only, never source text.
   **Retention:** the extracted transcription is retained only inside the
   saved recipe in the private `mise-data` repo, personal use; nothing is
   stored per scan.

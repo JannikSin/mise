@@ -8,6 +8,7 @@ import {
   OBJECTIVE_WEIGHTS,
   SCORE_AXES,
   scoreFromBuckets,
+  buildAnnotateRequest,
   TEMP_LABELS,
   INTRODUCED_TEMP,
   TIER1_FLOOR,
@@ -24,6 +25,9 @@ import {
   sanitizeAnnotateContext,
   hbpSlug,
 } from "../worker/src/lib.js";
+import { generatorEligible } from "../app/lib/weekbuilder.js";
+import { brigadePool } from "../app/lib/tables.js";
+import { recipeConflicts } from "../app/lib/plan.js";
 
 // The /annotate validators are the check.ps1 of P2: with the P1 reader gone,
 // these deterministic checks are the only thing standing between a model's
@@ -199,6 +203,15 @@ test("tier-2 under the 71 C line needs the risk-group flag, and never saves in v
   const src2 = SRC + " Sear the duck breast and pull at 54 °C.";
   const ctx2 = { ...CTX, transcriptNorm: normalize(src2), extractedNorm: normalize(src2) };
   const duck = good();
+  // a coherent duck dish: the ingredient-list conviction must not fire on
+  // the chili fixture's ground beef
+  duck.title = "Seared Duck";
+  duck.ingredients = [
+    { food: "duck breast", grams: 400 },
+    { food: "onion", grams: 150 },
+  ];
+  duck.steps[0].text = "Score the skin and season.";
+  duck.steps[0].temps = [];
   duck.steps[1].text = "Sear the duck breast, rest it, slice.";
   duck.steps[1].temps = [{ label: "done-intact", unit: "C", fromSource: true, value: 54 }];
 
@@ -379,22 +392,264 @@ test("sanitizeAnnotateContext bounds everything; hbpSlug is repo-safe", () => {
   assert.equal(hbpSlug("Grandma's Chili!! (v2)"), "grandma-s-chili-v2");
 });
 
+// ---- Tribunal final-gate fixes (loop 1) ------------------------------------
+
+test("a doneness figure BELOW the band still hits the safety line (RT B1)", () => {
+  // 10 C done-fish sat under the old 40-99 C band gate and passed clean
+  const src2 = SRC + " Chill the salmon at 10 C overnight.";
+  const ctx2 = { ...CTX, transcriptNorm: normalize(src2), extractedNorm: normalize(src2) };
+  const cold = good();
+  cold.title = "Cured-style Salmon";
+  cold.ingredients = [
+    { food: "salmon", grams: 400 },
+    { food: "dill", grams: 10 },
+  ];
+  cold.steps[0].text = "Pat the salmon dry.";
+  cold.steps[0].temps = [];
+  cold.steps[1].text = "Chill the salmon and slice it thin.";
+  cold.steps[1].temps = [{ label: "done-fish", unit: "C", fromSource: true, value: 10 }];
+  const noFlag = validateAnnotation(cold, ctx2);
+  assert.equal(noFlag.ok, false, "10 C done-fish without the risk flag must reject");
+
+  cold.riskGroups = true;
+  const flagged = validateAnnotation(cold, ctx2);
+  assert.equal(flagged.ok, true, JSON.stringify(/** @type {any} */ (flagged).errors ?? []));
+  assert.equal(
+    saveEligible(/** @type {any} */ (flagged).result, "url").ok,
+    false,
+    "and even flagged it renders only, never saves",
+  );
+});
+
+test("the Fahrenheit twin of a sub-line figure is caught too (RT B1)", () => {
+  const src2 = SRC + " Pull the pork at 52 F.";
+  const bad = good();
+  bad.steps[1].temps = [{ label: "done-intact", unit: "F", fromSource: true, value: 52 }];
+  const v = validateAnnotation(bad, {
+    ...CTX,
+    transcriptNorm: normalize(src2),
+    extractedNorm: normalize(src2),
+  });
+  assert.equal(v.ok, false);
+});
+
+test("extractTemps reads ranges and lowercase units (RT B2 / ENG F4)", () => {
+  assert.deepEqual(extractTemps(normalize("sear to 140-160 F")), [
+    { value: 140, unit: "F" },
+    { value: 160, unit: "F" },
+  ]);
+  assert.deepEqual(extractTemps(normalize("50 to 54 c")), [
+    { value: 50, unit: "C" },
+    { value: 54, unit: "C" },
+  ]);
+  assert.deepEqual(extractTemps(normalize("90 c")), [{ value: 90, unit: "C" }]);
+});
+
+test("the LOW end of a range in prose must be declared or the sweep rejects (RT B2)", () => {
+  const src2 = SRC + " Sear the patties to 140-160 F.";
+  const ctx2 = { ...CTX, transcriptNorm: normalize(src2), extractedNorm: normalize(src2) };
+  const ranged = good();
+  ranged.steps[0].text = "Sear the patties to 140-160 F, flipping once.";
+  ranged.steps[0].temps = [{ label: "done-ground", unit: "F", fromSource: true, value: 160 }];
+  const v = validateAnnotation(ranged, ctx2);
+  assert.equal(v.ok, false, "140 F must not slip through undeclared");
+  assert.ok(/** @type {any} */ (v).errors.some((e) => e.includes("140")));
+});
+
+test("a sub-40 C prose figure is inside the widened band and must be declared (RT B3)", () => {
+  const low = good();
+  low.steps[1].text = "Roast the pork until the centre reads 100 F, then rest.";
+  const v = validateAnnotation(low, CTX);
+  assert.equal(v.ok, false);
+  assert.ok(/** @type {any} */ (v).errors.some((e) => e.includes("unlabelled")));
+});
+
+test("the ingredient list convicts a paraphrased step (ENG F2)", () => {
+  // meatballs: ingredients say ground beef, the step never does, the label
+  // says intact and the risk flag is set; every model field colludes
+  const src2 =
+    "Meatballs. Serves 4. Ingredients: 500 g ground beef, breadcrumbs. " +
+    "Method: 1. Roll them. 2. Finish in the sauce at 55 C. 3. Serve.";
+  const ctx2 = { ...CTX, transcriptNorm: normalize(src2), extractedNorm: normalize(src2) };
+  const sly = good();
+  sly.riskGroups = true;
+  sly.title = "Meatballs";
+  sly.sourceQuote = "Finish in the sauce";
+  sly.ingredients = [
+    { food: "ground beef", grams: 500 },
+    { food: "breadcrumbs", grams: 60 },
+  ];
+  sly.steps = [
+    { n: 1, title: "Roll", text: "Roll them evenly.", notes: [], temps: [] },
+    {
+      n: 2,
+      title: "Finish",
+      text: "Finish them in the sauce until just done.",
+      notes: [],
+      temps: [{ label: "done-intact", unit: "C", fromSource: true, value: 55 }],
+    },
+    { n: 3, title: "Serve", text: "Serve over pasta.", notes: [], temps: [] },
+  ];
+  const v = validateAnnotation(sly, ctx2);
+  assert.equal(v.ok, false);
+  assert.ok(/** @type {any} */ (v).errors.some((e) => e.includes("floor")));
+});
+
+test("a legitimate hot-hold is NOT measured against the doneness line (Realist 4)", () => {
+  const src2 = SRC + " Keep the pot warm at 60 C until serving.";
+  const ctx2 = { ...CTX, transcriptNorm: normalize(src2), extractedNorm: normalize(src2) };
+  const held = good();
+  held.steps[2].temps = [{ label: "hold", unit: "C", fromSource: true, value: 60 }];
+  const v = validateAnnotation(held, ctx2);
+  assert.equal(v.ok, true, JSON.stringify(/** @type {any} */ (v).errors ?? []));
+});
+
+test("proteinFloorFor catches hamburger, patties, chorizo and quail (RT M2)", () => {
+  assert.deepEqual(proteinFloorFor("shape the hamburgers"), { C: 71, F: 160 });
+  assert.deepEqual(proteinFloorFor("flip the patties once"), { C: 71, F: 160 });
+  assert.deepEqual(proteinFloorFor("crumble the chorizo in"), { C: 71, F: 160 });
+  assert.deepEqual(proteinFloorFor("roast the quail whole"), { C: 74, F: 165 });
+});
+
+test("cuisine rides the unlabelled sweep (RT M3)", () => {
+  const sneaky = { ...good(), cuisine: "duck at 52 C" };
+  const v = validateAnnotation(sneaky, CTX);
+  assert.equal(v.ok, false);
+});
+
+test("the call-2 prompt carries the weight row and penalty table (Realist 1)", () => {
+  const req = buildAnnotateRequest({
+    source: "recipe text",
+    objective: "fit-the-plan",
+    diners: [],
+    context: { plan: [], pantry: [], macros: "" },
+    refusalForced: false,
+    model: "m",
+  });
+  const text = req.messages[0].content[0].text;
+  assert.ok(text.includes("technique 20"), "resolved weights travel in the prompt");
+  assert.ok(text.includes("pervasive 0.75"));
+  assert.ok(text.includes("85+ clean"));
+  // and the retry is informed
+  const retry = buildAnnotateRequest({
+    source: "recipe text",
+    objective: "taste",
+    diners: [],
+    context: { plan: [], pantry: [], macros: "" },
+    refusalForced: false,
+    priorErrors: ["score arithmetic: buckets compute 70, the model claimed 62"],
+    model: "m",
+  });
+  assert.ok(retry.messages[0].content[0].text.includes("buckets compute 70"));
+});
+
+test("saved instructions KEEP the temps and margin notes (Realist 5)", () => {
+  const v = validateAnnotation(good(), CTX);
+  assert.equal(v.ok, true);
+  const recipe = annotationToRecipe(/** @type {any} */ (v).result, {
+    id: "hbp-beef-chili-2026-08-16",
+    sourceUrl: "https://example.com/chili",
+    transcription: SRC,
+    pantryStaples: [],
+  });
+  assert.ok(
+    recipe.instructions[0].text.includes("71 \u00b0C (done-ground)"),
+    "the supplied doneness figure survives into the text every view renders",
+  );
+  assert.ok(recipe.instructions[0].text.includes("crust is flavor"), "margin notes survive too");
+});
+
+test("the saved recipe holds up in the real consumers (ENG F8b)", () => {
+  const v = validateAnnotation(good(), CTX);
+  const recipe = annotationToRecipe(/** @type {any} */ (v).result, {
+    id: "hbp-beef-chili-2026-08-16",
+    sourceUrl: "https://example.com/chili",
+    transcription: SRC,
+    pantryStaples: [],
+  });
+  // fenced from both auto-planners until promoted, choosable once promoted
+  assert.deepEqual(generatorEligible([recipe]), []);
+  assert.equal(generatorEligible([{ ...recipe, promoted: true }]).length, 1);
+  const bank = new Map([[recipe.id, recipe]]);
+  assert.deepEqual(brigadePool(bank, [{ id: "mom" }], "dinner"), []);
+  // screenable by the shared diet/avoid predicate
+  assert.ok(recipeConflicts(recipe, "omnivore", ["ground beef"]).length > 0);
+  assert.equal(recipeConflicts(recipe, "omnivore", ["shrimp"]).length, 0);
+});
+
+test("refusal tokens: raw kidney beans and seed sprouting fire; brussels sprouts do not", () => {
+  assert.ok(refusalHits(normalize("soak the dried kidney beans, then slow-cook on low")).length > 0);
+  assert.ok(refusalHits(normalize("sprout the mung beans for three days in a jar")).length > 0);
+  assert.equal(refusalHits(normalize("roast the brussels sprouts until crisp")).length, 0);
+});
+
+test("sanitizeAnnotateContext caps LIST LENGTHS, not just string lengths", () => {
+  const c = sanitizeAnnotateContext({
+    plan: Array.from({ length: 40 }, (_, i) => `meal-${i}`),
+    pantry: Array.from({ length: 80 }, (_, i) => `staple-${i}`),
+    macros: "x",
+  });
+  assert.equal(c.plan.length, 25);
+  assert.equal(c.pantry.length, 60);
+});
+
+test("extractRecipeFromHtml splits a single-blob method and keeps name-only steps", () => {
+  const blob =
+    "Preheat the oven to a moderate heat and butter the pan generously. " +
+    "Whisk the eggs with the sugar until pale and doubled in volume. " +
+    "Fold in the flour gently so the batter keeps its air. " +
+    "Bake until the centre springs back when pressed lightly. " +
+    "Cool in the pan for ten minutes before turning out onto a rack.";
+  const ld = {
+    "@type": "Recipe",
+    name: "Sponge",
+    recipeIngredient: ["4 eggs", "120 g sugar", "120 g flour"],
+    recipeInstructions: [blob, { "@type": "HowToStep", name: "Serve with cream." }],
+  };
+  const html = `<script type="application/ld+json">${JSON.stringify(ld)}</script>`;
+  const out = extractRecipeFromHtml(html);
+  assert.ok(out.includes("2. Whisk the eggs"), "the blob split into real steps");
+  assert.ok(out.includes("Serve with cream."), "a name-only step is kept");
+});
+
 // ---- parity with the P1 skill (one home per side, gate F2) -----------------
 
 const SKILL = join(homedir(), ".claude", "skills", "half-blood-prince");
 
-test("weights parity with the skill's scoring.md", { skip: !existsSync(join(SKILL, "references", "scoring.md")) }, () => {
-  const md = readFileSync(join(SKILL, "references", "scoring.md"), "utf8");
-  for (const o of OBJECTIVES) {
-    const row = new RegExp(`\\|\\s*${o.replace(/-/g, "[- ]")}[^|]*\\|([^\\n]+)`, "i").exec(md);
-    // scoring.md carries the matrix transposed (axes as rows); assert the
-    // five weight NUMBERS for this objective all appear in the file
-    void row;
+test(
+  "weights parity with the skill's scoring.md, cell by cell",
+  { skip: !existsSync(join(SKILL, "references", "scoring.md")) },
+  () => {
+    // parse the axis rows of the objective weight matrix and compare every
+    // CELL, not just substring presence (a transposed table must fail)
+    const md = readFileSync(join(SKILL, "references", "scoring.md"), "utf8");
+    const order = ["taste", "same-time", "faster", "simpler", "fit-the-plan"];
+    const axisRow = (/** @type {string} */ name) => {
+      const m = new RegExp(`\\|\\s*${name}\\s*\\|([^\\n]+)`, "i").exec(md);
+      assert.ok(m, `no ${name} row in scoring.md`);
+      return m[1]
+        .split("|")
+        .map((c) => c.trim())
+        .filter(Boolean)
+        .map(Number);
+    };
+    /** @type {Record<string, number[]>} */
+    const byAxis = {
+      technique: axisRow("Technique"),
+      precision: axisRow("Precision"),
+      sequence: axisRow("Sequence"),
+      time: axisRow("Time"),
+      ingredients: axisRow("Ingredients"),
+    };
     for (const a of SCORE_AXES) {
-      assert.ok(md.includes(String(OBJECTIVE_WEIGHTS[o][a])), `${o}/${a} weight missing from scoring.md`);
+      assert.deepEqual(
+        byAxis[a],
+        order.map((o) => OBJECTIVE_WEIGHTS[o][a]),
+        `${a} row drifted between scoring.md and lib.js`,
+      );
     }
-  }
-});
+  },
+);
 
 test(
   "refusal tokens, labels and floors parity with the skill's check.ps1",

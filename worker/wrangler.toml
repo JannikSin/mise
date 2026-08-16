@@ -17,3 +17,8 @@ preview_urls = false
 # scheduled() no-ops silently until both notification secrets are set
 [triggers]
 crons = ["0 * * * *"]
+
+# retain the structured hbp ledger lines (H1) + errors in the CF dashboard;
+# without this, console.log output exists only under a live `wrangler tail`
+[observability]
+enabled = true

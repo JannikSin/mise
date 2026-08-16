@@ -34,6 +34,11 @@ export function RecipeRow({ recipe, why, weekId, onPlan }) {
               tag &&
               html`<span class="tag ${tag}">${tag === "pre-activity" ? "pre-act" : tag}</span>`
             }
+            ${
+              // a scanned recipe is findable at a glance in the cookbook list
+              (recipe.tags ?? []).includes("hbp-annotated") &&
+              html`<span class="tag">📖 scanned</span>`
+            }
             ${why && html`<span class="why">${why}</span>`}
           </span>
           <span class="m num"

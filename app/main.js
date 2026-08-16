@@ -2525,6 +2525,15 @@ function App() {
     [writeHouseEvents, handleDinerFacts],
   );
 
+  // the human half of the auto-plan trust fence: one tap sets promoted:true
+  // on an AI-written bank recipe (hbp-annotated / ai-special), letting the
+  // week generator and brigades use it. Writing the flag IS the audit.
+  const handlePromoteRecipe = useCallback(async (/** @type {Record<string, any>} */ recipe) => {
+    const promoted = { ...recipe, promoted: true };
+    await write(`recipes/${recipe.id}.json`, /** @type {any} */ (promoted), { raw: true });
+    setBankRecipes([...bankRecipesRef.current.filter((r) => r.id !== recipe.id), promoted]);
+  }, []);
+
   // one settled dinner decision → the recipe id it lands on. A special meal
   // is first written to the shared bank (tagged ai-special) so the whole
   // table machinery — macros, shopping, everyone's plan — works unchanged.
@@ -3052,6 +3061,7 @@ function App() {
             : undefined;
         })()}
         unshopped=${!(/** @type {any} */ (plan)?.shoppedAt || houseShopped)}
+        onPromote=${handlePromoteRecipe}
       />`
     }
     ${

@@ -4,6 +4,7 @@ import { cookPlan } from "../lib/portions.js";
 import { formatRecipeQty } from "../lib/shopping.js";
 import { keepAwake } from "../lib/awake.js";
 import { pickForRecipe } from "../lib/music.js";
+import { untrustedForAutoPlan } from "../lib/plan.js";
 
 // ?from=<key> in the recipe hash → where the backlink returns; unknown or
 // absent keys fall back to the cookbook (the historical behavior)
@@ -39,7 +40,7 @@ const cookSuffix = (from, servings, entryId, tableId) => {
 };
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, tableId?: string, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, tableId?: string, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void> }} props
  */
 export function RecipeView({
   recipe,
@@ -50,7 +51,11 @@ export function RecipeView({
   tableId,
   potRows,
   unshopped = false,
+  onPromote,
 }) {
+  const [promoting, setPromoting] = useState(
+    /** @type {null | "busy" | "done" | "error"} */ (null),
+  );
   const origin = originOf(from);
   // the recipe page holds the screen as well as Cook mode. Reading the steps
   // off THIS page with full hands is exactly when it used to sleep, because
@@ -123,8 +128,45 @@ export function RecipeView({
           (recipe.tags ?? []).includes("ai-special") &&
           html`<span class="tag">✨ AI special · estimated macros</span>`
         }
+        ${
+          (recipe.tags ?? []).includes("hbp-annotated") &&
+          html`<span class="tag">📖 scanned recipe · estimated macros</span>`
+        }
       </div>
       <p class="hint">${recipe.description}</p>
+      ${
+        // the promotion loop (council 2026-07-23: "AI at the table, never in
+        // the plan" means a HUMAN decision, and this button is that decision):
+        // an unpromoted AI recipe is choosable but never auto-planned; one tap
+        // here lets the week generator and brigades use it
+        onPromote &&
+        untrustedForAutoPlan(recipe) &&
+        html`<div class="actions">
+          <button
+            class="primary"
+            disabled=${promoting === "busy"}
+            onClick=${async () => {
+              setPromoting("busy");
+              try {
+                await onPromote(recipe);
+                setPromoting("done");
+              } catch {
+                setPromoting("error");
+              }
+            }}
+          >
+            ${promoting === "busy" ? "PROMOTING…" : "LET THE PLANNER USE THIS"}
+          </button>
+          <p class="hint">
+            until then it stays choosable by hand and never auto-planned into anyone's week.
+          </p>
+          ${promoting === "error" && html`<p class="hint scanerr">could not save, try again</p>`}
+        </div>`
+      }
+      ${
+        promoting === "done" &&
+        html`<p class="hint" role="status">promoted: the planner can use this recipe now.</p>`
+      }
 
       <div class="macros4">
         <div class="tile">

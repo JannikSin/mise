@@ -1,11 +1,38 @@
 import { html } from "htm/preact";
-import { useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { annotateRecipe, saveAnnotation } from "../lib/worker.js";
-import { screenTextForDiners, unconfirmedReason, expandAvoid } from "../lib/annotate.js";
+import {
+  screenTextForDiners,
+  unconfirmedReason,
+  expandAvoid,
+  resultHumanText,
+} from "../lib/annotate.js";
 import { recipeConflicts } from "../lib/plan.js";
 
 // mirror of worker/src/lib.js OBJECTIVES (separate deploy targets share no module)
 const OBJECTIVES = ["fit-the-plan", "taste", "same-time", "faster", "simpler"];
+
+// cook-facing names for the temperature labels; the enum codes are the
+// safety contract, these are what a person reads at the stove
+const TEMP_LABEL_NAMES = /** @type {Record<string, string>} */ ({
+  "done-poultry": "poultry done temp",
+  "done-ground": "ground meat done temp",
+  "done-egg": "egg dish done temp",
+  reheat: "reheat to",
+  "done-intact": "whole-cut done temp",
+  "done-fish": "fish done temp",
+  "done-custard": "custard done temp",
+  "done-bread": "bread done temp",
+  oven: "oven",
+  hold: "holding temp",
+  fry: "oil temp",
+  fridge: "fridge",
+  proof: "proof",
+});
+
+// a finished scan survives a reload or an accidental tab-away (a two-model
+// scan costs real seconds and real cents; do not make him re-buy it)
+const STASH_KEY = "mise.annotate.last";
 
 /**
  * Recipe Scan (HBP P2): a recipe enters by URL or photo, the engine annotates
@@ -56,11 +83,38 @@ export function AnnotateView({
       null
     ),
   );
+  const [elapsed, setElapsed] = useState(0);
   const [save, setSave] = useState(
     /** @type {null | "busy" | "done" | { error: string }} */ (null),
   );
   const [diners, setDiners] = useState(/** @type {Record<string, any>[]} */ ([]));
   const tokenBlocked = !hasToken || repo?.auth === "invalid";
+
+  // restore the last finished scan after a reload / tab-away
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(STASH_KEY);
+      if (!raw) return;
+      const stash = JSON.parse(raw);
+      if (stash?.resp?.result) {
+        setScan(stash.resp);
+        setDiners(Array.isArray(stash.facts) ? stash.facts : []);
+        if (typeof stash.url === "string") setUrl(stash.url);
+      }
+    } catch {
+      // a corrupt stash is just an empty screen, never a broken view
+    }
+  }, []);
+
+  // elapsed-seconds ticker while the two model passes run
+  useEffect(() => {
+    if (scan !== "busy") {
+      setElapsed(0);
+      return;
+    }
+    const id = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(id);
+  }, [scan]);
 
   const toggle = (/** @type {string} */ id) =>
     setPicked(picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id]);
@@ -123,9 +177,11 @@ export function AnnotateView({
         setScan({ error: "nothing usable came back, try again" });
         return;
       }
-      // the untruncated client screen (C2): last line, past the Worker's cap
+      // the untruncated client screen (C2): last line, past the Worker's
+      // cap. Screens the transcription plus the result's HUMAN text, never
+      // the raw JSON (a "nut" list must not fire on the word "nutrition")
       const hits = screenTextForDiners(
-        `${resp.transcription ?? ""} ${JSON.stringify(resp.result)}`,
+        `${resp.transcription ?? ""} ${resultHumanText(resp.result)}`,
         /** @type {any} */ (facts),
       );
       if (hits.length > 0) {
@@ -133,6 +189,14 @@ export function AnnotateView({
         return;
       }
       setScan(resp);
+      try {
+        sessionStorage.setItem(
+          STASH_KEY,
+          JSON.stringify({ resp, facts, url: file ? "" : url.trim() }),
+        );
+      } catch {
+        // full storage must not break the scan
+      }
     } catch (err) {
       setScan({ error: err instanceof Error ? err.message : "scan failed, try again" });
     }
@@ -153,7 +217,7 @@ export function AnnotateView({
         transcription: scan.transcription ?? "",
         extracted: scan.extracted ?? "",
         path: scan.path,
-        sourceUrl: url.trim(),
+        sourceUrl: String(scan.sourceUrl ?? "").trim(),
         pantryStaples,
       });
       onSaved(recipe);
@@ -192,11 +256,15 @@ export function AnnotateView({
       : null;
 
   const tempLine = (/** @type {any} */ t) =>
-    `${t.value} °${t.unit} · ${t.label}${t.fromSource ? "" : " · set by the app"}`;
+    `${t.value} °${t.unit} · ${TEMP_LABEL_NAMES[t.label] ?? t.label}${t.fromSource ? "" : " · set by the app"}`;
 
   return html`
     <div class="view">
-      <a class="backlink" href="#/cookbook">← COOKBOOK</a>
+      ${
+        scan === "busy"
+          ? html`<span class="backlink" aria-disabled="true">← COOKBOOK</span>`
+          : html`<a class="backlink" href="#/cookbook">← COOKBOOK</a>`
+      }
       <div class="hero"><h1>Recipe scan</h1></div>
       <p class="hint">
         found a recipe? paste its link or photograph the page. the engine converts it to grams, pins
@@ -204,6 +272,10 @@ export function AnnotateView({
       </p>
 
       <h2 class="block-title">Objective</h2>
+      <p class="hint">
+        fit-the-plan bends it toward the week's targets and pantry; taste keeps it closest to the
+        original; same-time, faster and simpler trade polish for your evening.
+      </p>
       <div class="chips wrapchips" role="group" aria-label="Objective">
         ${OBJECTIVES.map(
           (o) => html`
@@ -264,7 +336,7 @@ export function AnnotateView({
           onClick=${() => fileRef.current?.click()}
         >
           ${scan === "busy" ? "READING THE RECIPE…" : "📷 PHOTOGRAPH THE PAGE"}
-          <small>photo scans render only; saving needs the URL</small>
+          <small>photo scans render only; saving needs the URL so it can be double-checked</small>
         </button>
         <input
           ref=${fileRef}
@@ -284,7 +356,13 @@ export function AnnotateView({
           ${repo?.auth === "invalid" ? "token needs renewing: Settings" : "connect token in Settings first"}
         </p>`
       }
-      ${scan === "busy" && html`<p class="hint" role="status">two passes: transcribing, then annotating…</p>`}
+      ${
+        scan === "busy" &&
+        html`<p class="hint" role="status">
+          two passes: transcribing, then annotating… ${elapsed}s. A long recipe can take a minute or
+          two; keep this screen open.
+        </p>`
+      }
       ${scanErr && html`<p class="hint scanerr" role="status">${scanErr}</p>`}
       ${
         hardStop &&
@@ -307,8 +385,9 @@ export function AnnotateView({
                 ? html`
                     <div class="d"><b>NOT MOVED.</b> ${result.refusalReason}</div>
                     <div class="d hint">
-                      this recipe carries numbers that are pathogen controls. it is typeset with
-                      unit conversions alongside, corrected nowhere, and never scored.
+                      this recipe's numbers matter for food safety, so the app will not change them.
+                      it is shown exactly as written, with unit conversions alongside. cook it
+                      as-is, or pick something from the cookbook instead.
                     </div>
                   `
                 : result.mode === "abandon"
@@ -332,7 +411,7 @@ export function AnnotateView({
             ${
               result.riskGroups &&
               html`<div class="d scanerr">
-                carries a tier-2 temperature or raw preparation: not for pregnant,
+                this recipe uses a lower food-safety margin or a raw preparation: not for pregnant,
                 immunocompromised, under-5 or over-65 eaters.
               </div>`
             }
@@ -346,7 +425,7 @@ export function AnnotateView({
                   ${
                     (d.avoid ?? []).length > 0
                       ? `${d.name}: screened against ${expandAvoid(d.avoid).length} terms`
-                      : `${d.name}: no restrictions on file, not checked`
+                      : `${d.name}: nothing on file to screen for`
                   }
                 </div>
               `,

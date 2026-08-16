@@ -49,11 +49,19 @@ async function post(path, body) {
       method: "POST",
       headers: { "content-type": "application/json", "x-mise-auth": token },
       body: JSON.stringify(body),
+      // explicit ceiling: iOS Safari gives up around 60s of silence and
+      // surfaces it as a network error, which used to render as the LYING
+      // "no signal" message on a long two-model-call scan. Cap it ourselves
+      // and say what actually happened.
+      signal: AbortSignal.timeout(180000),
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      throw new Error("that took too long and timed out. Try again in a minute.", { cause: err });
+    }
     // fetch network failures are technical strings ("Failed to fetch") —
     // never show those to David
-    throw new Error("no connection — try again when you have signal");
+    throw new Error("no connection — try again when you have signal", { cause: err });
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

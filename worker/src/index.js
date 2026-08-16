@@ -71,6 +71,8 @@ const MAX_BODY_BYTES = 16 * 1024 * 1024; // ~12MB of image after base64
  *  (~400KB base64 each). Extra shots are dropped rather than erroring: five
  *  sixths of a receipt beats a failed scan at the till. */
 const MAX_RECEIPT_PHOTOS = 6;
+/** truthful outbound UA for recipe fetches; ONE home so a rename is one line */
+const RECIPE_FETCH_UA = "mise-recipe-scan (+https://janniksin.github.io/mise/)";
 
 /** token-hash -> expiry; per-isolate, so worst case is one extra GitHub call */
 const authCache = new Map();
@@ -323,7 +325,7 @@ async function fetchRecipeUrl(rawUrl) {
       redirect: "manual",
       signal: AbortSignal.timeout(12000),
       headers: {
-        "user-agent": "mise-recipe-scan (+https://janniksin.github.io/mise/)",
+        "user-agent": RECIPE_FETCH_UA,
         accept: "text/html,text/plain",
       },
     });
@@ -332,6 +334,11 @@ async function fetchRecipeUrl(rawUrl) {
       if (!loc) throw new Error(`the page redirected nowhere (${res.status})`);
       url = new URL(loc, url); // re-checked https at the top of the next hop
       continue;
+    }
+    if (res.status === 401 || res.status === 403 || res.status === 429) {
+      throw new Error(
+        "that site blocks automated readers. Photograph the page instead (photo scans render but do not save yet)",
+      );
     }
     if (!res.ok) throw new Error(`the page answered ${res.status}`);
     const type = (res.headers.get("content-type") ?? "").toLowerCase();
@@ -524,8 +531,9 @@ export default {
         await tokenKey(/** @type {string} */ (token)),
         Date.now(),
         // /dinnerweek's 16k max_tokens is ~4x any other route's spend;
-        // /annotate runs two model calls at 8k (G3)
-        url.pathname === "/dinnerweek" ? 4 : url.pathname === "/annotate" ? 2 : 1,
+        // /annotate is a transcribe call plus up to two 8k annotate
+        // attempts, the most expensive route per request (Tribunal M1)
+        url.pathname === "/dinnerweek" ? 4 : url.pathname === "/annotate" ? 4 : 1,
       )
     ) {
       return json(429, { error: "slow down — try again in a few minutes" }, cors);
@@ -908,6 +916,9 @@ export default {
               diners,
               context,
               refusalForced: refusal.length > 0,
+              // the retry is INFORMED: attempt 2 gets attempt 1's validator
+              // reasons, so it is a correction rather than a fresh sample
+              priorErrors: attempt > 0 ? v.errors : undefined,
               model: env.SCAN_MODEL ?? DEFAULT_MODEL,
             }),
             env,
@@ -922,7 +933,7 @@ export default {
         }
         if (!v.ok) {
           console.log(JSON.stringify({ hbp: "reject", path, objective, errors: v.errors.slice(0, 6) }));
-          return json(422, { error: "the annotation failed safety validation twice; nothing is rendered", details: v.errors.slice(0, 6) }, cors);
+          return json(422, { error: "the scan could not be verified as safe to show. Try again.", details: v.errors.slice(0, 6) }, cors);
         }
         const save = saveEligible(v.result, path);
         // the ledger line (H1): operability metadata only, never source text
@@ -945,6 +956,7 @@ export default {
             transcription,
             extracted: path === "url" ? extracted : "",
             path,
+            sourceUrl: path === "url" ? String(body.url).trim().slice(0, 300) : "",
             refusalTokens: refusal,
             saveEligible: save,
           },
