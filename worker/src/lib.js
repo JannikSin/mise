@@ -1950,9 +1950,13 @@ export function extractTemps(normText) {
   // unit-LESS degrees ("pull it at 140 degrees") read as BOTH units: only
   // the F reading of 140 sits in the band, and the C reading of 63 does, so
   // a single conservative reading would leave one half of the hole open
-  // (Tribunal loop 3, CRITICAL-1; P1's check.ps1 line 84 is the precedent)
+  // (Tribunal loop 3, CRITICAL-1; P1's check.ps1 line 84 is the precedent).
+  // The bare pass runs on the TEMP_RX-STRIPPED text so reader and leftover
+  // check are positionally identical: the low end of "80°-90°C" is already
+  // consumed by the range read and must not re-read as a phantom 80 F.
   const bare = new RegExp(BARE_DEG_RX_SRC, "gi");
-  while ((m = bare.exec(t)) !== null) {
+  const stripped = t.replace(new RegExp(TEMP_RX_SRC, "gi"), " ");
+  while ((m = bare.exec(stripped)) !== null) {
     out.push({ value: Number(m[1]), unit: "C" }, { value: Number(m[1]), unit: "F" });
   }
   // deduped: the bare-degree pass re-reads the low end of "140°-160°F"
@@ -2631,7 +2635,10 @@ export function validateAnnotation(input, ctx) {
     const leftovers = respText
       .replace(new RegExp(TEMP_RX_SRC, "gi"), " ")
       .replace(new RegExp(BARE_DEG_RX_SRC, "gi"), " ");
-    if (/°\s*[cf]\b|°/i.test(leftovers)) {
+    // any surviving degree token: symbol OR the word (normalize converts
+    // every digit-adjacent spelling, so a leftover word means a figure the
+    // parser could not read, e.g. "one hundred forty degrees")
+    if (/°|\bdegrees?\b/i.test(leftovers)) {
       bad("a temperature unit in the response with no readable figure attached");
     }
   }
