@@ -40,6 +40,41 @@ test("no token means no backfill and null age", () => {
   assert.equal(tokenAgeDays(), null);
 });
 
+// The 404-vs-401 split: a token that authenticates but was never granted the
+// data repo must NOT read as "invalid", or the fix looks like minting another
+// token (which lands on the same default scope and fails identically).
+test("checkDataRepo: authenticated 404 is norepo, 401 is invalid", async () => {
+  const { checkDataRepo, tokenBroken } = await import("../app/lib/github.js");
+  store.clear();
+  store.set("mise.pat", "fake-token-wrong-scope");
+
+  /** @param {number} authedStatus */
+  const runWith = (authedStatus) => {
+    let call = 0;
+    globalThis.fetch = /** @type {any} */ (
+      async (/** @type {string} */ _u, /** @type {any} */ opts) => {
+        call++;
+        const authed = Boolean(opts?.headers?.Authorization);
+        assert.equal(call === 1, !authed); // probe first, unauthenticated
+        return { ok: false, status: authed ? authedStatus : 404, json: async () => ({}) };
+      }
+    );
+    return checkDataRepo();
+  };
+
+  const missingRepo = await runWith(404);
+  assert.equal(missingRepo.auth, "norepo");
+  assert.equal(missingRepo.privacy, "private"); // anon 404 still means not public
+  assert.equal(tokenBroken(missingRepo.auth), true);
+
+  const deadToken = await runWith(401);
+  assert.equal(deadToken.auth, "invalid");
+  assert.equal(tokenBroken(deadToken.auth), true);
+
+  assert.equal(tokenBroken("ok"), false);
+  assert.equal(tokenBroken(undefined), false);
+});
+
 test("B4: data repo override parses owner/repo, rejects junk, defaults back", async () => {
   const { DATA_REPO, setDataRepo, dataRepoOverridden } = await import("../app/lib/github.js");
   assert.equal(DATA_REPO.owner, "JannikSin");

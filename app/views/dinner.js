@@ -1,4 +1,5 @@
 import { html } from "htm/preact";
+import { tokenBroken } from "../lib/github.js";
 import { useState } from "preact/hooks";
 import { dinnerTurn } from "../lib/worker.js";
 
@@ -42,7 +43,7 @@ export function DinnerView({
   const [error, setError] = useState("");
   const [decision, setDecision] = useState(/** @type {Record<string, any> | null} */ (null));
   const [applied, setApplied] = useState(false);
-  const tokenBlocked = !hasToken || repo?.auth === "invalid";
+  const tokenBlocked = !hasToken || tokenBroken(repo?.auth);
 
   const toggle = (/** @type {string} */ id) =>
     setUnpicked(unpicked.includes(id) ? unpicked.filter((p) => p !== id) : [...unpicked, id]);
@@ -167,7 +168,7 @@ export function DinnerView({
           ${
             tokenBlocked &&
             html`<p class="hint">
-              ${repo?.auth === "invalid" ? "token needs renewing — Settings" : "connect token in Settings first"}
+              ${tokenBroken(repo?.auth) ? "token needs fixing — Settings" : "connect token in Settings first"}
             </p>`
           }
         `

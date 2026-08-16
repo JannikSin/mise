@@ -1,4 +1,5 @@
 import { html } from "htm/preact";
+import { tokenBroken } from "../lib/github.js";
 import { useState } from "preact/hooks";
 import { askTurn } from "../lib/worker.js";
 
@@ -20,7 +21,7 @@ export function AskView({ context, hasToken, repo }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const tokenBlocked = !hasToken || repo?.auth === "invalid";
+  const tokenBlocked = !hasToken || tokenBroken(repo?.auth);
 
   const send = async () => {
     const text = draft.trim();
@@ -51,7 +52,7 @@ export function AskView({ context, hasToken, repo }) {
       ${
         tokenBlocked &&
         html`<p class="hint">
-          ${repo?.auth === "invalid" ? "token needs renewing — Settings" : "connect token in Settings first"}
+          ${tokenBroken(repo?.auth) ? "token needs fixing — Settings" : "connect token in Settings first"}
         </p>`
       }
       ${chat.map(

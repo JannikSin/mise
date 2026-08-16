@@ -1,4 +1,5 @@
 import { html } from "htm/preact";
+import { tokenBroken } from "../lib/github.js";
 import { useEffect, useState } from "preact/hooks";
 import { datesOfWeek, recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { parseLocalIso } from "../lib/dates.js";
@@ -109,7 +110,7 @@ export function TablesView({
   const collisionIds = new Set((tableCollisions ?? []).map((t) => t.id));
   const nameOf = (/** @type {string} */ id) =>
     (profiles ?? []).find((p) => p.id === id)?.name ?? id;
-  const tokenBlocked = !hasToken || repo?.auth === "invalid";
+  const tokenBlocked = !hasToken || tokenBroken(repo?.auth);
 
   // AI plate-tailoring per table: busy flag + last error, keyed by table id
   const [tailorBusy, setTailorBusy] = useState(/** @type {string | null} */ (null));
@@ -387,7 +388,7 @@ export function TablesView({
       myTables.length > 0 &&
       html`<p class="hint">
         ✨ plate tailoring needs the token —
-        ${repo?.auth === "invalid" ? "renew it in Settings" : "connect it in Settings"}
+        ${tokenBroken(repo?.auth) ? "fix it in Settings" : "connect it in Settings"}
       </p>`
     }
     ${
@@ -708,8 +709,8 @@ export function TablesView({
             <small>
               ${
                 tokenBlocked
-                  ? repo?.auth === "invalid"
-                    ? "needs the token — renew it in Settings"
+                  ? tokenBroken(repo?.auth)
+                    ? "needs the token — fix it in Settings"
                     : "needs the token — connect it in Settings"
                   : mealsFor(WEEK_SLOTS).length === 0
                     ? "every remaining meal already has a table"

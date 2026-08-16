@@ -371,9 +371,9 @@ export function SystemView({
           >
         </div>
         ${
-          repo?.auth === "invalid" &&
+          (repo?.auth === "invalid" || repo?.auth === "norepo") &&
           sync.pending > 0 &&
-          html`<p class="hint">Not syncing — your access token needs renewing (see below).</p>`
+          html`<p class="hint">Not syncing — your access token needs fixing (see below).</p>`
         }
         <div class="actions">
           <button class="primary" onClick=${onTestWrite}>TEST SYNC WRITE</button>
@@ -453,7 +453,9 @@ export function SystemView({
                   ? html`<span class="status warn">not set</span>`
                   : repo.auth === "invalid"
                     ? html`<span class="status bad">invalid ✗</span>`
-                    : html`<span class="status warn">unverified (offline)</span>`
+                    : repo.auth === "norepo"
+                      ? html`<span class="status bad">no repo access ✗</span>`
+                      : html`<span class="status warn">unverified (offline)</span>`
           }
         </div>
         ${
@@ -465,11 +467,21 @@ export function SystemView({
           </p>`
         }
         ${
-          (!hasToken || repo?.auth === "invalid" || renewSoon) &&
+          (!hasToken || repo?.auth === "invalid" || repo?.auth === "norepo" || renewSoon) &&
           html`
             ${
               repo?.auth === "invalid" &&
               html`<p class="hint">Your saved token stopped working — paste a new one.</p>`
+            }
+            ${
+              repo?.auth === "norepo" &&
+              html`<p class="hint">
+                Your token is valid, but it cannot see ${DATA_REPO.owner}/${DATA_REPO.repo}. Do NOT
+                make another token. Open github.com → Settings → Developer settings → Fine-grained
+                tokens → this token → Repository access → <b>Only select repositories</b> → add
+                ${DATA_REPO.repo}, and under Permissions set <b>Contents: Read and write</b>. Save.
+                The token string does not change, so nothing needs re-pasting here.
+              </p>`
             }
             <div class="token-form">
               <input

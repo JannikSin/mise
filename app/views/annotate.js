@@ -1,4 +1,5 @@
 import { html } from "htm/preact";
+import { tokenBroken } from "../lib/github.js";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { annotateRecipe, saveAnnotation } from "../lib/worker.js";
 import {
@@ -89,7 +90,7 @@ export function AnnotateView({
     /** @type {null | "busy" | "done" | { error: string }} */ (null),
   );
   const [diners, setDiners] = useState(/** @type {Record<string, any>[]} */ ([]));
-  const tokenBlocked = !hasToken || repo?.auth === "invalid";
+  const tokenBlocked = !hasToken || tokenBroken(repo?.auth);
 
   // restore the last finished scan after a reload / tab-away
   useEffect(() => {
@@ -362,7 +363,7 @@ export function AnnotateView({
       ${
         tokenBlocked &&
         html`<p class="hint">
-          ${repo?.auth === "invalid" ? "token needs renewing: Settings" : "connect token in Settings first"}
+          ${tokenBroken(repo?.auth) ? "token needs fixing: Settings" : "connect token in Settings first"}
         </p>`
       }
       ${

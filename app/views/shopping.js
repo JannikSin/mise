@@ -1,4 +1,5 @@
 import { html } from "htm/preact";
+import { tokenBroken } from "../lib/github.js";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { scanPhoto, scanReceipt } from "../lib/worker.js";
 import {
@@ -379,7 +380,7 @@ export function ShoppingView({
       setScan({ error: err instanceof Error ? err.message : "scan failed" });
     }
   };
-  const tokenBlocked = !hasToken || repo?.auth === "invalid";
+  const tokenBlocked = !hasToken || tokenBroken(repo?.auth);
   const items = shopping.items ?? [];
   const checkedCount = items.filter((i) => i.checked).length;
 
@@ -1168,8 +1169,8 @@ export function ShoppingView({
             items.length === 0 &&
             html`<div class="empty">
               ${
-                repo?.auth === "invalid"
-                  ? "token needs renewing — Settings"
+                tokenBroken(repo?.auth)
+                  ? "token needs fixing — Settings"
                   : !hasToken
                     ? "connect token in Settings"
                     : loading
@@ -1332,7 +1333,7 @@ export function ShoppingView({
           ${
             tokenBlocked &&
             html`<p class="hint">
-              ${repo?.auth === "invalid" ? "token needs renewing — Settings" : "connect token in Settings"}
+              ${tokenBroken(repo?.auth) ? "token needs fixing — Settings" : "connect token in Settings"}
             </p>`
           }
           ${scan?.error && html`<p class="hint scanerr" role="status">${scan.error}</p>`}

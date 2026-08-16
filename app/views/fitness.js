@@ -1,4 +1,5 @@
 import { html } from "htm/preact";
+import { tokenBroken } from "../lib/github.js";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 import {
@@ -156,7 +157,7 @@ export function FitnessView({
       )
     : null;
   const prs = personalRecords(/** @type {any} */ (workouts.sessions));
-  const tokenBroken = repo?.auth === "invalid";
+  const tokenBad = tokenBroken(repo?.auth);
 
   const logSet = (/** @type {string} */ name) => {
     const inp = inputs[name] ?? { w: "", r: "" };
@@ -201,9 +202,9 @@ export function FitnessView({
       <div class="hero"><h1>Train</h1></div>
 
       ${
-        tokenBroken &&
+        tokenBad &&
         html`<p class="hint">
-          not syncing — token needs renewing in Settings (sets still save locally)
+          not syncing — token needs fixing in Settings (sets still save locally)
         </p>`
       }
 

@@ -1,4 +1,5 @@
 import { html } from "htm/preact";
+import { tokenBroken } from "../lib/github.js";
 import { useState } from "preact/hooks";
 import { SYMPTOMS, protocolFor } from "../lib/remedies.js";
 import { liveRemedy } from "../lib/worker.js";
@@ -41,7 +42,7 @@ export function RemediesView({ recipes, hasToken, repo }) {
   const liveErr = typeof live === "object" && live !== null && "error" in live ? live.error : null;
   const liveProto =
     typeof live === "object" && live !== null && "protocol" in live ? live.protocol : null;
-  const tokenBlocked = !hasToken || repo?.auth === "invalid";
+  const tokenBlocked = !hasToken || tokenBroken(repo?.auth);
 
   const toggle = (/** @type {string} */ id) =>
     setPicked(picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id]);
@@ -149,8 +150,8 @@ export function RemediesView({ recipes, hasToken, repo }) {
       <p class="hint">
         ${
           tokenBlocked
-            ? repo?.auth === "invalid"
-              ? "token needs renewing — Settings"
+            ? tokenBroken(repo?.auth)
+              ? "token needs fixing — Settings"
               : "connect token in Settings to ask live"
             : "fresh answer from Claude — needs signal; the picker above works offline."
         }

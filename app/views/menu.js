@@ -1,4 +1,5 @@
 import { html } from "htm/preact";
+import { tokenBroken } from "../lib/github.js";
 import { useRef, useState } from "preact/hooks";
 import { scanMenu } from "../lib/worker.js";
 
@@ -24,7 +25,7 @@ export function MenuView({ profiles, me, hasToken, repo, onDinerFacts }) {
       null
     ),
   );
-  const tokenBlocked = !hasToken || repo?.auth === "invalid";
+  const tokenBlocked = !hasToken || tokenBroken(repo?.auth);
 
   const toggle = (/** @type {string} */ id) =>
     setPicked(picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id]);
@@ -98,7 +99,7 @@ export function MenuView({ profiles, me, hasToken, repo, onDinerFacts }) {
       ${
         tokenBlocked &&
         html`<p class="hint">
-          ${repo?.auth === "invalid" ? "token needs renewing — Settings" : "connect token in Settings first"}
+          ${tokenBroken(repo?.auth) ? "token needs fixing — Settings" : "connect token in Settings first"}
         </p>`
       }
       ${scanErr && html`<p class="hint scanerr" role="status">${scanErr}</p>`}

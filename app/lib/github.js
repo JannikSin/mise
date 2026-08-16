@@ -95,7 +95,7 @@ export const TOKEN_WARN_AGE_DAYS = 351;
  *
  * @returns {Promise<{
  *   privacy: "private" | "PUBLIC" | "unknown",
- *   auth: "ok" | "invalid" | "missing" | "unknown",
+ *   auth: "ok" | "invalid" | "norepo" | "missing" | "unknown",
  *   reachable: boolean
  * }>}
  */
@@ -114,7 +114,7 @@ export async function checkDataRepo() {
   }
 
   const token = getToken();
-  /** @type {"ok" | "invalid" | "missing" | "unknown"} */
+  /** @type {"ok" | "invalid" | "norepo" | "missing" | "unknown"} */
   let auth = "missing";
   if (token) {
     try {
@@ -125,7 +125,11 @@ export async function checkDataRepo() {
         if (repo.private === true) privacy = "private";
         else if (repo.private === false) privacy = "PUBLIC";
       } else {
-        auth = "invalid";
+        // 404 here means the token authenticated but the repo is not in its
+        // selected-repositories list — a scope mistake, NOT a dead token.
+        // Telling him "invalid" sends him off minting new tokens with the same
+        // default ("Public repositories") and the same 404 forever.
+        auth = authed.status === 404 ? "norepo" : "invalid";
       }
     } catch {
       auth = "unknown"; // offline
@@ -134,6 +138,17 @@ export async function checkDataRepo() {
   }
 
   return { privacy, auth, reachable };
+}
+
+/**
+ * A saved token that cannot reach the data repo, for whatever reason. Every
+ * view gates on this, not on a single auth value — "invalid" and "norepo"
+ * both mean nothing syncs, and a view that only checks one lets the other
+ * render as if all is well.
+ * @param {string | undefined} auth
+ */
+export function tokenBroken(auth) {
+  return auth === "invalid" || auth === "norepo";
 }
 
 /**
