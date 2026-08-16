@@ -336,6 +336,37 @@ particularly on client-side caching, since this app is offline-first.
   "timesCooked": 3,
   "lastCooked": "2026-06-28", // ?
   "lessons": ["Double the marinade — it carries the bowl."],
+  "hbp": {
+    // ? present only on recipes saved by the HBP Recipe Scan (#/annotate).
+    //   The ONE schema addition of P2 (gate D1). Such recipes carry
+    //   tags: ["hbp-annotated", "contains:<allergen>"...] and are fenced out
+    //   of every auto-planner (generatorEligible + brigadePool) until a human
+    //   sets promoted: true, the same promotion contract as ai-special.
+    "objective": "fit-the-plan", // fit-the-plan | taste | same-time | faster | simpler
+    "score": 70, // null for refusal-class (never scored); how the recipe is WRITTEN, not how it tastes
+    "buckets": {
+      "technique": "isolated",
+      "precision": "several",
+      "sequence": "isolated",
+      "time": "none",
+      "ingredients": "isolated",
+    },
+    "mode": "annotated", // clean | annotated | rebuild (refusal/abandon/tier-2 never save in v1)
+    "riskGroups": false, // true = tier-2 temp / raw prep; renders the risk-group line
+    "sourceQuote": "Simmer until thick", // verbatim line proving the fetch was real
+    "allergensFound": ["wheat"],
+    "summary": ["everything in grams"],
+    "planFit": ["+50 g rice toward the 3700 target"],
+    "steps": [
+      {
+        "n": 1,
+        "notes": ["crust is flavor"],
+        "temps": [{ "label": "done-ground", "unit": "C", "fromSource": false, "value": 71 }],
+      },
+    ],
+    "ingredientMarks": [{ "food": "black beans", "wasOriginal": "2 cups" }],
+    "transcription": "Beef Chili. Serves 4. …", // call-1 transcript, embedded ON SAVE only
+  },
 }
 ```
 
@@ -1167,7 +1198,7 @@ fast-follow; the purpose-recommendation hook is the reason `time` exists).
 
 Dated overrides: days the week generator must NOT plan. A medical prep, a
 holiday, travel, a race. Written by the Occasions screen (Settings ->
-Occasions), which is the whole point of the file: a new *kind* of situation
+Occasions), which is the whole point of the file: a new _kind_ of situation
 used to require new code, and now it is data anyone can create in the app.
 
 Cross-profile like `plans/` and `shopping.json`: one person can set a

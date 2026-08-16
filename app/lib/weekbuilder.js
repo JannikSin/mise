@@ -470,8 +470,8 @@ export function foodGroupFloorPass(plan, pool, recipesById, floors, opts = {}) {
       for (const entry of contributors) {
         if (dayGroupTotal(next.entries, recipesById, date, group) >= floor) break;
         let servings = entry.servings;
-        const perServing = recipesById.get(/** @type {string} */ (entry.recipeId))?.nutrition
-          ?.calories ?? 0;
+        const perServing =
+          recipesById.get(/** @type {string} */ (entry.recipeId))?.nutrition?.calories ?? 0;
         while (
           servings + 0.5 <= MAX_ENTRY_SERVINGS &&
           dayGroupTotal(next.entries, recipesById, date, group) < floor

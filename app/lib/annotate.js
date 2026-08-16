@@ -35,3 +35,182 @@ export function dinerFacts(id, name, t) {
     unconfirmed: t === null,
   };
 }
+
+// ---- the untruncated allergen screen (P2 gate2 C2) -------------------------
+// The Worker's sanitizePeople caps avoid at 20 terms, so the WORKER's scan can
+// silently drop the 21st (misses "pecan"). The client therefore re-screens the
+// returned transcription + result here, on the FULL medical-preset expansion,
+// before anything renders or saves. Derivative rows are a compact port of the
+// P1 skill's references/allergens.md.
+
+/** @type {Record<string, string[]>} */
+const DERIVATIVES = {
+  peanut: ["groundnut", "satay", "praline"],
+  "tree nut": [
+    "almond",
+    "cashew",
+    "walnut",
+    "pecan",
+    "hazelnut",
+    "pistachio",
+    "macadamia",
+    "brazil nut",
+    "pine nut",
+    "marzipan",
+    "frangipane",
+    "praline",
+    "pesto",
+    "nut butter",
+    "nut milk",
+    "amaretto",
+    "orgeat",
+    "gianduja",
+  ],
+  milk: [
+    "butter",
+    "ghee",
+    "cream",
+    "buttermilk",
+    "yogurt",
+    "cheese",
+    "parmesan",
+    "whey",
+    "casein",
+    "milk powder",
+    "white chocolate",
+  ],
+  egg: [
+    "mayonnaise",
+    "aioli",
+    "hollandaise",
+    "bearnaise",
+    "meringue",
+    "royal icing",
+    "fresh pasta",
+  ],
+  wheat: [
+    "soy sauce",
+    "worcestershire",
+    "seitan",
+    "udon",
+    "ramen",
+    "couscous",
+    "bulgur",
+    "farro",
+    "semolina",
+    "panko",
+    "breadcrumb",
+    "roux",
+    "malt",
+  ],
+  gluten: [
+    "soy sauce",
+    "worcestershire",
+    "seitan",
+    "udon",
+    "ramen",
+    "couscous",
+    "bulgur",
+    "farro",
+    "semolina",
+    "panko",
+    "breadcrumb",
+    "roux",
+    "malt",
+    "rye",
+    "barley",
+    "brewer's yeast",
+  ],
+  soy: ["soy sauce", "tamari", "miso", "tofu", "edamame", "lecithin", "textured vegetable protein"],
+  fish: [
+    "worcestershire",
+    "caesar dressing",
+    "fish sauce",
+    "dashi",
+    "bonito",
+    "oyster sauce",
+    "anchovy",
+    "anchovies",
+  ],
+  shellfish: [
+    "shrimp paste",
+    "xo sauce",
+    "fish sauce",
+    "seafood stock",
+    "surimi",
+    "shrimp",
+    "prawn",
+    "crab",
+    "lobster",
+  ],
+  sesame: ["tahini", "hummus", "halva", "za'atar", "everything bagel", "gomashio", "sesame oil"],
+};
+
+/** aliases that route a stored avoid term onto a derivative row */
+const DERIVATIVE_ALIASES = /** @type {Record<string, string>} */ ({
+  peanuts: "peanut",
+  "tree nuts": "tree nut",
+  nuts: "tree nut",
+  nut: "tree nut",
+  dairy: "milk",
+  lactose: "milk",
+  eggs: "egg",
+  shrimp: "shellfish",
+  crustacean: "shellfish",
+});
+
+/**
+ * Expand a diner's avoid terms with their hidden-source derivatives. Never
+ * truncated: this is the list the client screens with, past any Worker cap.
+ * @param {string[]} avoid
+ * @returns {string[]} deduped lowercase terms, originals first
+ */
+export function expandAvoid(avoid) {
+  /** @type {string[]} */
+  const out = [];
+  const seen = new Set();
+  const push = (/** @type {string} */ term) => {
+    const t = term.trim().toLowerCase();
+    if (t && !seen.has(t)) {
+      seen.add(t);
+      out.push(t);
+    }
+  };
+  for (const term of avoid ?? []) {
+    push(String(term));
+    const key = String(term).trim().toLowerCase();
+    const row = DERIVATIVES[key] ?? DERIVATIVES[DERIVATIVE_ALIASES[key] ?? ""];
+    for (const d of row ?? []) push(d);
+  }
+  return out;
+}
+
+/**
+ * Screen a text against every diner's UNTRUNCATED expanded avoid list.
+ * Case-insensitive substring, the safe direction for a denylist.
+ * @param {string} text
+ * @param {{ id: string, name: string, avoid: string[] }[]} diners
+ * @returns {string[]} hard-stop reasons ("Mom: pecan"), empty = clean
+ */
+export function screenTextForDiners(text, diners) {
+  const t = String(text).toLowerCase();
+  const out = [];
+  for (const d of diners ?? []) {
+    const hits = expandAvoid(d.avoid).filter((a) => t.includes(a));
+    if (hits.length > 0) out.push(`${d.name}: ${hits.join(", ")}`);
+  }
+  return out;
+}
+
+/**
+ * The fail-closed gate in front of a scan (C1): a diner whose targets file
+ * could not be read is UNCONFIRMED and the scan refuses to run: an unread
+ * profile must never screen as allergy-free.
+ * @param {{ name: string, unconfirmed?: boolean }[]} diners
+ * @returns {string} the refusal reason, "" when everyone read cleanly
+ */
+export function unconfirmedReason(diners) {
+  const names = (diners ?? []).filter((d) => d.unconfirmed).map((d) => d.name);
+  if (names.length === 0) return "";
+  return `${names.join(" and ")}'s restrictions could not be read, not checked. Sync and try again.`;
+}

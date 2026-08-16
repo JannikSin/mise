@@ -21,6 +21,7 @@ export function parseRoute(hash) {
     case "home":
       return { view: "plan" };
     case "cookbook":
+    case "annotate":
     case "system":
     case "plan":
     case "list":

@@ -31,6 +31,7 @@ import { RemediesView } from "./views/remedies.js";
 import { OccasionsView } from "./views/occasions.js";
 import { VitalsView } from "./views/vitals.js";
 import { MenuView } from "./views/menu.js";
+import { AnnotateView } from "./views/annotate.js";
 import { DinnerView } from "./views/dinner.js";
 import { AskView } from "./views/ask.js";
 import { TablesView } from "./views/tables.js";
@@ -786,17 +787,17 @@ function App() {
           // mis-tap must not edit anyone's week.
           return {
             ...list,
-            items: items.map((i) =>
-              i.id === itemId
-                ? {
-                    ...i,
-                    checked: false,
-                    ...(/** @type {any} */ (i).weekQty
-                      ? { qty: /** @type {any} */ (i).weekQty, weekQty: undefined }
-                      : {}),
-                  }
-                : i,
-            ),
+            items: items.map((i) => {
+              if (i.id !== itemId) return i;
+              // statement-level cast: prettier reflows inline casts inside a
+              // spread into a shape tsc rejects (broke once, 2026-08-16)
+              const weekQty = /** @type {any} */ (i).weekQty;
+              return {
+                ...i,
+                checked: false,
+                ...(weekQty ? { qty: weekQty, weekQty: undefined } : {}),
+              };
+            }),
           };
         }
         return {
@@ -1873,7 +1874,12 @@ function App() {
       targetsById.set(s.id, /** @type {any} */ (rec?.data ?? null));
       slotShares[s.id] = slotShareFor(/** @type {any} */ (rec?.data), t.slot);
     }
-    return synthesize({ recipe, seats: /** @type {any} */ (t.seats ?? []), targetsById, slotShares });
+    return synthesize({
+      recipe,
+      seats: /** @type {any} */ (t.seats ?? []),
+      targetsById,
+      slotShares,
+    });
   };
 
   /**
@@ -3113,6 +3119,22 @@ function App() {
         hasToken=${hasToken}
         repo=${repo}
         onDinerFacts=${handleDinerFacts}
+      />`
+    }
+    ${
+      route.view === "annotate" &&
+      html`<${AnnotateView}
+        profiles=${allProfiles}
+        me=${me}
+        hasToken=${hasToken}
+        repo=${repo}
+        recipes=${recipes}
+        plan=${viewPlan}
+        pantry=${pantry}
+        targets=${targets}
+        onDinerFacts=${handleDinerFacts}
+        onSaved=${(/** @type {Record<string, any>} */ recipe) =>
+          setBankRecipes([...bankRecipesRef.current.filter((r) => r.id !== recipe.id), recipe])}
       />`
     }
     ${

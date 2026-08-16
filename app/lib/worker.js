@@ -56,7 +56,12 @@ async function post(path, body) {
     throw new Error("no connection — try again when you have signal");
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? `worker error ${res.status}`);
+  if (!res.ok) {
+    // validator rejects (422) carry the specific reasons in `details`;
+    // append them so the view can show WHY instead of a generic sentence
+    const details = Array.isArray(data.details) ? ` (${data.details.join("; ")})` : "";
+    throw new Error((data.error ?? `worker error ${res.status}`) + details);
+  }
   return data;
 }
 
@@ -202,6 +207,39 @@ export async function notifyTest() {
     cronReady: Boolean(data.cronReady),
     preview: Array.isArray(data.preview) ? data.preview : [],
   };
+}
+
+/**
+ * HBP Recipe Scan: URL or photo in, an annotated recipe (or a hard stop /
+ * refusal / verdict) out. Nothing is persisted by the scan itself (A3): the
+ * transcription travels back with the result and is embedded only on save.
+ * @param {{ url?: string, file?: File | Blob, objective: string, diners: Record<string, any>[], context: { plan: string[], pantry: string[], macros: string } }} args
+ * @returns {Promise<Record<string, any>>} { result, transcription, extracted, path, refusalTokens, saveEligible } or { hardStop, path }
+ */
+export async function annotateRecipe({ url, file, objective, diners, context }) {
+  /** @type {Record<string, any>} */
+  const body = { objective, diners, context };
+  if (file) {
+    const { image, mediaType } = await downscalePhoto(file);
+    body.image = image;
+    body.mediaType = mediaType;
+  } else {
+    body.url = url;
+  }
+  return post("/annotate", body);
+}
+
+/**
+ * Save a scan to the cookbook: server-side revalidate-then-write (D3). The
+ * Worker re-runs the fail-closed validator, maps to the canonical recipe
+ * shape, and writes recipes/hbp-<slug>-<date>.json with the presented PAT.
+ * @param {{ result: Record<string, any>, transcription: string, extracted: string, path: string, sourceUrl: string, pantryStaples: string[] }} payload
+ * @returns {Promise<{ recipe: Record<string, any> }>}
+ */
+export async function saveAnnotation(payload) {
+  const data = await post("/annotate-save", payload);
+  if (!data.recipe || typeof data.recipe !== "object") throw new Error("save came back empty");
+  return { recipe: data.recipe };
 }
 
 /**

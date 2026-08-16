@@ -32,6 +32,34 @@ already stores; revoke it once, all die).
 - `POST /remedy` `{ text: "how I feel" }` →
   `{ protocol: { teas[], foods[], avoid[], notes[] } }` — same shape the
   offline rules engine renders.
+- `POST /annotate` `{ url }` OR `{ image, mediaType }`, plus
+  `{ objective, diners: [<diner shape>], context: { plan[], pantry[], macros } }` →
+  `{ result, transcription, extracted, path, refusalTokens[], saveEligible }`
+  or `{ hardStop: { reasons[] } }` — the HBP Recipe Scan (P2). Two model
+  calls (transcribe, then annotate; rate-limit weight 2) behind deterministic
+  fail-closed validators: refusal-class token scan, per-diner allergen
+  pre-scan, temperature floors with label declarations (the model never
+  introduces a temperature value), an unlabelled-figure sweep, score
+  arithmetic recomputation, and step-count preservation. URL fetches sit
+  behind an SSRF fence (https-only, manual redirects re-checked per hop,
+  3 MB streamed cap, truthful UA) and are extracted (JSON-LD Recipe first)
+  before any model sees them; the model's `sourceQuote` must be contained in
+  that same extracted buffer. A validator reject means an error state and no
+  recipe, one retry (H2). One structured console line per run is the ledger
+  (H1): metadata only, never source text.
+  **Retention:** the extracted transcription is retained only inside the
+  saved recipe in the private `mise-data` repo, personal use; nothing is
+  stored per scan.
+- `POST /annotate-save` `{ result, transcription, extracted, path, sourceUrl, pantryStaples[] }` →
+  `{ recipe }` — server-side revalidate-then-write (D3): re-runs the same
+  validators, maps to the canonical recipe shape
+  (`tags: ["hbp-annotated", "contains:<allergen>"]`, `hbp` block, required
+  `mealType`), and writes `recipes/hbp-<slug>-<date>.json` with the
+  presented PAT (read-sha / write / one 409 retry). Photo-path, refusal,
+  abandon and tier-2 results are refused: they render but never save in v1.
+  Needs no Anthropic key. The client re-passes the scan's buffers; the
+  revalidation here guards shape and safety, not a hostile client (the PAT
+  holder can already write the repo directly).
 - `POST /notify-test` `{}` →
   `{ pinged, topicSet, cronReady, preview[] }` — sends one live ntfy ping and
   returns today's would-fire notification schedule (the SYS test button).

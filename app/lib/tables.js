@@ -999,7 +999,10 @@ export function materializeBrigade(events, brigade, ctx) {
         // rounding raw after computing servings from the unrounded value
         // opens a ~0.2% window where the manual-override detector falsely
         // reclassifies an untouched seat as hand-edited, silently.
-        const raw3 = rawExact === null || rawExact === undefined ? undefined : Math.round(rawExact * 1000) / 1000;
+        const raw3 =
+          rawExact === null || rawExact === undefined
+            ? undefined
+            : Math.round(rawExact * 1000) / 1000;
         const fromRaw =
           raw3 === undefined
             ? undefined

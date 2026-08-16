@@ -34,6 +34,12 @@ export function CookbookView({ recipes, hasToken, weekId, onPlan }) {
       <div class="hero">
         <h1>Cookbook <span class="num">${recipes.length}</span></h1>
       </div>
+      <div class="actions">
+        <a class="ask scanbtn" href="#/annotate">
+          📖 SCAN A RECIPE
+          <small>URL or photo in, annotated and plan-fitted out</small>
+        </a>
+      </div>
       <div class="chips" role="group" aria-label="Filter by purpose">
         ${PURPOSES.map(
           (p) => html`

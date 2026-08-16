@@ -23,6 +23,7 @@ test("top-level views", () => {
   assert.deepEqual(parseRoute("#/menu"), { view: "menu" });
   assert.deepEqual(parseRoute("#/dinner"), { view: "dinner" });
   assert.deepEqual(parseRoute("#/tables"), { view: "tables" });
+  assert.deepEqual(parseRoute("#/annotate"), { view: "annotate" });
 });
 
 test("removed routes fall back to the Plan tab", () => {

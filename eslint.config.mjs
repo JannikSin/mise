@@ -22,6 +22,7 @@ const browserGlobals = {
   Response: "readonly",
   Headers: "readonly",
   AbortController: "readonly",
+  AbortSignal: "readonly",
   FormData: "readonly",
   Blob: "readonly",
   File: "readonly",
@@ -64,6 +65,10 @@ export default [
       // from a wrapper added at compose time (tests/e2e/README.md)
       "tests/e2e/",
       ".playwright-mcp/",
+      // the cross-app suggest button: a deliberately dependency-free ES5
+      // drop-in shared verbatim across all seven PWAs — restyling it here
+      // would fork it from the copies in the other repos
+      "suggest.js",
     ],
   },
   js.configs.recommended,

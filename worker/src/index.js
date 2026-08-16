@@ -45,6 +45,19 @@ import {
   buildAskRequest,
   parseAskResponse,
   sanitizeAskContext,
+  OBJECTIVES,
+  normalize,
+  refusalHits,
+  screenSourceAvoid,
+  extractRecipeFromHtml,
+  buildTranscribeRequest,
+  validateTranscription,
+  buildAnnotateRequest,
+  validateAnnotation,
+  saveEligible,
+  annotationToRecipe,
+  sanitizeAnnotateContext,
+  hbpSlug,
 } from "./lib.js";
 
 const DATA_REPO = "JannikSin/mise-data";
@@ -287,6 +300,71 @@ async function ghReadWithSha(path, token) {
 }
 
 /**
+ * Fetch a recipe URL behind the real SSRF fence (P2 gate G2). workerd has no
+ * DNS resolver to pin, so the fence is: https-only, manual redirects with a
+ * per-hop https re-check, a hard timeout, and a streamed read that aborts
+ * past the cap. Truthful UA, no circumvention: a page that refuses us stays
+ * refused.
+ * @param {string} rawUrl
+ * @returns {Promise<string>} the page text
+ */
+async function fetchRecipeUrl(rawUrl) {
+  const MAX_FETCH_BYTES = 3 * 1024 * 1024;
+  let url;
+  try {
+    url = new URL(String(rawUrl));
+  } catch {
+    throw new Error("that is not a valid URL");
+  }
+  for (let hop = 0; hop < 4; hop++) {
+    if (url.protocol !== "https:") throw new Error("only https recipe URLs are fetched");
+    if (url.username || url.password) throw new Error("credentialed URLs are not fetched");
+    const res = await fetch(url.toString(), {
+      redirect: "manual",
+      signal: AbortSignal.timeout(12000),
+      headers: {
+        "user-agent": "mise-recipe-scan (+https://janniksin.github.io/mise/)",
+        accept: "text/html,text/plain",
+      },
+    });
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get("location");
+      if (!loc) throw new Error(`the page redirected nowhere (${res.status})`);
+      url = new URL(loc, url); // re-checked https at the top of the next hop
+      continue;
+    }
+    if (!res.ok) throw new Error(`the page answered ${res.status}`);
+    const type = (res.headers.get("content-type") ?? "").toLowerCase();
+    if (!type.includes("text/html") && !type.includes("text/plain")) {
+      throw new Error(`the page is ${type.split(";")[0] || "not text"}, recipe pages only`);
+    }
+    // streamed read, aborted past the cap
+    const reader = res.body?.getReader();
+    if (!reader) return await res.text();
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_FETCH_BYTES) {
+        await reader.cancel();
+        throw new Error("the page is over 3 MB, recipe pages only");
+      }
+      chunks.push(value);
+    }
+    const buf = new Uint8Array(total);
+    let at = 0;
+    for (const c of chunks) {
+      buf.set(c, at);
+      at += c.byteLength;
+    }
+    return new TextDecoder().decode(buf);
+  }
+  throw new Error("too many redirects");
+}
+
+/**
  * POST /vitals — Apple Health ingest for Health Auto Export.
  *
  * Auth is a dedicated VITALS_KEY, not the GitHub PAT the browser app presents,
@@ -428,6 +506,8 @@ export default {
         "/dinner",
         "/dinnerweek",
         "/ask",
+        "/annotate",
+        "/annotate-save",
         "/notify-test",
       ].includes(url.pathname)
     ) {
@@ -443,8 +523,9 @@ export default {
         rateState,
         await tokenKey(/** @type {string} */ (token)),
         Date.now(),
-        // /dinnerweek's 16k max_tokens is ~4x any other route's spend
-        url.pathname === "/dinnerweek" ? 4 : 1,
+        // /dinnerweek's 16k max_tokens is ~4x any other route's spend;
+        // /annotate runs two model calls at 8k (G3)
+        url.pathname === "/dinnerweek" ? 4 : url.pathname === "/annotate" ? 2 : 1,
       )
     ) {
       return json(429, { error: "slow down — try again in a few minutes" }, cors);
@@ -486,7 +567,8 @@ export default {
       }
     }
 
-    if (!providerConfigured(env)) {
+    // /annotate-save is a pure revalidate-then-write: no model call, no key
+    if (url.pathname !== "/annotate-save" && !providerConfigured(env)) {
       return json(503, { error: "AI provider not configured yet" }, cors);
     }
 
@@ -739,6 +821,179 @@ export default {
             );
         }
         return json(200, { nights: clean, notes }, cors);
+      }
+      if (url.pathname === "/annotate") {
+        const objective = OBJECTIVES.includes(body.objective) ? body.objective : "fit-the-plan";
+        // server-side twin of the client's fail-closed gate (C1): a diner the
+        // client marked unconfirmed (targets read failed) must never be
+        // screened as allergy-free. sanitizePeople strips the flag, so check
+        // the raw body before it does.
+        if (
+          Array.isArray(body.diners) &&
+          body.diners.some((/** @type {any} */ d) => d?.unconfirmed === true)
+        ) {
+          return json(422, { error: "a diner's restrictions are unconfirmed; sync and retry" }, cors);
+        }
+        const diners = sanitizePeople(body.diners).filter((d) => d.id);
+        const context = sanitizeAnnotateContext(body.context);
+        const started = Date.now();
+
+        /** @type {"url" | "photo"} */
+        let path;
+        let extracted = "";
+        let image = "";
+        let mediaType = "";
+        if (typeof body.url === "string" && body.url.trim()) {
+          path = "url";
+          let page;
+          try {
+            page = await fetchRecipeUrl(body.url.trim());
+          } catch (e) {
+            return json(422, { error: e instanceof Error ? e.message : "could not fetch that page" }, cors);
+          }
+          extracted = extractRecipeFromHtml(page);
+          if (normalize(extracted).length < 80) {
+            return json(422, { error: "no readable recipe on that page" }, cors);
+          }
+        } else {
+          image = typeof body.image === "string" ? body.image : "";
+          mediaType = ["image/jpeg", "image/png", "image/webp"].includes(body.mediaType)
+            ? body.mediaType
+            : "";
+          if (!image || !mediaType) return json(400, { error: "url or image + mediaType required" }, cors);
+          path = "photo";
+        }
+
+        // gate 2 pre-model (coarse, Worker-capped lists; the client re-screens
+        // the transcription on the UNTRUNCATED expanded lists, C2)
+        if (path === "url") {
+          const hits = screenSourceAvoid(normalize(extracted), diners);
+          if (hits.length > 0) {
+            return json(200, { hardStop: { reasons: hits }, path }, cors);
+          }
+        }
+
+        // call 1: transcription (A1)
+        const t = await callModel(
+          buildTranscribeRequest({
+            ...(path === "photo" ? { image, mediaType } : { source: extracted }),
+            model: env.SCAN_MODEL ?? DEFAULT_MODEL,
+          }),
+          env,
+        );
+        const transcription = validateTranscription(parseToolUse(t, "record_transcription"));
+        if (!transcription) {
+          return json(422, { error: "could not transcribe a recipe from that; try a flatter, brighter shot or a different page" }, cors);
+        }
+        const transcriptNorm = normalize(transcription);
+        const extractedNorm = path === "url" ? normalize(extracted) : "";
+
+        // §0 gates on the source (URL: the extracted buffer; photo: the
+        // transcription is the only text there is)
+        const gateText = path === "url" ? extractedNorm : transcriptNorm;
+        const refusal = refusalHits(gateText);
+        const avoidHits = screenSourceAvoid(transcriptNorm, diners);
+        if (avoidHits.length > 0) {
+          return json(200, { hardStop: { reasons: avoidHits }, path }, cors);
+        }
+
+        // call 2: annotation, validated fail-closed, one retry (H2)
+        /** @type {ReturnType<typeof validateAnnotation>} */
+        let v = { ok: false, errors: ["not run"] };
+        for (let attempt = 0; attempt < 2 && !v.ok; attempt++) {
+          const resp = await callModel(
+            buildAnnotateRequest({
+              source: transcription,
+              objective,
+              diners,
+              context,
+              refusalForced: refusal.length > 0,
+              model: env.SCAN_MODEL ?? DEFAULT_MODEL,
+            }),
+            env,
+          );
+          v = validateAnnotation(parseToolUse(resp, "record_annotation"), {
+            objective,
+            transcriptNorm,
+            extractedNorm,
+            path,
+            refusalForced: refusal.length > 0,
+          });
+        }
+        if (!v.ok) {
+          console.log(JSON.stringify({ hbp: "reject", path, objective, errors: v.errors.slice(0, 6) }));
+          return json(422, { error: "the annotation failed safety validation twice; nothing is rendered", details: v.errors.slice(0, 6) }, cors);
+        }
+        const save = saveEligible(v.result, path);
+        // the ledger line (H1): operability metadata only, never source text
+        console.log(
+          JSON.stringify({
+            hbp: "run",
+            path,
+            objective,
+            mode: v.result.mode,
+            score: v.result.score,
+            refusalTokens: refusal.length,
+            saveEligible: save.ok,
+            ms: Date.now() - started,
+          }),
+        );
+        return json(
+          200,
+          {
+            result: v.result,
+            transcription,
+            extracted: path === "url" ? extracted : "",
+            path,
+            refusalTokens: refusal,
+            saveEligible: save,
+          },
+          cors,
+        );
+      }
+      if (url.pathname === "/annotate-save") {
+        // server-side revalidate-then-write (D3): nothing else inspects shape
+        // before GitHub. The client passes back the scan's result + buffers;
+        // the same fail-closed validator re-runs here, then the deterministic
+        // transform writes the canonical recipe shape.
+        const path = body.path === "url" ? "url" : "photo";
+        const transcription = typeof body.transcription === "string" ? body.transcription : "";
+        const extracted = typeof body.extracted === "string" ? body.extracted : "";
+        const sourceUrl = typeof body.sourceUrl === "string" ? body.sourceUrl.trim().slice(0, 300) : "";
+        const input = typeof body.result === "object" && body.result !== null ? body.result : null;
+        const objective = OBJECTIVES.includes(input?.objective) ? input.objective : "fit-the-plan";
+        const v = validateAnnotation(input, {
+          objective,
+          transcriptNorm: normalize(transcription),
+          extractedNorm: normalize(extracted),
+          path,
+          refusalForced: false,
+        });
+        if (!v.ok) return json(422, { error: "revalidation failed, nothing written", details: v.errors.slice(0, 6) }, cors);
+        const save = saveEligible(v.result, path);
+        if (!save.ok) return json(422, { error: save.reason }, cors);
+        if (!sourceUrl) return json(400, { error: "sourceUrl required" }, cors);
+
+        const pantryStaples = (Array.isArray(body.pantryStaples) ? body.pantryStaples : [])
+          .filter((/** @type {any} */ s) => typeof s === "string")
+          .slice(0, 80);
+        const dateIso = chicagoNow().dateIso;
+        const id = `hbp-${hbpSlug(v.result.title)}-${dateIso}`;
+        const recipe = annotationToRecipe(v.result, { id, sourceUrl, transcription, pantryStaples });
+        const ghPath = `recipes/${id}.json`;
+        const writeToken = /** @type {string} */ (token);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const { sha } = await ghReadWithSha(ghPath, writeToken).catch(() => ({ sha: undefined }));
+          const res = await ghWriteJson(ghPath, recipe, sha, writeToken, `hbp scan: ${v.result.title}`);
+          if (res.ok) {
+            console.log(JSON.stringify({ hbp: "save", id, mode: v.result.mode, score: v.result.score }));
+            return json(200, { recipe }, cors);
+          }
+          if (res.status !== 409 && res.status !== 422) {
+            return json(502, { error: `cookbook write failed: ${res.status}` }, cors);
+          }
+        }
+        return json(409, { error: "write conflict twice, try again" }, cors);
       }
       // /remedy
       const text = typeof body.text === "string" ? body.text.trim().slice(0, 2000) : "";
