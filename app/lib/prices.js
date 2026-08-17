@@ -172,24 +172,61 @@ export function storeSlugFromReceipt(storeText, knownStores) {
 /**
  * Merge a reviewed receipt into the catalogue: for one store, each receipt
  * line either updates an existing item's price (matched by word overlap) as
- * a CONFIRMED price (estimate flag cleared), or is skipped if it matches
- * nothing (we never invent catalogue rows from a receipt — a receipt names
- * "ORG BLK BEAN" that we cannot safely map, so confirmed-only-on-match keeps
- * the catalogue clean). Returns a new catalogue plus a per-line report.
+ * a CONFIRMED price (estimate flag cleared), or is ADDED as a new catalogue
+ * row.
+ *
+ * Adding used to be refused, on the reasoning that a till prints "ORG BLK
+ * BEAN" and we cannot safely map it. That reasoning was already obsolete:
+ * `decodeReceiptLine` expands till shorthand and resolves what is left
+ * against the week's list BEFORE these lines arrive, and the user reviews,
+ * edits and ticks every line in the approve sheet. So the names reaching
+ * here are human-confirmed food names, not raw till text.
+ *
+ * The cost of refusing was severe and silent. The catalogue held 24 items
+ * against weekly receipts of 30 to 50 lines, so the overwhelming majority of
+ * every scan was read, priced and discarded, and nothing ever said so. That
+ * is why David scanned receipts for weeks and saw no improvement, and why a
+ * week for four once priced at sixteen dollars: `tripTotal` was summing the
+ * handful of rows it knew and not labelling its coverage.
+ *
+ * A row is only added when the name looks like a food rather than till junk
+ * (letters, at least three characters, not a pure number or a tender line).
  * @param {PriceCatalogue} catalogue
  * @param {string} store slug
  * @param {{ name: string, price: number, size?: string }[]} lines
  * @param {string} updatedIso today, for catalogue.updated
- * @returns {{ catalogue: PriceCatalogue, applied: { name: string, matchedId: string, price: number }[], unmatched: { name: string, price: number }[] }}
+ * @returns {{ catalogue: PriceCatalogue, applied: { name: string, matchedId: string, price: number }[], added: { name: string, id: string, price: number }[], unmatched: { name: string, price: number }[] }}
  */
 export function applyReceipt(catalogue, store, lines, updatedIso) {
   const items = (catalogue.items ?? []).map((i) => ({ ...i, prices: { ...i.prices } }));
   const applied = [];
+  const added = [];
   const unmatched = [];
+  const taken = new Set(items.map((i) => i.id));
   for (const line of lines) {
     const match = matchPrice(line.name, items);
     if (!match) {
-      unmatched.push({ name: line.name, price: line.price });
+      // not in the catalogue yet: learn it, unless the name is till junk
+      const clean = String(line.name ?? "").trim();
+      if (!isFoodName(clean)) {
+        unmatched.push({ name: line.name, price: line.price });
+        continue;
+      }
+      let id = slugId(clean);
+      while (taken.has(id)) id = `${id}-2`;
+      taken.add(id);
+      const row = {
+        id,
+        name: clean.toLowerCase(),
+        prices: {
+          [store]: {
+            price: Math.round(line.price * 100) / 100,
+            ...(line.size ? { size: line.size } : {}),
+          },
+        },
+      };
+      items.push(row);
+      added.push({ name: clean, id, price: line.price });
       continue;
     }
     match.prices[store] = {
@@ -206,8 +243,42 @@ export function applyReceipt(catalogue, store, lines, updatedIso) {
   return {
     catalogue: { ...catalogue, items, ...(updatedIso ? { updated: updatedIso } : {}) },
     applied,
+    added,
     unmatched,
   };
+}
+
+/** Words a till prints that are never food. */
+const TILL_JUNK = new Set([
+  "subtotal", "total", "tax", "change", "cash", "debit", "credit", "visa",
+  "mastercard", "balance", "savings", "tender", "amex", "discover", "cashback",
+]);
+
+/**
+ * Till junk vs a food name we are willing to learn.
+ * @param {unknown} s
+ * @returns {boolean}
+ */
+function isFoodName(s) {
+  const t = String(s ?? "").trim();
+  if (t.length < 3) return false;
+  if (!/[a-z]/i.test(t)) return false;
+  const first = t.toLowerCase().split(/[^a-z]+/).filter(Boolean)[0] || "";
+  if (TILL_JUNK.has(first)) return false;
+  return true;
+}
+
+/**
+ * Stable catalogue id from a food name.
+ * @param {string} s
+ * @returns {string}
+ */
+function slugId(s) {
+  return String(s)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
 }
 
 /**

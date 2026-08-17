@@ -134,7 +134,7 @@ test("storeSlugFromReceipt maps printed store names, null when unknown", () => {
   assert.equal(storeSlugFromReceipt("", known), null);
 });
 
-test("applyReceipt overwrites matched store prices as confirmed, reports unmatched", () => {
+test("applyReceipt confirms matched prices AND learns unknown foods, but not till junk", () => {
   const cat = {
     stores: ["trader-joes"],
     items: [
@@ -154,23 +154,55 @@ test("applyReceipt overwrites matched store prices as confirmed, reports unmatch
     { name: "black beans", price: 1.09, size: "15.5 oz" },
     { name: "mystery artisan cheese", price: 6.5, size: "" },
   ];
-  const { catalogue, applied, unmatched } = applyReceipt(cat, "trader-joes", lines, "2026-07-19");
+  const { catalogue, applied, added, unmatched } = applyReceipt(
+    cat,
+    "trader-joes",
+    lines,
+    "2026-07-19",
+  );
   // matched line: price updated, size updated, estimate flag GONE (confirmed)
   const beans = catalogue.items.find((i) => i.id === "black-beans-can");
   assert.equal(beans.prices["trader-joes"].price, 1.09);
   assert.equal(beans.prices["trader-joes"].size, "15.5 oz");
   assert.equal(beans.prices["trader-joes"].estimate, undefined);
-  // unmatched line never invents a catalogue row
-  assert.equal(catalogue.items.length, 2);
+  // CHANGED 2026-08-17. This used to assert that an unmatched line never
+  // invents a catalogue row. That rule capped the catalogue at 24 items
+  // against 30-to-50-line receipts, so almost every scan was read, priced
+  // and thrown away, which is why David scanned for weeks and saw nothing
+  // improve. Names reaching here are already decoded and user-approved, so
+  // a food we do not know is a food worth learning.
+  assert.equal(catalogue.items.length, 3);
+  const learned = catalogue.items.find((i) => i.id === "mystery-artisan-cheese");
+  assert.equal(learned.prices["trader-joes"].price, 6.5);
   assert.deepEqual(
     applied.map((a) => a.matchedId),
     ["black-beans-can"],
   );
   assert.deepEqual(
-    unmatched.map((u) => u.name),
+    added.map((a) => a.name),
     ["mystery artisan cheese"],
   );
+  assert.deepEqual(unmatched, []);
   assert.equal(catalogue.updated, "2026-07-19");
   // original catalogue not mutated
   assert.equal(cat.items[0].prices["trader-joes"].price, 0.99);
+});
+
+test("applyReceipt refuses till junk, so the catalogue never learns SUBTOTAL", () => {
+  const cat = { stores: ["marianos"], items: [] };
+  const lines = [
+    { name: "SUBTOTAL", price: 41.2, size: "" },
+    { name: "VISA DEBIT", price: 41.2, size: "" },
+    { name: "TAX", price: 1.15, size: "" },
+    { name: "12", price: 2.0, size: "" },
+    { name: "ok", price: 1.0, size: "" },
+    { name: "roma tomato", price: 1.69, size: "1 lb" },
+  ];
+  const { catalogue, added, unmatched } = applyReceipt(cat, "marianos", lines, "2026-08-17");
+  assert.deepEqual(
+    added.map((a) => a.id),
+    ["roma-tomato"],
+  );
+  assert.equal(catalogue.items.length, 1);
+  assert.equal(unmatched.length, 5);
 });

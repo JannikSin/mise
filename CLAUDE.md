@@ -1,5 +1,14 @@
 # CLAUDE.md — Mise
 
+> **READ FIRST, EVERY SESSION: `C:\Users\DATar\Sanity\Obsidian\Crystal\Lanes\Mise-Core-Purpose.md`.**
+> It is the authority on what this app is for. It carries ten numbered promises and a done test for each.
+> **Every change must name the promise number it serves.** A change that serves no promise does not get
+> built; it goes to `Crystal\Lanes\Mise-Later.md`. David will keep having ideas and saying them out loud.
+> Saying an idea is not commissioning it. Park it and keep going.
+> **No feature ships dark:** anything built behind a gate gets a date and an owner in the same commit.
+> The standing example of the failure is `app/lib/synth.js`, 804 tested lines wired into main.js, gated on
+> `assembly === "plated"`, a tag no recipe in the bank carries, inert since the day it merged.
+
 > **Crystal notice:** if this session shipped real work, also append a line to `C:\Users\DATar\Sanity\Obsidian\Crystal\System\Changelog.md` and a narrative + hot-list entry to `C:\Users\DATar\Sanity\Obsidian\Crystal\Accomplishments\Log.md` before ending. Crystal is David's personal assistant and the daily brief it narrates back to him only reflects what gets written there. See Crystal's `System/Lessons-Learned.md` L13.
 
 Project rules for every Claude session working on Mise. Read HANDOFF_CONTEXT.md and MISE_BLUEPRINT.md before your first change. **docs/OPERATORS_MANUAL.md is the full operator's guide** — architecture, procedures, environment gotchas, working method, and the Phase 2–5 extension map. Read it before your first non-trivial task.

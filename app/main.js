@@ -729,15 +729,32 @@ function App() {
         otherListsRef.current = nextOthers;
         setOtherLists(nextOthers);
       }
+      // PRICE LEARNING runs before the toast so its outcome can be reported in
+      // the same message. It used to run after, and to bail silently when the
+      // catalogue had not loaded, so a scan with no signal taught the app
+      // nothing while the toast still said "applied". Silence here is exactly
+      // why receipts felt like a no-op for weeks.
+      let priceNote;
+      const cat = priceCatalogue;
+      if (!cat) {
+        priceNote = " (prices not learned: price list not loaded)";
+      } else {
+        const { catalogue: next, applied, added, unmatched } = applyReceipt(cat, store, lines, today);
+        setPriceCatalogue(next);
+        void write("prices.json", /** @type {any} */ (next), { raw: true });
+        priceNote =
+          ` — prices: ${applied.length} updated, ${added.length} new` +
+          (unmatched.length ? `, ${unmatched.length} unreadable` : "");
+      }
       // name the blast radius and keep an exit: this tap edited other
       // people's lists, banked the shared pantry, and confirmed the week as
       // shopped — undo covers all of it even when no other list changed
       {
         setUndoToast({
           message:
-            clearedNames.length > 0
+            (clearedNames.length > 0
               ? `receipt cleared ${clearedNames.join(", ")}'s list${clearedNames.length === 1 ? "" : "s"} too`
-              : "receipt applied — list, pantry and week updated",
+              : "receipt applied — list, pantry and week updated") + priceNote,
           restore: () => {
             updatePlan(prevPlan); // un-confirms shoppedAt — the receipt was a mistake
             updateShopping(prevShopping);
@@ -750,11 +767,7 @@ function App() {
           },
         });
       }
-      const cat = priceCatalogue;
-      if (!cat) return;
-      const { catalogue: next } = applyReceipt(cat, store, lines, today);
-      setPriceCatalogue(next);
-      void write("prices.json", /** @type {any} */ (next), { raw: true });
+
     },
     // updatePlan/planRef are declared later in this component but are
     // identity-stable; referencing them in the body (call time) is safe,
