@@ -917,15 +917,17 @@ Seeded from the FITNESS.md system; edited rarely.
     //   same derivation the questionnaire writes. Never a ratio of target —
     //   the generator enforced 0.95 x target until 2026-08-10, holding David
     //   to 199.5 g against his written 185. See fitness.js enforcedFloors.
-    "protein": 210, // grams
-    "proteinFloor": 185, // ? as caloriesFloor; absent = max(0, protein - 25)
+    "protein": 175, // grams (David's ratified 2026-08-18 numbers: 175 target,
+    //   155 floor, set from GOAL weight per the nutrition council; the old
+    //   210/185 pair is retired and must not reappear in fixtures)
+    "proteinFloor": 155, // ? as caloriesFloor; absent = max(0, protein - 25)
     "caloriesCeiling": 3900,
     // ? OPTIONAL, rarely set. Above this the trim pass shaves servings back
     //   (never through a floor). Absent = 1.05 x calories. Unlike the floors
     //   this stays a ratio by design: a floor is a number the person agreed
     //   to, a ceiling is the generator's own slack for its top-up passes.
     "fat": 100, // ? grams
-    "carbs": 490, // ? grams
+    "carbs": 525, // ? grams
     "waterLiters": 3.5, // daily target midpoint
   },
   // ? PLATE-scale engine fields (per-person-plates-design §4.5), all
@@ -1046,7 +1048,17 @@ Seeded from the FITNESS.md system; edited rarely.
   //   list above (back-compat for legacy/pre-multi-
   //   profile installs and the pre-load window).
   "dailyDozen": {
-    // ? PER-DAY serving targets, Greger's published Daily Dozen
+    // ? PER-DAY serving targets over foodGroups keys. Started as Greger's
+    //   published Daily Dozen; per the 2026-08-18 nutrition council this is
+    //   per-profile PREFERENCE DATA, decided per person against their
+    //   calories, NEVER cloned between profiles (all four profiles carried
+    //   a byte-identical copy until 2026-08-18). Groups absent from this
+    //   record are silently skipped by the generator, so a trimmed record
+    //   is the supported way to soften the philosophy.
+    //   "beverages" is RETIRED (2026-08-18): it is a hydration habit, not a
+    //   recipe-selection variable, and the bank supplies ~5 servings total
+    //   against a 35/week target, so the key produced a permanently
+    //   unsatisfiable gap warning. Hydration lives in tracks: "water".
     "beans": 3,
     "berries": 1,
     "otherFruit": 3,
@@ -1057,8 +1069,12 @@ Seeded from the FITNESS.md system; edited rarely.
     "nuts": 1,
     "spicesHerbs": 1,
     "wholeGrains": 3,
-    "beverages": 5,
   },
+  "lastReviewed": "2026-08-18",
+  // ? ISO date a human last audited this file's numbers against the current
+  //   ratified targets. Added 2026-08-18 after the stale-210/185 finding:
+  //   a floor is trusted, so a stale floor is worse than a stale bonus. The
+  //   generation manifest is expected to surface this date per profile.
   "sleepHoursTarget": 8,
   "pushupsPerDay": 200,
   "priorityStack": ["Sleep", "Protein", "Training", "Water", "Everything else"],

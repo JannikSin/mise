@@ -1274,11 +1274,12 @@ test("a profile with no written floors derives them, matching the questionnaire"
   });
 });
 
-test("David's real targets enforce 3500/185, not 3515/199.5", async () => {
+test("David's real targets enforce 3500/155, not 3515/166.25", async () => {
   const { enforcedFloors } = await import("../app/lib/fitness.js");
+  // 175/155 ratified 2026-08-18 (council: protein set from goal weight, Morton 2018 band)
   assert.deepEqual(
-    enforcedFloors({ calories: 3700, caloriesFloor: 3500, protein: 210, proteinFloor: 185 }),
-    { calories: 3500, protein: 185 },
+    enforcedFloors({ calories: 3700, caloriesFloor: 3500, protein: 175, proteinFloor: 155 }),
+    { calories: 3500, protein: 155 },
   );
 });
 

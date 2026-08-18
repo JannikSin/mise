@@ -488,7 +488,8 @@ export function targetsFromQuestionnaire(q, todayIso, prefs = {}) {
       nuts: 1,
       spicesHerbs: 1,
       wholeGrains: 3,
-      beverages: 5,
+      // beverages retired 2026-08-18: hydration is tracks:"water", and the
+      // bank cannot satisfy a beverages serving target (see SCHEMAS.md)
     },
     sleepHoursTarget: 8,
     priorityStack: ["Sleep", "Protein", "Water", "Everything else"],
