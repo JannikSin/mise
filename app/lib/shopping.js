@@ -11,7 +11,9 @@ import {
   mergeIdentity,
   aisleOf,
   toPreferred,
+  toGrams,
 } from "./ingredients.js";
+import { matchPrice, parsePackSize } from "./prices.js";
 
 /**
  * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, checked: boolean, manual: boolean, fromRecipes?: string[] }} ShoppingItem
@@ -476,17 +478,42 @@ const PACK_HINTS = [
  * Garlic cloves get their own rule (10 cloves ≈ 1 head). Counts ceil to a
  * whole pack — you cannot buy 1.4 bunches — and anything over 12 packs
  * returns "" rather than shout "≈ 19 bags" at a bulk buy.
+ *
+ * When a catalogue and store are passed, the STORE'S OWN pack size wins over
+ * the hardcoded table (fix list 0.2: the table said oats come in a 42 oz tub
+ * while Trader Joe's sells 32 oz, two sources of truth that disagreed).
  * @param {string} food
  * @param {number} qty
  * @param {string} unit
+ * @param {import("./prices.js").PriceCatalogue | null} [catalogue]
+ * @param {string} [store]
  * @returns {string}
  */
-export function packHint(food, qty, unit) {
+export function packHint(food, qty, unit, catalogue = null, store = "") {
   const f = String(food ?? "").toLowerCase();
   if (!(Number(qty) > 0)) return "";
   if (f.includes("garlic") && /clove/.test(unit)) {
     const heads = Math.ceil(qty / 10);
     return `≈ ${heads} ${heads === 1 ? "head" : "heads"}`;
+  }
+  if (catalogue?.items && store) {
+    const sp = matchPrice(food, catalogue.items)?.prices?.[store];
+    const pack = parsePackSize(sp?.size);
+    if (pack && dimensionOf(pack.unit) !== "count") {
+      const inPack =
+        convertUnit(qty, unit, pack.unit) ??
+        (() => {
+          const key = canonicalFood(food);
+          const needG = toGrams(qty, unit, key);
+          const packG = toGrams(pack.qty, pack.unit, key);
+          return needG != null && packG != null && packG > 0 ? (needG / packG) * pack.qty : null;
+        })();
+      if (inPack != null) {
+        const n = Math.ceil(inPack / pack.qty);
+        if (n >= 1 && n <= 12) return `≈ ${n} × ${sp?.size}`;
+        return "";
+      }
+    }
   }
   const inBase =
     unit === "g" || unit === "ml"

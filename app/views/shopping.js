@@ -1080,7 +1080,7 @@ export function ShoppingView({
                               >
                               <span class="q num">
                                 ${formatStoreQty(i.qty, i.unit)}${(() => {
-                                  const h = packHint(i.food, i.qty, i.unit);
+                                  const h = packHint(i.food, i.qty, i.unit, prices, homeStore);
                                   return h ? html` <span class="hint">${h}</span>` : "";
                                 })()}
                               </span>
@@ -1137,11 +1137,20 @@ export function ShoppingView({
                   <span class="k">Total</span>
                   <span class="status num">$${homeSummary.total.toFixed(2)}</span>
                 </div>
+                ${
+                  homeSummary.unpriced > 0 &&
+                  html`<div class="row">
+                    <span class="k status warn"
+                      >⚠ ${homeSummary.unpriced} of ${tripItems.length} rows UNPRICED</span
+                    >
+                    <span class="status warn">total is a floor</span>
+                  </div>`
+                }
                 <p class="hint">
                   ${homeSummary.priced} of ${tripItems.length} rows
                   priced${
                     homeSummary.estimates > 0 ? `, ${homeSummary.estimates} are estimates (~)` : ""
-                  }${homeSummary.unpriced > 0 ? " — unpriced rows cost extra on top" : ""}.
+                  }.
                 </p>
                 ${
                   bestStore &&
@@ -1860,7 +1869,7 @@ export function ShoppingView({
                         </span>
                         <span class="q num">
                           ${formatStoreQty(i.qty, i.unit)}${(() => {
-                            const h = packHint(i.food, i.qty, i.unit);
+                            const h = packHint(i.food, i.qty, i.unit, prices, homeStore);
                             return h ? html` <span class="hint">${h}</span>` : "";
                           })()}
                         </span>
@@ -1891,13 +1900,22 @@ export function ShoppingView({
                   <span class="k">Total</span>
                   <span class="status num">$${combinedSummary.total.toFixed(2)}</span>
                 </div>
+                ${
+                  combinedSummary.unpriced > 0 &&
+                  html`<div class="row">
+                    <span class="k status warn"
+                      >⚠ ${combinedSummary.unpriced} of ${combined.length} rows UNPRICED</span
+                    >
+                    <span class="status warn">total is a floor</span>
+                  </div>`
+                }
                 <p class="hint">
                   the whole house's one trip. ${combinedSummary.priced} of ${combined.length} rows
                   priced${
                     combinedSummary.estimates > 0
                       ? `, ${combinedSummary.estimates} are estimates (~)`
                       : ""
-                  }${combinedSummary.unpriced > 0 ? " — unpriced rows cost extra on top" : ""}.
+                  }.
                 </p>
               </div>
             `

@@ -152,6 +152,7 @@ const UNIT_BASE = {
  * @type {Record<string, string>}
  */
 const NAME_ALIASES = {
+  oats: "rolled-oats",
   "broccoli-florets": "broccoli",
   mushrooms: "mushroom",
   cilantro: "fresh-cilantro",
@@ -249,7 +250,7 @@ const FOOD_UNITS = {
   tomato: { unit: "each" },
   cucumber: { unit: "each" },
   lemon: { unit: "each" },
-  banana: { unit: "each" },
+  banana: { unit: "each", piece: 118 }, // medium banana, USDA
   avocado: { unit: "each" },
   "bell-pepper": { unit: "each" },
   "bay-leaf": { unit: "each" },
@@ -282,7 +283,11 @@ function slugify(food) {
  * @returns {string}
  */
 export function canonicalFood(food) {
-  const stripped = (food ?? "").replace(PREP_SUFFIX, "");
+  // parentheticals are packaging or prep, never identity: "Oats (large
+  // container)" is oats. prices.js words() has always stripped them; this
+  // matcher not doing the same is why onHand pantry rows failed to subtract
+  // and David bought food he already owned (fix list 0.3, 2026-08-18).
+  const stripped = (food ?? "").replace(/\s*\([^)]*\)/g, "").replace(PREP_SUFFIX, "");
   const key = slugify(stripped);
   return NAME_ALIASES[key] ?? key;
 }

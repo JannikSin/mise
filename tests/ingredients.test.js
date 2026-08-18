@@ -133,3 +133,10 @@ test("drift guard: every multi-unit food in the seed bank is known to the table"
       splitAndUnknown.join("\n  "),
   );
 });
+
+test("canonicalFood strips parentheticals: packaging is not identity (fix 0.3)", () => {
+  // the live bug: onHand "Oats (large container)" never matched list "rolled oats"
+  assert.equal(canonicalFood("Oats (large container)"), canonicalFood("rolled oats"));
+  assert.equal(canonicalFood("black beans (15 oz can)"), canonicalFood("black beans"));
+  assert.equal(canonicalFood("baby spinach (5 oz clamshell)"), "baby-spinach");
+});

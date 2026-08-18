@@ -8,6 +8,7 @@ import {
   taxRateFor,
   applyReceipt,
   storeSlugFromReceipt,
+  parsePackSize,
 } from "../app/lib/prices.js";
 
 const CATALOGUE = {
@@ -60,13 +61,14 @@ test("matchPrice matches by word overlap, id slug is a synonym channel", () => {
   assert.equal(matchPrice("dragon fruit", CATALOGUE.items), null);
 });
 
-test("itemCost multiplies counted units and per-lb prices, single price otherwise", () => {
+test("itemCost multiplies counted units and per-lb prices, packages otherwise", () => {
   assert.deepEqual(
     itemCost({ food: "black beans (15 oz can)", qty: 2, unit: "cans" }, CATALOGUE, "trader-joes"),
     {
       cost: 1.98,
       estimate: false,
       size: "15.5 oz",
+      packs: 2,
     },
   );
   // each × qty
@@ -79,7 +81,7 @@ test("itemCost multiplies counted units and per-lb prices, single price otherwis
     itemCost({ food: "sweet potatoes", qty: 1.5, unit: "lb" }, CATALOGUE, "marianos")?.cost,
     1.94,
   );
-  // non-counted unit, non-per-lb price: one package regardless of qty
+  // one counted thing against a packaged size: one package
   assert.equal(
     itemCost({ food: "olive oil (500 ml)", qty: 1, unit: "each" }, CATALOGUE, "trader-joes")?.cost,
     10.99,
@@ -205,4 +207,90 @@ test("applyReceipt refuses till junk, so the catalogue never learns SUBTOTAL", (
   );
   assert.equal(catalogue.items.length, 1);
   assert.equal(unmatched.length, 5);
+});
+
+// ---- pack-size math (fix list 0.2, council 2026-08-18) ----------------------
+
+const PACK_CATALOGUE = {
+  stores: ["marianos"],
+  items: [
+    {
+      id: "firm-tofu",
+      name: "firm tofu",
+      prices: { marianos: { price: 2.19, size: "14 oz" } },
+    },
+    {
+      id: "baby-spinach",
+      name: "baby spinach",
+      prices: { marianos: { price: 2.99, size: "5 oz" } },
+    },
+    {
+      id: "eggs",
+      name: "eggs",
+      prices: { marianos: { price: 3.29, size: "dozen" } },
+    },
+    {
+      id: "chicken-breast",
+      name: "chicken breast",
+      prices: { marianos: { price: 2.99, size: "per lb" } },
+    },
+    {
+      id: "bananas",
+      name: "bananas",
+      prices: { marianos: { price: 3.69, size: "5.35 lb @ 0.69/lb" } },
+    },
+  ],
+};
+
+test("itemCost charges whole packages, never one package for a bulk need", () => {
+  // 2.3 kg of tofu against a 14 oz block is 6 blocks (the $16.72 bug was 1)
+  const tofu = itemCost({ food: "firm tofu", qty: 2.3, unit: "kg" }, PACK_CATALOGUE, "marianos");
+  assert.equal(tofu?.packs, 6);
+  assert.equal(tofu?.cost, 13.14);
+  assert.equal(tofu?.estimate, false);
+  // 37.25 cups of spinach crosses dimensions via the food's cup weight: 8 bags
+  const spin = itemCost(
+    { food: "baby spinach", qty: 37.25, unit: "cup" },
+    PACK_CATALOGUE,
+    "marianos",
+  );
+  assert.equal(spin?.packs, 8);
+  assert.equal(spin?.cost, 23.92);
+});
+
+test("itemCost: counted rows respect multi-count packages (dozen, ct)", () => {
+  const eggs = itemCost({ food: "eggs", qty: 24, unit: "eggs" }, PACK_CATALOGUE, "marianos");
+  assert.equal(eggs?.packs, 2);
+  assert.equal(eggs?.cost, 6.58);
+});
+
+test("itemCost: per-lb pays what it weighs in any mass unit", () => {
+  const kg = itemCost({ food: "chicken breast", qty: 1, unit: "kg" }, PACK_CATALOGUE, "marianos");
+  assert.equal(kg?.cost, 6.59); // 2.2046 lb x 2.99
+});
+
+test("itemCost: an unconvertible need falls back to one package, flagged estimate", () => {
+  // "splash" is no known unit and tofu has no per-splash weight: one package,
+  // and the row must self-label as an estimate rather than read as exact
+  const c = itemCost({ food: "firm tofu", qty: 2, unit: "splash" }, PACK_CATALOGUE, "marianos");
+  assert.equal(c?.cost, 2.19);
+  assert.equal(c?.estimate, true, "silent precision is the bug; the fallback must self-label");
+});
+
+test("matchPrice: plural stem finds bananas from banana and back", () => {
+  assert.equal(matchPrice("banana", PACK_CATALOGUE.items)?.id, "bananas");
+  assert.equal(matchPrice("bananas", PACK_CATALOGUE.items)?.id, "bananas");
+});
+
+test("parsePackSize reads the live catalogue's shapes", () => {
+  assert.deepEqual(parsePackSize("32 oz"), { qty: 32, unit: "oz" });
+  assert.deepEqual(parsePackSize("2 x 28 oz"), { qty: 56, unit: "oz" });
+  assert.deepEqual(parsePackSize("dozen, cage-free"), { qty: 12, unit: "each" });
+  assert.deepEqual(parsePackSize("24 ct cage-free"), { qty: 24, unit: "each" });
+  assert.deepEqual(parsePackSize("sleeve of ~5 heads"), { qty: 5, unit: "each" });
+  assert.deepEqual(parsePackSize("5.35 lb @ 0.69/lb"), { qty: 5.35, unit: "lb" });
+  assert.deepEqual(parsePackSize("2 @ 0.79"), { qty: 2, unit: "each" });
+  assert.deepEqual(parsePackSize("1 L"), { qty: 1, unit: "l" });
+  assert.equal(parsePackSize("per lb"), null);
+  assert.equal(parsePackSize(undefined), null);
 });

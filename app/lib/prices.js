@@ -2,6 +2,8 @@
 // shared prices.json catalogue (data-repo root), per-store trip totals, and
 // grocery sales tax by US state. All display-only — never blocks shopping.
 
+import { canonicalFood, canonicalUnit, convertUnit, dimensionOf, toGrams } from "./ingredients.js";
+
 /** @typedef {{ price: number, size?: string, estimate?: boolean }} StorePrice */
 /** @typedef {{ id: string, name: string, prices: Record<string, StorePrice> }} PriceItem */
 /** @typedef {{ updated?: string, region?: string, stores?: string[], items: PriceItem[] }} PriceCatalogue */
@@ -42,6 +44,14 @@ export function taxRateFor(region) {
 /** Meaningless filler words ignored when matching item names to the catalogue. */
 const STOP_WORDS = new Set(["a", "an", "the", "of", "no", "added", "with", "per"]);
 
+/**
+ * Cheap plural stem so "banana" finds catalogue "bananas" (and vice versa).
+ * Only a trailing s, only on words long enough to survive it, and never on
+ * -ss/-us/-is endings (hummus, couscous, swiss) where the s is not a plural.
+ * @param {string} w
+ */
+const stem = (w) => (w.length > 3 && w.endsWith("s") && !/(ss|us|is)$/.test(w) ? w.slice(0, -1) : w);
+
 /** @param {string} s */
 function words(s) {
   return new Set(
@@ -49,7 +59,8 @@ function words(s) {
       .toLowerCase()
       .replace(/\(.*?\)/g, " ") // "(15 oz can)" is packaging, not identity
       .split(/[^a-z]+/)
-      .filter((w) => w && !STOP_WORDS.has(w)),
+      .filter((w) => w && !STOP_WORDS.has(w))
+      .map(stem),
   );
 }
 
@@ -87,25 +98,113 @@ export function matchPrice(food, items) {
 const COUNTED = new Set(["each", "can", "cans", "eggs", "egg", "head", "heads"]);
 
 /**
+ * Package quantity encoded in a catalogue size string, in a canonical unit,
+ * or null when the string carries none ("per lb" is the per-lb path, not a
+ * package). Understands the shapes the live catalogue actually uses:
+ * "32 oz", "2 lb bag", "1 L", "2 x 28 oz", "5.35 lb @ 0.69/lb", "dozen",
+ * "24 ct cage-free", "sleeve of ~5 heads", "each", "head", "2 @ 0.79".
+ * @param {string | undefined} size
+ * @returns {{ qty: number, unit: string } | null}
+ */
+export function parsePackSize(size) {
+  const s = String(size ?? "").toLowerCase();
+  if (!s || s.includes("per lb")) return null;
+  if (s.includes("dozen")) return { qty: 12, unit: "each" };
+  const multi = s.match(/^(\d+)\s*[x@]\s/); // "2 x 28 oz", "2 @ 0.79"
+  const mult = multi ? Number(multi[1]) : 1;
+  const m = s.match(/(\d+(?:\.\d+)?)\s*(fl oz|oz|lbs?|kg|g|ml|l)\b/);
+  if (m) return { qty: mult * Number(m[1]), unit: m[2] === "lbs" ? "lb" : String(m[2]) };
+  const ct = s.match(/(\d+)\s*ct\b/);
+  if (ct) return { qty: mult * Number(ct[1]), unit: "each" };
+  const heads = s.match(/~?\s*(\d+)\s*heads?\b/); // "sleeve of ~5 heads"
+  if (heads) return { qty: Number(heads[1]), unit: "each" };
+  if (multi) return { qty: mult, unit: "each" }; // "2 @ 0.79"
+  if (/\b(each|head|jumbo)\b/.test(s)) return { qty: 1, unit: "each" };
+  return null;
+}
+
+/**
  * Estimated shelf cost of one list row at one store. Null when the catalogue
  * has no entry for the item or the store doesn't stock it.
+ *
+ * Charges whole PACKAGES: a 2.3 kg tofu need against a 14 oz block is six
+ * blocks, not one (the pre-2026-08-18 behavior charged one package for any
+ * non-counted, non-per-lb unit, which is how a $170 basket read $16.72).
+ * When the need cannot be converted into the package's unit the row falls
+ * back to one package and is flagged `estimate`, never silently precise.
  * @param {{ food: string, qty: number, unit: string }} item
  * @param {PriceCatalogue | null | undefined} catalogue
  * @param {string} store store slug, e.g. "trader-joes"
- * @returns {{ cost: number, estimate: boolean, size?: string } | null}
+ * @returns {{ cost: number, estimate: boolean, size?: string, packs?: number } | null}
  */
 export function itemCost(item, catalogue, store) {
   const entry = catalogue?.items ? matchPrice(item.food, catalogue.items) : null;
   const sp = entry?.prices?.[store];
   if (!sp) return null;
-  const perLb = (sp.size ?? "").toLowerCase().includes("per lb");
-  const u = item.unit.toLowerCase();
-  const mult = COUNTED.has(u) ? item.qty : perLb && (u === "lb" || u === "lbs") ? item.qty : 1;
-  return {
-    cost: Math.round(sp.price * mult * 100) / 100,
-    estimate: sp.estimate === true,
-    size: sp.size,
-  };
+  const round = (/** @type {number} */ n) => Math.round(n * 100) / 100;
+  const u = canonicalUnit(item.unit);
+  const pack = parsePackSize(sp.size);
+
+  // counted rows: each counted thing is one priced thing, unless the size
+  // says the priced thing is a multi-count package ("dozen", "24 ct") or a
+  // weighed bundle ("5.35 lb @ 0.69/lb": 13 bananas are one bundle, not 13)
+  if (COUNTED.has(item.unit.toLowerCase()) || dimensionOf(u) === "count") {
+    if (pack && dimensionOf(pack.unit) !== "count") {
+      const key = canonicalFood(item.food);
+      const needG = toGrams(item.qty, u, key);
+      const packG = toGrams(pack.qty, pack.unit, key);
+      if (needG != null && packG != null && packG > 0) {
+        const packs = Math.max(1, Math.ceil(needG / packG));
+        return {
+          cost: round(sp.price * packs),
+          estimate: sp.estimate === true,
+          size: sp.size,
+          packs,
+        };
+      }
+    }
+    const per = pack && dimensionOf(pack.unit) === "count" && pack.qty > 0 ? pack.qty : 1;
+    const packs = Math.max(1, Math.ceil(item.qty / per));
+    return { cost: round(sp.price * packs), estimate: sp.estimate === true, size: sp.size, packs };
+  }
+
+  // per-lb rows: pay what it weighs, whatever unit the row is written in
+  if ((sp.size ?? "").toLowerCase().includes("per lb")) {
+    const lbs =
+      u === "lb" ? item.qty : (convertUnit(item.qty, u, "lb") ?? gramsFor(item) / 453.59237);
+    if (Number.isFinite(lbs) && lbs > 0) {
+      return { cost: round(sp.price * lbs), estimate: sp.estimate === true, size: sp.size };
+    }
+    return { cost: round(sp.price), estimate: true, size: sp.size };
+  }
+
+  // packaged rows: how many packages cover the need
+  if (pack) {
+    let packs = null;
+    const inPackUnit = convertUnit(item.qty, u, pack.unit);
+    if (inPackUnit != null) {
+      packs = Math.max(1, Math.ceil(inPackUnit / pack.qty));
+    } else {
+      // cross-dimension (cups of spinach vs an oz bag) via the food's weight
+      const key = canonicalFood(item.food);
+      const needG = toGrams(item.qty, u, key);
+      const packG = toGrams(pack.qty, pack.unit, key);
+      if (needG != null && packG != null && packG > 0) {
+        packs = Math.max(1, Math.ceil(needG / packG));
+      }
+    }
+    if (packs != null) {
+      return { cost: round(sp.price * packs), estimate: sp.estimate === true, size: sp.size, packs };
+    }
+  }
+
+  // unknowable: one package, flagged as an estimate instead of silently exact
+  return { cost: round(sp.price), estimate: true, size: sp.size };
+}
+
+/** @param {{ food: string, qty: number, unit: string }} item */
+function gramsFor(item) {
+  return toGrams(item.qty, item.unit, canonicalFood(item.food)) ?? NaN;
 }
 
 /**
