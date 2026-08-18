@@ -1046,7 +1046,18 @@ test("a location sweep replaces ONLY that location, and never staples or unsorte
     ["mystery", "peas", "spinach", "yogurt"],
     "the fridge row is replaced; freezer and unsorted survive untouched",
   );
-  assert.deepEqual(out.staples, pantry.staples, "staples are never touched by a sweep");
+  // one-pantry model: the staples MIRROR is re-derived on every write, so
+  // compare the fields that matter rather than object identity
+  assert.deepEqual(
+    out.staples.map((s) => ({ id: s.id, name: s.name, onHand: s.onHand, runningLow: s.runningLow })),
+    pantry.staples.map((s) => ({
+      id: s.id,
+      name: s.name,
+      onHand: s.onHand,
+      runningLow: s.runningLow,
+    })),
+    "state items are never touched by a sweep",
+  );
   const spinach = out.perishables.find((p) => p.food === "spinach");
   assert.equal(spinach.location, "fridge");
   assert.equal(spinach.group, "produce");
@@ -1072,7 +1083,11 @@ test("emptyPantry can keep the permanent shelf or wipe everything", () => {
     perishables: [{ id: "a", food: "spinach" }],
   };
   const kept = emptyPantry(pantry, true);
-  assert.deepEqual(kept.staples, pantry.staples);
+  // mirror is re-derived: compare the meaningful fields
+  assert.deepEqual(
+    kept.staples.map((s) => ({ id: s.id, name: s.name, onHand: s.onHand })),
+    [{ id: "salt", name: "salt", onHand: true }],
+  );
   assert.deepEqual(kept.perishables, []);
 
   const all = emptyPantry(pantry, false);
@@ -1815,4 +1830,113 @@ test("a person's OWN plan entry still resolves to their variant", () => {
     recipesById([bankRecipe]),
   );
   assert.equal(list.items.find((i) => /beef/.test(i.food))?.qty, 300);
+});
+
+// ---- ONE PANTRY (fix list 1.1, council 2026-08-18): the garlic scenario ----
+
+test("THE GARLIC FIX: an OUT item goes on the list the moment a recipe needs it", () => {
+  const recipes = new Map([
+    [
+      "stir-fry",
+      {
+        id: "stir-fry",
+        servings: 1,
+        ingredients: [{ qty: 3, unit: "clove", food: "garlic" }],
+      },
+    ],
+  ]);
+  const plan = {
+    week: "2026-W34",
+    entries: [{ id: "e1", date: "2026-08-19", slot: "dinner", recipeId: "stir-fry", servings: 1 }],
+  };
+  // the old model: garlic was a staple with onHand true, so it NEVER reached
+  // the list, even after it ran out. New model: only an explicit "plenty"
+  // suppresses; an item with no state buys like anything else.
+  const out = { items: [{ id: "garlic", food: "garlic" }] }; // state: none = OUT
+  const plenty = { items: [{ id: "garlic", food: "garlic", state: "plenty" }] };
+  const low = { items: [{ id: "garlic", food: "garlic", state: "low" }] };
+
+  const bought = deriveShoppingList(plan, recipes, out);
+  assert.ok(
+    bought.items.some((i) => i.food === "garlic"),
+    "OUT garlic must be bought when a recipe needs it",
+  );
+  const skipped = deriveShoppingList(plan, recipes, plenty);
+  assert.ok(
+    !skipped.items.some((i) => i.food === "garlic"),
+    "PLENTY suppresses, explicitly and per item",
+  );
+  const forced = deriveShoppingList({ week: "2026-W34", entries: [] }, recipes, low);
+  assert.ok(
+    forced.items.some((i) => i.food === "garlic" && i.unit === "x"),
+    "LOW re-enters the list even when no recipe needs it",
+  );
+});
+
+test("one-pantry migration: legacy staples become state items, perishables stay tracked", () => {
+  const legacy = {
+    staples: [
+      { id: "garlic", name: "garlic", section: "produce", onHand: true, runningLow: false },
+      { id: "soy-sauce", name: "soy sauce", onHand: true, runningLow: true },
+      { id: "gone", name: "saffron", onHand: false, runningLow: false },
+    ],
+    perishables: [{ food: "chicken breast", qty: "500 g", added: "2026-08-17" }],
+  };
+  const packed = normalizePantry(legacy);
+  const byId = new Map(packed.items.map((it) => [it.id, it]));
+  assert.equal(byId.get("garlic").state, "plenty");
+  assert.equal(byId.get("soy-sauce").state, "low", "runningLow wins over onHand");
+  assert.equal(byId.get("gone").state, undefined, "not on hand = OUT, no assertion");
+  const chicken = packed.items.find((it) => it.food === "chicken breast");
+  assert.ok(chicken.added, "tracked rows keep their date");
+  // mirrors for old devices
+  assert.equal(packed.staples.length, 3);
+  assert.equal(packed.perishables.length, 1);
+});
+
+test("state items are never deleted by cooking, tracked rows are consumed", () => {
+  const pantry = normalizePantry({
+    items: [
+      { id: "garlic", food: "garlic", state: "plenty" },
+      { id: "c1", food: "chicken breast", qty: "600 g", added: "2026-08-17", location: "fridge" },
+    ],
+  });
+  const { pantry: out } = consumeForCook(pantry, [
+    { food: "garlic", qty: 3, unit: "clove" },
+    { food: "chicken breast", qty: 250, unit: "g" },
+  ]);
+  assert.ok(
+    out.items.some((it) => it.id === "garlic" && it.state === "plenty"),
+    "a plenty assertion has no quantity and must survive cooking",
+  );
+  const chicken = out.items.find((it) => it.food === "chicken breast");
+  assert.equal(chicken.qty, "350 g");
+});
+
+test("mirror reconcile: an old device's mirror-only edits are absorbed into items", () => {
+  // a packed pantry after a 409 merge where an OLD device (a) toggled soy
+  // sauce runningLow via the staples mirror, (b) scanned a new perishable
+  // that exists only in the perishables mirror, (c) edited chicken's qty in
+  // the mirror. New code must absorb all three, or the merge silently loses
+  // the old device's work (diff reviewer, 2026-08-18).
+  const merged = {
+    items: [
+      { id: "soy-sauce", food: "soy sauce", state: "plenty" },
+      { id: "c1", food: "chicken breast", qty: "600 g", added: "2026-08-17", location: "fridge", group: "meat" },
+    ],
+    staples: [
+      { id: "soy-sauce", name: "soy sauce", section: "condiments", onHand: true, runningLow: true },
+    ],
+    perishables: [
+      { id: "c1", food: "chicken breast", qty: "250 g", added: "2026-08-17", location: "fridge", group: "meat" },
+      { id: "n1", food: "greek yogurt", qty: "500 g", added: "2026-08-18", location: "fridge", group: "dairy" },
+    ],
+  };
+  const out = normalizePantry(merged);
+  const byId = new Map(out.items.map((it) => [it.id, it]));
+  assert.equal(byId.get("soy-sauce").state, "low", "old device's LOW toggle absorbed");
+  assert.equal(byId.get("c1").qty, "250 g", "old device's qty edit wins (edited side wins)");
+  assert.ok(byId.get("n1"), "old device's new scan row absorbed");
+  // and a CONSISTENT packed pantry still passes through by reference
+  assert.equal(normalizePantry(out), out, "settled fast-path survives the reconcile");
 });

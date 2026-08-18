@@ -6,7 +6,7 @@ import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 /**
  * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
- * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[] }} Plan
+ * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any> }} Plan
  */
 // cookedAt is optional; absent = not confirmed cooked. Set (local YYYY-MM-DD)
 // by the DONE button at the end of Cook mode — the honest-state rule: a past
@@ -700,6 +700,11 @@ export function normalizePlan(raw, weekId) {
       : {}),
     ...(raw.buffer && typeof raw.buffer.recipeId === "string"
       ? { buffer: { recipeId: raw.buffer.recipeId, portions: Number(raw.buffer.portions) || 0 } }
+      : {}),
+    // the generation manifest (fix list 2.5) rides on the plan so every
+    // device sees what every subsystem did on the week it is looking at
+    ...(raw.manifest && typeof raw.manifest === "object" && !Array.isArray(raw.manifest)
+      ? { manifest: raw.manifest }
       : {}),
     entries: raw.entries.map((/** @type {any} */ e) => {
       if (typeof e.id === "string") return e;

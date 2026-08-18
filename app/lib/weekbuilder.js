@@ -23,7 +23,7 @@ import {
   slotMacroEstimate,
   untrustedForAutoPlan,
 } from "./plan.js";
-import { slug } from "./shopping.js";
+import { slug, pantryItems, isDatedItem } from "./shopping.js";
 import { enforcedFloors } from "./fitness.js";
 import { seatServingsFor } from "./tables.js";
 
@@ -549,10 +549,49 @@ export function foodGroupFloorPass(plan, pool, recipesById, floors, opts = {}) {
  * @param {number} [maxSnackStacks] survey-v2 Q11 snackAppetite cap: 3 for a
  *   grazer (default, today's behavior), 1 for a "three-squares" eater (the
  *   portion-bump lever, tried first, then does more of the work)
+ * @param {{
+ *   budget?: "tight" | "normal" | "loose",
+ *   weekFoodPool?: Set<string>,
+ *   report?: Record<string, any>
+ * }} [opts] fix list 2.4 (council 2026-08-18): macroTopUp takes the SAME
+ *   budget parameter as pickCommittee. Without it the budget dial was a
+ *   waste generator: tight pushed dinners to bean stews, opened a calorie
+ *   hole, and this pass filled it from a pool sorted on protein alone,
+ *   trading 10 fully-consumed protein SKUs for 16 perishable produce items.
+ *   `report`, when passed, receives a `macroTopUp` entry for the manifest.
  * @returns {import("./plan.js").Plan}
  */
-export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks = 3) {
-  const pool = snackPool.filter((r) => r.effort !== "project");
+export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks = 3, opts = {}) {
+  let pool = snackPool.filter((r) => r.effort !== "project");
+  const poolBefore = pool.length;
+  // tight restricts the pool to snacks that share food with the week or
+  // carry the author-set "cheap" tag. Honest-relax like the Q12 time cap: a
+  // restriction leaving fewer than 2 candidates is ignored and reported,
+  // never silently fudged.
+  const tight = opts.budget === "tight";
+  const weekFoods = opts.weekFoodPool ?? new Set();
+  let restricted = false;
+  let relaxed = false;
+  if (tight) {
+    const kept = pool.filter(
+      (r) => (r.tags ?? []).includes("cheap") || overlapWith(r, weekFoods) > 0,
+    );
+    if (kept.length >= 2) {
+      pool = kept;
+      restricted = true;
+    } else {
+      relaxed = true;
+    }
+  }
+  if (opts.report) {
+    opts.report.macroTopUp = {
+      budget: opts.budget ?? "normal",
+      poolBefore,
+      poolAfter: pool.length,
+      restricted,
+      relaxed,
+    };
+  }
   const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
   if (dates.length === 0) return plan;
 
@@ -940,7 +979,8 @@ export function poolAdequacy(recipes, targets) {
  *   calorieOverDays: { date: string, calories: number, ceiling: number }[],
  *   timeBudgetRelaxed: string[],
  *   outDays: { date: string, slots: string[], estCalories: number, estProtein: number }[],
- *   occasionDays: { date: string, occasion: string, name: string }[]
+ *   occasionDays: { date: string, occasion: string, name: string }[],
+ *   manifest: Record<string, any>
  * }} WeekReport
  */
 
@@ -1009,14 +1049,13 @@ export function generateWeek({
   const isHeld = (/** @type {string} */ d) => heldDates.has(d);
   const liveDates = dates.filter((d) => !isPast(d) && !isHeld(d));
   const byId = recipesById(recipes);
-  const useSoonFoods = (pantry.perishables ?? [])
+  const datedPantry = pantryItems(pantry).filter(isDatedItem);
+  const useSoonFoods = datedPantry
     .filter((/** @type {any} */ p) => p.useSoon)
     .map((/** @type {any} */ p) => String(p.food));
-  // every perishable on the shelves, expiring or not: committees lean toward
+  // every dated item on the shelves, expiring or not: committees lean toward
   // cooking what the house already owns, so the shopping list shrinks
-  const onHandFoods = [
-    ...new Set((pantry.perishables ?? []).map((/** @type {any} */ p) => String(p.food))),
-  ];
+  const onHandFoods = [...new Set(datedPantry.map((/** @type {any} */ p) => String(p.food)))];
 
   // survey-v2 FILTERS applied at pool level (Q12 time, Q15 skill, Q16 gear).
   // maxWeeknightMinutes caps only dinner/lunch (breakfast/smoothie/snack are
@@ -1277,7 +1316,23 @@ export function generateWeek({
   // so it needs every real snack candidate available (2026-07-10 gain-phase
   // bump: the higher 3700/3500 floor needs more headroom than a 2-recipe
   // committee reliably provides).
-  next = macroTopUp(next, pool("snack"), byId, floors, targets?.snackAppetite === "meals" ? 1 : 3);
+  // fix list 2.4: the top-up runs under the SAME budget parameter as the
+  // committees, with its restriction reported to the manifest
+  /** @type {Record<string, any>} */
+  const topUpReport = {};
+  const snackServingsBefore = next.entries
+    .filter((e) => e.slot === "snack")
+    .reduce((s, e) => s + (e.servings ?? 0), 0);
+  next = macroTopUp(next, pool("snack"), byId, floors, targets?.snackAppetite === "meals" ? 1 : 3, {
+    budget: targets?.budget,
+    weekFoodPool,
+    report: topUpReport,
+  });
+  if (topUpReport.macroTopUp) {
+    topUpReport.macroTopUp.snackServingsAdded =
+      next.entries.filter((e) => e.slot === "snack").reduce((s, e) => s + (e.servings ?? 0), 0) -
+      snackServingsBefore;
+  }
 
   // Step 4.5: calorie CEILING trim, run LAST. The two passes above only ever
   // ADD servings, so days routinely overshoot the target by 5-9%; this trims
@@ -1378,9 +1433,58 @@ export function generateWeek({
   // report line (shared, shortfalls, gaps) speaks only about live days
   if (pastEntries.length > 0) next = { ...next, entries: [...pastEntries, ...next.entries] };
 
+  // ENGINE half of the generation manifest (fix list 2.5, council
+  // 2026-08-18): what each subsystem inside this function actually did, with
+  // its inputs. The composed full manifest (lib/manifest.js) adds the
+  // out-of-engine lines (weight trend, adherence, floor dates, plating).
+  // A subsystem that reports nothing here fails the manifest registry test:
+  // that is the countermeasure to the fifth dark engine.
+  const engineManifest = {
+    budget: {
+      mode: targets?.budget ?? "normal",
+      cheapTagged: recipes.filter((r) => (r.tags ?? []).includes("cheap")).length,
+      eligibleRecipes: recipes.length,
+    },
+    useSoon: {
+      matchedFoods: useSoonFoods.length,
+      datedPantryRows: datedPantry.length,
+      onHandFoods: onHandFoods.length,
+    },
+    philosophy: {
+      groupsTargeted: Object.keys(dailyDozenPerDay ?? {}).length,
+      vector: dailyDozenPerDay ?? {},
+      weeklyGapsOpen: gaps.weekly.length,
+    },
+    macroTopUp: topUpReport.macroTopUp ?? { budget: "unknown", ranButDidNotReport: true },
+    floors: (() => {
+      // DELIVERED averages, not just shortfalls: over-delivery reads as
+      // success on every other screen (the 232-252 g finding, council
+      // 2026-08-18) and this is where it gets said out loud
+      let cal = 0;
+      let prot = 0;
+      for (const d of liveDates) {
+        const t = dayTotals(next.entries, byId, d);
+        cal += t.calories;
+        prot += t.protein;
+      }
+      const days = Math.max(1, liveDates.length);
+      return {
+        calories: floors.calories,
+        protein: floors.protein,
+        proteinShortDays: proteinShortDays.length,
+        calorieShortDays: calorieShortDays.length,
+        liveDays: liveDates.length,
+        avgCalories: Math.round(cal / days),
+        avgProteinG: Math.round(prot / days),
+        proteinTargetG: proteinTarget,
+      };
+    })(),
+  };
+
   return {
     plan: next,
     report: {
+      manifest: engineManifest,
       shared: overlap.shared,
       distinctItems: overlap.distinctItems,
       proteinShortDays,

@@ -10,6 +10,7 @@ import {
   SLOT_META,
 } from "../lib/plan.js";
 import { parseLocalIso } from "../lib/dates.js";
+import { manifestLines } from "../lib/manifest.js";
 import { CookBlocks } from "./cook-blocks.js";
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
@@ -269,6 +270,28 @@ export function PlannerView({
               </div>`
             }
           </div>
+        `
+      }
+      ${
+        // THE GENERATION MANIFEST (fix list 2.5, council 2026-08-18): what
+        // every subsystem did on this week, persisted on the plan so any
+        // device sees it. A registered subsystem with no line renders as the
+        // failure it is — that is the whole point.
+        /** @type {any} */ (plan).manifest &&
+        html`
+          <details class="tile manifesttile">
+            <summary class="block-title">
+              ⚙ Generation manifest
+              <span class="hint">what every engine did, ${/** @type {any} */ (plan).manifest.generatedAt}</span>
+            </summary>
+            ${manifestLines(/** @type {any} */ (plan).manifest).map(
+              (l) => html`
+                <div class="d num ${l.missing ? "redflag" : ""}" key=${l.key}>
+                  <strong>${l.key}</strong>: ${l.text}
+                </div>
+              `,
+            )}
+          </details>
         `
       }
       ${

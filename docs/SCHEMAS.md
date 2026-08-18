@@ -391,35 +391,52 @@ still running pre-B2 code keep using the legacy path until they update, so
 expect a brief divergence window on mixed versions, resolved in favor of the
 household file the first time every device is current.
 
-Two tiers. Staples are a registry (`onHand`/`runningLow`, never decremented —
-a pinch of cayenne is not an inventory event). Perishables ARE counted:
-marking a meal cooked subtracts its non-staple ingredients from the shelves
-(`consumeForCook` in app/lib/shopping.js), which replaces the earlier "no
-decrement-on-cook ledger, ever" rule (David, 2026-07-26). The honesty fences:
-oldest row of a food goes first and a shortfall carries to the next pack; a
-row whose `qty` is free text is removed rather than fake-subtracted; a row
-left with ≤2% is removed rather than kept as dust; un-marking a meal puts
-nothing back; and a recipe already cooked once this week (its leftover days)
-subtracts nothing further.
+**ONE PANTRY (fix list 1.1, council 2026-08-18: the staples/perishables
+split is dead).** The garlic bug was structural: a "staple" was a class the
+shopping list could never reach, an assumption of ownership that became a
+lie the moment the jar ran out. There is now ONE `items` array and no
+exempt class. Every item is either:
+
+- a **state item** (no date, no location): shelf-stable food carrying a
+  per-item human assertion. `state: "plenty"` suppresses buying by name at
+  derive time (the old `onHand`); `state: "low"` forces the item onto the
+  next list (the old `runningLow`); state ABSENT means OUT — the item buys
+  whenever a recipe needs it, like any other food. The PANTRY tab cycles
+  PLENTY → LOW → OUT with one tap.
+- a **tracked row** (`added` and/or `qty` and/or `location`): counted food.
+  It expires by shelf life, subtracts from the trip by real quantity
+  (`subtractPantryFromTrip`), gets consumed by cooking (`consumeForCook`),
+  and arms the generator's useSoon steering. Exactly the old perishables,
+  semantics unchanged, honesty fences intact: oldest row first, shortfall
+  carries to the next pack, free-text `qty` rows are removed whole rather
+  than fake-subtracted, ≤2% slivers are removed, un-marking a meal puts
+  nothing back.
+
+`staples` and `perishables` survive as derived WRITE MIRRORS so devices on
+older app code keep functioning during the migration window (their reads
+see the mirrors; a mirror edit made by an old device may be overwritten by
+the next new-code write). New code never reads the mirrors — everything
+routes through `pantryItems()`; `normalizePantry()` migrates a legacy
+two-tier file to `items` on first load and is an identity function on an
+already-packed file. Drop the mirrors once every device is current.
 
 ```jsonc
 {
-  "staples": [
+  "items": [
     {
+      // state item: an assertion, not an inventory count
       "id": "cayenne",
-      "name": "Cayenne",
+      "food": "Cayenne",
       "section": "spices", // store section, see Shopping
-      "onHand": true,
-      "runningLow": false, // one tap → re-adds to shopping list
+      "state": "plenty", // ? "plenty" | "low"; absent = OUT (buys on need)
       "premium": false, // ? true = special occasions (saffron, porcini)
     },
-  ],
-  "perishables": [
     {
+      // tracked row: counted, dated, consumed
       "id": "a1b2c3d4", // stable id (P1): removal + 409 merges key on it, never on
-      // array position. Assigned at creation; pre-P1 rows self-heal a
-      // DETERMINISTIC id on read (FNV over food|added|qty + twin index, so two
-      // devices healing the same household pantry agree), persisted next write.
+      // array position. Pre-P1 rows self-heal a DETERMINISTIC id on read
+      // (FNV over food|added|qty + twin index, so two devices healing the
+      // same household pantry agree), persisted next write.
       "food": "half cabbage",
       "qty": "0.5 head", // ? free string, human-scale. "<number> <unit>" is what
       // cook-subtraction can do arithmetic on; anything else is
@@ -432,12 +449,12 @@ subtracts nothing further.
       // exactly one location. Bought food is placed by store
       // section (locationForBuy): frozen → freezer, the fresh
       // run → fridge, shelf-stable → pantry. "unsorted" is the
-      // quarantine for rows that predate locations — no sweep
-      // touches it, and it only appears as a chip when rows are
-      // actually stranded there.
+      // quarantine for unplaced rows — no sweep touches it.
       "group": "produce", // aisle, for grouping (aisleOf)
     },
   ],
+  "staples": [], // derived write mirror (see above) — do not hand-edit
+  "perishables": [], // derived write mirror — do not hand-edit
 }
 ```
 
@@ -743,6 +760,15 @@ even the same slot — merge without losing either entry.
   //   Food safety is never gated (Red Team): shelf lives, temperatures and
   //   danger signs stay on the List tab whatever the receipt says.
   "buffer": { "recipeId": "smoky-three-bean-edamame-protein-salad", "portions": 7 }, // ? see below
+  "manifest": { "generatedAt": "2026-08-18", "subsystems": {} }, // ? THE GENERATION
+  //   MANIFEST (fix list 2.5, council 2026-08-18): what every subsystem did on
+  //   this generate — budget mode, useSoon matches, philosophy vector, top-up
+  //   restriction, floors + their lastReviewed date, plating (inert by council
+  //   2026-08-12), weight trend, cooked-over-planned, protein in g/kg vs the
+  //   Morton band. Written by generateWeek's call site (composeManifest in
+  //   app/lib/manifest.js), rendered on Plan, persisted so every device sees
+  //   it. tests/manifest.test.js fails the build if a registered subsystem
+  //   reports nothing: the countermeasure to the fifth dark engine.
   "entries": [
     {
       "id": "b3e29f01", // unique in the file; merge key

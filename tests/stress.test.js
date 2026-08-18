@@ -365,8 +365,11 @@ test("stress: normalizePantry heals malformed shapes instead of crashing", () =>
     assert.deepEqual(healed.staples, [], `staples: ${JSON.stringify(junk)} heals to []`);
     assert.deepEqual(healed.perishables, [], `perishables: ${JSON.stringify(junk)} heals to []`);
   }
-  const nullTiers = { staples: null, perishables: null };
-  assert.equal(normalizePantry(nullTiers), nullTiers, "null tiers pass through untouched");
+  // one-pantry migration: null legacy tiers become the packed empty shape
+  const nullTiers = normalizePantry({ staples: null, perishables: null });
+  assert.deepEqual(nullTiers.items, []);
+  assert.deepEqual(nullTiers.staples, []);
+  assert.deepEqual(nullTiers.perishables, []);
   // non-object rows mixed into an otherwise-valid array
   const healed = normalizePantry({
     staples: [null, { id: "s1", name: "salt", onHand: true }, "junk"],
@@ -375,12 +378,15 @@ test("stress: normalizePantry heals malformed shapes instead of crashing", () =>
   assert.equal(healed.staples.length, 1, "junk staple rows dropped");
   assert.equal(healed.perishables.length, 1, "junk perishable rows dropped");
   assert.equal(typeof healed.perishables[0].id, "string", "surviving row still self-heals an id");
-  // a clean pantry passes through untouched (identity fast-path intact)
+  // a legacy pantry migrates ONCE to the packed one-items shape; after that
+  // the identity fast-path holds (no needless write on every load)
   const clean = {
     staples: [{ id: "s1", name: "salt", onHand: true }],
     perishables: [{ id: "p1", food: "spinach", location: "fridge", group: "produce" }],
   };
-  assert.equal(normalizePantry(clean), clean);
+  const once = normalizePantry(clean);
+  assert.ok(Array.isArray(once.items) && once.items.length === 2, "migrated to items");
+  assert.equal(normalizePantry(once), once, "identity fast-path after migration");
 });
 
 test("stress: deriveShoppingList survives recipes with malformed ingredient rows", () => {

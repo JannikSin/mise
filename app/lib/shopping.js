@@ -96,13 +96,16 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
 
   /** food slugs the plan already shops, any unit (suppresses running-low dupes) */
   const shoppedFoods = new Set();
-  // the documented contract (docs/SCHEMAS.md): subtract pantry onHand staples
-  // by name — this is what makes P+ ("I already own this") stick across builds.
-  // A running-low staple is NOT subtracted: it needs buying.
+  const pItems = pantryItems(pantry);
+  // ONE pantry (fix list 1.1): only an item explicitly asserted "plenty" is
+  // suppressed by name — this is what makes P+ ("I already own this") stick
+  // across builds. "low" items need buying; dated qty rows are never
+  // name-suppressed here, they subtract by real quantity at render time
+  // (subtractPantryFromTrip). No item class is exempt from purchase logic.
   const onHandSlugs = new Set(
-    (pantry.staples ?? [])
-      .filter((/** @type {any} */ s) => s.onHand && !s.runningLow)
-      .flatMap((/** @type {any} */ s) => [s.id, slug(s.name), canonicalFood(s.name)]),
+    pItems
+      .filter((it) => it.state === "plenty")
+      .flatMap((it) => [it.id, slug(it.food), canonicalFood(it.food)]),
   );
 
   // the weekly buffer snack shops exactly like a planned entry: its batch is
@@ -179,24 +182,24 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
     }
   }
 
-  // pantry staples flagged running-low re-enter the list — unless the week's
+  // pantry items flagged "low" re-enter the list — unless the week's
   // recipes already put that food on it
-  for (const s of pantry.staples ?? []) {
+  for (const it of pItems) {
     if (
-      !s.runningLow ||
-      !s.name || // a nameless staple row can't be shopped
-      shoppedFoods.has(slug(s.name)) ||
-      shoppedFoods.has(canonicalFood(s.name))
+      it.state !== "low" ||
+      !it.food || // a nameless row can't be shopped
+      shoppedFoods.has(slug(it.food)) ||
+      shoppedFoods.has(canonicalFood(it.food))
     )
       continue;
-    const id = `${slug(s.name)}-x`;
+    const id = `${slug(it.food)}-x`;
     if (!merged.has(id)) {
       merged.set(id, {
         id,
-        food: s.name,
+        food: it.food,
         qty: 1,
         unit: "x",
-        section: s.section ?? sectionOf(s.name),
+        section: it.section ?? sectionOf(it.food),
         checked: false,
         manual: false,
       });
@@ -652,8 +655,8 @@ export function mergeProfileLists(lists) {
  * only buy stuff that we need"): before a trip, food the kitchen already
  * holds comes off what is bought. Works on any row shape carrying
  * `{ food, qty, unit }` — per-profile ShoppingItems and CombinedItems alike —
- * against the household pantry's PERISHABLES (staples are already dropped at
- * derive time by `onHand`).
+ * against every pantry item carrying a parseable quantity ("plenty"
+ * assertions are already dropped at derive time, explicitly, per item).
  *
  * Honesty fences, mirroring consumeForCook:
  *  - only rows whose pantry qty parses as "<number> <unit>" AND converts to
@@ -678,7 +681,7 @@ export function mergeProfileLists(lists) {
 export function subtractPantryFromTrip(items, pantry) {
   /** @type {Map<string, { qty: number, unit: string }[]>} */
   const stock = new Map();
-  for (const p of pantry?.perishables ?? []) {
+  for (const p of pantryItems(pantry)) {
     const have = parseQty(p.qty);
     if (!have || have.unit === "x") continue;
     const key = canonicalFood(String(p.food ?? ""));
@@ -858,7 +861,7 @@ export function shelfLifeDays(food, location) {
  * @returns {Record<string, any>}
  */
 export function emptyPantry(pantry, keepStaples) {
-  return { ...pantry, staples: keepStaples ? (pantry.staples ?? []) : [], perishables: [] };
+  return packPantry(keepStaples ? pantryItems(pantry).filter((it) => !isDatedItem(it)) : []);
 }
 
 /**
@@ -887,8 +890,8 @@ export function emptyPantry(pantry, keepStaples) {
  * @returns {Record<string, any>}
  */
 export function applySweep(pantry, location, items, today) {
-  const kept = (pantry.perishables ?? []).filter(
-    (/** @type {any} */ p) => (p.location ?? "unsorted") !== location,
+  const kept = pantryItems(pantry).filter(
+    (it) => !isDatedItem(it) || (it.location ?? "unsorted") !== location,
   );
   const swept = items.map((i) => ({
     id: `${slug(i.food)}-${location}`,
@@ -898,7 +901,7 @@ export function applySweep(pantry, location, items, today) {
     location,
     group: i.group ?? aisleOf(i.food),
   }));
-  return { ...pantry, perishables: [...kept, ...swept] };
+  return packPantry([...kept, ...swept]);
 }
 
 /**
@@ -931,12 +934,12 @@ export function perishableStatus(p, todayIso) {
  * @returns {Record<string, any>}
  */
 export function withAutoUseSoon(pantry, todayIso) {
-  const perishables = (pantry.perishables ?? []).map((/** @type {any} */ p) => {
-    if (p.useSoon) return p;
-    const { daysLeft } = perishableStatus(p, todayIso);
-    return daysLeft != null && daysLeft <= 3 ? { ...p, useSoon: true } : p;
+  const items = pantryItems(pantry).map((it) => {
+    if (it.useSoon || !isDatedItem(it)) return it;
+    const { daysLeft } = perishableStatus(it, todayIso);
+    return daysLeft != null && daysLeft <= 3 ? { ...it, useSoon: true } : it;
   });
-  return { ...pantry, perishables };
+  return packPantry(items);
 }
 
 /**
@@ -951,18 +954,18 @@ export function expirePerishables(pantry, todayIso) {
   const today = new Date(`${todayIso}T00:00:00`);
   /** @type {string[]} */
   const expired = [];
-  const kept = (pantry.perishables ?? []).filter((/** @type {any} */ p) => {
-    if (!p.added) return true;
-    const gone = new Date(`${p.added}T00:00:00`);
-    gone.setDate(gone.getDate() + shelfLifeDays(p.food, p.location));
+  const kept = pantryItems(pantry).filter((/** @type {any} */ it) => {
+    if (!it.added) return true; // undated rows (state items included) never expire
+    const gone = new Date(`${it.added}T00:00:00`);
+    gone.setDate(gone.getDate() + shelfLifeDays(it.food, it.location));
     if (gone < today) {
-      expired.push(p.food);
+      expired.push(it.food);
       return false;
     }
     return true;
   });
   if (expired.length === 0) return { pantry, expired };
-  return { pantry: { ...pantry, perishables: kept }, expired };
+  return { pantry: packPantry(kept), expired };
 }
 
 /** @returns {string} unique-per-device perishable id */
@@ -991,58 +994,248 @@ function legacyPerishableId(p, twinIndex) {
 }
 
 /**
- * Self-heal a pantry read from disk: every perishable gets a stable id
- * (persisted on the next write, like plan.js legacy entries). Ids are what
- * make household-shared pantries merge safely — staples always had them,
- * perishables were removed BY INDEX and merged positionally, so two people
- * editing the same fridge could mis-target or duplicate rows on a 409.
+ * ONE PANTRY (council 2026-08-18, fix list 1.1: the staples/perishables
+ * split is dead — the garlic bug was a staple class the list could never
+ * reach). Every entry is an item:
+ *
+ *   { id, food, section?, state?: "plenty" | "low", qty?: string,
+ *     added?: iso, location?, group?, useSoon?, premium? }
+ *
+ * - `state` is the per-item human assertion for undated shelf-stable food:
+ *   "plenty" suppresses buying (the old staple onHand), "low" forces the
+ *   item onto the next list (the old runningLow), absent means the item
+ *   buys whenever a recipe needs it. No CLASS is exempt from purchase
+ *   logic; the assertion is per item, visible, and one tap from wrong.
+ * - DATED rows (`added`, usually with a `qty`) are tracked food: they
+ *   expire, subtract from trips, get consumed by cooking, and arm useSoon.
+ *   Exactly the old perishables, semantics unchanged.
+ *
+ * Storage: `items` is the source of truth. `staples`/`perishables` are
+ * derived WRITE MIRRORS kept during the migration window so a device still
+ * running old app code keeps functioning; a mirror edit made by an old
+ * device can be overwritten by the next new-code write. Mirrors drop once
+ * every device has updated (see docs/SCHEMAS.md).
+ */
+
+/**
+ * Is this item a tracked food row (the old perishable) rather than a
+ * state-only assertion? Tracked rows carry a date, a quantity, or a shelf
+ * location (migration stamps every legacy perishable with a location, so a
+ * dateless qty-less leftover row still counts as tracked; state assertions
+ * never carry a location).
+ */
+export function isDatedItem(/** @type {Record<string, any>} */ it) {
+  return it.added != null || (it.qty != null && it.qty !== "") || it.location != null;
+}
+
+/**
+ * The one accessor every consumer reads the pantry through. Accepts the new
+ * packed shape, a legacy two-tier pantry, or anything in between, and always
+ * returns the items array (migrating legacy tiers on the fly, never mutating
+ * the input).
+ * @param {Record<string, any> | null | undefined} pantry
+ * @returns {Record<string, any>[]}
+ */
+/**
+ * Heal one item row: a stable id, and location/group on tracked rows (a
+ * sweep must be able to see them, and the settled check requires them).
+ * @param {Record<string, any>} it
+ * @returns {Record<string, any>}
+ */
+function healItem(it) {
+  const id = typeof it.id === "string" && it.id ? it.id : slug(String(it.food ?? ""));
+  const out = it.id === id ? it : { ...it, id };
+  if (!isDatedItem(out)) return out;
+  if (typeof out.location === "string" && typeof out.group === "string") return out;
+  return {
+    ...out,
+    location: typeof out.location === "string" ? out.location : "unsorted",
+    group: typeof out.group === "string" ? out.group : aisleOf(out.food ?? ""),
+  };
+}
+
+/**
+ * The one accessor every consumer reads the pantry through: returns the
+ * items array, migrating a legacy two-tier pantry on the fly, never
+ * mutating the input.
+ * @param {Record<string, any> | null | undefined} pantry
+ * @returns {Record<string, any>[]}
+ */
+export function pantryItems(pantry) {
+  const isRow = (/** @type {unknown} */ x) =>
+    x !== null && typeof x === "object" && !Array.isArray(x);
+  if (Array.isArray(pantry?.items)) return pantry.items.filter(isRow).map(healItem);
+  /** @type {Record<string, any>[]} */
+  const items = [];
+  const staples = Array.isArray(pantry?.staples) ? pantry.staples.filter(isRow) : [];
+  for (const s of staples) {
+    const food = String(s.name ?? s.food ?? "");
+    if (!food) continue;
+    items.push({
+      id: typeof s.id === "string" ? s.id : slug(food),
+      food,
+      ...(s.section ? { section: s.section } : {}),
+      ...(s.runningLow ? { state: "low" } : s.onHand ? { state: "plenty" } : {}),
+      ...(s.premium ? { premium: true } : {}),
+    });
+  }
+  const perishables = Array.isArray(pantry?.perishables) ? pantry.perishables.filter(isRow) : [];
+  /** @type {Map<string, number>} */
+  const twinCounts = new Map();
+  for (const p of perishables) {
+    let id = p.id;
+    if (typeof id !== "string") {
+      const contentKey = `${p.food ?? ""}|${p.added ?? ""}|${p.qty ?? ""}`;
+      const twinIndex = twinCounts.get(contentKey) ?? 0;
+      twinCounts.set(contentKey, twinIndex + 1);
+      id = legacyPerishableId(p, twinIndex);
+    }
+    items.push({
+      ...p,
+      id,
+      food: String(p.food ?? ""),
+      // UNSORTED, not a guess: a photo sweep must never delete a row it
+      // could not see, and legacy rows predate locations entirely
+      location: typeof p.location === "string" ? p.location : "unsorted",
+      group: typeof p.group === "string" ? p.group : aisleOf(p.food ?? ""),
+    });
+  }
+  return items;
+}
+
+/**
+ * Pack items into the stored pantry shape: items as truth, legacy mirrors
+ * derived (undated items mirror as staples, dated rows as perishables).
+ * @param {Record<string, any>[]} items
+ * @returns {Record<string, any>}
+ */
+export function packPantry(items) {
+  items = items.map(healItem);
+  return {
+    items,
+    staples: items
+      .filter((it) => !isDatedItem(it))
+      .map((it) => ({
+        id: it.id,
+        name: it.food,
+        section: it.section ?? sectionOf(it.food),
+        onHand: it.state === "plenty",
+        runningLow: it.state === "low",
+        ...(it.premium ? { premium: true } : {}),
+      })),
+    perishables: items.filter(isDatedItem).map((it) => {
+      const rest = { ...it };
+      delete rest.state;
+      return rest;
+    }),
+  };
+}
+
+/**
+ * Self-heal a pantry read from disk: migrate legacy two-tier pantries to the
+ * one-items model, give every dated row a stable id (two devices healing the
+ * same household pantry must agree, or the id-keyed 409 merge duplicates
+ * rows), refresh the legacy write mirrors, and RECONCILE mirror edits made
+ * by devices still on old app code. Every pantry load routes through here
+ * (main.js), the one chokepoint downstream consumers trust.
+ *
+ * The reconcile rule (diff reviewer, 2026-08-18): the 409 merge merges
+ * `items`, `staples` and `perishables` independently, so an old device's
+ * write lands ONLY in a mirror. New code writes items and mirrors together,
+ * so any mirror row that disagrees with what packPantry would derive from
+ * items can only be an old-code edit — absorb it into items (matching the
+ * merge doctrine: the edited side wins), then repack. Deterministic, no
+ * timestamps, and a packed pantry with consistent mirrors passes through by
+ * reference so a load-normalize-save cycle never writes a no-op diff.
  * @param {Record<string, any>} pantry
  * @returns {Record<string, any>}
  */
 export function normalizePantry(pantry) {
-  // malformed tiers heal here too (a hand-edited or partially-written
-  // pantry.json: a tier that isn't an array, rows that aren't objects).
-  // Every pantry load routes through this function (main.js), so it is the
-  // one chokepoint that lets every downstream consumer trust the shape.
   const isRow = (/** @type {unknown} */ x) =>
     x !== null && typeof x === "object" && !Array.isArray(x);
-  const tierOk = (/** @type {unknown} */ v) => v == null || (Array.isArray(v) && v.every(isRow));
-  const heal = (/** @type {unknown} */ v) => (Array.isArray(v) ? v.filter(isRow) : []);
-  const shapeOk = tierOk(pantry.staples) && tierOk(pantry.perishables);
-  const perishables = shapeOk ? (pantry.perishables ?? []) : heal(pantry.perishables);
-  const settled =
-    shapeOk &&
-    perishables.every(
-      (/** @type {any} */ p) =>
-        typeof p.id === "string" && typeof p.location === "string" && typeof p.group === "string",
+  const shapeOk =
+    Array.isArray(pantry.items) &&
+    Array.isArray(pantry.staples) &&
+    Array.isArray(pantry.perishables) &&
+    pantry.items.every(
+      (/** @type {any} */ it) =>
+        isRow(it) &&
+        typeof it.id === "string" &&
+        (!isDatedItem(it) || (typeof it.location === "string" && typeof it.group === "string")),
     );
-  if (settled) return pantry;
-  /** @type {Map<string, number>} */
-  const twinCounts = new Map();
-  return {
-    ...pantry,
-    ...(tierOk(pantry.staples) ? {} : { staples: heal(pantry.staples) }),
-    perishables: perishables.map((/** @type {any} */ p) => {
-      let id = p.id;
-      if (typeof id !== "string") {
-        const contentKey = `${p.food ?? ""}|${p.added ?? ""}|${p.qty ?? ""}`;
-        const twinIndex = twinCounts.get(contentKey) ?? 0;
-        twinCounts.set(contentKey, twinIndex + 1);
-        id = legacyPerishableId(p, twinIndex);
+  if (!shapeOk) return packPantry(pantryItems(pantry));
+
+  const items = [...pantryItems(pantry)];
+  const derived = packPantry(items);
+  const byId = new Map(items.map((/** @type {any} */ it) => [it.id, it]));
+  let changed = false;
+
+  // staple-mirror reconcile: state flags an old device toggled, rows it added
+  const derivedStaples = new Map(derived.staples.map((/** @type {any} */ s) => [s.id, s]));
+  for (const s of pantry.staples) {
+    if (!isRow(s) || typeof s.id !== "string") continue;
+    const d = derivedStaples.get(s.id);
+    if (d && d.onHand === Boolean(s.onHand) && d.runningLow === Boolean(s.runningLow)) continue;
+    const state = s.runningLow ? "low" : s.onHand ? "plenty" : undefined;
+    const existing = byId.get(s.id);
+    if (existing && !isDatedItem(existing)) {
+      if (existing.state !== state) {
+        const next = { ...existing };
+        delete next.state;
+        if (state) next.state = state;
+        items[items.indexOf(existing)] = next;
+        byId.set(s.id, next);
+        changed = true;
       }
-      return {
-        ...p,
-        id,
-        // UNSORTED, not a guess. Every row that predates locations is
-        // somewhere the app has never been told about, and a photo sweep must
-        // never delete something it could not see. A guess of "fridge" here
-        // would put the whole legacy pantry in the blast radius of the first
-        // fridge rescan.
-        location: typeof p.location === "string" ? p.location : "unsorted",
-        group: typeof p.group === "string" ? p.group : aisleOf(p.food ?? ""),
+    } else if (!existing) {
+      const added = {
+        id: s.id,
+        food: String(s.name ?? ""),
+        ...(s.section ? { section: s.section } : {}),
+        ...(state ? { state } : {}),
+        ...(s.premium ? { premium: true } : {}),
       };
-    }),
-  };
+      items.push(added);
+      byId.set(s.id, added);
+      changed = true;
+    }
+  }
+
+  // perishable-mirror reconcile: qty/date/location edits and new scans from
+  // an old device
+  const derivedPer = new Map(derived.perishables.map((/** @type {any} */ p) => [p.id, p]));
+  for (const p of pantry.perishables) {
+    if (!isRow(p) || typeof p.id !== "string") continue;
+    const d = derivedPer.get(p.id);
+    if (
+      d &&
+      d.food === p.food &&
+      (d.qty ?? "") === (p.qty ?? "") &&
+      (d.added ?? "") === (p.added ?? "") &&
+      (d.location ?? "unsorted") === (p.location ?? "unsorted") &&
+      Boolean(d.useSoon) === Boolean(p.useSoon)
+    )
+      continue;
+    const existing = byId.get(p.id);
+    if (existing) {
+      const merged = { ...existing, ...p };
+      items[items.indexOf(existing)] = merged;
+      byId.set(p.id, merged);
+    } else {
+      items.push({ ...p });
+      byId.set(p.id, { ...p });
+    }
+    changed = true;
+  }
+
+  if (!changed) {
+    // mirrors byte-consistent with items? then the stored file IS settled
+    const same =
+      pantry.staples.length === derived.staples.length &&
+      pantry.perishables.length === derived.perishables.length;
+    if (same) return pantry;
+  }
+  return packPantry(items);
 }
 
 /**
@@ -1054,21 +1247,15 @@ export function normalizePantry(pantry) {
  * @returns {Record<string, any>}
  */
 export function removeFromPantry(pantry, kind, key) {
-  if (kind === "staple") {
-    return {
-      ...pantry,
-      staples: (pantry.staples ?? []).filter((/** @type {any} */ s) => s.id !== key),
-    };
-  }
-  return {
-    ...pantry,
-    perishables: (pantry.perishables ?? []).filter((/** @type {any} */ p) => p.id !== key),
-  };
+  // `kind` survives for caller compatibility; items are one tier now and
+  // removal is by id alone
+  void kind;
+  return packPantry(pantryItems(pantry).filter((/** @type {any} */ it) => it.id !== key));
 }
 
 /**
  * "I already have this — permanently": a list item becomes (or refreshes) a
- * pantry staple with onHand true and leaves the list. For the found-it-in-
+ * pantry item asserted "plenty" and leaves the list. For the found-it-in-
  * the-cupboard case; plain ticking covers "have enough for this week".
  * @param {ShoppingList} shopping
  * @param {Record<string, any>} pantry
@@ -1080,19 +1267,20 @@ export function ownItemToPantry(shopping, pantry, itemId) {
   if (!item) return { shopping, pantry };
   const foodSlug = slug(item.food);
   const canon = canonicalFood(item.food);
-  const staples = [...(pantry.staples ?? [])];
-  const existing = staples.findIndex(
-    (s) => s.id === foodSlug || slug(s.name) === foodSlug || canonicalFood(s.name) === canon,
+  const items = [...pantryItems(pantry)];
+  const existing = items.findIndex(
+    (it) =>
+      !isDatedItem(it) &&
+      (it.id === foodSlug || slug(it.food) === foodSlug || canonicalFood(it.food) === canon),
   );
   if (existing >= 0) {
-    staples[existing] = { ...staples[existing], onHand: true, runningLow: false };
+    items[existing] = { ...items[existing], state: "plenty" };
   } else {
-    staples.push({
+    items.push({
       id: foodSlug,
-      name: item.food,
+      food: item.food,
       section: item.section,
-      onHand: true,
-      runningLow: false,
+      state: "plenty",
     });
   }
   return {
@@ -1103,7 +1291,7 @@ export function ownItemToPantry(shopping, pantry, itemId) {
         (i) => slug(i.food) !== foodSlug && canonicalFood(i.food) !== canon,
       ),
     },
-    pantry: { ...pantry, staples },
+    pantry: packPantry(items),
   };
 }
 
@@ -1125,24 +1313,27 @@ export function ownItemToPantry(shopping, pantry, itemId) {
  */
 export function applyJustBought(shopping, pantry, today, opts = {}) {
   const bought = shopping.items.filter((i) => i.checked);
-  const staples = (pantry.staples ?? []).map((/** @type {any} */ s) => {
+  const items = pantryItems(pantry).map((/** @type {any} */ it) => {
+    if (isDatedItem(it)) return it;
     const hit = bought.find(
       (b) =>
-        b.id === s.id ||
-        slug(b.food) === slug(s.name) ||
-        canonicalFood(b.food) === canonicalFood(s.name),
+        b.id === it.id ||
+        slug(b.food) === slug(it.food) ||
+        canonicalFood(b.food) === canonicalFood(it.food),
     );
-    return hit ? { ...s, onHand: true, runningLow: false } : s;
+    // buying a state-tracked item restocks its assertion
+    return hit ? { ...it, state: "plenty" } : it;
   });
-  const stapleIds = new Set(staples.map((/** @type {any} */ s) => s.id));
-  const stapleSlugs = new Set(
-    staples.flatMap((/** @type {any} */ s) => [slug(s.name), canonicalFood(s.name)]),
+  const stateItems = items.filter((/** @type {any} */ it) => !isDatedItem(it));
+  const stateIds = new Set(stateItems.map((/** @type {any} */ it) => it.id));
+  const stateSlugs = new Set(
+    stateItems.flatMap((/** @type {any} */ it) => [slug(it.food), canonicalFood(it.food)]),
   );
   const boughtPerishables = bought.filter(
     (b) =>
-      !stapleIds.has(b.id) &&
-      !stapleSlugs.has(slug(b.food)) &&
-      !stapleSlugs.has(canonicalFood(b.food)),
+      !stateIds.has(b.id) &&
+      !stateSlugs.has(slug(b.food)) &&
+      !stateSlugs.has(canonicalFood(b.food)),
   );
   // fridgeFirst: bank what was actually BOUGHT, not the stored row — the
   // rendered trip subtracted what the kitchen already held, so the shopper
@@ -1153,7 +1344,7 @@ export function applyJustBought(shopping, pantry, today, opts = {}) {
   const bankRows = opts.fridgeFirst
     ? subtractPantryFromTrip(boughtPerishables, pantry).toBuy
     : boughtPerishables;
-  const newPerishables = bankRows.map((b) => ({
+  const newRows = bankRows.map((b) => ({
     id: perishableId(),
     food: b.food,
     qty: `${b.qty} ${b.unit}`,
@@ -1168,11 +1359,7 @@ export function applyJustBought(shopping, pantry, today, opts = {}) {
   }));
   return {
     shopping: { ...shopping, items: shopping.items.filter((i) => !i.checked) },
-    pantry: {
-      ...pantry,
-      staples,
-      perishables: [...(pantry.perishables ?? []), ...newPerishables],
-    },
+    pantry: packPantry([...items, ...newRows]),
   };
 }
 
@@ -1312,17 +1499,19 @@ function commonUnit(a, b, key) {
  * @returns {{ pantry: Record<string, any>, used: string[] }}
  */
 export function consumeForCook(pantry, ingredients) {
-  let perishables = [...(pantry.perishables ?? [])];
+  let items = [...pantryItems(pantry)];
   /** @type {string[]} */
   const used = [];
   let changed = false;
   for (const ing of ingredients ?? []) {
     if (!ing || ing.staple) continue;
     const key = canonicalFood(ing.food);
-    // oldest first: the pack bought last week is the one to finish
-    const rows = perishables
-      .map((/** @type {any} */ p, /** @type {number} */ idx) => ({ p, idx }))
-      .filter(({ p }) => canonicalFood(p.food) === key)
+    // DATED rows only: a "plenty" assertion has no quantity to decrement and
+    // must never be deleted by the cannot-measure branch below. Oldest first:
+    // the pack bought last week is the one to finish.
+    const rows = items
+      .map((p, idx) => ({ p, idx }))
+      .filter(({ p }) => isDatedItem(p) && canonicalFood(p.food) === key)
       .sort((x, y) => String(x.p.added ?? "").localeCompare(String(y.p.added ?? "")));
     if (rows.length === 0) continue;
     let need = Number(ing.qty);
@@ -1354,13 +1543,13 @@ export function consumeForCook(pantry, ingredients) {
         needUnit = both.unit;
         continue;
       }
-      perishables[idx] = { ...p, qty: `${Number((both.a - both.b).toFixed(2))} ${both.unit}` };
+      items[idx] = { ...p, qty: `${Number((both.a - both.b).toFixed(2))} ${both.unit}` };
       changed = true;
       break;
     }
-    if (drop.size > 0) perishables = perishables.filter((_p, idx) => !drop.has(idx));
+    if (drop.size > 0) items = items.filter((_p, idx) => !drop.has(idx));
   }
-  return changed ? { pantry: { ...pantry, perishables }, used } : { pantry, used };
+  return changed ? { pantry: packPantry(items), used } : { pantry, used };
 }
 
 /**

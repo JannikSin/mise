@@ -1383,3 +1383,71 @@ test("a profile that needs dense protein is picked dense food, not more food", (
   const blind = pickCommittee([lean, heavy], { size: 2, salt: 0 });
   assert.equal(blind.length, 2);
 });
+
+// ---- fix list 2.4: macroTopUp under the same budget parameter ---------------
+
+test("macroTopUp tight restricts the snack pool to overlap/cheap, and reports it", async () => {
+  const { macroTopUp } = await import("../app/lib/weekbuilder.js");
+  const byId = new Map();
+  const mk = (id, protein, calories, ingredients, tags = []) => {
+    const r = {
+      id,
+      name: id,
+      mealType: "snack",
+      servings: 1,
+      nutrition: { calories, protein },
+      ingredients: ingredients.map((f) => ({ qty: 100, unit: "g", food: f })),
+      tags,
+    };
+    byId.set(id, r);
+    return r;
+  };
+  // the trap snack: highest protein, but built entirely from NEW SKUs
+  const trap = mk("herb-jar-special", 40, 300, ["exotic herb", "single-use jar sauce"]);
+  // the tight-correct snack: decent protein, cooks food the week already buys
+  const overlapSnack = mk("chicken-bite", 30, 300, ["chicken breast"]);
+  const cheapSnack = mk("bean-cup", 25, 300, ["black beans"], ["cheap"]);
+  const dinner = mk("dinner-r", 50, 800, ["chicken breast", "black beans"]);
+  byId.set("dinner-r", { ...dinner, mealType: "dinner" });
+
+  const plan = {
+    week: "2026-W40",
+    entries: [
+      { id: "d1", date: "2026-09-28", slot: "dinner", recipeId: "dinner-r", servings: 1 },
+    ],
+  };
+  const floors = { calories: 2000, protein: 100 };
+  const weekFoodPool = new Set(["chicken-breast", "black-beans"]);
+
+  const report = {};
+  const next = macroTopUp(plan, [trap, overlapSnack, cheapSnack], byId, floors, 3, {
+    budget: "tight",
+    weekFoodPool,
+    report,
+  });
+  const snackIds = next.entries.filter((e) => e.slot === "snack").map((e) => e.recipeId);
+  assert.ok(snackIds.length > 0, "the shortfall still gets filled");
+  assert.ok(
+    !snackIds.includes("herb-jar-special"),
+    "tight must not stack the new-SKU snack the 2026-08-17 council caught",
+  );
+  assert.equal(report.macroTopUp.restricted, true);
+  assert.equal(report.macroTopUp.poolBefore, 3);
+  assert.equal(report.macroTopUp.poolAfter, 2);
+
+  // honest-relax: when the restriction leaves <2 candidates, it lifts and says so
+  const report2 = {};
+  macroTopUp(plan, [trap], byId, floors, 3, {
+    budget: "tight",
+    weekFoodPool,
+    report: report2,
+  });
+  assert.equal(report2.macroTopUp.relaxed, true);
+  assert.equal(report2.macroTopUp.restricted, false);
+
+  // normal budget: pool untouched, still reported
+  const report3 = {};
+  macroTopUp(plan, [trap, overlapSnack], byId, floors, 3, { report: report3 });
+  assert.equal(report3.macroTopUp.budget, "normal");
+  assert.equal(report3.macroTopUp.restricted, false);
+});

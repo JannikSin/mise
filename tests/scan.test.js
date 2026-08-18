@@ -46,7 +46,16 @@ test("new perishable lands with today's date; existing one is not duplicated", (
   assert.ok(typeof milk.id === "string" && milk.id.length > 0); // P1: stable id at creation
   const rest = { ...milk };
   delete rest.id;
-  assert.deepEqual(rest, { food: "milk", qty: "1L", added: "2026-07-06", useSoon: false });
+  // one-pantry: tracked rows are healed at write time — an unplaced scan row
+  // lands in "unsorted", the location no sweep ever touches
+  assert.deepEqual(rest, {
+    food: "milk",
+    qty: "1L",
+    added: "2026-07-06",
+    useSoon: false,
+    location: "unsorted",
+    group: "dairy",
+  });
 });
 
 test("does not mutate the input pantry and tolerates missing arrays", () => {
@@ -69,14 +78,16 @@ test("a scan with a location lands the new perishables on that shelf", () => {
   assert.equal(row.location, "fridge");
 });
 
-test("a scan without a location keeps the legacy shape (no location field)", () => {
+test("a scan without a location lands in unsorted, which no sweep ever touches", () => {
   const next = applyScanItems(
     PANTRY,
     [{ name: "greek yogurt", kind: "perishable", qty: "500 g" }],
     "2026-07-06",
   );
   const row = next.perishables.find((p) => p.food === "greek yogurt");
-  assert.ok(!("location" in row));
+  // the safety property behind the old "legacy shape" contract survives:
+  // an unplaced row is quarantined where a location sweep cannot delete it
+  assert.equal(row.location, "unsorted");
 });
 
 test("SHELF-AWARE refresh (Tribunal B3): a fridge scan never rewrites the freezer's pack", () => {

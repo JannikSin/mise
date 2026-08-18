@@ -56,6 +56,9 @@ import {
   PANTRY_LOCATIONS,
   withAutoUseSoon,
   removeFromPantry,
+  pantryItems,
+  packPantry,
+  isDatedItem,
   sectionOf,
   slug,
 } from "./lib/shopping.js";
@@ -83,6 +86,7 @@ import {
   SLOT_KEYS,
 } from "./lib/plan.js";
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
+import { composeManifest } from "./lib/manifest.js";
 import { weekAdherence, rankScoreboard } from "./lib/adherence.js";
 import {
   normalizeEvents,
@@ -549,10 +553,8 @@ function App() {
   const handleRemovePantry = useCallback(
     (/** @type {"staple" | "perishable"} */ kind, /** @type {string} */ key) => {
       const prev = pantryRef.current;
-      const gone =
-        kind === "staple"
-          ? (prev.staples ?? []).find((/** @type {any} */ s) => s.id === key)?.name
-          : (prev.perishables ?? []).find((/** @type {any} */ p) => p.id === key)?.food;
+      const gone = pantryItems(prev).find((/** @type {any} */ it) => it.id === key)?.food;
+      void kind;
       updatePantry(removeFromPantry(prev, kind, key));
       setUndoToast({
         message: `removed ${gone ?? "item"}`,
@@ -1032,15 +1034,20 @@ function App() {
     [updateShopping, updatePantry],
   );
 
-  const handleToggleLow = useCallback(
+  // ONE pantry (fix list 1.1): the LOW toggle became a three-state cycle.
+  // PLENTY suppresses buying, LOW forces the item onto the list, OUT (no
+  // state) means it buys whenever a recipe needs it — the garlic fix.
+  const handleCycleState = useCallback(
     (/** @type {string} */ id) => {
-      const p = pantryRef.current;
-      updatePantry({
-        ...p,
-        staples: (p.staples ?? []).map((/** @type {any} */ s) =>
-          s.id === id ? { ...s, runningLow: !s.runningLow } : s,
-        ),
+      const items = pantryItems(pantryRef.current).map((/** @type {any} */ it) => {
+        if (it.id !== id) return it;
+        const next =
+          it.state === "plenty" ? "low" : it.state === "low" ? undefined : "plenty";
+        const rest = { ...it };
+        delete rest.state;
+        return next ? { ...rest, state: next } : rest;
       });
+      updatePantry(packPantry(items));
     },
     [updatePantry],
   );
@@ -1083,8 +1090,8 @@ function App() {
   const handleEmptyPantry = useCallback(
     async (/** @type {boolean} */ keepStaples) => {
       const prev = pantryRef.current;
-      const count =
-        (prev.perishables ?? []).length + (keepStaples ? 0 : (prev.staples ?? []).length);
+      const all = pantryItems(prev);
+      const count = keepStaples ? all.filter(isDatedItem).length : all.length;
       // returns whether the pantry IS empty now (the fresh-start wizard only
       // proceeds on true): already-empty counts as yes, a declined confirm is no
       if (count === 0) return true;
@@ -1261,7 +1268,7 @@ function App() {
   targetsRef.current = targets;
   const buildStateRef = useRef({ salt: 0 });
 
-  const handleGenerateWeek = useCallback(() => {
+  const handleGenerateWeek = useCallback(async () => {
     // body-level guard, not just the disabled button: this is the single
     // most destructive path (clears every unpinned entry + overwrites the
     // shopping list) and the one that caused the shopped-week wipe incident
@@ -1332,6 +1339,34 @@ function App() {
       } catch {
         // a swap pass that fails leaves the honestly generated week intact
       }
+    }
+    // THE GENERATION MANIFEST (fix list 2.5, council 2026-08-18): compose
+    // the full subsystem report and persist it ON the plan, so every device
+    // sees what every engine did — the structural answer to four engines
+    // that shipped dark. Prior weeks load from cache for cooked-over-planned.
+    try {
+      const today = localIsoDate(new Date());
+      const priorIds = [-1, -2, -3].map((d) => shiftWeek(built.week, d));
+      const priorPlans = await Promise.all(
+        priorIds.map(async (w) => ({
+          weekId: w,
+          plan: /** @type {Record<string, any> | null} */ (await read(`plans/${w}.json`)),
+        })),
+      );
+      built = {
+        ...built,
+        manifest: composeManifest({
+          engine: result.report.manifest ?? {},
+          targets: targetsRef.current,
+          recipes: recipesRef.current,
+          dailyDays: dailyRef.current?.days ?? [],
+          recentPlans: [{ weekId: built.week, plan: built }, ...priorPlans],
+          todayIso: today,
+        }),
+      };
+    } catch {
+      // a manifest that fails to compose must never block the week itself;
+      // the planner renders its absence as the failure it is
     }
     updatePlan(built); // updatePlan strips derived table entries itself
     setBuildReport(result.report);
@@ -1659,10 +1694,12 @@ function App() {
         (t) =>
           `${t.date} ${nameOf(t.recipeId)} — cook ${profName(t.cookId)}, groceries ${t.buyerId ? profName(t.buyerId) : "unclaimed"}${batchOf(t.recipeId) ? ` | batch prep: ${batchOf(t.recipeId)}` : ""}`,
       ),
-      kitchen: (pantry.perishables ?? []).map(
-        (/** @type {any} */ p) =>
-          `${p.food}${p.qty ? ` (${p.qty})` : ""} in ${p.location ?? "pantry"}`,
-      ),
+      kitchen: pantryItems(pantry)
+        .filter(isDatedItem)
+        .map(
+          (/** @type {any} */ p) =>
+            `${p.food}${p.qty ? ` (${p.qty})` : ""} in ${p.location ?? "pantry"}`,
+        ),
       list: (shopping.items ?? []).slice(0, 40).map((i) => i.food),
       notes:
         houseShopped || /** @type {any} */ (plan)?.shoppedAt
@@ -3096,7 +3133,7 @@ function App() {
         onToggleItem=${handleToggleItem}
         onAddManual=${handleAddManual}
         onJustBought=${handleJustBought}
-        onToggleLow=${handleToggleLow}
+        onToggleLow=${handleCycleState}
         onOwnItem=${handleOwnItem}
         onScanApprove=${handleScanApprove}
         onToggleLock=${handleToggleLock}

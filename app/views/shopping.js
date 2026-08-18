@@ -1416,14 +1416,15 @@ export function ShoppingView({
                 </button>
               </span>`
             }
-            Tap LOW when a staple runs out — it joins the next shopping list. Food arrives on a
-            shelf when you scan the receipt, tap ADD TO PANTRY, or photograph the shelf, and comes
-            off it when you cook the meal.
+            One pantry, no exempt class: tap an item's state to cycle it. PLENTY means the list
+            skips it, LOW puts it on the next list, OUT means it gets bought whenever a recipe
+            needs it. Food arrives on a shelf when you scan the receipt, tap ADD TO PANTRY, or
+            photograph the shelf, and comes off it when you cook the meal.
           </p>
-          <h2 class="block-title">Staples</h2>
+          <h2 class="block-title">Shelf-stable</h2>
           ${
             (pantry.staples ?? []).length === 0 &&
-            html`<div class="empty">no staples yet — they arrive with your seed data</div>`
+            html`<div class="empty">nothing asserted yet — they arrive with your seed data</div>`
           }
           <div class="slots">
             ${(pantry.staples ?? []).map(
@@ -1434,10 +1435,10 @@ export function ShoppingView({
                   </span>
                   <button
                     class="lowbtn ${s.runningLow ? "on" : ""}"
-                    aria-pressed=${s.runningLow}
+                    aria-label="Cycle stock state for ${s.name}"
                     onClick=${() => onToggleLow(s.id)}
                   >
-                    LOW${s.runningLow ? html` <span aria-hidden="true">✓</span>` : ""}
+                    ${s.runningLow ? "LOW ✓" : s.onHand ? "PLENTY" : "OUT"}
                   </button>
                   ${
                     onRemovePantry &&
