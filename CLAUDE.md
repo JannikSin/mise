@@ -1,7 +1,8 @@
 # CLAUDE.md — Mise
 
 > **READ FIRST, EVERY SESSION: `C:\Users\DATar\Sanity\Obsidian\Crystal\Lanes\Mise-Core-Purpose.md`.**
-> It is the authority on what this app is for. It carries ten numbered promises and a done test for each.
+> It is the authority on what this app is for. It carries eight numbered promises and a done test for each
+> (renumbered 2026-08-18; the old-to-new mapping is at the top of `Crystal\Lanes\Mise-Fix-List.md`).
 > **Every change must name the promise number it serves.** A change that serves no promise does not get
 > built; it goes to `Crystal\Lanes\Mise-Later.md`. David will keep having ideas and saying them out loud.
 > Saying an idea is not commissioning it. Park it and keep going.
