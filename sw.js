@@ -25,6 +25,7 @@ const SHELL = [
   "./app/lib/adherence.js",
   "./app/lib/annotate.js",
   "./app/lib/awake.js",
+  "./app/lib/coverage.js",
   "./app/lib/dates.js",
   "./app/lib/db.js",
   "./app/lib/targets.js",
