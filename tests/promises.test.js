@@ -31,6 +31,7 @@ import { cookPlan } from "../app/lib/portions.js";
 import { buildServe } from "../app/lib/serve.js";
 import { clampGuests, deriveTables, setTableGuests } from "../app/lib/tables.js";
 import { composeWeekReview } from "../app/lib/review.js";
+import { screenMenuReport, unconfirmedReason } from "../app/lib/annotate.js";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -295,7 +296,7 @@ const PROMISES = [
 
   {
     id: "P3",
-    name: "P3 allergens are enforced on everything GENERATE produces, and a stated target is sanity-checked",
+    name: "P3 allergens are enforced on everything Mise recommends, including what it cannot see inside",
     fn: () => {
       // A peanut allergy, declared the way the profile declares it.
       const avoid = avoidTermsFromAllergens(["peanuts"], "");
@@ -359,6 +360,59 @@ const PROMISES = [
       // A profile with no body stats is UNCHECKED and says so, rather than
       // silently passing: an unmeasured target must never read as a safe one.
       assert.equal(targetsSanity({ macros: { calories: 3700 } }).verdict, "unchecked");
+
+      // MEALS MISE CANNOT SEE INSIDE. P3 names this case in its own text: a
+      // scanned menu's true ingredients are invisible, so it is screened and
+      // never silently trusted. The Worker caps each diner's avoid list at 20
+      // terms, so the screen has to run again on the CLIENT, untruncated.
+      const facts = [{ id: "d1", name: "Dee", avoid: ["peanuts"] }];
+      const menu = screenMenuReport(
+        {
+          diners: [
+            {
+              name: "Dee",
+              picks: [
+                { item: "Pad Thai", why: "peanut sauce, high protein", estCalories: 800 },
+                { item: "Grilled chicken", why: "lean", estCalories: 500 },
+              ],
+              skip: [],
+            },
+          ],
+        },
+        facts,
+      );
+      assert.equal(menu[0].flagged.length, 1, "an allergenic dish stayed in the order");
+      assert.equal(menu[0].flagged[0].pick.item, "Pad Thai");
+      assert.ok(menu[0].flagged[0].hits.length > 0, "the flag did not say what it found");
+      assert.deepEqual(
+        menu[0].picks.map((p) => p.item),
+        ["Grilled chicken"],
+        "a safe dish was lost, or an unsafe one presented as an order",
+      );
+
+      // A CLEAN SCREEN IS NOT A CLEARANCE. Anyone with a declared avoid list
+      // gets the caution even when nothing was flagged, because Mise read the
+      // menu's words, not the kitchen.
+      assert.match(String(menu[0].caution), /not the kitchen/);
+      const nothingDeclared = screenMenuReport(
+        { diners: [{ name: "Sam", picks: [{ item: "Pad Thai" }], skip: [] }] },
+        [{ id: "s", name: "Sam", avoid: [] }],
+      );
+      assert.equal(
+        nothingDeclared[0].caution,
+        null,
+        "a warning that always fires is noise: nothing declared means nothing to caution about",
+      );
+      assert.equal(nothingDeclared[0].flagged.length, 0);
+
+      // AND IT FAILS CLOSED. A diner whose targets could not be read is
+      // UNCONFIRMED, and an unread profile must never screen as allergy-free.
+      assert.match(
+        unconfirmedReason([{ name: "Dee", unconfirmed: true }]),
+        /could not be read/,
+        "an unreadable profile did not stop the scan",
+      );
+      assert.equal(unconfirmedReason([{ name: "Dee" }]), "");
 
       // AND NO ENGINE ASSUMES A DEFAULT PERSON. Until 2026-08-19 the generator
       // read `?? 210` / `?? 3400`, David's own targets, so an unreadable
@@ -981,14 +1035,6 @@ for (const p of PROMISES) test(p.name, p.fn);
 /** @type {{ id: string, name: string, why: string }[]} */
 const UNBUILT = [
   {
-    id: "P3",
-    name: "P3 GAP a described or scanned away meal is screened against declared allergens",
-    why:
-      "owner koenig, Phase 1 job 6. Recipes and store picks are screened; free-text meals and scanned " +
-      "menus are not, and P3's own text names them: their true ingredients cannot be seen, so they must " +
-      "carry a visible warning and never be silently trusted. Safety-relevant.",
-  },
-  {
     id: "P4",
     name: "P4 GAP every bought perishable has a home in the plan before its date",
     why:
@@ -1052,7 +1098,10 @@ const UNBUILT = [
       "owner koenig, Phase 2 job 11. No Purdue dining reference exists anywhere in the app. Needs a " +
       "CSP entry for api.hfs.purdue.edu, the tray composer against the day's stations with the " +
       "court-serving caveat loud, and menu-scan results persisting into the plan rather than being " +
-      "read and discarded.",
+      "read and discarded. CARRIES A P3 OBLIGATION: today an away meal is a fixed placeholder with " +
+      "no user text, which is the only reason P3 passes on this surface. The moment a meal can be " +
+      "DESCRIBED or a composed tray can enter the plan, it must route through screenMenuReport or " +
+      "P3 regresses silently, which is the whole failure mode this ledger exists to catch.",
   },
   {
     id: "P11",

@@ -2,6 +2,7 @@ import { html } from "htm/preact";
 import { tokenBroken } from "../lib/github.js";
 import { useRef, useState } from "preact/hooks";
 import { scanMenu } from "../lib/worker.js";
+import { screenMenuReport, unconfirmedReason } from "../lib/annotate.js";
 
 /**
  * Menu scan: photograph a restaurant menu, get a per-diner order report
@@ -25,6 +26,10 @@ export function MenuView({ profiles, me, hasToken, repo, onDinerFacts }) {
       null
     ),
   );
+  // P3: the diners the report was produced FOR, kept so the untruncated
+  // allergen screen can run on what came back. A model's output is not
+  // trusted here any more than it is in the annotator.
+  const [scanned, setScanned] = useState(/** @type {Record<string, any>[]} */ ([]));
   const tokenBlocked = !hasToken || tokenBroken(repo?.auth);
 
   const toggle = (/** @type {string} */ id) =>
@@ -37,7 +42,17 @@ export function MenuView({ profiles, me, hasToken, repo, onDinerFacts }) {
     setScan("busy");
     try {
       const diners = await onDinerFacts(picked);
+      // FAIL CLOSED (P3). A diner whose targets file could not be read is
+      // UNCONFIRMED, and an unread profile must never screen as allergy-free.
+      // Same gate the annotator has had since its C1 review; the menu scan
+      // never got it.
+      const blocked = unconfirmedReason(/** @type {any} */ (diners));
+      if (blocked) {
+        setScan({ error: blocked });
+        return;
+      }
       const report = await scanMenu(file, /** @type {any} */ (diners));
+      setScanned(diners);
       setScan(
         report.diners.length === 0
           ? { error: "could not read the menu — try a flatter, brighter shot" }
@@ -106,11 +121,22 @@ export function MenuView({ profiles, me, hasToken, repo, onDinerFacts }) {
       ${
         report &&
         html`<div role="status">
-          ${report.diners.map(
+          ${screenMenuReport(/** @type {any} */ (report), /** @type {any} */ (scanned)).map(
             (d) => html`
               <div class="tile" key=${d.name}>
                 <div class="k">${d.name} — order</div>
-                ${(d.picks ?? []).map(
+                ${d.flagged.map(
+                  (/** @type {any} */ f) => html`
+                    <div class="d scanerr" key=${f.pick.item} role="alert">
+                      <b>DO NOT ORDER: ${f.pick.item}</b>
+                      <div class="hint">
+                        it names ${f.hits.join(" · ")}, which you avoid. Mise pulled this out of the
+                        order.
+                      </div>
+                    </div>
+                  `,
+                )}
+                ${d.picks.map(
                   (/** @type {any} */ p) => html`
                     <div class="d" key=${p.item}>
                       <b>${p.item}</b>
@@ -120,13 +146,27 @@ export function MenuView({ profiles, me, hasToken, repo, onDinerFacts }) {
                   `,
                 )}
                 ${
-                  (d.skip ?? []).length > 0 &&
-                  html`<div class="d hint">skip: ${d.skip.join(" · ")}</div>`
+                  // A clean screen is NOT a clearance, and saying so is the
+                  // promise: a restaurant dish's true ingredients are not
+                  // visible to Mise, only its printed name.
+                  d.caution && html`<div class="d hint" role="status">⚠ ${d.caution}</div>`
                 }
                 ${
-                  (d.picks ?? []).length === 0 &&
-                  (d.skip ?? []).length === 0 &&
+                  d.skip.length > 0 && html`<div class="d hint">skip: ${d.skip.join(" · ")}</div>`
+                }
+                ${
+                  d.picks.length === 0 &&
+                  d.flagged.length === 0 &&
+                  d.skip.length === 0 &&
                   html`<div class="d hint">nothing on this menu fits their targets cleanly</div>`
+                }
+                ${
+                  d.picks.length === 0 &&
+                  d.flagged.length > 0 &&
+                  html`<div class="d hint">
+                    everything picked for them named something they avoid, so there is nothing left
+                    to order off this menu
+                  </div>`
                 }
               </div>
             `,

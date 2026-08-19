@@ -210,6 +210,61 @@ export function screenTextForDiners(text, diners) {
 }
 
 /**
+ * Screen a menu-scan report against the diners it was produced for (P3).
+ *
+ * The annotator has run the untruncated client-side screen since its C1
+ * review. The MENU SCAN never did, and it is the more exposed of the two: the
+ * Worker's `sanitizePeople` caps each diner's avoid list at 20 terms, so a
+ * model pick can come back naming the 21st, and a restaurant dish's real
+ * ingredients are not visible to anybody. P3 names this case in its own text:
+ * external meals and scanned menus "are screened against stated allergens with
+ * a visible warning and never silently trusted."
+ *
+ * Two outputs, and the second one matters as much as the first:
+ *   - `flagged` picks, pulled OUT of the order. A recommendation naming
+ *     something the person avoids is worse than no recommendation.
+ *   - `caution`, set for anybody with a declared avoid list even when nothing
+ *     was flagged. A clean screen is not a clearance: Mise read the menu's
+ *     words, not the kitchen.
+ *
+ * Pure, so the behaviour is testable without a DOM. The view renders it.
+ * @param {{ diners?: Record<string, any>[] }} report a /menu scan result
+ * @param {{ id?: string, name: string, avoid?: string[] }[]} diners the facts
+ *   the scan was run for
+ * @returns {{ name: string, picks: Record<string, any>[],
+ *   flagged: { pick: Record<string, any>, hits: string[] }[],
+ *   skip: string[], caution: string | null }[]}
+ */
+export function screenMenuReport(report, diners) {
+  return (report?.diners ?? []).map((d) => {
+    const facts = (diners ?? []).find((f) => f.name === d.name || (f.id && f.id === d.id));
+    const hitsFor = (/** @type {Record<string, any>} */ p) =>
+      facts ? screenTextForDiners(`${p.item ?? ""} ${p.why ?? ""}`, [/** @type {any} */ (facts)]) : [];
+    /** @type {{ pick: Record<string, any>, hits: string[] }[]} */
+    const flagged = [];
+    /** @type {Record<string, any>[]} */
+    const picks = [];
+    for (const p of d.picks ?? []) {
+      const hits = hitsFor(p);
+      if (hits.length > 0) flagged.push({ pick: p, hits });
+      else picks.push(p);
+    }
+    return {
+      name: d.name,
+      picks,
+      flagged,
+      skip: d.skip ?? [],
+      // A diner with nothing declared gets no caution, because there is
+      // nothing to be cautious about and a warning that always fires is noise.
+      caution:
+        (facts?.avoid ?? []).length > 0
+          ? "Mise can only read the menu's words, not the kitchen. Nothing here is confirmed free of what you avoid. Ask the server."
+          : null,
+    };
+  });
+}
+
+/**
  * The fail-closed gate in front of a scan (C1): a diner whose targets file
  * could not be read is UNCONFIRMED and the scan refuses to run: an unread
  * profile must never screen as allergy-free.
