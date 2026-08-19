@@ -15,6 +15,7 @@
 import { weightTrend } from "./weight.js";
 import { weekAdherence } from "./adherence.js";
 import { datesOfWeek, dayTotals } from "./plan.js";
+import { enforcedFloors } from "./targets.js";
 
 /** Morton 2018: plateau ~1.6 g/kg/day, upper 95% CI ~2.2. */
 const MORTON_LO = 1.6;
@@ -141,7 +142,13 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
   subsystems.protein = {
     targetG: proteinTarget,
     deliveredG,
-    floorG: Number(targets?.macros?.proteinFloor) || 0,
+    // Derived, not read raw. `proteinFloor` was DELETED from targets.json on
+    // 2026-08-19 when the council made `protein` itself the floor, and a bare
+    // read of the dead field made this report a 0 g protein floor on the Plan
+    // tab, on the same day the number was re-ratified. enforcedFloors() is the
+    // one place that knows a written floor wins and otherwise one is derived,
+    // and weekbuilder.js already goes through it.
+    floorG: enforcedFloors(targets?.macros).protein,
     lastReviewed: targets?.lastReviewed ?? null,
     gPerKg: kg ? Math.round((proteinTarget / kg) * 100) / 100 : null,
     deliveredGPerKg: kg && deliveredG ? Math.round((deliveredG / kg) * 100) / 100 : null,
