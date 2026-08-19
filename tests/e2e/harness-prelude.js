@@ -126,7 +126,6 @@ const mountMock = async () => {
         const SEEDED = [
           "pantry.json",
           "fitness/targets.json",
-          "fitness/workouts.json",
           "fitness/daily.json",
           "fitness/activities.json",
         ];

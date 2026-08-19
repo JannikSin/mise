@@ -52,7 +52,6 @@ async function finalizeProfile(p, existing) {
     name: p.name,
     emoji: p.emoji || "🙂",
     phase: targets.phase,
-    trainingEnabled: p.trainingEnabled !== false,
     ...(p.household && p.household.toLowerCase() !== "home"
       ? {
           household: p.household

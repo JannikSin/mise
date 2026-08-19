@@ -231,7 +231,6 @@ export function ProfileGateView() {
       name: trimmedName,
       emoji: emoji.trim(),
       phase: targets.phase,
-      trainingEnabled: training,
       // INVERTED DEFAULT (council 2026-08-02): a new profile starts at the
       // family minimum — plan, list, dinners, settings. Extra surfaces
       // (check-in, scoreboard, money) get hand-added to capabilities when

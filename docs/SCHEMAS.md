@@ -33,9 +33,11 @@ plans/<week>.json         e.g. plans/2026-W28.json
 shopping.json             current derived list + check-state
 occasions.json            dated overrides that take days off the generator
 fitness/targets.json      macro targets, adjustment rules, priority stack
-fitness/workouts.json     split templates + session log
-fitness/daily.json        daily check-ins
-fitness/activities.json   tennis/climbing/hiking sessions (schema reserved — no UI yet)
+fitness/daily.json        the daily check-in row — SHARED with anvil, see below
+fitness/workouts.json     LEFT FOR ANVIL 2026-08-18. Mise no longer reads or
+                          writes it; the file stays until anvil has read it
+                          from the phone, then it is deleted from this repo
+fitness/activities.json   LEFT FOR ANVIL 2026-08-18, same disposal
 meta.json                 app-level state (schema version, last-write info)
 
 profiles/<id>/...         same file set as above, for every profile except "david"
@@ -170,7 +172,7 @@ data to the app repo.
   honestly instead of silently showing the default list.
 - New profiles are created by the gate's ADD PROFILE questionnaire
   (`app/views/profile-gate.js`): sex/age/height(ft+in)/weight(lb)/activity/
-  goal → `targetsFromQuestionnaire` (`app/lib/fitness.js`, Mifflin-St Jeor
+  goal → `targetsFromQuestionnaire` (`app/lib/targets.js`, Mifflin-St Jeor
   × activity ± goal delta) writes a complete
   `profiles/<id>/fitness/targets.json` and appends to `profiles.json`.
   Recipes come from the shared bank, so no per-profile recipe seeding is
@@ -179,14 +181,14 @@ data to the app repo.
   back to a single default David profile so a fresh or pre-multi-profile
   install still boots straight into the app.
 
-## Vitals — `profiles/<id>/health/vitals.json` (per-profile, scoped)
+## Vitals — `health/vitals.json`
 
-Read-only Apple Watch / Apple Health mirror for the Vitals dashboard
-(`app/views/vitals.js`, route `#/vitals`, linked from Home). **The app never
-writes this file.** A PWA cannot read HealthKit, so an Apple Shortcuts
-automation on the phone posts the data (via the GitHub Contents API with the
-same PAT, or a future Worker write endpoint). An absent or empty file is the
-normal pre-connection state, not an error.
+**LEFT FOR ANVIL, 2026-08-18.** Mise has no Vitals screen and its Worker no
+longer carries the `/vitals` ingest route. That route was never configured in
+production — `VITALS_KEY` and `MISE_DATA_WRITE_TOKEN` were never set, and the
+seven rows in this file dated 2026-07-12 to 07-18 are the seeded demo rows,
+never a real export. anvil reads this file until David re-points Health Auto
+Export at anvil's own Worker, after which it can be deleted from this repo.
 
 ```jsonc
 {
@@ -1051,7 +1053,7 @@ Seeded from the FITNESS.md system; edited rarely.
     //   (a written 1400 stays hand-set); absent = max(1200, calories - 200), the
     //   same derivation the questionnaire writes. Never a ratio of target —
     //   the generator enforced 0.95 x target until 2026-08-10, holding David
-    //   to 199.5 g against his written 185. See fitness.js enforcedFloors.
+    //   to 199.5 g against his written 185. See targets.js enforcedFloors.
     "protein": 175, // grams (David's ratified 2026-08-18 numbers: 175 target,
     //   155 floor, set from GOAL weight per the nutrition council; the old
     //   210/185 pair is retired and must not reappear in fixtures)
@@ -1127,7 +1129,7 @@ Seeded from the FITNESS.md system; edited rarely.
   // ---- survey-v2 onboarding answers (docs/survey-v2-design.md) ----
   // All optional; every field ABSENT = its safe default (no filter, no
   // weight). Written by the add-profile questionnaire via
-  // targetsFromQuestionnaire (app/lib/fitness.js), editable later in SYS.
+  // targetsFromQuestionnaire (app/lib/targets.js), editable later in SYS.
   "diet": "vegan", // ? enum omnivore | pescatarian | vegetarian | vegan.
   //   ABSENT = omnivore. FILTER in mergeRecipePool
   //   (app/lib/plan.js dietOf): removes bank recipes whose
@@ -1135,7 +1137,7 @@ Seeded from the FITNESS.md system; edited rarely.
   "allergens": ["dairy", "gluten"], // ? preset ids the gate chips expand into
   //   avoidIngredients; kept so SYS re-renders the chips. Preset
   //   ids: nuts | peanuts | gluten | dairy | eggs | soy |
-  //   shellfish | fish | sesame (ALLERGEN_TERMS in fitness.js).
+  //   shellfish | fish | sesame (ALLERGEN_TERMS in targets.js).
   "snackAppetite": "meals", // ? enum grazer | meals. ABSENT = grazer.
   //   Caps macroTopUp snack stacking per day: grazer 3 (today's
   //   behavior), meals 1 (portion bumps do more of the work).
@@ -1239,7 +1241,11 @@ pick a verdict band: gain is on-target at +0.25 to +0.75 lb/wk; loss is
 on-target losing 0.5 to 1.25 lb/wk (slower reads too-slow, including flat or
 gaining; faster reads too-fast). `phase` defaults to `"gain"` when omitted.
 
-## Fitness — `fitness/workouts.json`
+## Fitness — `fitness/workouts.json` (LEFT FOR ANVIL 2026-08-18)
+
+> Kept here as the format of record while the file still lives in this repo.
+> Mise reads and writes nothing in it.
+
 
 Under the simplified logging flow (Phase 6), `sets` is written with exactly one
 entry per exercise per session, the array shape is kept for backward

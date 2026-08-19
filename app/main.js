@@ -26,10 +26,8 @@ import { TourOverlay, TourOffer } from "./views/tour.js";
 import { readTourState, writeTourState } from "./lib/tour.js";
 import { PlannerView } from "./views/planner.js";
 import { ShoppingView } from "./views/shopping.js";
-import { FitnessView } from "./views/fitness.js";
 import { RemediesView } from "./views/remedies.js";
 import { OccasionsView } from "./views/occasions.js";
-import { VitalsView } from "./views/vitals.js";
 import { MenuView } from "./views/menu.js";
 import { AnnotateView } from "./views/annotate.js";
 import { DinnerView } from "./views/dinner.js";
@@ -145,7 +143,6 @@ const TABS = [
   { hash: "#/plan", view: "plan", icon: "⬒", label: "Plan" },
   { hash: "#/list", view: "list", icon: "☑", label: "List" },
   { hash: "#/tables", view: "tables", icon: "◫", label: "Today" },
-  { hash: "#/train", view: "train", icon: "▲", label: "Train" },
   { hash: "#/system", view: "system", icon: "☰", label: "Settings" },
 ];
 
@@ -370,10 +367,6 @@ function App() {
   const [pins, setPins] = useState(
     /** @type {import("./lib/kroger.js").PinBook | null} */ (null),
   );
-  const [vitals, setVitals] = useState(
-    /** @type {import("./lib/vitals.js").Vitals | null} */ (null),
-  );
-  const [vitalsLoaded, setVitalsLoaded] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -444,13 +437,6 @@ function App() {
       // ingredient→UPC pins (data-repo root, shared like the catalogue)
       read("pins.json", { raw: true }).then((p) => {
         if (alive) setPins(normalizePins(p));
-      });
-      // Apple Watch vitals (per-profile, scoped): posted by the phone
-      // Shortcuts automation, read-only here. Absent = not connected yet.
-      read("health/vitals.json").then((v) => {
-        if (!alive) return;
-        if (v) setVitals(/** @type {any} */ (v));
-        setVitalsLoaded(true);
       });
     };
     load();
@@ -631,9 +617,6 @@ function App() {
   const otherListsRef = useRef(otherLists);
   otherListsRef.current = otherLists;
   const [ownEmoji, setOwnEmoji] = useState("");
-  // per-profile training gate (profiles.json trainingEnabled, absent = true):
-  // hides the Train tab, Home's Train row, and the #/train route
-  const [trainingEnabled, setTrainingEnabled] = useState(true);
 
   useEffect(() => {
     let alive = true;
@@ -642,7 +625,6 @@ function App() {
       readProfiles().then((p) => {
         const self = p.profiles.find((pr) => pr.id === me);
         if (alive && self?.emoji) setOwnEmoji(self.emoji);
-        if (alive) setTrainingEnabled(self?.trainingEnabled !== false);
         // same household only: Laurie's solo-apartment list never mixes
         // into the home EVERYONE trip (and vice versa)
         const others = householdOthers(p.profiles, me);
@@ -950,26 +932,19 @@ function App() {
     [updateShopping],
   );
 
-  // fitness data: cached-first, refreshed on sync activity
-  const [workouts, setWorkouts] = useState(
-    /** @type {{ templates: Record<string, any>[], sessions: Record<string, any>[] }} */ ({
-      templates: [],
-      sessions: [],
-    }),
-  );
+  // The daily check-in row and the calorie targets, cached-first. The lifting
+  // half of this block left with the Train tab on 2026-08-18. fitness/daily.json
+  // keeps its legacy path and is now SHARED with anvil, which writes sleep,
+  // weight and pushups into the same row Mise writes water, supplements and the
+  // daily dozen into; both go through the same sha-and-merge path, so a
+  // field-wise merge keeps them from clobbering each other.
   const [dailyLog, setDailyLog] = useState(
     /** @type {{ days: Record<string, any>[] }} */ ({ days: [] }),
   );
-  const [fitnessLoaded, setFitnessLoaded] = useState(false);
 
   useEffect(() => {
     let alive = true;
     const load = () => {
-      read("fitness/workouts.json").then((w) => {
-        if (!alive) return;
-        if (w) setWorkouts(/** @type {any} */ (w));
-        setFitnessLoaded(true);
-      });
       read("fitness/daily.json").then((d) => {
         if (alive && d) setDailyLog(/** @type {any} */ (d));
       });
@@ -985,31 +960,8 @@ function App() {
     };
   }, [hasToken]);
 
-  const workoutsRef = useRef(workouts);
-  workoutsRef.current = workouts;
   const dailyRef = useRef(dailyLog);
   dailyRef.current = dailyLog;
-
-  // in-progress workout lives at App level: navigating tabs mid-session
-  // must never discard logged sets (reviewer-flagged data-loss risk)
-  const [trainDraft, setTrainDraft] = useState(
-    /** @type {{ templateId: string | null, session: Record<string, any> | null, inputs: Record<string, { w: string, r: string }> }} */ ({
-      templateId: null,
-      session: null,
-      inputs: {},
-    }),
-  );
-
-  const handleSaveSession = useCallback((/** @type {Record<string, any>} */ session) => {
-    const w = workoutsRef.current;
-    // sessions carry a unique id — the merge key — so two same-day sessions
-    // (or two devices) can never collapse into each other on a 409 merge
-    const withId = session.id ? session : { ...session, id: crypto.randomUUID().slice(0, 8) };
-    const next = { ...w, sessions: [...w.sessions, withId] };
-    workoutsRef.current = next;
-    setWorkouts(next);
-    void write("fitness/workouts.json", /** @type {any} */ (next));
-  }, []);
 
   const handlePatchDay = useCallback((/** @type {Record<string, any>} */ patch) => {
     const next = upsertDay(/** @type {any} */ (dailyRef.current), localIsoDate(new Date()), patch);
@@ -1573,8 +1525,6 @@ function App() {
       grab("pantry.json"),
       grab("shopping.json"),
       grab("fitness/daily.json"),
-      grab("fitness/workouts.json"),
-      grab("health/vitals.json"),
       ...[-2, -1, 0, 1].map((d) => grab(`plans/${shiftWeek(weekNow, d)}.json`)),
     ]);
     const ownRecipes = profileId === "david" ? [] : await readCollection("recipes").catch(() => []);
@@ -3256,10 +3206,6 @@ function App() {
       html`<${RemediesView} recipes=${recipes} hasToken=${hasToken} repo=${repo} />`
     }
     ${
-      route.view === "vitals" &&
-      html`<${VitalsView} vitals=${vitals} loading=${!vitalsLoaded} hasToken=${hasToken} />`
-    }
-    ${
       route.view === "menu" &&
       html`<${MenuView}
         profiles=${allProfiles}
@@ -3347,30 +3293,6 @@ function App() {
       />`
     }
     ${
-      route.view === "train" &&
-      !trainingEnabled &&
-      html`<div class="view">
-        <div class="empty">
-          training is disabled in this profile — turn it on in <a href="#/system">SYS</a>
-        </div>
-      </div>`
-    }
-    ${
-      route.view === "train" &&
-      trainingEnabled &&
-      html`<${FitnessView}
-        workouts=${workouts}
-        targets=${targets}
-        today=${localIsoDate(new Date())}
-        hasToken=${hasToken}
-        repo=${repo}
-        loading=${!fitnessLoaded}
-        draft=${trainDraft}
-        onDraft=${setTrainDraft}
-        onSaveSession=${handleSaveSession}
-      />`
-    }
-    ${
       route.view === "system" &&
       html`<${SystemView}
         sw=${sw}
@@ -3388,7 +3310,7 @@ function App() {
     }
 
     <nav class="tabbar">
-      ${TABS.filter((t) => trainingEnabled || t.view !== "train").map(
+      ${TABS.map(
         (t) => html`
           <a
             class=${route.view === t.view ? "active" : ""}

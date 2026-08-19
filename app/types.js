@@ -21,19 +21,4 @@
  *   method: "estimated" | "book-verified"
  * }} FoodGroups
  */
-
-/**
- * Weekday -> templateId map, fixed rotation (docs/SCHEMAS.md,
- * `fitness/workouts.json`.schedule). null = rest day.
- * @typedef {{
- *   mon: string | null,
- *   tue: string | null,
- *   wed: string | null,
- *   thu: string | null,
- *   fri: string | null,
- *   sat: string | null,
- *   sun: string | null
- * }} WorkoutSchedule
- */
-
 export {};

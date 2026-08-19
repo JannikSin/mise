@@ -40,8 +40,6 @@ import {
   allowRequest,
   buildNotifications,
   isoWeekIdOf,
-  parseHealthExport,
-  mergeVitalsDays,
   buildAskRequest,
   parseAskResponse,
   sanitizeAskContext,
@@ -379,90 +377,6 @@ async function fetchRecipeUrl(rawUrl) {
   throw new Error("too many redirects");
 }
 
-/**
- * POST /vitals — Apple Health ingest for Health Auto Export.
- *
- * Auth is a dedicated VITALS_KEY, not the GitHub PAT the browser app presents,
- * so the phone never carries a credential that can read the whole data repo.
- * The key may arrive as an `x-vitals-key` header OR as the last path segment
- * (`/vitals/<key>`), because the app's URL field is guaranteed to exist while
- * its custom-header support is the one thing not verified against a live
- * install. Prefer the header: a key in a URL can end up in request logs.
- *
- * @param {Request} request
- * @param {{ VITALS_KEY?: string, MISE_DATA_WRITE_TOKEN?: string }} env
- * @param {URL} url
- */
-async function handleVitals(request, env, url) {
-  /** @type {Record<string, string>} */
-  const bare = {};
-  if (request.method !== "POST") return json(405, { error: "POST only" }, bare);
-  if (!env.VITALS_KEY || !env.MISE_DATA_WRITE_TOKEN) {
-    return json(
-      503,
-      { error: "vitals ingest not configured (VITALS_KEY + MISE_DATA_WRITE_TOKEN)" },
-      bare,
-    );
-  }
-  const pathKey = url.pathname.startsWith("/vitals/") ? url.pathname.slice("/vitals/".length) : "";
-  const presented = request.headers.get("x-vitals-key") || pathKey;
-  // Constant-time-ish: compare lengths first, then whole strings. The key is
-  // high-entropy and this endpoint is rate-limited by GitHub write latency,
-  // so a timing oracle here is not a practical attack surface.
-  if (!presented || presented.length !== env.VITALS_KEY.length || presented !== env.VITALS_KEY) {
-    return json(401, { error: "bad vitals key" }, bare);
-  }
-
-  let body;
-  try {
-    const raw = await request.text();
-    if (raw.length > MAX_BODY_BYTES) return json(413, { error: "payload too large" }, bare);
-    body = JSON.parse(raw);
-  } catch {
-    return json(400, { error: "invalid JSON body" }, bare);
-  }
-
-  const { days, recognized, ignored } = parseHealthExport(body);
-  if (!days.length) {
-    // Deliberately not a 200. A post that parsed to nothing is the failure mode
-    // that would otherwise look exactly like success, and the ignored list is
-    // what tells us which metric names to add to the map.
-    return json(
-      422,
-      { error: "no recognisable health metrics in payload", recognized, ignored },
-      bare,
-    );
-  }
-
-  const path = "health/vitals.json";
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const { data, sha } = await ghReadWithSha(path, env.MISE_DATA_WRITE_TOKEN);
-    const merged = {
-      days: mergeVitalsDays(data?.days ?? [], days),
-      ekg: Array.isArray(data?.ekg) ? data.ekg : [],
-    };
-    const res = await ghWriteJson(
-      path,
-      merged,
-      sha,
-      env.MISE_DATA_WRITE_TOKEN,
-      `vitals ${days.map((d) => d.date).join(", ")}`,
-    );
-    if (res.ok) {
-      return json(
-        200,
-        { written: days.length, dates: days.map((d) => d.date), recognized, ignored },
-        bare,
-      );
-    }
-    // 409 means someone else wrote between our read and write. Re-read and
-    // retry once, which is the merge rule the rest of this project follows.
-    if (res.status !== 409) {
-      return json(502, { error: `data write failed: ${res.status}`, recognized, ignored }, bare);
-    }
-  }
-  return json(409, { error: "write conflict twice, try again" }, bare);
-}
 
 export default {
   /**
@@ -485,24 +399,10 @@ export default {
 
   /**
    * @param {Request} request
-   * @param {{ ANTHROPIC_API_KEY?: string, SCAN_MODEL?: string, REMEDY_MODEL?: string, MISE_DATA_TOKEN?: string, NTFY_TOPIC?: string, VITALS_KEY?: string, MISE_DATA_WRITE_TOKEN?: string }} env
+   * @param {{ ANTHROPIC_API_KEY?: string, SCAN_MODEL?: string, REMEDY_MODEL?: string, MISE_DATA_TOKEN?: string, NTFY_TOPIC?: string }} env
    */
   async fetch(request, env) {
     const cors = corsFor(request.headers.get("origin"));
-
-    // /vitals is handled BEFORE the CORS gate on purpose. Every other route is
-    // called by the browser app, so an allowed Origin is the right first
-    // filter. This one is called by Health Auto Export, a native iOS app,
-    // which sends no Origin header at all — running it through corsFor would
-    // 403 every post and the failure would look like "the watch isn't working".
-    // It is not less protected: it carries its own dedicated key and never
-    // touches the Anthropic budget.
-    {
-      const u = new URL(request.url);
-      if (u.pathname === "/vitals" || u.pathname.startsWith("/vitals/")) {
-        return handleVitals(request, env, u);
-      }
-    }
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: cors ? 204 : 403, headers: cors ?? {} });

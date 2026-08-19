@@ -89,7 +89,6 @@ export function SystemView({
   const profile = allProfiles
     ? (allProfiles.find((x) => x.id === me) ?? { id: me, name: me, emoji: "" })
     : null;
-  const trainingOn = profile?.trainingEnabled !== false;
 
   // apply an id-targeted patch through the safe path; mirrors into local
   // state for instant UI, surfaces the refusal case honestly
@@ -111,11 +110,6 @@ export function SystemView({
     setProfileErr("");
     setAllProfiles((cur) => (cur ? cur.map((x) => (x.id === me ? patch(x) : x)) : cur));
     return true;
-  };
-
-  // per-profile training gate (profiles.json trainingEnabled, absent = true)
-  const toggleTraining = () => {
-    void applyPatch((x) => ({ ...x, trainingEnabled: !trainingOn }));
   };
 
   // household (profiles.json household, absent = "home"): which grocery trip
@@ -206,10 +200,6 @@ export function SystemView({
           <span class="status dim">${profile ? `${profile.emoji} ${profile.name}` : "…"}</span>
         </div>
         <div class="row">
-          <span class="k">Training</span>
-          <span class="status ${trainingOn ? "ok" : "dim"}">${trainingOn ? "on" : "off"}</span>
-        </div>
-        <div class="row">
           <span class="k">Shell</span>
           <span class="status ok">running ✓</span>
         </div>
@@ -225,14 +215,7 @@ export function SystemView({
         </div>
         <div class="actions">
           <button class="secondary" onClick=${switchProfile}>SWITCH PROFILE</button>
-          <button class="secondary" onClick=${toggleTraining} disabled=${!profile}>
-            ${trainingOn ? "TURN TRAINING OFF" : "TURN TRAINING ON"}
-          </button>
         </div>
-        <p class="hint">
-          training off hides the Train tab, Home's Train row, and workout tracking for this profile
-          only.
-        </p>
         <div class="row">
           <span class="k">House</span>
           <input

@@ -12,7 +12,7 @@
 // byte-different sw.js, the browser installs it (skipWaiting+claim), and
 // main.js reloads once on controllerchange so no load ever runs a half-old
 // module graph. tests/sw.test.js pins the SHELL list to the real app files.
-const CACHE_VERSION = "mise-shell-v97";
+const CACHE_VERSION = "mise-shell-v98";
 
 const SHELL = [
   "./suggest.js",
@@ -25,18 +25,15 @@ const SHELL = [
   "./app/lib/adherence.js",
   "./app/lib/annotate.js",
   "./app/lib/awake.js",
-  "./app/lib/core.js",
   "./app/lib/dates.js",
   "./app/lib/db.js",
   "./app/lib/targets.js",
-  "./app/lib/workouts.js",
   "./app/lib/github.js",
   "./app/lib/ingredients.js",
   "./app/lib/kroger.js",
   "./app/lib/manifest.js",
   "./app/lib/merge.js",
   "./app/lib/money.js",
-  "./app/lib/music.js",
   "./app/lib/occasions.js",
   "./app/lib/plan.js",
   "./app/lib/portions.js",
@@ -52,10 +49,9 @@ const SHELL = [
   "./app/lib/sync.js",
   "./app/lib/tables.js",
   "./app/lib/tour.js",
-  "./app/lib/vitals.js",
+  "./app/lib/weight.js",
   "./app/lib/waste.js",
   "./app/lib/weekbuilder.js",
-  "./app/lib/weight.js",
   "./app/lib/worker.js",
   "./app/views/annotate.js",
   "./app/views/confirm-modal.js",
@@ -63,9 +59,6 @@ const SHELL = [
   "./app/views/cookbook.js",
   "./app/views/dinner.js",
   "./app/views/ask.js",
-  "./app/views/fitness.js",
-  "./app/views/core-figure.js",
-  "./app/views/core-workout.js",
   "./app/views/menu.js",
   "./app/views/occasions.js",
   "./app/views/onboard.js",
@@ -79,7 +72,6 @@ const SHELL = [
   "./app/views/system.js",
   "./app/views/tables.js",
   "./app/views/tour.js",
-  "./app/views/vitals.js",
   "./vendor/preact/preact.module.js",
   "./vendor/preact/hooks.module.js",
   "./vendor/htm/htm.module.js",

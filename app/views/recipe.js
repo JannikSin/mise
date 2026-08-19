@@ -3,7 +3,6 @@ import { useEffect, useState } from "preact/hooks";
 import { cookPlan } from "../lib/portions.js";
 import { formatRecipeQty } from "../lib/shopping.js";
 import { keepAwake } from "../lib/awake.js";
-import { pickForRecipe } from "../lib/music.js";
 import { untrustedForAutoPlan } from "../lib/plan.js";
 
 // ?from=<key> in the recipe hash → where the backlink returns; unknown or
@@ -67,7 +66,6 @@ export function RecipeView({
       reason: "",
     }),
   );
-  const [tune, setTune] = useState(0);
   useEffect(() => keepAwake(setAwake), []);
   if (!recipe)
     return html`<div class="empty">
@@ -203,29 +201,6 @@ export function RecipeView({
           </div>
           <div class="d">${plan.note}</div>
         </div>`
-      }
-      ${
-        // Something to put on, themed to the food (David, 2026-07-27). It is a
-        // LINK, not a player: on the phone this opens the Music app. Offered,
-        // never forced, and it remembers nothing.
-        (() => {
-          const p = pickForRecipe(recipe, tune);
-          return html`<div class="tile tunetile">
-            <div class="row">
-              <span class="k">🎧 put something on?</span>
-              <button
-                class="linktext"
-                aria-label="Suggest something else"
-                onClick=${() => setTune(tune + 1)}
-              >
-                something else ↻
-              </button>
-            </div>
-            <a class="secondary linkbtn tunelink" href=${p.url} rel="noopener noreferrer">
-              ${p.label}${p.why ? html` <span class="hint">· ${p.why}</span>` : ""}
-            </a>
-          </div>`;
-        })()
       }
       ${!awake.held && awake.reason && html`<p class="hint awakewhy">☀ ${awake.reason}</p>`}
       <div class="actions">

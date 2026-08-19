@@ -25,9 +25,7 @@ export function parseRoute(hash) {
     case "system":
     case "plan":
     case "list":
-    case "train":
     case "remedies":
-    case "vitals":
     case "menu":
     case "dinner":
     case "ask":

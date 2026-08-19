@@ -18,7 +18,6 @@ test("top-level views", () => {
   assert.deepEqual(parseRoute("#/system"), { view: "system" });
   assert.deepEqual(parseRoute("#/plan"), { view: "plan" });
   assert.deepEqual(parseRoute("#/list"), { view: "list" });
-  assert.deepEqual(parseRoute("#/train"), { view: "train" });
   assert.deepEqual(parseRoute("#/remedies"), { view: "remedies" });
   assert.deepEqual(parseRoute("#/menu"), { view: "menu" });
   assert.deepEqual(parseRoute("#/dinner"), { view: "dinner" });
@@ -28,6 +27,14 @@ test("top-level views", () => {
 
 test("removed routes fall back to the Plan tab", () => {
   assert.deepEqual(parseRoute("#/quiz"), { view: "plan" });
+});
+
+test("the retired fitness routes land on Plan, not on nothing", () => {
+  // Train and Vitals left for anvil on 2026-08-18. A year of bookmarks, home
+  // screen shortcuts and old deep links still say #/train, and a dead route
+  // renders a blank tab that looks exactly like a broken app.
+  assert.deepEqual(parseRoute("#/train"), { view: "plan" });
+  assert.deepEqual(parseRoute("#/vitals"), { view: "plan" });
 });
 
 test("recipe detail and cook mode carry the id", () => {

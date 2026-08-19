@@ -999,38 +999,6 @@ summary.block-title {
   font-size: 11px;
 }
 
-/* ---- interval timer (F1) ---- */
-
-.coreblock {
-  margin-top: 18px;
-}
-
-.coreblock summary {
-  cursor: pointer;
-}
-
-.corelist {
-  margin-top: 8px;
-}
-
-/* the exercise being called: it has to be readable from the floor, at arm's
-   length, upside down in a plank, which is why it is this big */
-.corename {
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1.15;
-  margin: 6px 12px 0;
-  text-transform: uppercase;
-  letter-spacing: 0.01em;
-}
-
-.corecue {
-  margin: 8px 14px 0;
-  font-size: 13.5px;
-  line-height: 1.45;
-  color: var(--dim);
-}
-
 .tface {
   text-align: center;
   padding: 18px 0 10px;
@@ -1105,25 +1073,12 @@ summary.block-title {
   line-height: 1.5;
 }
 
-.tunetile {
-  margin-top: 10px;
-}
-
-.tunelink {
-  display: inline-block;
-  margin-top: 8px;
-}
-
 .tunerow {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   margin: 10px 0 4px;
-}
-
-.tunerow .tunelink {
-  margin-top: 0;
 }
 
 /* ---- recipe peek: the card a planned meal opens into (2026-07-27) ----
@@ -1199,58 +1154,6 @@ summary.block-title {
 
 .peekactions {
   margin-top: 14px;
-}
-
-.corerow {
-  gap: 10px;
-}
-
-/* ---- core session figures (2026-07-27) ----
-   Schematic animated stick figures. They answer "which shape, which way does
-   it move" at a glance, because reading a paragraph of cue text while already
-   in a plank is exactly the moment you cannot read anything. */
-.corefig {
-  display: block;
-  width: 100%;
-  max-width: 320px;
-  margin: 4px auto 0;
-  height: auto;
-}
-
-.corefig.small {
-  max-width: 92px;
-  margin: 0;
-}
-
-.corefig .f-limb,
-.corefig .f-spine,
-.corefig .f-arrow,
-.corefig .f-box {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.corefig .f-head {
-  fill: currentColor;
-}
-
-.corefig .f-floor {
-  stroke: var(--line-strong);
-  stroke-width: 2;
-  stroke-dasharray: 4 4;
-}
-
-.corefig .f-arrow {
-  stroke-width: 2;
-  opacity: 0.55;
-}
-
-.corefig .f-box {
-  stroke: var(--line-strong);
-  stroke-width: 2;
 }
 
 /* the moving parts. Each figure animates ONE group, because two moving
@@ -1737,124 +1640,6 @@ summary.block-title {
   background: rgba(255, 178, 36, 0.1);
 }
 
-/* ---- fitness ---- */
-
-.lift {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 12px 13px;
-}
-
-.liftrow {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-}
-
-.liftrow .food {
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.liftrow .q {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--dim);
-}
-
-.liftmeta {
-  font-family: var(--mono);
-  /* gym-glance size: the last-time numbers are the point of this screen */
-  font-size: 12.5px;
-  color: var(--dim);
-  margin-top: 4px;
-}
-
-.liftmeta b {
-  color: var(--signal);
-  font-weight: 600;
-}
-
-.setform {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.setform input {
-  width: 0;
-  flex: 1;
-  min-height: 44px;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: 16px;
-  padding: 8px 10px;
-}
-
-.setform input:focus {
-  outline: none;
-  border-color: var(--recover);
-}
-
-.chartrow {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 12px 13px;
-  margin-bottom: 8px;
-}
-
-.spark {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-  max-width: 60%;
-}
-
-.sparksvg {
-  flex: 1;
-  height: 30px;
-  min-width: 0;
-}
-
-.spark-line {
-  fill: none;
-  stroke: var(--signal);
-  stroke-width: 2;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-
-.spark-base {
-  stroke: var(--line);
-  stroke-width: 1;
-}
-
-.spark-dot {
-  fill: var(--signal);
-}
-
-.spark-vals {
-  font-family: var(--mono);
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
-.spark-vals small {
-  color: var(--dim);
-  font-size: 9.5px;
-}
-
-.spark-empty {
-  margin: 0;
-}
-
 label.tile .k {
   display: block;
 }
@@ -1963,26 +1748,6 @@ button.secondary.arm {
 button.secondary:focus-visible {
   outline: 2px solid var(--recover);
   outline-offset: 2px;
-}
-
-/* rest countdown stays visible while scrolling the lift list */
-.restpill {
-  position: fixed;
-  top: calc(8px + env(safe-area-inset-top));
-  right: 14px;
-  z-index: 45;
-  background: rgba(12, 15, 17, 0.92);
-  border: 1px solid var(--signal);
-  color: var(--signal);
-  border-radius: 20px;
-  padding: 8px 14px;
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-}
-
-.setform.inputerr input {
-  border-color: var(--amber);
 }
 
 /* daily counters: −/+ steppers flank the count (mis-tap recovery) */
@@ -2135,26 +1900,6 @@ a.todayrow {
 
 .counters {
   margin-top: 10px;
-}
-
-.streaktile .v {
-  font-family: var(--mono);
-  font-size: 26px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-
-.streaktile .v small {
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--dim);
-}
-
-.streaktile .d {
-  font-family: var(--mono);
-  font-size: 9.5px;
-  color: var(--dim);
-  margin-top: 6px;
 }
 
 /* ---- remedies ---- */
@@ -2317,32 +2062,6 @@ button.primary:focus-visible,
       transform: none;
     }
   }
-}
-
-/* Vitals dashboard (Apple Watch mirror) */
-.vital-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-}
-.tile.vital {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.tile.vital .v {
-  font-size: 1.5rem;
-  font-weight: 600;
-}
-.tile.vital .unit {
-  font-size: 0.8rem;
-  opacity: 0.6;
-  font-weight: 400;
-}
-.vital-spark {
-  color: var(--accent, #6fcf7f);
-  opacity: 0.85;
-  margin: 2px 0;
 }
 
 /* Chat onboarder */

@@ -10,7 +10,6 @@ export const TOUR_TABS = /** @type {const} */ ({
   "#/plan": "PLAN",
   "#/list": "LIST",
   "#/tables": "TODAY",
-  "#/train": "TRAIN",
   "#/system": "SETTINGS",
 });
 
@@ -103,12 +102,6 @@ export const TOUR_STEPS = [
     selector: ".chips",
     title: "Pantry and house",
     text: "PANTRY holds what you own: ticked groceries flow in via ADD TO PANTRY, P+ marks things you already had. FAMILY merges your house's lists into one trip.",
-  },
-  {
-    route: "#/train",
-    selector: ".coreblock",
-    title: "Train",
-    text: "Today's workout with one-entry logging, plus a directed core session: pick one or take the day's, press START, and it calls every move and counts it down for you.",
   },
   {
     route: "#/system",

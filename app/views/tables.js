@@ -1213,7 +1213,6 @@ export function TablesView({
         // cook from the pantry, but they don't lead the family page
         html`<div class="actions wrap">
           <a class="secondary linkbtn remedy" href="#/remedies">feeling off? → remedies</a>
-          <a class="secondary linkbtn" href="#/vitals">vitals (Apple Watch) →</a>
         </div>`
       }
     </div>
