@@ -33,6 +33,7 @@ import { priceWeek, swapToFit } from "../app/lib/budget.js";
 import { buildServe } from "../app/lib/serve.js";
 import { clampGuests, deriveTables, setTableGuests } from "../app/lib/tables.js";
 import { composeWeekReview } from "../app/lib/review.js";
+import { setReviewNote } from "../app/lib/plan.js";
 import { screenMenuReport, unconfirmedReason } from "../app/lib/annotate.js";
 
 /**
@@ -1156,7 +1157,7 @@ const PROMISES = [
 
   {
     id: "P11",
-    name: "P11 the review shows plan against reality on every tracked axis, and names the axes with no data",
+    name: "P11 the review shows plan against reality, takes your own words, and the next week reads it",
     fn: () => {
       const recipe = { id: "chili", name: "Chili", servings: 4, totalTime: 45 };
       const plan = {
@@ -1217,6 +1218,125 @@ const PROMISES = [
       // whatever evidence exists, including none. The review is an engine,
       // not a chore gate.
       assert.ok(build().plan.entries.length > 0, "generation refused to run without a review");
+
+      // WHAT IS ACTUALLY LEFT. The pantry scan IS the fridge photograph in
+      // this app, so the honest reading of that clause is what the last scan
+      // says is still on the shelf, named rather than counted.
+      const withShelf = composeWeekReview({
+        plan,
+        waste: { events: [] },
+        daily: { days: [] },
+        targets: TARGETS,
+        weekDates: DATES,
+        recipesById: new Map([["chili", recipe]]),
+        pantry: {
+          items: [
+            { id: "s1", food: "spinach", qty: "1 bag", location: "fridge", expires: DATES[3] },
+            { id: "s2", food: "peas", qty: "1 bag", location: "freezer", expires: DATES[3] },
+          ],
+        },
+      });
+      assert.equal(withShelf.stillOnShelf.rows, 1, "a freezer row was counted as fridge leftovers");
+      assert.deepEqual(withShelf.stillOnShelf.foods, ["spinach"]);
+      assert.equal(withShelf.stillOnShelf.scanned, true);
+      assert.equal(dark.stillOnShelf.scanned, false, "a never-scanned shelf claimed to be empty");
+
+      // YOUR OWN COMMENTS, IN PLAIN WORDS, and never parsed.
+      const noted = setReviewNote(plan, "was not hungry Tuesday, ate it for lunch Wednesday");
+      assert.match(noted.reviewNote, /not hungry Tuesday/);
+      assert.equal(
+        composeWeekReview({
+          plan: noted,
+          waste: { events: [] },
+          daily: { days: [] },
+          targets: TARGETS,
+          weekDates: DATES,
+          recipesById: new Map([["chili", recipe]]),
+        }).note,
+        "was not hungry Tuesday, ate it for lunch Wednesday",
+      );
+      assert.equal(setReviewNote(noted, "   ").reviewNote, undefined, "an emptied note did not clear");
+
+      // AND THE NEXT WEEK DEMONSTRABLY READS IT. This is the clause the whole
+      // promise turns on and the one that was missing: the review REPORTED and
+      // nothing consumed it. Evidence in, different week out.
+      //
+      // The pool here is deliberately flat, every dinner identical but for its
+      // id and its food, so last week's evidence is the ONLY thing that can
+      // separate them. On the real bank a food-group need routinely outweighs
+      // this signal, and that is correct: measured evidence steers the week, it
+      // does not get to starve it.
+      const flat = ["breakfast", "lunch", "dinner", "smoothie", "snack"].flatMap((meal) =>
+        [1, 2, 3, 4, 5].map((n) => ({
+          id: `${meal}-${n}`,
+          name: `${meal} ${n}`,
+          mealType: meal,
+          servings: 1,
+          totalTime: 30,
+          difficulty: 1,
+          nutrition: { calories: 520, protein: 34, carbs: 50, fat: 15 },
+          ingredients: [{ qty: 100, unit: "g", food: `${meal} food ${n}` }],
+          foodGroups: { beans: 1, greens: 1 },
+          instructions: ["cook it"],
+        })),
+      );
+      const flatById = recipesById(flat);
+      const runFlat = (/** @type {any} */ rev) =>
+        generateWeek({
+          recipes: flat,
+          targets: TARGETS,
+          pantry: { items: [] },
+          weekId: WEEK,
+          plan: { week: WEEK, entries: [] },
+          salt: 7,
+          review: rev,
+        });
+      const base = runFlat(null);
+      const victim = base.plan.entries.find((e) => e.slot === "dinner" && e.recipeId);
+      assert.ok(victim, "the fixture generated no dinner to learn from");
+      const before = base.plan.entries.filter((e) => e.recipeId === victim.recipeId).length;
+      assert.ok(before > 0);
+
+      // a prior week where that meal was planned four times and never cooked
+      const priorWeek = {
+        week: WEEK,
+        entries: DATES.slice(0, 4).map((d, i) => ({
+          id: `p${i}`,
+          date: d,
+          slot: "dinner",
+          recipeId: victim.recipeId,
+          servings: 1,
+        })),
+      };
+      const victimFood = String(flatById.get(victim.recipeId).ingredients[0].food);
+      const lastWeek = composeWeekReview({
+        plan: priorWeek,
+        waste: { events: [{ date: DATES[0], food: victimFood }] },
+        daily: { days: [] },
+        targets: TARGETS,
+        weekDates: DATES,
+        recipesById: flatById,
+      });
+      assert.ok(
+        lastWeek.signals.skippedRecipeIds.includes(victim.recipeId),
+        "a planned meal that was never cooked produced no signal",
+      );
+      assert.deepEqual(lastWeek.signals.tossedFoods, [victimFood]);
+
+      const taught = runFlat(lastWeek);
+      const after = taught.plan.entries.filter((e) => e.recipeId === victim.recipeId).length;
+      assert.ok(
+        after < before,
+        `the review changed nothing: ${victim.recipeId} appeared ${before} times before and ` +
+          `${after} times after being reported uncooked`,
+      );
+
+      // and the loop announces itself, because an engine that reports nothing
+      // is this codebase's named failure mode
+      assert.equal(taught.report.manifest.review.read, true);
+      assert.equal(taught.report.manifest.review.skippedRecipes, 1);
+      assert.equal(taught.report.manifest.review.tossedFoods, 1);
+      assert.equal(build().report.manifest.review.read, false, "a week with no review claimed one");
     },
   },
 ];
@@ -1288,15 +1408,6 @@ const UNBUILT = [
       "no user text, which is the only reason P3 passes on this surface. The moment a meal can be " +
       "DESCRIBED or a composed tray can enter the plan, it must route through screenMenuReport or " +
       "P3 regresses silently, which is the whole failure mode this ledger exists to catch.",
-  },
-  {
-    id: "P11",
-    name: "P11 GAP the review accepts a fridge photo and comments, and the next week demonstrably reads it",
-    why:
-      "owner koenig, Phase 2 job 8, and review.js's own header comment lists these three gaps. The " +
-      "read side is live. The write side is not: the pantry scan IS the fridge photo and its diff is " +
-      "not wired into the review, there is no free-text comment field writing plan.reviewNote, and " +
-      "while adherence feeds the manifest, portion and buying adjustments do not read the review yet.",
   },
   {
     id: "P12",

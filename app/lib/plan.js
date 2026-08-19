@@ -6,7 +6,7 @@ import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 /**
  * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, cookSeconds?: number, cookComment?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
- * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any>, fallback?: { savedAt: string, entries: PlanEntry[] }, spend?: { store: string, date: string, total: number }[] }} Plan
+ * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any>, fallback?: { savedAt: string, entries: PlanEntry[] }, spend?: { store: string, date: string, total: number }[], reviewNote?: string }} Plan
  */
 // cookedAt is optional; absent = not confirmed cooked. Set (local YYYY-MM-DD)
 // by the DONE button at the end of Cook mode — the honest-state rule: a past
@@ -948,4 +948,27 @@ export function dayTotals(entries, recipesById, date) {
     protein += (n.protein ?? 0) * e.servings;
   }
   return { calories, protein };
+}
+
+/**
+ * The person's own words about the week just closed (P11): "was not hungry
+ * Tuesday, ate it for lunch Wednesday", "starving Friday, ate out".
+ *
+ * Deliberately never parsed and never scored. The review's machine-readable
+ * signals come from what actually happened (waste events, cooked marks), and
+ * a free-text field that quietly influenced next week's meals would be a model
+ * reading a diary, which is not something the person consented to. This exists
+ * so the human reading the review sees what the human wrote.
+ * @param {Plan} plan
+ * @param {string} text empty clears it
+ * @returns {Plan}
+ */
+export function setReviewNote(plan, text) {
+  const note = String(text ?? "").trim().slice(0, 500);
+  if (!note) {
+    const rest = { ...plan };
+    delete (/** @type {any} */ (rest).reviewNote);
+    return rest;
+  }
+  return { ...plan, reviewNote: note };
 }

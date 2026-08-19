@@ -480,11 +480,18 @@ function App() {
   // and hoisting three pieces of state to satisfy one callback would be the
   // tail wagging the dog. Filled on every render, just below where they exist.
   const manifestInputs = useRef(
-    /** @type {{ targets: Record<string, any> | null, recipes: Record<string, any>[], dailyDays: Record<string, any>[], catalogue: Record<string, any> | null }} */ ({
+    /** @type {{
+     *   targets: Record<string, any> | null,
+     *   recipes: Record<string, any>[],
+     *   dailyDays: Record<string, any>[],
+     *   catalogue: Record<string, any> | null,
+     *   waste: Record<string, any> | null
+     * }} */ ({
       targets: null,
       recipes: [],
       dailyDays: [],
       catalogue: null,
+      waste: null,
     }),
   );
 
@@ -1220,14 +1227,6 @@ function App() {
 
   const targetsRef = useRef(targets);
   targetsRef.current = targets;
-  // feeds the manifest refresh at the plan-write point (P1, re-checked after
-  // every edit); declared up there, filled here where the values exist
-  manifestInputs.current = {
-    targets,
-    recipes,
-    dailyDays: dailyLog?.days ?? [],
-    catalogue: priceCatalogue,
-  };
 
   // THE FLUID WEEK (7.2, canon P4): the locked week is abolished. Shopping
   // stores the plan as a FALLBACK and the plan stays freely changeable; the
@@ -1427,9 +1426,34 @@ function App() {
     }
     const bs = buildStateRef.current;
     bs.salt++;
+    // P11, the loop: the week being generated reads the week just closed.
+    // Composed here rather than passed down from render so GENERATE never
+    // depends on which tab happened to be open. Waste events and uncooked
+    // planned meals are the only signals, both measured, never stated.
+    /** @type {any} */
+    let lastReview = null;
+    try {
+      const prevId = shiftWeek(weekRef.current, -1);
+      const prev = /** @type {any} */ (await read(`plans/${prevId}.json`));
+      if (prev) {
+        lastReview = composeWeekReview({
+          plan: prev,
+              waste: /** @type {any} */ (manifestInputs.current.waste),
+          daily: /** @type {any} */ (dailyRef.current),
+          targets: targetsRef.current,
+          weekDates: datesOfWeek(prevId),
+          recipesById: recipesById(recipesRef.current),
+          pantry: pantryRef.current,
+        });
+      }
+    } catch {
+      // no readable prior week is a working state, not a failure: a skipped
+      // review never blocks the next week (canon P11)
+    }
     const result = generateWeek({
       recipes: recipesRef.current,
       targets: targetsRef.current,
+      review: lastReview,
       // expiring-soon perishables are auto-flagged useSoon so the committees
       // favor recipes that cook them before they leave on their own
       pantry: withAutoUseSoon(pantryRef.current, localIsoDate(new Date())),
@@ -1630,6 +1654,17 @@ function App() {
     /** @type {import("./lib/plan.js").Plan | null} */ (null),
   );
   const [wasteLog, setWasteLog] = useState(/** @type {Record<string, any> | null} */ (null));
+  // The live inputs the P1 manifest refresh and the P11 review loop need,
+  // filled here because this is the first point in the component where every
+  // one of them exists. The box itself is declared beside the plan-write point
+  // that consumes it.
+  manifestInputs.current = {
+    targets,
+    recipes,
+    dailyDays: dailyLog?.days ?? [],
+    catalogue: priceCatalogue,
+    waste: wasteLog,
+  };
   useEffect(() => {
     let alive = true;
     const prior = [shiftWeek(weekId, -1), shiftWeek(weekId, -2)];
@@ -3322,6 +3357,7 @@ function App() {
           targets,
           weekDates: datesOfWeek(shiftWeek(weekId, -1)),
           recipesById: recipesById(allRecipes),
+          pantry,
         })}
       />`
     }

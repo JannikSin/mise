@@ -210,6 +210,8 @@ export function foodGroupGapBonus(recipe, coverageSoFar, targets) {
  *   dailyDozenTargets?: Record<string, number>,
  *   dislikeIngredients?: string[],
  *   tiredOf?: string[],
+ *   reviewTossedFoods?: string[],
+ *   reviewSkippedIds?: Set<string> | string[],
  *   recentRecipeIds?: Set<string> | string[],
  *   cuisinePrefs?: { loved: string[], avoided: string[] },
  *   budget?: "tight" | "normal" | "loose",
@@ -250,6 +252,11 @@ export function pickCommittee(candidates, opts = {}) {
   // a dislike: a mild tie-loser so the week drifts toward variety without ever
   // banning the food outright.
   const tiredOf = opts.tiredOf ?? [];
+  const reviewTossed = opts.reviewTossedFoods ?? [];
+  const reviewSkipped =
+    opts.reviewSkippedIds instanceof Set
+      ? opts.reviewSkippedIds
+      : new Set(opts.reviewSkippedIds ?? []);
   // recipes cooked in the last week or two: a real penalty so consecutive
   // weeks ROTATE (David is fine eating one dish all week, but wants next week
   // to look different). Strong enough to lose to any fresh option, soft enough
@@ -272,6 +279,12 @@ export function pickCommittee(candidates, opts = {}) {
     let b = 0;
     b += foodMatchCount(r, dislikes) * -2;
     b += foodMatchCount(r, tiredOf) * -1;
+    // P11 evidence from last week's review. Tossed food is a MEASURED waste
+    // event, so it outweighs a stated preference; a planned meal that was
+    // never cooked is weaker evidence, because life happens and the review
+    // is an engine rather than a chore gate.
+    b += foodMatchCount(r, reviewTossed) * -2;
+    if (reviewSkipped.has(r.id)) b += -1.5;
     if (loved.has(r.cuisine)) b += 1;
     if (avoided.has(r.cuisine)) b += -3;
     if (tight) {
@@ -1132,7 +1145,8 @@ export function poolAdequacy(recipes, targets) {
  *   plan: import("./plan.js").Plan,
  *   salt?: number,
  *   recentRecipeIds?: string[],
- *   today?: string
+ *   today?: string,
+ *   review?: { signals?: { tossedFoods?: string[], skippedRecipeIds?: string[] } } | null
  * }} args `today` (local YYYY-MM-DD) makes generation day-aware: dates
  *   strictly before it are PAST — their entries survive verbatim (pinned or
  *   not), nothing new is filled there, no pass resizes them, no report line
@@ -1149,6 +1163,7 @@ export function generateWeek({
   salt = 0,
   recentRecipeIds = [],
   today,
+  review = null,
 }) {
   // council 2026-07-23: an AI estimate may propose and display, but must
   // never silently enter the generator's trusted denominator. ai-special
@@ -1261,6 +1276,19 @@ export function generateWeek({
   // anybody tests on, which is precisely why they survived every audit.
   // Generation is an explicit, personalised, online act (P2), so refusing it
   // out loud is correct and silence is not.
+  // P11, THE LOOP CLOSING. "The review adjusts portions, buying and
+  // generation. Mise improves itself from evidence, week over week." Until
+  // 2026-08-19 the review's output was read by nothing: adherence reached the
+  // manifest as a REPORT, and no signal from last week ever reached a pick.
+  // Two signals, both measured rather than stated, and both deliberately
+  // weaker than a floor so evidence steers the week without ever starving it.
+  const reviewTossedFoods = Array.isArray(review?.signals?.tossedFoods)
+    ? review.signals.tossedFoods
+    : [];
+  const reviewSkippedIds = new Set(
+    Array.isArray(review?.signals?.skippedRecipeIds) ? review.signals.skippedRecipeIds : [],
+  );
+
   const proteinTarget = Number(targets?.macros?.protein);
   const caloriesTarget = Number(targets?.macros?.calories);
   if (!(proteinTarget > 0) || !(caloriesTarget > 0)) {
@@ -1391,6 +1419,8 @@ export function generateWeek({
         dislikeIngredients: targets?.dislikeIngredients,
         proteinRatioNeeded: remainingNeedRatio,
         tiredOf: targets?.tiredOf,
+        reviewTossedFoods,
+        reviewSkippedIds,
         recentRecipeIds: recentSet,
         cuisinePrefs: targets?.cuisinePrefs,
         budget: targets?.budget,
@@ -1743,6 +1773,20 @@ export function generateWeek({
       matchedFoods: useSoonFoods.length,
       datedPantryRows: datedPantry.length,
       onHandFoods: onHandFoods.length,
+    },
+    // P11: what LAST week's evidence changed about this one. A loop that
+    // reports nothing is the dark-engine failure, and this one is easy to
+    // wire and then forget, because nothing visibly breaks when it stops.
+    review: {
+      read: Boolean(review),
+      tossedFoods: reviewTossedFoods.length,
+      skippedRecipes: reviewSkippedIds.size,
+      penalisedPicks: next.entries.filter(
+        (e) =>
+          e.recipeId &&
+          (reviewSkippedIds.has(e.recipeId) ||
+            foodMatchCount(byId.get(e.recipeId) ?? {}, reviewTossedFoods) > 0),
+      ).length,
     },
     philosophy: {
       groupsTargeted: Object.keys(dailyDozenPerDay ?? {}).length,

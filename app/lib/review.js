@@ -15,6 +15,7 @@
  *   targets: Record<string, any> | null,
  *   weekDates: string[],
  *   recipesById?: Map<string, any>,
+ *   pantry?: Record<string, any> | null,
  * }} inputs
  * @returns {{
  *   hasData: boolean,
@@ -23,9 +24,12 @@
  *   tossed: { count: number, foods: string[] },
  *   time: { timed: number, statedMin: number, recordedMin: number } | null,
  *   weighIns: { count: number, days: number },
+ *   stillOnShelf: { rows: number, foods: string[], scanned: boolean },
+ *   note: string,
+ *   signals: { tossedFoods: string[], skippedRecipeIds: string[] },
  * }}
  */
-export function composeWeekReview({ plan, waste, daily, targets, weekDates, recipesById }) {
+export function composeWeekReview({ plan, waste, daily, targets, weekDates, recipesById, pantry }) {
   const dates = new Set(weekDates);
   const entries = (plan?.entries ?? []).filter((e) => dates.has(e.date));
   // planned = meals that were REAL cooking commitments: recipe entries,
@@ -81,5 +85,48 @@ export function composeWeekReview({ plan, waste, daily, targets, weekDates, reci
 
   const hasData =
     planned.length > 0 || receipts.length > 0 || tossedEvents.length > 0 || weighIns.count > 0;
-  return { hasData, cooked: { done: done.length, planned: planned.length }, spend, tossed, time, weighIns };
+  // WHAT IS ACTUALLY LEFT (P11's fridge-photo clause). The pantry scan IS the
+  // photograph: it is how food gets onto the shelves in this app, so the honest
+  // implementation of "photograph the fridge" is to report what the last scan
+  // says is still there and still dated. No second camera, no second schema.
+  const shelf = (pantry?.items ?? []).filter(
+    (/** @type {any} */ i) => i && i.expires && i.location !== "freezer",
+  );
+  const stillOnShelf = {
+    rows: shelf.length,
+    // named, not just counted: "4 rows left" is a number nobody can act on
+    foods: [...new Set(shelf.map((/** @type {any} */ i) => String(i.food ?? "")))].slice(0, 8),
+    scanned: Boolean(pantry?.items),
+  };
+
+  // YOUR OWN COMMENTS, IN PLAIN WORDS. "was not hungry Tuesday, ate it for
+  // lunch Wednesday." Stored on the closed week, never parsed, never scored:
+  // it exists so the person reading the review next week sees what they said.
+  const note = typeof (/** @type {any} */ (plan)?.reviewNote) === "string"
+    ? /** @type {any} */ (plan).reviewNote
+    : "";
+
+  // THE SIGNALS THE NEXT WEEK READS. This is the half P11 was missing: the
+  // review reported and nothing consumed it. Both are MEASURED, never stated.
+  const signals = {
+    // food that went in the bin: the generator leans away from recipes using it
+    tossedFoods: [...new Set(tossedEvents.map((ev) => String(ev.food ?? "")))].filter(Boolean),
+    // meals that were planned and never cooked: weaker evidence, because life
+    // happens and a skipped review must never block the next week
+    skippedRecipeIds: [
+      ...new Set(planned.filter((e) => !e.cookedAt).map((e) => String(e.recipeId))),
+    ],
+  };
+
+  return {
+    hasData,
+    cooked: { done: done.length, planned: planned.length },
+    spend,
+    tossed,
+    time,
+    weighIns,
+    stillOnShelf,
+    note,
+    signals,
+  };
 }
