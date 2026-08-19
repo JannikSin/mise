@@ -641,6 +641,12 @@ before every plan write).
       //   every read. Survives brigade regeneration even across a dish swap
       //   (it is about people, not food). Gates REDO PLATES; shown as
       //   "<name>'s table".
+      "guests": 2, // ? GUEST PLATES (7.4, canon P8, 2026-08-19): "us plus
+      //   two" is the same pot with two extra plates on a sensible default —
+      //   one bank-recipe serving each. Clamped 0..10 (clampGuests, the F2
+      //   seats bound). Guests join the cook's pot total and the buy;
+      //   BILLING a guest stays parked in Mise-Later, so their cost rides
+      //   the cook's ledger. Absent = 0.
       "cookedAt": "2026-07-24", // ? the serve step's COOKED confirmation
       //   (per-person-plates-design §7.2). Set once by setTableCooked, never
       //   cleared (you cannot un-cook food, same rule as a plan entry's

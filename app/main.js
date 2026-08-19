@@ -63,6 +63,7 @@ import {
 import { applyReceipt, parsePackSize } from "./lib/prices.js";
 import { normalizePins } from "./lib/kroger.js";
 import { perishableCoverage } from "./lib/coverage.js";
+import { composeWeekReview } from "./lib/review.js";
 import { appendWaste } from "./lib/waste.js";
 import { canonicalFood } from "./lib/ingredients.js";
 import { cookPlan } from "./lib/portions.js";
@@ -112,6 +113,7 @@ import {
   setTableSameForEveryone,
   setTableBuyer,
   setTableHead,
+  setTableGuests,
   cookOf,
   brigadeTableId,
   seatServingsFor,
@@ -1524,6 +1526,12 @@ function App() {
     };
   }, [weekId, hasToken]);
 
+  // last week's full plan + the household waste ledger feed the P11 review
+  // tile (read side of 7.1) — read-only, absent = the tile stays honest-dark
+  const [prevWeekPlan, setPrevWeekPlan] = useState(
+    /** @type {import("./lib/plan.js").Plan | null} */ (null),
+  );
+  const [wasteLog, setWasteLog] = useState(/** @type {Record<string, any> | null} */ (null));
   useEffect(() => {
     let alive = true;
     const prior = [shiftWeek(weekId, -1), shiftWeek(weekId, -2)];
@@ -1534,7 +1542,18 @@ function App() {
         for (const e of /** @type {any} */ (p)?.entries ?? []) if (e.recipeId) ids.add(e.recipeId);
       }
       recentRecipeIdsRef.current = [...ids];
+      setPrevWeekPlan(/** @type {any} */ (plans[0]) ?? null);
     });
+    void (async () => {
+      const prof = await readProfiles();
+      if (!alive) return;
+      const path = pantryPathFor(householdOf(prof.profiles, activeProfile())).replace(
+        /pantry\.json$/,
+        "waste.json",
+      );
+      const w = /** @type {Record<string, any> | null} */ (await read(path, { raw: true }));
+      if (alive) setWasteLog(w);
+    })();
     return () => {
       alive = false;
     };
@@ -2137,6 +2156,19 @@ function App() {
       const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
       if (!cur) return;
       const next = setTableHead(cur, tableId, headId, localIsoDate(new Date()));
+      writeHouseEvents(house, next);
+    },
+    // writeHouseEvents: body-only reference, TDZ — see handleSetBuyer
+    [],
+  );
+
+  /** a guest is one more plate (7.4, canon P8): whole plates, 0..10 */
+  const handleSetGuests = useCallback(
+    (/** @type {string} */ house, /** @type {string} */ tableId, /** @type {number} */ guests) => {
+      if (house !== myHouseOf()) return;
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      if (!cur) return;
+      const next = setTableGuests(cur, tableId, guests, localIsoDate(new Date()));
       writeHouseEvents(house, next);
     },
     // writeHouseEvents: body-only reference, TDZ — see handleSetBuyer
@@ -3196,6 +3228,14 @@ function App() {
             : []
         }
         onRestoreFallback=${/** @type {any} */ (plan)?.fallback ? handleRestoreFallback : undefined}
+        lastWeekReview=${composeWeekReview({
+          plan: prevWeekPlan,
+          waste: /** @type {any} */ (wasteLog),
+          daily: dailyLog,
+          targets,
+          weekDates: datesOfWeek(shiftWeek(weekId, -1)),
+          recipesById: recipesById(allRecipes),
+        })}
       />`
     }
     ${
@@ -3331,6 +3371,7 @@ function App() {
         onRemoveTable=${handleRemoveTable}
         onSetBuyer=${handleSetBuyer}
         onSetHead=${handleSetHead}
+        onSetGuests=${handleSetGuests}
         liveSynthFor=${liveSynthFor}
         missingPlanWarning=${missingPlanWarning}
         onPatchSeat=${handlePatchSeat}

@@ -261,7 +261,12 @@ export function deriveTables(houses, ctx) {
           ? t.buyerId
           : null;
       if (cook && recipe && !cookSlots.has(houseSlotKey)) {
-        const total = known.reduce((sum, s) => sum + clampServings(s.servings), 0);
+        // A GUEST IS ONE MORE PLATE (canon P8, fix list 7.4): the same pot
+        // with extra plates on a sensible default — one recipe serving each.
+        // Guests join the cook's pot and the buy; billing them stays parked
+        // in Mise-Later, so their cost rides the cook's ledger for now.
+        const total =
+          known.reduce((sum, s) => sum + clampServings(s.servings), 0) + clampGuests(t);
         if (total > 0) {
           // one meal is bought once. Without this guard two tables claiming
           // the same slot (a hand-set dinner over a brigade's, or the same
@@ -656,6 +661,51 @@ export function setTableCooked(events, tableId, dateIso, today) {
  * @param {string} tableId
  * @param {string | null} headId null = clear, fall back to the default chain
  * @param {string} today prune anchor, like every other CRUD write
+ * @returns {HouseEvents}
+ */
+/**
+ * Bounded guest count for a table: whole plates, 0..10. A poisoned guests
+ * field must not flood the buy (same F2-class bound as seats).
+ * @param {TableEvent | Record<string, any>} t
+ * @returns {number}
+ */
+export function clampGuests(t) {
+  const g = Number(/** @type {any} */ (t).guests);
+  return Number.isFinite(g) ? Math.min(10, Math.max(0, Math.round(g))) : 0;
+}
+
+/**
+ * Set the table's guest plates (7.4, canon P8: "Friday it is us plus two" is
+ * the same pot with two extra plates, not a special event). 0 clears.
+ * @param {HouseEvents} events
+ * @param {string} tableId
+ * @param {number} guests
+ * @param {string} today prune anchor, like every other CRUD write
+ * @returns {HouseEvents}
+ */
+export function setTableGuests(events, tableId, guests, today) {
+  const base = pruneTables(events, today);
+  const g = Math.min(10, Math.max(0, Math.round(Number(guests) || 0)));
+  return {
+    ...base,
+    tables: base.tables.map((t) => {
+      if (t.id !== tableId) return t;
+      if (g === 0) {
+        const rest = { ...t };
+        delete (/** @type {any} */ (rest).guests);
+        return rest;
+      }
+      return { ...t, guests: g };
+    }),
+  };
+}
+
+/**
+ * Name the table's head (spec §9/B5: written only by a human tap). Pure.
+ * @param {HouseEvents} events
+ * @param {string} tableId
+ * @param {string | null} headId null = clear, fall back to the default chain
+ * @param {string} today prune anchor
  * @returns {HouseEvents}
  */
 export function setTableHead(events, tableId, headId, today) {

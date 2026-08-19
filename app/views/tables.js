@@ -27,6 +27,7 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onRemoveTable: (house: string, id: string) => void,
  *   onSetBuyer?: (house: string, tableId: string, buyerId: string | null) => void,
  *   onSetHead?: (house: string, tableId: string, headId: string) => void,
+ *   onSetGuests?: (house: string, tableId: string, guests: number) => void,
  *   liveSynthFor?: (t: import("../lib/tables.js").TableEvent) => { synthMode: string } | null,
  *   missingPlanWarning?: (t: import("../lib/tables.js").TableEvent) => string | null,
  *   onPatchSeat: (house: string, tableId: string, patch: Partial<import("../lib/tables.js").Seat>) => void,
@@ -56,6 +57,7 @@ export function TablesView({
   onRemoveTable,
   onSetBuyer = undefined,
   onSetHead = undefined,
+  onSetGuests = undefined,
   liveSynthFor = undefined,
   missingPlanWarning = undefined,
   onPatchSeat,
@@ -559,6 +561,34 @@ export function TablesView({
               house === myHouse &&
               html`<button class="secondary" onClick=${() => onSetHead(house, t.id, me)}>
                 🪑 I'LL SET THE PLATES
+              </button>`
+            }
+            ${
+              // A GUEST IS ONE MORE PLATE (7.4, canon P8): the same pot with
+              // extra plates on a sensible default — the tap adds one, long
+              // context lives in the card line the count renders on
+              mySeat &&
+              house === myHouse &&
+              onSetGuests &&
+              html`<button
+                class="secondary"
+                aria-label="Add a guest plate to ${t.name || "this table"} (currently ${/** @type {any} */ (t).guests ?? 0})"
+                onClick=${() => onSetGuests(house, t.id, (/** @type {any} */ (t).guests ?? 0) + 1)}
+              >
+                ➕ GUEST PLATE${/** @type {any} */ (t).guests ? ` (${/** @type {any} */ (t).guests})` : ""}
+              </button>`
+            }
+            ${
+              mySeat &&
+              house === myHouse &&
+              onSetGuests &&
+              (/** @type {any} */ (t).guests ?? 0) > 0 &&
+              html`<button
+                class="secondary"
+                aria-label="Remove a guest plate from ${t.name || "this table"}"
+                onClick=${() => onSetGuests(house, t.id, (/** @type {any} */ (t).guests ?? 0) - 1)}
+              >
+                ➖ GUEST
               </button>`
             }
             ${

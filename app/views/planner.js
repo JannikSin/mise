@@ -74,7 +74,8 @@ function monthDay(isoDate) {
  *     emoji: string, name: string, when: string, label: string, note: string
  *   } | null,
  *   coverageGaps?: import("../lib/coverage.js").CoverageGap[],
- *   onRestoreFallback?: (() => void) | undefined
+ *   onRestoreFallback?: (() => void) | undefined,
+ *   lastWeekReview?: ReturnType<typeof import("../lib/review.js").composeWeekReview> | null
  * }} props
  */
 export function PlannerView({
@@ -102,6 +103,7 @@ export function PlannerView({
   occasionBanner = null,
   coverageGaps = [],
   onRestoreFallback = undefined,
+  lastWeekReview = null,
 }) {
   const rootRef = useRef(/** @type {HTMLElement | null} */ (null));
   // scoreboard accordion (David's layout pick, 2026-07-23): which days are
@@ -645,6 +647,24 @@ export function PlannerView({
           </details>
         `;
       })}
+
+      ${
+        // THE WEEK ENDS IN A REVIEW (P11, read side of 7.1): plan against
+        // reality on every axis that has data, each axis honest about being
+        // dark. The write side (fridge photo, free-text, generation reading
+        // the output) is the remaining 7.1 build.
+        lastWeekReview?.hasData &&
+        html`<div class="tile buildreport" role="note">
+          <div class="k">Last week, reviewed</div>
+          <div class="d num">
+            cooked ${lastWeekReview.cooked.done} of ${lastWeekReview.cooked.planned} planned
+            ${lastWeekReview.spend ? html` · spent $${lastWeekReview.spend.total.toFixed(2)}${lastWeekReview.spend.budget ? ` of $${lastWeekReview.spend.budget}` : ""} (${lastWeekReview.spend.receipts} receipt${lastWeekReview.spend.receipts === 1 ? "" : "s"})` : html` · spend: no receipts scanned`}
+            ${lastWeekReview.tossed.count > 0 ? html` · tossed ${lastWeekReview.tossed.count}: ${lastWeekReview.tossed.foods.join(", ")}` : html` · nothing tossed ✓`}
+            ${lastWeekReview.time ? html` · ${lastWeekReview.time.timed} timed cook${lastWeekReview.time.timed === 1 ? "" : "s"}: ${lastWeekReview.time.recordedMin}m real vs ${lastWeekReview.time.statedMin}m stated` : html` · no cooks timed`}
+            · weigh-ins ${lastWeekReview.weighIns.count}/${lastWeekReview.weighIns.days}
+          </div>
+        </div>`
+      }
 
       <${CookBlocks}
         recipes=${identityRecipes ?? recipes}

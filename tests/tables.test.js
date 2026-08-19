@@ -12,6 +12,8 @@ import {
   resolveHead,
   setTableSameForEveryone,
   setTableBuyer,
+  setTableGuests,
+  clampGuests,
   pruneTables,
   stripTableEntries,
   mergeViewPlan,
@@ -550,4 +552,35 @@ test("setTableHead writes only by tap; resolveHead falls through head -> cook ->
   // clearing restores the default chain
   ev = setTableHead(ev, "h1", null, today);
   assert.equal(ev.tables[0].headId, undefined);
+});
+
+// ---- guest plates (7.4, canon P8, 2026-08-19) -------------------------------
+
+test("setTableGuests sets, clamps 0..10, and 0 clears the field", () => {
+  const events = { tables: [{ id: "t1", date: "2099-01-01", slot: "dinner", recipeId: "r", seats: [] }], brigades: [] };
+  let next = setTableGuests(events, "t1", 2, "2098-12-31");
+  assert.equal(next.tables[0].guests, 2);
+  next = setTableGuests(next, "t1", 99, "2098-12-31");
+  assert.equal(next.tables[0].guests, 10, "clamped at 10");
+  next = setTableGuests(next, "t1", 0, "2098-12-31");
+  assert.equal("guests" in next.tables[0], false, "0 clears");
+  assert.equal(clampGuests({ guests: "3" }), 3);
+  assert.equal(clampGuests({ guests: -5 }), 0);
+  assert.equal(clampGuests({}), 0);
+});
+
+test("deriveTables: guest plates join the cook's pot and the buy", () => {
+  const profiles = new Map([
+    ["david", { id: "david", household: "home" }],
+    ["mom", { id: "mom", household: "home" }],
+  ]);
+  const houses = [{ house: "home", events: { tables: [{
+    id: "t1", name: "friday", date: "2099-01-01", slot: "dinner", recipeId: "beef",
+    cookId: "mom", buyerId: "david", guests: 2,
+    seats: [{ id: "david", servings: 1 }, { id: "mom", servings: 1 }],
+  }], brigades: [] } }];
+  const bank = new Map([["beef", { id: "beef", name: "Beef", servings: 4, nutrition: { calories: 800, protein: 50 }, ingredients: [] }]]);
+  const d = deriveTables(houses, { profileId: "david", bankById: bank, ownEntries: [], today: "2098-12-30", profilesById: profiles });
+  assert.equal(d.allCookExtras.length, 1);
+  assert.equal(d.allCookExtras[0].servings, 4, "2 seats + 2 guest plates");
 });
