@@ -177,6 +177,14 @@ export function itemCost(item, catalogue, store) {
         };
       }
     }
+    // a WEIGHT/VOLUME package covering a count we cannot weigh: charge ONE
+    // package, flagged. The old fallback charged one package PER PIECE, so
+    // "3 lemons" against a 2 lb bag billed three bags — the exact $40→$70
+    // failure of the 2026-08-18 rescue cart. One bag may under-charge a big
+    // count; the estimate flag and coverage line carry that honestly.
+    if (pack && dimensionOf(pack.unit) !== "count") {
+      return { cost: round(sp.price), estimate: true, size: sp.size, packs: 1 };
+    }
     const per = pack && dimensionOf(pack.unit) === "count" && pack.qty > 0 ? pack.qty : 1;
     const packs = Math.max(1, Math.ceil(item.qty / per));
     return { cost: round(sp.price * packs), estimate: sp.estimate === true, size: sp.size, packs };

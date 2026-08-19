@@ -171,6 +171,10 @@ const NAME_ALIASES = {
   // powder" — two keys meant the PLENTY tub never suppressed the list row
   // and David was told to buy whey he owns in bulk (2026-08-18)
   "whey-protein": "whey-protein-powder",
+  // plurals that appear as their own keys in the bank (2026-08-19 audit)
+  scallions: "scallion",
+  onions: "onion",
+  "bay-leaves": "bay-leaf",
 };
 
 /**
@@ -256,18 +260,45 @@ const FOOD_UNITS = {
   milk: { unit: "cup" },
   "chicken-broth": { unit: "cup" },
   "beef-broth": { unit: "cup" },
-  onion: { unit: "each" },
-  "red-onion": { unit: "each" },
+  // Piece weights (grams, USDA medium sizes) for every counted food the bank
+  // uses: without one, "3 each" against a weight-labelled package cannot be
+  // weighed and used to charge one PACKAGE per piece — 3 lemons billed as
+  // three 2 lb bags, the 2026-08-18 rescue-cart failure ($43 est → $70 till).
+  onion: { unit: "each", piece: 200 },
+  "red-onion": { unit: "each", piece: 200 },
   egg: { unit: "each" },
-  tomato: { unit: "each" },
-  cucumber: { unit: "each" },
-  lemon: { unit: "each" },
+  tomato: { unit: "each", piece: 123 },
+  cucumber: { unit: "each", piece: 300 },
+  lemon: { unit: "each", piece: 100 },
+  lime: { unit: "each", piece: 67 },
+  orange: { unit: "each", piece: 150 },
+  apple: { unit: "each", piece: 180 },
   banana: { unit: "each", piece: 118 }, // medium banana, USDA
-  avocado: { unit: "each" },
-  "bell-pepper": { unit: "each" },
+  avocado: { unit: "each", piece: 150 },
+  "bell-pepper": { unit: "each", piece: 180 },
+  "green-bell-pepper": { unit: "each", piece: 180 },
+  "red-bell-pepper": { unit: "each", piece: 180 },
   "bay-leaf": { unit: "each" },
-  scallion: { unit: "each" },
-  celery: { unit: "each" },
+  scallion: { unit: "each", piece: 15 },
+  celery: { unit: "each", piece: 40 },
+  zucchini: { unit: "each", piece: 200 },
+  eggplant: { unit: "each", piece: 450 },
+  "cauliflower-head": { unit: "each", piece: 600 },
+  "fennel-bulb": { unit: "each", piece: 230 },
+  shallot: { unit: "each", piece: 30 },
+  "russet-potato": { unit: "each", piece: 300 },
+  "scotch-bonnet-chili": { unit: "each", piece: 10 },
+  "red-chili": { unit: "each", piece: 15 },
+  garlic: { unit: "clove", piece: 5 },
+  "chicken-thigh": { unit: "g", piece: 130 }, // boneless-skinless raw
+  "white-bread": { unit: "slice", piece: 30 },
+  "whole-wheat-bread": { unit: "slice", piece: 34 },
+  "sourdough-bread": { unit: "slice", piece: 50 },
+  "crusty-bread": { unit: "slice", piece: 50 },
+  "crusty-whole-grain-bread": { unit: "slice", piece: 50 },
+  "canned-tuna": { unit: "can", can: 142 },
+  "frozen-mixed-vegetables": { unit: "g", piece: 340, cup: 91 }, // piece = one 12 oz bag
+  "whole-wheat-pita": { unit: "each", piece: 60 },
 };
 
 /** Prep states written after a comma: "silken tofu, cubed" is silken tofu. */
