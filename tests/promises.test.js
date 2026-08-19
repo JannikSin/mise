@@ -43,6 +43,7 @@ import { clampGuests, deriveTables, setTableGuests } from "../app/lib/tables.js"
 import { composeWeekReview } from "../app/lib/review.js";
 import { setReviewNote } from "../app/lib/plan.js";
 import { screenMenuReport, unconfirmedReason } from "../app/lib/annotate.js";
+import { composeTray, itemsForMeal, parseItem } from "../app/lib/dininghall.js";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -1224,7 +1225,7 @@ const PROMISES = [
 
   {
     id: "P10",
-    name: "P10 an away meal enters the plan and the rest of the day is planned around it",
+    name: "P10 an away meal enters the plan, the day re-balances, and a hall tray is composed to quota",
     fn: () => {
       const day = DATES[2];
       const est = { estCalories: 800, estProtein: 40 };
@@ -1263,6 +1264,115 @@ const PROMISES = [
       q = cycleSlotAway(q, day, "dinner", est, swipeEst, "swipe");
       const swipe = q.entries.find((e) => e.date === day && e.slot === "dinner");
       assert.ok(swipe?.out, "the swipe state was not reachable from the away cycle");
+
+      // THE DINING HALL. Nothing in the app referenced Purdue dining at all
+      // until 2026-08-19, so this half of the promise had no code behind it:
+      // an away meal could be declared and the day rebalanced around a flat
+      // estimate, but the meal itself could not be BUILT.
+      //
+      // The payload shape below is the real one, taken from a live response of
+      // api.hfs.purdue.edu on 2026-08-19. The test does not hit the network,
+      // because a promise that only passes when a dining hall is serving is not
+      // a promise anybody can rely on.
+      const menuDay = {
+        Location: "Earhart",
+        Meals: [
+          {
+            Type: "Dinner",
+            Stations: [
+              {
+                Name: "Grill",
+                Items: [
+                  {
+                    ID: "chicken",
+                    Name: "Halal Chicken Breast",
+                    IsVegetarian: false,
+                    NutritionReady: true,
+                    Allergens: [{ Name: "Milk", Value: false }],
+                  },
+                  {
+                    ID: "bun",
+                    Name: "Hamburger Bun",
+                    IsVegetarian: true,
+                    NutritionReady: true,
+                    // Purdue lists these separately and both map to one preset
+                    Allergens: [
+                      { Name: "Gluten", Value: true },
+                      { Name: "Wheat", Value: true },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          { Type: "Breakfast", Stations: [] },
+        ],
+      };
+      const listed = itemsForMeal(menuDay, "Dinner");
+      assert.equal(listed.length, 2, "the day's dinner items did not flatten out of the stations");
+      assert.equal(listed[0].station, "Grill");
+      assert.deepEqual(listed[1].allergens, ["gluten", "wheat"]);
+      assert.deepEqual(itemsForMeal(menuDay, "Lunch"), [], "a meal not served returned items anyway");
+
+      const item = parseItem({
+        ID: "chicken",
+        Name: "Halal Chicken Breast",
+        Allergens: [{ Name: "Milk", Value: false }],
+        Nutrition: [
+          { Name: "Serving Size", LabelValue: "3 oz" },
+          { Name: "Calories", Value: 121.6, LabelValue: "122" },
+          { Name: "Protein", Value: 26.3, LabelValue: "26g" },
+        ],
+      });
+      assert.equal(item.protein, 26.3);
+      assert.equal(item.servingSize, "3 oz");
+      // AN ITEM WITH NO PUBLISHED NUMBERS IS NOT A FREE ONE. null must never
+      // be read as zero, or a tray silently counts food it cannot see.
+      assert.equal(parseItem({ ID: "x", Name: "Mystery", Nutrition: [] }), null);
+
+      // COMPOSED TO A STATED CALORIE AND PROTEIN QUOTA.
+      const menu = [
+        { id: "chicken", name: "Halal Chicken Breast", calories: 122, protein: 26, allergens: [] },
+        { id: "rice", name: "Brown Rice", calories: 210, protein: 5, allergens: [] },
+        { id: "bun", name: "Hamburger Bun", calories: 150, protein: 5, allergens: ["gluten", "wheat"] },
+        { id: "mystery", name: "Mystery Bake", calories: NaN, protein: NaN, allergens: [] },
+      ];
+      const tray = composeTray(menu, { calories: 700, protein: 50 });
+      assert.equal(tray.meets.protein, true, `the tray missed its protein quota: ${tray.protein} g`);
+      assert.equal(tray.meets.calories, true, `the tray missed its calorie quota: ${tray.calories}`);
+      assert.ok(
+        tray.picks.some((p) => p.name === "Halal Chicken Breast"),
+        "the densest protein on the line was not on the tray",
+      );
+      // the item the hall published no numbers for is EXCLUDED and said so,
+      // never quietly counted as nothing
+      assert.ok(
+        tray.excluded.some((e) => e.name === "Mystery Bake"),
+        "an item with no published numbers vanished instead of being named",
+      );
+
+      // P3'S OBLIGATION, RECORDED ON THIS PROMISE WHEN THE MENU SCREEN
+      // SHIPPED: a composed tray is screened against declared allergens. The
+      // hall's own per-item table is better data than a photographed menu.
+      const safe = composeTray(menu, { calories: 700, protein: 50 }, {
+        avoidAllergens: ["gluten"],
+      });
+      assert.ok(
+        !safe.picks.some((p) => p.name === "Hamburger Bun"),
+        "a tray was built with something the person avoids on it",
+      );
+      const bun = safe.excluded.find((e) => e.name === "Hamburger Bun");
+      assert.deepEqual(bun.because, ["gluten"], "one reason was reported twice for one item");
+
+      // AND THE COURT-SERVING CAVEAT IS LOUD. A dining court portion is
+      // whatever the server puts on the plate, so a tray quoted to the calorie
+      // would imply precision that does not exist.
+      assert.match(tray.caution, /whatever the server puts on the plate/);
+
+      // OVERSHOOT IS THE RIGHT DIRECTION HERE, and it is the one place in Mise
+      // where that is true: the meal is already paid for, so the marginal cost
+      // of another scoop of the expensive macro is zero.
+      assert.ok(tray.protein >= 50);
     },
   },
 
@@ -1541,18 +1651,6 @@ const UNBUILT = [
       "teaching clause in-step, so this is a 23-recipe content pass plus a layout decision, not an " +
       "engineering job. The first half of the done test, a first-time cook reaching a result that " +
       "tastes good, is not machine-checkable and this ledger does not pretend otherwise.",
-  },
-  {
-    id: "P10",
-    name: "P10 GAP a dining-hall meal is composed to the slot's calorie and protein quota from live menu data",
-    why:
-      "owner koenig, Phase 2 job 11. No Purdue dining reference exists anywhere in the app. Needs a " +
-      "CSP entry for api.hfs.purdue.edu, the tray composer against the day's stations with the " +
-      "court-serving caveat loud, and menu-scan results persisting into the plan rather than being " +
-      "read and discarded. CARRIES A P3 OBLIGATION: today an away meal is a fixed placeholder with " +
-      "no user text, which is the only reason P3 passes on this surface. The moment a meal can be " +
-      "DESCRIBED or a composed tray can enter the plan, it must route through screenMenuReport or " +
-      "P3 regresses silently, which is the whole failure mode this ledger exists to catch.",
   },
   {
     id: "P12",
