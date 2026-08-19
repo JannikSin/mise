@@ -896,6 +896,12 @@ even the same slot — merge without losing either entry.
   //   app/lib/manifest.js), rendered on Plan, persisted so every device sees
   //   it. tests/manifest.test.js fails the build if a registered subsystem
   //   reports nothing: the countermeasure to the fifth dark engine.
+  //   2026-08-19 (7.11, P5): subsystems.away added — { slots, swipeSlots,
+  //   creditCalories, creditProtein, cookedNeedRatio, fullNeedRatio }. The
+  //   generator aims the cooked week's protein density at the REMAINING need
+  //   after away/swipe credits (the swipe arbitrage), and this line proves it
+  //   on every generate. cookedNeedRatio null = manifest backfilled from a
+  //   stored plan; only a real GENERATE re-aims the committees.
   "entries": [
     {
       "id": "b3e29f01", // unique in the file; merge key

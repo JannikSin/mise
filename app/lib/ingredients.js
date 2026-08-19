@@ -147,7 +147,6 @@ const UNIT_BASE = {
  *   firm / extra-firm / silken tofu — different products
  *   brown rice / cooked brown rice — cooked weighs ~3x raw, merging lies
  *   lemon / lemon juice, lime / lime juice — one is fruit, one is a bottle
- *   mixed berries / frozen mixed berries — different aisles
  *   bell pepper / red bell pepper — the colour was asked for
  * @type {Record<string, string>}
  */
@@ -178,6 +177,11 @@ const NAME_ALIASES = {
   "bay-leaves": "bay-leaf",
   eggs: "egg",
   "chicken-thighs": "chicken-thigh",
+  // David 2026-08-19: fresh vs frozen mixed berries as two rows is
+  // "pointless" — every bank use (smoothies, bowls) takes frozen, and the
+  // split double-charged one bag as two ($14.49 twice on the same list)
+  "frozen-mixed-berries": "mixed-berries",
+  "sweet-potatoes": "sweet-potato",
 };
 
 /**
@@ -219,7 +223,12 @@ const FOOD_UNITS = {
   // a sandwich slice ≈ 34 g — without it, "5 slice" charged five whole loaves
   "whole-grain-bread": { unit: "slice", piece: 34 },
   "whey-protein-powder": { unit: "scoop", piece: 30 },
-  "fresh-ginger": { unit: "tbsp", cup: 96 },
+  // one knob ≈ 60 g (the retail purchase floor lives in prices.js
+  // PER_LB_MIN_G, not here — this is the portion fact)
+  "fresh-ginger": { unit: "tbsp", cup: 96, piece: 60 },
+  // frozen berries ≈ 150 g/cup — without it the cups-vs-oz-bag conversion
+  // failed and every berry row fell back to "one whole package, flagged"
+  "mixed-berries": { unit: "cup", cup: 150 },
   // canned goods read in CANS, because that is the thing on the shelf you put
   // in the trolley. "1.3 kg black beans" is a true number and a useless one.
   "black-beans": { unit: "can", cup: 172, can: 425 },

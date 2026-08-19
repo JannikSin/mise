@@ -39,7 +39,9 @@ test("canonicalFood NEVER merges things that are different products", () => {
   assert.notEqual(canonicalFood("brown rice"), canonicalFood("cooked brown rice"));
   assert.notEqual(canonicalFood("lemon"), canonicalFood("lemon juice"));
   assert.notEqual(canonicalFood("silken tofu"), canonicalFood("extra-firm tofu"));
-  assert.notEqual(canonicalFood("mixed berries"), canonicalFood("frozen mixed berries"));
+  // David 2026-08-19 reversed the berries split: every bank use takes frozen,
+  // and two rows double-charged one bag ($14.49 twice on the same list)
+  assert.equal(canonicalFood("mixed berries"), canonicalFood("frozen mixed berries"));
 });
 
 test("an unknown food keeps its unit in the id, so nothing mis-merges", () => {

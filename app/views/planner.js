@@ -636,7 +636,7 @@ export function PlannerView({
                           }
                           onClick=${() => onToggleOut(date, key)}
                         >
-                          ${/** @type {any} */ (outEntry)?.currency ? "🎫 SWIPE · EAT THE PROTEIN" : "🍴 EATING OUT"}
+                          ${/** @type {any} */ (outEntry)?.currency ? "🎫 SWIPE" : "🍴 EATING OUT"}
                         </button>`
                       }
                     </div>

@@ -29,6 +29,7 @@ export const SUBSYSTEMS = [
   "useSoon",
   "philosophy",
   "macroTopUp",
+  "away",
   "floors",
   "plating",
   "weightTrend",
@@ -93,6 +94,31 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
       calorieShortDays: calShort,
       proteinShortDays: protShort,
       liveDays: dates.length,
+    };
+  }
+
+  // away/swipe credit (7.11, P5): a manifest composed before the engine
+  // reported this (or recomposed from a stored engine half) derives the
+  // credit from the plan as it stands. cookedNeedRatio stays null in that
+  // case — only a real GENERATE aims the cooked week at the remaining need,
+  // and the line says so instead of pretending.
+  if (!subsystems.away && current && Array.isArray(current.entries)) {
+    // same live-day scope as the engine's awayCredit (future, non-held):
+    // otherwise a Wednesday recompose counts Monday's spent swipes and the
+    // same line shows two different numbers depending on who wrote it
+    const heldAway = new Set(
+      current.entries.filter((/** @type {any} */ e) => e.occasion).map((e) => e.date),
+    );
+    const outs = current.entries.filter(
+      (/** @type {any} */ e) => e.out && e.date >= todayIso && !heldAway.has(e.date),
+    );
+    subsystems.away = {
+      slots: outs.length,
+      swipeSlots: outs.filter((/** @type {any} */ e) => e.currency).length,
+      creditCalories: outs.reduce((s, e) => s + (e.estCalories ?? 0), 0),
+      creditProtein: outs.reduce((s, e) => s + (e.estProtein ?? 0), 0),
+      cookedNeedRatio: null,
+      fullNeedRatio: null,
     };
   }
 
@@ -244,6 +270,12 @@ function lineFor(key, s) {
       return s.ranButDidNotReport
         ? "ran but did not report"
         : `budget ${s.budget}, snack pool ${s.poolBefore}→${s.poolAfter}${s.restricted ? " (overlap/cheap only)" : ""}${s.relaxed ? " (restriction relaxed: too few candidates)" : ""}, +${s.snackServingsAdded ?? 0} snack servings`;
+    case "away":
+      // 7.11 (P5): the swipe arbitrage's report — with credits, the cooked
+      // week aimed at the REMAINING need; without, it says so plainly
+      return s.slots > 0
+        ? `${s.slots} away slot${s.slots === 1 ? "" : "s"} (${s.swipeSlots} swipe) credit ${s.creditProtein} g protein / ${s.creditCalories} kcal — ${s.cookedNeedRatio != null ? `cooked week aims at the remaining need (density ${s.cookedNeedRatio} vs ${s.fullNeedRatio} full)` : "GENERATE again to aim the cooked week at the remaining need"}`
+        : "no away/swipe slots — cooked week aims at the full need";
     case "floors":
       return `${s.calories} kcal / ${s.protein} g floors (reviewed ${s.lastReviewed ?? "NEVER"}), short days: ${s.calorieShortDays} kcal / ${s.proteinShortDays} protein of ${s.liveDays}${s.avgCalories ? `, delivering ~${s.avgCalories} kcal/day avg` : ""}`;
     case "plating":

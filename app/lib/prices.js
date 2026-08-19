@@ -124,6 +124,19 @@ export function parsePackSize(size) {
 }
 
 /**
+ * Retail minimums for per-lb LOOSE produce, in grams: the smallest piece a
+ * store scale realistically weighs. Curated and tiny on purpose — only foods
+ * whose recipe needs run far below one purchasable piece belong here. This
+ * is a RETAIL concept, deliberately separate from FOOD_UNITS portion
+ * weights (a broccoli "piece" is a 600 g crown, which is a portion fact,
+ * not a purchase floor).
+ * @type {Record<string, number>}
+ */
+const PER_LB_MIN_G = {
+  "fresh-ginger": 60, // a small knob; a 13 g sliver is not a thing you can buy
+};
+
+/**
  * Estimated shelf cost of one list row at one store. Null when the catalogue
  * has no entry for the item or the store doesn't stock it.
  *
@@ -135,13 +148,17 @@ export function parsePackSize(size) {
  * Every result also carries `eaten`: the share of the shelf cost this week's
  * need actually consumes (P5: "a stocking week reads against a rolling
  * average" — a $14 cashew tub for 0.75 cup is $1.55 eaten and $12.44 pantry
- * stock, and only the split makes the total readable). Per-lb rows are fully
- * eaten (you buy what you weigh); unknowable rows count fully eaten, the
- * honest cap.
+ * stock, and only the split makes the total readable). Per-lb rows are eaten
+ * at what the NEED weighs (you buy what you weigh, floored at PER_LB_MIN_G
+ * for loose produce with a real minimum piece); unknowable rows count fully
+ * eaten, the honest cap.
  * @param {{ food: string, qty: number, unit: string }} item
  * @param {PriceCatalogue | null | undefined} catalogue
  * @param {string} store store slug, e.g. "trader-joes"
- * @returns {{ cost: number, eaten: number, estimate: boolean, size?: string, packs?: number } | null}
+ * @returns {{ cost: number, eaten: number, estimate: boolean, size?: string, packs?: number, lbs?: number } | null}
+ *   `packs` + `size` = the buyable amount for packaged rows; `lbs` = the
+ *   charged weight for per-lb rows. Together they are the "buy" half of the
+ *   list's need → buy line (David, 2026-08-19).
  */
 export function itemCost(item, catalogue, store) {
   const entry = catalogue?.items ? matchPrice(item.food, catalogue.items) : null;
@@ -161,8 +178,15 @@ export function itemCost(item, catalogue, store) {
     if ((sp.size ?? "").toLowerCase().includes("per lb")) {
       const needG = toGrams(item.qty, u, canonicalFood(item.food));
       if (needG != null && needG > 0) {
-        const cost = round(sp.price * (needG / 453.59237));
-        return { cost, eaten: cost, estimate: sp.estimate === true, size: sp.size };
+        const lbs = needG / 453.59237;
+        const cost = round(sp.price * lbs);
+        return {
+          cost,
+          eaten: cost,
+          estimate: sp.estimate === true,
+          size: sp.size,
+          lbs: round(lbs),
+        };
       }
       const cost = round(sp.price * item.qty);
       return { cost, eaten: cost, estimate: true, size: sp.size };
@@ -204,13 +228,28 @@ export function itemCost(item, catalogue, store) {
     };
   }
 
-  // per-lb rows: pay what it weighs, whatever unit the row is written in
+  // per-lb rows: pay what it weighs, whatever unit the row is written in —
+  // FLOORED at the smallest thing the scale actually weighs, from the
+  // curated table below. 2.25 tbsp of ginger converts to 13 g and an
+  // honest-looking $0.09, but nobody sells a 13-gram knob. The need's share
+  // stays in `eaten`, the rest of the minimum is stock. NOT FOOD_UNITS
+  // piece weights (reviewer catch 2026-08-19): those are portion constants
+  // — a 600 g broccoli "piece" as a retail floor would sextuple a 1-cup
+  // stir-fry row and leak into recipeServingCost/billTable.
   if ((sp.size ?? "").toLowerCase().includes("per lb")) {
     const lbs =
       u === "lb" ? item.qty : (convertUnit(item.qty, u, "lb") ?? gramsFor(item) / 453.59237);
     if (Number.isFinite(lbs) && lbs > 0) {
-      const cost = round(sp.price * lbs);
-      return { cost, eaten: cost, estimate: sp.estimate === true, size: sp.size };
+      const minG = PER_LB_MIN_G[canonicalFood(item.food)];
+      const chargedLbs = minG ? Math.max(lbs, minG / 453.59237) : lbs;
+      const cost = round(sp.price * chargedLbs);
+      return {
+        cost,
+        eaten: Math.min(cost, round(sp.price * lbs)),
+        estimate: sp.estimate === true,
+        size: sp.size,
+        lbs: round(chargedLbs),
+      };
     }
     return { cost: round(sp.price), eaten: round(sp.price), estimate: true, size: sp.size };
   }

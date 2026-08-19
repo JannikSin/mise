@@ -32,14 +32,38 @@ const KEY_MERGES = {
   onions: "onion",
   scallions: "scallion",
   "bay-leaves": "bay-leaf",
+  // David 2026-08-19: fresh/frozen mixed berries are ONE identity (both
+  // list rows were charging a whole package each), and the plural
+  // sweet-potatoes row was a stale duplicate of sweet-potato
+  "frozen-mixed-berries": "mixed-berries",
+  "sweet-potatoes": "sweet-potato",
 };
+
+// pins the seed got WRONG (2026-08-19 walk): product is not the food, or a
+// specialty variant when the plain one was asked for. Dropped so the retry
+// terms below re-price them honestly.
+const BAD_PINS = [
+  ["gochujang", "pay-less", "pinned gochujang-flavored ALMONDS, not the paste"],
+  ["milk", "marianos", "pinned CARBMaster lactose-free skim, not plain milk"],
+];
 
 // foods the seed missed, with alternate live search terms worth one try each
 const RETRY_TERMS = {
-  "frozen-mixed-berries": ["frozen berry medley", "frozen triple berry blend", "frozen mixed berries"],
+  "mixed-berries": ["frozen berry medley", "frozen triple berry blend", "frozen mixed berries"],
   "chia-seeds": ["organic chia seeds", "chia seeds"],
   "bulgogi-marinade": ["bulgogi sauce", "korean bbq sauce"],
   "red-pepper-flakes": ["crushed red pepper"],
+  // 2026-08-19 second seed round misses
+  "crusty-bread": ["french bread loaf", "italian bread"],
+  "whole-wheat-angel-hair-pasta": ["whole wheat thin spaghetti", "angel hair pasta"],
+  "cauliflower-head": ["cauliflower"],
+  scallion: ["green onions bunch", "green onions"],
+  tempeh: ["lightlife tempeh", "tempeh original"],
+  chickpeas: ["garbanzo beans", "canned chickpeas"],
+  "shelled-edamame": ["frozen shelled edamame"],
+  gochujang: ["gochujang paste", "korean chili paste"],
+  milk: ["whole milk half gallon", "whole milk"],
+  "frozen-mango": ["frozen mango chunks", "frozen mango"],
 };
 
 const cid = process.env.KROGER_CLIENT_ID;
@@ -132,6 +156,17 @@ for (const [oldKey, newKey] of Object.entries(KEY_MERGES)) {
 for (const k of ["water", "tap-water"]) {
   if (pins.pins[k]) { delete pins.pins[k]; console.log(`dropped pin: ${k} (free from the tap)`); }
   catalogue.items = catalogue.items.filter((i) => i.id !== k);
+}
+
+// wrong-product pins leave before the retry pass re-prices them
+for (const [key, store, why] of BAD_PINS) {
+  if (pins.pins[key]?.[store]) {
+    delete pins.pins[key][store];
+    if (Object.keys(pins.pins[key]).length === 0) delete pins.pins[key];
+    const row = catalogue.items.find((i) => i.id === key);
+    if (row?.prices?.[store]) delete row.prices[store];
+    console.log(`dropped pin: ${key} @ ${store} (${why})`);
+  }
 }
 
 // ---- 2. need-aware repick of provisional pins -------------------------------

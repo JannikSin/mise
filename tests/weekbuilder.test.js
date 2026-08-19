@@ -1451,3 +1451,220 @@ test("macroTopUp tight restricts the snack pool to overlap/cheap, and reports it
   assert.equal(report3.macroTopUp.budget, "normal");
   assert.equal(report3.macroTopUp.restricted, false);
 });
+
+// ---- 7.11 (P5): the swipe arbitrage is REAL in the generator ---------------
+// David 2026-08-19: marking a swipe raised his day to 254 g protein and a
+// regenerate never swapped anything leaner. The engine now (a) aims the
+// committees at the REMAINING need after away credits, (b) permutes the
+// leanest assigned picks onto the credit days, (c) reports it all under
+// manifest.away so it can never go dark again.
+
+test("generateWeek: a protein-loaded swipe lowers the cooked week's need ratio and reports it", () => {
+  const swipe = {
+    id: "sw-1",
+    date: MONDAY_W29,
+    slot: "lunch",
+    freeText: "dining swipe",
+    servings: 1,
+    pinned: true,
+    out: true,
+    currency: "swipes",
+    estCalories: 900,
+    estProtein: 80,
+  };
+  const { report } = generateWeek({
+    recipes: ALL,
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [swipe] },
+    salt: 0,
+    today: MONDAY_W29,
+  });
+  const away = report.manifest.away;
+  assert.equal(away.slots, 1);
+  assert.equal(away.swipeSlots, 1);
+  assert.equal(away.creditProtein, 80);
+  assert.equal(away.creditCalories, 900);
+  // buffet protein is denser than the base targets, so the remaining need is leaner
+  assert.ok(away.cookedNeedRatio < away.fullNeedRatio);
+
+  // control: no away slots = the old week-constant target, said plainly
+  const control = generateWeek({
+    recipes: ALL,
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+    today: MONDAY_W29,
+  });
+  const controlAway = control.report.manifest.away;
+  assert.equal(controlAway.slots, 0);
+  assert.equal(controlAway.cookedNeedRatio, controlAway.fullNeedRatio);
+});
+
+test("generateWeek: the swipe day gets the LEANEST assigned dinner (permutation, multiset intact)", () => {
+  const lean = r("lean-stew", "dinner", ["chicken thigh", "tomato", "yogurt"], {
+    protein: 20,
+    calories: 700,
+  });
+  const dense = r("dense-grill", "dinner", ["chicken thigh", "yogurt", "cucumber"], {
+    protein: 70,
+    calories: 700,
+  });
+  const pool = [lean, dense, CHICKEN_A, CHICKEN_B, BREAKFAST, SMOOTHIE, LUNCH, SNACK];
+  const swipe = {
+    id: "sw-1",
+    date: MONDAY_W29,
+    slot: "lunch",
+    freeText: "dining swipe",
+    servings: 1,
+    pinned: true,
+    out: true,
+    currency: "swipes",
+    estCalories: 900,
+    estProtein: 80,
+  };
+  const byId = recipesById(pool);
+  const densityOf = (/** @type {string} */ rid) => {
+    const n = byId.get(rid)?.nutrition ?? {};
+    return (n.protein ?? 0) / Math.max(1, n.calories ?? 0);
+  };
+  const run = (/** @type {Record<string, any>[]} */ entries) =>
+    generateWeek({
+      recipes: pool,
+      targets: TARGETS,
+      pantry: { staples: [], perishables: [] },
+      weekId: "2026-W29",
+      plan: { week: "2026-W29", entries },
+      salt: 0,
+      today: MONDAY_W29,
+    }).plan;
+
+  const withSwipe = run([swipe]);
+  const dinners = withSwipe.entries.filter((e) => e.slot === "dinner" && e.recipeId);
+  const monday = dinners.find((e) => e.date === MONDAY_W29);
+  assert.ok(monday, "swipe day still gets a dinner");
+  const minDensity = Math.min(...dinners.map((e) => densityOf(/** @type {string} */ (e.recipeId))));
+  assert.equal(
+    densityOf(/** @type {string} */ (monday.recipeId)),
+    minDensity,
+    "the credit day holds the leanest assigned dinner",
+  );
+
+  // the permutation is a pure swap: same dinner multiset as the no-swipe run
+  const withoutSwipe = run([]);
+  const multiset = (/** @type {any} */ p) =>
+    p.entries
+      .filter((/** @type {any} */ e) => e.slot === "dinner" && e.recipeId)
+      .map((/** @type {any} */ e) => e.recipeId)
+      .sort()
+      .join(",");
+  assert.equal(multiset(withSwipe), multiset(withoutSwipe));
+});
+
+test("generateWeek: a swipe ON the permuted meal never eats the lean pick (occupied slots sit out)", () => {
+  // reviewer catch 2026-08-19: breakfast/lunch assignments were built for
+  // EVERY live date, including one whose slot a pinned OUT entry holds; the
+  // swap then parked the lean pick on the discarded assignment and a dense
+  // one cooked instead. Occupied slots now never enter the permutation.
+  const leanL = r("lean-lunch", "lunch", ["chicken thigh", "broccoli"], {
+    protein: 20,
+    calories: 800,
+  });
+  const denseL = r("dense-lunch", "lunch", ["chicken thigh", "yogurt"], {
+    protein: 70,
+    calories: 800,
+  });
+  const pool = [leanL, denseL, LUNCH, CHICKEN_A, CHICKEN_B, BREAKFAST, SMOOTHIE, SNACK];
+  const swipe = {
+    id: "sw-1",
+    date: MONDAY_W29,
+    slot: "lunch",
+    freeText: "dining swipe",
+    servings: 1,
+    pinned: true,
+    out: true,
+    currency: "swipes",
+    estCalories: 900,
+    estProtein: 80,
+  };
+  const run = (/** @type {Record<string, any>[]} */ entries) =>
+    generateWeek({
+      recipes: pool,
+      targets: TARGETS,
+      pantry: { staples: [], perishables: [] },
+      weekId: "2026-W29",
+      plan: { week: "2026-W29", entries },
+      salt: 0,
+      today: MONDAY_W29,
+    }).plan;
+  const lunchCounts = (/** @type {any} */ p) => {
+    /** @type {Record<string, number>} */
+    const counts = {};
+    for (const e of p.entries) {
+      if (e.slot !== "lunch" || !e.recipeId) continue;
+      counts[e.recipeId] = (counts[e.recipeId] ?? 0) + 1;
+    }
+    return counts;
+  };
+  const withSwipe = lunchCounts(run([swipe]));
+  const without = lunchCounts(run([]));
+  // exactly ONE cooked lunch disappears (the swipe day's), and it is never
+  // disproportionately the lean pick: the lean count must not drop by more
+  // than any other member's count does
+  const totalWith = Object.values(withSwipe).reduce((s, n) => s + n, 0);
+  const totalWithout = Object.values(without).reduce((s, n) => s + n, 0);
+  assert.equal(totalWithout - totalWith, 1);
+  const leanDrop = (without["lean-lunch"] ?? 0) - (withSwipe["lean-lunch"] ?? 0);
+  const maxDrop = Math.max(
+    ...Object.keys(without).map((k) => (without[k] ?? 0) - (withSwipe[k] ?? 0)),
+  );
+  assert.ok(leanDrop <= maxDrop, "the lean pick is not the one sacrificed");
+});
+
+test("macroTopUp: a day already at its protein TARGET fills calories with the leaner snack", async () => {
+  const { macroTopUp } = await import("../app/lib/weekbuilder.js");
+  const bigDinner = r("big-dinner", "dinner", ["chicken thigh"], { protein: 200, calories: 1500 });
+  // DIFFERENT calorie values on purpose: the lean preference must be a real
+  // term (non-protein calories), not a tiebreak that never fires against a
+  // pool with distinct calories (reviewer catch 2026-08-19)
+  const proteinSnack = r("protein-snack", "snack", ["cottage cheese"], {
+    protein: 40,
+    calories: 240,
+  });
+  const leanSnack = r("lean-snack", "snack", ["banana"], { protein: 2, calories: 205 });
+  const byId = recipesById([bigDinner, proteinSnack, leanSnack]);
+  const plan = {
+    week: "2026-W29",
+    entries: [
+      // pinned so lever 1 (portion bumps) can't close the calorie gap and the
+      // snack lever is the one under test
+      {
+        id: "d1",
+        date: MONDAY_W29,
+        slot: "dinner",
+        recipeId: "big-dinner",
+        servings: 1,
+        pinned: true,
+      },
+    ],
+  };
+  const floors = { calories: 2000, protein: 155 };
+
+  // 7.11: proteinTargetG passed and met (200 >= 175) — the calorie fill
+  // maximizes NON-protein calories: 205-kcal/2g beats 240-kcal/40g
+  const leanRun = macroTopUp(plan, [proteinSnack, leanSnack], byId, floors, 3, {
+    proteinTargetG: 175,
+  });
+  const leanAdded = leanRun.entries.filter((e) => e.slot === "snack");
+  assert.ok(leanAdded.length > 0);
+  assert.equal(leanAdded[0].recipeId, "lean-snack");
+
+  // without the target the old protein-first sort stands (regression guard)
+  const oldRun = macroTopUp(plan, [proteinSnack, leanSnack], byId, floors, 3, {});
+  const oldAdded = oldRun.entries.filter((e) => e.slot === "snack");
+  assert.ok(oldAdded.length > 0);
+  assert.equal(oldAdded[0].recipeId, "protein-snack");
+});

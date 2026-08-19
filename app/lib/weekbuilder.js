@@ -552,13 +552,16 @@ export function foodGroupFloorPass(plan, pool, recipesById, floors, opts = {}) {
  * @param {{
  *   budget?: "tight" | "normal" | "loose",
  *   weekFoodPool?: Set<string>,
- *   report?: Record<string, any>
+ *   report?: Record<string, any>,
+ *   proteinTargetG?: number
  * }} [opts] fix list 2.4 (council 2026-08-18): macroTopUp takes the SAME
  *   budget parameter as pickCommittee. Without it the budget dial was a
  *   waste generator: tight pushed dinners to bean stews, opened a calorie
  *   hole, and this pass filled it from a pool sorted on protein alone,
  *   trading 10 fully-consumed protein SKUs for 16 perishable produce items.
  *   `report`, when passed, receives a `macroTopUp` entry for the manifest.
+ *   `proteinTargetG` (7.11, P5): a day already at its protein TARGET stops
+ *   getting protein-first fills — bumps and snacks buy calories lean instead.
  * @returns {import("./plan.js").Plan}
  */
 export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks = 3, opts = {}) {
@@ -595,7 +598,11 @@ export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks 
   const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
   if (dates.length === 0) return plan;
 
-  const bestFor = (/** @type {boolean} */ needProtein, /** @type {Set<string>} */ exclude) =>
+  const bestFor = (
+    /** @type {boolean} */ needProtein,
+    /** @type {boolean} */ leanCalories,
+    /** @type {Set<string>} */ exclude,
+  ) =>
     [...pool]
       .filter((r) => !exclude.has(r.id))
       .sort((a, b) => {
@@ -603,7 +610,15 @@ export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks 
         const pb = b.nutrition?.protein ?? 0;
         const ca = a.nutrition?.calories ?? 0;
         const cb = b.nutrition?.calories ?? 0;
-        return needProtein ? pb - pa || cb - ca : cb - ca || pb - pa;
+        if (needProtein) return pb - pa || cb - ca;
+        // a day whose protein TARGET is already banked (an away/swipe credit,
+        // 7.11) is buying calories here, not protein — rank by NON-protein
+        // calories so a lean 540-kcal snack really beats a 570-kcal protein
+        // plate. A mere same-calorie tiebreak never fires against the real
+        // pool (23 distinct calorie values in 27 snacks; reviewer catch
+        // 2026-08-19: that is the ships-dark failure mode by name).
+        if (leanCalories) return cb - pb * 4 - (ca - pa * 4);
+        return cb - ca || pb - pa;
       })[0];
 
   let next = plan;
@@ -614,13 +629,30 @@ export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks 
       any: totals.protein < floors.protein || totals.calories < floors.calories,
     };
   };
+  // protein target met = stop optimizing for it (floor logic above is
+  // untouched; this only stops ADDING protein past the goal, never trims)
+  const proteinEnough = (/** @type {string} */ date) =>
+    opts.proteinTargetG != null &&
+    dayTotals(next.entries, recipesById, date).protein >= opts.proteinTargetG;
 
   for (const date of dates) {
-    // lever 1: portion bumps on already-chosen meals, 0.5 steps at a time
-    for (const { slot, maxBump } of PORTION_BUMPS) {
-      const target = entriesAt(next.entries, date, slot).find(
+    // lever 1: portion bumps on already-chosen meals, 0.5 steps at a time.
+    // A day whose protein target is already banked (7.11 swipe credit) bumps
+    // its LEANEST meal first — the bump is buying calories, not protein.
+    const bumpCandidates = PORTION_BUMPS.map(({ slot, maxBump }) => ({
+      maxBump,
+      target: entriesAt(next.entries, date, slot).find(
         (e) => !e.pinned && e.recipeId && recipesById.has(e.recipeId),
-      );
+      ),
+    })).filter((c) => c.target);
+    if (proteinEnough(date)) {
+      const densityOf = (/** @type {import("./plan.js").PlanEntry | undefined} */ e) => {
+        const n = e?.recipeId ? (recipesById.get(e.recipeId)?.nutrition ?? {}) : {};
+        return (n.calories ?? 0) > 0 ? (n.protein ?? 0) / n.calories : 0;
+      };
+      bumpCandidates.sort((a, b) => densityOf(a.target) - densityOf(b.target));
+    }
+    for (const { target, maxBump } of bumpCandidates) {
       if (!target) continue;
       const cap = Math.min(target.servings + maxBump, MAX_ENTRY_SERVINGS);
       let servings = target.servings;
@@ -642,7 +674,7 @@ export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks 
     for (let stacked = 0; stacked < maxSnackStacks; stacked++) {
       const s = shortOf(date);
       if (!s.any) break;
-      const pick = bestFor(s.protein, maxedOut);
+      const pick = bestFor(s.protein, proteinEnough(date), maxedOut);
       if (!pick) break;
       const existing = entriesAt(next.entries, date, "snack").find(
         (e) => !e.pinned && e.recipeId === pick.id,
@@ -1117,6 +1149,19 @@ export function generateWeek({
       };
     });
 
+  // 7.11 (P5): away/swipe slots deliver their estimated macros for free, so
+  // the COOKED week aims at what REMAINS. A buffet swipe is protein-loaded
+  // (buffetMacroEstimate), which LOWERS the remaining protein density the
+  // committees score against — that is the whole arbitrage: swipe days eat
+  // the expensive macro where its marginal cost is zero, and the grocery
+  // list buys less of it. With no away slots every number below reduces to
+  // exactly the old week-constant behavior.
+  const awayCredit = {
+    calories: outDays.reduce((s, d) => s + d.estCalories, 0),
+    protein: outDays.reduce((s, d) => s + d.estProtein, 0),
+    slots: outDays.reduce((s, d) => s + d.slots.length, 0),
+  };
+
   const proteinTarget = targets?.macros?.protein ?? 210;
   const caloriesTarget = targets?.macros?.calories ?? 3400;
   // the floors the profile actually WROTE, never a ratio of the target
@@ -1195,6 +1240,24 @@ export function generateWeek({
       })),
   );
 
+  // the committees score protein density against the REMAINING need (see
+  // awayCredit above): week protein minus away credit, over week calories
+  // minus away credit. Identical to the old (proteinTarget*4)/caloriesTarget
+  // when nothing is away. CLAMPED into [0.05, 1] (reviewer catches
+  // 2026-08-19): a raw 0 would trip pickCommittee's !needRatio fallback and
+  // flip the term to "maximize protein" on an all-swipe week — the exact
+  // inverse of the intent — and credits that eat the calorie budget faster
+  // than the protein budget can push the raw ratio into the thousands,
+  // which clamps every recipe's term to a constant and silently switches
+  // protein scoring off. 0.05 keeps "leaner wins" ordering; 1 is the
+  // physical ceiling (all-protein calories).
+  const weekProteinNeed = Math.max(0, proteinTarget * liveDates.length - awayCredit.protein);
+  const weekCaloriesNeed = Math.max(1, caloriesTarget * liveDates.length - awayCredit.calories);
+  const remainingNeedRatio =
+    caloriesTarget > 0 && liveDates.length > 0
+      ? Math.min(1, Math.max(0.05, (weekProteinNeed * 4) / weekCaloriesNeed))
+      : 0;
+
   // which slots get proactively filled/committee-picked is profile-driven;
   // snack is never in this set, it's always the reactive top-up pool
   const mealSlots = targets?.mealSlots ?? DEFAULT_MEAL_SLOTS;
@@ -1216,7 +1279,7 @@ export function generateWeek({
         coverageSoFar,
         dailyDozenTargets: dailyDozenWeekly,
         dislikeIngredients: targets?.dislikeIngredients,
-        proteinRatioNeeded: caloriesTarget > 0 ? (proteinTarget * 4) / caloriesTarget : 0,
+        proteinRatioNeeded: remainingNeedRatio,
         tiredOf: targets?.tiredOf,
         recentRecipeIds: recentSet,
         cuisinePrefs: targets?.cuisinePrefs,
@@ -1281,25 +1344,83 @@ export function generateWeek({
   const dinnerSequence = twoPassSequence(committees.dinner, dinnerRotation);
   let dinnerCursor = 0;
 
-  dates.forEach((date, i) => {
-    if (isPast(date) || isHeld(date)) return; // eaten, or an occasion owns it
-    if (mealSlotSet.has("breakfast")) {
-      fill(date, "breakfast", committees.breakfast[i % Math.max(1, committees.breakfast.length)]);
+  // Default rotation assignment first (exactly the old behavior), then a
+  // PERMUTATION pass (7.11): a day banking away/swipe protein trades its
+  // assigned recipe for the leanest one assigned to a normal day. Pairwise
+  // swaps keep the multiset of picks identical — the ≤2-repeat promise and
+  // the shopping list are untouched; only which DAY gets which member moves,
+  // so the swipe day stops stacking protein it already has. No-op when no
+  // away credits exist.
+  const proteinDensityOf = (/** @type {Record<string, any> | undefined} */ r) => {
+    const cal = r?.nutrition?.calories ?? 0;
+    return cal > 0 ? ((r?.nutrition?.protein ?? 0) * 4) / cal : 0;
+  };
+  const awayProteinByDate = new Map(outDays.map((d) => [d.date, d.estProtein]));
+  const fillDates = dates.filter((date) => !isPast(date) && !isHeld(date));
+  /** @type {{ breakfast: Map<string, Record<string, any> | undefined>, lunch: Map<string, Record<string, any> | undefined>, dinner: Map<string, Record<string, any> | undefined> }} */
+  const assigned = { breakfast: new Map(), lunch: new Map(), dinner: new Map() };
+  fillDates.forEach((date) => {
+    // WEEK-relative rotation index (dates, not fillDates): a mid-week
+    // regenerate must hand the remaining days the same picks it did on
+    // Monday, or the tail of the week reshuffles and the list churns
+    // (reviewer catch 2026-08-19)
+    const i = dates.indexOf(date);
+    // only a FREE slot enters the assignment map. An occupied slot (the
+    // swipe placeholder itself, a hand-pinned meal) would make its
+    // assignment a discard — and the permutation below would then park the
+    // lean pick on the discard and cook the dense one instead (reviewer
+    // catch 2026-08-19: the swap must trade real slots only)
+    if (
+      mealSlotSet.has("breakfast") &&
+      entriesAt(next.entries, date, "breakfast").length === 0
+    ) {
+      assigned.breakfast.set(
+        date,
+        committees.breakfast[i % Math.max(1, committees.breakfast.length)],
+      );
     }
-    if (mealSlotSet.has("smoothie")) {
-      fill(date, "smoothie", committees.smoothie[0]);
-    }
-    if (mealSlotSet.has("lunch")) {
-      fill(date, "lunch", committees.lunch[i % Math.max(1, committees.lunch.length)]);
+    if (mealSlotSet.has("lunch") && entriesAt(next.entries, date, "lunch").length === 0) {
+      assigned.lunch.set(date, committees.lunch[i % Math.max(1, committees.lunch.length)]);
     }
     if (
       mealSlotSet.has("dinner") &&
       dinnerCursor < dinnerSequence.length &&
       entriesAt(next.entries, date, "dinner").length === 0
     ) {
-      fill(date, "dinner", dinnerSequence[dinnerCursor]);
+      assigned.dinner.set(date, dinnerSequence[dinnerCursor]);
       dinnerCursor++;
     }
+  });
+  for (const meal of /** @type {("breakfast" | "lunch" | "dinner")[]} */ ([
+    "breakfast",
+    "lunch",
+    "dinner",
+  ])) {
+    const m = assigned[meal];
+    const awayDates = [...m.keys()]
+      .filter((d) => (awayProteinByDate.get(d) ?? 0) > 0)
+      // heaviest credit first gets the leanest available pick
+      .sort((a, b) => (awayProteinByDate.get(b) ?? 0) - (awayProteinByDate.get(a) ?? 0));
+    const normalDates = [...m.keys()].filter((d) => !((awayProteinByDate.get(d) ?? 0) > 0));
+    for (const ad of awayDates) {
+      let bestSwap = null;
+      for (const nd of normalDates) {
+        const lean = m.get(nd);
+        if (!lean || proteinDensityOf(lean) >= proteinDensityOf(m.get(ad))) continue;
+        if (!bestSwap || proteinDensityOf(lean) < proteinDensityOf(m.get(bestSwap))) bestSwap = nd;
+      }
+      if (bestSwap) {
+        const was = m.get(ad);
+        m.set(ad, m.get(bestSwap));
+        m.set(bestSwap, was);
+      }
+    }
+  }
+  fillDates.forEach((date) => {
+    if (mealSlotSet.has("breakfast")) fill(date, "breakfast", assigned.breakfast.get(date));
+    if (mealSlotSet.has("smoothie")) fill(date, "smoothie", committees.smoothie[0]);
+    if (mealSlotSet.has("lunch")) fill(date, "lunch", assigned.lunch.get(date));
+    if (mealSlotSet.has("dinner")) fill(date, "dinner", assigned.dinner.get(date));
   });
 
   // Step 3.5: per-day food-group floor pass (greens/cruciferous, per the
@@ -1327,6 +1448,9 @@ export function generateWeek({
     budget: targets?.budget,
     weekFoodPool,
     report: topUpReport,
+    // 7.11: a day already at its protein target (usually a swipe day) gets
+    // lean calorie fills instead of protein-first snacks
+    proteinTargetG: proteinTarget,
   });
   if (topUpReport.macroTopUp) {
     topUpReport.macroTopUp.snackServingsAdded =
@@ -1456,6 +1580,17 @@ export function generateWeek({
       weeklyGapsOpen: gaps.weekly.length,
     },
     macroTopUp: topUpReport.macroTopUp ?? { budget: "unknown", ranButDidNotReport: true },
+    // 7.11 (P5): the away/swipe credit and the remaining-need density the
+    // committees actually aimed at — the arbitrage can never go dark again
+    away: {
+      slots: awayCredit.slots,
+      swipeSlots: pinnedEntries.filter((e) => e.out && /** @type {any} */ (e).currency).length,
+      creditCalories: awayCredit.calories,
+      creditProtein: awayCredit.protein,
+      cookedNeedRatio: Math.round(remainingNeedRatio * 1000) / 1000,
+      fullNeedRatio:
+        caloriesTarget > 0 ? Math.round(((proteinTarget * 4) / caloriesTarget) * 1000) / 1000 : 0,
+    },
     floors: (() => {
       // DELIVERED averages, not just shortfalls: over-delivery reads as
       // success on every other screen (the 232-252 g finding, council

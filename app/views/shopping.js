@@ -1,4 +1,5 @@
 import { html } from "htm/preact";
+import { Fragment } from "preact";
 import { tokenBroken } from "../lib/github.js";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { krogerPricesById, krogerSearch, scanPhoto, scanReceipt } from "../lib/worker.js";
@@ -454,14 +455,36 @@ export function ShoppingView({
   const homeSummary = homeStore ? tripTotal(tripItems, prices, homeStore, region) : null;
   const bestStore = ranked[0] ?? null;
   const todayIso = localIsoDate(new Date());
+  // one itemCost per row per render: priceTag, buyHint and the $? gate all
+  // ask the same question, and itemCost scans the whole catalogue each time
+  // (60 rows × 3 calls on a phone in a store adds up). Keyed on the item
+  // OBJECT so combined-trip rows from other profiles can never collide.
+  /** @type {WeakMap<object, ReturnType<typeof itemCost>>} */
+  const costMemo = new WeakMap();
+  const rowCost = (/** @type {any} */ item) => {
+    if (!prices || !homeStore) return null;
+    if (!costMemo.has(item)) costMemo.set(item, itemCost(item, prices, homeStore));
+    return costMemo.get(item) ?? null;
+  };
   const priceTag = (/** @type {any} */ item) => {
     if (!prices || !homeStore) return "";
-    const c = itemCost(item, prices, homeStore);
+    const c = rowCost(item);
     if (!c) return html`<span class="q num nopr">no price</span>`;
     // † = a live-timestamped price past its freshness window (fix list 3.5)
     const sp = matchPrice(item.food, prices.items ?? [])?.prices?.[homeStore];
     const stale = isStalePrice(sp, todayIso);
     return html`<span class="q num">$${c.cost.toFixed(2)}${c.estimate ? "~" : ""}${stale ? " †" : ""}</span>`;
+  };
+  // the "buy" half of the need → buy line (David, 2026-08-19): every row
+  // reads `need → what the store sells to cover it`. Packaged rows use the
+  // authoritative pack math itemCost already computed ("2 × 10 oz"), per-lb
+  // rows show the charged weight; unpriced rows keep packHint's table guess.
+  const buyHint = (/** @type {any} */ item) => {
+    if (!prices || !homeStore) return "";
+    const c = rowCost(item);
+    if (c?.packs && c.size) return `≈ ${c.packs} × ${c.size}`;
+    if (c?.lbs) return `≈ ${c.lbs} lb weighed`;
+    return packHint(item.food, item.qty, item.unit, prices, homeStore) ?? "";
   };
 
   // ---- live Kroger pricing (fix list Tier 3: pins, refresh, confirm-once) --
@@ -568,6 +591,43 @@ export function ShoppingView({
       setRefreshNote(err instanceof Error ? err.message : "refresh failed");
     }
   };
+
+  // the confirm-once pick sheet (fix list 3.2): search results for one row,
+  // cheapest first by UNIT price, allergen-screened on the OUTPUT — a
+  // hitting product renders its warning and cannot be pinned (fix list
+  // 3.4). Inline tile, never an overlay — rendered directly UNDER the
+  // tapped row (David, 2026-08-19: at the bottom of the page it opened
+  // three screens below his thumb and read as the button doing nothing).
+  const pickSheet = () =>
+    pricePick &&
+    html`<div class="tile">
+      <div class="row">
+        <span class="k">${pricePick.confirm ? "confirm product for" : "price"} ${pricePick.item.food} · ${STORE_NAMES[homeStore] ?? homeStore}</span>
+        <button class="linktext" onClick=${() => setPricePick(null)}>CLOSE</button>
+      </div>
+      ${
+        pricePick.confirm &&
+        html`<div class="row">
+            <span class="k">${pricePick.confirm.description} <span class="hint">${pricePick.confirm.size}</span></span>
+            <button class="linktext" onClick=${() => { if (onSavePins) onSavePins(confirmPin(normalizePins(pins), pricePick.item.food, homeStore, todayIso)); setPricePick(null); }}>CONFIRM</button>
+          </div>
+          <p class="hint">
+            auto-picked as the cheapest match — confirming keeps it, or${" "}
+            <button class="linktext" onClick=${() => openPricePick(pricePick.item)}>search for something better</button>
+          </p>`
+      }
+      ${pricePick.busy && html`<p class="hint">searching the store…</p>`}
+      ${pricePick.error && html`<p class="hint">⚠ ${pricePick.error}</p>`}
+      ${!pricePick.busy && !pricePick.error && !pricePick.confirm && pricePick.candidates.length === 0 && html`<p class="hint">nothing matched at this store — the row stays honestly unpriced.</p>`}
+      ${pricePick.candidates.slice(0, 8).map((/** @type {any} */ c) => {
+        const hits = allergenHits(c, avoid);
+        return html`<div class="row" key=${c.upc}>
+          <span class="k">${c.description} <span class="hint">${c.brand ? `${c.brand} · ` : ""}${c.size}${c.unitLabel ? ` · ${c.unitLabel}` : ""}${c.spend != null && c.spend !== c.price.regular ? ` · covers yours $${c.spend.toFixed(2)}` : ""}${c.aisle ? ` · ${c.aisle}` : ""}${c.price.promo != null ? ` · promo $${c.price.promo.toFixed(2)}` : ""}</span></span>
+          ${hits.length > 0 ? html`<span class="status warn">contains ${hits.join(", ")}</span>` : html`<button class="linktext num" onClick=${() => choosePick(pricePick.item, c)}>$${c.price.regular.toFixed(2)} PIN</button>`}
+        </div>`;
+      })}
+      ${!pricePick.confirm && pricePick.candidates.length > 0 && html`<p class="hint">pinning maps ${pricePick.item.food} to this exact product here — priced by UPC from now on, never searched again.</p>`}
+    </div>`;
 
   // the aisle walk order for the store actually being shopped
   const aisles = aisleOrderFor(prices, homeStore);
@@ -1190,8 +1250,13 @@ export function ShoppingView({
                     </h2>
                     <div class="slots">
                       ${g.items.map(
-                        (i) => html`
-                          <div class="checkrow ${i.checked ? "done" : ""}" key=${i.id}>
+                        // keyed Fragment: the row + its inline pick sheet are
+                        // two roots, and an unkeyed array child would make
+                        // Preact diff the list positionally (ui-review
+                        // 2026-08-19: P+ removing a row would remount every
+                        // row below it)
+                        (i) => html`<${Fragment} key=${i.id}>
+                          <div class="checkrow ${i.checked ? "done" : ""}">
                             <button
                               class="tickarea"
                               aria-pressed=${i.checked}
@@ -1211,7 +1276,7 @@ export function ShoppingView({
                               >
                               <span class="q num">
                                 ${formatStoreQty(i.qty, i.unit)}${(() => {
-                                  const h = packHint(i.food, i.qty, i.unit, prices, homeStore);
+                                  const h = buyHint(i);
                                   return h ? html` <span class="hint">${h}</span>` : "";
                                 })()}
                               </span>
@@ -1224,10 +1289,11 @@ export function ShoppingView({
                             >
                               P+
                             </button>
-                            ${canLive && !itemCost(i, prices, homeStore) && html`<button class="ownbtn" aria-label="Find live price for ${i.food}" onClick=${() => openPricePick(i)}>$?</button>`}
+                            ${canLive && !rowCost(i) && html`<button class="ownbtn" aria-label="Find live price for ${i.food}" onClick=${() => openPricePick(i)}>$?</button>`}
                             ${canLive && pinFor(pins, i.food, homeStore)?.provisional && html`<button class="ownbtn" aria-label="Confirm auto-picked product for ${i.food}" onClick=${() => openPinConfirm(i)}>?</button>`}
                           </div>
-                        `,
+                          ${pricePick?.item?.id === i.id ? pickSheet() : ""}
+                        <//>`,
                       )}
                     </div>
                   `,
@@ -1345,39 +1411,13 @@ export function ShoppingView({
             `
           }
           ${
-            // the confirm-once pick sheet (fix list 3.2): search results for
-            // one row, cheapest first by UNIT price, allergen-screened on the
-            // OUTPUT — a hitting product renders its warning and cannot be
-            // pinned (fix list 3.4). Inline tile, never an overlay.
+            // fallback placement for the pick sheet: the sheet normally
+            // renders directly under its row (David, 2026-08-19: the
+            // bottom-of-page tile looked like the ? button did nothing), but
+            // if the row left the list mid-pick it still needs a home
             pricePick &&
-            html`<div class="tile">
-              <div class="row">
-                <span class="k">${pricePick.confirm ? "confirm product for" : "price"} ${pricePick.item.food} · ${STORE_NAMES[homeStore] ?? homeStore}</span>
-                <button class="linktext" onClick=${() => setPricePick(null)}>CLOSE</button>
-              </div>
-              ${
-                pricePick.confirm &&
-                html`<div class="row">
-                    <span class="k">${pricePick.confirm.description} <span class="hint">${pricePick.confirm.size}</span></span>
-                    <button class="linktext" onClick=${() => { if (onSavePins) onSavePins(confirmPin(normalizePins(pins), pricePick.item.food, homeStore, todayIso)); setPricePick(null); }}>CONFIRM</button>
-                  </div>
-                  <p class="hint">
-                    auto-picked as the cheapest match — confirming keeps it, or${" "}
-                    <button class="linktext" onClick=${() => openPricePick(pricePick.item)}>search for something better</button>
-                  </p>`
-              }
-              ${pricePick.busy && html`<p class="hint">searching the store…</p>`}
-              ${pricePick.error && html`<p class="hint">⚠ ${pricePick.error}</p>`}
-              ${!pricePick.busy && !pricePick.error && !pricePick.confirm && pricePick.candidates.length === 0 && html`<p class="hint">nothing matched at this store — the row stays honestly unpriced.</p>`}
-              ${pricePick.candidates.slice(0, 8).map((/** @type {any} */ c) => {
-                const hits = allergenHits(c, avoid);
-                return html`<div class="row" key=${c.upc}>
-                  <span class="k">${c.description} <span class="hint">${c.brand ? `${c.brand} · ` : ""}${c.size}${c.unitLabel ? ` · ${c.unitLabel}` : ""}${c.spend != null && c.spend !== c.price.regular ? ` · covers yours $${c.spend.toFixed(2)}` : ""}${c.aisle ? ` · ${c.aisle}` : ""}${c.price.promo != null ? ` · promo $${c.price.promo.toFixed(2)}` : ""}</span></span>
-                  ${hits.length > 0 ? html`<span class="status warn">contains ${hits.join(", ")}</span>` : html`<button class="linktext num" onClick=${() => choosePick(pricePick.item, c)}>$${c.price.regular.toFixed(2)} PIN</button>`}
-                </div>`;
-              })}
-              ${!pricePick.confirm && pricePick.candidates.length > 0 && html`<p class="hint">pinning maps ${pricePick.item.food} to this exact product here — priced by UPC from now on, never searched again.</p>`}
-            </div>`
+            !tripItems.some((/** @type {any} */ x) => x.id === pricePick.item.id) &&
+            pickSheet()
           }
           ${
             // OUTSIDE the price tile on purpose: applying a receipt empties the
