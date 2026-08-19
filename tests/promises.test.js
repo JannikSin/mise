@@ -29,6 +29,7 @@ import {
 } from "../app/lib/shopping.js";
 import { cookPlan, leftoverLedger } from "../app/lib/portions.js";
 import { perishableCoverage } from "../app/lib/coverage.js";
+import { priceWeek, swapToFit } from "../app/lib/budget.js";
 import { buildServe } from "../app/lib/serve.js";
 import { clampGuests, deriveTables, setTableGuests } from "../app/lib/tables.js";
 import { composeWeekReview } from "../app/lib/review.js";
@@ -558,7 +559,7 @@ const PROMISES = [
 
   {
     id: "P5",
-    name: "P5 the week is priced before you shop, and prepaid value lowers what the groceries must buy",
+    name: "P5 the week is changed until it fits the budget or says by how much it cannot, and prepaid value is spent first",
     fn: () => {
       // THE TRUTH HALF: a real total, against a real store, from the plan,
       // before anyone leaves the house.
@@ -662,6 +663,75 @@ const PROMISES = [
         [],
         "chasing an unreachable ceiling broke the floor underneath it",
       );
+
+      // THE BUDGET AS A CONSTRAINT, not a readout. Canon: "Generate the week,
+      // price every row, and if the total is over the number, Mise CHANGES the
+      // week... until it fits or the app says plainly that it cannot and by how
+      // much." Until 2026-08-19 `grep swapToFit` returned nothing at all.
+      const dear = { id: "dinner-dear", name: "Dear", mealType: "dinner", servings: 1, totalTime: 20,
+        difficulty: 1, instructions: ["cook"], foodGroups: {},
+        nutrition: { calories: 700, protein: 45, carbs: 50, fat: 20 },
+        ingredients: [{ qty: 1, unit: "lb", food: "gold leaf" }] };
+      const cheap = { ...dear, id: "dinner-cheap", name: "Cheap",
+        ingredients: [{ qty: 1, unit: "lb", food: "rolled oats" }] };
+      const priceBook = {
+        region: { country: "USA", state: "IL" },
+        stores: ["s"],
+        items: [
+          { id: "gold-leaf", name: "gold leaf", prices: { s: { price: 90, size: "1 lb" } } },
+          { id: "rolled-oats", name: "rolled oats", prices: { s: { price: 3, size: "1 lb" } } },
+        ],
+      };
+      const week = {
+        week: WEEK,
+        entries: [{ id: "d1", date: DATES[1], slot: "dinner", recipeId: "dinner-dear", servings: 1 }],
+      };
+      const shared = {
+        recipes: [dear, cheap],
+        recipesById: new Map([[dear.id, dear], [cheap.id, cheap]]),
+        pantry: { items: [] },
+        catalogue: priceBook,
+        store: "s",
+        region: priceBook.region,
+        // 700 kcal of dinner has to sit under the day ceiling, or the fit
+        // pass correctly refuses every swap and the fixture proves nothing
+        targets: { macros: { calories: 900, caloriesFloor: 600, protein: 40, proteinFloor: 40 } },
+      };
+      const dearPrice = priceWeek(week, shared.recipesById, shared.pantry, priceBook, "s", priceBook.region);
+      assert.ok(dearPrice.eaten > 50, "the fixture week did not price as expensive");
+
+      const fit = swapToFit({ ...shared, plan: week, budgetUsd: 20 });
+      assert.equal(fit.fits, true, `the week did not reach the budget: ${fit.reason}`);
+      assert.equal(fit.swaps.length, 1, "the fit changed the wrong number of meals");
+      assert.equal(fit.swaps[0].to, "Cheap");
+      assert.ok(fit.eaten < fit.startedAt, "the swap did not actually reduce the bill");
+      assert.ok(fit.eaten <= 20);
+
+      // IT NEVER BUYS THE BUDGET WITH A BROKEN PROMISE. Raise the floor above
+      // what the cheap meal delivers and the swap becomes illegal, so the week
+      // stays expensive and SAYS SO with the number.
+      const held = swapToFit({
+        ...shared,
+        plan: week,
+        budgetUsd: 20,
+        recipes: [dear, { ...cheap, nutrition: { calories: 300, protein: 10, carbs: 20, fat: 5 } }],
+        recipesById: new Map([
+          [dear.id, dear],
+          [cheap.id, { ...cheap, nutrition: { calories: 300, protein: 10, carbs: 20, fat: 5 } }],
+        ]),
+      });
+      assert.equal(held.fits, false, "a swap that starves the day was allowed to buy the budget");
+      assert.equal(held.swaps.length, 0);
+      assert.ok(held.over > 0, "the shortfall was not quantified");
+      assert.match(held.reason, /over/, "the failure did not say how far short it fell");
+
+      // AND NO BUDGET IS NOT OVER BUDGET. A profile that never set a number
+      // is not silently given one, which is the invented-person bug in
+      // another costume.
+      const none = swapToFit({ ...shared, plan: week, budgetUsd: 0 });
+      assert.equal(none.ran, false);
+      assert.equal(none.fits, true);
+      assert.equal(none.swaps.length, 0);
     },
   },
 
@@ -1168,16 +1238,17 @@ for (const p of PROMISES) test(p.name, p.fn);
 const UNBUILT = [
   {
     id: "P5",
-    name: "P5 GAP the week is changed until it fits the budget, or says by how much it cannot",
+    name: "P5 GAP a variable-weight row prices as a range, and every currency is spent in marginal-cost order",
     why:
-      "owner koenig, Phase 2 job 7. The budget is a readout, not a constraint: grep swapToFit returns " +
-      "nothing. Two further pieces remain: variable-weight rows as an honest range instead of false " +
-      "precision, and marginal-cost ordering across more than one currency (only swipes act today). " +
-      "The protein trim landed 2026-08-19 and is proven above, but MEASURE IT BEFORE CLAIMING IT: on " +
-      "David's real bank it recovers about 5 g/day and leaves 5 of 7 days still over the 215 g ceiling, " +
-      "because the overshoot is chosen at SELECTION time and the calorie floor blocks most trimming. " +
-      "The remaining ~20 to 45 g/day is Stage 2 (the proteinTerm shoulder plus the per-meal floor), " +
-      "council-gated on David's one word, and no amount of trimming substitutes for it.",
+      "owner koenig, Phase 2. Swap-to-fit landed 2026-08-19 and is proven above; two of P5's stated " +
+      "pricing rules are still unbuilt. (1) A variable-weight row prices as a false-precision point " +
+      "where the canon demands a range: \"$48 to $53, never a false-precision point\". (2) Marginal-cost " +
+      "ordering acts on ONE currency: swipes lower what the groceries must buy, but a gift card " +
+      "expiring Friday and expiring store credit are held in the schema and spent by nothing. " +
+      "MEASURE BEFORE PROMISING MORE FROM THE SWAP PASS: on the live bank it takes an eaten week from " +
+      "about $250 to about $157 in roughly 21 swaps and then genuinely runs out of legal moves, which " +
+      "is $93/week real and still $57 over his $100. The remaining gap is not a smarter search, it is " +
+      "that the week is buying food for 21 cooked meals he will not cook once dining swipes are marked.",
   },
   {
     id: "P6",

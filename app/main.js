@@ -93,6 +93,7 @@ import {
 } from "./lib/plan.js";
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
 import { composeManifest, remanifest } from "./lib/manifest.js";
+import { swapToFit } from "./lib/budget.js";
 import { weekAdherence, rankScoreboard } from "./lib/adherence.js";
 import {
   normalizeEvents,
@@ -479,10 +480,11 @@ function App() {
   // and hoisting three pieces of state to satisfy one callback would be the
   // tail wagging the dog. Filled on every render, just below where they exist.
   const manifestInputs = useRef(
-    /** @type {{ targets: Record<string, any> | null, recipes: Record<string, any>[], dailyDays: Record<string, any>[] }} */ ({
+    /** @type {{ targets: Record<string, any> | null, recipes: Record<string, any>[], dailyDays: Record<string, any>[], catalogue: Record<string, any> | null }} */ ({
       targets: null,
       recipes: [],
       dailyDays: [],
+      catalogue: null,
     }),
   );
 
@@ -503,7 +505,9 @@ function App() {
           ...clean,
           manifest: remanifest(/** @type {any} */ (clean).manifest, {
             plan: clean,
-            ...manifestInputs.current,
+            targets: manifestInputs.current.targets,
+            recipes: manifestInputs.current.recipes,
+            dailyDays: manifestInputs.current.dailyDays,
             todayIso: localIsoDate(new Date()),
           }),
         });
@@ -1218,7 +1222,12 @@ function App() {
   targetsRef.current = targets;
   // feeds the manifest refresh at the plan-write point (P1, re-checked after
   // every edit); declared up there, filled here where the values exist
-  manifestInputs.current = { targets, recipes, dailyDays: dailyLog?.days ?? [] };
+  manifestInputs.current = {
+    targets,
+    recipes,
+    dailyDays: dailyLog?.days ?? [],
+    catalogue: priceCatalogue,
+  };
 
   // THE FLUID WEEK (7.2, canon P4): the locked week is abolished. Shopping
   // stores the plan as a FALLBACK and the plan stays freely changeable; the
@@ -1483,6 +1492,63 @@ function App() {
         // a swap pass that fails leaves the honestly generated week intact
       }
     }
+    // SWAP TO FIT (P5, 2026-08-19). The budget is a CONSTRAINT on generation,
+    // not a readout: "You review a week that already meets the number." So the
+    // week is priced here, against the real store, and changed until it fits
+    // or until it can say plainly that it cannot and by how much. Runs LAST,
+    // after the house swap pass, so it prices the week David will actually
+    // see. Measured on his real bank: about $93/week, and then it stops and
+    // says how far short it is rather than pretending.
+    /** @type {Record<string, any> | undefined} */
+    let fitReport;
+    try {
+      const cat = manifestInputs.current.catalogue;
+      const store = targetsRef.current?.stores?.[0] ?? "";
+      const budgetUsd = Number(targetsRef.current?.weeklyBudgetUsd) || 0;
+      if (cat && store && budgetUsd > 0) {
+        const fit = swapToFit({
+          plan: built,
+          recipes: generatorEligible(recipesRef.current),
+          recipesById: recipesById(recipesRef.current),
+          pantry: pantryRef.current,
+          catalogue: cat,
+          store,
+          region: targetsRef.current?.region,
+          budgetUsd,
+          targets: targetsRef.current,
+          fromDate: todayIfCurrentWeek(built.week),
+          today: localIsoDate(new Date()),
+          bankById: recipesById(bankRecipesRef.current),
+        });
+        built = /** @type {any} */ (fit.plan);
+        fitReport = {
+          ran: fit.ran,
+          fits: fit.fits,
+          budget: fit.budget,
+          startedAt: fit.startedAt,
+          eaten: fit.eaten,
+          over: fit.over,
+          swaps: fit.swaps.length,
+          reason: fit.reason,
+          store,
+        };
+      } else {
+        fitReport = {
+          ran: false,
+          fits: true,
+          swaps: 0,
+          reason: !cat
+            ? "no price catalogue on this device yet, so the week could not be priced"
+            : !store
+              ? "no store chosen on this profile, so there is no price to fit to"
+              : "no weekly budget set on this profile, so nothing to fit",
+        };
+      }
+    } catch {
+      // a fit pass that throws leaves the honestly generated week intact, and
+      // says so rather than reporting a fit that never happened
+      fitReport = { ran: false, fits: false, swaps: 0, reason: "the fit pass failed to run" };
+    }
     // THE GENERATION MANIFEST (fix list 2.5, council 2026-08-18): compose
     // the full subsystem report and persist it ON the plan, so every device
     // sees what every engine did — the structural answer to four engines
@@ -1499,7 +1565,7 @@ function App() {
       built = {
         ...built,
         manifest: composeManifest({
-          engine: result.report.manifest ?? {},
+          engine: { ...(result.report.manifest ?? {}), swapToFit: fitReport },
           targets: targetsRef.current,
           recipes: recipesRef.current,
           dailyDays: dailyRef.current?.days ?? [],

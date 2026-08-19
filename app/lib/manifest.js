@@ -38,6 +38,7 @@ export const SUBSYSTEMS = [
   "adherence",
   "protein",
   "leftovers",
+  "swapToFit",
 ];
 
 /**
@@ -148,6 +149,19 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
     pastWindow: led.reCooked.length,
     readPlan: Boolean(current),
   };
+
+  // SWAP TO FIT (P5). Set by the generate path, which is the only place that
+  // can run it, and defaulted here so the registry can never find it silent.
+  // A budget pass that did not run has to say WHY it did not run: "no store
+  // chosen" and "the week fits" are opposite facts and must not render alike.
+  if (!subsystems.swapToFit) {
+    subsystems.swapToFit = {
+      ran: false,
+      fits: null,
+      swaps: 0,
+      reason: "no fit pass has run on this plan yet (generate to price the week)",
+    };
+  }
 
   // plating (synth.js): deliberately inert by council 2026-08-12, kill
   // review 2026-11-15. The manifest keeps saying so, out loud, so the gate
@@ -410,6 +424,13 @@ function lineFor(key, s) {
           `${s.orphanContainers} orphan container${s.orphanContainers === 1 ? "" : "s"}` +
           (s.orphanServings > 0 ? ` (${s.orphanServings} servings unclaimed)` : "") +
           `, ${s.pastWindow} slot${s.pastWindow === 1 ? "" : "s"} past the safe window`;
+    case "swapToFit":
+      if (!s.ran) return `budget fit did not run: ${s.reason}`;
+      return (
+        `$${s.startedAt?.toFixed?.(2) ?? s.startedAt} eaten becomes $${s.eaten?.toFixed?.(2) ?? s.eaten} ` +
+        `against a $${s.budget} budget at ${s.store}, ${s.swaps} swap${s.swaps === 1 ? "" : "s"}: ` +
+        (s.fits ? "FITS" : `OVER by $${s.over?.toFixed?.(2) ?? s.over}`)
+      );
     case "plating":
       return `${s.status}; ${s.platedRecipes} of ${s.bankRecipes} recipes tagged plated`;
     case "weightTrend":
