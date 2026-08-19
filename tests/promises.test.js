@@ -504,6 +504,49 @@ const PROMISES = [
         [],
         "the swipe day fell under the protein floor",
       );
+
+      // THE PROTEIN CEILING. P5 calls over-delivered protein a budget leak,
+      // because protein is the expensive macro and grams above the number are
+      // bought for nothing. David ratified 215 g on 2026-08-19; until this
+      // pass landed, targets.json carried the ceiling and no code read it, so
+      // the data was ahead of the engine and nothing could tell.
+      const headroom = { ...TARGETS.macros, caloriesFloor: 3000 };
+      const unlimited = build({ targets: { ...TARGETS, macros: headroom } });
+      const capped = build({
+        targets: { ...TARGETS, macros: { ...headroom, proteinCeiling: 190 } },
+      });
+      const avgProtein = (r) =>
+        DATES.reduce((s, d) => s + dayTotals(r.plan.entries, byId, d).protein, 0) / DATES.length;
+      assert.ok(
+        avgProtein(capped) < avgProtein(unlimited),
+        `a written protein ceiling changed nothing: ${avgProtein(capped)} g vs ` +
+          `${avgProtein(unlimited)} g unconstrained`,
+      );
+      // and it bought that saving without breaking anything the person agreed to
+      assert.deepEqual(capped.report.proteinShortDays, [], "the trim broke the protein floor");
+      assert.deepEqual(capped.report.calorieShortDays, [], "the trim broke the calorie floor");
+
+      // AN ABSENT CEILING IS NEVER INVENTED. A number nobody chose would
+      // silently start taking food off every profile in the app.
+      assert.deepEqual(
+        unlimited.report.proteinOverDays,
+        [],
+        "a profile with no written ceiling was measured against one anyway",
+      );
+      // A day the trim cannot fit without breaking a floor is REPORTED over,
+      // never fudged. That is the honesty rule doing the work the trim cannot.
+      const impossible = build({
+        targets: { ...TARGETS, macros: { ...TARGETS.macros, proteinCeiling: 60 } },
+      });
+      assert.ok(
+        impossible.report.proteinOverDays.length > 0,
+        "an unreachable ceiling reported as met, which is the quiet miss P1 forbids",
+      );
+      assert.deepEqual(
+        impossible.report.proteinShortDays,
+        [],
+        "chasing an unreachable ceiling broke the floor underneath it",
+      );
     },
   },
 
@@ -902,10 +945,13 @@ const UNBUILT = [
     name: "P5 GAP the week is changed until it fits the budget, or says by how much it cannot",
     why:
       "owner koenig, Phase 2 job 7. The budget is a readout, not a constraint: grep swapToFit returns " +
-      "nothing. Three further pieces are unbuilt and all belong to this promise: the protein trim pass " +
-      "(targets.json carries proteinCeiling 215 and no code reads it, so over-delivered protein is " +
-      "still bought), variable-weight rows as an honest range instead of false precision, and " +
-      "marginal-cost ordering across more than one currency (only swipes act today).",
+      "nothing. Two further pieces remain: variable-weight rows as an honest range instead of false " +
+      "precision, and marginal-cost ordering across more than one currency (only swipes act today). " +
+      "The protein trim landed 2026-08-19 and is proven above, but MEASURE IT BEFORE CLAIMING IT: on " +
+      "David's real bank it recovers about 5 g/day and leaves 5 of 7 days still over the 215 g ceiling, " +
+      "because the overshoot is chosen at SELECTION time and the calorie floor blocks most trimming. " +
+      "The remaining ~20 to 45 g/day is Stage 2 (the proteinTerm shoulder plus the per-meal floor), " +
+      "council-gated on David's one word, and no amount of trimming substitutes for it.",
   },
   {
     id: "P6",

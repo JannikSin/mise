@@ -793,6 +793,103 @@ export function calorieTrimPass(plan, recipesById, bounds) {
 }
 
 /**
+ * Per-day protein CEILING trim, the exact mirror of `calorieTrimPass` above
+ * and deliberately built on the same machinery.
+ *
+ * This is a MONEY pass, not a health one, and the distinction decides its
+ * behaviour. P5: "Protein above target is money spent for nothing. The budget
+ * treats over-delivered protein as a leak: the generator does not buy grams
+ * past the target." Protein is the most expensive macro in the basket, so a
+ * week delivering 236 g against a 175 g target is not a nutritional triumph,
+ * it is roughly a third of the protein bill bought for nothing.
+ *
+ * The ceiling is NEVER derived. `enforcedCeilings` returns null when a profile
+ * has not written one, and a null ceiling means this pass does not run at all.
+ * A number nobody chose would silently start taking food off every profile in
+ * the app, and the manifest says "no protein ceiling set" so the absence is
+ * visible rather than merely absent. David ratified 215 g on 2026-08-19
+ * (System/Council-2026-08-19-Protein); until then the data had a ceiling and
+ * the code had none, which is the state this closes.
+ *
+ * Runs AFTER the calorie trim: the calorie ceiling is the harder constraint
+ * and settles first, then this shaves grams off what remains. Same rules as
+ * its sibling: reductions only, 0.5 steps, never below 0.5 servings, never a
+ * pinned entry, every step re-checked against the floors, and a day that
+ * cannot be trimmed without breaking one is left over the ceiling and
+ * reported as `proteinOverDays` rather than fudged.
+ *
+ * Ordering differs in one way, and it is the point: within the same collateral
+ * tier the trim takes the most protein-DENSE entry first, so the grams come
+ * off where they were bought, instead of shaving calories off a rice bowl.
+ *
+ * NOT Stage 2. The council-gated proteinTerm shoulder and the per-meal protein
+ * floor are a separate build that changes how the generator SCORES; this pass
+ * only enforces a number David has already ratified.
+ * @param {import("./plan.js").Plan} plan
+ * @param {Map<string, any>} recipesById
+ * @param {{
+ *   proteinCeiling: number | null,
+ *   calorieFloor: number,
+ *   proteinFloor: number,
+ *   groupFloors: Record<string, number>
+ * }} bounds
+ * @returns {import("./plan.js").Plan}
+ */
+export function proteinTrimPass(plan, recipesById, bounds) {
+  const ceiling = Number(bounds.proteinCeiling);
+  // no written ceiling = nothing to enforce. Never invent one.
+  if (!(ceiling > 0)) return plan;
+  const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
+  let next = plan;
+
+  const tierOf = (/** @type {import("./plan.js").PlanEntry} */ e) => {
+    if (e.slot === "snack") return 0;
+    if (e.slot === "dinner") return 2;
+    return 1;
+  };
+  const proteinOf = (/** @type {import("./plan.js").PlanEntry} */ e) =>
+    recipesById.get(/** @type {string} */ (e.recipeId))?.nutrition?.protein ?? 0;
+
+  for (const date of dates) {
+    for (;;) {
+      const totals = dayTotals(next.entries, recipesById, date);
+      if (totals.protein <= ceiling) break;
+
+      const trimmable = next.entries
+        .filter(
+          (e) =>
+            e.date === date &&
+            !e.pinned &&
+            e.recipeId &&
+            recipesById.has(e.recipeId) &&
+            e.servings > 0.5 &&
+            proteinOf(e) > 0,
+        )
+        .sort((a, b) => {
+          const ta = tierOf(a);
+          const tb = tierOf(b);
+          if (ta !== tb) return ta - tb;
+          return proteinOf(b) - proteinOf(a) || hash(`${a.id}|ptrim`) - hash(`${b.id}|ptrim`);
+        });
+
+      let applied = false;
+      for (const entry of trimmable) {
+        const servings = Math.max(0.5, entry.servings - 0.5);
+        const candidateEntries = next.entries.map((e) =>
+          e.id === entry.id ? { ...e, servings } : e,
+        );
+        if (breaksFloor(candidateEntries, recipesById, date, bounds)) continue;
+        next = { ...next, entries: candidateEntries };
+        applied = true;
+        break;
+      }
+      if (!applied) break; // every candidate would break a floor: say so instead
+    }
+  }
+  return next;
+}
+
+/**
  * Protein/calorie floor misses, per day, after the top-up has run. Days are
  * COMPARED against the profile's written floors, but the report carries the real goals
  * (`targets`) so the planner never displays a silently-discounted number.
@@ -1002,6 +1099,7 @@ export function poolAdequacy(recipes, targets) {
  *   foodGroupGapsWeekly: { group: string, have: number, target: number }[],
  *   poolInsufficient: { reason: string, suggestion: string }[],
  *   calorieOverDays: { date: string, calories: number, ceiling: number }[],
+ *   proteinOverDays: { date: string, protein: number, ceiling: number | null }[],
  *   timeBudgetRelaxed: string[],
  *   outDays: { date: string, slots: string[], estCalories: number, estProtein: number }[],
  *   occasionDays: { date: string, occasion: string, name: string }[],
@@ -1518,6 +1616,18 @@ export function generateWeek({
     groupFloors: dailyGroupFloors,
   });
 
+  // Step 4.6: protein CEILING trim (P5, David's ratified 215 g, 2026-08-19).
+  // The money mirror of 4.5: protein is the expensive macro, so grams above
+  // the ceiling are budget bought for nothing. Skipped entirely when the
+  // profile writes no ceiling; a derived one would take food off people who
+  // never asked for it.
+  next = proteinTrimPass(next, byId, {
+    proteinCeiling: ceilings.protein,
+    calorieFloor: floors.calories,
+    proteinFloor: floors.protein,
+    groupFloors: dailyGroupFloors,
+  });
+
   // Step 4.7: weekly BUFFER snack (David, 2026-07-20) — ONE batch-prepped,
   // measured fridge stand-by for the whole week, the answer to "still hungry"
   // that isn't an unplanned raid. Criteria per the Greger consult
@@ -1591,6 +1701,17 @@ export function generateWeek({
     .map((date) => ({ date, calories: dayTotals(next.entries, byId, date).calories }))
     .filter((d) => d.calories > ceilings.calories)
     .map((d) => ({ ...d, ceiling: ceilings.calories }));
+  // the same honesty on the money axis: a day the trim could not fit without
+  // breaking a floor is REPORTED over the protein ceiling, never fudged. An
+  // empty list when no ceiling is written is correct, and the manifest is
+  // where the absence itself gets said out loud.
+  const proteinOverDays =
+    ceilings.protein == null
+      ? []
+      : liveDates
+          .map((date) => ({ date, protein: dayTotals(next.entries, byId, date).protein }))
+          .filter((d) => d.protein > /** @type {number} */ (ceilings.protein))
+          .map((d) => ({ ...d, ceiling: ceilings.protein }));
 
   // "what this week shares" reflects what actually landed in the plan
   // (pinned + generated), not just the committees before the top-up
@@ -1677,6 +1798,7 @@ export function generateWeek({
       foodGroupGapsWeekly: gaps.weekly,
       poolInsufficient,
       calorieOverDays,
+      proteinOverDays,
       timeBudgetRelaxed,
       outDays,
       // said out loud, never silent: these days were not planned, an

@@ -325,6 +325,22 @@ export function PlannerView({
                 / ${buildReport.calorieOverDays[0]?.ceiling} ceiling
               </div>`
             }
+            ${
+              // P5, the money axis: protein above the ceiling is budget spent
+              // for nothing, and a day the trim could not fit without breaking
+              // a floor says so rather than passing quietly.
+              (buildReport.proteinOverDays ?? []).length > 0 &&
+              html`<div class="d num">
+                day over protein ceiling:${" "}
+                ${buildReport.proteinOverDays
+                  .map(
+                    (s) =>
+                      `${parseLocalIso(s.date).toLocaleDateString([], { weekday: "short" })} ${Math.round(s.protein)}`,
+                  )
+                  .join(" · ")}
+                / ${buildReport.proteinOverDays[0]?.ceiling} g ceiling · every gram over is bought
+              </div>`
+            }
           </div>
         `
       }
