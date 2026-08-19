@@ -274,6 +274,35 @@ export async function liveRemedy(text) {
 }
 
 /**
+ * Live Kroger product search at one store (the PICK half of the confirm-once
+ * pin flow, fix list 3.2). Quota discipline: called once per unresolved
+ * ingredient ever, never in a loop.
+ * @param {string} term
+ * @param {string} locationId
+ * @returns {Promise<import("./kroger.js").KrogerProduct[]>}
+ */
+export async function krogerSearch(term, locationId) {
+  const data = await post("/kroger/search", { term, locationId, limit: 30 });
+  return Array.isArray(data.products) ? data.products : [];
+}
+
+/**
+ * Current prices for pinned UPCs at one store (the weekly refresh, fix list
+ * 3.5). `failed` lists UPCs the API no longer returns — those pins render
+ * stale rather than silently keeping an old price.
+ * @param {string[]} upcs
+ * @param {string} locationId
+ * @returns {Promise<{ products: import("./kroger.js").KrogerProduct[], failed: string[] }>}
+ */
+export async function krogerPricesById(upcs, locationId) {
+  const data = await post("/kroger/byId", { upcs, locationId });
+  return {
+    products: Array.isArray(data.products) ? data.products : [],
+    failed: Array.isArray(data.failed) ? data.failed : [],
+  };
+}
+
+/**
  * One general-question turn against the /ask endpoint: freeform answer
  * grounded in the compact context snapshot the caller composes.
  * @param {{ role: string, content: string }[]} messages

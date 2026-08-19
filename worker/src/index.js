@@ -62,6 +62,7 @@ import {
 
 const DATA_REPO = "JannikSin/mise-data";
 import { callModel, providerConfigured } from "./provider.js";
+import { handleKroger } from "./kroger.js";
 
 const DEFAULT_MODEL = "claude-sonnet-5";
 const AUTH_TTL_MS = 10 * 60 * 1000;
@@ -510,7 +511,7 @@ export default {
     const url = new URL(request.url);
     if (
       request.method !== "POST" ||
-      ![
+      (![
         "/scan",
         "/receipt",
         "/onboard",
@@ -523,7 +524,8 @@ export default {
         "/annotate",
         "/annotate-save",
         "/notify-test",
-      ].includes(url.pathname)
+      ].includes(url.pathname) &&
+        !url.pathname.startsWith("/kroger/"))
     ) {
       return json(404, { error: "not found" }, cors);
     }
@@ -539,8 +541,12 @@ export default {
         Date.now(),
         // /dinnerweek's 16k max_tokens is ~4x any other route's spend;
         // /annotate is a transcribe call plus up to two 8k annotate
-        // attempts, the most expensive route per request (Tribunal M1)
-        url.pathname === "/dinnerweek" ? 4 : url.pathname === "/annotate" ? 4 : 1,
+        // attempts, the most expensive route per request (Tribunal M1);
+        // /kroger/byId fans out one upstream call per UPC
+        url.pathname === "/dinnerweek" ? 4
+          : url.pathname === "/annotate" ? 4
+          : url.pathname === "/kroger/byId" ? 2
+          : 1,
       )
     ) {
       return json(429, { error: "slow down — try again in a few minutes" }, cors);
@@ -582,8 +588,13 @@ export default {
       }
     }
 
-    // /annotate-save is a pure revalidate-then-write: no model call, no key
-    if (url.pathname !== "/annotate-save" && !providerConfigured(env)) {
+    // /annotate-save is a pure revalidate-then-write and /kroger/* talks to
+    // Kroger, not Anthropic: neither needs the AI key
+    if (
+      url.pathname !== "/annotate-save" &&
+      !url.pathname.startsWith("/kroger/") &&
+      !providerConfigured(env)
+    ) {
       return json(503, { error: "AI provider not configured yet" }, cors);
     }
 
@@ -600,6 +611,11 @@ export default {
     }
     if (typeof body !== "object" || body === null) {
       return json(400, { error: "invalid JSON body" }, cors);
+    }
+
+    {
+      const kr = await handleKroger(url.pathname, body, env, (s, b) => json(s, b, cors));
+      if (kr) return kr;
     }
 
     try {

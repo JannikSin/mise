@@ -10,6 +10,7 @@ preview_urls = false
 #   ANTHROPIC_API_KEY
 #   MISE_DATA_TOKEN  (read-only fine-grained PAT on mise-data — cron reads)
 #   NTFY_TOPIC       (unguessable ntfy.sh topic David's phone subscribes to)
+#   KROGER_CLIENT_ID / KROGER_CLIENT_SECRET  (Kroger Developer API, /kroger/*)
 # Optional plain vars to override models:
 #   SCAN_MODEL / REMEDY_MODEL (default claude-sonnet-5 in code)
 

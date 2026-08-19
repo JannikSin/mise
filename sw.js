@@ -12,7 +12,7 @@
 // byte-different sw.js, the browser installs it (skipWaiting+claim), and
 // main.js reloads once on controllerchange so no load ever runs a half-old
 // module graph. tests/sw.test.js pins the SHELL list to the real app files.
-const CACHE_VERSION = "mise-shell-v96";
+const CACHE_VERSION = "mise-shell-v97";
 
 const SHELL = [
   "./suggest.js",
@@ -32,6 +32,7 @@ const SHELL = [
   "./app/lib/workouts.js",
   "./app/lib/github.js",
   "./app/lib/ingredients.js",
+  "./app/lib/kroger.js",
   "./app/lib/manifest.js",
   "./app/lib/merge.js",
   "./app/lib/money.js",
@@ -114,7 +115,16 @@ self.addEventListener("activate", (event) => {
     caches
       .keys()
       .then((keys) =>
-        Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k))),
+        // OWN caches only: every PWA on janniksin.github.io shares this
+        // origin, and caches.keys() sees all of them. Deleting anything not
+        // prefixed "mise-" evicted Tally/Finesse/Bonmot/Grandstand/AIMap's
+        // shells on every Mise deploy (the last app still doing this,
+        // verified 2026-08-18 session stanton).
+        Promise.all(
+          keys
+            .filter((k) => k.startsWith("mise-") && k !== CACHE_VERSION)
+            .map((k) => caches.delete(k)),
+        ),
       )
       .then(() => self.clients.claim()),
   );

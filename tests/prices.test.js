@@ -294,3 +294,47 @@ test("parsePackSize reads the live catalogue's shapes", () => {
   assert.equal(parsePackSize("per lb"), null);
   assert.equal(parsePackSize(undefined), null);
 });
+
+// ---- ledger-key identity + timestamps (Tier 3 / PF.3, 2026-08-19) ----------
+
+test("applyReceipt stamps `at` on every price it writes", () => {
+  const cat = {
+    stores: ["marianos"],
+    items: [{ id: "rolled-oats", name: "rolled oats", prices: { marianos: { price: 3.49, size: "42 oz", estimate: true } } }],
+  };
+  const lines = [
+    { name: "rolled oats", price: 3.79, size: "" },
+    { name: "medjool dates", price: 7.99, size: "16 oz" },
+  ];
+  const { catalogue } = applyReceipt(cat, "marianos", lines, "2026-08-19");
+  const oats = catalogue.items.find((i) => i.id === "rolled-oats");
+  assert.equal(oats.prices.marianos.at, "2026-08-19");
+  const dates = catalogue.items.find((i) => i.id === "medjool-dates");
+  assert.equal(dates.prices.marianos.at, "2026-08-19");
+});
+
+test("applyReceipt resolves identity through the ledger key BEFORE fuzzy matching", () => {
+  // "Oats (large container)" word-overlaps nothing, but its canonicalFood is
+  // the alias rolled-oats — the pin/live-price row id. PF.3: one identity.
+  const cat = {
+    stores: ["pay-less"],
+    items: [{ id: "rolled-oats", name: "rolled oats", prices: { "pay-less": { price: 3.49, size: "42 oz" } } }],
+  };
+  const lines = [{ name: "Oats (large container)", price: 4.19, size: "" }];
+  const { catalogue, applied, added } = applyReceipt(cat, "pay-less", lines, "2026-08-19");
+  assert.equal(catalogue.items.length, 1, "no duplicate row invented");
+  assert.deepEqual(applied.map((a) => a.matchedId), ["rolled-oats"]);
+  assert.deepEqual(added, []);
+  assert.equal(catalogue.items[0].prices["pay-less"].price, 4.19);
+});
+
+test("applyReceipt creates new rows under the canonical key", () => {
+  const cat = { stores: ["pay-less"], items: [] };
+  const { catalogue } = applyReceipt(
+    cat,
+    "pay-less",
+    [{ name: "Chicken Breast (family pack)", price: 11.49, size: "48 oz" }],
+    "2026-08-19",
+  );
+  assert.equal(catalogue.items[0].id, "chicken-breast", "parenthetical stripped, ledger key id");
+});

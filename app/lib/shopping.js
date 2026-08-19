@@ -854,6 +854,25 @@ export function shelfLifeDays(food, location) {
 }
 
 /**
+ * The ISO date a food bought today is assumed good until — `added` plus its
+ * shelf life for where it is kept. Stamped onto pantry rows at buy time
+ * (PF.3) so the expiry is a recorded fact a user can correct, not a
+ * re-derivation.
+ * @param {string} todayIso
+ * @param {string} food
+ * @param {PantryLocation | string} [location]
+ * @returns {string}
+ */
+export function expiryFrom(todayIso, food, location) {
+  const d = new Date(`${todayIso}T00:00:00`);
+  d.setDate(d.getDate() + shelfLifeDays(food, location));
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
  * Wipe the pantry. `keepStaples` keeps the permanent shelf (oil, salt, rice)
  * and clears only the perishables, which is what "reset" almost always means.
  * @param {Record<string, any>} pantry
@@ -913,9 +932,12 @@ export function applySweep(pantry, location, items, today) {
  * @returns {{ goodUntil: string | null, daysLeft: number | null }}
  */
 export function perishableStatus(p, todayIso) {
-  if (!p.added) return { goodUntil: null, daysLeft: null };
-  const until = new Date(`${p.added}T00:00:00`);
-  until.setDate(until.getDate() + shelfLifeDays(p.food, p.location));
+  if (!p.expires && !p.added) return { goodUntil: null, daysLeft: null };
+  // a stamped expiry (written at buy time, PF.3) outranks the regex estimate
+  const until = p.expires
+    ? new Date(`${p.expires}T00:00:00`)
+    : new Date(`${p.added}T00:00:00`);
+  if (!p.expires) until.setDate(until.getDate() + shelfLifeDays(p.food, p.location));
   const today = new Date(`${todayIso}T00:00:00`);
   const daysLeft = Math.round((until.getTime() - today.getTime()) / 86400000);
   const y = until.getFullYear();
@@ -961,9 +983,10 @@ export function expirePerishables(pantry, todayIso) {
   /** @type {Record<string, any>[]} */
   const tossed = [];
   const kept = pantryItems(pantry).filter((/** @type {any} */ it) => {
-    if (!it.added) return true; // undated rows (state items included) never expire
-    const gone = new Date(`${it.added}T00:00:00`);
-    gone.setDate(gone.getDate() + shelfLifeDays(it.food, it.location));
+    if (!it.expires && !it.added) return true; // undated rows (state items included) never expire
+    // stamped expiry first (PF.3), regex-derived shelf life as the fallback
+    const gone = it.expires ? new Date(`${it.expires}T00:00:00`) : new Date(`${it.added}T00:00:00`);
+    if (!it.expires) gone.setDate(gone.getDate() + shelfLifeDays(it.food, it.location));
     if (gone < today) {
       expired.push(it.food);
       tossed.push(it);
@@ -1351,19 +1374,26 @@ export function applyJustBought(shopping, pantry, today, opts = {}) {
   const bankRows = opts.fridgeFirst
     ? subtractPantryFromTrip(boughtPerishables, pantry).toBuy
     : boughtPerishables;
-  const newRows = bankRows.map((b) => ({
-    id: perishableId(),
-    food: b.food,
-    qty: `${b.qty} ${b.unit}`,
-    added: today,
-    // WHERE it went, not just that it arrived (David, 2026-07-26: "the
-    // fridge is kind of a thing but not really"). Without this every bought
-    // item landed unsorted, which is the one location no shelf view shows
-    // and no sweep touches — the shelves stayed empty however much he
-    // bought.
-    location: locationForBuy(b.section),
-    group: b.section ?? aisleOf(b.food),
-  }));
+  const newRows = bankRows.map((b) => {
+    const location = locationForBuy(b.section);
+    return {
+      id: perishableId(),
+      food: b.food,
+      qty: `${b.qty} ${b.unit}`,
+      added: today,
+      // the expiry is STAMPED at buy time (PF.3: `expires` was a documented
+      // field no code wrote): readers prefer it over re-deriving from the
+      // shelf-life regex, so a hand-corrected date sticks
+      expires: expiryFrom(today, b.food, location),
+      // WHERE it went, not just that it arrived (David, 2026-07-26: "the
+      // fridge is kind of a thing but not really"). Without this every bought
+      // item landed unsorted, which is the one location no shelf view shows
+      // and no sweep touches — the shelves stayed empty however much he
+      // bought.
+      location,
+      group: b.section ?? aisleOf(b.food),
+    };
+  });
   return {
     shopping: { ...shopping, items: shopping.items.filter((i) => !i.checked) },
     pantry: packPantry([...items, ...newRows]),

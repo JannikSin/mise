@@ -222,10 +222,18 @@ pay what they weigh, unconvertible needs fall back flagged `estimate`, and
 unpriced coverage renders loud: "N of M rows UNPRICED, total is a floor");
 `applyReceipt` refresh-writes actual paid prices back into it; `money.js`
 bills table events from it. Entries: `{ id, name, prices: { <store-slug>:
-{ price, size, estimate? } } }` with `updated`, `region`, `stores` at the
-top. `estimate: true` = derived/recent estimate, absent = tracker-confirmed
-shelf price. A store absent from an item's `prices` = not reliably stocked
-there.
+{ price, size, estimate?, at? } } }` with `updated`, `region`, `stores` at
+the top. `estimate: true` = derived/recent estimate, absent =
+tracker-confirmed shelf price. `at` (Tier 3.5, 2026-08-19) = ISO date this
+store price was last written by a live source (Kroger refresh, receipt);
+prices older than `STALE_PRICE_DAYS` (14) render † in the list, and rows
+without `at` predate timestamps and stay governed by `estimate` alone. A
+store absent from an item's `prices` = not reliably stocked there.
+**Row ids are LEDGER KEYS (PF.3):** rows written by the live-price path or
+learned from receipts use `canonicalFood(name)` as their id, the same key
+pins.json and pantry matching use, and `applyReceipt` resolves a line
+against a row id BEFORE falling back to the word-overlap matcher. Legacy
+hand-written ids survive via that fallback.
 Integration (`app/lib/prices.js`, read raw in `app/main.js`): the List view
 shows a price chip per row (matched by word overlap ≥ 0.6 against name/id,
 `~` = estimate), and a trip-total tile (subtotal + grocery tax from
@@ -268,6 +276,53 @@ agreement). That is a real future source for `labels`, but coverage is not
 guaranteed per item, so any integration must fall back to the curated order
 per item rather than assume a lookup succeeded. Read Kroger's terms first,
 particularly on client-side caching, since this app is offline-first.
+
+## Pins — `pins.json` (data-repo ROOT, shared reference, read raw)
+
+The ledger's identity file (fix list 3.2 promoted by PF.3): a confirmed
+ingredient→product mapping per store. Resolution is learn-once — an
+ingredient is searched at a store at most once, ever; after that its UPC is
+refreshed directly. The pin key is `canonicalFood(food)`, the same key
+catalogue row ids and pantry matching converge on.
+
+```jsonc
+{
+  "updated": "2026-08-19",
+  "redList": [], // brand names never auto-picked (P5: grows from real experience)
+  "stores": {
+    // catalogue store slug → Kroger locationId. Only stores listed here get
+    // live features (the $? pick flow, REFRESH); others stay catalogue-only.
+    "marianos": { "locationId": "53100502", "name": "Mariano's Vernon Hills" },
+    "pay-less": { "locationId": "02100824", "name": "Pay Less Super Markets W Lafayette" },
+  },
+  "pins": {
+    "chicken-breast": { // canonicalFood — THE ledger key
+      "pay-less": {
+        "upc": "0021142100000",
+        "description": "Heritage Farm® Boneless Skinless Chicken Breasts",
+        "size": "1 lb",
+        "soldBy": "WEIGHT", // WEIGHT = priced per lb (catalogue stores "per lb")
+        "confirmedAt": "2026-08-19", // ? the confirm-once tap happened
+        "provisional": true, // ? auto-picked (seed / re-pin), awaiting the tap;
+        // renders a ? button on the row. confirmPin swaps it for confirmedAt.
+      },
+    },
+  },
+}
+```
+
+Integration: `app/lib/kroger.js` (pure logic: rankCandidates with the
+category/section/form gates + noise ranking, applyLivePrice write-through,
+swap classes, allergen OUTPUT screen), Worker `/kroger/*` endpoints (the
+client id/secret live only in Worker secrets), `views/shopping.js` ($? pick
+sheet, ? confirm, REFRESH). Substitution rule (3.4): candidates for a row
+are same-food by construction (every food word must appear), so an
+auto-(re)pin is always a FORM swap; anything dish-changing exists only as a
+manual choice in the pick sheet, and every offered product is
+allergen-screened on its description + categories before it can be pinned.
+Quota discipline (3.3): pins cache resolution forever, REFRESH is weekly and
+by UPC, the app never loops live searches, and a revoked API degrades to
+last-known (†-stale) prices.
 
 ## Recipe — `recipes/<id>.json`
 
@@ -456,10 +511,11 @@ window and one more reason the window is short.**
       // cook-subtraction can do arithmetic on; anything else is
       // removed whole when the food is cooked.
       "added": "2026-07-04",
-      "expires": "2026-07-11", // ? reserved: NO code writes or reads it yet — shelf
-      // life is inferred from `added` + shelfLifeDays(food, location). PF.3
-      // makes it real (stamped at buy, human-editable, preferred over the
-      // inference); documented here so the field name is settled.
+      "expires": "2026-07-11", // ? REAL since 2026-08-19 (PF.3): stamped at buy time
+      // by applyJustBought (expiryFrom = added + shelfLifeDays for the row's
+      // location) and PREFERRED over the regex inference by
+      // perishableStatus/expirePerishables wherever present, so a corrected
+      // date sticks. Rows without it (pre-stamp, scans) keep the inference.
       "useSoon": true, // ? surfaces in recipe recommendations
       "location": "fridge", // fridge | freezer | pantry | unsorted. The PANTRY tab's
       // shelf chips filter on this, and a photo sweep replaces
@@ -798,6 +854,11 @@ even the same slot — merge without losing either entry.
   "shoppedAt": "2026-07-25", // ? groceries CONFIRMED bought (a scanned receipt
   //   sets this via setPlanShopped). Honest-state rule (2026-07-23): absent =
   //   not confirmed; the Worker's cook-reminder cron stays silent for the week.
+  "spend": [{ "store": "pay-less", "date": "2026-08-19", "total": 73.81 }], // ?
+  //   the SPEND leg of the one ledger (PF.3, 2026-08-19): each approved
+  //   receipt appends its trip total here via setPlanShopped, so
+  //   spent-vs-budgeted (P5) and the weekly review (P11) read a real paid
+  //   number, not estimates. Absent = no receipt-confirmed spend recorded.
   "unlocked": ["turkey-chili"], // ? recipes opened by hand this week ("I already
   //   have this"), for cooking out of the pantry without a shop. Absent = none.
   //   THE RECIPE GATE (David, 2026-07-25): with no receipt, a recipe shows its
@@ -1106,9 +1167,14 @@ Seeded from the FITNESS.md system; edited rarely.
   //   data exists yet — a future receipt-scanning feature (keyed by
   //   `stores`) plugs a real cost term in at pickCommittee's budget
   //   block (see the ponytail: hook there).
-  "stores": ["Mariano's", "Aldi"], // ? string array of store names. CAPTURED
-  //   ONLY today — the future key for per-store price data from
-  //   receipt scanning. No mechanism consumes it yet.
+  "stores": ["Mariano's", "Aldi"], // ? string array of store names. The FIRST
+  //   entry, slugified, is the default store the List view prices against
+  //   (main.js -> ShoppingView storeSlug); the shopper can override per trip.
+  "weeklyBudgetUsd": 80, // ? the weekly grocery number (P5, PF.3 spend leg).
+  //   DISPLAY-ONLY today: the trip tile shows over/under against the
+  //   estimated total. Absent = no budget line. Making it a generation
+  //   CONSTRAINT (swap-to-fit) is Stage 2 / Tier 7.11 work, and per David's
+  //   2026-08-18 ruling budget is a PROFILE option, never an engine constant.
   "shopsPerWeek": 2, // ? integer, ABSENT = 1. 1 = single weekly list
   //   (unchanged). >1 splits the List view into a pantry/bulk trip
   //   and a fresh trip (app/lib/shopping.js tripOf, app/views/

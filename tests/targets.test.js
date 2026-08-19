@@ -6,28 +6,6 @@ import {
   avoidTermsFromAllergens,
 } from "../app/lib/targets.js";
 
-const SESSIONS = [
-  {
-    date: "2026-06-29",
-    templateId: "chest-triceps",
-    exercises: [{ name: "Bench Press", sets: [{ weight: 150, reps: 5 }] }],
-  },
-  {
-    date: "2026-07-03",
-    templateId: "chest-triceps",
-    exercises: [
-      {
-        name: "Bench Press",
-        sets: [
-          { weight: 155, reps: 5 },
-          { weight: 155, reps: 4 },
-        ],
-      },
-      { name: "Dips", sets: [{ weight: 0, reps: 12 }] },
-    ],
-  },
-];
-
 const BASE_Q = {
   sex: "f",
   age: 30,

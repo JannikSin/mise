@@ -618,3 +618,15 @@ test("mergeRecipePool: avoidRecipes bans by id, own recipes included", () => {
   const open = mergeRecipePool(bank, own, undefined, undefined, undefined);
   assert.ok(open.some((r) => r.id === "office-lunch-box"));
 });
+
+// ---- the spend leg (PF.3, 2026-08-19) ---------------------------------------
+
+test("setPlanShopped records the receipt trip total, appending across receipts", () => {
+  const p1 = setPlanShopped({ week: "2026-W34", entries: [] }, "2026-08-19", { store: "pay-less", date: "2026-08-19", total: 73.81 });
+  assert.equal(p1.shoppedAt, "2026-08-19");
+  assert.deepEqual(p1.spend, [{ store: "pay-less", date: "2026-08-19", total: 73.81 }]);
+  const p2 = setPlanShopped(p1, "2026-08-21", { store: "marianos", date: "2026-08-21", total: 12.5 });
+  assert.equal(p2.spend.length, 2, "a week can hold several receipts");
+  const p3 = setPlanShopped(p1, "2026-08-21", null);
+  assert.deepEqual(p3.spend, p1.spend, "no spend arg leaves the record alone");
+});

@@ -201,6 +201,12 @@ const FOOD_UNITS = {
   "red-cabbage": { unit: "each", piece: 900 },
   mushroom: { unit: "g", cup: 70 },
   "chicken-breast": { unit: "g", piece: 174 },
+  // one fillet portion ≈ 6 oz — without a piece weight, "4 each" priced as
+  // four POUNDS at a per-lb store row (seed audit 2026-08-19)
+  "salmon-fillet": { unit: "g", piece: 170 },
+  apricot: { unit: "each", piece: 35 },
+  // a sandwich slice ≈ 34 g — without it, "5 slice" charged five whole loaves
+  "whole-grain-bread": { unit: "slice", piece: 34 },
   "whey-protein-powder": { unit: "scoop", piece: 30 },
   "fresh-ginger": { unit: "tbsp", cup: 96 },
   // canned goods read in CANS, because that is the thing on the shelf you put

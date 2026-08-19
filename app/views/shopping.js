@@ -1,7 +1,18 @@
 import { html } from "htm/preact";
 import { tokenBroken } from "../lib/github.js";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { scanPhoto, scanReceipt } from "../lib/worker.js";
+import { krogerPricesById, krogerSearch, scanPhoto, scanReceipt } from "../lib/worker.js";
+import {
+  allergenHits,
+  applyLivePrice,
+  confirmPin,
+  isStalePrice,
+  locationIdFor,
+  normalizePins,
+  pinFor,
+  rankCandidates,
+  setPin,
+} from "../lib/kroger.js";
 import {
   cycleDayPick,
   deriveShoppingList,
@@ -13,6 +24,7 @@ import {
   subtractPantryFromTrip,
   swapCandidates,
   formatStoreQty,
+  sectionOf,
   tripOf,
 } from "../lib/shopping.js";
 import { AISLES } from "../lib/ingredients.js";
@@ -21,6 +33,7 @@ import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 import { datesOfWeek, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import {
   itemCost,
+  matchPrice,
   rankStores,
   taxRateFor,
   tripTotal,
@@ -108,6 +121,7 @@ const STORE_NAMES = /** @type {Record<string, string>} */ ({
   "jewel-osco": "Jewel-Osco",
   costco: "Costco",
   aldi: "Aldi",
+  "pay-less": "Pay Less",
 });
 
 // Default walk order for a US grocery store: produce at the door, freezer and
@@ -181,6 +195,11 @@ const FRESH_STEPS = [
  *   shopsPerWeek?: number,
  *   houseShopped?: boolean,
  *   prices?: import("../lib/prices.js").PriceCatalogue | null,
+ *   pins?: import("../lib/kroger.js").PinBook | null,
+ *   onSavePins?: (next: import("../lib/kroger.js").PinBook) => void,
+ *   onSavePrices?: (next: import("../lib/prices.js").PriceCatalogue) => void,
+ *   avoid?: string[],
+ *   weeklyBudgetUsd?: number,
  *   region?: { country?: string, state?: string },
  *   storeSlug?: string,
  *   onReceiptApprove?: (store: string, lines: { name: string, price: number, size: string }[]) => void,
@@ -224,6 +243,11 @@ export function ShoppingView({
   shopsPerWeek = 1,
   houseShopped = false,
   prices = null,
+  pins = null,
+  onSavePins = undefined,
+  onSavePrices = undefined,
+  avoid = [],
+  weeklyBudgetUsd = undefined,
   region = undefined,
   storeSlug = "",
   onReceiptApprove = undefined,
@@ -429,12 +453,118 @@ export function ShoppingView({
     "";
   const homeSummary = homeStore ? tripTotal(tripItems, prices, homeStore, region) : null;
   const bestStore = ranked[0] ?? null;
+  const todayIso = localIsoDate(new Date());
   const priceTag = (/** @type {any} */ item) => {
     if (!prices || !homeStore) return "";
     const c = itemCost(item, prices, homeStore);
-    return c
-      ? html`<span class="q num">$${c.cost.toFixed(2)}${c.estimate ? "~" : ""}</span>`
-      : html`<span class="q num nopr">no price</span>`;
+    if (!c) return html`<span class="q num nopr">no price</span>`;
+    // † = a live-timestamped price past its freshness window (fix list 3.5)
+    const sp = matchPrice(item.food, prices.items ?? [])?.prices?.[homeStore];
+    const stale = isStalePrice(sp, todayIso);
+    return html`<span class="q num">$${c.cost.toFixed(2)}${c.estimate ? "~" : ""}${stale ? " †" : ""}</span>`;
+  };
+
+  // ---- live Kroger pricing (fix list Tier 3: pins, refresh, confirm-once) --
+  // Only a store with a registered locationId in pins.json gets live
+  // features; every other store keeps the plain catalogue behaviour.
+  const locId = locationIdFor(pins, homeStore);
+  const canLive = Boolean(locId && onSavePins && onSavePrices);
+  // null | { item, busy, candidates, error?, confirm? }
+  const [pricePick, setPricePick] = useState(/** @type {any} */ (null));
+  const [refreshNote, setRefreshNote] = useState("");
+  const pinnedForStore = pins
+    ? Object.entries(pins.pins).flatMap(([key, byStore]) => {
+        const pin = byStore[homeStore];
+        return pin ? [{ key, pin }] : [];
+      })
+    : [];
+  const staleCount = (prices?.items ?? []).filter((it) =>
+    isStalePrice(/** @type {any} */ (it.prices?.[homeStore]), todayIso),
+  ).length;
+  const openPricePick = async (/** @type {any} */ item) => {
+    if (!canLive) return;
+    setPricePick({ item, busy: true, candidates: [] });
+    try {
+      const products = await krogerSearch(item.food, locId);
+      const ranked2 = rankCandidates(
+        products,
+        item.food,
+        pins?.redList ?? [],
+        item.section ?? sectionOf(item.food),
+      );
+      setPricePick({ item, busy: false, candidates: ranked2 });
+    } catch (err) {
+      setPricePick({
+        item,
+        busy: false,
+        candidates: [],
+        error: err instanceof Error ? err.message : "search failed",
+      });
+    }
+  };
+  // the confirm-once tap on a provisional (auto-picked) pin: show what was
+  // picked, confirm it or search for something better
+  const openPinConfirm = (/** @type {any} */ item) => {
+    const pin = pinFor(pins, item.food, homeStore);
+    if (pin) setPricePick({ item, busy: false, candidates: [], confirm: pin });
+  };
+  const choosePick = (/** @type {any} */ item, /** @type {any} */ product) => {
+    if (!canLive || !onSavePins || !onSavePrices || !prices) return;
+    onSavePins(setPin(normalizePins(pins), item.food, homeStore, product, todayIso, true));
+    onSavePrices(applyLivePrice(prices, homeStore, item.food, product, todayIso));
+    setPricePick(null);
+  };
+  // the weekly refresh (fix list 3.5): re-price every pinned UPC at this
+  // store, write through per item with a timestamp. A vanished UPC gets ONE
+  // same-food search and the cheapest allergen-clean survivor as a
+  // PROVISIONAL re-pin — a form swap by construction (rankCandidates only
+  // returns the same food, fix list 3.4); anything dish-changing can only
+  // enter through the pick sheet, which is the ask.
+  const refreshLivePrices = async () => {
+    if (!canLive || !onSavePrices || !prices || pinnedForStore.length === 0) return;
+    setRefreshNote("refreshing…");
+    try {
+      const upcs = pinnedForStore.map((p) => p.pin.upc);
+      const { products, failed } = await krogerPricesById(upcs, locId);
+      let cat = prices;
+      let book = normalizePins(pins);
+      let updated = 0;
+      let repinned = 0;
+      for (const p of products) {
+        const hit = pinnedForStore.find((x) => x.pin.upc === p.upc);
+        if (!hit || p.price.regular == null) continue;
+        cat = applyLivePrice(cat, homeStore, hit.key, p, todayIso);
+        updated += 1;
+      }
+      for (const upc of failed.slice(0, 5)) {
+        const hit = pinnedForStore.find((x) => x.pin.upc === upc);
+        if (!hit) continue;
+        const food = hit.key.replace(/-/g, " ");
+        try {
+          const alt = rankCandidates(
+            await krogerSearch(food, locId),
+            food,
+            book.redList,
+            sectionOf(food),
+          ).filter((c) => allergenHits(c, avoid).length === 0)[0];
+          if (alt) {
+            book = setPin(book, food, homeStore, alt, todayIso, false);
+            cat = applyLivePrice(cat, homeStore, food, alt, todayIso);
+            repinned += 1;
+          }
+        } catch {
+          // upstream hiccup: the pin stays and renders stale, never silently dropped
+        }
+      }
+      if (cat !== prices) onSavePrices(cat);
+      if (repinned > 0 && onSavePins) onSavePins(book);
+      const unpriceable = failed.length - repinned;
+      setRefreshNote(
+        `${updated} refreshed${repinned > 0 ? `, ${repinned} re-pinned (tap ? to confirm)` : ""}${unpriceable > 0 ? `, ${unpriceable} gone from the store` : ""}`,
+      );
+    } catch (err) {
+      setRefreshNote(err instanceof Error ? err.message : "refresh failed");
+    }
   };
 
   // the aisle walk order for the store actually being shopped
@@ -1095,6 +1225,8 @@ export function ShoppingView({
                             >
                               P+
                             </button>
+                            ${canLive && !itemCost(i, prices, homeStore) && html`<button class="ownbtn" aria-label="Find live price for ${i.food}" onClick=${() => openPricePick(i)}>$?</button>`}
+                            ${canLive && pinFor(pins, i.food, homeStore)?.provisional && html`<button class="ownbtn" aria-label="Confirm auto-picked product for ${i.food}" onClick=${() => openPinConfirm(i)}>?</button>`}
                           </div>
                         `,
                       )}
@@ -1140,6 +1272,16 @@ export function ShoppingView({
                   <span class="status num">$${homeSummary.total.toFixed(2)}</span>
                 </div>
                 ${
+                  typeof weeklyBudgetUsd === "number" &&
+                  weeklyBudgetUsd > 0 &&
+                  html`<div class="row">
+                    <span class="k">weekly budget</span>
+                    <span class="status num ${homeSummary.total > weeklyBudgetUsd ? "warn" : ""}"
+                      >$${weeklyBudgetUsd.toFixed(0)}${homeSummary.total > weeklyBudgetUsd ? ` — over by $${(homeSummary.total - weeklyBudgetUsd).toFixed(2)}` : " ✓"}</span
+                    >
+                  </div>`
+                }
+                ${
                   homeSummary.unpriced > 0 &&
                   html`<div class="row">
                     <span class="k status warn"
@@ -1155,6 +1297,28 @@ export function ShoppingView({
                   }.
                 </p>
                 ${
+                  canLive &&
+                  html`<div class="row">
+                    <span class="k"
+                      >live prices · ${pinnedForStore.length}
+                      pinned${staleCount > 0 ? `, ${staleCount} stale (†)` : ""}</span
+                    >
+                    <button
+                      class="linktext"
+                      disabled=${pinnedForStore.length === 0 || refreshNote === "refreshing…"}
+                      onClick=${refreshLivePrices}
+                    >
+                      REFRESH
+                    </button>
+                  </div>`
+                }
+                ${canLive && refreshNote && html`<p class="hint">${refreshNote}</p>`}
+                ${
+                  canLive &&
+                  homeSummary.unpriced > 0 &&
+                  html`<p class="hint">unpriced rows carry a $? button — one search, one tap, priced forever.</p>`
+                }
+                ${
                   bestStore &&
                   ranked.length > 1 &&
                   (bestStore.store === homeStore
@@ -1168,6 +1332,41 @@ export function ShoppingView({
                 }
               </div>
             `
+          }
+          ${
+            // the confirm-once pick sheet (fix list 3.2): search results for
+            // one row, cheapest first by UNIT price, allergen-screened on the
+            // OUTPUT — a hitting product renders its warning and cannot be
+            // pinned (fix list 3.4). Inline tile, never an overlay.
+            pricePick &&
+            html`<div class="tile">
+              <div class="row">
+                <span class="k">${pricePick.confirm ? "confirm product for" : "price"} ${pricePick.item.food} · ${STORE_NAMES[homeStore] ?? homeStore}</span>
+                <button class="linktext" onClick=${() => setPricePick(null)}>CLOSE</button>
+              </div>
+              ${
+                pricePick.confirm &&
+                html`<div class="row">
+                    <span class="k">${pricePick.confirm.description} <span class="hint">${pricePick.confirm.size}</span></span>
+                    <button class="linktext" onClick=${() => { if (onSavePins) onSavePins(confirmPin(normalizePins(pins), pricePick.item.food, homeStore, todayIso)); setPricePick(null); }}>CONFIRM</button>
+                  </div>
+                  <p class="hint">
+                    auto-picked as the cheapest match — confirming keeps it, or${" "}
+                    <button class="linktext" onClick=${() => openPricePick(pricePick.item)}>search for something better</button>
+                  </p>`
+              }
+              ${pricePick.busy && html`<p class="hint">searching the store…</p>`}
+              ${pricePick.error && html`<p class="hint">⚠ ${pricePick.error}</p>`}
+              ${!pricePick.busy && !pricePick.error && !pricePick.confirm && pricePick.candidates.length === 0 && html`<p class="hint">nothing matched at this store — the row stays honestly unpriced.</p>`}
+              ${pricePick.candidates.slice(0, 8).map((/** @type {any} */ c) => {
+                const hits = allergenHits(c, avoid);
+                return html`<div class="row" key=${c.upc}>
+                  <span class="k">${c.description} <span class="hint">${c.brand ? `${c.brand} · ` : ""}${c.size}${c.unitLabel ? ` · ${c.unitLabel}` : ""}${c.aisle ? ` · ${c.aisle}` : ""}${c.price.promo != null ? ` · promo $${c.price.promo.toFixed(2)}` : ""}</span></span>
+                  ${hits.length > 0 ? html`<span class="status warn">contains ${hits.join(", ")}</span>` : html`<button class="linktext num" onClick=${() => choosePick(pricePick.item, c)}>$${c.price.regular.toFixed(2)} PIN</button>`}
+                </div>`;
+              })}
+              ${!pricePick.confirm && pricePick.candidates.length > 0 && html`<p class="hint">pinning maps ${pricePick.item.food} to this exact product here — priced by UPC from now on, never searched again.</p>`}
+            </div>`
           }
           ${
             // OUTSIDE the price tile on purpose: applying a receipt empties the

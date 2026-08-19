@@ -616,10 +616,22 @@ export function setEntryRecipe(plan, entryId, recipeId) {
  * Pure.
  * @param {Plan} plan
  * @param {string} dateIso
+ * @param {{ store: string, date: string, total: number } | null} [spend] the
+ *   receipt's trip total, recorded on the plan (PF.3 spend leg)
  * @returns {Plan}
  */
-export function setPlanShopped(plan, dateIso) {
-  return { ...plan, shoppedAt: dateIso };
+export function setPlanShopped(plan, dateIso, spend) {
+  return {
+    ...plan,
+    shoppedAt: dateIso,
+    // the spend leg of the one ledger (PF.3): the receipt's trip total is
+    // RECORDED on the week it shopped, so P5's spent-vs-budgeted axis and
+    // P11's review have a real number instead of estimates-only. Appended,
+    // never replaced: a week can hold several receipts.
+    ...(spend
+      ? { spend: [...(Array.isArray(/** @type {any} */ (plan).spend) ? /** @type {any} */ (plan).spend : []), spend] }
+      : {}),
+  };
 }
 
 /**

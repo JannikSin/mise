@@ -4,7 +4,7 @@
 
 import { canonicalFood, canonicalUnit, convertUnit, dimensionOf, toGrams } from "./ingredients.js";
 
-/** @typedef {{ price: number, size?: string, estimate?: boolean }} StorePrice */
+/** @typedef {{ price: number, size?: string, estimate?: boolean, at?: string }} StorePrice */
 /** @typedef {{ id: string, name: string, prices: Record<string, StorePrice> }} PriceItem */
 /** @typedef {{ updated?: string, region?: string, stores?: string[], items: PriceItem[] }} PriceCatalogue */
 
@@ -149,6 +149,20 @@ export function itemCost(item, catalogue, store) {
   // says the priced thing is a multi-count package ("dozen", "24 ct") or a
   // weighed bundle ("5.35 lb @ 0.69/lb": 13 bananas are one bundle, not 13)
   if (COUNTED.has(item.unit.toLowerCase()) || dimensionOf(u) === "count") {
+    // counted thing at a PER-LB row: pay what the pieces weigh ("4 each"
+    // salmon fillets are ~1.5 lb, not four pounds — seed audit 2026-08-19).
+    // Unknown piece weight falls back to a pound per piece, flagged.
+    if ((sp.size ?? "").toLowerCase().includes("per lb")) {
+      const needG = toGrams(item.qty, u, canonicalFood(item.food));
+      if (needG != null && needG > 0) {
+        return {
+          cost: round(sp.price * (needG / 453.59237)),
+          estimate: sp.estimate === true,
+          size: sp.size,
+        };
+      }
+      return { cost: round(sp.price * item.qty), estimate: true, size: sp.size };
+    }
     if (pack && dimensionOf(pack.unit) !== "count") {
       const key = canonicalFood(item.food);
       const needG = toGrams(item.qty, u, key);
@@ -290,10 +304,18 @@ export function storeSlugFromReceipt(storeText, knownStores) {
  *
  * A row is only added when the name looks like a food rather than till junk
  * (letters, at least three characters, not a pure number or a tender line).
+ *
+ * Identity resolves through the LEDGER KEY first (PF.3): a line whose
+ * `canonicalFood` is already a catalogue row id — which is exactly what the
+ * pin flow and the live-price writer create — updates that row directly, and
+ * a new row is created UNDER that key, so pantry, pins and prices converge
+ * on one identity instead of three fuzzy matches. The word-overlap matcher
+ * is the fallback for legacy rows whose ids predate the key.
  * @param {PriceCatalogue} catalogue
  * @param {string} store slug
  * @param {{ name: string, price: number, size?: string }[]} lines
- * @param {string} updatedIso today, for catalogue.updated
+ * @param {string} updatedIso today, for catalogue.updated and the per-store
+ *   price timestamp (`at`, fix list 3.5)
  * @returns {{ catalogue: PriceCatalogue, applied: { name: string, matchedId: string, price: number }[], added: { name: string, id: string, price: number }[], unmatched: { name: string, price: number }[] }}
  */
 export function applyReceipt(catalogue, store, lines, updatedIso) {
@@ -303,7 +325,8 @@ export function applyReceipt(catalogue, store, lines, updatedIso) {
   const unmatched = [];
   const taken = new Set(items.map((i) => i.id));
   for (const line of lines) {
-    const match = matchPrice(line.name, items);
+    const key = canonicalFood(line.name);
+    const match = items.find((i) => i.id === key) ?? matchPrice(line.name, items);
     if (!match) {
       // not in the catalogue yet: learn it, unless the name is till junk
       const clean = String(line.name ?? "").trim();
@@ -311,7 +334,7 @@ export function applyReceipt(catalogue, store, lines, updatedIso) {
         unmatched.push({ name: line.name, price: line.price });
         continue;
       }
-      let id = slugId(clean);
+      let id = key || slugId(clean);
       while (taken.has(id)) id = `${id}-2`;
       taken.add(id);
       const row = {
@@ -321,6 +344,7 @@ export function applyReceipt(catalogue, store, lines, updatedIso) {
           [store]: {
             price: Math.round(line.price * 100) / 100,
             ...(line.size ? { size: line.size } : {}),
+            at: updatedIso,
           },
         },
       };
@@ -336,6 +360,7 @@ export function applyReceipt(catalogue, store, lines, updatedIso) {
           ? { size: match.prices[store].size }
           : {}),
       // a real receipt is the confirmed price: drop the estimate flag
+      at: updatedIso,
     };
     applied.push({ name: line.name, matchedId: match.id, price: line.price });
   }

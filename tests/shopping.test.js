@@ -32,6 +32,7 @@ import {
   packHint,
   normalizeShoppingList,
   cycleDayPick,
+  expiryFrom,
 } from "../app/lib/shopping.js";
 
 test("tripOf: perishable sections are the fresh trip, shelf-stable the pantry trip", () => {
@@ -1939,4 +1940,33 @@ test("mirror reconcile: an old device's mirror-only edits are absorbed into item
   assert.ok(byId.get("n1"), "old device's new scan row absorbed");
   // and a CONSISTENT packed pantry still passes through by reference
   assert.equal(normalizePantry(out), out, "settled fast-path survives the reconcile");
+});
+
+// ---- stamped expiry (PF.3: make `expires` real, 2026-08-19) -----------------
+
+test("applyJustBought stamps `expires` at buy time from shelf life and location", () => {
+  const list = { items: [{ id: "x1", food: "chicken breast", qty: 2, unit: "lb", section: "meat", checked: true, manual: false }] };
+  const { pantry } = applyJustBought(list, { items: [] }, "2026-08-19");
+  const row = pantry.items.find((i) => i.food === "chicken breast");
+  assert.equal(row.expires, expiryFrom("2026-08-19", "chicken breast", row.location));
+  assert.equal(row.expires, "2026-08-23", "chicken keeps 4 fridge days");
+});
+
+test("expirePerishables prefers the stamped expiry over the regex estimate", () => {
+  // regex says cheese keeps 28 days, but the stamped date (hand-corrected or
+  // stamped at buy) says it died yesterday — the stamp wins
+  const pantry = { items: [
+    { id: "a", food: "cheddar cheese", qty: "1 block", added: "2026-08-18", expires: "2026-08-18", location: "fridge" },
+    { id: "b", food: "cheddar cheese", qty: "1 block", added: "2026-08-18", location: "fridge" },
+  ] };
+  const { pantry: next, expired } = expirePerishables(pantry, "2026-08-19");
+  assert.deepEqual(expired, ["cheddar cheese"], "only the stamped row expired");
+  assert.deepEqual(next.items.map((i) => i.id), ["b"]);
+});
+
+test("perishableStatus reads the stamped expiry when present", () => {
+  const stamped = { food: "spinach", added: "2026-08-10", expires: "2026-08-21", location: "fridge" };
+  assert.deepEqual(perishableStatus(stamped, "2026-08-19"), { goodUntil: "2026-08-21", daysLeft: 2 });
+  const legacy = { food: "spinach", added: "2026-08-16", location: "fridge" };
+  assert.equal(perishableStatus(legacy, "2026-08-19").goodUntil, "2026-08-22", "regex fallback unchanged");
 });

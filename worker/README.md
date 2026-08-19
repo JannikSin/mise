@@ -69,6 +69,14 @@ already stores; revoke it once, all die).
   `{ pinged, topicSet, cronReady, preview[] }` — sends one live ntfy ping and
   returns today's would-fire notification schedule (the SYS test button).
   Reads the data repo with the PRESENTED PAT; needs no Anthropic key.
+- `POST /kroger/locations` `{ term: "<5-digit zip>" }` → `{ locations[] }`;
+  `POST /kroger/search` `{ term, locationId, limit? }` → `{ products[] }`;
+  `POST /kroger/byId` `{ upcs[], locationId }` → `{ products[], failed[] }` —
+  the Kroger price oracle (fix list Tier 3). Client id/secret live ONLY in
+  Worker secrets (`KROGER_CLIENT_ID` / `KROGER_CLIENT_SECRET`, 503 until
+  set); token cached per isolate; no Anthropic key involved. The app pins
+  ingredient→UPC once (confirm-once) and refreshes weekly by UPC — these
+  endpoints are never called in a loop (Products quota 10k/day).
 
 ## Notification cron
 

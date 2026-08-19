@@ -62,7 +62,8 @@ import {
   sectionOf,
   slug,
 } from "./lib/shopping.js";
-import { applyReceipt } from "./lib/prices.js";
+import { applyReceipt, parsePackSize } from "./lib/prices.js";
+import { normalizePins } from "./lib/kroger.js";
 import { appendWaste } from "./lib/waste.js";
 import { canonicalFood } from "./lib/ingredients.js";
 import { cookPlan } from "./lib/portions.js";
@@ -364,6 +365,11 @@ function App() {
   const [priceCatalogue, setPriceCatalogue] = useState(
     /** @type {import("./lib/prices.js").PriceCatalogue | null} */ (null),
   );
+  // ingredient→UPC pins per store (data-repo root, fix list 3.2/PF.3): the
+  // ledger's identity file. Normalized-empty until pins.json loads/exists.
+  const [pins, setPins] = useState(
+    /** @type {import("./lib/kroger.js").PinBook | null} */ (null),
+  );
   const [vitals, setVitals] = useState(
     /** @type {import("./lib/vitals.js").Vitals | null} */ (null),
   );
@@ -434,6 +440,10 @@ function App() {
       // shared price catalogue (data-repo root, never profile-scoped)
       read("prices.json", { raw: true }).then((p) => {
         if (alive && p) setPriceCatalogue(/** @type {any} */ (p));
+      });
+      // ingredient→UPC pins (data-repo root, shared like the catalogue)
+      read("pins.json", { raw: true }).then((p) => {
+        if (alive) setPins(normalizePins(p));
       });
       // Apple Watch vitals (per-profile, scoped): posted by the phone
       // Shortcuts automation, read-only here. Absent = not connected yet.
@@ -691,8 +701,13 @@ function App() {
       const me = activeProfile();
       const prevPlan = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       // the receipt IS the groceries-bought confirmation (honest-state rule):
-      // it unlocks the week's cook reminders and the eaten tracking
-      updatePlan(setPlanShopped(prevPlan, today));
+      // it unlocks the week's cook reminders and the eaten tracking. Its trip
+      // total is the spend leg of the one ledger (PF.3): recorded on the
+      // plan, so spent-vs-budgeted stops being estimates-only.
+      const tripSpend = Math.round(lines.reduce((s, l) => s + (Number(l.price) || 0), 0) * 100) / 100;
+      updatePlan(
+        setPlanShopped(prevPlan, today, tripSpend > 0 ? { store, date: today, total: tripSpend } : null),
+      );
       // the trip is DONE: every row the till confirms (plus anything ticked in
       // the aisle) leaves the list and lands on a shelf. A fully-bought list
       // ends up empty, which is the whole point — the list is a to-do, not a
@@ -724,7 +739,29 @@ function App() {
         ]).map((i) => ({ ...i, checked: true, manual: false })),
       };
       const stocked = applyJustBought(mergedTrip, prevPantry, today, { fridgeFirst: true });
-      updatePantry(stocked.pantry);
+      // receipt lines NO list carried are still food that entered the kitchen
+      // (PF.3: "receipt says bought, pantry says absent" was a live identity
+      // hole). Bank them too: a state-tracked pantry item flips to plenty, an
+      // unknown food lands as a dated row with the receipt's pack size.
+      const listKeys = new Set(mergedTrip.items.map((i) => canonicalFood(i.food)));
+      const strayLines = (lines ?? []).filter((l) => !listKeys.has(canonicalFood(l.name)));
+      const strayRows = strayLines.map((l, n) => {
+        const pack = parsePackSize(l.size);
+        return {
+          id: `receipt-${today}-${n}`,
+          food: l.name,
+          qty: pack?.qty ?? 1,
+          unit: pack?.unit ?? "each",
+          section: sectionOf(l.name),
+          checked: true,
+          manual: true,
+        };
+      });
+      const banked =
+        strayRows.length > 0
+          ? applyJustBought({ items: strayRows }, stocked.pantry, today)
+          : stocked;
+      updatePantry(banked.pantry);
       // every list — mine included — clears the till-confirmed rows the same
       // way; banking already happened once, above, from the merged sum
       const mine = clearReceiptRows(prevShopping, lines);
@@ -752,6 +789,12 @@ function App() {
       // why receipts felt like a no-op for weeks.
       let priceNote;
       const cat = priceCatalogue;
+      // captured for undo: price learning writes the SHARED prices.json
+      // immediately, so the undo tap must put the old catalogue back too — a
+      // misread receipt otherwise poisons every household member's totals
+      // (diff review, 2026-08-19)
+      const prevCat = priceCatalogue;
+      let catChanged = false;
       if (!cat) {
         priceNote = " (prices not learned: price list not loaded)";
       } else {
@@ -762,6 +805,7 @@ function App() {
           unmatched,
         } = applyReceipt(cat, store, lines, today);
         setPriceCatalogue(next);
+        catChanged = true;
         void write("prices.json", /** @type {any} */ (next), { raw: true });
         priceNote =
           ` — prices: ${applied.length} updated, ${added.length} new` +
@@ -780,6 +824,11 @@ function App() {
             updatePlan(prevPlan); // un-confirms shoppedAt — the receipt was a mistake
             updateShopping(prevShopping);
             updatePantry(prevPantry);
+            if (catChanged && prevCat) {
+              // the learned prices were already pushed; put the old book back
+              setPriceCatalogue(prevCat);
+              void write("prices.json", /** @type {any} */ (prevCat), { raw: true });
+            }
             otherListsRef.current = prevOthers;
             setOtherLists(prevOthers);
             for (const o of prevOthers) {
@@ -793,6 +842,23 @@ function App() {
     // identity-stable; referencing them in the body (call time) is safe,
     // only the dep array must not touch them (TDZ at definition time)
     [priceCatalogue, updateShopping, updatePantry],
+  );
+
+  // persist the shared pins book / price catalogue (Kroger loop, Tier 3):
+  // the shopping view runs the searches, these write the results home
+  const handleSavePins = useCallback(
+    (/** @type {import("./lib/kroger.js").PinBook} */ next) => {
+      setPins(next);
+      void write("pins.json", /** @type {any} */ (next), { raw: true });
+    },
+    [],
+  );
+  const handleSavePrices = useCallback(
+    (/** @type {import("./lib/prices.js").PriceCatalogue} */ next) => {
+      setPriceCatalogue(next);
+      void write("prices.json", /** @type {any} */ (next), { raw: true });
+    },
+    [],
   );
 
   // ticking a combined item buys it for EVERYONE who wants it: write through
@@ -3167,6 +3233,11 @@ function App() {
         shopsPerWeek=${targets?.shopsPerWeek ?? 1}
         houseShopped=${Boolean(/** @type {any} */ (plan)?.shoppedAt) || houseShopped}
         prices=${priceCatalogue}
+        pins=${pins}
+        onSavePins=${handleSavePins}
+        onSavePrices=${handleSavePrices}
+        avoid=${targets?.avoidIngredients ?? []}
+        weeklyBudgetUsd=${targets?.weeklyBudgetUsd}
         region=${targets?.region}
         storeSlug=${(targets?.stores?.[0] ?? "")
           .toLowerCase()
