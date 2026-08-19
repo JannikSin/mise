@@ -2,7 +2,7 @@ import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 import { readProfiles, patchProfiles, write } from "../lib/store.js";
 import { getToken } from "../lib/github.js";
-import { targetsFromQuestionnaire } from "../lib/fitness.js";
+import { targetsFromQuestionnaire } from "../lib/targets.js";
 import { localIsoDate } from "../lib/dates.js";
 import { OnboardView } from "./onboard.js";
 
@@ -21,7 +21,7 @@ import { OnboardView } from "./onboard.js";
  * is a working state, not a broken one.
  * @returns {import("preact").VNode}
  */
-/** Allergen preset ids — must match ALLERGEN_TERMS keys in app/lib/fitness.js. */
+/** Allergen preset ids — must match ALLERGEN_TERMS keys in app/lib/targets.js. */
 const ALLERGEN_PRESETS = [
   "nuts",
   "peanuts",

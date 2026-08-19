@@ -9,7 +9,7 @@ import {
   seriesFor,
   setTopSet,
   templateForDate,
-} from "../lib/fitness.js";
+} from "../lib/workouts.js";
 import { CoreWorkout } from "./core-workout.js";
 
 const SEGMENTS = ["train", "log", "targets"];

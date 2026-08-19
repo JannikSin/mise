@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dayQualifies, computeStreak } from "../app/lib/fitness.js";
+import { dayQualifies, computeStreak } from "../app/lib/targets.js";
 
 const SUPPS = ["creatine", "magnesium"];
 const TARGET = 200;

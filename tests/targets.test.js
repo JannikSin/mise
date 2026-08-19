@@ -1,16 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  lastSetsFor,
-  personalRecords,
-  seriesFor,
   upsertDay,
-  setTopSet,
-  formatSets,
-  templateForDate,
   targetsFromQuestionnaire,
   avoidTermsFromAllergens,
-} from "../app/lib/fitness.js";
+} from "../app/lib/targets.js";
 
 const SESSIONS = [
   {
@@ -34,38 +28,15 @@ const SESSIONS = [
   },
 ];
 
-test("lastSetsFor returns the most recent session's sets for a lift", () => {
-  assert.deepEqual(lastSetsFor(SESSIONS, "Bench Press"), [
-    { weight: 155, reps: 5 },
-    { weight: 155, reps: 4 },
-  ]);
-  assert.equal(lastSetsFor(SESSIONS, "Squat"), null);
-});
-
-test("formatSets renders console-style last-time numbers", () => {
-  assert.equal(
-    formatSets([
-      { weight: 155, reps: 5 },
-      { weight: 155, reps: 4 },
-    ]),
-    "155×5 · 155×4",
-  );
-  assert.equal(formatSets([{ weight: 0, reps: 12 }]), "bw×12");
-});
-
-test("personalRecords finds the heaviest set per lift", () => {
-  const prs = personalRecords(SESSIONS);
-  assert.deepEqual(prs.get("Bench Press"), { weight: 155, reps: 5, date: "2026-07-03" });
-  assert.deepEqual(prs.get("Dips"), { weight: 0, reps: 12, date: "2026-07-03" });
-});
-
-test("seriesFor returns date-sorted top weight per session for charting", () => {
-  assert.deepEqual(seriesFor(SESSIONS, "Bench Press"), [
-    { date: "2026-06-29", top: 150 },
-    { date: "2026-07-03", top: 155 },
-  ]);
-  assert.deepEqual(seriesFor(SESSIONS, "Squat"), []);
-});
+const BASE_Q = {
+  sex: "f",
+  age: 30,
+  heightFt: 5,
+  heightIn: 6,
+  weightLb: 140,
+  activity: 3,
+  goal: "maintain",
+};
 
 test("upsertDay patches an existing day without touching others", () => {
   const daily = { days: [{ date: "2026-07-05", sleepHours: 8 }] };
@@ -73,63 +44,10 @@ test("upsertDay patches an existing day without touching others", () => {
   assert.deepEqual(next.days, [{ date: "2026-07-05", sleepHours: 8, weight: 180.5 }]);
   assert.deepEqual(daily.days, [{ date: "2026-07-05", sleepHours: 8 }], "no mutation");
 });
-
 test("upsertDay creates the day when absent", () => {
   const next = upsertDay({ days: [] }, "2026-07-06", { pushups: 40 });
   assert.deepEqual(next.days, [{ date: "2026-07-06", pushups: 40 }]);
 });
-
-test("setTopSet replaces rather than appends", () => {
-  let s = { date: "2026-07-06", templateId: "legs", exercises: [] };
-  s = setTopSet(s, "Squat", { weight: 185, reps: 5 });
-  s = setTopSet(s, "Squat", { weight: 195, reps: 3 });
-  s = setTopSet(s, "Leg Press", { weight: 300, reps: 10 });
-  assert.equal(s.exercises.length, 2);
-  assert.equal(s.exercises[0].sets.length, 1);
-  assert.deepEqual(s.exercises[0], { name: "Squat", sets: [{ weight: 195, reps: 3 }] });
-  assert.deepEqual(s.exercises[1], { name: "Leg Press", sets: [{ weight: 300, reps: 10 }] });
-});
-
-const SCHEDULE = {
-  mon: "lower-a",
-  tue: "pull-a",
-  wed: "push-a",
-  thu: "pull-b",
-  fri: "lower-b",
-  sat: "push-b",
-  sun: null,
-};
-const TEMPLATES = [
-  { id: "lower-a", name: "Mon: Lower A" },
-  { id: "pull-a", name: "Tue: Pull A" },
-  { id: "push-a", name: "Wed: Push A" },
-  { id: "pull-b", name: "Thu: Pull B" },
-  { id: "lower-b", name: "Fri: Lower B" },
-  { id: "push-b", name: "Sat: Push B" },
-];
-
-test("templateForDate returns the scheduled template for each weekday", () => {
-  assert.equal(templateForDate(SCHEDULE, TEMPLATES, "2026-07-06").id, "lower-a"); // mon
-  assert.equal(templateForDate(SCHEDULE, TEMPLATES, "2026-07-07").id, "pull-a"); // tue
-  assert.equal(templateForDate(SCHEDULE, TEMPLATES, "2026-07-08").id, "push-a"); // wed
-  assert.equal(templateForDate(SCHEDULE, TEMPLATES, "2026-07-09").id, "pull-b"); // thu
-  assert.equal(templateForDate(SCHEDULE, TEMPLATES, "2026-07-10").id, "lower-b"); // fri
-  assert.equal(templateForDate(SCHEDULE, TEMPLATES, "2026-07-11").id, "push-b"); // sat
-});
-
-test("templateForDate returns null on the rest day", () => {
-  assert.equal(templateForDate(SCHEDULE, TEMPLATES, "2026-07-12"), null); // sun
-});
-
-test("templateForDate returns null when schedule is undefined", () => {
-  assert.equal(templateForDate(undefined, TEMPLATES, "2026-07-06"), null);
-});
-
-test("templateForDate returns null when the schedule names an id absent from templates", () => {
-  const badSchedule = { ...SCHEDULE, mon: "not-a-real-id" };
-  assert.equal(templateForDate(badSchedule, TEMPLATES, "2026-07-06"), null);
-});
-
 test("targetsFromQuestionnaire: loss profile gets Mifflin-St Jeor minus 500, 3 meal slots", () => {
   // 60-year-old woman, 5'4", 160 lb, lightly active, losing:
   // kg=72.57, cm=162.56, BMR = 10*72.57 + 6.25*162.56 - 5*60 - 161 = 1280.7
@@ -147,7 +65,6 @@ test("targetsFromQuestionnaire: loss profile gets Mifflin-St Jeor minus 500, 3 m
   assert.equal(t.macros.caloriesFloor, 1200); // floor clamps at 1200
   assert.equal(t.dailyDozen.greens, 2); // Daily Dozen identical for everyone
 });
-
 test("targetsFromQuestionnaire: gain profile gets +300, smoothie slot, 1 g/lb protein", () => {
   const t = targetsFromQuestionnaire({
     sex: "m",
@@ -168,7 +85,6 @@ test("targetsFromQuestionnaire: gain profile gets +300, smoothie slot, 1 g/lb pr
   const kcalFromMacros = t.macros.protein * 4 + t.macros.fat * 9 + t.macros.carbs * 4;
   assert.ok(Math.abs(kcalFromMacros - t.macros.calories) < 100);
 });
-
 test("targetsFromQuestionnaire: maintain maps to recomp phase, no delta", () => {
   const t = targetsFromQuestionnaire({
     sex: "f",
@@ -182,7 +98,6 @@ test("targetsFromQuestionnaire: maintain maps to recomp phase, no delta", () => 
   assert.equal(t.phase, "recomp");
   assert.deepEqual(t.mealSlots, ["breakfast", "lunch", "dinner"]);
 });
-
 test("targetsFromQuestionnaire: carbs never go negative for a heavy loss profile", () => {
   const t = targetsFromQuestionnaire({
     sex: "f",
@@ -198,7 +113,6 @@ test("targetsFromQuestionnaire: carbs never go negative for a heavy loss profile
   const kcal = t.macros.protein * 4 + t.macros.fat * 9 + t.macros.carbs * 4;
   assert.ok(kcal <= t.macros.calories + 100, `macros ${kcal} vs calories ${t.macros.calories}`);
 });
-
 test("avoidTermsFromAllergens: presets expand and dedupe, free-text appends verbatim", () => {
   const terms = avoidTermsFromAllergens(["dairy", "nuts"], "Cilantro, mushrooms");
   assert.ok(terms.includes("cheese")); // from dairy
@@ -209,17 +123,6 @@ test("avoidTermsFromAllergens: presets expand and dedupe, free-text appends verb
   assert.equal(terms.filter((t) => t === "butter").length, 1);
   assert.deepEqual(avoidTermsFromAllergens(), []); // absent = empty
 });
-
-const BASE_Q = {
-  sex: "f",
-  age: 30,
-  heightFt: 5,
-  heightIn: 6,
-  weightLb: 140,
-  activity: 3,
-  goal: "maintain",
-};
-
 test("targetsFromQuestionnaire: empty prefs reproduce the pre-survey shape (no new keys)", () => {
   const t = targetsFromQuestionnaire(BASE_Q, "2026-07-17", {});
   for (const k of [
@@ -245,7 +148,6 @@ test("targetsFromQuestionnaire: empty prefs reproduce the pre-survey shape (no n
     assert.equal(k in t, false, `unexpected key ${k} at default`);
   }
 });
-
 test("targetsFromQuestionnaire: richer-survey fields map through, defaults omitted", () => {
   const t = targetsFromQuestionnaire(BASE_Q, "2026-07-17", {
     tiredOf: ["pasta", "stir-fry"],
@@ -274,7 +176,6 @@ test("targetsFromQuestionnaire: richer-survey fields map through, defaults omitt
   });
   assert.equal("lunchMicrowave" in nolunch, false);
 });
-
 test("targetsFromQuestionnaire: survey prefs map to targets fields, defaults omitted", () => {
   const t = targetsFromQuestionnaire(BASE_Q, "2026-07-17", {
     diet: "vegan",
@@ -310,7 +211,6 @@ test("targetsFromQuestionnaire: survey prefs map to targets fields, defaults omi
   // breakfast skipped and no blender -> no breakfast, no smoothie slot
   assert.deepEqual(t.mealSlots, ["lunch", "dinner"]);
 });
-
 test("targetsFromQuestionnaire: default-valued prefs stay omitted (lean file)", () => {
   const t = targetsFromQuestionnaire(BASE_Q, "2026-07-17", {
     diet: "omnivore",
@@ -333,7 +233,6 @@ test("targetsFromQuestionnaire: default-valued prefs stay omitted (lean file)", 
     assert.equal(k in t, false, `default ${k} should be omitted`);
   }
 });
-
 test("protein anchors to GOAL weight on a loss phase, not the weight being carried", () => {
   // David's dad: 6'4", 300 lb, heading for 200, age 56. Keying 0.9 g/lb to
   // 300 lb asks for 270 g of protein, which is neither achievable nor useful,
@@ -360,7 +259,6 @@ test("protein anchors to GOAL weight on a loss phase, not the weight being carri
   // carbs must not be squeezed to nothing to make room for the protein
   assert.ok(withGoal.macros.carbs > without.macros.carbs);
 });
-
 test("goal weight is ignored when it would not help", () => {
   const base = {
     sex: /** @type {"m"} */ ("m"),

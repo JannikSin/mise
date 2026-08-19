@@ -1,6 +1,6 @@
 // Shared JSDoc @typedefs mirroring docs/SCHEMAS.md, for shapes new enough
 // (Phase 1) that no single lib file owns them yet. Single-file shapes stay
-// colocated at their point of use (see app/lib/plan.js, app/lib/fitness.js,
+// colocated at their point of use (see app/lib/plan.js, app/lib/targets.js,
 // etc.) per mise-conventions: only add here what's genuinely cross-cutting.
 
 /**

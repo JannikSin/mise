@@ -2,7 +2,7 @@ import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { onboardTurn } from "../lib/worker.js";
 import { readProfiles, patchProfiles, write } from "../lib/store.js";
-import { targetsFromQuestionnaire } from "../lib/fitness.js";
+import { targetsFromQuestionnaire } from "../lib/targets.js";
 import { localIsoDate } from "../lib/dates.js";
 
 /**

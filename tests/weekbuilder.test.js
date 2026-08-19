@@ -1255,8 +1255,8 @@ test("generation enforces the WRITTEN floor, not a ratio of the target", () => {
 });
 
 test("a profile with no written floors derives them, matching the questionnaire", async () => {
-  const { targetsFromQuestionnaire } = await import("../app/lib/fitness.js");
-  const { enforcedFloors } = await import("../app/lib/fitness.js");
+  const { targetsFromQuestionnaire } = await import("../app/lib/targets.js");
+  const { enforcedFloors } = await import("../app/lib/targets.js");
   const t = targetsFromQuestionnaire({
     weightLb: 190,
     heightFt: 6,
@@ -1275,7 +1275,7 @@ test("a profile with no written floors derives them, matching the questionnaire"
 });
 
 test("David's real targets enforce 3500/155, not 3515/166.25", async () => {
-  const { enforcedFloors } = await import("../app/lib/fitness.js");
+  const { enforcedFloors } = await import("../app/lib/targets.js");
   // 175/155 ratified 2026-08-18 (council: protein set from goal weight, Morton 2018 band)
   assert.deepEqual(
     enforcedFloors({ calories: 3700, caloriesFloor: 3500, protein: 175, proteinFloor: 155 }),
@@ -1284,7 +1284,7 @@ test("David's real targets enforce 3500/155, not 3515/166.25", async () => {
 });
 
 test("mom's hand-edited 1400 wins over any formula", async () => {
-  const { enforcedFloors } = await import("../app/lib/fitness.js");
+  const { enforcedFloors } = await import("../app/lib/targets.js");
   // the formula would say 1350; the written field says 1400 and must win
   assert.equal(
     enforcedFloors({ calories: 1550, caloriesFloor: 1400, protein: 110, proteinFloor: 100 })
@@ -1294,7 +1294,7 @@ test("mom's hand-edited 1400 wins over any formula", async () => {
 });
 
 test("a zero floor is a real floor, not a missing one", async () => {
-  const { enforcedFloors } = await import("../app/lib/fitness.js");
+  const { enforcedFloors } = await import("../app/lib/targets.js");
   assert.equal(enforcedFloors({ calories: 2000, protein: 150, proteinFloor: 0 }).protein, 0);
 });
 

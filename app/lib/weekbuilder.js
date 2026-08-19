@@ -24,7 +24,7 @@ import {
   untrustedForAutoPlan,
 } from "./plan.js";
 import { slug, pantryItems, isDatedItem } from "./shopping.js";
-import { enforcedFloors } from "./fitness.js";
+import { enforcedFloors } from "./targets.js";
 import { seatServingsFor } from "./tables.js";
 
 /** deterministic 32-bit FNV-1a — the builder's only randomness source */

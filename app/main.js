@@ -36,7 +36,7 @@ import { DinnerView } from "./views/dinner.js";
 import { AskView } from "./views/ask.js";
 import { TablesView } from "./views/tables.js";
 import { ConfirmModal } from "./views/confirm-modal.js";
-import { upsertDay } from "./lib/fitness.js";
+import { upsertDay } from "./lib/targets.js";
 import {
   deriveShoppingList,
   applyJustBought,
