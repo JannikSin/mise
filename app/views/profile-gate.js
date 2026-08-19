@@ -73,7 +73,6 @@ export function ProfileGateView() {
   const [activity, setActivity] = useState(2);
   const [goal, setGoal] = useState(/** @type {"loss" | "maintain" | "gain"} */ ("maintain"));
   const [goalWeightLb, setGoalWeightLb] = useState("");
-  const [training, setTraining] = useState(true);
   const [saving, setSaving] = useState(false);
   const [chatMode, setChatMode] = useState(false);
 
@@ -615,19 +614,6 @@ export function ProfileGateView() {
               `,
             )}
           </div>
-
-          <h2 class="block-title">training features?</h2>
-          <div class="chips" role="group" aria-label="Do you want training features?">
-            <button class="chip ${training ? "on" : ""}" onClick=${() => setTraining(true)}>
-              yes
-            </button>
-            <button class="chip ${!training ? "on" : ""}" onClick=${() => setTraining(false)}>
-              no
-            </button>
-          </div>
-          <p class="hint">
-            no hides the Train tab and workout tracking — flip it later in Settings.
-          </p>
 
           <details class="survey-optional">
             <summary class="block-title">make it yours (optional)</summary>
