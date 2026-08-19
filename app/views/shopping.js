@@ -466,26 +466,55 @@ export function ShoppingView({
     if (!costMemo.has(item)) costMemo.set(item, itemCost(item, prices, homeStore));
     return costMemo.get(item) ?? null;
   };
-  const priceTag = (/** @type {any} */ item) => {
+  // STRICT COLUMNS (David 2026-08-19: "literally make columns"): every row
+  // reads NEED (the recipes' summation) · BUY (packs × the store's real
+  // pack, or the weighed amount) · $/unit · TOTAL, in fixed tracks that
+  // repeat identically under a per-trip header. The buy column is always
+  // explicit — "×1 avocado but a 4 ct bag" must be visible without a tap.
+  const spFor = (/** @type {any} */ item) =>
+    prices && homeStore ? matchPrice(item.food, prices.items ?? [])?.prices?.[homeStore] : undefined;
+  const buyCell = (/** @type {any} */ item) => {
     if (!prices || !homeStore) return "";
     const c = rowCost(item);
-    if (!c) return html`<span class="q num nopr">no price</span>`;
-    // † = a live-timestamped price past its freshness window (fix list 3.5)
-    const sp = matchPrice(item.food, prices.items ?? [])?.prices?.[homeStore];
-    const stale = isStalePrice(sp, todayIso);
-    return html`<span class="q num">$${c.cost.toFixed(2)}${c.estimate ? "~" : ""}${stale ? " †" : ""}</span>`;
+    if (c?.packs && c.size) return `${c.packs} × ${c.size}`;
+    if (c?.lbs != null) return `${c.lbs} lb weighed`;
+    if (c) return c.size ? `1 × ${c.size}` : "1 pack";
+    // unpriced rows fall back to packHint's table guess, which carries its
+    // own ≈ so it keeps reading as a guess (ui-review F7)
+    return packHint(item.food, item.qty, item.unit, prices, homeStore) || "—";
   };
-  // the "buy" half of the need → buy line (David, 2026-08-19): every row
-  // reads `need → what the store sells to cover it`. Packaged rows use the
-  // authoritative pack math itemCost already computed ("2 × 10 oz"), per-lb
-  // rows show the charged weight; unpriced rows keep packHint's table guess.
-  const buyHint = (/** @type {any} */ item) => {
+  const unitCell = (/** @type {any} */ item) => {
+    if (!prices || !homeStore) return "";
+    const sp = spFor(item);
+    if (!sp || rowCost(item) == null) return "—";
+    const perLb = String(sp.size ?? "").toLowerCase().includes("per lb");
+    // sale = the card price the API returned under promo (applyLivePrice
+    // writes it as the effective price and flags the row)
+    return `$${sp.price.toFixed(2)}${perLb ? "/lb" : ""}${/** @type {any} */ (sp).sale ? " 🏷" : ""}`;
+  };
+  const totalCell = (/** @type {any} */ item) => {
+    // no catalogue yet (cold/offline open) = quiet cells, exactly as the old
+    // price chips behaved; "—" for a row the catalogue can't price — NEVER
+    // "$?", which is the action button's name (reviewer catch 2026-08-19)
     if (!prices || !homeStore) return "";
     const c = rowCost(item);
-    if (c?.packs && c.size) return `≈ ${c.packs} × ${c.size}`;
-    if (c?.lbs) return `≈ ${c.lbs} lb weighed`;
-    return packHint(item.food, item.qty, item.unit, prices, homeStore) ?? "";
+    if (!c) return "—";
+    // ~ = estimate; † = a live price past its freshness window (fix list 3.5)
+    const stale = isStalePrice(spFor(item), todayIso);
+    return `$${c.cost.toFixed(2)}${c.estimate ? "~" : ""}${stale ? " †" : ""}`;
   };
+  const colCells = (/** @type {any} */ item) => html`<span class="cols num">
+    <span class="c">${formatStoreQty(item.qty, item.unit)}</span>
+    <span class="c">${buyCell(item)}</span>
+    <span class="c">${unitCell(item)}</span>
+    <span class="c">${totalCell(item)}</span>
+  </span>`;
+  const colHead = () => html`<div class="colhead num">
+    <span class="c">NEED</span>
+    <span class="c">BUY</span>
+    <span class="c">$/UNIT</span>
+    <span class="c">TOTAL</span>
+  </div>`;
 
   // ---- live Kroger pricing (fix list Tier 3: pins, refresh, confirm-once) --
   // Only a store with a registered locationId in pins.json gets live
@@ -1243,6 +1272,7 @@ export function ShoppingView({
             (trip) => html`
               <div key=${trip.key}>
                 ${trip.label && html`<h2 class="block-title trip-title">${trip.label}</h2>`}
+                ${trip.groups.length > 0 && colHead()}
                 ${trip.groups.map(
                   (g) => html`
                     <h2 class="block-title" key=${g.section}>
@@ -1256,7 +1286,7 @@ export function ShoppingView({
                         // 2026-08-19: P+ removing a row would remount every
                         // row below it)
                         (i) => html`<${Fragment} key=${i.id}>
-                          <div class="checkrow ${i.checked ? "done" : ""}">
+                          <div class="checkrow listcols ${i.checked ? "done" : ""}">
                             <button
                               class="tickarea"
                               aria-pressed=${i.checked}
@@ -1274,23 +1304,19 @@ export function ShoppingView({
                                     : ""
                                 }</span
                               >
-                              <span class="q num">
-                                ${formatStoreQty(i.qty, i.unit)}${(() => {
-                                  const h = buyHint(i);
-                                  return h ? html` <span class="hint">${h}</span>` : "";
-                                })()}
-                              </span>
-                              ${priceTag(i)}
                             </button>
-                            <button
-                              class="ownbtn"
-                              aria-label="Already have ${i.food} — move to pantry staples"
-                              onClick=${() => onOwnItem(i.id)}
-                            >
-                              P+
-                            </button>
-                            ${canLive && !rowCost(i) && html`<button class="ownbtn" aria-label="Find live price for ${i.food}" onClick=${() => openPricePick(i)}>$?</button>`}
-                            ${canLive && pinFor(pins, i.food, homeStore)?.provisional && html`<button class="ownbtn" aria-label="Confirm auto-picked product for ${i.food}" onClick=${() => openPinConfirm(i)}>?</button>`}
+                            <div class="rowbtns">
+                              <button
+                                class="ownbtn"
+                                aria-label="Already have ${i.food} — move to pantry staples"
+                                onClick=${() => onOwnItem(i.id)}
+                              >
+                                P+
+                              </button>
+                              ${canLive && !rowCost(i) && html`<button class="ownbtn" aria-label="Find live price for ${i.food}" onClick=${() => openPricePick(i)}>$?</button>`}
+                              ${canLive && pinFor(pins, i.food, homeStore)?.provisional && html`<button class="ownbtn" aria-label="Confirm auto-picked product for ${i.food}" onClick=${() => openPinConfirm(i)}>?</button>`}
+                            </div>
+                            ${colCells(i)}
                           </div>
                           ${pricePick?.item?.id === i.id ? pickSheet() : ""}
                         <//>`,
@@ -2084,6 +2110,7 @@ export function ShoppingView({
             `
           }
           ${coveredBlock(combinedTrip.covered)}
+          ${combinedSections.length > 0 && colHead()}
           ${combinedSections.map(
             (g) => html`
               <h2 class="block-title" key=${g.section}>
@@ -2099,7 +2126,7 @@ export function ShoppingView({
                     .map((/** @type {any} */ s) => emojiFor.get(s.profileId) ?? "?")
                     .join(" ");
                   return html`
-                    <div class="checkrow ${allChecked ? "done" : ""}" key=${i.id}>
+                    <div class="checkrow listcols ${allChecked ? "done" : ""}" key=${i.id}>
                       <button
                         class="tickarea"
                         aria-pressed=${allChecked}
@@ -2126,14 +2153,8 @@ export function ShoppingView({
                               : ""
                           }
                         </span>
-                        <span class="q num">
-                          ${formatStoreQty(i.qty, i.unit)}${(() => {
-                            const h = packHint(i.food, i.qty, i.unit, prices, homeStore);
-                            return h ? html` <span class="hint">${h}</span>` : "";
-                          })()}
-                        </span>
-                        ${priceTag(i)}
                       </button>
+                      ${colCells(i)}
                     </div>
                   `;
                 })}

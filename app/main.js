@@ -19,7 +19,7 @@ import { dinerFacts } from "./lib/annotate.js";
 import { tailorTable, dinnerWeek } from "./lib/worker.js";
 import { ProfileGateView } from "./views/profile-gate.js";
 import { CookbookView } from "./views/cookbook.js";
-import { RecipeView, CookView } from "./views/recipe.js";
+import { RecipeView } from "./views/recipe.js";
 import { RecipePeek } from "./views/recipe-peek.js";
 import { SystemView } from "./views/system.js";
 import { TourOverlay, TourOffer } from "./views/tour.js";
@@ -2291,7 +2291,13 @@ function App() {
     /** @type {Record<string, { diet?: string, avoidIngredients?: string[], avoidRecipes?: string[] } | null>} */ ({}),
   );
   useEffect(() => {
-    if (route.view !== "cook" || !route.table) return;
+    // the serve tile lives on the RECIPE route since Cook Mode's removal
+    // (2026-08-19). Reviewer catch: this guard still said "cook", a view the
+    // router can no longer produce, so serveRules stayed {} forever and
+    // every allergen SET-ASIDE row silently degraded to a plain plate line
+    // — the exact screen whose job is telling the cook who must not get
+    // the dish.
+    if (route.view !== "recipe" || !route.table) return;
     const t = houseEventsRef.current
       .flatMap((h) => h.events.tables)
       .find((x) => x.id === route.table);
@@ -3112,45 +3118,28 @@ function App() {
 
   const loading = recipes.length === 0 && hasToken;
 
-  if (route.view === "cook") {
-    // key: hook state (current step) must reset when the recipe changes
-    const cookEntry = route.entry ? plan.entries.find((e) => e.id === route.entry) : undefined;
-    // a TABLE cook ends on the serve step (spec §7.2). The table renders
-    // from live state; the serve model derives from stored seats + whatever
-    // seat rules this device has cached (spec §7.1: mass share, deploy 1).
-    const cookTable = route.table
-      ? houseEvents.flatMap((h) => h.events.tables).find((t) => t.id === route.table)
-      : undefined;
-    const serve =
-      cookTable && !cookTable.sameForEveryone
-        ? buildServe(
-            cookTable,
-            bankRecipes.find((r) => r.id === cookTable.recipeId),
-            allProfiles,
-            serveRules,
-            liveSynthFor(cookTable),
-          )
-        : null;
-    // the R6 warning fires here too (spec 10 C6): cooking triggers the
-    // freeze, so a serve step reached before anyone claimed the buy is the
-    // last honest moment to say a configured seat's plan never synced here
-    if (serve && cookTable && !cookTable.buyerId && !cookTable.cookedAt) {
-      const warn = missingPlanWarning(cookTable);
-      if (warn) serve.cookNotes = [...serve.cookNotes, warn];
-    }
-    return html`<${CookView}
-      key=${route.id}
-      recipe=${recipeById(route.id)}
-      loading=${loading}
-      from=${route.from}
-      servings=${route.servings}
-      entryId=${cookEntry?.id}
-      tableId=${cookTable?.id}
-      serve=${serve}
-      cooked=${Boolean(cookEntry?.cookedAt || cookTable?.cookedAt)}
-      onCooked=${handleMarkCooked}
-      onCookedTable=${handleMarkTableCooked}
-    />`;
+  // Cook Mode is gone (David 2026-08-19): the recipe page carries the timer
+  // (entry COOKED write) and the serve tile (table COOKED write). The serve
+  // model derives here exactly as the old cook route did (spec §7.1).
+  const routeTable = route.table
+    ? houseEvents.flatMap((h) => h.events.tables).find((t) => t.id === route.table)
+    : undefined;
+  const routeServe =
+    routeTable && !routeTable.sameForEveryone
+      ? buildServe(
+          routeTable,
+          bankRecipes.find((r) => r.id === routeTable.recipeId),
+          allProfiles,
+          serveRules,
+          liveSynthFor(routeTable),
+        )
+      : null;
+  // the R6 warning (spec 10 C6): a serve tile reached before anyone claimed
+  // the buy is the last honest moment to say a configured seat's plan never
+  // synced here
+  if (routeServe && routeTable && !routeTable.buyerId && !routeTable.cookedAt) {
+    const warn = missingPlanWarning(routeTable);
+    if (warn) routeServe.cookNotes = [...routeServe.cookNotes, warn];
   }
 
   const now = new Date();
@@ -3245,15 +3234,14 @@ function App() {
         loading=${loading}
         from=${route.from}
         servings=${route.servings}
-        entryId=${route.entry}
-        tableId=${route.table}
+        tableId=${routeTable?.id}
+        tableUnresolved=${Boolean(route.table && !routeTable)}
         potRows=${(() => {
           // spec 11.5: a solved table's recipe page shows TONIGHT'S pot.
           // Uniform (every untagged dish) renders cookPlan verbatim. Once a
           // pot is FROZEN it is the contract for what was bought (spec 10)
           // and wins over a live re-solve; live covers pre-freeze only.
-          if (!route.table) return undefined;
-          const rt = houseEvents.flatMap((h) => h.events.tables).find((x) => x.id === route.table);
+          const rt = routeTable;
           if (!rt) return undefined;
           const bank = bankRecipes.find((r) => r.id === rt.recipeId);
           const frozen = parsePot(/** @type {any} */ (rt).pot, bank);
@@ -3268,6 +3256,9 @@ function App() {
         entry=${route.entry ? (plan.entries ?? []).find((e) => e.id === route.entry) : undefined}
         onCooked=${handleMarkCooked}
         onCookComment=${handleCookComment}
+        serve=${routeServe}
+        tableCooked=${Boolean(routeTable?.cookedAt)}
+        onCookedTable=${handleMarkTableCooked}
       />`
     }
     ${

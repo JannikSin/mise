@@ -19,25 +19,6 @@ const DEFAULT_ORIGIN = { hash: "#/cookbook", label: "← COOKBOOK" };
 /** @param {string | undefined} from */
 const originOf = (from) => (from && ORIGINS[from]) || DEFAULT_ORIGIN;
 
-/**
- * Query suffix carrying the backlink origin, the planned portion, the
- * plan-entry id AND the table id through to Cook mode, so cooking stays
- * scaled to the meal and the last step can confirm the right thing cooked
- * (a plan entry, or a table via the serve step).
- * @param {string | undefined} from
- * @param {number} [servings]
- * @param {string} [entryId]
- * @param {string} [tableId]
- */
-const cookSuffix = (from, servings, entryId, tableId) => {
-  const parts = [];
-  if (from && ORIGINS[from]) parts.push(`from=${encodeURIComponent(from)}`);
-  if (servings && servings > 0) parts.push(`servings=${servings}`);
-  if (entryId) parts.push(`entry=${encodeURIComponent(entryId)}`);
-  if (tableId) parts.push(`table=${encodeURIComponent(tableId)}`);
-  return parts.length ? `?${parts.join("&")}` : "";
-};
-
 // ---- the cook timer (fix list 7.10, promise P7) ---------------------------
 // One timer at a time, persisted in localStorage so a locked phone or a
 // reload never loses a running cook. Starting on a different entry replaces
@@ -142,21 +123,24 @@ function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
 }
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, tableId?: string, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds: number) => void, onCookComment?: (entryId: string, text: string) => void }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void }} props
  */
 export function RecipeView({
   recipe,
   loading,
   from,
   servings,
-  entryId,
   tableId,
+  tableUnresolved = false,
   potRows,
   unshopped = false,
   onPromote,
   entry = undefined,
   onCooked = undefined,
   onCookComment = undefined,
+  serve = null,
+  tableCooked = false,
+  onCookedTable = undefined,
 }) {
   const [promoting, setPromoting] = useState(
     /** @type {null | "busy" | "done" | "error"} */ (null),
@@ -323,16 +307,63 @@ export function RecipeView({
         </div>`
       }
       ${!awake.held && awake.reason && html`<p class="hint awakewhy">☀ ${awake.reason}</p>`}
-      <div class="actions">
-        <button
-          class="ask"
-          onClick=${() =>
-            (location.hash = `#/recipe/${encodeURIComponent(recipe.id)}/cook${cookSuffix(from, servings, entryId, tableId)}`)}
-        >
-          COOK MODE
-          <small>big text · step by step</small>
-        </button>
-      </div>
+      ${
+        // THE SERVE TILE (Cook Mode's rehomed last step, David 2026-08-19:
+        // "get rid of it entirely", executed once this landed). A shared
+        // table's who-gets-what renders HERE, and the COOKED button lives
+        // inside the same tile — you still cannot confirm a shared meal
+        // without the plate split on screen (spec §7.2's guarantee, one page
+        // now). sameForEveryone tables have no split; the button stands
+        // alone. The plan-entry COOKED write lives in the timer above.
+        // a ?table= that this device cannot resolve (cold open before the
+        // events file lands, another house's id) says so HONESTLY instead of
+        // asserting "same plate for everyone" over a live no-op button
+        // (reviewer catch 2026-08-19)
+        tableUnresolved &&
+        html`<div class="tile serve">
+          <div class="serve-title">SERVE</div>
+          <p class="hint">
+            this table hasn't synced to this device yet — who-gets-what and the COOKED tap appear
+            once it loads (or on the device that set the table up).
+          </p>
+        </div>`
+      }
+      ${
+        tableId &&
+        onCookedTable &&
+        html`<div class="tile serve">
+          <div class="serve-title">SERVE${serve && serve.rows.length > 0 ? "" : " · same plate for everyone"}</div>
+          ${serve && serve.rows.length > 0 && html`<div class="serve-sub">Amounts for tonight's table.</div>`}
+          ${(serve?.rows ?? []).map((r) =>
+            r.kind === "aside"
+              ? html`<div class="serve-seat aside" key=${r.id}>
+                  <div class="serve-name">SET ASIDE</div>
+                  <div class="serve-line">
+                    ${r.name.toUpperCase()}'s portion, ${r.fraction}, set apart${r.note ? ` (${r.note})` : ""}
+                  </div>
+                </div>`
+              : html`<div class="serve-seat" key=${r.id}>
+                  <div class="serve-name">${r.name.toUpperCase()}</div>
+                  ${
+                    r.lines && r.lines.length > 0
+                      ? r.lines.map((line, i) => html`<div class="serve-line" key=${i}>${line}</div>`)
+                      : html`<div class="serve-line">${r.fraction}</div>`
+                  }
+                  ${r.note && html`<div class="serve-line hint">${r.note}</div>`}
+                </div>`,
+          )}
+          ${(serve?.cookNotes ?? []).map((c, i) => html`<div class="hint" key=${i}>👨‍🍳 ${c}</div>`)}
+          <div class="actions">
+            ${
+              tableCooked
+                ? html`<span class="k">COOKED ✓</span>`
+                : html`<button class="primary" onClick=${() => onCookedTable(tableId)}>
+                    ■ SERVED — MARK THE TABLE COOKED
+                  </button>`
+            }
+          </div>
+        </div>`
+      }
 
       ${
         recipe.batchPrep &&
@@ -394,150 +425,3 @@ export function RecipeView({
   `;
 }
 
-/**
- * Full-screen cooking mode: one big step at a time, screen kept awake. When
- * opened from a planned meal (entryId), the last step's button confirms the
- * meal COOKED — the honest-state rule: only a confirmation marks it eaten.
- *
- * When opened from a TABLE (tableId + serve), the SERVE STEP is appended as
- * the final step (per-person-plates-design §7.2): you cannot mark a shared
- * meal cooked without passing the screen that says who gets what. That is
- * structural, not a hope that people scroll.
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, cooked?: boolean, onCooked?: (entryId: string) => void, tableId?: string, serve?: import("../lib/serve.js").ServeModel | null, onCookedTable?: (tableId: string) => void }} props
- */
-export function CookView({
-  recipe,
-  loading,
-  from,
-  servings,
-  entryId,
-  cooked,
-  onCooked,
-  tableId,
-  serve,
-  onCookedTable,
-}) {
-  const [rawStep, setStep] = useState(0);
-  const [awake, setAwake] = useState(
-    /** @type {import("../lib/awake.js").AwakeState} */ ({
-      held: false,
-      supported: true,
-      reason: "",
-    }),
-  );
-  // hands covered in egg, next step is time-critical: this is the one screen
-  // in the app that must not sleep, and if it cannot hold the screen it has
-  // to SAY so rather than fail silently
-  useEffect(() => keepAwake(setAwake), []);
-
-  if (!recipe)
-    return html`<div class="empty">
-      ${loading ? "loading…" : "recipe not found"} —
-      <a href="#/cookbook">back to cookbook</a>
-    </div>`;
-  // batch-prep becomes STEP 0 in cook mode (David, 2026-08-03: the nicoise
-  // told him to "use the batch chicken" and never said how — the ahead-of-
-  // time work must live in the same step flow, not on a tile he already
-  // scrolled past)
-  // the serve step is the LAST step of a table cook, and its button is the
-  // COOKED button — who-gets-what is on the way out, not on a card nobody
-  // finds (spec §6.1/§7.2: "that is the same disease relocated")
-  const hasServe = Boolean(tableId && serve && serve.rows.length > 0);
-  const steps = [
-    ...(recipe.batchPrep?.sundayComponent
-      ? [
-          {
-            step: 0,
-            text: `AHEAD OF TIME (batch prep — skip if already done): ${recipe.batchPrep.sundayComponent}`,
-          },
-        ]
-      : []),
-    ...(recipe.instructions ?? []),
-    ...(hasServe ? [{ serve: true, text: "" }] : []),
-  ];
-  const last = steps.length - 1;
-  // clamp: if the serve step vanishes mid-cook (a housemate toggles
-  // sameForEveryone and the sync lands), a user parked on the old last step
-  // must land on the new one, never a blank STEP n+1/n
-  const step = Math.min(rawStep, last);
-  const onServe = hasServe && step === last;
-  const plan = cookPlan(recipe, servings);
-  // exit lands back on the recipe, keeping ?from= AND the portion so the
-  // recipe there stays scaled to the same meal
-  const back = `#/recipe/${encodeURIComponent(recipe.id)}${cookSuffix(from, servings, entryId, tableId)}`;
-  const finish = () => {
-    // mutually exclusive on purpose: app-built links carry one or the other,
-    // and a hand-crafted URL carrying both must not confirm two things with
-    // one tap (security review L2). Table wins: the serve step is its gate.
-    if (tableId && onCookedTable && !cooked) onCookedTable(tableId);
-    else if (entryId && onCooked && !cooked) onCooked(entryId);
-    location.hash = back;
-  };
-
-  return html`
-    <div class="cook">
-      <div class="top">
-        <span>${recipe.name}</span>
-        <a class="exit" href=${back}>✕ EXIT</a>
-      </div>
-      <div class="counter num">
-        STEP ${step + 1}/${steps.length}
-        ${
-          // an honest indicator. A silent failure here is what left him with
-          // eggy hands at a locked phone, so this says which of the two it is.
-          awake.held
-            ? html`<span class="awakechip on" title="This screen will not sleep">☀ screen on</span>`
-            : html`<span class="awakechip">☀ screen may sleep</span>`
-        }
-      </div>
-      ${
-        !awake.held &&
-        awake.reason &&
-        html`<div class="cook-portion awakewhy">⚠ ${awake.reason}</div>`
-      }
-      ${step === 0 && plan.note && html`<div class="cook-portion">${plan.note}</div>`}
-      ${
-        onServe
-          ? html`<div class="serve">
-              <div class="serve-title">SERVE</div>
-              <div class="serve-sub">Amounts for tonight's table.</div>
-              ${serve?.rows.map((r) =>
-                r.kind === "aside"
-                  ? html`<div class="serve-seat aside" key=${r.id}>
-                      <div class="serve-name">SET ASIDE</div>
-                      <div class="serve-line">
-                        ${r.name.toUpperCase()}'s portion, ${r.fraction}, set
-                        apart${r.note ? ` (${r.note})` : ""}
-                      </div>
-                    </div>`
-                  : html`<div class="serve-seat" key=${r.id}>
-                      <div class="serve-name">${r.name.toUpperCase()}</div>
-                      ${
-                        r.lines && r.lines.length > 0
-                          ? r.lines.map(
-                              (line, i) => html`<div class="serve-line" key=${i}>${line}</div>`,
-                            )
-                          : html`<div class="serve-line">${r.fraction}</div>`
-                      }
-                      ${r.note && html`<div class="serve-line hint">${r.note}</div>`}
-                    </div>`,
-              )}
-              ${serve?.cookNotes.map((c, i) => html`<div class="hint" key=${i}>👨‍🍳 ${c}</div>`)}
-            </div>`
-          : html`<div class="steptext">${steps[step]?.text}</div>`
-      }
-      <div class="nav">
-        <button onClick=${() => setStep(Math.max(0, step - 1))} disabled=${step === 0}>
-          ← PREV
-        </button>
-        ${
-          step < last
-            ? html`<button class="next" onClick=${() => setStep(step + 1)}>NEXT →</button>`
-            : html`<button class="next" onClick=${finish}>
-                ${(entryId || tableId) && !cooked ? "COOKED ✓" : "DONE ✓"}
-              </button>`
-        }
-      </div>
-    </div>
-  `;
-}

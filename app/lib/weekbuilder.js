@@ -25,7 +25,7 @@ import {
 } from "./plan.js";
 import { slug, pantryItems, isDatedItem } from "./shopping.js";
 import { enforcedFloors } from "./targets.js";
-import { seatServingsFor } from "./tables.js";
+import { seatServingsFor, slotShareFor } from "./tables.js";
 
 /** deterministic 32-bit FNV-1a — the builder's only randomness source */
 function hash(/** @type {string} */ s) {
@@ -1327,8 +1327,43 @@ export function generateWeek({
     ...targets,
     macros: { ...(targets?.macros ?? {}), calories: caloriesTarget * PROACTIVE_SHARE },
   };
-  const portionFor = (/** @type {string} */ slot, /** @type {Record<string, any>} */ recipe) =>
-    seatServingsFor(portionTargets, slot, recipe);
+  // SWIPE DAYS COOK LESS (7.11, David 2026-08-19: two swipe meals still read
+  // 282 g protein because the cooked slots were sized for a FULL day and the
+  // ceiling trim only pulls back to the ceiling). A day with away credits
+  // sizes its remaining cooked slots against the calories that REMAIN,
+  // renormalized over the remaining slots' weights — so the swipe day's
+  // dinner is a normal dinner inside a smaller cooked day, not a full-day
+  // dinner squeezed by the trim. Floors stay honest: dayTotals counts the
+  // away estimates, so the calorie floor still tops up if the credits were
+  // small. No away credits = portionTargets unchanged, exactly as before.
+  const awayByDate = new Map(outDays.map((d) => [d.date, d]));
+  const portionTargetsFor = (/** @type {string} */ date) => {
+    const away = awayByDate.get(date);
+    if (!away || !(away.estCalories > 0)) return portionTargets;
+    const awayShare = away.slots.reduce((s, slot) => s + slotShareFor(targets ?? {}, slot), 0);
+    const remainingShare = Math.max(0.25, 1 - awayShare);
+    // UNCAPPED on purpose (reviewer catch 2026-08-19: a Math.min at
+    // caloriesTarget made this a no-op for every realistic buffet estimate,
+    // because the away slot's SHARE usually exceeds its credited calories).
+    // By construction the remaining slots then total (target − credit) ×
+    // PROACTIVE_SHARE: a light 505-kcal breakfast swipe sizes the rest of
+    // the day slightly UP (the credit is smaller than the slot it frees),
+    // a heavy two-buffet day sizes it well DOWN — both are the arithmetic
+    // of cooking exactly what the credits leave uncovered.
+    const remainingCalories = Math.max(0, caloriesTarget - away.estCalories) / remainingShare;
+    return {
+      ...targets,
+      macros: {
+        ...(targets?.macros ?? {}),
+        calories: remainingCalories * PROACTIVE_SHARE,
+      },
+    };
+  };
+  const portionFor = (
+    /** @type {string} */ date,
+    /** @type {string} */ slot,
+    /** @type {Record<string, any>} */ recipe,
+  ) => seatServingsFor(portionTargetsFor(date), slot, recipe);
 
   const fill = (
     /** @type {string} */ date,
@@ -1337,7 +1372,10 @@ export function generateWeek({
   ) => {
     if (!recipe) return;
     if (entriesAt(next.entries, date, slot).length > 0) return; // never overwrite (pins included)
-    next = addEntry(next, date, slot, { recipeId: recipe.id, servings: portionFor(slot, recipe) });
+    next = addEntry(next, date, slot, {
+      recipeId: recipe.id,
+      servings: portionFor(date, slot, recipe),
+    });
   };
 
   const dinnerRotation = hash(`${weekId}|${salt}|dinner`) % Math.max(1, committees.dinner.length);

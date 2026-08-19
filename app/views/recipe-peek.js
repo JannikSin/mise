@@ -40,7 +40,11 @@ export function RecipePeek({ recipe, servings, entryId, tableId, unshopped = fal
 
   if (!recipe) return null;
   const plan = cookPlan(recipe, servings);
-  const cookHref = `#/recipe/${encodeURIComponent(recipe.id)}/cook?from=plan&servings=${
+  // Cook Mode is gone (2026-08-19): both buttons land on the recipe page,
+  // which carries the timer (entry) and the serve tile (table). The params
+  // ride on BOTH links — FULL RECIPE used to drop them, which is exactly how
+  // David ended up on a recipe page with no timer and nowhere to find one.
+  const cookHref = `#/recipe/${encodeURIComponent(recipe.id)}?from=plan&servings=${
     servings && servings > 0 ? servings : (recipe.servings ?? 1)
   }${entryId ? `&entry=${encodeURIComponent(entryId)}` : ""}${
     tableId ? `&table=${encodeURIComponent(tableId)}` : ""
@@ -92,13 +96,8 @@ export function RecipePeek({ recipe, servings, entryId, tableId, unshopped = fal
           }
         </div>
         <div class="actions wrap peekactions">
-          <a class="ask linkbtn" href=${cookHref} onClick=${onClose}>👩‍🍳 COOK IT</a>
-          <a
-            class="secondary linkbtn"
-            href="#/recipe/${encodeURIComponent(recipe.id)}?from=plan"
-            onClick=${onClose}
-          >
-            FULL RECIPE
+          <a class="ask linkbtn" href=${cookHref} onClick=${onClose}>👩‍🍳 COOK IT
+            <small>full recipe · timer · steps</small>
           </a>
         </div>
       </div>

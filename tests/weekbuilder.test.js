@@ -1668,3 +1668,71 @@ test("macroTopUp: a day already at its protein TARGET fills calories with the le
   assert.ok(oldAdded.length > 0);
   assert.equal(oldAdded[0].recipeId, "protein-snack");
 });
+
+test("generateWeek: a heavy-credit swipe day SIZES its cooked slots smaller (same slot occupancy)", () => {
+  // David 2026-08-19 round two: two swipe meals still read 282 g because the
+  // cooked slots were sized for a FULL day. The fill pass now sizes a credit
+  // day's remaining slots against (target − credit), renormalized over the
+  // remaining slot weights. This fixture isolates the SIZING: floors are
+  // dropped and the ceiling raised so topUp/trim cannot mask it (reviewer
+  // catch: the first version of this test compared different slot
+  // occupancies and passed against the unchanged code), and the CONTROL day
+  // pins a normal lunch so both runs skip the same slot at fill time — the
+  // only difference left is the away credit.
+  const targets = {
+    macros: {
+      calories: 3400,
+      protein: 210,
+      caloriesFloor: 1200,
+      proteinFloor: 0,
+      caloriesCeiling: 100000,
+    },
+  };
+  const swipe = {
+    id: "occ-1",
+    date: MONDAY_W29,
+    slot: "lunch",
+    freeText: "dining swipe",
+    servings: 1,
+    pinned: true,
+    out: true,
+    currency: "swipes",
+    estCalories: 1800,
+    estProtein: 120,
+  };
+  const pinnedLunch = {
+    id: "occ-1",
+    date: MONDAY_W29,
+    slot: "lunch",
+    recipeId: LUNCH.id,
+    servings: 1,
+    pinned: true,
+  };
+  const byId = recipesById(ALL);
+  const run = (/** @type {Record<string, any>} */ occupant) =>
+    generateWeek({
+      recipes: ALL,
+      targets,
+      pantry: { staples: [], perishables: [] },
+      weekId: "2026-W29",
+      plan: { week: "2026-W29", entries: [occupant] },
+      salt: 0,
+      today: MONDAY_W29,
+    }).plan;
+  // measure only the GENERATED (non-pinned) entries: the sizing under test
+  const generatedKcal = (/** @type {any} */ p) =>
+    p.entries
+      .filter((/** @type {any} */ e) => e.date === MONDAY_W29 && !e.pinned && e.recipeId)
+      .reduce(
+        (/** @type {number} */ s, /** @type {any} */ e) =>
+          s + (byId.get(e.recipeId)?.nutrition?.calories ?? 0) * e.servings,
+        0,
+      );
+  const withSwipe = generatedKcal(run(swipe));
+  const control = generatedKcal(run(pinnedLunch));
+  assert.ok(withSwipe > 0, "the swipe day still cooks its other slots");
+  assert.ok(
+    withSwipe < control * 0.75,
+    `a 1800-kcal credit must shrink the cooked slots by a real margin: ${withSwipe} vs ${control} kcal generated`,
+  );
+});

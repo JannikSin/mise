@@ -295,7 +295,13 @@ export function rankCandidates(products, food, redList = [], section = "", need 
  * @returns {number | null}
  */
 function coverSpend(p, food, qty, unit) {
-  const reg = p.price.regular;
+  // the EFFECTIVE price ranks the pick: a promo is the card price David
+  // actually pays (he scans his rewards number), so a sale item legitimately
+  // wins the cover-the-need comparison while the sale lasts
+  const reg =
+    p.price.promo != null && p.price.promo > 0 && p.price.regular != null
+      ? Math.min(p.price.promo, p.price.regular)
+      : p.price.regular;
   if (reg == null || !(qty > 0)) return null;
   const u = canonicalUnit(unit);
   const key = pinKey(food);
@@ -325,7 +331,14 @@ function coverSpend(p, food, qty, unit) {
  * @returns {{ unitPrice: number | null, unitLabel: string }}
  */
 export function unitPriceOf(p) {
-  const reg = p.price.regular;
+  // effective (promo-aware) price, matching coverSpend: without it a sale
+  // item ranked and displayed at its regular price while the covers-yours
+  // figure used the promo — two prices for one product in one line
+  // (reviewer catch 2026-08-19)
+  const reg =
+    p.price.promo != null && p.price.promo > 0 && p.price.regular != null
+      ? Math.min(p.price.promo, p.price.regular)
+      : p.price.regular;
   if (reg == null) return { unitPrice: null, unitLabel: "" };
   if (p.soldBy === "WEIGHT") {
     return { unitPrice: reg / 16, unitLabel: `$${reg.toFixed(2)}/lb` };
@@ -374,8 +387,22 @@ export function applyLivePrice(catalogue, store, food, product, todayIso) {
     items.push(row);
   }
   const perLb = product.soldBy === "WEIGHT";
+  // SALES ARE REAL PRICES (David 2026-08-19: "can you find sales?"): the
+  // API's promo field is the card/sale price at this location, and David
+  // scans his rewards number at the till, so when a promo undercuts the
+  // regular price the promo IS what he pays. The regular price rides along
+  // so the row can say it's a sale and the refresh can see it end.
+  const regular = Math.round(product.price.regular * 100) / 100;
+  // compare AFTER rounding both, or a 3.997 promo against a 3.995→4.00
+  // regular flags a "sale" of identical prices (reviewer nit 2026-08-19)
+  const promoRounded =
+    product.price.promo != null && product.price.promo > 0
+      ? Math.round(product.price.promo * 100) / 100
+      : null;
+  const promo = promoRounded != null && promoRounded < regular ? promoRounded : null;
   row.prices[store] = {
-    price: Math.round(product.price.regular * 100) / 100,
+    price: promo ?? regular,
+    ...(promo != null ? { regular, sale: true } : {}),
     size: perLb ? "per lb" : product.size,
     at: todayIso,
   };

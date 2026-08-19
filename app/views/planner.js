@@ -392,21 +392,10 @@ export function PlannerView({
         const dayTable = plan.entries.find((e) => e.date === date && e.table);
         const kcalOk = totals.calories / kcalTarget >= 0.9;
         const pOk = totals.protein / proteinTarget >= 0.9;
-        // collapsed rows still whisper the dinner so "what's tonight" never
-        // hides behind the accordion (the Historian's condition on this pick)
-        const dinnerEntries = entriesAt(plan.entries, date, "dinner").filter((e) => !e.out);
-        // dinner-scoped, never day-wide: a breakfast marked OUT must not
-        // stamp "out" on the dinner whisper. A table dinner needs no extra
-        // marker either, its freeText already carries the 🍽 prefix.
-        const dinnerOut = outEntryAt(plan.entries, date, "dinner");
-        const dinnerWhisper =
-          dinnerEntries.length > 0
-            ? dinnerEntries
-                .map((e) => (e.recipeId ? (byId.get(e.recipeId)?.name ?? e.recipeId) : e.freeText))
-                .join(" · ")
-            : dinnerOut
-              ? "🍴 eating out"
-              : "—";
+        // the dinner whisper is GONE (David 2026-08-19: "why dinner over any
+        // other meal? We don't need it" — his ruling supersedes the
+        // Historian's 2026-07 condition). The collapsed row keeps only the
+        // honest-state badges below.
         const isOpen = openDays[date] ?? date === defaultOpenDate;
         const dayName = parseLocalIso(date).toLocaleDateString([], { weekday: "short" });
         // honest-state (David, 2026-07-23): a past DATE never implies eaten.
@@ -447,9 +436,13 @@ export function PlannerView({
                     <i style=${`width:${pPct}%`}></i>
                   </span>
                 </span>
-                <span class="dsum-whisper">
-                  ${past && dayEaten && html`<span class="eaten">✓ eaten</span> `}${past && dayUnlogged && html`<span class="eaten">not logged</span> `}${`DIN · ${dinnerWhisper}`}${!past && dinnerOut && dinnerEntries.length > 0 ? " · 🍴 out" : ""}
-                </span>
+                ${
+                  past &&
+                  (dayEaten || dayUnlogged) &&
+                  html`<span class="dsum-whisper">
+                    <span class="eaten">${dayEaten ? "✓ eaten" : "not logged"}</span>
+                  </span>`
+                }
               </span>
               <span class="dsum-status ${past ? "" : kcalOk && pOk ? "ok" : "shortfall"}">
                 ${past ? "" : kcalOk && pOk ? "✓" : "short"}

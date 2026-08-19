@@ -37,13 +37,15 @@ test("the retired fitness routes land on Plan, not on nothing", () => {
   assert.deepEqual(parseRoute("#/vitals"), { view: "plan" });
 });
 
-test("recipe detail and cook mode carry the id", () => {
+test("recipe detail carries the id, and old cook-mode URLs land on the recipe", () => {
+  // Cook Mode removed 2026-08-19 (David: "get rid of that entirely"); the
+  // /cook suffix survives in bookmarks and muscle memory, so it aliases
   assert.deepEqual(parseRoute("#/recipe/beef-bulgogi-rice-bowl"), {
     view: "recipe",
     id: "beef-bulgogi-rice-bowl",
   });
   assert.deepEqual(parseRoute("#/recipe/beef-bulgogi-rice-bowl/cook"), {
-    view: "cook",
+    view: "recipe",
     id: "beef-bulgogi-rice-bowl",
   });
 });
@@ -52,9 +54,9 @@ test("ids are URL-decoded", () => {
   assert.deepEqual(parseRoute("#/recipe/a%20b"), { view: "recipe", id: "a b" });
 });
 
-test("?entry= plan-entry id is carried into recipe and cook routes", () => {
+test("?entry= plan-entry id is carried into recipe routes (old cook URLs included)", () => {
   assert.deepEqual(parseRoute("#/recipe/x/cook?from=today&servings=2&entry=abc123"), {
-    view: "cook",
+    view: "recipe",
     id: "x",
     from: "today",
     servings: 2,
@@ -70,7 +72,7 @@ test("?from= origin is carried on recipe and cook routes, omitted when absent", 
     from: "today",
   });
   assert.deepEqual(parseRoute("#/recipe/x/cook?from=remedies"), {
-    view: "cook",
+    view: "recipe",
     id: "x",
     from: "remedies",
   });

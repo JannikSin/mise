@@ -16,6 +16,13 @@
 
 > **Crystal notice:** if this session shipped real work, also append a line to `C:\Users\DATar\Sanity\Obsidian\Crystal\System\Changelog.md` and a narrative + hot-list entry to `C:\Users\DATar\Sanity\Obsidian\Crystal\Accomplishments\Log.md` before ending. Crystal is David's personal assistant and the daily brief it narrates back to him only reflects what gets written there. See Crystal's `System/Lessons-Learned.md` L13.
 
+> **Pickup lessons (David's first real curbside order, 2026-08-19):** the flow itself works
+> (park, name the spot, they bring it out). Two standing corrections: (1) counted produce
+> quantities must reconcile as PIECES vs BUNDLES before any cart push — his banana line became
+> THREE bundles when one covers the need (rule 3.7 applies to every quantity, not just weights);
+> (2) pickup shoppers select RIPE produce — bananas arrive all-yellow, so a pickup order's
+> produce should bias small quantities bought often, never a week of bananas at once.
+
 Project rules for every Claude session working on Mise. Read HANDOFF_CONTEXT.md and MISE_BLUEPRINT.md before your first change. **docs/OPERATORS_MANUAL.md is the full operator's guide** — architecture, procedures, environment gotchas, working method, and the Phase 2–5 extension map. Read it before your first non-trivial task.
 
 ## Part 1 — Coding Principles (Karpathy-derived)

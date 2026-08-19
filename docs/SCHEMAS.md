@@ -224,9 +224,12 @@ pay what they weigh, unconvertible needs fall back flagged `estimate`, and
 unpriced coverage renders loud: "N of M rows UNPRICED, total is a floor");
 `applyReceipt` refresh-writes actual paid prices back into it; `money.js`
 bills table events from it. Entries: `{ id, name, prices: { <store-slug>:
-{ price, size, estimate?, at? } } }` with `updated`, `region`, `stores` at
-the top. `estimate: true` = derived/recent estimate, absent =
-tracker-confirmed shelf price. `at` (Tier 3.5, 2026-08-19) = ISO date this
+{ price, size, estimate?, at?, regular?, sale? } } }` with `updated`,
+`region`, `stores` at the top. `estimate: true` = derived/recent estimate,
+absent = tracker-confirmed shelf price. `sale: true` (2026-08-19, David's
+"can you find sales" ask) = `price` is the Kroger promo/card price and
+`regular` carries the non-sale price beside it; the next refresh clears
+both when the sale ends. `at` (Tier 3.5, 2026-08-19) = ISO date this
 store price was last written by a live source (Kroger refresh, receipt);
 prices older than `STALE_PRICE_DAYS` (14) render † in the list, and rows
 without `at` predate timestamps and stay governed by `estimate` alone. A

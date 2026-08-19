@@ -26,12 +26,9 @@ const css = readFileSync(new URL("../app/styles.css", import.meta.url), "utf8").
 );
 
 /** Selector → the escape that must always render on that layer. */
+// .cook left the registry 2026-08-19: Cook Mode is gone (David: "get rid of
+// that entirely"), the serve step lives on the recipe page as a normal tile
 const KNOWN_BLOCKERS = {
-  ".cook": {
-    escape: "a.exit",
-    file: "../app/views/recipe.js",
-    marker: 'class="exit"',
-  },
   ".modal-overlay": {
     escape: "CANCEL button, plus an overlay tap and Escape",
     file: "../app/views/confirm-modal.js",

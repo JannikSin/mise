@@ -1,4 +1,6 @@
 # Per-person plates v2.2: the transform, the serve step, and the table roles
+> **2026-08-19 UPDATE: Cook Mode (CookView) is REMOVED** (David: "get rid of that entirely"). Every reference to CookView / the Cook Mode serve step below now lives on the RECIPE PAGE: the serve tile carries who-gets-what and the table COOKED button in one tile (same structural guarantee, one page), the plan-entry COOKED write is the cook timer's END, and old /recipe/<id>/cook URLs alias to the recipe route.
+
 
 Date: 2026-08-10. Status: **PLAN ONLY, nothing built.** Version history: v1
 (Opus 5) was torn down on David's order ("not built with the correct

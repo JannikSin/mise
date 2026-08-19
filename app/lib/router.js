@@ -9,7 +9,7 @@ export function parseRoute(hash) {
   // recipe views which tab opened them so the backlink returns there
   const [path = "", query] = hash.replace(/^#\/?/, "").split("?");
   const parts = path.split("/").filter(Boolean);
-  const [head, id, sub] = parts;
+  const [head, id] = parts;
   switch (head) {
     // #/ and #/today are permanent ALIASES for the merged Plan tab, not
     // redirects. Plan absorbed Cook and Home retired, but the Worker pushes
@@ -41,18 +41,21 @@ export function parseRoute(hash) {
         return { view: "plan" }; // malformed percent-sequence in the hash
       }
       /** @type {{ view: string, id: string, from?: string, servings?: number, entry?: string, table?: string }} */
-      const route = { view: sub === "cook" ? "cook" : "recipe", id: decoded };
+      // Cook Mode is GONE (David 2026-08-17 "get rid of that entirely",
+      // executed 2026-08-19 with the serve step rehomed to the recipe page):
+      // old /cook URLs land on the recipe, params intact
+      const route = { view: "recipe", id: decoded };
       const params = new URLSearchParams(query);
       const from = params.get("from");
       if (from) route.from = from;
       const servings = Number(params.get("servings"));
       if (servings > 0) route.servings = servings;
-      // ?entry=<plan entry id> lets Cook mode's DONE button confirm THAT
+      // ?entry=<plan entry id> lets the cook timer's END button confirm THAT
       // planned meal as cooked (the honest-eaten rule)
       const entry = params.get("entry");
       if (entry) route.entry = entry;
-      // ?table=<table id> is the table-meal equivalent: Cook mode ends on
-      // the serve step and COOKED confirms the TABLE (spec §7.2)
+      // ?table=<table id> is the table-meal equivalent: the recipe page's
+      // serve tile carries who-gets-what and COOKED confirms the TABLE
       const table = params.get("table");
       if (table) route.table = table;
       return route;
