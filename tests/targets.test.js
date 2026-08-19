@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   upsertDay,
   targetsFromQuestionnaire,
+  targetsSanity,
   avoidTermsFromAllergens,
 } from "../app/lib/targets.js";
 
@@ -258,4 +259,19 @@ test("goal weight is ignored when it would not help", () => {
     goalWeightLb: 150,
   });
   assert.equal(gain.macros.protein, 170);
+});
+
+// ---- the soft targets sanity gate (7.12, 2026-08-19) ------------------------
+
+test("targetsSanity: inside band is quiet, outside without a reason is loud, a reason quiets it", () => {
+  const body = { sex: "m", age: 20, heightIn: 73, weightLb: 196, activity: 3 };
+  const inside = targetsSanity({ body, macros: { calories: 3700 } });
+  assert.equal(inside.verdict, "inside", "3700 vs ~3400 maintenance is a normal surplus");
+  const wild = targetsSanity({ body, macros: { calories: 6000 } });
+  assert.equal(wild.verdict, "outside");
+  assert.ok(wild.high < 6000);
+  const excused = targetsSanity({ body, macros: { calories: 6000 }, targetReason: "marathon block per coach" });
+  assert.equal(excused.verdict, "outside-with-reason");
+  assert.equal(excused.reason, "marathon block per coach");
+  assert.equal(targetsSanity({ macros: { calories: 3700 } }).verdict, "unchecked", "no body stats = honestly unchecked, never a guess");
 });

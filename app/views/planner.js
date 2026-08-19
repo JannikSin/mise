@@ -1,6 +1,8 @@
 import { html } from "htm/preact";
 import { useRef, useState } from "preact/hooks";
+import { targetsSanity } from "../lib/targets.js";
 import {
+  currencyUsed,
   datesOfWeek,
   dayTotals,
   entriesAt,
@@ -116,6 +118,13 @@ export function PlannerView({
   const dates = datesOfWeek(weekId);
   const kcalTarget = targets?.macros?.calories ?? 3400;
   const proteinTarget = targets?.macros?.protein ?? 210;
+  // 7.11: expiring balances (dining swipes etc.) — the planner shows
+  // used-of-perWeek so a use-or-lose currency is never silently wasted
+  const currencies = /** @type {any[]} */ (targets?.currencies ?? []);
+  const hasBuffet = currencies.some((c) => c.venue === "buffet");
+  // 7.12: the soft targets gate — loud advisory only when the stated target
+  // sits outside the physiological band AND no reason is written down
+  const sanity = targetsSanity(targets);
   // a past day is read-only: never a drop target, never re-rolled
   // (generateWeek leaves it alone). Only the current week has any.
   const isPast = (/** @type {string} */ d) => Boolean(todayRef.current) && d < todayRef.current;
@@ -161,6 +170,29 @@ export function PlannerView({
             ${onRestoreFallback && html`<button class="linktext" onClick=${onRestoreFallback}>↩ back to the shopped plan</button>`}
           </div>
         </div>`
+      }
+
+      ${
+        sanity.verdict === "outside" &&
+        html`<div class="tile lockbanner" role="status">
+          <div class="k">⚠ target outside the computed band</div>
+          <div class="d">
+            Your ${kcalTarget} kcal target sits outside ${sanity.low}–${sanity.high} (computed
+            maintenance ≈ ${sanity.maintenance}). That can be deliberate — a fast, a weight-cut, a
+            training block — but it needs a written reason: add
+            <span class="num">targetReason</span> to your targets, or re-run the target setup.
+            Nothing is blocked; the week still generates to your number.
+          </div>
+        </div>`
+      }
+      ${
+        currencies.length > 0 &&
+        html`<p class="hint" role="status">
+          ${currencies.map((/** @type {any} */ c, /** @type {number} */ i) => {
+            const used = currencyUsed(plan, c.id);
+            return html`<span key=${c.id}>${i > 0 ? " · " : ""}🎫 ${c.name}: <span class="num">${used} of ${c.perWeek ?? "?"}</span> planned this week${c.expires === "weekly" && (c.perWeek ?? 0) > used ? html` <span class="hint">(unused ones expire — the 🍴 button on any slot cycles to SWIPE${c.venue === "buffet" ? ", where the buffet eats the protein bill" : ""})</span>` : ""}</span>`;
+          })}
+        </p>`
       }
 
       <div class="actions">
@@ -584,17 +616,25 @@ export function PlannerView({
                         </div>`
                       }
                       ${
+                        // 7.11: with a buffet currency the tap cycles
+                        // planned → OUT → SWIPE → empty; the swipe state
+                        // carries buffet estimates (protein piled where its
+                        // marginal cost is zero)
                         html`<button
                           class="outbtn ${outEntry ? "on" : ""}"
                           aria-pressed=${Boolean(outEntry)}
                           aria-label=${
                             outEntry
-                              ? `${full} ${monthDay(date)} is eating out, tap to plan a meal again`
+                              ? /** @type {any} */ (outEntry).currency
+                                ? `${full} ${monthDay(date)} is a dining swipe (buffet — load up on protein), tap to clear`
+                                : hasBuffet
+                                  ? `${full} ${monthDay(date)} is eating out, tap to make it a dining swipe`
+                                  : `${full} ${monthDay(date)} is eating out, tap to plan a meal again`
                               : `Mark ${full} ${monthDay(date)} as eating out: clears the slot, nothing shopped or re-rolled`
                           }
                           onClick=${() => onToggleOut(date, key)}
                         >
-                          🍴 EATING OUT
+                          ${/** @type {any} */ (outEntry)?.currency ? "🎫 SWIPE · EAT THE PROTEIN" : "🍴 EATING OUT"}
                         </button>`
                       }
                     </div>

@@ -13,7 +13,11 @@ import {
   toggleSlotOut,
   outEntryAt,
   slotMacroEstimate,
+  buffetMacroEstimate,
+  cycleSlotAway,
+  currencyUsed,
   OUT_TEXT,
+  SWIPE_TEXT,
   setPlanLocked,
   setPlanShopped,
   saveFallback,
@@ -703,4 +707,51 @@ test("normalizePlan passes fallback AND spend through instead of stripping them"
   const n = normalizePlan(raw, "2026-W34");
   assert.deepEqual(n.fallback, raw.fallback);
   assert.deepEqual(n.spend, raw.spend, "recorded receipt totals must survive a load");
+});
+
+// ---- currencies: the swipe cycle (7.11, 2026-08-19) -------------------------
+
+test("cycleSlotAway: planned -> OUT -> SWIPE (buffet estimates) -> empty", () => {
+  let plan = { week: "2026-W34", entries: [] };
+  plan = addEntry(plan, "2026-08-20", "lunch", { recipeId: "x", servings: 1 });
+  const outEst = { estCalories: 595, estProtein: 34 };
+  const swipeEst = { estCalories: 920, estProtein: 60 };
+  plan = cycleSlotAway(plan, "2026-08-20", "lunch", outEst, swipeEst, "swipes");
+  let away = outEntryAt(plan.entries, "2026-08-20", "lunch");
+  assert.equal(away.freeText, OUT_TEXT);
+  assert.equal(away.currency, undefined);
+  assert.equal(away.estProtein, 34, "restaurant slot undershoots");
+  plan = cycleSlotAway(plan, "2026-08-20", "lunch", outEst, swipeEst, "swipes");
+  away = outEntryAt(plan.entries, "2026-08-20", "lunch");
+  assert.equal(away.freeText, SWIPE_TEXT);
+  assert.equal(away.currency, "swipes");
+  assert.equal(away.estProtein, 60, "buffet slot absorbs the protein");
+  assert.equal(away.pinned, true, "still pinned: GENERATE plans around it");
+  plan = cycleSlotAway(plan, "2026-08-20", "lunch", outEst, swipeEst, "swipes");
+  assert.equal(entriesAt(plan.entries, "2026-08-20", "lunch").length, 0, "third tap clears");
+});
+
+test("cycleSlotAway without a buffet currency stays the classic two-state toggle", () => {
+  let plan = { week: "2026-W34", entries: [] };
+  const est = { estCalories: 595, estProtein: 34 };
+  plan = cycleSlotAway(plan, "2026-08-20", "dinner", est, est, null);
+  assert.ok(outEntryAt(plan.entries, "2026-08-20", "dinner"));
+  plan = cycleSlotAway(plan, "2026-08-20", "dinner", est, est, null);
+  assert.equal(entriesAt(plan.entries, "2026-08-20", "dinner").length, 0);
+});
+
+test("buffetMacroEstimate overshoots protein against the pool average; currencyUsed counts", () => {
+  const recipes = [
+    { id: "a", mealType: "lunch", nutrition: { calories: 850, protein: 40 } },
+    { id: "b", mealType: "lunch", nutrition: { calories: 850, protein: 40 } },
+  ];
+  const est = buffetMacroEstimate(recipes, "lunch");
+  assert.equal(est.estProtein, 60, "40 avg x 1.5");
+  assert.equal(est.estCalories, 980, "850 avg x 1.15, rounded to 5");
+  const plan = { week: "2026-W34", entries: [
+    { id: "1", date: "2026-08-20", slot: "lunch", freeText: SWIPE_TEXT, servings: 1, out: true, currency: "swipes" },
+    { id: "2", date: "2026-08-21", slot: "lunch", freeText: SWIPE_TEXT, servings: 1, out: true, currency: "swipes" },
+    { id: "3", date: "2026-08-21", slot: "dinner", freeText: OUT_TEXT, servings: 1, out: true },
+  ] };
+  assert.equal(currencyUsed(plan, "swipes"), 2, "plain eating-out is not a swipe");
 });

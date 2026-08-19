@@ -1271,12 +1271,24 @@ export function ShoppingView({
                   <span class="status num">$${homeSummary.total.toFixed(2)}</span>
                 </div>
                 ${
+                  // P5's stocking rule made visible: whole packages are the
+                  // TRIP cost; what this week's meals consume is the number
+                  // the weekly budget answers to. The rest becomes pantry
+                  // stock that later weeks eat for free.
+                  homeSummary.eaten > 0 &&
+                  homeSummary.eaten < homeSummary.subtotal - 0.5 &&
+                  html`<div class="row">
+                    <span class="k">↳ eaten this week ≈ $${homeSummary.eaten.toFixed(2)}</span>
+                    <span class="status num">$${(homeSummary.subtotal - homeSummary.eaten).toFixed(2)} becomes stock</span>
+                  </div>`
+                }
+                ${
                   typeof weeklyBudgetUsd === "number" &&
                   weeklyBudgetUsd > 0 &&
                   html`<div class="row">
-                    <span class="k">weekly budget</span>
-                    <span class="status num ${homeSummary.total > weeklyBudgetUsd ? "warn" : ""}"
-                      >$${weeklyBudgetUsd.toFixed(0)}${homeSummary.total > weeklyBudgetUsd ? ` — over by $${(homeSummary.total - weeklyBudgetUsd).toFixed(2)}` : " ✓"}</span
+                    <span class="k">weekly budget $${weeklyBudgetUsd.toFixed(0)}</span>
+                    <span class="status num ${homeSummary.eaten > weeklyBudgetUsd ? "warn" : ""}"
+                      >${homeSummary.eaten > weeklyBudgetUsd ? `eaten share over by $${(homeSummary.eaten - weeklyBudgetUsd).toFixed(2)}` : "eaten share fits ✓"}</span
                     >
                   </div>`
                 }

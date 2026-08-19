@@ -66,6 +66,9 @@ test("itemCost multiplies counted units and per-lb prices, packages otherwise", 
     itemCost({ food: "black beans (15 oz can)", qty: 2, unit: "cans" }, CATALOGUE, "trader-joes"),
     {
       cost: 1.98,
+      // 2 cans' CONTENT (425 g each) vs the 15.5 oz labelled packs: the week
+      // eats ~1.93 packs' worth; the sliver is the P5 stocking split at work
+      eaten: 1.92,
       estimate: false,
       size: "15.5 oz",
       packs: 2,

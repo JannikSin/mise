@@ -76,10 +76,11 @@ import {
   setCookComment,
   recipesById,
   shiftWeek,
-  toggleSlotOut,
   outEntryAt,
   entriesAt,
   slotMacroEstimate,
+  buffetMacroEstimate,
+  cycleSlotAway,
   datesOfWeek,
   saveFallback,
   restoreFallback,
@@ -1182,6 +1183,9 @@ function App() {
     };
   }, []);
 
+  const targetsRef = useRef(targets);
+  targetsRef.current = targets;
+
   // THE FLUID WEEK (7.2, canon P4): the locked week is abolished. Shopping
   // stores the plan as a FALLBACK and the plan stays freely changeable; the
   // one governing rule — every bought perishable gets used before it dies —
@@ -1239,7 +1243,20 @@ function App() {
         if (!(await askConfirm("Eating out instead? The planned meal in this slot will be removed."))) return;
         p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       }
-      const next = toggleSlotOut(p, date, slot, slotMacroEstimate(recipesRef.current, slot));
+      // 7.11: with a buffet currency on the profile, the away tap cycles
+      // planned → OUT → SWIPE (buffet estimates: protein piled where its
+      // marginal cost is zero) → empty. Without one, the classic toggle.
+      const buffet = (targetsRef.current?.currencies ?? []).find(
+        (/** @type {any} */ c) => c.venue === "buffet",
+      );
+      const next = cycleSlotAway(
+        p,
+        date,
+        slot,
+        slotMacroEstimate(recipesRef.current, slot),
+        buffetMacroEstimate(recipesRef.current, slot),
+        buffet?.id ?? null,
+      );
       updatePlan(next);
       // keep an already-built list truthful: the out meal's ingredients must
       // not linger as things to buy (post-shop the re-derive IS the delta
@@ -1337,8 +1354,6 @@ function App() {
   const [buildReport, setBuildReport] = useState(
     /** @type {import("./lib/weekbuilder.js").WeekReport | null} */ (null),
   );
-  const targetsRef = useRef(targets);
-  targetsRef.current = targets;
   const buildStateRef = useRef({ salt: 0 });
 
   const handleGenerateWeek = useCallback(async () => {

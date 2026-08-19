@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, cookSeconds?: number, cookComment?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, cookSeconds?: number, cookComment?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any>, fallback?: { savedAt: string, entries: PlanEntry[] }, spend?: { store: string, date: string, total: number }[] }} Plan
  */
@@ -535,6 +535,84 @@ export function toggleSlotOut(plan, date, slot, est) {
     out: true,
     ...(est ?? {}),
   });
+}
+
+/** The placeholder a currency-covered slot carries (7.11). */
+export const SWIPE_TEXT = "dining swipe";
+
+/**
+ * The macro credit a BUFFET slot is assumed to deliver (7.11, P5+P10,
+ * David's arbitrage 2026-08-19): all-you-can-eat means the slot ABSORBS the
+ * expensive macros — pile the protein there because its marginal cost is
+ * zero, and the grocery list buys less of the costliest thing it prices.
+ * So where a restaurant slot deliberately undershoots, a buffet slot
+ * deliberately overshoots protein (x1.5) and modestly overshoots calories
+ * (x1.15) against the pool average for the meal type.
+ * @param {Record<string, any>[]} recipes the profile's recipe pool
+ * @param {string} slot
+ * @returns {{ estCalories: number, estProtein: number }}
+ */
+export function buffetMacroEstimate(recipes, slot) {
+  const base = slotMacroEstimate(recipes, slot);
+  // slotMacroEstimate already applied the 0.85 undershoot; rebase to the
+  // pool average, then load
+  const calories = (base.estCalories / 0.85) * 1.15;
+  const protein = (base.estProtein / 0.85) * 1.5;
+  return {
+    estCalories: Math.round(calories / 5) * 5,
+    estProtein: Math.round(protein),
+  };
+}
+
+/**
+ * One tap walks a slot through its away states (7.11):
+ *   planned/empty → EATING OUT → DINING SWIPE (only when the profile has a
+ *   buffet currency) → back to an empty slot.
+ * The swipe placeholder is an out entry that also carries `currency`, so
+ * everything that already understands OUT (generator pinning, dayTotals'
+ * est counting, the shopping derive) works unchanged; only the estimates
+ * differ (buffet overshoots protein where a restaurant undershoots).
+ * @param {Plan} plan
+ * @param {string} date
+ * @param {string} slot
+ * @param {{ estCalories: number, estProtein: number }} outEst
+ * @param {{ estCalories: number, estProtein: number }} swipeEst
+ * @param {string | null} currencyId null = profile has no buffet currency,
+ *   the cycle is the classic two-state OUT toggle
+ * @returns {Plan}
+ */
+export function cycleSlotAway(plan, date, slot, outEst, swipeEst, currencyId) {
+  const existing = outEntryAt(plan.entries, date, slot);
+  if (!existing) return toggleSlotOut(plan, date, slot, outEst);
+  const isSwipe = Boolean(/** @type {any} */ (existing).currency);
+  if (isSwipe || !currencyId) {
+    // swipe (or plain OUT with no currency configured) → clear the slot
+    return {
+      ...plan,
+      entries: plan.entries.filter((e) => !(e.date === date && e.slot === slot && e.out)),
+    };
+  }
+  // OUT → SWIPE: same placeholder, buffet-loaded estimates
+  return {
+    ...plan,
+    entries: plan.entries.map((e) =>
+      e.date === date && e.slot === slot && e.out
+        ? { ...e, freeText: SWIPE_TEXT, currency: currencyId, ...swipeEst }
+        : e,
+    ),
+  };
+}
+
+/**
+ * Swipes (or any per-week currency) used by this week's plan: entries whose
+ * `currency` matches. The planner shows used-of-perWeek so an expiring
+ * balance is never silently wasted (use-or-lose is the whole point).
+ * @param {Plan} plan
+ * @param {string} currencyId
+ * @returns {number}
+ */
+export function currencyUsed(plan, currencyId) {
+  return plan.entries.filter((e) => /** @type {any} */ (e).currency === currencyId).length;
 }
 
 /**

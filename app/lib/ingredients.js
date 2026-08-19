@@ -171,10 +171,13 @@ const NAME_ALIASES = {
   // powder" — two keys meant the PLENTY tub never suppressed the list row
   // and David was told to buy whey he owns in bulk (2026-08-18)
   "whey-protein": "whey-protein-powder",
-  // plurals that appear as their own keys in the bank (2026-08-19 audit)
+  // plurals that appear as their own keys in the bank (2026-08-19 audit) —
+  // each split key was silently pricing/pinning the same food twice
   scallions: "scallion",
   onions: "onion",
   "bay-leaves": "bay-leaf",
+  eggs: "egg",
+  "chicken-thighs": "chicken-thigh",
 };
 
 /**

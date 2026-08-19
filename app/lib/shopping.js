@@ -64,6 +64,9 @@ export function slug(food) {
     .replace(/^-|-$/g, "");
 }
 
+/** Foods that come out of the tap or the freezer tray, never off a shelf. */
+const FREE_FOODS = new Set(["water", "ice", "ice-cube", "ice-cubes", "tap-water", "hot-water"]);
+
 /**
  * @param {import("./plan.js").Plan} plan
  * @param {Map<string, any>} recipesById
@@ -153,6 +156,9 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
       // pantry registry (onHand, written by scans and P+), never by a
       // recipe author's guess about what the kitchen keeps.
       if (!ing.food || onHandSlugs.has(slug(ing.food)) || onHandSlugs.has(canon)) continue;
+      // free from the tap: never a list row (the 2026-08-19 audit found
+      // "0.25 cup water" pricing a $7.49 six-pack of bottled alkaline water)
+      if (FREE_FOODS.has(canon)) continue;
       // A known food merges to ONE row in its own preferred unit, whatever
       // unit the recipe wrote (this is the broccoli fix). An unknown food
       // keeps the unit in its id, exactly as before, so two different things

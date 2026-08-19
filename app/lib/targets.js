@@ -235,6 +235,42 @@ export function avoidTermsFromAllergens(allergens, freeText) {
 const ACTIVITY_MULT = [1.2, 1.375, 1.55, 1.725, 1.9];
 
 /**
+ * P3's soft targets sanity gate (fix list 7.12, David's ruling 2026-08-18):
+ * a stated calorie target is never taken on faith. Maintenance is computed
+ * from `targets.body` (Mifflin-St Jeor × activity), the stated target is
+ * compared against the physiological band, and the result is REPORTED —
+ * never blocked, because fasting protocols, sport weight-cuts and 12,000
+ * kcal training blocks are all real. An out-of-band target with a written
+ * `targets.targetReason` (a doctor's guidance, a named protocol) is
+ * respected and quiet; without one it gets a loud advisory.
+ * @param {Record<string, any> | null | undefined} targets
+ * @returns {{ verdict: "unchecked" | "inside" | "outside" | "outside-with-reason", maintenance?: number, low?: number, high?: number, reason?: string }}
+ */
+export function targetsSanity(targets) {
+  const b = targets?.body;
+  const stated = targets?.macros?.calories;
+  if (!b || !stated || !(b.weightLb > 0) || !(b.heightIn > 0) || !(b.age > 0)) {
+    return { verdict: "unchecked" };
+  }
+  const kg = b.weightLb * 0.45359237;
+  const cm = b.heightIn * 2.54;
+  const bmr = 10 * kg + 6.25 * cm - 5 * b.age + (b.sex === "m" ? 5 : -161);
+  const maintenance = Math.round(bmr * (ACTIVITY_MULT[(b.activity ?? 3) - 1] ?? 1.55));
+  const low = Math.round(maintenance * 0.75);
+  const high = Math.round(maintenance * 1.4);
+  if (stated >= low && stated <= high) return { verdict: "inside", maintenance, low, high };
+  const reason =
+    typeof targets?.targetReason === "string" ? targets.targetReason.trim() : "";
+  return {
+    verdict: reason ? "outside-with-reason" : "outside",
+    maintenance,
+    low,
+    high,
+    ...(reason ? { reason } : {}),
+  };
+}
+
+/**
  * The macro floors the week generator actually ENFORCES for a profile.
  *
  * A WRITTEN floor always wins. It is the number the person read, agreed to,

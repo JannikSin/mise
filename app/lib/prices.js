@@ -132,10 +132,16 @@ export function parsePackSize(size) {
  * non-counted, non-per-lb unit, which is how a $170 basket read $16.72).
  * When the need cannot be converted into the package's unit the row falls
  * back to one package and is flagged `estimate`, never silently precise.
+ * Every result also carries `eaten`: the share of the shelf cost this week's
+ * need actually consumes (P5: "a stocking week reads against a rolling
+ * average" — a $14 cashew tub for 0.75 cup is $1.55 eaten and $12.44 pantry
+ * stock, and only the split makes the total readable). Per-lb rows are fully
+ * eaten (you buy what you weigh); unknowable rows count fully eaten, the
+ * honest cap.
  * @param {{ food: string, qty: number, unit: string }} item
  * @param {PriceCatalogue | null | undefined} catalogue
  * @param {string} store store slug, e.g. "trader-joes"
- * @returns {{ cost: number, estimate: boolean, size?: string, packs?: number } | null}
+ * @returns {{ cost: number, eaten: number, estimate: boolean, size?: string, packs?: number } | null}
  */
 export function itemCost(item, catalogue, store) {
   const entry = catalogue?.items ? matchPrice(item.food, catalogue.items) : null;
@@ -155,13 +161,11 @@ export function itemCost(item, catalogue, store) {
     if ((sp.size ?? "").toLowerCase().includes("per lb")) {
       const needG = toGrams(item.qty, u, canonicalFood(item.food));
       if (needG != null && needG > 0) {
-        return {
-          cost: round(sp.price * (needG / 453.59237)),
-          estimate: sp.estimate === true,
-          size: sp.size,
-        };
+        const cost = round(sp.price * (needG / 453.59237));
+        return { cost, eaten: cost, estimate: sp.estimate === true, size: sp.size };
       }
-      return { cost: round(sp.price * item.qty), estimate: true, size: sp.size };
+      const cost = round(sp.price * item.qty);
+      return { cost, eaten: cost, estimate: true, size: sp.size };
     }
     if (pack && dimensionOf(pack.unit) !== "count") {
       const key = canonicalFood(item.food);
@@ -169,8 +173,10 @@ export function itemCost(item, catalogue, store) {
       const packG = toGrams(pack.qty, pack.unit, key);
       if (needG != null && packG != null && packG > 0) {
         const packs = Math.max(1, Math.ceil(needG / packG));
+        const cost = round(sp.price * packs);
         return {
-          cost: round(sp.price * packs),
+          cost,
+          eaten: Math.min(cost, round(sp.price * (needG / packG))),
           estimate: sp.estimate === true,
           size: sp.size,
           packs,
@@ -183,11 +189,19 @@ export function itemCost(item, catalogue, store) {
     // failure of the 2026-08-18 rescue cart. One bag may under-charge a big
     // count; the estimate flag and coverage line carry that honestly.
     if (pack && dimensionOf(pack.unit) !== "count") {
-      return { cost: round(sp.price), estimate: true, size: sp.size, packs: 1 };
+      const cost = round(sp.price);
+      return { cost, eaten: cost, estimate: true, size: sp.size, packs: 1 };
     }
     const per = pack && dimensionOf(pack.unit) === "count" && pack.qty > 0 ? pack.qty : 1;
     const packs = Math.max(1, Math.ceil(item.qty / per));
-    return { cost: round(sp.price * packs), estimate: sp.estimate === true, size: sp.size, packs };
+    const cost = round(sp.price * packs);
+    return {
+      cost,
+      eaten: Math.min(cost, round(sp.price * (item.qty / per))),
+      estimate: sp.estimate === true,
+      size: sp.size,
+      packs,
+    };
   }
 
   // per-lb rows: pay what it weighs, whatever unit the row is written in
@@ -195,17 +209,21 @@ export function itemCost(item, catalogue, store) {
     const lbs =
       u === "lb" ? item.qty : (convertUnit(item.qty, u, "lb") ?? gramsFor(item) / 453.59237);
     if (Number.isFinite(lbs) && lbs > 0) {
-      return { cost: round(sp.price * lbs), estimate: sp.estimate === true, size: sp.size };
+      const cost = round(sp.price * lbs);
+      return { cost, eaten: cost, estimate: sp.estimate === true, size: sp.size };
     }
-    return { cost: round(sp.price), estimate: true, size: sp.size };
+    return { cost: round(sp.price), eaten: round(sp.price), estimate: true, size: sp.size };
   }
 
   // packaged rows: how many packages cover the need
   if (pack) {
     let packs = null;
+    /** packages'-worth the week actually consumes (may exceed `packs` never) */
+    let eatenShare = null;
     const inPackUnit = convertUnit(item.qty, u, pack.unit);
     if (inPackUnit != null) {
       packs = Math.max(1, Math.ceil(inPackUnit / pack.qty));
+      eatenShare = inPackUnit / pack.qty;
     } else {
       // cross-dimension (cups of spinach vs an oz bag) via the food's weight
       const key = canonicalFood(item.food);
@@ -213,15 +231,23 @@ export function itemCost(item, catalogue, store) {
       const packG = toGrams(pack.qty, pack.unit, key);
       if (needG != null && packG != null && packG > 0) {
         packs = Math.max(1, Math.ceil(needG / packG));
+        eatenShare = needG / packG;
       }
     }
     if (packs != null) {
-      return { cost: round(sp.price * packs), estimate: sp.estimate === true, size: sp.size, packs };
+      const cost = round(sp.price * packs);
+      return {
+        cost,
+        eaten: eatenShare != null ? Math.min(cost, round(sp.price * eatenShare)) : cost,
+        estimate: sp.estimate === true,
+        size: sp.size,
+        packs,
+      };
     }
   }
 
   // unknowable: one package, flagged as an estimate instead of silently exact
-  return { cost: round(sp.price), estimate: true, size: sp.size };
+  return { cost: round(sp.price), eaten: round(sp.price), estimate: true, size: sp.size };
 }
 
 /** @param {{ food: string, qty: number, unit: string }} item */
@@ -237,16 +263,18 @@ function gramsFor(item) {
  * @param {PriceCatalogue | null | undefined} catalogue
  * @param {string} store
  * @param {{ country?: string, state?: string } | undefined} region
- * @returns {{ subtotal: number, tax: number, total: number, priced: number, unpriced: number, estimates: number }}
+ * @returns {{ subtotal: number, eaten: number, tax: number, total: number, priced: number, unpriced: number, estimates: number }}
  */
 export function tripTotal(items, catalogue, store, region) {
   let subtotal = 0;
+  let eaten = 0;
   let priced = 0;
   let estimates = 0;
   for (const item of items) {
     const c = itemCost(item, catalogue, store);
     if (!c) continue;
     subtotal += c.cost;
+    eaten += c.eaten;
     priced += 1;
     if (c.estimate) estimates += 1;
   }
@@ -254,6 +282,7 @@ export function tripTotal(items, catalogue, store, region) {
   const tax = Math.round(subtotal * taxRateFor(region) * 100) / 100;
   return {
     subtotal,
+    eaten: Math.round(eaten * 100) / 100,
     tax,
     total: Math.round((subtotal + tax) * 100) / 100,
     priced,

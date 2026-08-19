@@ -1189,11 +1189,39 @@ Seeded from the FITNESS.md system; edited rarely.
   "stores": ["Mariano's", "Aldi"], // ? string array of store names. The FIRST
   //   entry, slugified, is the default store the List view prices against
   //   (main.js -> ShoppingView storeSlug); the shopper can override per trip.
-  "weeklyBudgetUsd": 80, // ? the weekly grocery number (P5, PF.3 spend leg).
-  //   DISPLAY-ONLY today: the trip tile shows over/under against the
-  //   estimated total. Absent = no budget line. Making it a generation
-  //   CONSTRAINT (swap-to-fit) is Stage 2 / Tier 7.11 work, and per David's
-  //   2026-08-18 ruling budget is a PROFILE option, never an engine constant.
+  "weeklyBudgetUsd": 100, // ? the weekly grocery number (P5, PF.3 spend leg).
+  //   The trip tile shows the trip total, the EATEN-THIS-WEEK share (itemCost
+  //   `eaten` — P5's stocking rule: whole packages are the trip, the consumed
+  //   share is what the budget answers to), and over/under of eaten vs this.
+  //   Absent = no budget line. Swap-to-fit generation is still Tier 7.11
+  //   work; per David's 2026-08-18 ruling budget is a PROFILE option.
+  "body": { "sex": "m", "age": 20, "heightIn": 73, "weightLb": 196, "activity": 3 },
+  //   ? the stats the 7.12 soft sanity gate computes maintenance from
+  //   (Mifflin-St Jeor × activity 1-5). Absent = the gate reports
+  //   "unchecked" and stays quiet — it never guesses.
+  "targetReason": "gain phase: council-verified surplus", // ? the written
+  //   reason an out-of-band calorie target is deliberate (doctor's guidance,
+  //   named protocol). With it, the gate is quiet; without it, an
+  //   out-of-band target gets a loud planner advisory. NEVER a hard block.
+  "currencies": [ // ? P5's other balances (7.11, 2026-08-19): value with its
+    //   own rules and clock. Marginal-cost utilization: expiring/prepaid
+    //   value spends before cash.
+    {
+      "id": "swipes",
+      "name": "Dining swipes",
+      "unit": "swipe",
+      "perWeek": 14, // replenishes weekly; use-or-lose
+      "expires": "weekly", // weekly | date:<iso> | never
+      "venue": "buffet", // ? buffet = all-you-can-eat: a slot this covers
+      //   ABSORBS the expensive macros (buffetMacroEstimate: protein x1.5,
+      //   calories x1.15 vs pool average) so the grocery list buys less of
+      //   the costliest thing it prices — David's swipe-protein arbitrage,
+      //   generalized. Absent venue = a plain prepaid balance.
+      "toGo": true // ? redeemable as a takeout container instead of eating
+      //   in (a box of chicken breasts IS pantry stock). v1 records the
+      //   field; the swipe→pantry flow is open 7.11 work.
+    }
+  ],
   "shopsPerWeek": 2, // ? integer, ABSENT = 1. 1 = single weekly list
   //   (unchanged). >1 splits the List view into a pantry/bulk trip
   //   and a fresh trip (app/lib/shopping.js tripOf, app/views/
