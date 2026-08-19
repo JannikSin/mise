@@ -1360,8 +1360,30 @@ export function ShoppingView({
                 }
                 <div class="row">
                   <span class="k">Total</span>
-                  <span class="status num">$${homeSummary.total.toFixed(2)}</span>
+                  <span class="status num">
+                    ${
+                      // P5: "Variable-weight items make the estimate a range,
+                      // and the app says so. '$48 to $53,' never a
+                      // false-precision point." A per-pound row is bought as
+                      // whatever the tray weighs, so quoting one number to the
+                      // cent was a lie told with a straight face. Only the
+                      // variable rows widen it, so a trolley of packaged goods
+                      // still quotes exactly.
+                      homeSummary.variableRows > 0
+                        ? `$${homeSummary.low.toFixed(2)} to $${homeSummary.high.toFixed(2)}`
+                        : `$${homeSummary.total.toFixed(2)}`
+                    }
+                  </span>
                 </div>
+                ${
+                  homeSummary.variableRows > 0 &&
+                  html`<div class="row">
+                    <span class="k hint">
+                      ↳ ${homeSummary.variableRows} row${homeSummary.variableRows === 1 ? " is" : "s are"}
+                      sold by weight, so the pack you get decides the cents
+                    </span>
+                  </div>`
+                }
                 ${
                   // P5's stocking rule made visible: whole packages are the
                   // TRIP cost; what this week's meals consume is the number

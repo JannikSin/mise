@@ -155,7 +155,7 @@ const PER_LB_MIN_G = {
  * @param {{ food: string, qty: number, unit: string }} item
  * @param {PriceCatalogue | null | undefined} catalogue
  * @param {string} store store slug, e.g. "trader-joes"
- * @returns {{ cost: number, eaten: number, estimate: boolean, size?: string, packs?: number, lbs?: number } | null}
+ * @returns {{ cost: number, eaten: number, estimate: boolean, size?: string, packs?: number, lbs?: number, variable?: boolean } | null}
  *   `packs` + `size` = the buyable amount for packaged rows; `lbs` = the
  *   charged weight for per-lb rows. Together they are the "buy" half of the
  *   list's need → buy line (David, 2026-08-19).
@@ -186,10 +186,11 @@ export function itemCost(item, catalogue, store) {
           estimate: sp.estimate === true,
           size: sp.size,
           lbs: round(lbs),
+          variable: true,
         };
       }
       const cost = round(sp.price * item.qty);
-      return { cost, eaten: cost, estimate: true, size: sp.size };
+      return { cost, eaten: cost, estimate: true, size: sp.size, variable: true };
     }
     if (pack && dimensionOf(pack.unit) !== "count") {
       const key = canonicalFood(item.food);
@@ -249,9 +250,10 @@ export function itemCost(item, catalogue, store) {
         estimate: sp.estimate === true,
         size: sp.size,
         lbs: round(chargedLbs),
+        variable: true,
       };
     }
-    return { cost: round(sp.price), eaten: round(sp.price), estimate: true, size: sp.size };
+    return { cost: round(sp.price), eaten: round(sp.price), estimate: true, size: sp.size, variable: true };
   }
 
   // packaged rows: how many packages cover the need
@@ -295,6 +297,17 @@ function gramsFor(item) {
 }
 
 /**
+ * How far a variable-weight package can miss its target weight, each way.
+ * Meat and produce trays are cut to an approximate weight and priced by what
+ * they actually weigh, and ten percent is the honest working band. It is a
+ * stated assumption rather than a measured one, which is why it lives here as
+ * a named constant instead of buried as a magic number: the first receipt that
+ * disagrees with it should move it.
+ */
+export const VARIABLE_WEIGHT_BAND = 0.1;
+
+
+/**
  * Trip summary for one store: subtotal over priced items, grocery tax from
  * the profile's region, and how many rows the catalogue could not price
  * (unpriced rows cost SOMETHING — the total is a floor, never a promise).
@@ -302,13 +315,15 @@ function gramsFor(item) {
  * @param {PriceCatalogue | null | undefined} catalogue
  * @param {string} store
  * @param {{ country?: string, state?: string } | undefined} region
- * @returns {{ subtotal: number, eaten: number, tax: number, total: number, priced: number, unpriced: number, estimates: number }}
+ * @returns {{ subtotal: number, eaten: number, tax: number, total: number, low: number, high: number, variableRows: number, priced: number, unpriced: number, estimates: number }}
  */
 export function tripTotal(items, catalogue, store, region) {
   let subtotal = 0;
   let eaten = 0;
   let priced = 0;
   let estimates = 0;
+  let variableCost = 0;
+  let variableRows = 0;
   for (const item of items) {
     const c = itemCost(item, catalogue, store);
     if (!c) continue;
@@ -316,14 +331,29 @@ export function tripTotal(items, catalogue, store, region) {
     eaten += c.eaten;
     priced += 1;
     if (c.estimate) estimates += 1;
+    if (c.variable) {
+      variableCost += c.cost;
+      variableRows += 1;
+    }
   }
   subtotal = Math.round(subtotal * 100) / 100;
   const tax = Math.round(subtotal * taxRateFor(region) * 100) / 100;
+  const total = Math.round((subtotal + tax) * 100) / 100;
+  // P5: "Variable-weight items make the estimate a range, and the app says so.
+  // '$48 to $53,' never a false-precision point." A per-pound row is bought as
+  // a package whose weight is whatever the tray happens to be, so quoting one
+  // number to the cent is a lie the app was telling with a straight face. The
+  // band applies ONLY to the variable rows, so a trolley of packaged goods
+  // still quotes exactly, which is the honest asymmetry.
+  const band = Math.round(variableCost * VARIABLE_WEIGHT_BAND * (1 + taxRateFor(region)) * 100) / 100;
   return {
     subtotal,
     eaten: Math.round(eaten * 100) / 100,
     tax,
-    total: Math.round((subtotal + tax) * 100) / 100,
+    total,
+    low: Math.round((total - band) * 100) / 100,
+    high: Math.round((total + band) * 100) / 100,
+    variableRows,
     priced,
     unpriced: items.length - priced,
     estimates,

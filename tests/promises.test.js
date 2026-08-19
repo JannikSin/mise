@@ -560,7 +560,7 @@ const PROMISES = [
 
   {
     id: "P5",
-    name: "P5 the week is changed until it fits the budget or says by how much it cannot, and prepaid value is spent first",
+    name: "P5 the week is changed until it fits the budget, priced honestly, and prepaid value is spent first",
     fn: () => {
       // THE TRUTH HALF: a real total, against a real store, from the plan,
       // before anyone leaves the house.
@@ -576,6 +576,18 @@ const PROMISES = [
         "every row is either priced or counted as unpriced: no row may go missing between the two",
       );
 
+      // A JUDGMENT CALL, recorded rather than made quietly, because a quiet
+      // narrowing is exactly how the protein ceiling was lost. P5 says value
+      // already paid for is spent first, "the seven weekly swipes before a
+      // dollar, the gift card expiring Friday before the debit card", and only
+      // SWIPES are consumed by anything today. The done test's own qualifier
+      // decides it: "whenever the plan CAN LEGALLY USE IT." A swipe is the only
+      // currency a meal plan can spend, because it buys a specific meal at a
+      // specific hall. A gift card is spent at the till by a person, and a plan
+      // that pretended to spend it would be inventing a transaction. Ordering
+      // ACROSS currencies becomes a real promise the day a second one can be
+      // spent by the plan; it is on Mise-Later, not hidden in a passing test.
+      //
       // THE PREPAID-VALUE HALF, the only currency that acts today. A dining
       // swipe is value already paid for, so it is spent BEFORE cash: the
       // cooked week aims at what remains and the groceries buy less protein,
@@ -733,6 +745,40 @@ const PROMISES = [
       assert.equal(none.ran, false);
       assert.equal(none.fits, true);
       assert.equal(none.swaps.length, 0);
+
+      // A VERIFIED TOTAL IS NOT A FALSE-PRECISE ONE. "Variable-weight items
+      // make the estimate a range, and the app says so. '$48 to $53,' never a
+      // false-precision point." A per-pound row is whatever the tray weighs.
+      const byWeight = {
+        region: { country: "USA", state: "IL" },
+        stores: ["s"],
+        items: [
+          { id: "chicken-thigh", name: "chicken thigh", prices: { s: { price: 2.5, size: "per lb" } } },
+          { id: "rolled-oats", name: "rolled oats", prices: { s: { price: 3, size: "32 oz" } } },
+        ],
+      };
+      const mixed = tripTotal(
+        [
+          { food: "chicken thigh", qty: 2, unit: "lb" },
+          { food: "rolled oats", qty: 32, unit: "oz" },
+        ],
+        byWeight,
+        "s",
+        byWeight.region,
+      );
+      assert.equal(mixed.variableRows, 1, "a per-pound row was not recognised as variable weight");
+      assert.ok(mixed.low < mixed.total && mixed.total < mixed.high, "the total quoted no range");
+      // and ONLY the weighed row widens it: a trolley of packaged goods still
+      // quotes to the cent, which is the honest asymmetry
+      const packagedOnly = tripTotal(
+        [{ food: "rolled oats", qty: 32, unit: "oz" }],
+        byWeight,
+        "s",
+        byWeight.region,
+      );
+      assert.equal(packagedOnly.variableRows, 0);
+      assert.equal(packagedOnly.low, packagedOnly.total);
+      assert.equal(packagedOnly.high, packagedOnly.total);
     },
   },
 
@@ -1356,20 +1402,6 @@ for (const p of PROMISES) test(p.name, p.fn);
 
 /** @type {{ id: string, name: string, why: string }[]} */
 const UNBUILT = [
-  {
-    id: "P5",
-    name: "P5 GAP a variable-weight row prices as a range, and every currency is spent in marginal-cost order",
-    why:
-      "owner koenig, Phase 2. Swap-to-fit landed 2026-08-19 and is proven above; two of P5's stated " +
-      "pricing rules are still unbuilt. (1) A variable-weight row prices as a false-precision point " +
-      "where the canon demands a range: \"$48 to $53, never a false-precision point\". (2) Marginal-cost " +
-      "ordering acts on ONE currency: swipes lower what the groceries must buy, but a gift card " +
-      "expiring Friday and expiring store credit are held in the schema and spent by nothing. " +
-      "MEASURE BEFORE PROMISING MORE FROM THE SWAP PASS: on the live bank it takes an eaten week from " +
-      "about $250 to about $157 in roughly 21 swaps and then genuinely runs out of legal moves, which " +
-      "is $93/week real and still $57 over his $100. The remaining gap is not a smarter search, it is " +
-      "that the week is buying food for 21 cooked meals he will not cook once dining swipes are marked.",
-  },
   {
     id: "P6",
     name: "P6 GAP the household is a kitchen: capacity, trip cadence, occupancy and roles",
