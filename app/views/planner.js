@@ -660,7 +660,7 @@ export function PlannerView({
             cooked ${lastWeekReview.cooked.done} of ${lastWeekReview.cooked.planned} planned
             ${lastWeekReview.spend ? html` · spent $${lastWeekReview.spend.total.toFixed(2)}${lastWeekReview.spend.budget ? ` of $${lastWeekReview.spend.budget}` : ""} (${lastWeekReview.spend.receipts} receipt${lastWeekReview.spend.receipts === 1 ? "" : "s"})` : html` · spend: no receipts scanned`}
             ${lastWeekReview.tossed.count > 0 ? html` · tossed ${lastWeekReview.tossed.count}: ${lastWeekReview.tossed.foods.join(", ")}` : html` · nothing tossed ✓`}
-            ${lastWeekReview.time ? html` · ${lastWeekReview.time.timed} timed cook${lastWeekReview.time.timed === 1 ? "" : "s"}: ${lastWeekReview.time.recordedMin}m real vs ${lastWeekReview.time.statedMin}m stated` : html` · no cooks timed`}
+            ${lastWeekReview.time ? html` · ${lastWeekReview.time.timed} timed cook${lastWeekReview.time.timed === 1 ? "" : "s"}: ${lastWeekReview.time.recordedMin}m real vs ${lastWeekReview.time.statedMin}m stated` : html` · no cooks timed`}${" "}
             · weigh-ins ${lastWeekReview.weighIns.count}/${lastWeekReview.weighIns.days}
           </div>
         </div>`

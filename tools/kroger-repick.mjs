@@ -26,7 +26,13 @@ const TODAY = process.argv.find((a) => a.startsWith("--today="))?.slice(8) ??
   new Date().toISOString().slice(0, 10);
 
 // old duplicate key -> canonical key (NAME_ALIASES now collapses these)
-const KEY_MERGES = { eggs: "egg", "chicken-thighs": "chicken-thigh", onions: "onion", scallions: "scallion" };
+const KEY_MERGES = {
+  eggs: "egg",
+  "chicken-thighs": "chicken-thigh",
+  onions: "onion",
+  scallions: "scallion",
+  "bay-leaves": "bay-leaf",
+};
 
 // foods the seed missed, with alternate live search terms worth one try each
 const RETRY_TERMS = {
@@ -104,6 +110,10 @@ for (const [oldKey, newKey] of Object.entries(KEY_MERGES)) {
           { items: [{ ...row, id: "probe", name: need.food }], stores: [store] }, store);
         return c ? c.cost : Infinity;
       };
+      // David's tap outranks any optimizer: a CONFIRMED pin under the
+      // canonical key is never overwritten by a cheaper legacy duplicate
+      // (reviewer catch 2026-08-19)
+      if (pins.pins[newKey][store]?.confirmedAt) continue;
       if (cost(oldRow) < cost(newRow)) {
         pins.pins[newKey][store] = oldPin[store];
         if (oldRow?.prices?.[store]) {

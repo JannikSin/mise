@@ -377,7 +377,11 @@ export function deriveTables(houses, ctx) {
           : null;
       const myTailor = t.tailor?.seats?.[ctx.profileId];
       const n = recipe.nutrition ?? {};
-      const knownTotal = known.reduce((sum, s2) => sum + clampServings(s2.servings), 0);
+      // GUESTS COOK TOO (7.4, reviewer catch 2026-08-19): the buy included
+      // their plates, so the batch the cook is walked through must as well —
+      // buying for "us plus two" and cooking for "us" shorts the table
+      const knownTotal =
+        known.reduce((sum, s2) => sum + clampServings(s2.servings), 0) + clampGuests(t);
       entries.push({
         id: `table-${t.id}`,
         table: t.id,
