@@ -167,6 +167,10 @@ const NAME_ALIASES = {
   "spring-onion": "scallion",
   "garbanzo-beans": "chickpeas",
   "greek-yoghurt": "greek-yogurt",
+  // the pantry says "Whey protein (5 lb tub)", recipes say "whey protein
+  // powder" — two keys meant the PLENTY tub never suppressed the list row
+  // and David was told to buy whey he owns in bulk (2026-08-18)
+  "whey-protein": "whey-protein-powder",
 };
 
 /**
@@ -236,7 +240,9 @@ const FOOD_UNITS = {
   "maple-syrup": { unit: "tbsp" },
   sugar: { unit: "tbsp" },
   mayonnaise: { unit: "tbsp" },
-  "soy-sauce": { unit: "tbsp" },
+  // cup weight so a "3 tbsp" row can read "≈ 1 × 10 oz" against a
+  // weight-labelled bottle (P4: every row maps to a purchasable thing)
+  "soy-sauce": { unit: "tbsp", cup: 255 },
   sriracha: { unit: "tbsp" },
   cornstarch: { unit: "tbsp" },
   "dijon-mustard": { unit: "tbsp" },
