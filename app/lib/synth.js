@@ -138,6 +138,38 @@ export const PLATE_GRAMS = /** @type {Record<string, Record<string, number>>} */
   carrot: { unit: 61, cup: 122 },
   tomato: { unit: 123 },
   onion: { unit: 110 },
+  // added 2026-08-19 after measuring which rows the bank could not bridge.
+  // USDA standard reference weights, the same kind of figure the rows above
+  // already carry. Ordered by how many recipes each unblocks.
+  "greek yogurt": { cup: 245 },
+  yogurt: { cup: 245 },
+  "chicken broth": { cup: 240 },
+  broth: { cup: 240 },
+  stock: { cup: 240 },
+  "cottage cheese": { cup: 226 },
+  cucumber: { unit: 300, cup: 133 },
+  celery: { stalk: 40, unit: 40, cup: 101 },
+  "tomato paste": { tbsp: 16, tsp: 5.3, cup: 262 },
+  kale: { cup: 21 },
+  walnut: { cup: 100, tbsp: 6.3 },
+  almond: { cup: 92, tbsp: 5.8 },
+  honey: { tbsp: 21, tsp: 7, cup: 339 },
+  "bean sprouts": { cup: 104 },
+  peanut: { cup: 146, tbsp: 9 },
+  milk: { cup: 244 },
+  cheese: { cup: 113 },
+  mushroom: { cup: 70, unit: 18 },
+  cabbage: { cup: 89 },
+  lettuce: { cup: 36 },
+  corn: { cup: 154 },
+  peas: { cup: 145 },
+  "green beans": { cup: 100 },
+  cauliflower: { cup: 107, unit: 588 },
+  lime: { unit: 67 },
+  lemon: { unit: 84 },
+  apple: { unit: 182 },
+  banana: { unit: 118 },
+  orange: { unit: 131 },
 });
 
 /** Foods a rung-3 top-up may add to a plate (a property of the FOOD). */
@@ -157,6 +189,20 @@ export const PLATE_ADDABLE = [
 
 /** keyword -> part, first match wins; longest keys first at build time */
 const PART_KEYWORDS = /** @type {[string, Part][]} */ ([
+  // SEASONING PEPPERS FIRST, and this ordering is load-bearing. The list is
+  // first-match, and "pepper" resolves to veg for the bell pepper that is
+  // genuinely a vegetable. So "black pepper" classified as VEG, a pinch of it
+  // had no gram bridge, and the whole recipe failed closed to "this dish is
+  // one thing nutritionally". Measured 2026-08-19: black pepper alone blocked
+  // 36 of the 126 bank recipes, and the engine has never run, so nothing could
+  // ever have told anybody.
+  ["black pepper", "flavor"],
+  ["white pepper", "flavor"],
+  ["peppercorn", "flavor"],
+  ["red pepper flake", "flavor"],
+  ["chili flake", "flavor"],
+  ["cayenne", "flavor"],
+  ["paprika", "flavor"],
   // in-pan fats file as flavor DELIBERATELY (spec §4.2 fat rule): "give her
   // a quarter of the cooking oil" is not an instruction a human can follow
   ["olive oil", "flavor"],
@@ -265,9 +311,22 @@ function gramsOf(/** @type {Record<string, any>} */ ing) {
   if (unit === "kg") return qty * 1000;
   if (unit === "oz") return qty * 28.35;
   if (unit === "lb") return qty * 453.6;
+  // millilitres of a water-like liquid (broth, stock, milk, juice) are grams
+  // within a percent or two. This belongs here rather than in PLATE_GRAMS,
+  // which holds grams per SERVING UNIT and whose own plausibility guard
+  // correctly refuses a 1 g entry.
+  if (unit === "ml") return qty;
+  if (unit === "l" || unit === "liter" || unit === "litre") return qty * 1000;
   const food = String(ing?.food ?? "").toLowerCase();
-  const key = Object.keys(PLATE_GRAMS).find((k) => food.includes(k));
-  const bridge = key ? PLATE_GRAMS[key]?.[unit] : undefined;
+  // COUNTED SYNONYMS. The bridge table says "unit"; the bank writes "each",
+  // "whole" and "ct" for the same thing, so `egg [each]` found no bridge and
+  // failed its recipe closed. 58 ingredient rows across the bank use "each".
+  // Longest key first: "sweet potato" must win over "potato".
+  const u = unit === "each" || unit === "whole" || unit === "ct" ? "unit" : unit;
+  const key = Object.keys(PLATE_GRAMS)
+    .filter((k) => food.includes(k))
+    .sort((a, b) => b.length - a.length)[0];
+  const bridge = key ? PLATE_GRAMS[key]?.[u] : undefined;
   return bridge ? qty * bridge : null;
 }
 
