@@ -25,7 +25,10 @@ ingredients, staple flags, slot-typed plans, derived shopping list; no stock led
 ```
 profiles.json              every profile that can sign in (ROOT, never scoped — see below)
 recipes/<id>.json         one recipe per file
-pantry.json               staples registry + perishables
+pantry.json               LEGACY root pantry (read as fallback only) — the live
+                          pantry is households/<h>/pantry.json: one items array
+                          + derived legacy write mirrors (see Pantry)
+households/<h>/waste.json the waste ledger: explicit write-off events (see Waste)
 plans/<week>.json         e.g. plans/2026-W28.json
 shopping.json             current derived list + check-state
 occasions.json            dated overrides that take days off the generator
@@ -212,12 +215,17 @@ replace the whole `days` array; the app only reads.
 
 ## Prices — `prices.json` (data-repo ROOT, shared reference, read raw)
 
-Store price catalogue for shopping-cost estimates. Not yet read by any app
-code — reference data maintained by Claude sessions (researched 2026-07-18,
-Chicagoland). Entries: `{ id, name, prices: { <store-slug>: { price, size,
-estimate? } } }` with `updated`, `region`, `stores` at the top. `estimate:
-true` = derived/recent estimate, absent = tracker-confirmed shelf price. A
-store absent from an item's `prices` = not reliably stocked there.
+Store price catalogue for shopping-cost estimates. LIVE app data since the
+2026-08-18 pricing meter (Tier 0.2/0.3): `matchPrice`/`itemCost`/`tripTotal`
+power the trip tiles (whole-package charging via `parsePackSize`, per-lb rows
+pay what they weigh, unconvertible needs fall back flagged `estimate`, and
+unpriced coverage renders loud: "N of M rows UNPRICED, total is a floor");
+`applyReceipt` refresh-writes actual paid prices back into it; `money.js`
+bills table events from it. Entries: `{ id, name, prices: { <store-slug>:
+{ price, size, estimate? } } }` with `updated`, `region`, `stores` at the
+top. `estimate: true` = derived/recent estimate, absent = tracker-confirmed
+shelf price. A store absent from an item's `prices` = not reliably stocked
+there.
 Integration (`app/lib/prices.js`, read raw in `app/main.js`): the List view
 shows a price chip per row (matched by word overlap ≥ 0.6 against name/id,
 `~` = estimate), and a trip-total tile (subtotal + grocery tax from
@@ -418,7 +426,13 @@ see the mirrors; a mirror edit made by an old device may be overwritten by
 the next new-code write). New code never reads the mirrors — everything
 routes through `pantryItems()`; `normalizePantry()` migrates a legacy
 two-tier file to `items` on first load and is an identity function on an
-already-packed file. Drop the mirrors once every device is current.
+already-packed file. **Mirror drop: dated and owned (PF.1, no-dark-features
+rule): David confirms every device has updated, then the next Mise session
+after 2026-09-01 removes the mirrors from `packPantry` and the reconcile
+from `normalizePantry` in one commit. Until then the mirrors are
+load-bearing for old devices; the reconcile can resurrect a deletion merged
+against an old device's mirror write, which is the accepted cost of the
+window and one more reason the window is short.**
 
 ```jsonc
 {
@@ -442,7 +456,10 @@ already-packed file. Drop the mirrors once every device is current.
       // cook-subtraction can do arithmetic on; anything else is
       // removed whole when the food is cooked.
       "added": "2026-07-04",
-      "expires": "2026-07-11", // ?
+      "expires": "2026-07-11", // ? reserved: NO code writes or reads it yet — shelf
+      // life is inferred from `added` + shelfLifeDays(food, location). PF.3
+      // makes it real (stamped at buy, human-editable, preferred over the
+      // inference); documented here so the field name is settled.
       "useSoon": true, // ? surfaces in recipe recommendations
       "location": "fridge", // fridge | freezer | pantry | unsorted. The PANTRY tab's
       // shelf chips filter on this, and a photo sweep replaces
@@ -466,6 +483,37 @@ cabinet with the camera. Wizard scans run in "add" mode —
 the step's shelf ADDITIVELY, because a wiped kitchen needs several photos
 per shelf and a second fridge photo must extend the first, not replace it.
 Non-wizard shelf scans keep sweep-replace semantics unchanged.
+
+## Waste ledger — `households/<h>/waste.json` (PF.1, 2026-08-18)
+
+Explicit write-off events for food that left the pantry WITHOUT being cooked.
+Canon (Core-Purpose P6 + P11): expiry is never a silent delete, dormancy must
+not launder waste past the ledger, and the weekly review's tossed-vs-used axis
+reads exactly this file. History is append-only and cannot be backfilled.
+Written by `appendWaste` (`app/lib/waste.js`) at the auto-expiry site in
+`main.js`; read by the review engine when it lands (Tier 7.1).
+
+```jsonc
+{
+  "events": [
+    {
+      // UNIQUE PER EVENT (rowId|date|reason) — the 409 keyed-array merge
+      // keys on `id` and collapses duplicates, and the same pantry row can
+      // legitimately expire twice (edit-beats-delete resurrection), so the
+      // event id must never be the bare row id. Doubles as the appendWaste
+      // idempotency key: every device runs the same sweep, one event lands.
+      "id": "a1b2c3d4|2026-08-18|expired",
+      "date": "2026-08-18", // the day it was written off
+      "reason": "expired", // "expired" today; manual confirms and the review add theirs
+      "rowId": "a1b2c3d4", // the pantry row's stable id, null for pre-id rows
+      "food": "spinach",
+      "qty": "1 bag", // ? carried from the row when present
+      "added": "2026-08-01", // ? when it was bought/scanned in
+      "location": "fridge", // ?
+    },
+  ],
+}
+```
 
 ## Tables (shared meals) — `households/<h>/events.json`
 
@@ -1216,9 +1264,11 @@ One row per day; 10-second morning check-in.
 2026-08-09: the in-app daily check-in (weight/sleep/water/supplements/dozen check-offs)
 retired — David's personal tracking lives in Crystal now, and Mise relies on the recipes
 being good (`generateWeek` still closes food-group gaps via `foodGroupGaps`). Old fields
-stay readable; nothing in the app writes them anymore (the vitals ingest still writes
-sleep/weight from the watch export). Absent `dozen` or absent key = 0 logged, not
-missing data.
+stay readable; the vitals ingest still writes sleep/weight from the watch export, the
+Cook tab's batch block writes `batched`, the buffer counter writes `buffer`, and **since
+PF.1 (2026-08-18) the Plan tab's WEIGH-IN tile writes `weight` again** — it is the
+manifest's calibration signal (weightTrend) and had NO write path from the check-in's
+retirement until PF.1. Absent `dozen` or absent key = 0 logged, not missing data.
 
 ## Fitness — `fitness/activities.json`
 

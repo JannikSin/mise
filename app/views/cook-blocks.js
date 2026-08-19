@@ -1,7 +1,8 @@
 import { html } from "htm/preact";
+import { useState } from "preact/hooks";
 import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 import { datesOfWeek, prepSundayOf, recipesById } from "../lib/plan.js";
-import { perishableStatus } from "../lib/shopping.js";
+import { isDatedItem, pantryItems, perishableStatus } from "../lib/shopping.js";
 
 /**
  * The WEEK-level half of what used to be the Cook tab.
@@ -88,6 +89,22 @@ export function CookBlocks({ recipes, plan, tableConflicts, nextPlan, daily, pan
         : [...todayBatched, id],
     });
   const bufferToday = days.find((d) => d.date === today)?.buffer ?? 0;
+  // weigh-in (PF.1): the ONE write path for weight since the in-app check-in
+  // retired 2026-08-09 — without it the manifest's weightTrend line (the
+  // calibration signal, fix list 6.4) starves forever. Same onPatchDay pipe
+  // as the buffer counter; fitness/daily.json day rows carry `weight`.
+  const [weighDraft, setWeighDraft] = useState("");
+  const todayWeight = days.find((d) => d.date === today)?.weight;
+  // max by DATE, not array order: the watch export can backfill older days
+  // after a manual weigh-in (reviewer finding 6)
+  const lastWeighIn = days
+    .filter((/** @type {any} */ d) => typeof d.weight === "number" && d.date <= today)
+    .reduce(
+      (/** @type {any} */ best, /** @type {any} */ d) => (!best || d.date > best.date ? d : best),
+      null,
+    );
+  const weighParsed = Number(weighDraft);
+  const weighValid = Number.isFinite(weighParsed) && weighParsed > 0;
   const bufferWeek = weekDates.reduce(
     (s, d) => s + (days.find((x) => x.date === d)?.buffer ?? 0),
     0,
@@ -99,7 +116,8 @@ export function CookBlocks({ recipes, plan, tableConflicts, nextPlan, daily, pan
 
   // perishables in their last 2 days (or hand-flagged useSoon): cook these
   // first — the pantry auto-expiry will bin them otherwise
-  const useSoon = (pantry?.perishables ?? [])
+  const useSoon = pantryItems(pantry)
+    .filter(isDatedItem)
     .map((/** @type {Record<string, any>} */ p) => ({ ...p, ...perishableStatus(p, today) }))
     .filter((/** @type {any} */ p) => p.useSoon || (p.daysLeft != null && p.daysLeft <= 2))
     .sort((/** @type {any} */ a, /** @type {any} */ b) => (a.daysLeft ?? 99) - (b.daysLeft ?? 99));
@@ -178,6 +196,52 @@ export function CookBlocks({ recipes, plan, tableConflicts, nextPlan, daily, pan
                   </span>
                 `
               : html`<span class="d">log portions on the day itself</span>`
+          }
+        </div>
+      </div>`
+    }
+    ${
+      // weigh-in tile: always says the honest state; input only on the live
+      // week (a weigh-in belongs to the day it happened, like buffer portions)
+      onPatchDay &&
+      html`<div class="tile weighin">
+        <div class="k">⚖ WEIGH-IN · calibrates your calorie target</div>
+        <div class="bufferrow">
+          <span class="d num">
+            ${
+              todayWeight != null
+                ? `today: ${todayWeight} lb ✓`
+                : lastWeighIn
+                  ? `last ${lastWeighIn.date} · ${lastWeighIn.weight} lb`
+                  : "none on file — the 7-day trend is dark until you log one"
+            }
+          </span>
+          ${
+            showingThisWeek &&
+            html`
+              <input
+                class="num weighinput"
+                type="number"
+                inputmode="decimal"
+                step="0.1"
+                min="0"
+                placeholder="lb"
+                aria-label="Today's weight in pounds"
+                value=${weighDraft}
+                onInput=${(/** @type {any} */ ev) => setWeighDraft(ev.currentTarget.value)}
+              />
+              <button
+                class="wk"
+                aria-label="Log today's weight"
+                disabled=${!weighValid}
+                onClick=${() => {
+                  onPatchDay({ weight: Math.round(weighParsed * 10) / 10 });
+                  setWeighDraft("");
+                }}
+              >
+                LOG
+              </button>
+            `
           }
         </div>
       </div>`

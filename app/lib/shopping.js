@@ -945,27 +945,34 @@ export function withAutoUseSoon(pantry, todayIso) {
 /**
  * Drop perishables whose `added` date plus their shelf life is before today.
  * Perishables with no `added` date are kept (we can't judge them). Returns the
- * updated pantry and the names dropped, so the UI can say what left.
+ * updated pantry, the names dropped (so the UI can say what left), and the
+ * full dropped rows as `tossed` — the waste ledger records those, because an
+ * expiry that deletes silently is waste laundered past the ledger (canon P6
+ * dormancy rule + P11 tossed-vs-used, PF.1) and this history cannot be
+ * backfilled later.
  * @param {Record<string, any>} pantry
  * @param {string} todayIso
- * @returns {{ pantry: Record<string, any>, expired: string[] }}
+ * @returns {{ pantry: Record<string, any>, expired: string[], tossed: Record<string, any>[] }}
  */
 export function expirePerishables(pantry, todayIso) {
   const today = new Date(`${todayIso}T00:00:00`);
   /** @type {string[]} */
   const expired = [];
+  /** @type {Record<string, any>[]} */
+  const tossed = [];
   const kept = pantryItems(pantry).filter((/** @type {any} */ it) => {
     if (!it.added) return true; // undated rows (state items included) never expire
     const gone = new Date(`${it.added}T00:00:00`);
     gone.setDate(gone.getDate() + shelfLifeDays(it.food, it.location));
     if (gone < today) {
       expired.push(it.food);
+      tossed.push(it);
       return false;
     }
     return true;
   });
-  if (expired.length === 0) return { pantry, expired };
-  return { pantry: packPantry(kept), expired };
+  if (expired.length === 0) return { pantry, expired, tossed };
+  return { pantry: packPantry(kept), expired, tossed };
 }
 
 /** @returns {string} unique-per-device perishable id */

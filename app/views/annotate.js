@@ -9,6 +9,7 @@ import {
   resultHumanText,
 } from "../lib/annotate.js";
 import { recipeConflicts } from "../lib/plan.js";
+import { isDatedItem, pantryItems } from "../lib/shopping.js";
 
 // mirror of worker/src/lib.js OBJECTIVES (separate deploy targets share no module)
 const OBJECTIVES = ["fit-the-plan", "taste", "same-time", "faster", "simpler"];
@@ -127,9 +128,9 @@ export function AnnotateView({
   const toggle = (/** @type {string} */ id) =>
     setPicked(picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id]);
 
-  const pantryStaples = (pantry?.staples ?? [])
-    .filter((/** @type {any} */ s) => s.onHand)
-    .map((/** @type {any} */ s) => String(s.name));
+  const pantryStaples = pantryItems(pantry)
+    .filter((/** @type {any} */ it) => !isDatedItem(it) && it.state === "plenty")
+    .map((/** @type {any} */ it) => String(it.food));
 
   const context = () => ({
     plan: [

@@ -278,6 +278,26 @@ test("dayTotals sums stacked entries in the same slot", () => {
   assert.deepEqual(dayTotals(entries, recipes, "2026-07-06"), { calories: 1105, protein: 89 });
 });
 
+test("dayTotals counts a described away meal's est fields (P9), bare freeText still 0", () => {
+  const recipes = new Map([["beef", { nutrition: { calories: 900, protein: 61 } }]]);
+  const entries = [
+    { id: "a", date: "2026-07-06", slot: "dinner", recipeId: "beef", servings: 1 },
+    // described away meal: real food this person ate, no recipe, est known
+    {
+      id: "b",
+      date: "2026-07-06",
+      slot: "lunch",
+      freeText: "dining hall tray",
+      servings: 1,
+      estCalories: 700,
+      estProtein: 45,
+    },
+    // bare freeText with no est stays 0 — nothing honest to count
+    { id: "c", date: "2026-07-06", slot: "breakfast", freeText: "tbd", servings: 1 },
+  ];
+  assert.deepEqual(dayTotals(entries, recipes, "2026-07-06"), { calories: 1600, protein: 106 });
+});
+
 test("mergeRecipePool: avoidIngredients screens EVERY recipe, own ones included", () => {
   const bank = [
     { id: "doner", ingredients: [{ food: "red onion" }, { food: "chicken thigh" }] },

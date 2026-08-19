@@ -10,7 +10,7 @@ import {
   SLOT_META,
 } from "../lib/plan.js";
 import { parseLocalIso } from "../lib/dates.js";
-import { manifestLines } from "../lib/manifest.js";
+import { manifestDrifted, manifestLines } from "../lib/manifest.js";
 import { CookBlocks } from "./cook-blocks.js";
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
@@ -282,8 +282,19 @@ export function PlannerView({
           <details class="tile manifesttile">
             <summary class="block-title">
               ⚙ Generation manifest
-              <span class="hint">what every engine did, ${/** @type {any} */ (plan).manifest.generatedAt}</span>
+              <span class="hint"
+                >what every engine did, ${/** @type {any} */ (plan).manifest.generatedAt}</span
+              >
             </summary>
+            ${
+              // drift: never let the report silently describe a plan that no
+              // longer exists (PF.1; the fluid week makes edits normal)
+              manifestDrifted(/** @type {any} */ (plan).manifest, plan) === true &&
+              html`<div class="d num redflag">
+                <strong>drift</strong>: plan has CHANGED since this report was composed — its
+                numbers describe the plan as generated, not as it stands
+              </div>`
+            }
             ${manifestLines(/** @type {any} */ (plan).manifest).map(
               (l) => html`
                 <div class="d num ${l.missing ? "redflag" : ""}" key=${l.key}>

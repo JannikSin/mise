@@ -1562,6 +1562,48 @@ summary.block-title {
   font-size: 16px;
 }
 
+/* ---- weigh-in (PF.1: the weight write path) ---- */
+
+.weighin .bufferrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.weighin .weighinput {
+  width: 90px;
+  min-height: 44px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.weighin .wk {
+  min-height: 44px;
+  min-width: 56px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.weighin .wk:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.weighin .wk:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
+}
+
 /* ---- shopping list ---- */
 
 .checkrow {

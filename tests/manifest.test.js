@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { composeManifest, manifestLines, SUBSYSTEMS } from "../app/lib/manifest.js";
+import {
+  composeManifest,
+  manifestDrifted,
+  manifestLines,
+  planFingerprint,
+  SUBSYSTEMS,
+} from "../app/lib/manifest.js";
 import { generateWeek } from "../app/lib/weekbuilder.js";
 
 // the smallest real generator run: enough recipes that a week can be built
@@ -79,7 +85,10 @@ test("manifest says the honest thing when the data is missing", () => {
   assert.equal(manifest.subsystems.weightTrend.weighIns, 0);
   // no bodyweight: protein line says g/kg is unavailable rather than inventing it
   assert.equal(manifest.subsystems.protein.gPerKg, null);
-  assert.match(manifestLines(manifest).find((l) => l.key === "protein")?.text ?? "", /no bodyweight/);
+  assert.match(
+    manifestLines(manifest).find((l) => l.key === "protein")?.text ?? "",
+    /no bodyweight/,
+  );
   // no cooked confirmations: adherence says so (Gardner's gate)
   assert.equal(manifest.subsystems.adherence.cookedOverPlanned, "0/0");
   // plating: inert by council, and the manifest keeps saying it
@@ -119,4 +128,112 @@ test("adherence line counts cooked-over-planned across recent weeks", () => {
     todayIso: "2026-08-18",
   });
   assert.equal(manifest.subsystems.adherence.cookedOverPlanned, "1/2");
+});
+
+test("manifest recomputes delivered numbers from the plan AS IT STANDS, not the engine's copy", () => {
+  // the auto-swap incident: generateWeek reports, THEN main.js swaps a
+  // recipe. The manifest must describe the post-swap plan.
+  const { plan, report } = generateWeek({
+    recipes: RECIPES,
+    targets: TARGETS,
+    pantry: { items: [] },
+    weekId: "2026-W40",
+    plan: { week: "2026-W40", entries: [] },
+    salt: 1,
+  });
+  // swap every entry to a recipe with HALF the protein, as substitutionPlan would
+  const lean = { ...RECIPES[0], id: "lean", nutrition: { calories: 500, protein: 15 } };
+  const swapped = {
+    ...plan,
+    entries: plan.entries.map((e) => (e.recipeId ? { ...e, recipeId: "lean" } : e)),
+  };
+  const manifest = composeManifest({
+    engine: report.manifest,
+    targets: TARGETS,
+    recipes: [...RECIPES, lean],
+    dailyDays: [],
+    recentPlans: [{ weekId: "2026-W40", plan: swapped }],
+    todayIso: "2026-09-28",
+  });
+  // engine said 30 g/recipe-serving averages; the swapped plan delivers half
+  assert.ok(
+    manifest.subsystems.floors.avgProteinG < (report.manifest.floors.avgProteinG ?? 0),
+    `floors.avgProteinG ${manifest.subsystems.floors.avgProteinG} should be below the pre-swap ${report.manifest.floors.avgProteinG}`,
+  );
+  // and the protein line's delivered figure agrees with the recompute
+  assert.equal(manifest.subsystems.protein.deliveredG, manifest.subsystems.floors.avgProteinG);
+});
+
+test("manifest fingerprint detects drift; a pre-fingerprint manifest never claims it", () => {
+  const plan = {
+    week: "2026-W40",
+    entries: [{ id: "a", date: "2026-09-28", slot: "dinner", recipeId: "dinner-1", servings: 2 }],
+  };
+  const manifest = composeManifest({
+    engine: engineReport().manifest,
+    targets: TARGETS,
+    recipes: RECIPES,
+    dailyDays: [],
+    recentPlans: [{ weekId: "2026-W40", plan }],
+    todayIso: "2026-09-28",
+  });
+  assert.equal(manifest.fingerprint, planFingerprint(plan));
+  assert.equal(manifestDrifted(manifest, plan), false);
+  const edited = { ...plan, entries: [{ ...plan.entries[0], servings: 3 }] };
+  assert.equal(manifestDrifted(manifest, edited), true);
+  // cookedAt is not drift — the meal happened, the macros did not change
+  const cooked = { ...plan, entries: [{ ...plan.entries[0], cookedAt: "x" }] };
+  assert.equal(manifestDrifted(manifest, cooked), false);
+  // legacy manifest with no fingerprint: null, never a false claim
+  assert.equal(manifestDrifted({ subsystems: {} }, edited), null);
+  // derived table entries are NOT drift: the view plan re-derives them at
+  // render, the stored plan strips them — comparing across that boundary
+  // must agree (reviewer finding 3)
+  const withTable = {
+    ...plan,
+    entries: [
+      ...plan.entries,
+      {
+        id: "t1",
+        date: "2026-09-29",
+        slot: "dinner",
+        table: { id: "tbl" },
+        estCalories: 800,
+        servings: 1,
+      },
+    ],
+  };
+  assert.equal(manifestDrifted(manifest, withTable), false);
+});
+
+test("manifest recompute excludes occasion-held dates, matching the engine's liveDates", () => {
+  const { plan, report } = generateWeek({
+    recipes: RECIPES,
+    targets: TARGETS,
+    pantry: { items: [] },
+    weekId: "2026-W40",
+    plan: { week: "2026-W40", entries: [] },
+    salt: 1,
+  });
+  const weekDates = [...new Set(plan.entries.map((e) => e.date))].sort();
+  const heldDate = weekDates[0];
+  const held = {
+    ...plan,
+    entries: [
+      // the occasion replaces the day's meals with a script (no est macros)
+      ...plan.entries.filter((e) => e.date !== heldDate),
+      { id: "occ", date: heldDate, slot: "dinner", occasion: "prep", freeText: "clear liquids" },
+    ],
+  };
+  const manifest = composeManifest({
+    engine: report.manifest,
+    targets: TARGETS,
+    recipes: RECIPES,
+    dailyDays: [],
+    recentPlans: [{ weekId: "2026-W40", plan: held }],
+    todayIso: "2026-09-28",
+  });
+  // the held day is neither a short day nor averaged in as zeros
+  assert.equal(manifest.subsystems.floors.liveDays, 6);
+  assert.ok(manifest.subsystems.floors.avgCalories > 0);
 });

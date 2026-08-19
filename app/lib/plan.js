@@ -727,10 +727,11 @@ export function entriesAt(entries, date, slot) {
 }
 
 /**
- * Planned calories/protein for one day. freeText and unknown recipes count 0,
- * EXCEPT an eating-out placeholder OR a derived table entry, which count
- * their est fields — the meal is real food, just not cooked from this
- * profile's own pool.
+ * Planned calories/protein for one day. Unknown recipes count 0, but ANY
+ * non-recipe entry carrying est fields counts them — eating-out
+ * placeholders, derived table entries, and described away meals (P9: a
+ * freeText meal with est macros is real food eaten by this person; counting
+ * it 0 made the manifest misreport every week containing one).
  * @param {PlanEntry[]} entries
  * @param {Map<string, any>} recipesById
  * @param {string} date
@@ -741,11 +742,10 @@ export function dayTotals(entries, recipesById, date) {
   let protein = 0;
   for (const e of entries) {
     if (e.date !== date) continue;
-    // eating-out placeholders AND derived table entries both carry assumed
-    // macros in est fields — the meal is real, just not cooked from this
+    // est fields are the honest path for anything not cooked from this
     // profile's own pool (a table's recipe may not even be IN their
-    // filtered pool, so est is the only honest path)
-    if (e.out || e.table) {
+    // filtered pool; a described away meal has no recipe at all)
+    if (e.out || e.table || (!e.recipeId && (e.estCalories != null || e.estProtein != null))) {
       calories += e.estCalories ?? 0;
       protein += e.estProtein ?? 0;
       continue;

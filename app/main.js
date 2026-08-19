@@ -63,6 +63,7 @@ import {
   slug,
 } from "./lib/shopping.js";
 import { applyReceipt } from "./lib/prices.js";
+import { appendWaste } from "./lib/waste.js";
 import { canonicalFood } from "./lib/ingredients.js";
 import { cookPlan } from "./lib/portions.js";
 import {
@@ -407,14 +408,27 @@ function App() {
         // bag of spinach or a week-old chicken breast leaves on its own); if
         // anything expired, persist the trimmed pantry. normalizePantry first:
         // pre-P1 perishables self-heal stable ids (persisted on next write)
-        const { pantry: fresh, expired } = expirePerishables(
-          normalizePantry(src),
-          localIsoDate(new Date()),
-        );
+        const {
+          pantry: fresh,
+          expired,
+          tossed,
+        } = expirePerishables(normalizePantry(src), localIsoDate(new Date()));
         setPantry(fresh);
         if (expired.length > 0) {
           pantryRef.current = fresh;
           void write(path, fresh, { raw: true });
+          // the waste ledger (PF.1): expiry is a WRITE-OFF, never a silent
+          // delete — P11's tossed-vs-used axis reads these, and the history
+          // cannot be backfilled. Sibling file to the household pantry.
+          void (async () => {
+            const wastePath = path.replace(/pantry\.json$/, "waste.json");
+            const prior = /** @type {Record<string, any> | null} */ (
+              await read(wastePath, { raw: true })
+            );
+            await write(wastePath, appendWaste(prior, tossed, localIsoDate(new Date())), {
+              raw: true,
+            });
+          })();
         }
       })();
       // shared price catalogue (data-repo root, never profile-scoped)
@@ -741,7 +755,12 @@ function App() {
       if (!cat) {
         priceNote = " (prices not learned: price list not loaded)";
       } else {
-        const { catalogue: next, applied, added, unmatched } = applyReceipt(cat, store, lines, today);
+        const {
+          catalogue: next,
+          applied,
+          added,
+          unmatched,
+        } = applyReceipt(cat, store, lines, today);
         setPriceCatalogue(next);
         void write("prices.json", /** @type {any} */ (next), { raw: true });
         priceNote =
@@ -769,7 +788,6 @@ function App() {
           },
         });
       }
-
     },
     // updatePlan/planRef are declared later in this component but are
     // identity-stable; referencing them in the body (call time) is safe,
@@ -1041,8 +1059,7 @@ function App() {
     (/** @type {string} */ id) => {
       const items = pantryItems(pantryRef.current).map((/** @type {any} */ it) => {
         if (it.id !== id) return it;
-        const next =
-          it.state === "plenty" ? "low" : it.state === "low" ? undefined : "plenty";
+        const next = it.state === "plenty" ? "low" : it.state === "low" ? undefined : "plenty";
         const rest = { ...it };
         delete rest.state;
         return next ? { ...rest, state: next } : rest;

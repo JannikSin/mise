@@ -5,8 +5,10 @@ import { scanPhoto, scanReceipt } from "../lib/worker.js";
 import {
   cycleDayPick,
   deriveShoppingList,
+  isDatedItem,
   mergeProfileLists,
   packHint,
+  pantryItems,
   perishableStatus,
   subtractPantryFromTrip,
   swapCandidates,
@@ -1288,14 +1290,14 @@ export function ShoppingView({
                 ...pantryLocations.filter(
                   (l) =>
                     l !== "unsorted" ||
-                    (pantry.perishables ?? []).some(
-                      (/** @type {any} */ p) => (p.location ?? "unsorted") === "unsorted",
-                    ),
+                    pantryItems(pantry)
+                      .filter(isDatedItem)
+                      .some((/** @type {any} */ p) => (p.location ?? "unsorted") === "unsorted"),
                 ),
               ].map((l) => {
-                const n = (pantry.perishables ?? []).filter(
-                  (/** @type {any} */ p) => (p.location ?? "unsorted") === l,
-                ).length;
+                const n = pantryItems(pantry)
+                  .filter(isDatedItem)
+                  .filter((/** @type {any} */ p) => (p.location ?? "unsorted") === l).length;
                 return html`
                   <button
                     key=${l}
@@ -1417,47 +1419,54 @@ export function ShoppingView({
               </span>`
             }
             One pantry, no exempt class: tap an item's state to cycle it. PLENTY means the list
-            skips it, LOW puts it on the next list, OUT means it gets bought whenever a recipe
-            needs it. Food arrives on a shelf when you scan the receipt, tap ADD TO PANTRY, or
-            photograph the shelf, and comes off it when you cook the meal.
+            skips it, LOW puts it on the next list, OUT means it gets bought whenever a recipe needs
+            it. Food arrives on a shelf when you scan the receipt, tap ADD TO PANTRY, or photograph
+            the shelf, and comes off it when you cook the meal.
           </p>
           <h2 class="block-title">Shelf-stable</h2>
-          ${
-            (pantry.staples ?? []).length === 0 &&
-            html`<div class="empty">nothing asserted yet — they arrive with your seed data</div>`
-          }
-          <div class="slots">
-            ${(pantry.staples ?? []).map(
-              (/** @type {Record<string, any>} */ s) => html`
-                <div class="checkrow static" key=${s.id}>
-                  <span class="food">
-                    ${s.name}${s.premium ? html` <span class="tag premium">premium</span>` : ""}
-                  </span>
-                  <button
-                    class="lowbtn ${s.runningLow ? "on" : ""}"
-                    aria-label="Cycle stock state for ${s.name}"
-                    onClick=${() => onToggleLow(s.id)}
-                  >
-                    ${s.runningLow ? "LOW ✓" : s.onHand ? "PLENTY" : "OUT"}
-                  </button>
-                  ${
-                    onRemovePantry &&
-                    html`<button
-                      class="rmbtn"
-                      aria-label="Remove ${s.name} from the pantry"
-                      onClick=${() => onRemovePantry("staple", s.id)}
-                    >
-                      ✕
-                    </button>`
-                  }
-                </div>
-              `,
-            )}
-          </div>
           ${(() => {
-            const shelf = (pantry.perishables ?? []).filter(
-              (/** @type {any} */ p) => (p.location ?? "unsorted") === scanLocation,
-            );
+            const stateRows = pantryItems(pantry).filter((it) => !isDatedItem(it));
+            return html`
+              ${
+                stateRows.length === 0 &&
+                html`<div class="empty">
+                  nothing asserted yet — they arrive with your seed data
+                </div>`
+              }
+              <div class="slots">
+                ${stateRows.map(
+                  (/** @type {Record<string, any>} */ s) => html`
+                    <div class="checkrow static" key=${s.id}>
+                      <span class="food">
+                        ${s.food}${s.premium ? html` <span class="tag premium">premium</span>` : ""}
+                      </span>
+                      <button
+                        class="lowbtn ${s.state === "low" ? "on" : ""}"
+                        aria-label="Cycle stock state for ${s.food}"
+                        onClick=${() => onToggleLow(s.id)}
+                      >
+                        ${s.state === "low" ? "LOW ✓" : s.state === "plenty" ? "PLENTY" : "OUT"}
+                      </button>
+                      ${
+                        onRemovePantry &&
+                        html`<button
+                          class="rmbtn"
+                          aria-label="Remove ${s.food} from the pantry"
+                          onClick=${() => onRemovePantry("staple", s.id)}
+                        >
+                          ✕
+                        </button>`
+                      }
+                    </div>
+                  `,
+                )}
+              </div>
+            `;
+          })()}
+          ${(() => {
+            const shelf = pantryItems(pantry)
+              .filter(isDatedItem)
+              .filter((/** @type {any} */ p) => (p.location ?? "unsorted") === scanLocation);
             return html`
               <h2 class="block-title">In the ${scanLocation}</h2>
               ${

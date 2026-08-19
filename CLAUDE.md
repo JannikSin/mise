@@ -1,8 +1,10 @@
 # CLAUDE.md — Mise
 
 > **READ FIRST, EVERY SESSION: `C:\Users\DATar\Sanity\Obsidian\Crystal\Lanes\Mise-Core-Purpose.md`.**
-> It is the authority on what this app is for. It carries twelve numbered promises and a done test for each
-> (renumbered 2026-08-18, P9-P12 added same day; the old-to-new mapping is at the top of `Crystal\Lanes\Mise-Fix-List.md`).
+> It is the authority on what this app is for. It carries twelve numbered promises in four acts (Plan, Buy,
+> Cook, Adapt) and a done test for each. Numbering changed TWICE on 2026-08-18; the decoder for older notes
+> is at the top of `Crystal\Lanes\Mise-Fix-List.md`. Current: P1 numbers, P2 decided, P3 knows-you, P4 store,
+> P5 budget, P6 pantry, P7 time, P8 plates, P9 good-cook, P10 eat-anywhere, P11 review, P12 bank.
 > **The locked week is abolished (David, 2026-08-18): shopping locks the INGREDIENTS and stores the plan as
 > a fallback; the plan itself stays changeable so long as every bought perishable is used before it dies.**
 > **Every change must name the promise number it serves.** A change that serves no promise does not get
