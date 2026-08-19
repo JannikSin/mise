@@ -27,7 +27,8 @@ import {
   subtractPantryFromTrip,
   withAutoUseSoon,
 } from "../app/lib/shopping.js";
-import { cookPlan } from "../app/lib/portions.js";
+import { cookPlan, leftoverLedger } from "../app/lib/portions.js";
+import { perishableCoverage } from "../app/lib/coverage.js";
 import { buildServe } from "../app/lib/serve.js";
 import { clampGuests, deriveTables, setTableGuests } from "../app/lib/tables.js";
 import { composeWeekReview } from "../app/lib/review.js";
@@ -440,7 +441,7 @@ const PROMISES = [
 
   {
     id: "P4",
-    name: "P4 every priced row charges a real pack size, and unpriced rows are counted out loud",
+    name: "P4 every row is a real pack at a real store, and every bought perishable has a meal before its date",
     fn: () => {
       const cat = JSON.parse(readFileSync(CATALOGUE, "utf8"));
       assert.ok(cat.items.length > 0, "the live catalogue is empty");
@@ -492,6 +493,66 @@ const PROMISES = [
       // And the matcher reaches real products under real names: the failure
       // that once left 43 of 51 rows unpriced.
       assert.ok(matchPrice(priced.name, cat.items), "a catalogue row could not match its own name");
+
+      // THE LEDGER HALF. Shopping locks the INGREDIENTS, never the plan, and
+      // the one governing rule is that everything perishable you bought gets
+      // used before it dies. So the plan may be reshaped freely after the
+      // shop, as long as every bought perishable still has a meal to go to.
+      const soup = {
+        id: "soup",
+        name: "Spinach Soup",
+        mealType: "dinner",
+        servings: 2,
+        nutrition: { calories: 400, protein: 20 },
+        ingredients: [{ qty: 200, unit: "g", food: "spinach" }],
+      };
+      const other = { ...soup, id: "other", name: "Rice Bowl", ingredients: [{ qty: 100, unit: "g", food: "rice" }] };
+      const pantry = {
+        items: [
+          { id: "p1", food: "spinach", qty: "200 g", location: "fridge", expires: DATES[2] },
+        ],
+      };
+      const covered = perishableCoverage(
+        { week: WEEK, entries: [{ id: "e", date: DATES[1], slot: "dinner", recipeId: "soup", servings: 1 }] },
+        [soup, other],
+        pantry,
+        DATES[0],
+      );
+      assert.equal(covered.checked, 1, "the bought perishable was not even examined");
+      assert.deepEqual(covered.gaps, [], "a perishable with a meal before its date was called homeless");
+
+      // RESHAPE THE WEEK and the watch fires: the meal that ate the spinach
+      // is gone, so the spinach now dies in the fridge and the app says so
+      // BEFORE it happens rather than writing it off afterwards.
+      const reshaped = perishableCoverage(
+        { week: WEEK, entries: [{ id: "e", date: DATES[1], slot: "dinner", recipeId: "other", servings: 1 }] },
+        [soup, other],
+        pantry,
+        DATES[0],
+      );
+      assert.equal(reshaped.gaps.length, 1, "a bought perishable lost its home and nothing noticed");
+      assert.equal(reshaped.gaps[0].food, "spinach");
+      assert.equal(reshaped.gaps[0].goodUntil, DATES[2]);
+
+      // A MEAL AFTER THE DATE IS NOT A HOME. Cooking it on Friday does not
+      // save food that dies on Wednesday.
+      const tooLate = perishableCoverage(
+        { week: WEEK, entries: [{ id: "e", date: DATES[5], slot: "dinner", recipeId: "soup", servings: 1 }] },
+        [soup, other],
+        pantry,
+        DATES[0],
+      );
+      assert.equal(tooLate.gaps.length, 1, "a meal scheduled after the expiry counted as a home");
+
+      // AND STOCK IS NOT A COUNTDOWN. A freezer row is backup protein, not a
+      // clock, so it is never nagged about.
+      const frozen = perishableCoverage(
+        { week: WEEK, entries: [] },
+        [soup],
+        { items: [{ id: "f", food: "spinach", qty: "200 g", location: "freezer", expires: DATES[2] }] },
+        DATES[0],
+      );
+      assert.deepEqual(frozen.gaps, [], "a freezer row was treated as expiring food");
     },
   },
 
@@ -672,7 +733,7 @@ const PROMISES = [
 
   {
     id: "P7",
-    name: "P7 leftovers are cooked on purpose and the timer records actual against stated",
+    name: "P7 leftovers are cooked on purpose, eaten inside their safe window, and the timer records actual against stated",
     fn: () => {
       // COOK ONCE, EAT THREE TIMES: a batch recipe eaten one plate at a time
       // cooks the WHOLE batch on purpose and names the extra servings. An
@@ -729,6 +790,77 @@ const PROMISES = [
         review.time.statedMin,
         "the overrun must stay visible as an overrun, never averaged away",
       );
+
+      // WHICH LATER SLOT EATS IT. Until 2026-08-19 the batch note told the
+      // cook "the plan has already scheduled it as leftovers" and nothing
+      // anywhere linked the pot to the slot, so the promise had nothing to
+      // answer to and the safe-window clause had nothing to check.
+      const chili = { ...batch, safeDays: 4, servings: 4 };
+      const bank = new Map([["chili", chili]]);
+      const week = {
+        week: WEEK,
+        entries: [
+          { id: "a", date: DATES[0], slot: "dinner", recipeId: "chili", servings: 2 },
+          { id: "b", date: DATES[1], slot: "lunch", recipeId: "chili", servings: 1 },
+          { id: "c", date: DATES[3], slot: "lunch", recipeId: "chili", servings: 1 },
+        ],
+      };
+      const led = leftoverLedger(week, bank);
+      assert.equal(led.cooks.length, 1, "one 4-serving pot should feed all three slots");
+      assert.equal(led.cooks[0].date, DATES[0], "the pot is cooked at the first slot");
+      assert.equal(led.cooks[0].makes, 4, "the batch is cooked whole, not scaled to one plate");
+      assert.deepEqual(
+        led.cooks[0].eats.map((e) => `${e.date}/${e.slot}/${e.servings}`),
+        [`${DATES[0]}/dinner/2`, `${DATES[1]}/lunch/1`, `${DATES[3]}/lunch/1`],
+        "the plan does not state which later slots eat the pot",
+      );
+      assert.deepEqual(led.orphans, [], "the pot was fully claimed, so nothing is orphaned");
+      assert.deepEqual(led.reCooked, [], "nothing was scheduled outside the safe window");
+
+      // THE SAFE WINDOW BINDS. Cooked food keeps fewer days than raw, so a
+      // slot past the dish's window starts a NEW cook rather than serving
+      // five-day-old chili and calling it thrift. An audited bank that
+      // poisons nobody is the floor, not a feature.
+      const late = leftoverLedger(
+        {
+          week: WEEK,
+          entries: [
+            { id: "a", date: DATES[0], slot: "dinner", recipeId: "chili", servings: 1 },
+            { id: "b", date: DATES[6], slot: "lunch", recipeId: "chili", servings: 1 },
+          ],
+        },
+        bank,
+      );
+      assert.equal(late.cooks.length, 2, "a slot six days later ate from a four-day-old pot");
+      assert.equal(late.reCooked.length, 1, "the window breach was not reported");
+      assert.equal(late.reCooked[0].sinceCook, 6);
+      assert.equal(late.reCooked[0].safeDays, 4);
+
+      // AN UNKNOWN WINDOW IS A SHORT WINDOW, never an unlimited one.
+      const noField = leftoverLedger(
+        {
+          week: WEEK,
+          entries: [
+            { id: "a", date: DATES[0], slot: "dinner", recipeId: "x", servings: 1 },
+            { id: "b", date: DATES[5], slot: "lunch", recipeId: "x", servings: 1 },
+          ],
+        },
+        new Map([["x", { id: "x", name: "X", servings: 4, tags: ["batch-friendly"] }]]),
+      );
+      assert.equal(noField.reCooked.length, 1, "a recipe with no safeDays was treated as keeping forever");
+
+      // AND NO ORPHAN CONTAINERS on a real generated week. Measured across
+      // five salts on the live bank: every unclaimed remainder is a fraction
+      // of a serving, which is the arithmetic of fractional plates, never a
+      // container of food nobody eats.
+      const files = readdirSync(BANK_DIR).filter((f) => f.endsWith(".json"));
+      const liveBank = files.map((f) => JSON.parse(readFileSync(new URL(f, BANK_DIR), "utf8")));
+      for (const r of liveBank) {
+        assert.ok(
+          Number(r.safeDays) > 0,
+          `${r.id}: no safeDays, so its leftovers have no window at all`,
+        );
+      }
     },
   },
 
@@ -1035,14 +1167,6 @@ for (const p of PROMISES) test(p.name, p.fn);
 /** @type {{ id: string, name: string, why: string }[]} */
 const UNBUILT = [
   {
-    id: "P4",
-    name: "P4 GAP every bought perishable has a home in the plan before its date",
-    why:
-      "owner koenig, Phase 2 job 8. The pack-size half passes. The ledger half does not exist: after " +
-      "GOING TO THE STORE the plan may be reshaped freely, and nothing checks the governing rule that " +
-      "everything perishable bought gets used before it dies. Needs P7's safeDays to land first.",
-  },
-  {
     id: "P5",
     name: "P5 GAP the week is changed until it fits the budget, or says by how much it cannot",
     why:
@@ -1062,15 +1186,6 @@ const UNBUILT = [
       "owner koenig, Phase 2 job 10. No household.json exists at all. Missing: head and member roles, " +
       "equipment at household level, fridge/freezer/pantry volumes as generation constraints, trip " +
       "cadence, and the occupancy window whose departure date is a drain-down target.",
-  },
-  {
-    id: "P7",
-    name: "P7 GAP every leftover slot sits inside the dish's safe window",
-    why:
-      "owner koenig, Phase 2 job 9. Zero occurrences of safeDays anywhere in app, tests or the " +
-      "126-recipe bank. Cooked food keeps fewer days than raw, and the scheduler currently places " +
-      "leftover slots with no knowledge of the window at all. An audited bank that poisons nobody is " +
-      "the floor, not a feature.",
   },
   {
     id: "P8",

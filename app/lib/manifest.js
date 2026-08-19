@@ -15,6 +15,7 @@
 import { weightTrend } from "./weight.js";
 import { weekAdherence } from "./adherence.js";
 import { datesOfWeek, dayTotals } from "./plan.js";
+import { leftoverLedger } from "./portions.js";
 import { enforcedCeilings, enforcedFloors } from "./targets.js";
 
 /** Morton 2018: plateau ~1.6 g/kg/day, upper 95% CI ~2.2. */
@@ -36,6 +37,7 @@ export const SUBSYSTEMS = [
   "weightTrend",
   "adherence",
   "protein",
+  "leftovers",
 ];
 
 /**
@@ -124,6 +126,28 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
   if (!subsystems.away && current) {
     subsystems.away = awayBackfill(current, todayIso);
   }
+
+  // LEFTOVERS (P7, 2026-08-19). The batch note has always told the cook that
+  // "the plan has already scheduled it as leftovers"; nothing linked a pot to
+  // the later slot that eats it, so neither the no-orphans clause nor the
+  // safe-window clause had anything to answer to. Derived, never stored: a
+  // stored link is a second copy of the plan that can disagree with the plan.
+  // It reports unconditionally, including "no plan to read", because the
+  // registry test's whole job is that a subsystem can never go quiet.
+  const led = current
+    ? leftoverLedger(/** @type {any} */ (current), new Map(recipes.map((r) => [r.id, r])))
+    : { cooks: [], orphans: [], reCooked: [] };
+  subsystems.leftovers = {
+    batchCooks: led.cooks.length,
+    leftoverSlots: led.cooks.reduce((n, c) => n + Math.max(0, c.eats.length - 1), 0),
+    // a CONTAINER is a whole serving nobody eats. Sub-serving remainders are
+    // the arithmetic of fractional plates, not food going bad, and calling
+    // them waste would make the number unreadable and then ignored.
+    orphanContainers: led.orphans.filter((o) => o.servings >= 1).length,
+    orphanServings: Math.round(led.orphans.reduce((s2, o) => s2 + o.servings, 0) * 100) / 100,
+    pastWindow: led.reCooked.length,
+    readPlan: Boolean(current),
+  };
 
   // plating (synth.js): deliberately inert by council 2026-08-12, kill
   // review 2026-11-15. The manifest keeps saying so, out loud, so the gate
@@ -375,6 +399,17 @@ function lineFor(key, s) {
             : "") +
         (s.avgCalories ? `, delivering ~${s.avgCalories} kcal/day avg` : "")
       );
+    case "leftovers":
+      // both halves of P7's done test, in one line: which pots feed which
+      // later slots, and whether anything was left with nobody to eat it or
+      // scheduled past the day it stops being safe
+      if (!s.readPlan) return "no plan on file yet, so nothing is scheduled as leftovers";
+      return s.batchCooks === 0
+        ? "no batch cooks this week, so nothing is planned as leftovers"
+        : `${s.batchCooks} batch cook${s.batchCooks === 1 ? "" : "s"} feeding ${s.leftoverSlots} later slot${s.leftoverSlots === 1 ? "" : "s"}, ` +
+          `${s.orphanContainers} orphan container${s.orphanContainers === 1 ? "" : "s"}` +
+          (s.orphanServings > 0 ? ` (${s.orphanServings} servings unclaimed)` : "") +
+          `, ${s.pastWindow} slot${s.pastWindow === 1 ? "" : "s"} past the safe window`;
     case "plating":
       return `${s.status}; ${s.platedRecipes} of ${s.bankRecipes} recipes tagged plated`;
     case "weightTrend":
