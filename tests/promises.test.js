@@ -843,6 +843,62 @@ const PROMISES = [
   },
 
   {
+    id: "P12",
+    name: "P12 every bank recipe declares its audit state, and no audit is claimed without evidence",
+    fn: () => {
+      const files = readdirSync(BANK_DIR).filter((f) => f.endsWith(".json"));
+      /** @type {string[]} */
+      const offences = [];
+      /** @type {Record<string, number>} */
+      const voices = {};
+      let audited = 0;
+      for (const f of files) {
+        const r = JSON.parse(readFileSync(new URL(f, BANK_DIR), "utf8"));
+
+        // DECLARED, ALWAYS. `null` is legal and means "never audited". ABSENT
+        // is not, because absent is the state the promise rotted in: nothing
+        // could confirm or refute it, and an unfalsifiable promise reads as a
+        // passing one.
+        if (!("audited" in r)) {
+          offences.push(`${r.id}: no audited field at all`);
+          continue;
+        }
+        if (r.audited === null) continue;
+
+        // NO RUBBER STAMPS. An audit claim must cite a real quote from this
+        // recipe's own record, so a person can check it in ten seconds.
+        const a = r.audited;
+        if (!a.standard) offences.push(`${r.id}: audited with no standard named`);
+        if (!a.on) offences.push(`${r.id}: audited with no date`);
+        if (!a.by) offences.push(`${r.id}: audited by nobody`);
+        if (typeof a.evidence !== "string" || a.evidence.trim().length < 15) {
+          offences.push(`${r.id}: claims an audit and cites no evidence`);
+        }
+        audited++;
+        voices[a.standard] = (voices[a.standard] ?? 0) + 1;
+
+        // NUTRIENT DATA ON ENTRY. P12's own rule for the bank's growth, and
+        // it is checkable today: the macros Mise actually enforces.
+        for (const k of ["calories", "protein", "carbs", "fat"]) {
+          if (!Number.isFinite(r.nutrition?.[k])) offences.push(`${r.id}: nutrition.${k} missing`);
+        }
+        if (!r.nutrition?.method) offences.push(`${r.id}: nutrition with no stated method`);
+      }
+      assert.deepEqual(offences.slice(0, 8), [], `${offences.length} bank recipes break the rule`);
+
+      // THE MEASUREMENT, printed rather than asserted, because this is the
+      // number the promise is failing ON and it must be visible every run.
+      // The done test wants ALL of them audited in more than one nutritional
+      // voice; the gap test below owns the distance.
+      console.log(
+        `\n  BANK AUDIT: ${audited} of ${files.length} recipes audited, ` +
+          `voices: ${JSON.stringify(voices)}\n`,
+      );
+      assert.ok(audited > 0, "not one recipe in the bank carries an audit");
+    },
+  },
+
+  {
     id: "P11",
     name: "P11 the review shows plan against reality on every tracked axis, and names the axes with no data",
     fn: () => {
@@ -1009,13 +1065,15 @@ const UNBUILT = [
   },
   {
     id: "P12",
-    name: "P12 GAP every bank recipe declares its audit and its nutrition philosophy",
+    name: "P12 GAP the whole bank is audited, in more than one nutritional voice",
     why:
-      "owner koenig, Phase 1 job 5. No audited field and no philosophy field exist anywhere in the " +
-      "schema or in any of the 126 recipes, which makes the whole promise unfalsifiable: nothing can " +
-      "distinguish an audited bank from an unaudited one, and 'more than one nutritional voice' cannot " +
-      "be counted. This is the cheapest promise on the list to make checkable, and until it is, it is " +
-      "the most dangerous, because it is the one that reads as passing.",
+      "owner David and koenig, Phase 2 content work. The schema and the backfill landed 2026-08-19, " +
+      "so the promise is now FALSIFIABLE, and it is failing: 88 of 126 recipes carry an evidenced " +
+      "audit and 38 carry none. The voices are 'greger' (83) and 'clinical' (5), and clinical is a " +
+      "medical constraint rather than a nutritional philosophy, so the bank still speaks in ONE voice " +
+      "and P12 asks for more than one. Two jobs, and neither is engineering: audit the 38, and author " +
+      "a second philosophy bundle. Per the 2026-08-18 nutrition council no second bundle is built " +
+      "until a named user and one measured cooked week exist, so this waits on David.",
   },
 ];
 

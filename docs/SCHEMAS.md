@@ -382,6 +382,27 @@ last-known (†-stale) prices.
     "fat": 18,
     "method": "estimated", // estimated | usda-spot-checked
   },
+  // P12, added 2026-08-19 (session koenig). REQUIRED on every bank recipe,
+  // and `null` is a legal, meaningful value: "never audited", said plainly.
+  // What is NOT legal is the field being absent, because that is the state
+  // the promise rotted in — "every recipe in the bank is audited" could be
+  // neither confirmed nor refuted, and an unfalsifiable promise reads as a
+  // passing one.
+  //
+  // There is deliberately NO separate `philosophy` field. `audited.standard`
+  // IS the philosophy claim, and it cannot be made without citing evidence.
+  // Two fields would let an unaudited recipe declare a voice it was never
+  // checked against, which reopens exactly the loophole this closes.
+  //
+  // `evidence` must be a real quote from this recipe's own record, so any
+  // claim here can be checked by a person in ten seconds. tests/promises.test.js
+  // fails the build on an audit block with no evidence.
+  "audited": {
+    "standard": "greger", // greger | clinical (nutrition voice, or a medical constraint)
+    "on": "2026-08-19",
+    "by": "greger-agent, recorded in this recipe's own lessons",
+    "evidence": "Greger pass 1: swapped batch rice to brown.",
+  },
   "foodGroups": {
     // ? Daily Dozen servings this recipe provides per serving
     "beans": 1, // legumes/tofu/tempeh/edamame, ~0.5 cup cooked = 1
