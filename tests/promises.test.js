@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 
 import { generateWeek } from "../app/lib/weekbuilder.js";
-import { composeManifest, manifestLines } from "../app/lib/manifest.js";
+import { composeManifest, manifestLines, remanifest } from "../app/lib/manifest.js";
 import {
   cycleSlotAway,
   datesOfWeek,
@@ -17,6 +17,7 @@ import {
 } from "../app/lib/plan.js";
 import {
   avoidTermsFromAllergens,
+  enforcedCeilings,
   enforcedFloors,
   targetsSanity,
 } from "../app/lib/targets.js";
@@ -157,7 +158,7 @@ function build(opts = {}) {
 const PROMISES = [
   {
     id: "P1",
-    name: "P1 every generated day lands inside its floors, re-derived from the plan as it stands",
+    name: "P1 every day lands inside its floors and under its ceiling, re-derived from the plan as it stands",
     fn: () => {
       const { plan, report } = build();
 
@@ -200,6 +201,54 @@ const PROMISES = [
         .map((l) => l.text)
         .join("\n");
       assert.match(lines, /short days/i, "the manifest does not render its floor misses");
+
+      // THE CEILING HALF. This is the one that was failing on live data: the
+      // generator computed calorieOverDays into a transient build report, so a
+      // breach created by an EDIT was invisible. On 2026-08-19 the real week
+      // sat at 4,055 kcal against a 3,885 ceiling and no screen said so.
+      const ceilings = enforcedCeilings(TARGETS.macros);
+      const gorged = {
+        ...plan,
+        entries: [
+          ...plan.entries,
+          { id: "extra", date: DATES[0], slot: "snack", recipeId: "snack-1", servings: 6 },
+        ],
+      };
+      const over = remanifest(after, {
+        plan: gorged,
+        targets: TARGETS,
+        recipes: pool(),
+        dailyDays: [],
+        todayIso: DATES[0],
+      });
+      assert.equal(
+        over.subsystems.floors.calorieCeiling,
+        Math.round(ceilings.calories),
+        "the reported ceiling is not the one the trim pass enforces",
+      );
+      assert.ok(
+        over.subsystems.floors.calorieOverDays > 0,
+        "a day pushed over the calorie ceiling by an edit reported no overage",
+      );
+      assert.match(
+        manifestLines(over, gorged, DATES[0])
+          .map((l) => l.text)
+          .join("\n"),
+        /OVER the \d+ kcal ceiling on \d+ day/,
+        "the breach was counted internally and never rendered",
+      );
+
+      // AND AN ABSENT CEILING SAYS SO. This profile writes no protein ceiling,
+      // and P5 calls unconstrained over-delivery a budget leak, so the absence
+      // has to be visible rather than merely absent.
+      assert.equal(over.subsystems.floors.proteinCeiling, null);
+      assert.equal(over.subsystems.floors.proteinOverDays, null);
+      assert.match(
+        manifestLines(over, gorged, DATES[0])
+          .map((l) => l.text)
+          .join("\n"),
+        /no protein ceiling set/,
+      );
     },
   },
 
@@ -310,6 +359,28 @@ const PROMISES = [
       // A profile with no body stats is UNCHECKED and says so, rather than
       // silently passing: an unmeasured target must never read as a safe one.
       assert.equal(targetsSanity({ macros: { calories: 3700 } }).verdict, "unchecked");
+
+      // AND NO ENGINE ASSUMES A DEFAULT PERSON. Until 2026-08-19 the generator
+      // read `?? 210` / `?? 3400`, David's own targets, so an unreadable
+      // profile did not fail: it silently produced HIS week for somebody else.
+      for (const t of [null, {}, { macros: {} }, { macros: { protein: 175 } }]) {
+        assert.throws(
+          () =>
+            // deliberately NOT through build(): its `?? TARGETS` default is
+            // itself a fallback person, and this is the one test that must
+            // reach the engine with nothing
+            generateWeek({
+              recipes: pool(),
+              targets: t,
+              pantry: { items: [] },
+              weekId: WEEK,
+              plan: { week: WEEK, entries: [] },
+              salt: 1,
+            }),
+          /no calorie and protein target/,
+          `GENERATE invented a default person for targets ${JSON.stringify(t)}`,
+        );
+      }
     },
   },
 
@@ -810,16 +881,6 @@ for (const p of PROMISES) test(p.name, p.fn);
 
 /** @type {{ id: string, name: string, why: string }[]} */
 const UNBUILT = [
-  {
-    id: "P1",
-    name: "P1 GAP a calorie-ceiling breach is reported on the plan and re-checked after every edit",
-    why:
-      "owner koenig, Phase 1 job 3. generateWeek computes calorieOverDays into a TRANSIENT build " +
-      "report (weekbuilder.js:1579, rendered once at planner.js:295). Nothing persists it: manifest.js " +
-      "counts calorieShortDays and has no ceiling counter at all, and handleToggleOut (main.js:1236) " +
-      "calls updatePlan without recomposing. So a breach created by an EDIT is invisible, which is the " +
-      "live state on 2026-08-19: 4,055 kcal against a 3,885 ceiling with nothing anywhere saying so.",
-  },
   {
     id: "P3",
     name: "P3 GAP a described or scanned away meal is screened against declared allergens",

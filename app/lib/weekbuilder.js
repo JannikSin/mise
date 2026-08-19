@@ -24,7 +24,7 @@ import {
   untrustedForAutoPlan,
 } from "./plan.js";
 import { slug, pantryItems, isDatedItem } from "./shopping.js";
-import { enforcedFloors } from "./targets.js";
+import { enforcedCeilings, enforcedFloors } from "./targets.js";
 import { seatServingsFor, slotShareFor } from "./tables.js";
 
 /** deterministic 32-bit FNV-1a — the builder's only randomness source */
@@ -920,19 +920,12 @@ export function poolInsufficiency(recipes, dailyDozenTargets) {
   return out;
 }
 
-/**
- * Calorie CEILING multiplier: a little over target is fine, ~9% over is not.
- *
- * The ceiling stays a RATIO where the floors stopped being one, and that
- * asymmetry is deliberate (council 2026-08-07 asked for the ceiling rule to
- * be decided in the same change). A floor is a number the person read and
- * agreed to; it belongs to them and a formula must never outrank it. A
- * ceiling is the generator's own slack allowance for its top-up passes
- * overshooting — nobody has ever written one down. So: a written
- * `macros.caloriesCeiling` wins if a profile ever sets one, and absent that
- * the tolerance is 5% of target, unchanged.
- */
-const CEILING_RATIO = 1.05;
+// The calorie ceiling multiplier moved to targets.js on 2026-08-19 (session
+// koenig), as `enforcedCeilings`, beside `enforcedFloors`. It was computed
+// inline twice in this file and read by nothing that outlived a generate,
+// which is how a live week sat over its ceiling with nothing saying so. The
+// reasoning for the floor/ceiling asymmetry travelled with it.
+
 const COMMITTEE_SIZES = { dinner: 4, lunch: 3, breakfast: 2, smoothie: 1 };
 /**
  * Committee-build / proactive-fill priority (dinner = biggest ingredient
@@ -1162,8 +1155,22 @@ export function generateWeek({
     slots: outDays.reduce((s, d) => s + d.slots.length, 0),
   };
 
-  const proteinTarget = targets?.macros?.protein ?? 210;
-  const caloriesTarget = targets?.macros?.calories ?? 3400;
+  // P3, no invented person. These two lines read `?? 210` and `?? 3400`,
+  // which are DAVID'S targets from an earlier phase. A profile whose targets
+  // could not be read did not fail: it quietly generated a week aimed at him,
+  // and every downstream floor, top-up and trim pass then enforced a stranger's
+  // numbers on somebody else. The fallbacks were dormant on the one device
+  // anybody tests on, which is precisely why they survived every audit.
+  // Generation is an explicit, personalised, online act (P2), so refusing it
+  // out loud is correct and silence is not.
+  const proteinTarget = Number(targets?.macros?.protein);
+  const caloriesTarget = Number(targets?.macros?.calories);
+  if (!(proteinTarget > 0) || !(caloriesTarget > 0)) {
+    throw new Error(
+      "generateWeek: this profile has no calorie and protein target. Mise does not aim a week " +
+        "at a person it cannot read (P3). Set macros.calories and macros.protein on the profile.",
+    );
+  }
   // the floors the profile actually WROTE, never a ratio of the target
   // (see enforcedFloors — this used to be caloriesTarget * 0.95)
   const floors = enforcedFloors({
@@ -1171,6 +1178,11 @@ export function generateWeek({
     calories: caloriesTarget,
     protein: proteinTarget,
   });
+  // the ceilings, from the same one place the manifest reads them, so the
+  // number the trim pass enforces and the number the report prints can never
+  // drift apart (they did: the ceiling was inlined twice here and reported
+  // nowhere that survived an edit)
+  const ceilings = enforcedCeilings({ ...targets?.macros, calories: caloriesTarget });
   const dailyDozenPerDay = targets?.dailyDozen ?? {};
   // greedy committee scoring accumulates at week-level for efficiency (R1);
   // the REPORT is still computed per day from the actual generated plan
@@ -1466,7 +1478,7 @@ export function generateWeek({
   // protein top-up sees each day's post-floor totals, not the other way
   // around.
   next = foodGroupFloorPass(next, pool("snack"), byId, dailyGroupFloors, {
-    calorieCeiling: Number(targets?.macros?.caloriesCeiling) || caloriesTarget * CEILING_RATIO,
+    calorieCeiling: ceilings.calories,
   });
 
   // Step 4: macro top-up (calories + protein). Uses the FULL snack pool, not
@@ -1499,9 +1511,8 @@ export function generateWeek({
   // Step 4.5: calorie CEILING trim, run LAST. The two passes above only ever
   // ADD servings, so days routinely overshoot the target by 5-9%; this trims
   // back down without breaking any floor those passes just secured.
-  const calorieCeiling = Number(targets?.macros?.caloriesCeiling) || caloriesTarget * CEILING_RATIO;
   next = calorieTrimPass(next, byId, {
-    calorieCeiling,
+    calorieCeiling: ceilings.calories,
     calorieFloor: floors.calories,
     proteinFloor: floors.protein,
     groupFloors: dailyGroupFloors,
@@ -1578,8 +1589,8 @@ export function generateWeek({
   const poolInsufficient = poolInsufficiency(recipes, dailyDozenPerDay);
   const calorieOverDays = liveDates
     .map((date) => ({ date, calories: dayTotals(next.entries, byId, date).calories }))
-    .filter((d) => d.calories > calorieCeiling)
-    .map((d) => ({ ...d, ceiling: calorieCeiling }));
+    .filter((d) => d.calories > ceilings.calories)
+    .map((d) => ({ ...d, ceiling: ceilings.calories }));
 
   // "what this week shares" reflects what actually landed in the plan
   // (pinned + generated), not just the committees before the top-up

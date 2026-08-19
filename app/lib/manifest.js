@@ -15,7 +15,7 @@
 import { weightTrend } from "./weight.js";
 import { weekAdherence } from "./adherence.js";
 import { datesOfWeek, dayTotals } from "./plan.js";
-import { enforcedFloors } from "./targets.js";
+import { enforcedCeilings, enforcedFloors } from "./targets.js";
 
 /** Morton 2018: plateau ~1.6 g/kg/day, upper 95% CI ~2.2. */
 const MORTON_LO = 1.6;
@@ -76,16 +76,29 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
     );
     const live = weekDates.filter((d) => d >= todayIso && !held.has(d));
     const dates = live.length > 0 ? live : weekDates.filter((d) => !held.has(d));
+    // THE CEILING, added 2026-08-19 (session koenig, P1, promise ledger job
+    // 3). The generator has always computed calorieOverDays, but into a
+    // TRANSIENT build report that is rendered once and then gone. Nothing
+    // persisted it and nothing recomputed it, so a breach created by an EDIT
+    // was invisible: marking two slots as dining swipes put 2026-08-19 at
+    // 4,055 kcal against a 3,885 ceiling and no screen in the app said so.
+    // P1 promises the check is re-run after every edit and that a miss is said
+    // out loud, and a floor-only counter can only ever keep half that promise.
+    const ceilings = enforcedCeilings(targets?.macros);
     let cal = 0;
     let prot = 0;
     let calShort = 0;
     let protShort = 0;
+    let calOver = 0;
+    let protOver = 0;
     for (const d of dates) {
       const t = dayTotals(current.entries, byId, d);
       cal += t.calories;
       prot += t.protein;
       if (t.calories < (subsystems.floors.calories ?? 0)) calShort++;
       if (t.protein < (subsystems.floors.protein ?? 0)) protShort++;
+      if (t.calories > ceilings.calories) calOver++;
+      if (ceilings.protein != null && t.protein > ceilings.protein) protOver++;
     }
     const days = Math.max(1, dates.length);
     subsystems.floors = {
@@ -94,6 +107,13 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
       avgProteinG: Math.round(prot / days),
       calorieShortDays: calShort,
       proteinShortDays: protShort,
+      calorieOverDays: calOver,
+      calorieCeiling: Math.round(ceilings.calories),
+      // null is meaningful and is rendered as such: no profile ceiling means
+      // over-delivered protein is unconstrained, and P5 calls that a budget
+      // leak, so the absence has to be visible rather than merely absent
+      proteinCeiling: ceilings.protein,
+      proteinOverDays: ceilings.protein == null ? null : protOver,
       liveDays: dates.length,
     };
   }
@@ -189,6 +209,49 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
     // silently (P4-new fluid week; PF.1).
     fingerprint: current ? planFingerprint(current) : null,
   };
+}
+
+/**
+ * Re-derive a STORED manifest against the plan as it now stands.
+ *
+ * P1 promises its numbers are "re-checked after every edit... and where it
+ * cannot, the app says so out loud instead of quietly missing," and until
+ * 2026-08-19 nothing in the app did that. Generation composed a manifest and
+ * every subsequent edit left it describing a week that no longer existed: two
+ * slots switched to dining swipes put 2026-08-19 at 4,055 kcal against a 3,885
+ * ceiling, and the stored report still reported the generated week.
+ *
+ * This is called from the ONE plan write point (main.js `updatePlan`) rather
+ * than from each handler, deliberately. A per-handler fix is correct only
+ * until somebody adds the eleventh handler, and the whole class of bug this
+ * file exists to kill is "the engine was fine, nobody was watching."
+ *
+ * @param {{ generatedAt?: string, subsystems?: Record<string, any> } | null | undefined} manifest
+ * @param {{ plan: Record<string, any>, targets: Record<string, any> | null,
+ *   recipes: Record<string, any>[], dailyDays: Record<string, any>[], todayIso: string }} ctx
+ * @returns {Record<string, any> | null | undefined} the refreshed manifest, or
+ *   the input untouched when there is nothing to refresh
+ */
+export function remanifest(manifest, { plan, targets, recipes, dailyDays, todayIso }) {
+  // a plan that was never generated has no manifest, and inventing one here
+  // would fill the Plan tab with "REPORTED NOTHING" lines about engines that
+  // were never asked to run
+  if (!manifest?.subsystems || !plan?.week) return manifest;
+  const next = composeManifest({
+    engine: manifest.subsystems,
+    targets,
+    recipes,
+    dailyDays,
+    recentPlans: [{ weekId: plan.week, plan }],
+    todayIso,
+  });
+  // ADHERENCE is the one subsystem that reads weeks this call did not load.
+  // Recomputing it from the current week alone would silently change what the
+  // number MEANS, turning "cooked 1 of 79 planned meals over 4 weeks" into a
+  // one-week figure wearing the same label. Keep the last full compose's
+  // answer; the next GENERATE recomputes it across all four weeks.
+  if (manifest.subsystems.adherence) next.subsystems.adherence = manifest.subsystems.adherence;
+  return next;
 }
 
 /**
@@ -297,7 +360,21 @@ function lineFor(key, s) {
         ? `${s.slots} away slot${s.slots === 1 ? "" : "s"} (${s.swipeSlots} swipe) credit ${s.creditProtein} g protein / ${s.creditCalories} kcal — ${s.cookedNeedRatio != null ? `cooked week aims at the remaining need (density ${s.cookedNeedRatio} vs ${s.fullNeedRatio} full)` : "GENERATE again to aim the cooked week at the remaining need"}`
         : "no away/swipe slots — cooked week aims at the full need";
     case "floors":
-      return `${s.calories} kcal / ${s.protein} g floors (reviewed ${s.lastReviewed ?? "NEVER"}), short days: ${s.calorieShortDays} kcal / ${s.proteinShortDays} protein of ${s.liveDays}${s.avgCalories ? `, delivering ~${s.avgCalories} kcal/day avg` : ""}`;
+      // both directions, always. A floors-only line is how a week sat over
+      // its ceiling in plain sight (P1, 2026-08-19).
+      return (
+        `${s.calories} kcal / ${s.protein} g floors (reviewed ${s.lastReviewed ?? "NEVER"}), ` +
+        `short days: ${s.calorieShortDays} kcal / ${s.proteinShortDays} protein of ${s.liveDays}` +
+        (s.calorieCeiling
+          ? `, OVER the ${s.calorieCeiling} kcal ceiling on ${s.calorieOverDays ?? 0} day${(s.calorieOverDays ?? 0) === 1 ? "" : "s"}`
+          : "") +
+        (s.proteinCeiling
+          ? `, over the ${s.proteinCeiling} g protein ceiling on ${s.proteinOverDays ?? 0}`
+          : s.proteinOverDays === null
+            ? ", no protein ceiling set (over-delivery is unconstrained)"
+            : "") +
+        (s.avgCalories ? `, delivering ~${s.avgCalories} kcal/day avg` : "")
+      );
     case "plating":
       return `${s.status}; ${s.platedRecipes} of ${s.bankRecipes} recipes tagged plated`;
     case "weightTrend":

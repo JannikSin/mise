@@ -92,7 +92,7 @@ import {
   SLOT_KEYS,
 } from "./lib/plan.js";
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
-import { composeManifest } from "./lib/manifest.js";
+import { composeManifest, remanifest } from "./lib/manifest.js";
 import { weekAdherence, rankScoreboard } from "./lib/adherence.js";
 import {
   normalizeEvents,
@@ -473,12 +473,41 @@ function App() {
   const weekRef = useRef(weekId);
   weekRef.current = weekId;
 
+  // The live inputs the P1 manifest refresh needs. Kept in one box declared
+  // here so the single plan-write point below can stay the single write point:
+  // targets, recipes and the daily log are all set up hundreds of lines later,
+  // and hoisting three pieces of state to satisfy one callback would be the
+  // tail wagging the dog. Filled on every render, just below where they exist.
+  const manifestInputs = useRef(
+    /** @type {{ targets: Record<string, any> | null, recipes: Record<string, any>[], dailyDays: Record<string, any>[] }} */ ({
+      targets: null,
+      recipes: [],
+      dailyDays: [],
+    }),
+  );
+
   const updatePlan = useCallback(
     (/** @type {{ week: string, entries: Record<string, any>[] }} */ next) => {
       // the ONE strip point: derived table entries (generateWeek receives
       // the merged viewPlan, whose pinned table entries would otherwise
       // survive into the write) live in events.json, never in a plan file
-      const clean = { ...next, entries: stripTableEntries(next.entries) };
+      let clean = { ...next, entries: stripTableEntries(next.entries) };
+      // P1, re-checked after EVERY edit (2026-08-19, session koenig). The
+      // stored manifest described the week as generated, so any edit after
+      // that — an away toggle, a switched meal, a serving change — left the
+      // Plan tab reporting a week that no longer existed. Doing this at the
+      // one write point rather than in each handler is the point: the next
+      // handler somebody adds gets it for free.
+      if (/** @type {any} */ (clean).manifest) {
+        clean = /** @type {any} */ ({
+          ...clean,
+          manifest: remanifest(/** @type {any} */ (clean).manifest, {
+            plan: clean,
+            ...manifestInputs.current,
+            todayIso: localIsoDate(new Date()),
+          }),
+        });
+      }
       planRef.current = clean;
       setPlan(clean); // optimistic: instant UI, then queue+flush via the store
       void write(`plans/${weekRef.current}.json`, clean);
@@ -1187,6 +1216,9 @@ function App() {
 
   const targetsRef = useRef(targets);
   targetsRef.current = targets;
+  // feeds the manifest refresh at the plan-write point (P1, re-checked after
+  // every edit); declared up there, filled here where the values exist
+  manifestInputs.current = { targets, recipes, dailyDays: dailyLog?.days ?? [] };
 
   // THE FLUID WEEK (7.2, canon P4): the locked week is abolished. Shopping
   // stores the plan as a FALLBACK and the plan stays freely changeable; the

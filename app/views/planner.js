@@ -118,8 +118,17 @@ export function PlannerView({
   // pickable pool; `recipes` stays the pool SWITCH and the tray pick from
   const byId = recipesById(identityRecipes ?? recipes);
   const dates = datesOfWeek(weekId);
-  const kcalTarget = targets?.macros?.calories ?? 3400;
-  const proteinTarget = targets?.macros?.protein ?? 210;
+  // P3, no invented person. These two lines used to read `?? 3400` and
+  // `?? 210`, which are DAVID'S targets from an earlier phase: any profile
+  // whose targets file could not be read was silently measured against his
+  // numbers, and every meter on this screen reported a stranger's progress
+  // toward a stranger's goal. The fallbacks were dormant on the one device
+  // anybody ever tests on, which is exactly why they survived every audit.
+  // Absent now means absent: the numbers render with no denominator and the
+  // screen says so.
+  const kcalTarget = Number(targets?.macros?.calories) || null;
+  const proteinTarget = Number(targets?.macros?.protein) || null;
+  const noTargets = kcalTarget == null || proteinTarget == null;
   // 7.11: expiring balances (dining swipes etc.) — the planner shows
   // used-of-perWeek so a use-or-lose currency is never silently wasted
   const currencies = /** @type {any[]} */ (targets?.currencies ?? []);
@@ -175,6 +184,18 @@ export function PlannerView({
       }
 
       ${
+        noTargets &&
+        html`<div class="tile lockbanner" role="status">
+          <div class="k">⚠ this profile has no calorie or protein target</div>
+          <div class="d">
+            Mise will not aim a week at a person it cannot read, so GENERATE is off until a target
+            exists. The day numbers below are what the plan delivers, measured against nothing. Run
+            the target setup, or set <span class="num">macros.calories</span> and
+            <span class="num">macros.protein</span> on this profile.
+          </div>
+        </div>`
+      }
+      ${
         sanity.verdict === "outside" &&
         html`<div class="tile lockbanner" role="status">
           <div class="k">⚠ target outside the computed band</div>
@@ -204,7 +225,7 @@ export function PlannerView({
             rebuilt ? "Pick different meals for the generated week" : "Generate my week automatically"
           }
           onClick=${onGenerateWeek}
-          disabled=${recipes.length === 0 || firstLive == null}
+          disabled=${recipes.length === 0 || firstLive == null || noTargets}
         >
           ${rebuilt ? "PICK DIFFERENT MEALS" : "✦ GENERATE MY WEEK"}
           <small>
@@ -385,13 +406,15 @@ export function PlannerView({
       ${dates.map((date) => {
         const past = isPast(date);
         const totals = dayTotals(/** @type {any} */ (plan.entries), byId, date);
-        const kcalPct = Math.min(100, Math.round((totals.calories / kcalTarget) * 100));
-        const pPct = Math.min(100, Math.round((totals.protein / proteinTarget) * 100));
+        const kcalPct = kcalTarget ? Math.min(100, Math.round((totals.calories / kcalTarget) * 100)) : 0;
+        const pPct = proteinTarget ? Math.min(100, Math.round((totals.protein / proteinTarget) * 100)) : 0;
         // out slots carry an assumed macro credit (dayTotals counts it), so
         // the meters and warn styling stay honest without special-casing
         const dayTable = plan.entries.find((e) => e.date === date && e.table);
-        const kcalOk = totals.calories / kcalTarget >= 0.9;
-        const pOk = totals.protein / proteinTarget >= 0.9;
+        // no target means no verdict: an absent number can never make a day
+        // read as a miss, which would be the invented person wearing a warning
+        const kcalOk = kcalTarget ? totals.calories / kcalTarget >= 0.9 : true;
+        const pOk = proteinTarget ? totals.protein / proteinTarget >= 0.9 : true;
         // the dinner whisper is GONE (David 2026-08-19: "why dinner over any
         // other meal? We don't need it" — his ruling supersedes the
         // Historian's 2026-07 condition). The collapsed row keeps only the
@@ -417,7 +440,7 @@ export function PlannerView({
               setOpenDays({ ...openDays, [date]: e.currentTarget.open })}
           >
             <summary
-              aria-label="${dayName} ${monthDay(date)}: ${totals.calories} of ${kcalTarget} calories, ${totals.protein} of ${proteinTarget} grams protein${dayEaten ? ", eaten" : dayUnlogged && past ? ", past, cooking not logged" : past ? ", past" : ""}"
+              aria-label="${dayName} ${monthDay(date)}: ${totals.calories}${kcalTarget ? ` of ${kcalTarget}` : ""} calories, ${totals.protein}${proteinTarget ? ` of ${proteinTarget}` : ""} grams protein${dayEaten ? ", eaten" : dayUnlogged && past ? ", past, cooking not logged" : past ? ", past" : ""}"
             >
               <span class="dsum-day">
                 ${dayName}
@@ -425,13 +448,13 @@ export function PlannerView({
               </span>
               <span class="dsum-meters">
                 <span class="mline ${kcalOk ? "" : "warn"}">
-                  <b class="num">${totals.calories} / ${kcalTarget}</b>
+                  <b class="num">${totals.calories}${kcalTarget ? ` / ${kcalTarget}` : ""}</b>
                   <span class="meter" aria-hidden="true">
                     <i style=${`width:${kcalPct}%`}></i>
                   </span>
                 </span>
                 <span class="mline ${pOk ? "" : "warn"}">
-                  <b class="num">${totals.protein} / ${proteinTarget}P</b>
+                  <b class="num">${totals.protein}${proteinTarget ? ` / ${proteinTarget}` : ""}P</b>
                   <span class="meter" aria-hidden="true">
                     <i style=${`width:${pPct}%`}></i>
                   </span>

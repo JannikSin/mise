@@ -415,15 +415,39 @@ test("stress: deriveShoppingList survives recipes with malformed ingredient rows
   );
 });
 
-test("stress: generateWeek tolerates an empty/absent-field pantry and null targets", () => {
+test("stress: generateWeek tolerates an empty/absent-field pantry, and REFUSES null targets", () => {
+  // The pantry half is unchanged: a pantry with no fields is a working state
+  // and generation must survive it.
   const { plan } = generateWeek({
     recipes: bigBank(),
-    targets: null,
+    targets: { macros: { calories: 3700, protein: 175 } },
     pantry: {},
     weekId: "2026-W40",
     plan: { week: "2026-W40", entries: [] },
   });
   assert.equal(plan.entries.filter((e) => e.slot === "dinner").length, 7);
+
+  // The targets half INVERTED on 2026-08-19 (session koenig, P3, promise
+  // ledger job 2). This test used to assert that null targets still produced
+  // a full week, and it passed for months — because the generator quietly
+  // substituted `?? 210` and `?? 3400`, which are David's own numbers. So
+  // "tolerates null targets" actually meant "aims a stranger's week at David
+  // and says nothing." Tolerance of unreadable INPUT is robustness; tolerance
+  // of an unreadable PERSON is the invented-person bug P3 forbids.
+  for (const targets of [null, {}, { macros: {} }, { macros: { calories: 3700 } }]) {
+    assert.throws(
+      () =>
+        generateWeek({
+          recipes: bigBank(),
+          targets,
+          pantry: {},
+          weekId: "2026-W40",
+          plan: { week: "2026-W40", entries: [] },
+        }),
+      /no calorie and protein target/,
+      `generateWeek invented a person for targets ${JSON.stringify(targets)}`,
+    );
+  }
 });
 
 test("stress: github.readFile turns bad Contents-API payloads into clean errors", async () => {

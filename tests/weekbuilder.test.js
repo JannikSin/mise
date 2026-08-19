@@ -1096,7 +1096,9 @@ test("generateWeek never auto-plans an unpromoted ai-special (council fence)", (
   ];
   const { plan } = generateWeek({
     recipes: pool,
-    targets: null,
+    // a real profile: generateWeek refuses null targets since 2026-08-19 (P3,
+    // no invented person), and this test never cared about the targets anyway
+    targets: { macros: { calories: 3700, protein: 175 } },
     pantry: { staples: [], perishables: [] },
     weekId: "2026-W40",
     plan: { week: "2026-W40", entries: [] },

@@ -297,6 +297,41 @@ export function enforcedFloors(macros) {
   };
 }
 
+/** The generator's slack above the calorie target. See `enforcedCeilings`. */
+export const CALORIE_CEILING_RATIO = 1.05;
+
+/**
+ * The generator's own slack allowance above target. 5% of the calorie target
+ * unless a profile writes `macros.caloriesCeiling` down.
+ *
+ * The asymmetry with `enforcedFloors` is deliberate (council 2026-08-07). A
+ * FLOOR is a number the person read and agreed to, so it belongs to them and a
+ * formula must never outrank it. A calorie CEILING is the generator's own
+ * tolerance for its top-up passes overshooting, and nobody has ever written
+ * one down, so a ratio is the honest default.
+ *
+ * The PROTEIN ceiling is different again and is deliberately NOT derived.
+ * P5 makes it a money decision ("protein above target is money spent for
+ * nothing"), and a ceiling nobody chose would silently start trimming food off
+ * every profile in the app. Absent means unconstrained, and the manifest says
+ * so out loud rather than leaving the absence to be discovered.
+ *
+ * One home for both numbers, because until 2026-08-19 the calorie ceiling was
+ * computed inline in two places in weekbuilder.js and in none of the reporting,
+ * which is how a live week sat 170 kcal over its ceiling with nothing saying so.
+ * @param {Record<string, any> | null | undefined} macros a targets.macros block
+ * @returns {{ calories: number, protein: number | null }}
+ */
+export function enforcedCeilings(macros) {
+  const calories = Number(macros?.calories) || 0;
+  const written = (/** @type {any} */ v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+  return {
+    calories: written(macros?.caloriesCeiling) ?? calories * CALORIE_CEILING_RATIO,
+    protein: written(macros?.proteinCeiling),
+  };
+}
+
+
 /**
  * A complete fitness/targets.json from the add-profile questionnaire, so a
  * new household member gets working macro targets without a single hand-set
