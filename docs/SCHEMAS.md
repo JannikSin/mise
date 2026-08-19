@@ -566,6 +566,61 @@ the step's shelf ADDITIVELY, because a wiped kitchen needs several photos
 per shelf and a second fridge photo must extend the first, not replace it.
 Non-wizard shelf scans keep sweep-replace semantics unchanged.
 
+## Household — `households/<household>/household.json` (P6, 2026-08-19)
+
+The kitchen itself, as opposed to the people in it. Added session koenig; no
+such file existed before, which is why a week could be generated that does not
+physically fit the fridge it will live in, why two people sharing one oven each
+declared it privately, and why moving out on a known date looked exactly like
+living somewhere forever.
+
+**Every field is optional and every absence is a working state.** A household
+that has declared nothing behaves exactly as the app did before this file
+existed. That is the only way to add a model to an app people are already using.
+
+```jsonc
+{
+  "headId": "david",          // who assigns roles. Absent = nobody yet, and the
+                              // first writer becomes it (refusing everybody
+                              // would make the file unreachable)
+  "members": [
+    { "id": "david", "roles": ["cook", "shopper"] },
+    { "id": "roommate", "roles": ["eater"] }      // roles: cook | shopper | eater
+  ],
+  "equipment": ["oven", "freezer", "blender"],    // absent = has everything,
+                                                  // same meaning as the
+                                                  // per-profile field
+  "capacityL": {              // LITRES, as the appliance is sold
+    "fridge": 120,
+    "freezer": 40,
+    "pantry": 90
+  },
+  "occupancy": {
+    "from": "2026-08-24",
+    "until": "2026-12-19"     // THE DRAIN-DOWN TARGET. Perishables must reach
+                              // zero by this date, so a food's real deadline is
+                              // the earlier of its own date and this one, and
+                              // days past it are not planned. Absent = a
+                              // permanent home, never pushed to eat its stock.
+  }
+}
+```
+
+**Capacity is checked against a stated assumption, not a measured one.**
+Refrigerated food is mostly water, so grams convert to millilitres closely
+enough to be useful; what is not close enough is pretending a fridge packs
+solid. `PACKING_EFFICIENCY` in `app/lib/household.js` is 0.55, it is a named
+constant rather than a magic number, and the first week that overflows a fridge
+it said would fit should move it.
+
+**Capacity REPORTS, it never refuses.** A person whose fridge is genuinely too
+small needs to know before they shop, not to be told their week is illegal.
+
+**Trip cadence deliberately stays on `targets.shopsPerWeek`**, where it already
+worked before this file existed. Moving it for tidiness would be churn.
+
+---
+
 ## Waste ledger — `households/<h>/waste.json` (PF.1, 2026-08-18)
 
 Explicit write-off events for food that left the pantry WITHOUT being cooked.

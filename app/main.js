@@ -65,7 +65,7 @@ import { normalizePins } from "./lib/kroger.js";
 import { perishableCoverage } from "./lib/coverage.js";
 import { composeWeekReview } from "./lib/review.js";
 import { appendWaste } from "./lib/waste.js";
-import { canonicalFood } from "./lib/ingredients.js";
+import { canonicalFood, toGrams } from "./lib/ingredients.js";
 import { cookPlan } from "./lib/portions.js";
 import {
   addEntry,
@@ -94,6 +94,13 @@ import {
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
 import { composeManifest, remanifest } from "./lib/manifest.js";
 import { swapToFit } from "./lib/budget.js";
+import {
+  capacityCheck,
+  coldLoad,
+  drainDownDate,
+  householdPathFor,
+  normalizeHousehold,
+} from "./lib/household.js";
 import { weekAdherence, rankScoreboard } from "./lib/adherence.js";
 import {
   normalizeEvents,
@@ -485,13 +492,15 @@ function App() {
      *   recipes: Record<string, any>[],
      *   dailyDays: Record<string, any>[],
      *   catalogue: Record<string, any> | null,
-     *   waste: Record<string, any> | null
+     *   waste: Record<string, any> | null,
+     *   household: ReturnType<typeof normalizeHousehold> | null
      * }} */ ({
       targets: null,
       recipes: [],
       dailyDays: [],
       catalogue: null,
       waste: null,
+      household: null,
     }),
   );
 
@@ -1454,6 +1463,9 @@ function App() {
       recipes: recipesRef.current,
       targets: targetsRef.current,
       review: lastReview,
+      drainDownIso: drainDownDate(
+        manifestInputs.current.household ?? normalizeHousehold(null),
+      ),
       // expiring-soon perishables are auto-flagged useSoon so the committees
       // favor recipes that cook them before they leave on their own
       pantry: withAutoUseSoon(pantryRef.current, localIsoDate(new Date())),
@@ -1589,7 +1601,31 @@ function App() {
       built = {
         ...built,
         manifest: composeManifest({
-          engine: { ...(result.report.manifest ?? {}), swapToFit: fitReport },
+          engine: {
+            ...(result.report.manifest ?? {}),
+            swapToFit: fitReport,
+            // P6: does the week physically fit the kitchen it will live in?
+            // Reports, never refuses: a person whose fridge is genuinely too
+            // small needs to know before they shop, not to be told their week
+            // is illegal.
+            household: (() => {
+              const hh = manifestInputs.current.household ?? normalizeHousehold(null);
+              const cap = capacityCheck(
+                hh,
+                coldLoad(pantryItems(pantryRef.current), (food, qty, unit) =>
+                  toGrams(qty, unit, canonicalFood(food)),
+                ),
+              );
+              return {
+                ...(result.report.manifest?.household ?? {}),
+                capacityChecked: cap.checked,
+                fits: cap.fits,
+                over: cap.over,
+                headId: hh.headId,
+                members: hh.members.length,
+              };
+            })(),
+          },
           targets: targetsRef.current,
           recipes: recipesRef.current,
           dailyDays: dailyRef.current?.days ?? [],
@@ -1654,6 +1690,25 @@ function App() {
     /** @type {import("./lib/plan.js").Plan | null} */ (null),
   );
   const [wasteLog, setWasteLog] = useState(/** @type {Record<string, any> | null} */ (null));
+  // THE HOUSEHOLD MODEL (P6). Absent is a working state: a kitchen that has
+  // declared nothing behaves exactly as the app did before the file existed.
+  const [household, setHousehold] = useState(normalizeHousehold(null));
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      void read(householdPathFor(householdOf(allProfilesRef.current, me)), { raw: true }).then(
+        (h) => {
+          if (alive) setHousehold(normalizeHousehold(/** @type {any} */ (h)));
+        },
+      );
+    };
+    load();
+    const unsub = onSyncChange(load);
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [allProfiles, me]);
   // The live inputs the P1 manifest refresh and the P11 review loop need,
   // filled here because this is the first point in the component where every
   // one of them exists. The box itself is declared beside the plan-write point
@@ -1664,6 +1719,7 @@ function App() {
     dailyDays: dailyLog?.days ?? [],
     catalogue: priceCatalogue,
     waste: wasteLog,
+    household,
   };
   useEffect(() => {
     let alive = true;
@@ -3346,7 +3402,13 @@ function App() {
           // the fluid week's one governing rule (7.2): only meaningful once
           // the week is shopped — before that, nothing bought needs a home
           /** @type {any} */ (plan)?.shoppedAt || /** @type {any} */ (plan)?.fallback
-            ? perishableCoverage(viewPlan, allRecipes, pantry, localIsoDate(new Date())).gaps
+            ? perishableCoverage(
+                viewPlan,
+                allRecipes,
+                pantry,
+                localIsoDate(new Date()),
+                drainDownDate(household),
+              ).gaps
             : []
         }
         onRestoreFallback=${/** @type {any} */ (plan)?.fallback ? handleRestoreFallback : undefined}

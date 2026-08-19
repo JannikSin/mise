@@ -39,6 +39,7 @@ export const SUBSYSTEMS = [
   "protein",
   "leftovers",
   "swapToFit",
+  "household",
 ];
 
 /**
@@ -162,6 +163,20 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
       reason: "no fit pass has run on this plan yet (generate to price the week)",
     };
   }
+
+  // P6, THE HOUSEHOLD. Defaulted here so the registry can never find it
+  // silent; the generate path fills the capacity half, which needs the pantry.
+  if (!subsystems.household) subsystems.household = {};
+  subsystems.household = {
+    capacityChecked: false,
+    fits: true,
+    over: [],
+    drainDownIso: null,
+    daysAfterDeparture: 0,
+    headId: null,
+    members: 0,
+    ...subsystems.household,
+  };
 
   // plating (synth.js): deliberately inert by council 2026-08-12, kill
   // review 2026-11-15. The manifest keeps saying so, out loud, so the gate
@@ -412,6 +427,20 @@ function lineFor(key, s) {
             ? ", no protein ceiling set (over-delivery is unconstrained)"
             : "") +
         (s.avgCalories ? `, delivering ~${s.avgCalories} kcal/day avg` : "")
+      );
+    case "household":
+      // P6. A kitchen that has declared nothing says so, because "no capacity
+      // declared" and "the week fits" are opposite facts.
+      return (
+        (s.capacityChecked
+          ? s.fits
+            ? "the week fits the declared storage"
+            : `OVER declared storage: ${(s.over ?? []).map((/** @type {any} */ o) => `${o.where} by ${o.byL} L`).join(", ")}`
+          : "no fridge, freezer or pantry volume declared, so capacity is unchecked") +
+        (s.drainDownIso
+          ? `; draining down to ${s.drainDownIso}, ${s.daysAfterDeparture} day${s.daysAfterDeparture === 1 ? "" : "s"} past it left unplanned`
+          : "; no departure date, so nothing is pushed to eat its stock") +
+        (s.headId ? `; head ${s.headId}, ${s.members} member${s.members === 1 ? "" : "s"}` : "; no head named")
       );
     case "leftovers":
       // both halves of P7's done test, in one line: which pots feed which

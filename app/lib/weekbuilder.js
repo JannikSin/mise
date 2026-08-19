@@ -1146,7 +1146,8 @@ export function poolAdequacy(recipes, targets) {
  *   salt?: number,
  *   recentRecipeIds?: string[],
  *   today?: string,
- *   review?: { signals?: { tossedFoods?: string[], skippedRecipeIds?: string[] } } | null
+ *   review?: { signals?: { tossedFoods?: string[], skippedRecipeIds?: string[] } } | null,
+ *   drainDownIso?: string | null
  * }} args `today` (local YYYY-MM-DD) makes generation day-aware: dates
  *   strictly before it are PAST — their entries survive verbatim (pinned or
  *   not), nothing new is filled there, no pass resizes them, no report line
@@ -1164,6 +1165,7 @@ export function generateWeek({
   recentRecipeIds = [],
   today,
   review = null,
+  drainDownIso = null,
 }) {
   // council 2026-07-23: an AI estimate may propose and display, but must
   // never silently enter the generator's trusted denominator. ai-special
@@ -1185,7 +1187,13 @@ export function generateWeek({
     plan.entries.filter((e) => e.occasion && !isPast(e.date)).map((e) => e.date),
   );
   const isHeld = (/** @type {string} */ d) => heldDates.has(d);
-  const liveDates = dates.filter((d) => !isPast(d) && !isHeld(d));
+  // P6's drain-down. "A departure date is a drain-down target: perishables
+  // reach zero by the date, the freezer is emptied if it is being switched
+  // off." A day after the kitchen empties is not a day to plan meals for, so
+  // it is treated exactly like a day already eaten: left alone, and REPORTED
+  // rather than silently dropped.
+  const isGone = (/** @type {string} */ d) => Boolean(drainDownIso) && d > /** @type {string} */ (drainDownIso);
+  const liveDates = dates.filter((d) => !isPast(d) && !isHeld(d) && !isGone(d));
   const byId = recipesById(recipes);
   const datedPantry = pantryItems(pantry).filter(isDatedItem);
   const useSoonFoods = datedPantry
@@ -1534,7 +1542,9 @@ export function generateWeek({
     return cal > 0 ? ((r?.nutrition?.protein ?? 0) * 4) / cal : 0;
   };
   const awayProteinByDate = new Map(outDays.map((d) => [d.date, d.estProtein]));
-  const fillDates = dates.filter((date) => !isPast(date) && !isHeld(date));
+  // isGone: a day after the kitchen empties is not a day to fill (P6's
+  // drain-down). Same treatment as a past day and a held occasion day.
+  const fillDates = dates.filter((date) => !isPast(date) && !isHeld(date) && !isGone(date));
   /** @type {{ breakfast: Map<string, Record<string, any> | undefined>, lunch: Map<string, Record<string, any> | undefined>, dinner: Map<string, Record<string, any> | undefined> }} */
   const assigned = { breakfast: new Map(), lunch: new Map(), dinner: new Map() };
   fillDates.forEach((date) => {
@@ -1777,6 +1787,10 @@ export function generateWeek({
     // P11: what LAST week's evidence changed about this one. A loop that
     // reports nothing is the dark-engine failure, and this one is easy to
     // wire and then forget, because nothing visibly breaks when it stops.
+    household: {
+      drainDownIso: drainDownIso ?? null,
+      daysAfterDeparture: drainDownIso ? dates.filter((d) => isGone(d)).length : 0,
+    },
     review: {
       read: Boolean(review),
       tossedFoods: reviewTossedFoods.length,

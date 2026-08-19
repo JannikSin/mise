@@ -7,7 +7,7 @@
 import { pantryItems, isDatedItem, perishableStatus } from "./shopping.js";
 import { canonicalFood } from "./ingredients.js";
 
-/** @typedef {{ id: string, food: string, goodUntil: string, daysLeft: number }} CoverageGap */
+/** @typedef {{ id: string, food: string, goodUntil: string, daysLeft: number, leaving?: boolean }} CoverageGap */
 
 /**
  * Dated pantry perishables with no home in the CURRENT plan: nothing
@@ -23,9 +23,10 @@ import { canonicalFood } from "./ingredients.js";
  * @param {Record<string, any>[]} recipes resolved pool (bank + own)
  * @param {Record<string, any>} pantry
  * @param {string} todayIso
+ * @param {string | null} [drainDownIso] the household's departure date, when it has one
  * @returns {{ gaps: CoverageGap[], checked: number }}
  */
-export function perishableCoverage(plan, recipes, pantry, todayIso) {
+export function perishableCoverage(plan, recipes, pantry, todayIso, drainDownIso) {
   /** @type {Map<string, Record<string, any>>} */
   const byId = new Map();
   for (const r of recipes ?? []) if (r?.id) byId.set(r.id, r);
@@ -46,12 +47,18 @@ export function perishableCoverage(plan, recipes, pantry, todayIso) {
   for (const it of pantryItems(pantry)) {
     if (!isDatedItem(it)) continue;
     if (it.location === "freezer") continue;
-    const { goodUntil, daysLeft } = perishableStatus(it, todayIso);
-    if (goodUntil == null || daysLeft == null || daysLeft < 0) continue;
+    const { goodUntil: ownDate, daysLeft } = perishableStatus(it, todayIso);
+    if (ownDate == null || daysLeft == null || daysLeft < 0) continue;
     checked += 1;
+    // P6's drain-down: "a departure date is a drain-down target, perishables
+    // reach zero by the date." So the last day this food may be eaten is the
+    // EARLIER of its own date and the day the kitchen empties. A household
+    // with no departure date is never pushed to eat its stock, which is why
+    // the absence of a date widens nothing.
+    const goodUntil = drainDownIso && drainDownIso < ownDate ? drainDownIso : ownDate;
     const key = canonicalFood(String(it.food ?? ""));
     if (!uses.some((u) => u.key === key && u.date <= goodUntil)) {
-      gaps.push({ id: it.id, food: it.food, goodUntil, daysLeft });
+      gaps.push({ id: it.id, food: it.food, goodUntil, daysLeft, leaving: goodUntil !== ownDate });
     }
   }
   gaps.sort((a, b) => a.daysLeft - b.daysLeft);

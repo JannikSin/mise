@@ -29,6 +29,14 @@ import {
 } from "../app/lib/shopping.js";
 import { cookPlan, leftoverLedger } from "../app/lib/portions.js";
 import { perishableCoverage } from "../app/lib/coverage.js";
+import {
+  capacityCheck,
+  coldLoad,
+  drainDownDate,
+  membersWithRole,
+  normalizeHousehold,
+  setMemberRoles,
+} from "../app/lib/household.js";
 import { priceWeek, swapToFit } from "../app/lib/budget.js";
 import { buildServe } from "../app/lib/serve.js";
 import { clampGuests, deriveTables, setTableGuests } from "../app/lib/tables.js";
@@ -784,7 +792,7 @@ const PROMISES = [
 
   {
     id: "P6",
-    name: "P6 what you own is subtracted from the list, and stock is never forced into the plan",
+    name: "P6 the kitchen knows what it owns, what it holds, and the day it empties",
     fn: () => {
       // SUBTRACTION: an owned food does not get bought again. This is the bug
       // that had David buying oats, whey, onions and wine he already had.
@@ -845,6 +853,119 @@ const PROMISES = [
         restoreFallback(wrecked).entries.length > 0,
         "the fallback plan could not be restored after the week was emptied",
       );
+
+      // THE HOUSEHOLD IS THE KITCHEN. No household.json existed before
+      // 2026-08-19, so none of the four clauses below could be true of
+      // anything. Every field stays optional: a kitchen that has declared
+      // nothing behaves exactly as the app did before the file existed.
+      const empty = normalizeHousehold(null);
+      assert.equal(empty.headId, null);
+      assert.equal(empty.equipment, null, "an undeclared kitchen must filter nothing");
+      assert.equal(drainDownDate(empty), null, "a home with no departure date got one");
+      assert.equal(
+        capacityCheck(empty, coldLoad([], () => null)).checked,
+        false,
+        "an undeclared kitchen was measured against a capacity it never stated",
+      );
+
+      // ROLES ARE ENFORCED IN CODE, not in a screen, because a rule only a
+      // screen enforces is a rule two devices can disagree about.
+      const house = normalizeHousehold({
+        headId: "david",
+        members: [{ id: "david", roles: ["cook", "shopper"] }],
+        capacityL: { fridge: 100 },
+        occupancy: { until: DATES[4] },
+      });
+      const refused = setMemberRoles(house, "roommate", "roommate", ["cook"]);
+      assert.equal(refused.changed, false, "somebody who is not the head reassigned a role");
+      assert.match(refused.reason, /head of the household/);
+      assert.deepEqual(refused.household, house, "a refused write must be a no-op");
+      const allowed = setMemberRoles(house, "david", "roommate", ["shopper", "nonsense"]);
+      assert.equal(allowed.changed, true);
+      assert.deepEqual(membersWithRole(allowed.household, "shopper"), ["david", "roommate"]);
+      assert.deepEqual(
+        allowed.household.members.find((m) => m.id === "roommate").roles,
+        ["shopper"],
+        "an unknown role was stored rather than dropped",
+      );
+      // a household with no head yet is not locked: the first writer becomes it
+      assert.equal(setMemberRoles(empty, "anyone", "anyone", ["cook"]).changed, true);
+
+      // A GENERATED WEEK FITS THE COLD STORAGE IT WILL LIVE IN.
+      const grams = (/** @type {string} */ _f, /** @type {number} */ q, /** @type {string} */ u) =>
+        u === "kg" ? q * 1000 : u === "g" ? q : null;
+      const load = coldLoad(
+        [
+          { food: "chicken", qty: "80 kg", location: "fridge" },
+          { food: "peas", qty: "1 kg", location: "freezer" },
+          { food: "mystery", qty: "", location: "fridge" },
+        ],
+        grams,
+      );
+      assert.equal(load.fridge, 80, "eighty kilos of cold food did not read as eighty litres");
+      assert.equal(load.unknownRows, 1, "an unmeasurable row vanished instead of being counted");
+      const tight = capacityCheck(house, load);
+      assert.equal(tight.checked, true);
+      assert.equal(tight.fits, false, "80 L of food fitted a 100 L fridge that packs at 55%");
+      assert.equal(tight.over[0].where, "fridge");
+      assert.ok(tight.over[0].byL > 0, "the overflow was not quantified");
+      // and it REPORTS rather than refuses: the plan is still the person's
+      assert.ok(build().plan.entries.length > 0, "a full fridge blocked generation");
+
+      // A DEPARTURE DATE IS A DRAIN-DOWN TARGET. A food's real deadline is the
+      // earlier of its own date and the day the kitchen empties, so food that
+      // outlives the lease has no home even though its own date is fine.
+      assert.equal(drainDownDate(house), DATES[4]);
+      const soupR = {
+        id: "soup",
+        name: "Soup",
+        mealType: "dinner",
+        servings: 2,
+        nutrition: { calories: 400, protein: 20 },
+        ingredients: [{ qty: 200, unit: "g", food: "spinach" }],
+      };
+      const shelf = {
+        items: [{ id: "p", food: "spinach", qty: "200 g", location: "fridge", expires: DATES[6] }],
+      };
+      const eatenAfterLeaving = [
+        { id: "e", date: DATES[5], slot: "dinner", recipeId: "soup", servings: 1 },
+      ];
+      assert.deepEqual(
+        perishableCoverage({ week: WEEK, entries: eatenAfterLeaving }, [soupR], shelf, DATES[0]).gaps,
+        [],
+        "with no departure date, a meal before the food's own date is a home",
+      );
+      const leaving = perishableCoverage(
+        { week: WEEK, entries: eatenAfterLeaving },
+        [soupR],
+        shelf,
+        DATES[0],
+        DATES[4],
+      );
+      assert.equal(leaving.gaps.length, 1, "food that outlives the lease was called covered");
+      assert.equal(leaving.gaps[0].goodUntil, DATES[4], "the deadline did not move to the departure");
+      assert.equal(leaving.gaps[0].leaving, true, "the reason for the earlier deadline was not said");
+
+      // and generation stops planning past the day the kitchen empties
+      const packed = build({ salt: 3 });
+      const draining = generateWeek({
+        recipes: pool(),
+        targets: TARGETS,
+        pantry: { items: [] },
+        weekId: WEEK,
+        plan: { week: WEEK, entries: [] },
+        salt: 3,
+        drainDownIso: DATES[4],
+      });
+      assert.ok(
+        draining.plan.entries.every((e) => e.date <= DATES[4]),
+        "meals were planned for days after the kitchen empties",
+      );
+      assert.ok(
+        packed.plan.entries.some((e) => e.date > DATES[4]),
+        "the control week was already short",
+      );
+      assert.equal(draining.report.manifest.household.daysAfterDeparture, 2);
     },
   },
 
@@ -1402,14 +1523,6 @@ for (const p of PROMISES) test(p.name, p.fn);
 
 /** @type {{ id: string, name: string, why: string }[]} */
 const UNBUILT = [
-  {
-    id: "P6",
-    name: "P6 GAP the household is a kitchen: capacity, trip cadence, occupancy and roles",
-    why:
-      "owner koenig, Phase 2 job 10. No household.json exists at all. Missing: head and member roles, " +
-      "equipment at household level, fridge/freezer/pantry volumes as generation constraints, trip " +
-      "cadence, and the occupancy window whose departure date is a drain-down target.",
-  },
   {
     id: "P8",
     name: "P8 GAP per-person plates are solved from targets, not shared out by pan fraction",
