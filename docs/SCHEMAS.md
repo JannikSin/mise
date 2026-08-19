@@ -893,9 +893,16 @@ even the same slot — merge without losing either entry.
       "estCalories": 595, // ? out entries only: assumed macros of the restaurant meal
       "estProtein": 34, // ? (slotMacroEstimate: pool average for the slot x 0.85 undershoot)
       "cookedAt": "2026-07-06", // ? confirmed cooked (Cook mode's DONE button,
-      //   toggleEntryCooked). Absent = never confirmed: the Plan scoreboard
-      //   shows "not logged" instead of "eaten" on past days, and the cron
-      //   keeps reminding until it's set. A date alone NEVER implies eaten.
+      //   toggleEntryCooked — OR the recipe page's cook timer END, recordCook,
+      //   7.10). Absent = never confirmed: the Plan scoreboard shows "not
+      //   logged" instead of "eaten" on past days, and the cron keeps
+      //   reminding until it's set. A date alone NEVER implies eaten.
+      "cookSeconds": 1740, // ? the cook timer's recorded hands-on span (7.10,
+      //   promise P7): what the recipe's stated time answers to. Written by
+      //   recordCook at the timer's END; absent = cooked without the timer.
+      "cookComment": "burned the first batch", // ? the "overrun was me, not
+      //   the plan" note (setCookComment, <=200 chars); P11's review reads it
+      //   beside stated-vs-recorded. Absent = no note.
     },
   ],
 }

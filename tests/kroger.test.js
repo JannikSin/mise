@@ -175,3 +175,22 @@ test("rankCandidates: the section gate keeps a drink out of a produce row", () =
   assert.ok(ungated.some((r) => r.upc === "c"), "no section still finds the real cucumber");
   assert.ok(!ungated.some((r) => r.upc === "g"), "sports drink is FORM-denied even ungated");
 });
+
+test("3.6: with a known need, cost-to-cover outranks unit price (the 3 lb tray lesson)", () => {
+  const rows = [
+    product({ upc: "big", description: "Ground Beef Tray", size: "3 lb", price: { regular: 19.95, promo: null }, categories: ["Meat"] }),
+    product({ upc: "small", description: "Ground Beef Roll", size: "1 lb", price: { regular: 7.49, promo: null }, categories: ["Meat"] }),
+  ];
+  const withNeed = rankCandidates(rows, "ground beef", [], "meat", { qty: 450, unit: "g" });
+  assert.equal(withNeed[0].upc, "small", "one 1 lb roll covers 450 g for $7.49; the tray costs $19.95");
+  assert.equal(withNeed[0].spend, 7.49);
+  assert.equal(withNeed[1].spend, 19.95);
+  const noNeed = rankCandidates(rows, "ground beef", [], "meat");
+  assert.equal(noNeed[0].upc, "big", "without a need, unit price still rules");
+});
+
+test("3.6: WEIGHT-sold items cover a need at pay-what-it-weighs", () => {
+  const rows = [product({ upc: "w", description: "Chicken Thighs", soldBy: "WEIGHT", size: "1 lb", price: { regular: 1.79, promo: null }, categories: ["Meat"] })];
+  const ranked = rankCandidates(rows, "chicken thighs", [], "meat", { qty: 2, unit: "lb" });
+  assert.equal(ranked[0].spend, 3.58);
+});

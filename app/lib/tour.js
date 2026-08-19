@@ -94,8 +94,8 @@ export const TOUR_STEPS = [
   {
     route: "#/list",
     selector: ".lockbtn",
-    title: "Lock a shopped week",
-    text: "Once you've shopped, lock the week. Generate and re-roll refuse to touch a locked plan, so the food you bought stays the plan.",
+    title: "Going to the store",
+    text: "Tap when you head out: it saves the shopped plan as a fallback you can always return to. The plan itself stays changeable — the app just watches that every bought perishable still gets cooked before it dies.",
   },
   {
     route: "#/list",

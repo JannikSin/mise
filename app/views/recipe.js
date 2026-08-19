@@ -38,8 +38,111 @@ const cookSuffix = (from, servings, entryId, tableId) => {
   return parts.length ? `?${parts.join("&")}` : "";
 };
 
+// ---- the cook timer (fix list 7.10, promise P7) ---------------------------
+// One timer at a time, persisted in localStorage so a locked phone or a
+// reload never loses a running cook. Starting on a different entry replaces
+// the running timer (the honest reading of "one pair of hands").
+
+const TIMER_KEY = "mise.cookTimer";
+/** @returns {{ entryId: string, startedAt: number, accumulatedMs: number, running: boolean } | null} */
+function readTimer() {
+  try {
+    return JSON.parse(localStorage.getItem(TIMER_KEY) ?? "null");
+  } catch {
+    return null;
+  }
+}
+/** @param {{ entryId: string, startedAt: number, accumulatedMs: number, running: boolean } | null} t */
+function writeTimer(t) {
+  try {
+    if (t) localStorage.setItem(TIMER_KEY, JSON.stringify(t));
+    else localStorage.removeItem(TIMER_KEY);
+  } catch {
+    // storage blocked: the timer just does not survive a reload
+  }
+}
+/** @param {number} ms */
+const clockOf = (ms) => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, tableId?: string, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void> }} props
+ * START / PAUSE / END on a planned entry. END records the span AND marks the
+ * meal cooked (the rehomed COOKED write); a cooked entry shows recorded vs
+ * stated and takes the "overrun was me" comment the review reads.
+ * @param {{ entry: Record<string, any>, statedMinutes?: number, onCooked: (entryId: string, seconds: number) => void, onCookComment?: (entryId: string, text: string) => void }} props
+ */
+function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
+  const [timer, setTimer] = useState(readTimer);
+  const [, setTick] = useState(0);
+  const [comment, setComment] = useState(/** @type {string} */ (entry.cookComment ?? ""));
+  const mine = timer != null && timer.entryId === entry.id;
+  const running = mine && timer.running;
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [running]);
+  const elapsedMs = mine
+    ? timer.accumulatedMs + (timer.running ? Date.now() - timer.startedAt : 0)
+    : 0;
+  const start = () => {
+    const t = { entryId: entry.id, startedAt: Date.now(), accumulatedMs: 0, running: true };
+    writeTimer(t);
+    setTimer(t);
+  };
+  const pause = () => {
+    const t = { .../** @type {any} */ (timer), accumulatedMs: elapsedMs, running: false };
+    writeTimer(t);
+    setTimer(t);
+  };
+  const resume = () => {
+    const t = { .../** @type {any} */ (timer), startedAt: Date.now(), running: true };
+    writeTimer(t);
+    setTimer(t);
+  };
+  const end = () => {
+    const secs = Math.round(elapsedMs / 1000);
+    writeTimer(null);
+    setTimer(null);
+    onCooked(entry.id, secs);
+  };
+  if (entry.cookedAt) {
+    const took = entry.cookSeconds > 0 ? Math.round(entry.cookSeconds / 60) : null;
+    return html`<div class="tile">
+      <div class="row">
+        <span class="k">COOKED ✓${took != null ? ` · took ${took}m` : ""}${statedMinutes ? ` · plan said ${statedMinutes}m` : ""}</span>
+      </div>
+      ${
+        onCookComment &&
+        html`<div class="token-form">
+          <input aria-label="Cook note" placeholder="optional note: why it ran long/short (burned the first batch)" value=${comment} onInput=${(/** @type {{ currentTarget: HTMLInputElement }} */ e) => setComment(e.currentTarget.value)} />
+          <button class="primary" onClick=${() => onCookComment(entry.id, comment)}>${entry.cookComment ? "UPDATE" : "SAVE"}</button>
+        </div>`
+      }
+    </div>`;
+  }
+  return html`<div class="tile">
+    <div class="row">
+      <span class="k">cook timer${statedMinutes ? html` <span class="hint">plan says ${statedMinutes}m</span>` : ""}</span>
+      ${mine && html`<span class="status num">${clockOf(elapsedMs)}${running ? "" : " · paused"}</span>`}
+    </div>
+    <div class="actions">
+      ${!mine && html`<button class="primary" onClick=${start}>▶ START${timer != null ? " (replaces the running timer)" : ""}</button>`}
+      ${running && html`<button onClick=${pause}>⏸ PAUSE</button>`}
+      ${mine && !running && html`<button onClick=${resume}>▶ RESUME</button>`}
+      ${mine && html`<button class="primary" onClick=${end}>■ END — SERVED, MARK COOKED</button>`}
+    </div>
+    <p class="hint">
+      START when you begin, END when you serve. Ending records the real time beside the plan's
+      promise and marks the meal cooked.
+    </p>
+  </div>`;
+}
+
+/**
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, entryId?: string, tableId?: string, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds: number) => void, onCookComment?: (entryId: string, text: string) => void }} props
  */
 export function RecipeView({
   recipe,
@@ -51,6 +154,9 @@ export function RecipeView({
   potRows,
   unshopped = false,
   onPromote,
+  entry = undefined,
+  onCooked = undefined,
+  onCookComment = undefined,
 }) {
   const [promoting, setPromoting] = useState(
     /** @type {null | "busy" | "done" | "error"} */ (null),
@@ -132,6 +238,20 @@ export function RecipeView({
         }
       </div>
       <p class="hint">${recipe.description}</p>
+      ${
+        // THE COOK TIMER (fix list 7.10, promise P7): START when you begin,
+        // END when you serve — the recorded span is what the stated time
+        // answers to, and END IS the COOKED write (PF.2's rehoming). Only a
+        // planned entry has somewhere to record, so no entry = no timer.
+        entry &&
+        onCooked &&
+        html`<${CookTimer}
+          entry=${entry}
+          statedMinutes=${recipe.totalTime}
+          onCooked=${onCooked}
+          onCookComment=${onCookComment}
+        />`
+      }
       ${
         // the promotion loop (council 2026-07-23: "AI at the table, never in
         // the plan" means a HUMAN decision, and this button is that decision):

@@ -100,11 +100,17 @@ async function search(term, locationId) {
 // foods = current shopping list + the priority list, deduped on the ledger key
 const shopping = JSON.parse(readFileSync(join(DATA, "shopping.json"), "utf8"));
 const foods = new Map();
-for (const f of PRIORITY_FOODS) foods.set(pinKey(f), { food: f, section: sectionOf(f) });
+for (const f of PRIORITY_FOODS) foods.set(pinKey(f), { food: f, section: sectionOf(f), need: null });
 for (const it of shopping.items ?? []) {
   if (it.checked) continue;
   const key = pinKey(it.food);
-  if (!foods.has(key)) foods.set(key, { food: it.food, section: it.section ?? sectionOf(it.food) });
+  if (!foods.has(key)) {
+    foods.set(key, {
+      food: it.food,
+      section: it.section ?? sectionOf(it.food),
+      need: it.qty > 0 ? { qty: it.qty, unit: it.unit } : null,
+    });
+  }
 }
 
 let catalogue = JSON.parse(readFileSync(join(DATA, "prices.json"), "utf8"));
@@ -119,10 +125,10 @@ pins = { ...pins, updated: TODAY, stores: { ...pins.stores, ...STORES } };
 const report = {};
 for (const [store, { locationId }] of Object.entries(STORES)) {
   report[store] = { priced: [], missed: [] };
-  for (const [key, { food, section }] of foods) {
+  for (const [key, { food, section, need }] of foods) {
     const existingPin = pins.pins[key]?.[store];
     if (existingPin) continue; // learn-once: never re-search a pinned food
-    const ranked = rankCandidates(await search(food, locationId), food, pins.redList, section);
+    const ranked = rankCandidates(await search(food, locationId), food, pins.redList, section, need);
     const best = ranked[0];
     if (!best) {
       report[store].missed.push(food);

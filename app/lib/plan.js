@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, cookSeconds?: number, cookComment?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any> }} Plan
  */
@@ -607,6 +607,57 @@ export function setEntryRecipe(plan, entryId, recipeId) {
       // a switched meal is not the meal you cooked
       delete rest.cookedAt;
       return { ...rest, recipeId, freeText: undefined };
+    }),
+  };
+}
+
+/**
+ * The cook timer's END (fix list 7.10, promise P7): the recorded span is the
+ * truth the recipe's stated time answers to, and ending the timer IS how a
+ * meal records itself cooked — the rehomed COOKED write PF.2 required before
+ * Cook Mode can die. Never un-cooks: a second END on a cooked entry only
+ * refreshes the span.
+ * @param {Plan} plan
+ * @param {string} entryId
+ * @param {string} dateIso
+ * @param {number} seconds recorded hands-on span; 0/negative records nothing
+ * @returns {Plan}
+ */
+export function recordCook(plan, entryId, dateIso, seconds) {
+  return {
+    ...plan,
+    entries: plan.entries.map((e) =>
+      e.id !== entryId
+        ? e
+        : {
+            ...e,
+            cookedAt: e.cookedAt ?? dateIso,
+            ...(seconds > 0 ? { cookSeconds: Math.round(seconds) } : {}),
+          },
+    ),
+  };
+}
+
+/**
+ * The "overrun was me, not the plan" note on a cooked entry (7.10): the
+ * weekly review (P11) reads it beside stated-vs-recorded. Empty text clears.
+ * @param {Plan} plan
+ * @param {string} entryId
+ * @param {string} comment
+ * @returns {Plan}
+ */
+export function setCookComment(plan, entryId, comment) {
+  const text = String(comment ?? "").trim().slice(0, 200);
+  return {
+    ...plan,
+    entries: plan.entries.map((e) => {
+      if (e.id !== entryId) return e;
+      if (!text) {
+        const rest = { ...e };
+        delete rest.cookComment;
+        return rest;
+      }
+      return { ...e, cookComment: text };
     }),
   };
 }

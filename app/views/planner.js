@@ -96,6 +96,8 @@ export function PlannerView({
   pantry,
   onPatchDay,
   occasionBanner = null,
+  coverageGaps = [],
+  onRestoreFallback = undefined,
 }) {
   const rootRef = useRef(/** @type {HTMLElement | null} */ (null));
   // scoreboard accordion (David's layout pick, 2026-07-23): which days are
@@ -144,14 +146,17 @@ export function PlannerView({
         </div>`
       }
       ${
-        // a tap always opens the recipe now, locked or not, so this banner only
-        // has to say why GENERATE is refusing
-        plan.locked &&
+        // THE FLUID WEEK (canon P4, 7.2): shopping locks the INGREDIENTS,
+        // never the plan. The old lock banner died with the lock; in its
+        // place, the one governing rule watches every plan edit — bought
+        // perishables must still have a meal before they die.
+        coverageGaps.length > 0 &&
         html`<div class="tile lockbanner" role="status">
-          <div class="k">🔒 This week is bought</div>
+          <div class="k">⚠ bought food with no meal before it dies</div>
           <div class="d">
-            The week is bought, so GENERATE and SWITCH are off. Tap any meal to open its recipe and
-            cook it. Unlock on the List tab if the week really has to change.
+            ${coverageGaps.map((/** @type {any} */ g, /** @type {number} */ i) => html`<span key=${g.id}>${i > 0 ? " · " : ""}<b>${g.food}</b> <span class="num">(${g.daysLeft}d)</span></span>`)}
+            ${" "}— add a meal that uses it, move one earlier, or freeze it.
+            ${onRestoreFallback && html`<button class="linktext" onClick=${onRestoreFallback}>↩ back to the shopped plan</button>`}
           </div>
         </div>`
       }
@@ -160,27 +165,21 @@ export function PlannerView({
         <button
           class="ask"
           aria-label=${
-            plan.locked
-              ? "Locked — unlock from the List tab to regenerate"
-              : rebuilt
-                ? "Pick different meals for the generated week"
-                : "Generate my week automatically"
+            rebuilt ? "Pick different meals for the generated week" : "Generate my week automatically"
           }
           onClick=${onGenerateWeek}
-          disabled=${recipes.length === 0 || Boolean(plan.locked) || firstLive == null}
+          disabled=${recipes.length === 0 || firstLive == null}
         >
           ${rebuilt ? "PICK DIFFERENT MEALS" : "✦ GENERATE MY WEEK"}
           <small>
             ${
-              plan.locked
-                ? "🔒 locked — you shopped for this week. Unlock on the List tab to change it."
-                : firstLive == null
-                  ? "this week is over, nothing left to plan"
-                  : midWeek
-                    ? firstLive === dates[6]
-                      ? "plans today only · earlier days already eaten"
-                      : `plans ${parseLocalIso(firstLive).toLocaleDateString([], { weekday: "short" })}–Sun · earlier days already eaten`
-                    : "overlapping ingredients → fewer, bulkier buys"
+              firstLive == null
+                ? "this week is over, nothing left to plan"
+                : midWeek
+                  ? firstLive === dates[6]
+                    ? "plans today only · earlier days already eaten"
+                    : `plans ${parseLocalIso(firstLive).toLocaleDateString([], { weekday: "short" })}–Sun · earlier days already eaten`
+                  : "overlapping ingredients → fewer, bulkier buys"
             }
           </small>
         </button>
@@ -564,8 +563,10 @@ export function PlannerView({
                                   // replacement"). Tapping again keeps cycling.
                                   // A table entry is not ours to rewrite: it
                                   // lives in the house's events.json.
+                                  // the fluid week (7.2): SWITCH works after
+                                  // shopping too — the coverage banner is the
+                                  // guard now, not a lock
                                   !entry.table &&
-                                  !plan.locked &&
                                   entry.recipeId &&
                                   html`<button
                                     class="switchbtn"
@@ -581,7 +582,6 @@ export function PlannerView({
                         </div>`
                       }
                       ${
-                        !plan.locked &&
                         html`<button
                           class="outbtn ${outEntry ? "on" : ""}"
                           aria-pressed=${Boolean(outEntry)}

@@ -8,7 +8,7 @@
 // Network lives in lib/worker.js (krogerSearch/krogerPricesById); this module
 // never fetches.
 
-import { canonicalFood } from "./ingredients.js";
+import { canonicalFood, canonicalUnit, convertUnit, toGrams } from "./ingredients.js";
 import { matchPrice, parsePackSize } from "./prices.js";
 
 /** @typedef {{ upc: string, description: string, brand: string, categories: string[], size: string, soldBy: string, price: { regular: number | null, promo: number | null }, stock: string, aisle: string }} KrogerProduct */
@@ -167,7 +167,8 @@ const MATCH_STOP = new Set(["fresh", "raw", "whole", "large", "small", "organic"
 const NOISE_STOP = new Set([
   "kroger", "roundy", "roundys", "simple", "truth", "organic", "natural",
   "naturally", "fresh", "big", "deal", "value", "family", "size", "pack",
-  "bag", "tub", "tray", "count", "grade", "large", "small", "whole",
+  "bag", "tub", "tray", "roll", "jar", "bottle", "box", "carton", "jug",
+  "sleeve", "count", "grade", "large", "small", "whole",
   "premium", "select", "selection", "private", "heritage", "farm", "style",
   "original", "classic", "traditional", "creamy", "plain", "unsweetened",
   "unsalted", "salted", "roasted", "sea", "raw", "boneless", "skinless",
@@ -220,15 +221,20 @@ function noiseOf(p, needFlat) {
  *   list (store category taxonomies differ per banner, and a hard gate
  *   silently unpriced 40 real foods at one store while passing them at
  *   another, seed run 2026-08-19)
- * @returns {(KrogerProduct & { unitPrice: number | null, unitLabel: string, noise: number })[]}
+ * @param {{ qty: number, unit: string } | null} [need] the row's actual
+ *   quantity. When known, candidates rank by COST TO COVER THE NEED
+ *   (fix list 3.6, matcher v2 rule 5): a 3 lb tray always beats a 1 lb tray
+ *   per pound, which is exactly wrong for a 450 g need. Unit price stays the
+ *   tiebreak and the no-need fallback.
+ * @returns {(KrogerProduct & { unitPrice: number | null, unitLabel: string, noise: number, spend: number | null })[]}
  */
-export function rankCandidates(products, food, redList = [], section = "") {
+export function rankCandidates(products, food, redList = [], section = "", need = null) {
   const term = String(food ?? "").replace(/\s*\([^)]*\)/g, "").trim();
-  const need = term
+  const words = term
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter((w) => w && !MATCH_STOP.has(w));
-  const needFlat = need.map(flat);
+  const needFlat = words.map(flat);
   const termFlat = flat(term);
   const red = redList.map((b) => b.toLowerCase());
   const allowed = CAT_OK[section] ?? [];
@@ -238,7 +244,7 @@ export function rankCandidates(products, food, redList = [], section = "") {
     termFlat.includes("protein") || termFlat.includes("whey")
       ? CAT_DENY.filter((c) => c !== "health")
       : CAT_DENY;
-  /** @type {(KrogerProduct & { unitPrice: number | null, unitLabel: string, noise: number })[]} */
+  /** @type {(KrogerProduct & { unitPrice: number | null, unitLabel: string, noise: number, spend: number | null })[]} */
   const inCat = [];
   /** @type {typeof inCat} */
   const offCat = [];
@@ -250,21 +256,65 @@ export function rankCandidates(products, food, redList = [], section = "") {
     if (p.price.regular == null) continue;
     if (p.stock === "TEMPORARILY_OUT_OF_STOCK") continue;
     if (red.some((b) => b && (p.brand ?? "").toLowerCase().includes(b))) continue;
-    if (!need.every((w) => d.includes(flat(w)))) continue;
+    if (!words.every((w) => d.includes(flat(w)))) continue;
     const { unitPrice, unitLabel } = unitPriceOf(p);
-    const cand = { ...p, unitPrice, unitLabel, noise: noiseOf(p, needFlat) };
+    const cand = {
+      ...p,
+      unitPrice,
+      unitLabel,
+      noise: noiseOf(p, needFlat),
+      spend: need ? coverSpend(p, food, need.qty, need.unit) : null,
+    };
     const fits =
       allowed.length === 0 ||
       (cats.length > 0 && cats.some((c) => allowed.some((ok) => c.includes(ok))));
     (fits ? inCat : offCat).push(cand);
   }
-  // cleanest description first (a product whose name is mostly the food),
-  // then cheapest per unit — never shelf price
+  // cleanest description first (a product whose name is mostly the food);
+  // then cost-to-cover-the-need when the need is known (3.6), unit price as
+  // the tiebreak and the no-need fallback — never shelf price
   const rank = (/** @type {typeof inCat} */ arr) =>
     arr.sort(
-      (a, b) => a.noise - b.noise || (a.unitPrice ?? Infinity) - (b.unitPrice ?? Infinity),
+      (a, b) =>
+        a.noise - b.noise ||
+        (need ? (a.spend ?? Infinity) - (b.spend ?? Infinity) : 0) ||
+        (a.unitPrice ?? Infinity) - (b.unitPrice ?? Infinity),
     );
   return inCat.length > 0 ? rank(inCat) : rank(offCat);
+}
+
+/**
+ * What covering the row's actual quantity costs with this product: whole
+ * packages (never fractions), or pay-what-it-weighs for WEIGHT-sold items.
+ * Null when the need cannot be expressed in the product's terms — the caller
+ * falls back to unit price.
+ * @param {KrogerProduct} p
+ * @param {string} food
+ * @param {number} qty
+ * @param {string} unit
+ * @returns {number | null}
+ */
+function coverSpend(p, food, qty, unit) {
+  const reg = p.price.regular;
+  if (reg == null || !(qty > 0)) return null;
+  const u = canonicalUnit(unit);
+  const key = pinKey(food);
+  if (p.soldBy === "WEIGHT") {
+    const g = toGrams(qty, u, key);
+    const lbs = g != null ? g / 453.59237 : u === "lb" ? qty : null;
+    // a service counter rarely sells under a quarter pound
+    return lbs != null ? Math.round(reg * Math.max(lbs, 0.25) * 100) / 100 : null;
+  }
+  const pack = parsePackSize(p.size);
+  if (!pack || !(pack.qty > 0)) return null;
+  let inPack = convertUnit(qty, u, pack.unit);
+  if (inPack == null) {
+    const needG = toGrams(qty, u, key);
+    const packG = toGrams(pack.qty, pack.unit, key);
+    if (needG != null && packG != null && packG > 0) inPack = (needG / packG) * pack.qty;
+  }
+  if (inPack == null) return null;
+  return Math.round(reg * Math.max(1, Math.ceil(inPack / pack.qty)) * 100) / 100;
 }
 
 /**

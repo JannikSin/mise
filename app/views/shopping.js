@@ -491,6 +491,8 @@ export function ShoppingView({
         item.food,
         pins?.redList ?? [],
         item.section ?? sectionOf(item.food),
+        // 3.6: rank by what covering THIS row costs, not per-unit abstractions
+        item.qty > 0 ? { qty: item.qty, unit: item.unit } : null,
       );
       setPricePick({ item, busy: false, candidates: ranked2 });
     } catch (err) {
@@ -1361,7 +1363,7 @@ export function ShoppingView({
               ${pricePick.candidates.slice(0, 8).map((/** @type {any} */ c) => {
                 const hits = allergenHits(c, avoid);
                 return html`<div class="row" key=${c.upc}>
-                  <span class="k">${c.description} <span class="hint">${c.brand ? `${c.brand} · ` : ""}${c.size}${c.unitLabel ? ` · ${c.unitLabel}` : ""}${c.aisle ? ` · ${c.aisle}` : ""}${c.price.promo != null ? ` · promo $${c.price.promo.toFixed(2)}` : ""}</span></span>
+                  <span class="k">${c.description} <span class="hint">${c.brand ? `${c.brand} · ` : ""}${c.size}${c.unitLabel ? ` · ${c.unitLabel}` : ""}${c.spend != null && c.spend !== c.price.regular ? ` · covers yours $${c.spend.toFixed(2)}` : ""}${c.aisle ? ` · ${c.aisle}` : ""}${c.price.promo != null ? ` · promo $${c.price.promo.toFixed(2)}` : ""}</span></span>
                   ${hits.length > 0 ? html`<span class="status warn">contains ${hits.join(", ")}</span>` : html`<button class="linktext num" onClick=${() => choosePick(pricePick.item, c)}>$${c.price.regular.toFixed(2)} PIN</button>`}
                 </div>`;
               })}

@@ -71,6 +71,8 @@ import {
   normalizePlan,
   switchCandidate,
   setEntryRecipe,
+  recordCook,
+  setCookComment,
   recipesById,
   shiftWeek,
   toggleSlotOut,
@@ -1266,10 +1268,16 @@ function App() {
   }, [updatePlan]);
 
   const handleMarkCooked = useCallback(
-    (/** @type {string} */ entryId) => {
+    (/** @type {string} */ entryId, /** @type {number} */ seconds = -1) => {
       const plan = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       const entry = plan.entries.find((e) => e.id === entryId);
-      updatePlan(toggleEntryCooked(plan, entryId, localIsoDate(new Date())));
+      // the cook timer's END passes its recorded span (7.10) and never
+      // un-cooks; Cook Mode's plain tap keeps the old toggle semantics
+      updatePlan(
+        seconds >= 0
+          ? recordCook(plan, entryId, localIsoDate(new Date()), seconds)
+          : toggleEntryCooked(plan, entryId, localIsoDate(new Date())),
+      );
       // cooking it EATS it (David, 2026-07-26): the meal's ingredients come
       // off the shelves they were put on. Only on the way IN — un-ticking a
       // meal cannot un-cook the food, so nothing is put back.
@@ -1289,6 +1297,20 @@ function App() {
       updatePantry(next);
     },
     [updatePlan, updatePantry],
+  );
+
+  // the timer's "overrun was me, not the plan" note (7.10, read by P11)
+  const handleCookComment = useCallback(
+    (/** @type {string} */ entryId, /** @type {string} */ text) => {
+      updatePlan(
+        setCookComment(
+          /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
+          entryId,
+          text,
+        ),
+      );
+    },
+    [updatePlan],
   );
 
   /** Add straight from the cookbook: slot inferred from the recipe's
@@ -3145,6 +3167,9 @@ function App() {
         })()}
         unshopped=${!(/** @type {any} */ (plan)?.shoppedAt || houseShopped)}
         onPromote=${handlePromoteRecipe}
+        entry=${route.entry ? (plan.entries ?? []).find((e) => e.id === route.entry) : undefined}
+        onCooked=${handleMarkCooked}
+        onCookComment=${handleCookComment}
       />`
     }
     ${

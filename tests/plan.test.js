@@ -16,6 +16,8 @@ import {
   OUT_TEXT,
   setPlanLocked,
   setPlanShopped,
+  recordCook,
+  setCookComment,
   toggleEntryCooked,
   mergeRecipePool,
   dietOf,
@@ -629,4 +631,30 @@ test("setPlanShopped records the receipt trip total, appending across receipts",
   assert.equal(p2.spend.length, 2, "a week can hold several receipts");
   const p3 = setPlanShopped(p1, "2026-08-21", null);
   assert.deepEqual(p3.spend, p1.spend, "no spend arg leaves the record alone");
+});
+
+// ---- the cook timer (7.10, 2026-08-19) --------------------------------------
+
+test("recordCook marks cooked once, stores the span, never un-cooks", () => {
+  const plan = { week: "2026-W34", entries: [{ id: "e1", date: "2026-08-19", slot: "dinner", recipeId: "x" }, { id: "e2", date: "2026-08-19", slot: "lunch", recipeId: "y" }] };
+  const p1 = recordCook(plan, "e1", "2026-08-19", 1740);
+  assert.equal(p1.entries[0].cookedAt, "2026-08-19");
+  assert.equal(p1.entries[0].cookSeconds, 1740);
+  assert.equal(p1.entries[1].cookedAt, undefined, "other entries untouched");
+  const p2 = recordCook(p1, "e1", "2026-08-20", 900);
+  assert.equal(p2.entries[0].cookedAt, "2026-08-19", "a second END never re-dates the cook");
+  assert.equal(p2.entries[0].cookSeconds, 900, "but the span refreshes");
+  const p3 = recordCook(plan, "e1", "2026-08-19", 0);
+  assert.equal(p3.entries[0].cookedAt, "2026-08-19");
+  assert.equal(p3.entries[0].cookSeconds, undefined, "a zero-second span records nothing");
+});
+
+test("setCookComment sets, trims, caps, and clears", () => {
+  const plan = { week: "2026-W34", entries: [{ id: "e1", cookedAt: "2026-08-19" }] };
+  const p1 = setCookComment(plan, "e1", "  burned the first batch  ");
+  assert.equal(p1.entries[0].cookComment, "burned the first batch");
+  const p2 = setCookComment(p1, "e1", "x".repeat(300));
+  assert.equal(p2.entries[0].cookComment.length, 200);
+  const p3 = setCookComment(p1, "e1", "   ");
+  assert.equal(p3.entries[0].cookComment, undefined, "empty clears");
 });
