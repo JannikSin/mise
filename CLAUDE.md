@@ -13,6 +13,14 @@
 > **No feature ships dark:** anything built behind a gate gets a date and an owner in the same commit.
 > The standing example of the failure is `app/lib/synth.js`, 804 tested lines wired into main.js, gated on
 > `assembly === "plated"`, a tag no recipe in the bank carries, inert since the day it merged.
+> **THE PROMISE LEDGER (2026-08-19, session koenig).** Every promise in the Core Purpose carries a
+> `**Status:**` line under its done test, and `tests/promises.test.js` parses that file and fails the build
+> when the document and the suite disagree. Three legal states: `✅ PROVEN > "<test>"`,
+> `🟡 PARTIAL > "<test>" · GAP > "<todo>"`, `🔴 NOT BUILT · GAP > "<todo>"`. Rules that bind you:
+> a promise may not be marked proven by a test that only reads source text, it has to exercise the
+> behaviour; every gap is a printed `todo` with a NAMED OWNER, which is the gate register; and
+> **when a promise's status changes, the status line changes in the SAME commit as the code.**
+> Today: 1 proven, 10 partial, 1 not built. The suite prints that score on every run.
 
 > **Crystal notice:** if this session shipped real work, also append a line to `C:\Users\DATar\Sanity\Obsidian\Crystal\System\Changelog.md` and a narrative + hot-list entry to `C:\Users\DATar\Sanity\Obsidian\Crystal\Accomplishments\Log.md` before ending. Crystal is David's personal assistant and the daily brief it narrates back to him only reflects what gets written there. See Crystal's `System/Lessons-Learned.md` L13.
 
