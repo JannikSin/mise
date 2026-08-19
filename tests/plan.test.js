@@ -16,6 +16,8 @@ import {
   OUT_TEXT,
   setPlanLocked,
   setPlanShopped,
+  saveFallback,
+  restoreFallback,
   recordCook,
   setCookComment,
   toggleEntryCooked,
@@ -657,4 +659,48 @@ test("setCookComment sets, trims, caps, and clears", () => {
   assert.equal(p2.entries[0].cookComment.length, 200);
   const p3 = setCookComment(p1, "e1", "   ");
   assert.equal(p3.entries[0].cookComment, undefined, "empty clears");
+});
+
+// ---- the fluid week (7.2, 2026-08-19) ---------------------------------------
+
+test("saveFallback snapshots the entries; restoreFallback puts them back, cooked stays cooked", () => {
+  const plan = { week: "2026-W34", entries: [
+    { id: "a", date: "2026-08-20", slot: "dinner", recipeId: "x", servings: 1 },
+    { id: "b", date: "2026-08-21", slot: "dinner", recipeId: "y", servings: 1 },
+  ] };
+  const saved = saveFallback(plan, "2026-08-19");
+  assert.equal(saved.fallback.savedAt, "2026-08-19");
+  assert.equal(saved.fallback.entries.length, 2);
+  // reshape: b swapped to z and cooked, a deleted
+  const reshaped = { ...saved, entries: [{ id: "b", date: "2026-08-21", slot: "dinner", recipeId: "z", servings: 1, cookedAt: "2026-08-21" }] };
+  const back = restoreFallback(reshaped);
+  const bEntry = back.entries.find((e) => e.id === "b");
+  assert.equal(bEntry.recipeId, "z", "the cooked meal stays what was actually cooked");
+  assert.ok(back.entries.some((e) => e.id === "a"), "the shopped meal returns");
+  assert.equal(back.entries.length, 2, "no duplicate for the cooked slot");
+  assert.equal(restoreFallback(plan), plan, "no fallback = no-op");
+});
+
+test("restoreFallback excludes by ID: a cooked snack's stacked siblings still come back", () => {
+  // the top-up stacks up to three DISTINCT snacks in one date+slot; a
+  // slot-keyed exclusion dropped the cooked one's uncooked siblings (diff
+  // review 2026-08-19)
+  const plan = { week: "2026-W34", entries: [
+    { id: "s1", date: "2026-08-20", slot: "snack", recipeId: "bites", servings: 1 },
+    { id: "s2", date: "2026-08-20", slot: "snack", recipeId: "smoothie", servings: 1 },
+    { id: "s3", date: "2026-08-20", slot: "snack", recipeId: "yogurt", servings: 1 },
+  ] };
+  const saved = saveFallback(plan, "2026-08-19");
+  const reshaped = { ...saved, entries: [{ ...plan.entries[0], cookedAt: "2026-08-20" }] };
+  const back = restoreFallback(reshaped);
+  assert.equal(back.entries.length, 3, "all three snacks survive the restore");
+  assert.equal(back.entries.find((e) => e.id === "s1").cookedAt, "2026-08-20");
+  assert.ok(back.entries.some((e) => e.id === "s2") && back.entries.some((e) => e.id === "s3"), "the uncooked siblings return");
+});
+
+test("normalizePlan passes fallback AND spend through instead of stripping them", () => {
+  const raw = { week: "2026-W34", entries: [], fallback: { savedAt: "2026-08-19", entries: [] }, spend: [{ store: "pay-less", date: "2026-08-19", total: 70.12 }] };
+  const n = normalizePlan(raw, "2026-W34");
+  assert.deepEqual(n.fallback, raw.fallback);
+  assert.deepEqual(n.spend, raw.spend, "recorded receipt totals must survive a load");
 });

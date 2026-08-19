@@ -852,7 +852,17 @@ even the same slot — merge without losing either entry.
 ```jsonc
 {
   "week": "2026-W28",
-  "locked": false, // ? true = you've shopped for this week; see below
+  "locked": false, // ? LEGACY (7.2, 2026-08-19: the locked week is ABOLISHED).
+  //   Old devices may still write it; normalizePlan tolerates it; no current
+  //   code reads it. The replacement is `fallback` + the coverage check.
+  "fallback": { "savedAt": "2026-08-19", "entries": [] }, // ? THE SHOPPED PLAN
+  //   (7.2, canon P4: shopping locks the INGREDIENTS, never the plan).
+  //   Written by GOING TO THE STORE (saveFallback) and auto-snapshotted
+  //   before a post-shop GENERATE. The plan stays freely changeable;
+  //   restoreFallback puts this shape back (cooked meals stay cooked). The
+  //   one governing rule — every bought perishable gets used before it
+  //   dies — is derived per render by app/lib/coverage.js and shown as the
+  //   Plan tab's coverage banner, never stored.
   "shoppedAt": "2026-07-25", // ? groceries CONFIRMED bought (a scanned receipt
   //   sets this via setPlanShopped). Honest-state rule (2026-07-23): absent =
   //   not confirmed; the Worker's cook-reminder cron stays silent for the week.
@@ -969,14 +979,14 @@ tallied per day on the Cook view into `fitness/daily.json` day rows as a
 `buffer` count (a plain number, absent = 0) — display-only, it never feeds
 plan `dayTotals`.
 
-`locked` (whole-plan, not per-entry) guards against the week's meals silently
-changing after groceries are already bought: toggled from the List view's
-"GOING TO THE STORE" button (app/views/shopping.js). While `true`, GENERATE MY
-WEEK / RE-ROLL WEEK refuse to run (button disabled), and adding, removing, or
-moving an entry asks for confirmation first (app/main.js `handleDrop`,
-`handleRemove`, `handlePlanAdd`) — pin/unpin is unaffected since it never
-changes what's cooked. Absent `locked` = unlocked (default, unchanged for
-existing data).
+THE FLUID WEEK (7.2, 2026-08-19; canon P4): `locked` is retired. GOING TO THE
+STORE now writes `fallback` (the shopped plan, always there to return to) and
+every edit stays allowed — SWITCH, OUT, add, swaps, all post-shop. The two
+guards that replaced the cage: a post-shop GENERATE asks first and
+auto-snapshots the fallback, and the coverage banner (app/lib/coverage.js
+`perishableCoverage`) names every bought perishable with no meal before it
+dies, re-derived on every plan change. Old devices still writing `locked`
+merge harmlessly; nothing reads it.
 
 ## Shopping list — `shopping.json`
 

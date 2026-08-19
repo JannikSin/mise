@@ -181,7 +181,7 @@ const FRESH_STEPS = [
  *   onToggleLow: (id: string) => void,
  *   onOwnItem: (id: string) => void,
  *   onScanApprove: (items: { name: string, kind: string, qty: string }[], location?: string, mode?: "sweep" | "add") => void,
- *   onToggleLock: () => void,
+ *   onGoingShopping: () => void,
  *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList, plan?: import("../lib/plan.js").Plan | null }[],
  *   ownEmoji: string,
  *   recipeIndex?: Map<string, any> | null,
@@ -229,7 +229,7 @@ export function ShoppingView({
   onToggleLow,
   onOwnItem,
   onScanApprove,
-  onToggleLock,
+  onGoingShopping,
   others,
   ownEmoji,
   recipeIndex = null,
@@ -1096,16 +1096,11 @@ export function ShoppingView({
               </button>`
             }
             <button
-              class="secondary lockbtn ${plan?.locked ? "on" : ""}"
-              aria-pressed=${Boolean(plan?.locked)}
-              aria-label=${
-                plan?.locked
-                  ? "Unlock the week — allow the plan to change again"
-                  : "Going to the store — lock this week's plan so it can't silently change"
-              }
-              onClick=${onToggleLock}
+              class="secondary lockbtn ${/** @type {any} */ (plan)?.fallback ? "on" : ""}"
+              aria-label="Going to the store — save this week's plan as the fallback you can always return to"
+              onClick=${onGoingShopping}
             >
-              ${plan?.locked ? "🔓 UNLOCK WEEK" : "🛒 GOING TO THE STORE"}
+              ${/** @type {any} */ (plan)?.fallback ? "🛒 RE-SAVE SHOPPED PLAN" : "🛒 GOING TO THE STORE"}
             </button>
             ${
               items.length > 0 &&
@@ -1164,11 +1159,13 @@ export function ShoppingView({
           }
           <p class="hint lockhint">
             ${
-              plan?.locked
-                ? html`<strong>Week is LOCKED 🔒</strong> — you've shopped for it. Meals can't
-                    change without asking you first.`
-                : html`<strong>Going shopping? Tap 🛒 GOING TO THE STORE first.</strong> It locks
-                    this week's meals so they can't change after you've bought the food.`
+              /** @type {any} */ (plan)?.fallback
+                ? html`<strong>Shopped plan saved ✓</strong> — the week stays freely changeable;
+                    the Plan tab watches that every bought perishable still gets cooked before it
+                    dies, and ↩ can always put the shopped plan back.`
+                : html`<strong>Going shopping? Tap 🛒 GOING TO THE STORE first.</strong> It saves
+                    this plan as your fallback — the week stays changeable after you buy, and the
+                    app tracks that everything perishable still gets used.`
             }
           </p>
           <p class="hint">
@@ -2002,13 +1999,12 @@ export function ShoppingView({
                 <div class="actions">
                   <button
                     class="secondary"
-                    disabled=${Boolean(plan.locked)}
                     onClick=${() =>
                       onSubstitute(
                         substitutions.map((x) => ({ entryId: x.entryId, toId: x.toId })),
                       )}
                   >
-                    ${plan.locked ? "LOCKED · ALREADY SHOPPED" : "APPLY THESE SWAPS"}
+                    APPLY THESE SWAPS
                   </button>
                 </div>
               </div>

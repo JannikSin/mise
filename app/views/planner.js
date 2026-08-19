@@ -70,7 +70,9 @@ function monthDay(isoDate) {
  *   onPatchDay: (patch: Record<string, any>) => void,
  *   occasionBanner?: {
  *     emoji: string, name: string, when: string, label: string, note: string
- *   } | null
+ *   } | null,
+ *   coverageGaps?: import("../lib/coverage.js").CoverageGap[],
+ *   onRestoreFallback?: (() => void) | undefined
  * }} props
  */
 export function PlannerView({

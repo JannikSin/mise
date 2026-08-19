@@ -6,7 +6,7 @@ import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 /**
  * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, cookSeconds?: number, cookComment?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
- * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any> }} Plan
+ * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any>, fallback?: { savedAt: string, entries: PlanEntry[] }, spend?: { store: string, date: string, total: number }[] }} Plan
  */
 // cookedAt is optional; absent = not confirmed cooked. Set (local YYYY-MM-DD)
 // by the DONE button at the end of Cook mode — the honest-state rule: a past
@@ -539,12 +539,53 @@ export function toggleSlotOut(plan, date, slot, est) {
 
 /**
  * Set or clear the whole-week lock. Pure.
+ * LEGACY (7.2, canon P4: the locked week is ABOLISHED — shopping locks the
+ * INGREDIENTS, never the plan). Kept so old devices' plans still normalize
+ * and old writes stay mergeable; no new UI calls it.
  * @param {Plan} plan
  * @param {boolean} locked
  * @returns {Plan}
  */
 export function setPlanLocked(plan, locked) {
   return { ...plan, locked };
+}
+
+/**
+ * GOING TO THE STORE (7.2, canon P4): stores the generated week as the
+ * FALLBACK plan — the shape you shopped for, always there to return to —
+ * and from that moment the plan may change freely under the one governing
+ * rule (perishableCoverage). Re-tapping refreshes the snapshot.
+ * @param {Plan} plan
+ * @param {string} todayIso
+ * @returns {Plan}
+ */
+export function saveFallback(plan, todayIso) {
+  return {
+    ...plan,
+    fallback: { savedAt: todayIso, entries: plan.entries.map((e) => ({ ...e })) },
+  };
+}
+
+/**
+ * Back to the shopped plan: the fallback's entries replace the current ones,
+ * except entries already COOKED stay as cooked reality (a restore must never
+ * un-cook food or resurrect an eaten meal as pending). No fallback = no-op.
+ * @param {Plan} plan
+ * @returns {Plan}
+ */
+export function restoreFallback(plan) {
+  const fb = /** @type {any} */ (plan).fallback;
+  if (!fb || !Array.isArray(fb.entries)) return plan;
+  const cooked = plan.entries.filter((e) => e.cookedAt);
+  // exclusion is by ID, never by slot: entries STACK in a slot (the snack
+  // top-up plans up to three distinct snacks at one date+slot), and a
+  // slot-keyed exclusion silently dropped the cooked entry's uncooked
+  // siblings on every restore (diff review 2026-08-19). An id survives
+  // SWITCH (setEntryRecipe keeps it), so the cooked meal's fallback twin is
+  // exactly the one entry the cooked reality replaces.
+  const cookedIds = new Set(cooked.map((e) => e.id));
+  const restored = fb.entries.filter((/** @type {PlanEntry} */ e) => !cookedIds.has(e.id));
+  return { ...plan, entries: [...cooked, ...restored] };
 }
 
 /**
@@ -758,6 +799,15 @@ export function normalizePlan(raw, weekId) {
     week: typeof raw.week === "string" ? raw.week : weekId,
     ...(raw.locked !== undefined ? { locked: Boolean(raw.locked) } : {}),
     ...(typeof raw.shoppedAt === "string" ? { shoppedAt: raw.shoppedAt } : {}),
+    // the shopped-plan snapshot (7.2): survives normalization untouched
+    ...(raw.fallback &&
+    typeof raw.fallback === "object" &&
+    Array.isArray(raw.fallback.entries)
+      ? { fallback: raw.fallback }
+      : {}),
+    // the spend leg (PF.3): normalize used to build an explicit shape, which
+    // silently DROPPED recorded receipt totals on the next load
+    ...(Array.isArray(raw.spend) ? { spend: raw.spend } : {}),
     ...(Array.isArray(raw.unlocked)
       ? { unlocked: raw.unlocked.filter((/** @type {any} */ r) => typeof r === "string") }
       : {}),

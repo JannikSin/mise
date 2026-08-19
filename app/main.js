@@ -62,6 +62,7 @@ import {
 } from "./lib/shopping.js";
 import { applyReceipt, parsePackSize } from "./lib/prices.js";
 import { normalizePins } from "./lib/kroger.js";
+import { perishableCoverage } from "./lib/coverage.js";
 import { appendWaste } from "./lib/waste.js";
 import { canonicalFood } from "./lib/ingredients.js";
 import { cookPlan } from "./lib/portions.js";
@@ -80,7 +81,8 @@ import {
   entriesAt,
   slotMacroEstimate,
   datesOfWeek,
-  setPlanLocked,
+  saveFallback,
+  restoreFallback,
   setPlanShopped,
   toggleEntryCooked,
   mergeRecipePool,
@@ -689,8 +691,13 @@ function App() {
       // total is the spend leg of the one ledger (PF.3): recorded on the
       // plan, so spent-vs-budgeted stops being estimates-only.
       const tripSpend = Math.round(lines.reduce((s, l) => s + (Number(l.price) || 0), 0) * 100) / 100;
+      // the receipt IS proof of shopping, so it also guarantees the fallback
+      // exists (7.2): a user who skips GOING TO THE STORE and scans straight
+      // at the till still gets the shopped plan saved before anything can
+      // reshape it (diff review 2026-08-19)
+      const shoppedBase = prevPlan.fallback ? prevPlan : saveFallback(prevPlan, today);
       updatePlan(
-        setPlanShopped(prevPlan, today, tripSpend > 0 ? { store, date: today, total: tripSpend } : null),
+        setPlanShopped(shoppedBase, today, tripSpend > 0 ? { store, date: today, total: tripSpend } : null),
       );
       // the trip is DONE: every row the till confirms (plus anything ticked in
       // the aisle) leaves the list and lands on a shelf. A fully-bought list
@@ -1175,18 +1182,17 @@ function App() {
     };
   }, []);
 
-  // locked week: destructive edits (add/remove/move) ask first, since the
-  // meals may already be shopped for; pin/unpin never changes what's cooked
-  // so it's left ungated
-  const LOCK_CONFIRM = "This week is locked, you've shopped for it. Change this meal anyway?";
+  // THE FLUID WEEK (7.2, canon P4): the locked week is abolished. Shopping
+  // stores the plan as a FALLBACK and the plan stays freely changeable; the
+  // one governing rule — every bought perishable gets used before it dies —
+  // is watched by the coverage banner, not by a cage of refusals.
 
   // SWITCH: the meal keeps its slot and its servings and becomes a different
   // recipe. Replaces the old ✕, which could only delete (David, 2026-07-27).
-  // A locked week refuses, same as GENERATE: you have bought this food.
+  // Works on a shopped week too (7.2): the coverage banner is the guard.
   const handleSwitchEntry = useCallback(
     (/** @type {string} */ id) => {
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
-      if (p.locked) return;
       const next = switchCandidate(p, id, recipesRef.current);
       if (!next) {
         setUndoToast({
@@ -1226,24 +1232,20 @@ function App() {
       let p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       // marking a filled slot OUT deletes its planned meal (pins included) —
       // one 44px tap, and un-toggling brings back an EMPTY slot, not the
-      // meal. So a filled slot always asks first; a locked (already shopped)
-      // week asks with the sterner wording. Turning OUT back off just
+      // meal. So a filled slot always asks first. Turning OUT back off just
       // empties the slot and never needs a gate.
       const marking = !outEntryAt(p.entries, date, slot);
       if (marking && entriesAt(p.entries, date, slot).length > 0) {
-        const msg = p.locked
-          ? LOCK_CONFIRM
-          : "Eating out instead? The planned meal in this slot will be removed.";
-        if (!(await askConfirm(msg))) return;
+        if (!(await askConfirm("Eating out instead? The planned meal in this slot will be removed."))) return;
         p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       }
       const next = toggleSlotOut(p, date, slot, slotMacroEstimate(recipesRef.current, slot));
       updatePlan(next);
       // keep an already-built list truthful: the out meal's ingredients must
-      // not linger as things to buy. Locked weeks are exempt (the lock's
-      // whole point is a list that stops moving), and an empty list stays
-      // empty — toggling OUT never builds a list David didn't ask for.
-      if (!p.locked && shoppingRef.current.items.length > 0) {
+      // not linger as things to buy (post-shop the re-derive IS the delta
+      // list, 7.2 — bought food already sits in the pantry and subtracts);
+      // an empty list stays empty — OUT never builds a list nobody asked for
+      if (shoppingRef.current.items.length > 0) {
         updateShopping(
           deriveShoppingList(
             withCookExtras(next),
@@ -1260,12 +1262,26 @@ function App() {
     [updatePlan, updateShopping, askConfirm],
   );
 
-  // "I already have this": open ONE recipe method for the rest of the week,
-  // for the nights you cook out of the pantry without a shop.
-  const handleToggleLock = useCallback(() => {
+  // GOING TO THE STORE (7.2): stores the week as the fallback plan — the
+  // shape you shopped for, always there to return to. The plan itself stays
+  // free. (Replaces the old lock toggle; setPlanLocked is legacy-only.)
+  const handleGoingShopping = useCallback(() => {
     const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
-    updatePlan(setPlanLocked(p, !p.locked));
+    updatePlan(saveFallback(p, localIsoDate(new Date())));
+    setUndoToast({
+      message: "plan saved as your shopped fallback — the week stays changeable",
+      restore: () => updatePlan(p),
+    });
   }, [updatePlan]);
+
+  // ↩ back to the shopped plan: cooked meals stay cooked, everything else
+  // returns to the fallback's shape
+  const handleRestoreFallback = useCallback(async () => {
+    const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+    if (!p.fallback) return;
+    if (!(await askConfirm("Put the week back to the plan you shopped for? Cooked meals stay cooked."))) return;
+    updatePlan(restoreFallback(/** @type {import("./lib/plan.js").Plan} */ (planRef.current)));
+  }, [updatePlan, askConfirm]);
 
   const handleMarkCooked = useCallback(
     (/** @type {string} */ entryId, /** @type {number} */ seconds = -1) => {
@@ -1328,8 +1344,29 @@ function App() {
   const handleGenerateWeek = useCallback(async () => {
     // body-level guard, not just the disabled button: this is the single
     // most destructive path (clears every unpinned entry + overwrites the
-    // shopping list) and the one that caused the shopped-week wipe incident
-    if (/** @type {import("./lib/plan.js").Plan} */ (planRef.current).locked) return;
+    // shopping list) and the one that caused the shopped-week wipe incident.
+    // The fluid week (7.2) replaced the flat refusal: a SHOPPED week asks
+    // first and snapshots itself as the fallback before being reshaped, so
+    // the shape you bought for can never be wiped, only stepped away from.
+    // The snapshot is CARRIED onto the generated plan rather than written
+    // first: generateWeek reads viewPlanRef (stale until the next render)
+    // and the final updatePlan(built) is a full replace, so an interim
+    // write would be clobbered a moment later (diff review 2026-08-19).
+    /** @type {import("./lib/plan.js").Plan["fallback"]} */
+    let carriedFallback;
+    {
+      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      carriedFallback = p.fallback;
+      if (p.shoppedAt || p.fallback) {
+        const ok = await askConfirm(
+          "You've shopped for this week. Regenerating reshapes it — the bought food stays in your pantry, the shopped plan stays saved as your fallback, and the coverage check watches every perishable. Regenerate?",
+        );
+        if (!ok) return;
+        if (!carriedFallback) {
+          carriedFallback = saveFallback(p, localIsoDate(new Date())).fallback;
+        }
+      }
+    }
     const bs = buildStateRef.current;
     bs.salt++;
     const result = generateWeek({
@@ -1425,6 +1462,9 @@ function App() {
       // a manifest that fails to compose must never block the week itself;
       // the planner renders its absence as the failure it is
     }
+    // the shopped-plan snapshot rides the SAME write as the generated week —
+    // one updatePlan, no interim state for a full-replace to clobber
+    if (carriedFallback) built = { ...built, fallback: carriedFallback };
     updatePlan(built); // updatePlan strips derived table entries itself
     setBuildReport(result.report);
     // 7a: auto-populate the shopping list from the freshly generated plan,
@@ -1440,7 +1480,7 @@ function App() {
         recipesById(bankRecipesRef.current),
       ),
     );
-  }, [updatePlan, updateShopping, me]);
+  }, [updatePlan, updateShopping, me, askConfirm]);
 
   useEffect(() => {
     // a new week means a fresh build state and report
@@ -1487,11 +1527,7 @@ function App() {
 
   const handlePlanAdd = useCallback(
     async (/** @type {Record<string, any>} */ recipe, /** @type {string} */ date) => {
-      if (
-        /** @type {import("./lib/plan.js").Plan} */ (planRef.current).locked &&
-        !(await askConfirm(LOCK_CONFIRM))
-      )
-        return null;
+      // fluid week (7.2): adding a meal to a shopped week is a normal edit
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       const slot = SLOT_KEYS.includes(recipe.mealType) ? recipe.mealType : "dinner";
       // planning real food into an eating-out slot: the placeholder yields
@@ -1500,7 +1536,7 @@ function App() {
       updatePlan(addEntry(base, date, slot, { recipeId: recipe.id, servings: 1 }));
       return slot;
     },
-    [updatePlan, askConfirm],
+    [updatePlan],
   );
 
   // generation guard: a slow older check must never overwrite a newer result
@@ -1665,7 +1701,6 @@ function App() {
   const handleSubstitute = useCallback(
     (/** @type {{ entryId: string, toId: string }[]} */ swaps) => {
       const cur = /** @type {any} */ (planRef.current);
-      if (cur.locked) return;
       updatePlan({
         ...cur,
         entries: cur.entries.map((/** @type {any} */ e) => {
@@ -3138,6 +3173,14 @@ function App() {
         pantry=${pantry}
         onPatchDay=${handlePatchDay}
         occasionBanner=${occasionBanner}
+        coverageGaps=${
+          // the fluid week's one governing rule (7.2): only meaningful once
+          // the week is shopped — before that, nothing bought needs a home
+          /** @type {any} */ (plan)?.shoppedAt || /** @type {any} */ (plan)?.fallback
+            ? perishableCoverage(viewPlan, allRecipes, pantry, localIsoDate(new Date())).gaps
+            : []
+        }
+        onRestoreFallback=${/** @type {any} */ (plan)?.fallback ? handleRestoreFallback : undefined}
       />`
     }
     ${
@@ -3194,7 +3237,7 @@ function App() {
         onToggleLow=${handleCycleState}
         onOwnItem=${handleOwnItem}
         onScanApprove=${handleScanApprove}
-        onToggleLock=${handleToggleLock}
+        onGoingShopping=${handleGoingShopping}
         others=${otherLists}
         ownEmoji=${ownEmoji}
         recipeIndex=${recipeIndex}
