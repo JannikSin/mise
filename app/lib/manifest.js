@@ -99,27 +99,9 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
 
   // away/swipe credit (7.11, P5): a manifest composed before the engine
   // reported this (or recomposed from a stored engine half) derives the
-  // credit from the plan as it stands. cookedNeedRatio stays null in that
-  // case — only a real GENERATE aims the cooked week at the remaining need,
-  // and the line says so instead of pretending.
-  if (!subsystems.away && current && Array.isArray(current.entries)) {
-    // same live-day scope as the engine's awayCredit (future, non-held):
-    // otherwise a Wednesday recompose counts Monday's spent swipes and the
-    // same line shows two different numbers depending on who wrote it
-    const heldAway = new Set(
-      current.entries.filter((/** @type {any} */ e) => e.occasion).map((e) => e.date),
-    );
-    const outs = current.entries.filter(
-      (/** @type {any} */ e) => e.out && e.date >= todayIso && !heldAway.has(e.date),
-    );
-    subsystems.away = {
-      slots: outs.length,
-      swipeSlots: outs.filter((/** @type {any} */ e) => e.currency).length,
-      creditCalories: outs.reduce((s, e) => s + (e.estCalories ?? 0), 0),
-      creditProtein: outs.reduce((s, e) => s + (e.estProtein ?? 0), 0),
-      cookedNeedRatio: null,
-      fullNeedRatio: null,
-    };
+  // credit from the plan as it stands — see awayBackfill.
+  if (!subsystems.away && current) {
+    subsystems.away = awayBackfill(current, todayIso);
   }
 
   // plating (synth.js): deliberately inert by council 2026-08-12, kill
@@ -237,14 +219,45 @@ export function manifestDrifted(manifest, plan) {
 }
 
 /**
+ * The away/swipe credit derived from a plan's own entries (7.11, P5), for
+ * manifests that predate the engine reporting it. Live-day scope matches the
+ * engine's awayCredit (future, non-held) so a Wednesday view never counts
+ * Monday's spent swipes. cookedNeedRatio stays null on purpose: only a real
+ * GENERATE aims the cooked week at the remaining need, and the rendered line
+ * says so instead of pretending.
+ * @param {{ entries?: Record<string, any>[] } | null | undefined} plan
+ * @param {string} todayIso
+ * @returns {Record<string, any>}
+ */
+export function awayBackfill(plan, todayIso) {
+  const entries = Array.isArray(plan?.entries) ? plan.entries : [];
+  const held = new Set(entries.filter((e) => e.occasion).map((e) => e.date));
+  const outs = entries.filter((e) => e.out && e.date >= todayIso && !held.has(e.date));
+  return {
+    slots: outs.length,
+    swipeSlots: outs.filter((e) => e.currency).length,
+    creditCalories: outs.reduce((s, e) => s + (e.estCalories ?? 0), 0),
+    creditProtein: outs.reduce((s, e) => s + (e.estProtein ?? 0), 0),
+    cookedNeedRatio: null,
+    fullNeedRatio: null,
+  };
+}
+
+/**
  * Render-ready lines, one per subsystem, in registry order. A registered
- * subsystem with no entry renders as the failure it is.
+ * subsystem with no entry renders as the failure it is — except `away` when
+ * a plan is supplied: a manifest STORED before 2026-08-19 never carried it,
+ * so the view derives the credit from the plan instead of flashing a false
+ * dark-engine alarm on every pre-upgrade week (live-verified 2026-08-19).
  * @param {{ subsystems: Record<string, any> } | null | undefined} manifest
+ * @param {{ entries?: Record<string, any>[] } | null | undefined} [plan]
+ * @param {string} [todayIso]
  * @returns {{ key: string, text: string, missing: boolean }[]}
  */
-export function manifestLines(manifest) {
+export function manifestLines(manifest, plan = null, todayIso = "") {
   return SUBSYSTEMS.map((key) => {
-    const s = manifest?.subsystems?.[key];
+    let s = manifest?.subsystems?.[key];
+    if (!s && key === "away" && plan && todayIso) s = awayBackfill(plan, todayIso);
     if (!s)
       return { key, text: "REPORTED NOTHING — this is the dark-engine failure", missing: true };
     return { key, text: lineFor(key, s), missing: false };

@@ -330,7 +330,7 @@ export function PlannerView({
                 numbers describe the plan as generated, not as it stands
               </div>`
             }
-            ${manifestLines(/** @type {any} */ (plan).manifest).map(
+            ${manifestLines(/** @type {any} */ (plan).manifest, plan, todayIso).map(
               (l) => html`
                 <div class="d num ${l.missing ? "redflag" : ""}" key=${l.key}>
                   <strong>${l.key}</strong>: ${l.text}
