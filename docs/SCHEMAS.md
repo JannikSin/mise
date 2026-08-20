@@ -361,6 +361,27 @@ last-known (†-stale) prices.
   //   recipes ignore this field entirely.
   "purpose": ["recovery", "everyday"], // recovery | pre-activity | long-satiety | sick-day | everyday
   "effort": "assembly", // assembly (<15m) | cook (15-30m) | project (30m+)
+  // ? THE PLATING TAG, and mind the name collision above: `effort:
+  //   "assembly"` is about how long the dish takes, `assembly: "plated"` is
+  //   about whether it can be portioned per person. They are unrelated.
+  //
+  //   "plated" means: at serving time the protein and the starch are still
+  //   in separate pans, so a cook can put more protein and less rice on one
+  //   plate and the reverse on another without re-cooking anything. That is
+  //   the only thing that makes synth.js's per-seat instruction executable —
+  //   "300 g of the chicken" is not an instruction you can follow when the
+  //   chicken is suspended in a curry.
+  //
+  //   ABSENT is the default and means mixed: one pot, one ladle, everybody
+  //   gets a share of the pan. The tag IS the rollout mechanism (council
+  //   2026-08-12), so an untagged recipe behaves exactly as it did before
+  //   the engine existed, bit for bit. Untag to roll back.
+  //
+  //   A tagged recipe MUST have every non-flavor ingredient row priced in
+  //   synth.js's MACRO and PLATE_GRAMS tables, or the whole recipe fails
+  //   closed to "this dish is one thing nutritionally". tests/promises.test.js
+  //   (P8) checks that for every tagged recipe on every run.
+  "assembly": "plated", // ? plated | absent (= mixed)
   "ingredients": [
     {
       "qty": 500,
@@ -397,6 +418,19 @@ last-known (†-stale) prices.
   // `evidence` must be a real quote from this recipe's own record, so any
   // claim here can be checked by a person in ten seconds. tests/promises.test.js
   // fails the build on an audit block with no evidence.
+  //
+  // AND THE FIELD IS NOW LEVERAGE, not just a label (2026-08-19): an
+  // annotator import (`ai-special` / `hbp-annotated`) is fenced out of
+  // GENERATE until it carries BOTH `promoted: true` AND an audit block.
+  // Canon P12 always said "promoted into the bank only through this audit";
+  // until today the flag alone was the whole gate.
+  //
+  // `standard` names the REVIEWING VOICE, never a claim about the dish. A
+  // beef kofta audited by the Greger review carries standard "greger": it
+  // means the review happened and its finding is recorded, not that the
+  // recipe is plant-based. Whether the bank should hold more than one
+  // nutrition philosophy is the pending council's question, and nobody
+  // invents a second standard before it sits.
   "audited": {
     "standard": "greger", // greger | clinical (nutrition voice, or a medical constraint)
     "on": "2026-08-19",

@@ -2,7 +2,18 @@
 // spec rule that a review found breakable without it.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { MACRO, PLATE_GRAMS, PLATE_ADDABLE, partOf, solveSeat, synthesize } from "../app/lib/synth.js";
+
+// The keyword list is module-private on purpose (it is not an API). Rather
+// than duplicate it here, where it would rot, probe partOf with the food
+// names the list is built from — read straight out of the source file, so a
+// keyword added tomorrow is under test tomorrow.
+const SRC = readFileSync(new URL("../app/lib/synth.js", import.meta.url), "utf8");
+const PARTS_UNDER_TEST = [
+  ...SRC.matchAll(/^\s*\["([^"]+)",\s*"(protein|carbfat|veg|flavor)"\],\s*$/gm),
+].map((m) => [m[1], /** @type {any} */ (partOf({ food: m[1] }))]);
+assert.ok(PARTS_UNDER_TEST.length > 40, "the keyword list did not parse out of the source");
 
 const RECIPE = {
   id: "chicken-rice",
@@ -39,17 +50,55 @@ test("rung 0f: A SHOPPED WEEK IS FROZEN (David's rule), tags or no tags", () => 
 });
 
 test("solve identity: exact targets return alpha = beta = 1", () => {
-  // C* = sigma x per-serving calories, P* likewise -> (1,1) exactly
+  // C* = sigma x per-serving calories, P* likewise -> (1,1) exactly.
+  //
+  // CORRECTED 2026-08-19. This test used to divide by RECIPE.servings, and
+  // that extra divide was the bug rather than the rule: it made the test
+  // agree with a solver that normalized a whole-recipe raw sum against a
+  // per-serving nutrition blob. Spec 4.4 states the invariant plainly —
+  // "at uniform mode, a seat's macros are exactly recipe.nutrition x s_p" —
+  // so a seat asking for exactly sigma servings' worth must solve to (1,1)
+  // with no reference to how many servings the pot happens to make. Written
+  // to the spec now, not to the code.
   const sigma = 1.5;
   const t = {
     phase: "recomp",
     mealSlots: ["dinner"],
-    macros: { calories: (sigma * 600) / 3, protein: (sigma * 45) / 3 },
+    macros: { calories: sigma * 600, protein: sigma * 45 },
   };
   const r = solveSeat({ recipe: RECIPE, assembly: "plated", seat: seat(1.5, sigma), targets: t, slotShare: 1 });
   assert.equal(r.synthMode, "solved");
   assert.ok(Math.abs(r.alpha - 1) < 1e-9, `alpha ${r.alpha}`);
   assert.ok(Math.abs(r.beta - 1) < 1e-9, `beta ${r.beta}`);
+});
+
+test("EVERY NON-FLAVOR KEYWORD CAN BE WEIGHED: the tables must agree", () => {
+  // Moving a food OUT of the flavor bucket is not a free edit. Flavor rows
+  // are skipped outright — they never move, so they need neither a macro nor
+  // a gram bridge. The moment a keyword says protein, carbfat or veg, the
+  // row has to be weighable and its macros known, or `missing` trips and the
+  // WHOLE RECIPE degrades to "this dish is one thing nutritionally".
+  //
+  // Written 2026-08-19 after doing exactly that: reclassifying edamame as a
+  // protein, with no MACRO row behind it, silently broke a recipe that had
+  // been solving a minute earlier. One food, one recipe, no complaint.
+  // plurals count: the keyword "lentil" is priced by the MACRO row
+  // "lentils", because a real ingredient name contains both.
+  const macroFor = (/** @type {string} */ food) =>
+    Object.keys(MACRO).find(
+      (k) => food.includes(k) || `${food}s`.includes(k) || food.includes(k.replace(/s$/, "")),
+    );
+  const orphans = [];
+  for (const [kw, part] of PARTS_UNDER_TEST) {
+    if (part === "flavor") continue;
+    if (!macroFor(kw)) orphans.push(`${kw} -> ${part}, but no MACRO row matches it`);
+  }
+  assert.deepEqual(orphans, [], "a keyword promises a bucket the macro table cannot price");
+});
+
+test("PLATE_ADDABLE top-up foods are priced: a top-up nobody can weigh is not a top-up", () => {
+  const unpriced = PLATE_ADDABLE.filter((f) => !MACRO[f]);
+  assert.deepEqual(unpriced, [], "rung 3 would emit a food with no macros");
 });
 
 test("SCALE INVARIANCE: the whole MACRO table x1.15 changes nothing (§4.4's own claim)", () => {

@@ -114,6 +114,8 @@ import {
   setTableCooked,
   setTablePot,
   slotShareFor,
+  guestSeats,
+  GUEST_TARGETS,
   addBrigade,
   removeBrigade,
   materializeBrigade,
@@ -2229,17 +2231,23 @@ function App() {
         t.date < today || shoppedWeeksRef.current === null || shoppedWeeksRef.current.has(wk);
       if (frozen) return null;
     }
+    // GUESTS ARE SEATS (canon P8): "us plus two" is the same pot with two
+    // extra plates on the stated default profile. They join here rather than
+    // at the view, so the LIVE solve and the FROZEN pot below see the same
+    // table — a guest in one and not the other is a buy that does not match
+    // the plates.
+    const seats = [...(t.seats ?? []), ...guestSeats(t)];
     const targetsById = new Map();
     /** @type {Record<string, number>} */
     const slotShares = {};
-    for (const s of t.seats ?? []) {
-      const rec = houseTargetsRef.current.get(s.id);
-      targetsById.set(s.id, /** @type {any} */ (rec?.data ?? null));
-      slotShares[s.id] = slotShareFor(/** @type {any} */ (rec?.data), t.slot);
+    for (const s of seats) {
+      const own = /** @type {any} */ (s).guest ? GUEST_TARGETS : houseTargetsRef.current.get(s.id)?.data;
+      targetsById.set(s.id, /** @type {any} */ (own ?? null));
+      slotShares[s.id] = slotShareFor(/** @type {any} */ (own), t.slot);
     }
     return synthesize({
       recipe,
-      seats: /** @type {any} */ (t.seats ?? []),
+      seats: /** @type {any} */ (seats),
       targetsById,
       slotShares,
     });
@@ -2278,20 +2286,25 @@ function App() {
   const potStringFor = async (/** @type {import("./lib/tables.js").TableEvent} */ t) => {
     const recipe = bankRecipesRef.current.find((r) => r.id === t.recipeId);
     if (!recipe || t.sameForEveryone) return null;
+    const seats = [...(t.seats ?? []), ...guestSeats(t)];
     const targetsById = new Map();
     /** @type {Record<string, string>} */
     const shas = {};
     /** @type {Record<string, number>} */
     const slotShares = {};
-    for (const s of t.seats ?? []) {
+    for (const s of seats) {
+      const guest = /** @type {any} */ (s).guest === true;
       const rec = houseTargetsRef.current.get(s.id);
-      targetsById.set(s.id, /** @type {any} */ (rec?.data ?? null));
-      shas[s.id] = rec?.dirty ? "dirty" : (rec?.sha ?? "missing");
-      slotShares[s.id] = slotShareFor(/** @type {any} */ (rec?.data), t.slot);
+      const own = guest ? GUEST_TARGETS : rec?.data;
+      targetsById.set(s.id, /** @type {any} */ (own ?? null));
+      // a guest's "targets sha" is the CONSTANT, so the fingerprint changes
+      // if the default ever changes and stays stable while it does not
+      shas[s.id] = guest ? "guest-default" : rec?.dirty ? "dirty" : (rec?.sha ?? "missing");
+      slotShares[s.id] = slotShareFor(/** @type {any} */ (own), t.slot);
     }
     return freezePotString({
       recipe,
-      seats: /** @type {any} */ (t.seats ?? []),
+      seats: /** @type {any} */ (seats),
       targetsById,
       slotShares,
       weekShopped: await weekShoppedFor(t.date),

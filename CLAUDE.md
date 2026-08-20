@@ -11,8 +11,12 @@
 > built; it goes to `Crystal\Lanes\Mise-Later.md`. David will keep having ideas and saying them out loud.
 > Saying an idea is not commissioning it. Park it and keep going.
 > **No feature ships dark:** anything built behind a gate gets a date and an owner in the same commit.
-> The standing example of the failure is `app/lib/synth.js`, 804 tested lines wired into main.js, gated on
-> `assembly === "plated"`, a tag no recipe in the bank carries, inert since the day it merged.
+> The standing example of the failure WAS `app/lib/synth.js`: 804 tested lines wired into main.js, gated on
+> `assembly === "plated"`, a tag no recipe in the bank carried, inert since the day it merged. Unparked
+> 2026-08-19, and running it for the first time found three bugs no test could have caught while it was
+> dark, including a normalization error that divided every solved plate by the recipe's serving count.
+> **The lesson stands and is now the rule: an engine that has never executed on real data has not been
+> tested, however green its unit tests are.**
 > **THE PROMISE LEDGER (2026-08-19, session koenig).** Every promise in the Core Purpose carries a
 > `**Status:**` line under its done test, and `tests/promises.test.js` parses that file and fails the build
 > when the document and the suite disagree. Three legal states: `✅ PROVEN > "<test>"`,
@@ -20,7 +24,9 @@
 > a promise may not be marked proven by a test that only reads source text, it has to exercise the
 > behaviour; every gap is a printed `todo` with a NAMED OWNER, which is the gate register; and
 > **when a promise's status changes, the status line changes in the SAME commit as the code.**
-> Today: 1 proven, 10 partial, 1 not built. The suite prints that score on every run.
+> Score at the end of 2026-08-19: **10 proven, 2 partial, 0 not built.** The suite prints it on every run.
+> The two open gaps are P9 (a layout decision David owns) and P12's second nutrition philosophy (the
+> pending council's question). Neither is a build.
 
 > **Crystal notice:** if this session shipped real work, also append a line to `C:\Users\DATar\Sanity\Obsidian\Crystal\System\Changelog.md` and a narrative + hot-list entry to `C:\Users\DATar\Sanity\Obsidian\Crystal\Accomplishments\Log.md` before ending. Crystal is David's personal assistant and the daily brief it narrates back to him only reflects what gets written there. See Crystal's `System/Lessons-Learned.md` L13.
 

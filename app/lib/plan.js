@@ -224,9 +224,14 @@ export function mergeRecipePool(bank, own, phase, avoid, diet, avoidRecipes) {
  */
 export function untrustedForAutoPlan(recipe) {
   const tags = recipe.tags ?? [];
-  return (
-    (tags.includes("ai-special") || tags.includes("hbp-annotated")) && recipe.promoted !== true
-  );
+  if (!(tags.includes("ai-special") || tags.includes("hbp-annotated"))) return false;
+  // PROMOTION GOES THROUGH THE AUDIT, NEVER AROUND IT (canon P12: "a recipe
+  // brought in mid-week through the annotator is a guest of the plan, not a
+  // member of the bank... promoted into the bank only through this audit").
+  // `promoted: true` used to be the entire gate, so one hand-set boolean
+  // walked an unaudited recipe into GENERATE — precisely the door the
+  // promise says stays shut. Both conditions now, or it stays a guest.
+  return recipe.promoted !== true || !recipe.audited;
 }
 
 /**

@@ -679,6 +679,51 @@ export function clampGuests(t) {
 }
 
 /**
+ * THE GUEST DEFAULT PROFILE (canon P8: "'Friday it is us plus two' is the
+ * same pot with two extra plates on a sensible default profile, not a
+ * special event and not a separate feature").
+ *
+ * A guest has no profile and never will: they are a person at the table for
+ * one night, not an account. So the plate they get is solved against a
+ * stated, ordinary adult default rather than skipped, and the default is
+ * WRITTEN DOWN here where a human can read and argue with it instead of
+ * living as an implicit 1.0 somewhere. 2,000 kcal and 90 g of protein is a
+ * moderate adult on maintenance; `recomp` clamps are the narrowest set,
+ * which is the right bias for a plate nobody has told us anything about.
+ */
+export const GUEST_TARGETS = Object.freeze({
+  phase: "recomp",
+  mealSlots: ["breakfast", "lunch", "dinner"],
+  macros: { calories: 2000, protein: 90 },
+});
+
+/**
+ * A table's guests as SEATS, so they get plates like everyone else.
+ *
+ * Before 2026-08-19 guests were a number that joined the buy and the cook's
+ * batch total and nothing else: their food was bought and cooked, and then
+ * the serve step never told the cook to plate it. On a solved table that is
+ * worse than cosmetic, because the frozen pot governs the buy wholesale, so
+ * guests missing from the pot means guests missing from the shopping list.
+ *
+ * Ids are zero-padded because synthesize sorts seats by id for freeze
+ * determinism, and `guest-10` sorts before `guest-2`.
+ * @param {TableEvent | Record<string, any>} t
+ * @returns {{ id: string, servings: number, guest: true, name: string }[]}
+ */
+export function guestSeats(t) {
+  const n = clampGuests(t);
+  return Array.from({ length: n }, (_, i) => ({
+    id: `guest-${String(i + 1).padStart(2, "0")}`,
+    // one recipe serving each, before the solve tailors it. A guest plate is
+    // an ordinary plate; it is not a smaller or a politer one.
+    servings: 1,
+    guest: /** @type {const} */ (true),
+    name: n === 1 ? "Guest" : `Guest ${i + 1}`,
+  }));
+}
+
+/**
  * Set the table's guest plates (7.4, canon P8: "Friday it is us plus two" is
  * the same pot with two extra plates, not a special event). 0 clears.
  * @param {HouseEvents} events

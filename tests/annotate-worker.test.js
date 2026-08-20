@@ -578,7 +578,7 @@ test("the saved recipe holds up in the real consumers (ENG F8b)", () => {
   });
   // fenced from both auto-planners until promoted, choosable once promoted
   assert.deepEqual(generatorEligible([recipe]), []);
-  assert.equal(generatorEligible([{ ...recipe, promoted: true }]).length, 1);
+  assert.equal(generatorEligible([{ ...recipe, promoted: true, audited: { standard: "greger", on: "2026-08-19", by: "test fixture", evidence: "promotion requires an audit (P12)" } }]).length, 1);
   const bank = new Map([[recipe.id, recipe]]);
   assert.deepEqual(brigadePool(bank, [{ id: "mom" }], "dinner"), []);
   // screenable by the shared diet/avoid predicate

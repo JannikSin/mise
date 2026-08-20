@@ -57,6 +57,15 @@ export const MACRO = /** @type {Record<string, [number, number]>} */ ({
   halloumi: [321, 22],
   paneer: [321, 21],
   seitan: [141, 25],
+  edamame: [121, 11],
+  // added 2026-08-19: these keywords named a bucket the macro table could
+  // not price, so any recipe using them failed closed. tests/synth.test.js
+  // now refuses to let a keyword outrun the table again.
+  fish: [105, 23],
+  yogurt: [61, 3.5],
+  kefir: [41, 3.3],
+  ricotta: [174, 11],
+  peanut: [567, 26],
   // carbfat foods
   rice: [130, 2.7],
   "brown rice": [112, 2.3],
@@ -103,6 +112,15 @@ export const MACRO = /** @type {Record<string, [number, number]>} */ ({
   mushroom: [28, 2.2],
   onion: [40, 1.1],
   celery: [14, 0.7],
+  // added 2026-08-19 alongside the keywords above. EVERY non-flavor keyword
+  // needs a row here, or the food has no macro, `missing` trips, and the
+  // recipe degrades to uniform with the misleading "one thing nutritionally"
+  // note. tests/synth.test.js pins that obligation now.
+  collard: [33, 2.7],
+  arugula: [25, 2.6],
+  eggplant: [35, 0.8],
+  fennel: [31, 1.2],
+  corn: [86, 3.2],
 });
 
 /**
@@ -170,6 +188,14 @@ export const PLATE_GRAMS = /** @type {Record<string, Record<string, number>>} */
   apple: { unit: 182 },
   banana: { unit: 118 },
   orange: { unit: 131 },
+  // the counted and cupped forms of the foods the keyword list stopped
+  // treating as seasoning, 2026-08-19
+  edamame: { cup: 155 },
+  arugula: { cup: 20 },
+  "fennel bulb": { unit: 234, cup: 87 },
+  fennel: { unit: 234, cup: 87 },
+  eggplant: { unit: 458, cup: 82 },
+  collard: { cup: 190 },
 });
 
 /** Foods a rung-3 top-up may add to a plate (a property of the FOOD). */
@@ -197,6 +223,21 @@ const PART_KEYWORDS = /** @type {[string, Part][]} */ ([
   // 36 of the 126 bank recipes, and the engine has never run, so nothing could
   // ever have told anybody.
   ["black pepper", "flavor"],
+  // VINEGARS, same first-match trap one row down: "rice vinegar" contains
+  // "rice", so a third of a cup of a near-zero-calorie acid was landing in
+  // the carbfat bucket and would have been scaled as if it were a starch.
+  // Found 2026-08-19 by reading the buckets the engine actually assigns on
+  // real bank recipes, which is a thing nobody had done because it had
+  // never run on one.
+  ["vinegar", "flavor"],
+  ["soy sauce", "flavor"],
+  ["fish sauce", "flavor"],
+  // BROTHS, above the protein block for the same reason: "beef broth"
+  // matched "beef", so half a cup of stock was being portioned as if it
+  // were 120 g of steak, and "chicken broth" the same through "chicken".
+  ["broth", "flavor"],
+  ["stock", "flavor"],
+  ["cornstarch", "flavor"],
   ["white pepper", "flavor"],
   ["peppercorn", "flavor"],
   ["red pepper flake", "flavor"],
@@ -224,6 +265,7 @@ const PART_KEYWORDS = /** @type {[string, Part][]} */ ([
   ["egg", "protein"],
   ["tofu", "protein"],
   ["tempeh", "protein"],
+  ["edamame", "protein"],
   ["seitan", "protein"],
   ["yogurt", "protein"],
   ["cottage cheese", "protein"],
@@ -249,6 +291,8 @@ const PART_KEYWORDS = /** @type {[string, Part][]} */ ([
   ["oat", "carbfat"],
   ["barley", "carbfat"],
   ["bulgur", "carbfat"],
+  // green beans BEFORE beans, or the first-match list makes a starch of them
+  ["green bean", "veg"],
   ["lentil", "carbfat"],
   ["chickpea", "carbfat"],
   ["bean", "carbfat"],
@@ -270,10 +314,19 @@ const PART_KEYWORDS = /** @type {[string, Part][]} */ ([
   ["kale", "veg"],
   ["cabbage", "veg"],
   ["cauliflower", "veg"],
-  ["green bean", "veg"],
   ["asparagus", "veg"],
   ["mushroom", "veg"],
   ["celery", "veg"],
+  // added 2026-08-19: every one of these fell through to flavor, which is
+  // the safe default but the wrong answer — 400 g of collard greens is not
+  // a seasoning, and a vegetable in the flavor bucket is never spoken on a
+  // plate line. Found the same way as the vinegar bug: by printing the
+  // buckets for real recipes instead of trusting the list.
+  ["collard", "veg"],
+  ["arugula", "veg"],
+  ["eggplant", "veg"],
+  ["fennel", "veg"],
+  ["corn", "veg"],
 ]);
 
 /**
@@ -438,16 +491,34 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
       "this dish is one thing nutritionally; only the amount can change",
     );
 
-  const kC = n.calories / rawC;
-  const kP = n.protein / rawP;
-  const Cpro = (raw.protein[0] * kC) / servings;
-  const Ppro = (raw.protein[1] * kP) / servings;
-  const Ccf = (raw.carbfat[0] * kC) / servings;
-  const Pcf = (raw.carbfat[1] * kP) / servings;
-  const Cveg = (raw.veg[0] * kC) / servings;
-  const Pveg = (raw.veg[1] * kP) / servings;
-  const Cfla = n.calories / servings - Cpro - Ccf - Cveg;
-  const Pfla = n.protein / servings - Ppro - Pcf - Pveg;
+  // 4.4 NORMALIZATION, ON THE PER-SERVING BASIS. `raw` was accumulated over
+  // the WHOLE ingredient list while `nutrition` is per serving (SCHEMAS.md:
+  // "calories: 640, // per serving"), so the two must be brought onto the
+  // same basis BEFORE the ratio is taken. They were not, and the resulting
+  // k was a factor of `servings` too small: every solved plate's accounting
+  // came out divided by the recipe's serving count.
+  //
+  // Spec 4.4's own closing line is the test: "at uniform mode, a seat's
+  // macros are exactly recipe.nutrition x s_p". Before this fix, a seat
+  // asking for EXACTLY one serving of a 4-serving, 725 kcal dish solved to
+  // alpha 1.5 / beta 1.4 (both pinned at their clamps, reaching for a target
+  // it thought it could not touch) and reported the plate as 269 kcal. The
+  // engine has never run on a real meal, so nothing ever compared the
+  // instruction it prints against the numbers it prints beside it: it was
+  // telling David to eat 700 g of chicken thigh and calling it 41 g of
+  // protein. Found 2026-08-19 while unparking P8.
+  const rawCper = rawC / servings;
+  const rawPper = rawP / servings;
+  const kC = n.calories / rawCper;
+  const kP = n.protein / rawPper;
+  const Cpro = (raw.protein[0] / servings) * kC;
+  const Ppro = (raw.protein[1] / servings) * kP;
+  const Ccf = (raw.carbfat[0] / servings) * kC;
+  const Pcf = (raw.carbfat[1] / servings) * kP;
+  const Cveg = (raw.veg[0] / servings) * kC;
+  const Pveg = (raw.veg[1] / servings) * kP;
+  const Cfla = n.calories - Cpro - Ccf - Cveg;
+  const Pfla = n.protein - Ppro - Pcf - Pveg;
 
   const Cs = (targets.macros.calories * slotShare) / sigma - (Cveg + Cfla);
   const Ps = (targets.macros.protein * slotShare) / sigma - (Pveg + Pfla);
@@ -468,9 +539,29 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
   const [aLo, aHi, bLo, bHi] = CLAMPS[phase] ?? DEFAULT_CLAMPS;
   const ca = Math.min(aHi, Math.max(aLo, alpha));
   const cb = Math.min(bHi, Math.max(bLo, beta));
-  let clamped = ca !== alpha || cb !== beta;
+  const alphaPinned = ca !== alpha;
+  const betaPinned = cb !== beta;
+  let clamped = alphaPinned || betaPinned;
   alpha = ca;
   beta = cb;
+
+  // CLAMP RECOVERY (2026-08-19, found by running the engine on the real
+  // bank). Clamping the two multipliers INDEPENDENTLY leaves the solve
+  // internally inconsistent: once alpha is pinned to its floor, the joint
+  // solution it was half of no longer holds, and beta goes on carrying a
+  // value derived from that dead solution. On every bean-and-grain bowl in
+  // the bank this overshot David's lunch by about 300 kcal while a perfectly
+  // legal beta sat unused inside the clamps.
+  //
+  // When one knob is pinned, re-derive the OTHER against the target it
+  // actually controls: the carbfat bucket is the calorie knob, the protein
+  // bucket is the protein knob. Then clamp it again, because recovery may
+  // not bend a clamp either.
+  if (alphaPinned && !betaPinned && Ccf > 0) {
+    beta = Math.min(bHi, Math.max(bLo, (Cs - alpha * Cpro) / Ccf));
+  } else if (betaPinned && !alphaPinned && Ppro > 0) {
+    alpha = Math.min(aHi, Math.max(aLo, (Ps - beta * Pcf) / Ppro));
+  }
 
   // absolute plate caps (§4.5): the REAL ceiling — the composite relative
   // range reaches 20x through a hand-edited seat, so these never come off

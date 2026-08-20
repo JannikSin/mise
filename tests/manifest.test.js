@@ -91,8 +91,10 @@ test("manifest says the honest thing when the data is missing", () => {
   );
   // no cooked confirmations: adherence says so (Gardner's gate)
   assert.equal(manifest.subsystems.adherence.cookedOverPlanned, "0/0");
-  // plating: inert by council, and the manifest keeps saying it
-  assert.match(manifest.subsystems.plating.status, /inert by council 2026-08-12/);
+  // plating: unparked 2026-08-19, and the manifest keeps counting how far
+  // the tag rollout has got. At zero tags it must say plainly that every
+  // plate is still a pan fraction, which is the state this fixture is in.
+  assert.match(manifest.subsystems.plating.status, /no recipe is tagged yet/);
   assert.equal(manifest.subsystems.plating.platedRecipes, 0);
 });
 

@@ -74,7 +74,7 @@ test("occasion-only recipes can never be auto-planned, promoted or not", () => {
   const eligible = new Set(generatorEligible(bank).map((r) => r.id));
   for (const r of occ) assert.ok(!eligible.has(r.id), `${r.id} leaked into the generator pool`);
   // and promotion does not open the gate: apple juice is never a good snack
-  const promoted = occ.map((r) => ({ ...r, promoted: true }));
+  const promoted = occ.map((r) => ({ ...r, promoted: true, audited: { standard: "greger", on: "2026-08-19", by: "test fixture", evidence: "promotion requires an audit (P12)" } }));
   assert.equal(generatorEligible(promoted).length, 0);
 });
 

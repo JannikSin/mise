@@ -116,7 +116,7 @@ test("an unpromoted AI recipe is never auto-planned into a brigade", () => {
     ...BANK,
     ["ai", recipe("ai", 500, { tags: ["ai-special"] })],
     ["hbp", recipe("hbp", 500, { tags: ["hbp-annotated"] })],
-    ["ok", recipe("ok", 500, { tags: ["ai-special"], promoted: true })],
+    ["ok", recipe("ok", 500, { tags: ["ai-special"], promoted: true, audited: { standard: "greger", on: "2026-08-19", by: "test fixture", evidence: "promotion requires an audit (P12)" } })],
   ]);
   const pool = brigadePool(bank, [{ id: "mom" }, { id: "laurie" }], "dinner");
   assert.ok(

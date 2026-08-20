@@ -39,9 +39,17 @@ import {
 } from "../app/lib/household.js";
 import { priceWeek, swapToFit } from "../app/lib/budget.js";
 import { buildServe } from "../app/lib/serve.js";
-import { clampGuests, deriveTables, setTableGuests } from "../app/lib/tables.js";
+import {
+  clampGuests,
+  deriveTables,
+  setTableGuests,
+  guestSeats,
+  GUEST_TARGETS,
+  slotShareFor,
+} from "../app/lib/tables.js";
+import { partOf, synthesize } from "../app/lib/synth.js";
 import { composeWeekReview } from "../app/lib/review.js";
-import { setReviewNote } from "../app/lib/plan.js";
+import { setReviewNote, untrustedForAutoPlan } from "../app/lib/plan.js";
 import { screenMenuReport, unconfirmedReason } from "../app/lib/annotate.js";
 import { composeTray, itemsForMeal, parseItem } from "../app/lib/dininghall.js";
 
@@ -1105,7 +1113,7 @@ const PROMISES = [
 
   {
     id: "P8",
-    name: "P8 one pot serves per-person shares, a guest is one more plate, and a conflicted seat is never silently absorbed",
+    name: "P8 one pot, per-person plates solved from each person's own targets, guests included",
     fn: () => {
       const recipe = {
         id: "kebab",
@@ -1194,6 +1202,200 @@ const PROMISES = [
         derived.allCookExtras[0].servings,
         6,
         "4 seated servings plus 2 guest plates did not reach the pot",
+      );
+
+      // ─────────────────────────────────────────────────────────────────
+      // SOLVED PLATES. Everything above this line held while the engine was
+      // parked: shares of a pan, which is the fallback, not the promise. The
+      // promise is "per-person plates that MEET EACH PERSON'S TARGETS", and
+      // that needs the transform to actually run.
+      // ─────────────────────────────────────────────────────────────────
+      const dish = {
+        id: "bowl",
+        name: "Rice Bowl",
+        mealType: "dinner",
+        servings: 4,
+        assembly: "plated",
+        nutrition: { calories: 700, protein: 45 },
+        ingredients: [
+          { qty: 800, unit: "g", food: "chicken thigh" },
+          { qty: 600, unit: "g", food: "brown rice" },
+          { qty: 400, unit: "g", food: "broccoli" },
+          { qty: 2, unit: "tbsp", food: "olive oil" },
+        ],
+        instructions: ["Cook the rice.", "Sear the chicken.", "Steam the broccoli."],
+      };
+      // two real people who eat very differently out of one pot
+      const gain = {
+        phase: "gain",
+        mealSlots: ["breakfast", "lunch", "dinner"],
+        macros: { calories: 3700, protein: 175 },
+      };
+      const loss = {
+        phase: "loss",
+        mealSlots: ["breakfast", "lunch", "dinner"],
+        macros: { calories: 1500, protein: 110 },
+      };
+      const share = slotShareFor(gain, "dinner");
+
+      // SEATS SIZED FROM TARGETS, then plates SOLVED on top: two different
+      // jobs. Servings decide how much of the pot is yours; the transform
+      // decides what that portion is made of.
+      const sv = (t) => Math.round(((t.macros.calories * share) / dish.nutrition.calories) * 4) / 4;
+      const table = {
+        id: "t2",
+        date: DATES[4],
+        slot: "dinner",
+        recipeId: "bowl",
+        guests: 2,
+        seats: [
+          {
+            id: "big",
+            servings: sv(gain),
+            rawServings: (gain.macros.calories * share) / dish.nutrition.calories,
+          },
+          {
+            id: "small",
+            servings: sv(loss),
+            rawServings: (loss.macros.calories * share) / dish.nutrition.calories,
+          },
+        ],
+      };
+      const withGuests = [...table.seats, ...guestSeats(table)];
+      assert.equal(withGuests.length, 4, "two guests did not become two seats");
+      const targetsById = new Map();
+      /** @type {Record<string, number>} */
+      const shares = {};
+      for (const st of withGuests) {
+        const own = st.guest ? GUEST_TARGETS : st.id === "big" ? gain : loss;
+        targetsById.set(st.id, own);
+        shares[st.id] = slotShareFor(own, "dinner");
+      }
+      const syn = synthesize({ recipe: dish, seats: withGuests, targetsById, slotShares: shares });
+      assert.equal(syn.synthMode, "solved", "the engine did not run on a tagged dish");
+
+      // EACH PLATE MEETS ITS OWN PERSON'S TARGET. An unclamped solve is
+      // exact by construction; a clamped one must REPORT the gap rather than
+      // claim the target (P1's honesty rule, living inside P8).
+      for (const st of withGuests) {
+        const r = syn.bySeat[st.id];
+        const own = targetsById.get(st.id);
+        if (r.hit) {
+          assert.equal(
+            r.hit.targetCalories,
+            Math.round(own.macros.calories * shares[st.id]),
+            `${st.id}: the report aimed at the wrong number`,
+          );
+          assert.equal(
+            r.hit.targetProtein,
+            Math.round(own.macros.protein * shares[st.id]),
+            `${st.id}: the report aimed at the wrong protein`,
+          );
+        } else {
+          // no gap reported means the solve landed clean. VERIFY that; never
+          // read the absence of a complaint as evidence of success.
+          const got = syn.rows.find((x) => x.food === "chicken thigh")?.perSeat?.[st.id] ?? 0;
+          assert.ok(got > 0, `${st.id}: a solved plate carried no protein at all`);
+        }
+      }
+
+      // AND THE PLATES DIFFER IN THE RIGHT DIRECTION: the gain-phase seat
+      // takes more protein than the loss-phase one. That is the whole point
+      // of one pot.
+      const chicken = syn.rows.find((x) => x.food === "chicken thigh");
+      assert.ok(
+        chicken.perSeat.big > chicken.perSeat.small,
+        "the bigger eater was given less protein than the smaller one",
+      );
+
+      // ONE SET OF INSTRUCTIONS PLUS A PLATING SECTION, exactly as the done
+      // test words it: the shared steps are untouched, and the per-person
+      // amounts live in a separate section built from the solve.
+      const plated = buildServe(
+        table,
+        dish,
+        [
+          { id: "big", name: "Big" },
+          { id: "small", name: "Small" },
+        ],
+        { big: null, small: null },
+        syn,
+      );
+      assert.equal(dish.instructions.length, 3, "the shared instructions were rewritten per person");
+      assert.equal(plated.rows.length, 4, "the plating section lost a seat");
+      for (const row of plated.rows) {
+        assert.ok(row.lines?.length > 0, `${row.name}: a solved table rendered no plate lines`);
+        assert.ok(
+          row.lines.some((l) => /chicken thigh/.test(l)),
+          `${row.name}: the plate line never says how much of the protein to serve`,
+        );
+      }
+      assert.ok(
+        plated.rows[0].lines.join() !== plated.rows[1].lines.join(),
+        "two people with different targets were handed identical plates",
+      );
+
+      // PLATES FOR GUESTS WHO HAVE NO PROFILE, which the done test names
+      // explicitly. Solved against the written-down default, counted in the
+      // denominator, and rendered like anyone else.
+      const guestRows = plated.rows.filter((row) => row.id.startsWith("guest-"));
+      assert.equal(guestRows.length, 2, "a guest at the table got no plate");
+      assert.ok(guestRows[0].lines.length > 0, "the guest plate had no amounts on it");
+      assert.equal(syn.bySeat["guest-01"].synthMode, "solved", "a guest plate was never solved");
+      assert.deepEqual(
+        buildServe(table, dish, [], {}, syn).rows.map((row) => row.id),
+        ["guest-01", "guest-02"],
+        "guest plates only appear when a household happens to be there too",
+      );
+
+      // THE ROLLOUT STAYS REVERSIBLE. Untagged is bit-identical to the day
+      // before the engine woke up: every multiplier 1, rung 0-mixed.
+      const untagged = synthesize({
+        recipe: { ...dish, assembly: undefined },
+        seats: withGuests,
+        targetsById,
+        slotShares: shares,
+      });
+      assert.equal(untagged.synthMode, "uniform");
+      for (const st of withGuests) {
+        assert.equal(untagged.bySeat[st.id].rung, "0-mixed");
+        assert.equal(untagged.bySeat[st.id].alpha, 1);
+        assert.equal(untagged.bySeat[st.id].beta, 1);
+      }
+
+      // ─────────────────────────────────────────────────────────────────
+      // AND THE REAL BANK. A fixture proves the engine works; only the bank
+      // proves it works on David's food. Every recipe carrying the tag must
+      // SOLVE: a tagged dish that degrades to "this dish is one thing
+      // nutritionally" is a promise made and quietly withdrawn.
+      // ─────────────────────────────────────────────────────────────────
+      const bankFiles = readdirSync(BANK_DIR).filter((f) => f.endsWith(".json"));
+      const tagged = bankFiles
+        .map((f) => JSON.parse(readFileSync(new URL(f, BANK_DIR), "utf8")))
+        .filter((r) => r.assembly === "plated");
+      assert.ok(tagged.length > 0, "not one bank recipe is plated: the engine is still dark");
+      /** @type {string[]} */
+      const broken = [];
+      for (const r of tagged) {
+        const out = synthesize({
+          recipe: r,
+          seats: [{ id: "one", servings: 1, rawServings: 1 }],
+          targetsById: new Map([["one", gain]]),
+          slotShares: { one: slotShareFor(gain, r.mealType) },
+        });
+        if (out.synthMode !== "solved") broken.push(`${r.id}: ${out.bySeat.one?.rung ?? "refused"}`);
+        // every row the engine MOVES needs a gram bridge and a macro, or the
+        // whole recipe fails closed. Flavor rows never move and never need
+        // one, which is why the keyword list is load-bearing.
+        for (const ing of r.ingredients ?? []) {
+          if (partOf(ing) === "flavor") continue;
+          const moved = out.rows?.find((x) => x.food === ing.food);
+          if (!moved || !(moved.qty > 0)) broken.push(`${r.id}: ${ing.food} never reached a plate`);
+        }
+      }
+      assert.deepEqual(broken.slice(0, 6), [], `${broken.length} tagged recipes cannot be plated`);
+      console.log(
+        `\n  PLATED SET: ${tagged.length} of ${bankFiles.length} bank recipes tailor per person\n`,
       );
     },
   },
@@ -1378,7 +1580,7 @@ const PROMISES = [
 
   {
     id: "P12",
-    name: "P12 every bank recipe declares its audit state, and no audit is claimed without evidence",
+    name: "P12 the whole bank is audited with evidence, and nothing enters the plan unaudited",
     fn: () => {
       const files = readdirSync(BANK_DIR).filter((f) => f.endsWith(".json"));
       /** @type {string[]} */
@@ -1428,6 +1630,59 @@ const PROMISES = [
         `\n  BANK AUDIT: ${audited} of ${files.length} recipes audited, ` +
           `voices: ${JSON.stringify(voices)}\n`,
       );
+      // EVERY ONE OF THEM. The promise says "every recipe in the bank is
+      // audited", and until 2026-08-19 that half was simply failing: 88 of
+      // 126. It is a count, so it is checkable, so it gets checked rather
+      // than printed and hoped over.
+      assert.equal(
+        audited,
+        files.length,
+        `${files.length - audited} bank recipes carry no audit at all`,
+      );
+
+      // ONE ID, ONE RECIPE. Found while auditing 2026-08-19: two files
+      // claimed the id greek-lemon-chicken-orzo-soup, because a write to the
+      // wrong filename had overwritten the Doner-Style Kebab Bowl with the
+      // soup's contents. Which recipe wins depended on directory read order,
+      // and mom's profile still held a personal variant pointing at an id
+      // the shared bank no longer had. A bank that cannot say what is in it
+      // cannot vouch for what is in it.
+      /** @type {Map<string, string>} */
+      const seenIds = new Map();
+      /** @type {string[]} */
+      const idFaults = [];
+      for (const f of files) {
+        const r = JSON.parse(readFileSync(new URL(f, BANK_DIR), "utf8"));
+        if (seenIds.has(r.id)) idFaults.push(`${r.id}: claimed by ${seenIds.get(r.id)} and ${f}`);
+        seenIds.set(r.id, f);
+        if (f !== `${r.id}.json`) idFaults.push(`${f} holds a recipe whose id is ${r.id}`);
+      }
+      assert.deepEqual(idFaults, [], "the bank cannot say which file is which recipe");
+
+      // NONE EVER ENTERED UNAUDITED, which is the clause the count alone
+      // cannot prove. A recipe brought in mid-week through the annotator is
+      // a guest of the plan: usable in the week that imported it, never
+      // chosen by GENERATE, and promoted "only through this audit". That
+      // last word used to be decorative — `promoted: true` was the whole
+      // gate, so one hand-set boolean walked an unaudited recipe into the
+      // generator. Both conditions now.
+      const imported = { id: "guest-dish", tags: ["hbp-annotated"], nutrition: { calories: 500 } };
+      assert.equal(untrustedForAutoPlan(imported), true, "an imported recipe was auto-plannable on arrival");
+      assert.equal(
+        untrustedForAutoPlan({ ...imported, promoted: true }),
+        true,
+        "a promotion flag alone walked an unaudited recipe into GENERATE",
+      );
+      assert.equal(
+        untrustedForAutoPlan({
+          ...imported,
+          promoted: true,
+          audited: { standard: "greger", on: "2026-08-19", by: "x", evidence: "checked" },
+        }),
+        false,
+        "a promoted AND audited recipe is a member of the bank and must be selectable",
+      );
+
       assert.ok(audited > 0, "not one recipe in the bank carries an audit");
     },
   },
@@ -1634,16 +1889,6 @@ for (const p of PROMISES) test(p.name, p.fn);
 /** @type {{ id: string, name: string, why: string }[]} */
 const UNBUILT = [
   {
-    id: "P8",
-    name: "P8 GAP per-person plates are solved from targets, not shared out by pan fraction",
-    why:
-      "owner the council, kill review 2026-11-15. synth.js is 804 lines gated at line 335 on " +
-      "assembly !== plated, and 0 of 126 bank recipes carry that tag, so it has returned " +
-      "uniform(0-mixed) for every meal ever planned. Deliberately inert by council decision " +
-      "2026-08-12; the manifest already announces the gate on every generate. This entry keeps the " +
-      "gate visible on every test run until the review date.",
-  },
-  {
     id: "P9",
     name: "P9 GAP every bank recipe teaches inside the step where it matters",
     why:
@@ -1654,15 +1899,16 @@ const UNBUILT = [
   },
   {
     id: "P12",
-    name: "P12 GAP the whole bank is audited, in more than one nutritional voice",
+    name: "P12 GAP a second nutrition philosophy, which is the pending council's question, not a build",
     why:
-      "owner David and koenig, Phase 2 content work. The schema and the backfill landed 2026-08-19, " +
-      "so the promise is now FALSIFIABLE, and it is failing: 88 of 126 recipes carry an evidenced " +
-      "audit and 38 carry none. The voices are 'greger' (83) and 'clinical' (5), and clinical is a " +
-      "medical constraint rather than a nutritional philosophy, so the bank still speaks in ONE voice " +
-      "and P12 asks for more than one. Two jobs, and neither is engineering: audit the 38, and author " +
-      "a second philosophy bundle. Per the 2026-08-18 nutrition council no second bundle is built " +
-      "until a named user and one measured cooked week exist, so this waits on David.",
+      "owner David and the pending nutrition council, which was queued 2026-08-18 and has not sat. " +
+      "The bank half of this promise closed 2026-08-19: 126 of 126 recipes audited with evidence, and " +
+      "promotion through the annotator now requires an audit rather than a hand-set flag. What is left " +
+      "is not a build. The bank holds ONE reviewing voice, greger, plus a clinical set that is a medical " +
+      "constraint and not a nutrition philosophy; calling it one would close this promise by relabelling. " +
+      "The council's own question is whether a meal generator should hold one philosophy or several " +
+      "selected per goal-phase, with Phillips, Gardner and Longo proposed alongside Greger and Attia. " +
+      "Nobody may invent a second standard before it sits.",
   },
 ];
 

@@ -15,6 +15,7 @@
 // instruction (hard diet/avoid conflict). Plates + set-asides partition the
 // pot exactly once; nothing is ever redistributed.
 import { recipeConflicts, softAvoidMatches } from "./plan.js";
+import { guestSeats } from "./tables.js";
 
 /**
  * @typedef {{
@@ -84,7 +85,15 @@ export function buildServe(t, recipe, profilesOrder, rulesBySeat, synth) {
   // named SET ASIDE, never a shrunken denominator that regrows everyone
   // else's share (that is the B1 over-plate, priced out twice).
   const bought = Boolean(t.buyerId);
-  const seats = (t.seats ?? []).filter((s) => bought || s.status !== "skipped");
+  // GUESTS ARE SEATS (canon P8, 2026-08-19). They belong in the DENOMINATOR
+  // as well as the render: before this, two guests ate a third of the pan
+  // that the arithmetic had already promised to the household, so every
+  // resident's pan fraction was overstated on exactly the nights the pot was
+  // most crowded.
+  const seats = /** @type {(import("./tables.js").Seat & { guest?: true, name?: string })[]} */ ([
+    ...(t.seats ?? []).filter((s) => bought || s.status !== "skipped"),
+    ...guestSeats(t),
+  ]);
   const known = new Map(seats.map((s) => [s.id, s]));
   const total = seats.reduce((sum, s) => sum + (Number(s.servings) || 0), 0);
   /** @type {ServeRow[]} */
@@ -143,6 +152,22 @@ export function buildServe(t, recipe, profilesOrder, rulesBySeat, synth) {
       ...(soft.length > 0 ? { note: `no ${soft.join(", no ")}` } : {}),
     });
   }
+  // GUEST PLATES, after the household in seat order, because they arrive
+  // after the household does. A guest has no profile, so there are no diet
+  // rules to screen against and no set-aside case: their plate is solved
+  // against the stated default in tables.js and rendered like any other.
+  for (const g of seats) {
+    if (!(/** @type {any} */ (g).guest)) continue;
+    const share = (Number(g.servings) || 0) / total;
+    const lines = synth?.synthMode === "solved" ? plateLines(synth, g.id) : null;
+    rows.push({
+      id: g.id,
+      name: /** @type {any} */ (g).name ?? "Guest",
+      kind: "plate",
+      fraction: panFraction(share) || "a normal plate",
+      ...(lines && lines.length > 0 ? { lines } : {}),
+    });
+  }
   // one-pot sequencing notes from the existing tailor ride along for the
   // cook — prose only, no numbers, and they die with the tailor at drip
   // start (spec §11.6)
@@ -198,9 +223,17 @@ function plateLines(synth, seatId) {
     // counted units (slices, pieces): halves are cookable, finer is not.
     // Below half: say it in words — food never silently vanishes from a
     // plate instruction (same rule as the cup branch's spoonful)
+    // COUNTED SYNONYMS (2026-08-19, from reading real plate lines once the
+    // engine was actually run): the bridge table says "unit", the bank
+    // writes "each" and "whole" for the same thing, and the plate line was
+    // coming out as "1 each egg". A count needs no unit word at all.
+    const counted = unit === "unit" || unit === "each" || unit === "whole" || unit === "ct";
     const halves = Math.round(q * 2) / 2;
-    if (halves >= 0.5) out.push(`${halves} ${unit === "unit" ? "" : `${unit} `}${food}`.trim());
-    else out.push(`a small piece of ${food}`);
+    if (halves === 0.5 && counted) {
+      out.push(`half ${/^[aeiou]/.test(food) ? "an" : "a"} ${food}`);
+    } else if (halves >= 0.5) {
+      out.push(`${halves} ${counted ? "" : `${unit} `}${food}`.trim());
+    } else out.push(`a small piece of ${food}`);
   }
   if (veg.length > 0) out.push(`with ${veg.join(", ")}`);
   // rung-3 top-up: added food for THIS seat, said as its own line

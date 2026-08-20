@@ -1068,7 +1068,7 @@ test("poolAdequacy flags thin slots and unreachable calorie targets honestly", (
 test("generatorEligible: unpromoted ai-specials are fenced out, promoted ones pass", () => {
   const normal = r("lentil-bolognese", "dinner", ["lentils"]);
   const special = { ...r("special-x", "dinner", ["chickpeas"]), tags: ["ai-special"] };
-  const promoted = { ...r("special-y", "dinner", ["tofu"]), tags: ["ai-special"], promoted: true };
+  const promoted = { ...r("special-y", "dinner", ["tofu"]), tags: ["ai-special"], promoted: true, audited: { standard: "greger", on: "2026-08-19", by: "test fixture", evidence: "promotion requires an audit (P12)" } };
   assert.deepEqual(
     generatorEligible([normal, special, promoted]).map((x) => x.id),
     ["lentil-bolognese", "special-y"],
@@ -1077,7 +1077,7 @@ test("generatorEligible: unpromoted ai-specials are fenced out, promoted ones pa
 
 test("generatorEligible: unpromoted hbp-annotated scans are fenced like ai-specials", () => {
   const scan = { ...r("hbp-duck", "dinner", ["duck"]), tags: ["hbp-annotated"] };
-  const audited = { ...r("hbp-chili", "dinner", ["beans"]), tags: ["hbp-annotated"], promoted: true };
+  const audited = { ...r("hbp-chili", "dinner", ["beans"]), tags: ["hbp-annotated"], promoted: true, audited: { standard: "greger", on: "2026-08-19", by: "test fixture", evidence: "promotion requires an audit (P12)" } };
   assert.deepEqual(
     generatorEligible([scan, audited]).map((x) => x.id),
     ["hbp-chili"],

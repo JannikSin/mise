@@ -178,12 +178,17 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
     ...subsystems.household,
   };
 
-  // plating (synth.js): deliberately inert by council 2026-08-12, kill
-  // review 2026-11-15. The manifest keeps saying so, out loud, so the gate
-  // can never go dark again.
+  // plating (synth.js): PARKED by council 2026-08-12, unparked 2026-08-19 on
+  // David's word, and rolling out one recipe at a time exactly as the council
+  // designed. The tag IS the rollout mechanism, so the manifest keeps saying
+  // how far it has got — an engine nobody counts is how this one went dark
+  // for a week in the first place.
   const plated = recipes.filter((r) => r.assembly === "plated").length;
   subsystems.plating = {
-    status: "inert by council 2026-08-12, kill review 2026-11-15",
+    status:
+      plated === 0
+        ? "live but no recipe is tagged yet: every plate is a pan fraction"
+        : "live, rolling out by tag",
     platedRecipes: plated,
     bankRecipes: recipes.length,
   };
@@ -461,7 +466,7 @@ function lineFor(key, s) {
         (s.fits ? "FITS" : `OVER by $${s.over?.toFixed?.(2) ?? s.over}`)
       );
     case "plating":
-      return `${s.status}; ${s.platedRecipes} of ${s.bankRecipes} recipes tagged plated`;
+      return `plating ${s.status}; ${s.platedRecipes} of ${s.bankRecipes} recipes tailor per person`;
     case "weightTrend":
       return s.verdict === "no-data" || s.verdict === "building"
         ? `${s.verdict}: ${s.weighIns} weigh-ins on file${s.latest ? `, last ${s.latest.date} (${s.latest.weight} lb)` : ""}`
