@@ -313,7 +313,7 @@ export function SystemView({
         ${
           unlocks.length > 0
             ? html`<p class="hint">
-                What one more thing would open:
+                ${"What one more thing would open: "}
                 ${unlocks
                   .slice(0, 4)
                   .map((u) => `${u.label} +${u.unlocks}`)
