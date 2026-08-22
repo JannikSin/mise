@@ -5,6 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
+import { generateWeek } from "../app/lib/weekbuilder.js";
 import {
   EQUIPMENT,
   EQUIPMENT_IDS,
@@ -133,5 +134,46 @@ test("every equipment entry has a label a human can act on", () => {
   for (const e of EQUIPMENT) {
     assert.ok(e.id && e.label, `${JSON.stringify(e)} is missing an id or label`);
     assert.notEqual(e.label, e.id, "the UI shows the label, so it must not be a slug");
+  }
+});
+
+test("A DECLARED KITCHEN STILL GENERATES A WHOLE WEEK, which is the thing that would bite first", () => {
+  // The filter going live is only safe if the generator can still fill seven
+  // days from the smaller pool. If ticking your kitchen broke GENERATE, that
+  // is what a person would hit first and it would look like the app dying.
+  const targetsPath = new URL("../../mise-data/profile/targets.json", import.meta.url);
+  const base = JSON.parse(readFileSync(targetsPath, "utf8"));
+  const recipes = bank();
+  const W = "2026-W36";
+  const kitchens = {
+    undeclared: undefined,
+    dorm: ["stovetop", "skillet", "saucepan", "pot", "microwave", "blender"],
+    minimal: ["stovetop", "skillet"],
+    microwaveOnly: ["microwave"],
+  };
+  for (const [name, equipment] of Object.entries(kitchens)) {
+    const targets = equipment ? { ...base, equipment } : { ...base };
+    const r = generateWeek({
+      recipes,
+      targets,
+      pantry: { items: [] },
+      weekId: W,
+      plan: { week: W, entries: [] },
+      salt: 1,
+    });
+    const days = new Set(r.plan.entries.map((/** @type {any} */ e) => e.date)).size;
+    assert.equal(days, 7, `${name}: generated ${days} days, not a whole week`);
+    assert.ok(r.plan.entries.length > 20, `${name}: only ${r.plan.entries.length} entries`);
+    // and every recipe it picked must actually be cookable in that kitchen
+    const byId = new Map(recipes.map((x) => [x.id, x]));
+    for (const e of r.plan.entries) {
+      if (!e.recipeId) continue;
+      const rec = byId.get(e.recipeId);
+      if (!rec) continue;
+      assert.ok(
+        canMake(equipment ?? null, rec.equipment),
+        `${name}: planned "${e.recipeId}", which needs ${JSON.stringify(rec.equipment)}`,
+      );
+    }
   }
 });
