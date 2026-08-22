@@ -528,6 +528,41 @@ export function writeErrorMessage(msg) {
 }
 
 /**
+ * FLUSH, AND TELL ME THE TRUTH.
+ *
+ * Every write in this app is queued and optimistic, which is right for a
+ * shopping list in a basement with no signal and WRONG for the moment someone
+ * finishes a sign-up survey. `write()` and `patchProfiles()` resolve as soon
+ * as the write is QUEUED, so an onboarding flow could say "you're all set"
+ * while nothing had left the phone. That is exactly how a roommate's profile
+ * came to exist only in his own IndexedDB.
+ *
+ * This forces a push pass and reports what actually happened, so a caller
+ * that NEEDS durability can say so honestly instead of assuming.
+ * @param {{ timeoutMs?: number }} [opts]
+ * @returns {Promise<{ landed: boolean, pending: number, conflicts: number, error: string | null }>}
+ */
+export async function flushNow({ timeoutMs = 20000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  // a pass already in flight would make flush() return immediately, so wait
+  // for it rather than reporting on somebody else's half-finished push
+  while (status.flushing && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  await flush();
+  while (status.flushing && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  await recount();
+  return {
+    landed: status.pending === 0 && !status.lastError,
+    pending: status.pending,
+    conflicts: status.conflicts,
+    error: status.lastError,
+  };
+}
+
+/**
  * Push every queued write, oldest first. Network failure stops the pass
  * (writes stay queued for the next reconnect); a conflict that survives
  * merge retries is counted and skipped so one bad file can't block the rest.

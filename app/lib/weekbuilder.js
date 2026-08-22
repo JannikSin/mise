@@ -14,6 +14,7 @@
 // structurally cannot reach a target (no candidate contributes at all) is
 // called out with a plain-English suggestion.
 
+import { canMake } from "./equipment.js";
 import {
   addEntry,
   dayTotals,
@@ -1208,10 +1209,13 @@ export function generateWeek({
   // near-universally quick); maxDifficulty and equipment apply to every pool.
   const maxMinutes = targets?.maxWeeknightMinutes;
   const maxDifficulty = targets?.maxDifficulty;
-  const haveEquipment = targets?.equipment; // what the profile HAS; absent = has everything
+  // what the profile HAS; absent = has everything, so nobody's week changes
+  // until they tell the app what is in their kitchen. Substitution lives in
+  // canMake, NOT here: a raw `includes` would tell someone with a Dutch oven
+  // that they cannot boil pasta.
+  const haveEquipment = targets?.equipment;
   const lacksGear = (/** @type {Record<string, any>} */ r) =>
-    Array.isArray(haveEquipment) &&
-    (r.equipment ?? []).some((/** @type {string} */ e) => !haveEquipment.includes(e));
+    Array.isArray(haveEquipment) && !canMake(haveEquipment, r.equipment);
   /** @type {string[]} slots where the time cap emptied the pool and was relaxed (Q12 honest-failure) */
   const timeBudgetRelaxed = [];
   const pool = (/** @type {string} */ meal) => {

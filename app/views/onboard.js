@@ -1,8 +1,9 @@
 import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { onboardTurn } from "../lib/worker.js";
-import { readProfiles, patchProfiles, writeTargetsOf } from "../lib/store.js";
+import { readProfiles, patchProfiles, writeTargetsOf, flushNow } from "../lib/store.js";
 import { targetsFromQuestionnaire } from "../lib/targets.js";
+import { normalizeEquipment } from "../lib/equipment.js";
 import { localIsoDate } from "../lib/dates.js";
 
 /**
@@ -11,7 +12,7 @@ import { localIsoDate } from "../lib/dates.js";
  * the survey gate (the model never computes macros). Returns the new id.
  * @param {Record<string, any>} p validated onboard profile
  * @param {Record<string, any>[]} existing current profiles
- * @returns {Promise<string | null>} new id, or null if the name collides / is empty
+ * @returns {Promise<{ id: string, synced: boolean, syncError: string | null, pending: number } | null>} null if the name collides / is empty
  */
 async function finalizeProfile(p, existing) {
   const id = String(p.name)
@@ -45,6 +46,13 @@ async function finalizeProfile(p, existing) {
       skipBreakfast: p.skipBreakfast,
       smoothie: p.smoothie,
       state: p.state,
+      // 2026-08-22: the survey had gone stale against three shipped systems
+      // and asked about none of them. UNDECLARED equipment stays undeclared,
+      // because absent means "offer everything" while an empty array means
+      // "this kitchen has nothing", and collapsing them empties a week.
+      ...(Array.isArray(p.equipment) ? { equipment: normalizeEquipment(p.equipment) } : {}),
+      ...(p.mealsOutPerWeek != null ? { mealsOutPerWeek: p.mealsOutPerWeek } : {}),
+      ...(p.shopsPerWeek != null ? { shopsPerWeek: p.shopsPerWeek } : {}),
     },
   );
   const entry = {
@@ -69,6 +77,22 @@ async function finalizeProfile(p, existing) {
         }
       : {}),
   };
+  // things the questionnaire math does not own, written onto the same
+  // targets document the rest of the app reads
+  if (p.weeklyBudgetUsd != null) targets.weeklyBudgetUsd = p.weeklyBudgetUsd;
+  if (p.diningSwipesPerWeek) {
+    targets.currencies = [
+      {
+        id: "swipes",
+        name: "Dining swipes",
+        unit: "swipe",
+        perWeek: p.diningSwipesPerWeek,
+        expires: p.diningSwipesExpire === "semester" ? "semester" : "weekly",
+        venue: "buffet",
+        toGo: true,
+      },
+    ];
+  }
   await writeTargetsOf(id, targets);
   // G2: append against the REAL list via the safe path — never a whole-array
   // replacement from this component's snapshot (that's the clobber bug)
@@ -84,7 +108,17 @@ async function finalizeProfile(p, existing) {
     { allowSeed: true },
   );
   if (!ok || duped) return null;
-  return id;
+
+  // AND THEN CONFIRM IT ACTUALLY LEFT THE PHONE.
+  // Both writes above resolve as soon as they are QUEUED, which is right for
+  // a shopping list in a store with no signal and wrong for the end of a
+  // sign-up. Without this the survey says "you're set" while the profile
+  // exists only in this browser's IndexedDB, which is exactly how a
+  // roommate's profile was lost: he saw a working app and the repo never
+  // heard of him. The profile is still safe locally either way — the caller
+  // is told the truth so it can say so, not so it can discard anything.
+  const sync = await flushNow();
+  return { id, synced: sync.landed, syncError: sync.error, pending: sync.pending };
 }
 
 /**
@@ -144,19 +178,31 @@ export function OnboardView({ survey = {}, hasToken }) {
       if (r.profile) {
         setSaving(true);
         const { profiles } = await readProfiles();
-        const id = await finalizeProfile(r.profile, profiles);
-        if (!id) {
+        const made = await finalizeProfile(r.profile, profiles);
+        if (!made) {
           setError("that name is already taken by another profile — try a different one");
           setSaving(false);
           setBusy(false);
           return;
         }
+        // SAY WHICH IT WAS. A profile that only exists on this phone is a
+        // real state, and pretending otherwise is what lost the last one.
         setMsgs([
           ...next,
-          { role: "assistant", content: `All set, ${r.profile.name}. Opening your Mise…` },
+          {
+            role: "assistant",
+            content: made.synced
+              ? `All set, ${r.profile.name}. Your profile is saved and synced. Opening your Mise…`
+              : `Saved on THIS DEVICE, ${r.profile.name}, but it has not reached the shared data repo yet` +
+                `${made.syncError ? ` (${made.syncError})` : ""}. ` +
+                `Nothing is lost and it will sync itself once that is fixed — but do NOT reinstall the app ` +
+                `or change the data repo until it has, because this is the only copy. Opening your Mise…`,
+          },
         ]);
-        localStorage.setItem("mise.activeProfile", id);
-        setTimeout(() => location.reload(), 800);
+        localStorage.setItem("mise.activeProfile", made.id);
+        // an unsynced profile gets longer on screen, because the warning is
+        // the whole point of showing it
+        setTimeout(() => location.reload(), made.synced ? 900 : 6000);
         return;
       }
       setMsgs([...next, { role: "assistant", content: r.reply || "…" }]);

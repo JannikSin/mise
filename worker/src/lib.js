@@ -192,6 +192,33 @@ export function buildReceiptRequest({ image, mediaType, images, model }) {
   };
 }
 
+/**
+ * Equipment ids the app knows. Duplicated from app/lib/equipment.js because
+ * the Worker cannot import from app/, and kept in sync by
+ * tests/worker-onboard.test.js, which fails if the two lists ever drift.
+ */
+const EQUIPMENT_IDS = new Set([
+  "stovetop",
+  "oven",
+  "microwave",
+  "skillet",
+  "saucepan",
+  "pot",
+  "dutch-oven",
+  "sheet-pan",
+  "baking-dish",
+  "wok",
+  "blender",
+  "food-processor",
+  "rice-cooker",
+  "air-fryer",
+  "slow-cooker",
+  "pressure-cooker",
+  "toaster-oven",
+  "grill",
+  "steamer",
+]);
+
 const ONBOARD_TOOL = {
   name: "record_profile",
   description:
@@ -231,6 +258,59 @@ const ONBOARD_TOOL = {
       lunchMicrowave: { type: "boolean" },
       skipBreakfast: { type: "boolean" },
       smoothie: { type: "boolean", description: "wants a daily smoothie (needs a blender)" },
+      // ---- added 2026-08-22: the survey had gone stale against three
+      // shipped systems (P6 the household model, P10 dining currencies, and
+      // the cost-split ledger) and asked about none of them.
+      equipment: {
+        type: "array",
+        items: {
+          type: "string",
+          enum: [
+            "stovetop",
+            "oven",
+            "microwave",
+            "skillet",
+            "saucepan",
+            "pot",
+            "dutch-oven",
+            "sheet-pan",
+            "baking-dish",
+            "wok",
+            "blender",
+            "food-processor",
+            "rice-cooker",
+            "air-fryer",
+            "slow-cooker",
+            "pressure-cooker",
+            "toaster-oven",
+            "grill",
+            "steamer",
+          ],
+        },
+        description:
+          "what the kitchen HAS. Recipes needing something absent are not offered, so omit " +
+          "this entirely rather than guessing: an empty array means a kitchen with nothing " +
+          "in it, which is very different from not knowing.",
+      },
+      kitchenRole: {
+        type: "string",
+        enum: ["cook", "shopper", "eater"],
+        description: "their job in the household kitchen",
+      },
+      mealsOutPerWeek: { type: "number", description: "meals a week eaten out or off-plan" },
+      diningSwipesPerWeek: {
+        type: "number",
+        description:
+          "campus meal-plan swipes per week, 0 if none. These are a spendable currency that " +
+          "gets used before groceries do.",
+      },
+      diningSwipesExpire: {
+        type: "string",
+        enum: ["weekly", "semester"],
+        description: "do unused swipes roll over or die each week",
+      },
+      shopsPerWeek: { type: "number", description: "grocery trips per week, usually 1 or 2" },
+      weeklyBudgetUsd: { type: "number", description: "grocery budget in dollars per week" },
     },
     required: [
       "name",
@@ -256,7 +336,15 @@ const ONBOARD_SYSTEM =
   "Everything else is a bonus, do not drag the chat out for it. Keep each reply " +
   "to a sentence or two. The moment you have the required answers plus whatever " +
   "the person volunteered, call record_profile and stop asking. Do not compute " +
-  "calories or macros, the app does that. No medical advice. No em dashes.";
+  "calories or macros, the app does that. No medical advice. No em dashes. " +
+  "ALLERGIES ARE SAFETY, NOT PREFERENCE: they are enforced in code against every " +
+  "recipe, menu scan and dining-hall tray, so ask for them explicitly and take an " +
+  "exact answer rather than a vague one. Ask about kitchen EQUIPMENT if it has not " +
+  "been answered, because a recipe needing gear they do not own is never offered " +
+  "and a kitchen that has declared nothing is offered everything; if they are " +
+  "unsure, leave equipment out entirely rather than guessing an empty list. If they " +
+  "mention a campus or dining plan, capture the swipes per week and whether unused " +
+  "ones expire, because those are spent before groceries are bought.";
 
 /**
  * Anthropic Messages request for one onboarding chat turn. `messages` is the
@@ -1362,6 +1450,35 @@ export function validateOnboardProfile(input) {
     lunchMicrowave: input.lunchMicrowave === true,
     skipBreakfast: input.skipBreakfast === true,
     smoothie: input.smoothie === true,
+    // ---- 2026-08-22 additions ----
+    // equipment is UNDEFINED when unknown and an ARRAY when declared, and the
+    // difference is load-bearing: undefined means "offer everything" while an
+    // empty array means "this kitchen has nothing in it". Collapsing them
+    // would silently empty somebody's week.
+    ...(Array.isArray(input.equipment)
+      ? { equipment: list(input.equipment).filter((e) => EQUIPMENT_IDS.has(e)) }
+      : {}),
+    ...(["cook", "shopper", "eater"].includes(input.kitchenRole)
+      ? { kitchenRole: input.kitchenRole }
+      : {}),
+    ...(num(input.mealsOutPerWeek) !== null
+      ? { mealsOutPerWeek: Math.max(0, Math.min(21, Math.round(Number(input.mealsOutPerWeek)))) }
+      : {}),
+    ...(num(input.diningSwipesPerWeek) !== null
+      ? {
+          diningSwipesPerWeek: Math.max(
+            0,
+            Math.min(30, Math.round(Number(input.diningSwipesPerWeek))),
+          ),
+          diningSwipesExpire: input.diningSwipesExpire === "semester" ? "semester" : "weekly",
+        }
+      : {}),
+    ...(num(input.shopsPerWeek) !== null
+      ? { shopsPerWeek: Math.max(1, Math.min(7, Math.round(Number(input.shopsPerWeek)))) }
+      : {}),
+    ...(num(input.weeklyBudgetUsd) !== null
+      ? { weeklyBudgetUsd: Math.max(0, Math.round(Number(input.weeklyBudgetUsd))) }
+      : {}),
   };
 }
 

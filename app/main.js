@@ -12,8 +12,9 @@ import {
   onSyncChange,
   readTargetsOf,
   readTargetsMetaOf,
-} from "./lib/store.js";
+ writeTargetsOf } from "./lib/store.js";
 import { initRouter } from "./lib/router.js";
+import { normalizeEquipment } from "./lib/equipment.js";
 import { formatSyncTime, isoWeekId, localIsoDate, parseLocalIso, statusDate } from "./lib/dates.js";
 import { applyScanItems } from "./lib/scan.js";
 import { dinerFacts } from "./lib/annotate.js";
@@ -209,6 +210,20 @@ function App() {
     if (r === "linked") setKrogerLinkNote("Kroger account linked — SEND TO CART is ready on List.");
     else if (r === "error") setKrogerLinkNote("Kroger sign-in did not complete. Try LINK KROGER again.");
   }, []);
+
+  // KITCHEN EQUIPMENT (P6/P7). Writes the profile's own targets, so the
+  // generator's pool filter and the "what would this unlock" counter both
+  // read one declared list. Goes through writeTargetsOf, which writes the
+  // canonical path and mirrors the legacy one.
+  const handleSaveEquipment = useCallback(
+    async (/** @type {string[]} */ owned) => {
+      const me = activeProfile();
+      const cur = /** @type {any} */ (await readTargetsOf(me)) ?? {};
+      await writeTargetsOf(me, { ...cur, equipment: normalizeEquipment(owned) });
+      setTargets(/** @type {any} */ (await readTargetsOf(me)));
+    },
+    [],
+  );
 
   useEffect(() => initRouter(setRoute), []);
 
@@ -3620,6 +3635,9 @@ function App() {
         onExport=${handleExport}
         onReplayTour=${handleReplayTour}
         tourState=${tourRecord}
+        targets=${targets}
+        bankRecipes=${bankRecipes}
+        onSaveEquipment=${handleSaveEquipment}
       />`
     }
 

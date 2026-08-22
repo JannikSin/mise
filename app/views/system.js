@@ -10,6 +10,7 @@ import {
 import { formatSyncTime } from "../lib/dates.js";
 import { activeProfile, readProfiles, patchProfiles } from "../lib/store.js";
 import { TOUR_STEPS, TOUR_TABS } from "../lib/tour.js";
+import { EQUIPMENT, canMake, unlockCounts } from "../lib/equipment.js";
 import { notifyTest } from "../lib/worker.js";
 
 /**
@@ -26,7 +27,10 @@ import { notifyTest } from "../lib/worker.js";
  *   onTestWrite: () => void,
  *   onExport: () => void,
  *   onReplayTour: () => void,
- *   tourState: import("../lib/tour.js").TourState | null
+ *   tourState: import("../lib/tour.js").TourState | null,
+ *   targets?: Record<string, any> | null,
+ *   bankRecipes?: Record<string, any>[],
+ *   onSaveEquipment?: (owned: string[]) => Promise<void>
  * }} props
  */
 export function SystemView({
@@ -41,9 +45,47 @@ export function SystemView({
   onExport,
   onReplayTour,
   tourState,
+  targets,
+  bankRecipes,
+  onSaveEquipment,
 }) {
   const ageDays = tokenAgeDays();
   const renewSoon = hasToken && ageDays != null && ageDays >= TOKEN_WARN_AGE_DAYS;
+
+  // ---- WHAT IS IN YOUR KITCHEN (P6/P7) -----------------------------------
+  // Until 2026-08-22 this could only be changed by editing a JSON file, which
+  // meant the app could not actually be run by the person using it. Two
+  // directions, and both are the point: a kitchen that cannot do something is
+  // not offered it, and adding a thing EXPANDS what you are offered, with the
+  // count shown so "is a Dutch oven worth it" has a number instead of a guess.
+  const declared = Array.isArray(targets?.equipment) ? targets.equipment : null;
+  const [gearDraft, setGearDraft] = useState(/** @type {string[] | null} */ (null));
+  const [gearBusy, setGearBusy] = useState(false);
+  const [gearNote, setGearNote] = useState("");
+  const gear = gearDraft ?? declared ?? [];
+  const bank = Array.isArray(bankRecipes) ? bankRecipes : [];
+  const cookableNow = bank.filter((r) => canMake(gear, r.equipment)).length;
+  const dinnersNow = bank.filter(
+    (r) => r.mealType === "dinner" && canMake(gear, r.equipment),
+  ).length;
+  const totalDinners = bank.filter((r) => r.mealType === "dinner").length;
+  const unlocks = gearDraft === null && declared === null ? [] : unlockCounts(gear, bank);
+  const toggleGear = (/** @type {string} */ id) =>
+    setGearDraft(gear.includes(id) ? gear.filter((/** @type {string} */ x) => x !== id) : [...gear, id].sort());
+  const saveGear = async () => {
+    if (!onSaveEquipment || gearDraft === null) return;
+    setGearBusy(true);
+    setGearNote("");
+    try {
+      await onSaveEquipment(gearDraft);
+      setGearDraft(null);
+      setGearNote("saved");
+    } catch (e) {
+      setGearNote(e instanceof Error ? e.message : "could not save");
+    } finally {
+      setGearBusy(false);
+    }
+  };
 
   // notification pipeline test (ntfy ping + today's would-fire schedule)
   const [notify, setNotify] = useState(/** @type {null | "busy" | "done"} */ (null));
@@ -233,6 +275,59 @@ export function SystemView({
             MOVE HOUSE
           </button>
         </div>
+        <h3>Your kitchen</h3>
+        <p class="hint">
+          Tick what you actually own. Mise will stop offering food you cannot cook, and adding a
+          thing opens more of the bank. Leave every box unticked and nothing is filtered, which is
+          how it behaved before you told it anything.
+        </p>
+        <div class="gear-grid">
+          ${EQUIPMENT.map(
+            (e) => html`<label class="gear-item" key=${e.id}>
+              <input
+                type="checkbox"
+                checked=${gear.includes(e.id)}
+                onChange=${() => toggleGear(e.id)}
+              />
+              <span>
+                ${e.label}
+                ${e.note ? html`<small class="hint"> — ${e.note}</small>` : null}
+              </span>
+            </label>`,
+          )}
+        </div>
+        <div class="row">
+          <span class="k">Cookable with this kitchen</span>
+          <span class="status num"
+            >${cookableNow} of ${bank.length} · ${dinnersNow}/${totalDinners} dinners</span
+          >
+        </div>
+        ${
+          dinnersNow === 0 && gear.length > 0
+            ? html`<p class="hint">
+                ⚠️ Nothing in the bank is a dinner you can cook with this. A microwave alone cannot
+                make any of them — you need at least a burner and a pan.
+              </p>`
+            : null
+        }
+        ${
+          unlocks.length > 0
+            ? html`<p class="hint">
+                What one more thing would open:
+                ${unlocks
+                  .slice(0, 4)
+                  .map((u) => `${u.label} +${u.unlocks}`)
+                  .join(" · ")}
+              </p>`
+            : null
+        }
+        <div class="actions">
+          <button class="secondary" onClick=${saveGear} disabled=${gearDraft === null || gearBusy}>
+            ${gearBusy ? "SAVING…" : "SAVE KITCHEN"}
+          </button>
+        </div>
+        ${gearNote ? html`<p class="hint">${gearNote}</p>` : null}
+
         <p class="hint">
           a house is a physical kitchen: everyone in the same house shares the EVERYONE grocery trip
           AND the pantry (one kitchen, one fridge). Moving house also switches you to that house's

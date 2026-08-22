@@ -2496,3 +2496,27 @@ details.dayrow summary:focus-visible {
 .shotstrip .actions {
   margin-top: 6px;
 }
+
+/* Kitchen equipment picker (SYS). Big touch targets: this gets tapped once,
+   standing in a dorm room, on a phone. */
+.gear-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.15rem;
+  margin: 0.5rem 0;
+}
+@media (min-width: 30rem) {
+  .gear-grid { grid-template-columns: 1fr 1fr; }
+}
+.gear-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.55rem 0.4rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  min-height: 2.75rem;
+}
+.gear-item:active { background: rgba(127, 127, 127, 0.12); }
+.gear-item input { width: 1.15rem; height: 1.15rem; flex: 0 0 auto; margin-top: 0.1rem; }
+.gear-item small { display: block; }

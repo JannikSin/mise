@@ -282,6 +282,36 @@ guaranteed per item, so any integration must fall back to the curated order
 per item rather than assume a lookup succeeded. Read Kroger's terms first,
 particularly on client-side caching, since this app is offline-first.
 
+## Equipment — `recipe.equipment[]` and `targets.equipment[]`
+
+**Added 2026-08-22 (David: "you can't tell me to make something for equipment
+that I don't have").** `weekbuilder.js` has excluded recipes a profile lacks
+gear for since survey-v2, but **not one of the 126 bank recipes declared any
+equipment**, so `r.equipment ?? []` was empty every time and the filter
+excluded nothing, forever. A working filter over data nobody wrote.
+
+- **`recipe.equipment: string[]`** — capabilities the recipe REQUIRES. Never a
+  brand, never a specific pan. Backfilled across all 126 from each recipe's own
+  instruction text; 33 no-cook plates correctly declare nothing.
+- **`targets.equipment: string[]`** — what a kitchen HAS.
+  ⚠️ **ABSENT and EMPTY are different and the difference is load-bearing.**
+  Absent means undeclared, so everything is offered and nobody's week changes
+  until they say. `[]` means a kitchen with nothing in it. Collapsing them
+  silently empties someone's week.
+- **Vocabulary and substitution live in `app/lib/equipment.js`.** Owning a
+  Dutch oven satisfies `pot` and `saucepan`; a pot satisfies a saucepan but
+  never the reverse, because volume is the point; a wok satisfies a skillet; a
+  toaster oven satisfies an oven. An air fryer deliberately does NOT satisfy an
+  oven, being the substitution most likely to end with a sheet pan that does
+  not fit. `worker/src/lib.js` carries its own copy of the id list because it
+  cannot import from `app/`, and `tests/equipment.test.js` fails if the two
+  drift.
+- **In the app:** SYS → Your kitchen. Tick what you own and it shows how many
+  recipes and dinners are cookable, warns when no dinner is, and prints what
+  one more item would unlock. Measured on the live bank: undeclared 126/126,
+  microwave only 35/126 with **0 dinners**, a realistic dorm 104/126, adding an
+  oven +9.
+
 ## Pins — `pins.json` (data-repo ROOT, shared reference, read raw)
 
 The ledger's identity file (fix list 3.2 promoted by PF.3): a confirmed
