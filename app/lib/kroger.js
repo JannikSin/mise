@@ -8,11 +8,11 @@
 // Network lives in lib/worker.js (krogerSearch/krogerPricesById); this module
 // never fetches.
 
-import { canonicalFood, canonicalUnit, convertUnit, toGrams } from "./ingredients.js";
+import { aisleOf, canonicalFood, canonicalUnit, convertUnit, toGrams } from "./ingredients.js";
 import { matchPrice, parsePackSize } from "./prices.js";
 
 /** @typedef {{ upc: string, description: string, brand: string, categories: string[], size: string, soldBy: string, price: { regular: number | null, promo: number | null }, stock: string, aisle: string }} KrogerProduct */
-/** @typedef {{ upc: string, description: string, size: string, soldBy: string, confirmedAt?: string, provisional?: boolean }} Pin */
+/** @typedef {{ upc: string, description: string, size: string, soldBy: string, aisle?: string, brand?: string, categories?: string[], seenAt?: string, confirmedAt?: string, provisional?: boolean }} Pin */
 /** @typedef {{ updated?: string, redList: string[], stores: Record<string, { locationId: string, name: string }>, pins: Record<string, Record<string, Pin>> }} PinBook */
 
 /** A live price older than this renders visibly stale (fix list 3.5). */
@@ -72,12 +72,82 @@ export function setPin(pins, food, store, product, todayIso, confirmed) {
     description: product.description,
     size: product.size,
     soldBy: product.soldBy,
+    // THE STORE'S OWN ANSWER, KEPT (David, 2026-08-22). `trimProduct` has
+    // always returned the per-store aisle, brand and categories on every
+    // lookup, free, under the scope we already hold, and this writer used to
+    // drop all three on the floor. The list then sorted by a hardcoded
+    // taxonomy identical for every store on earth, so Mise asked Pay Less
+    // where things were, was told, and used a guess instead.
+    // Aisle is per-STORE, which is why it lives on the pin (keyed by store)
+    // and not on the catalogue row. Empty string is a real answer meaning
+    // "Kroger did not say", and is stored as absent rather than "".
+    ...(product.aisle ? { aisle: product.aisle } : {}),
+    ...(product.brand ? { brand: product.brand } : {}),
+    ...(Array.isArray(product.categories) && product.categories.length
+      ? { categories: product.categories.slice(0, 6) }
+      : {}),
+    // when this store data was last observed; a store reset moves aisles, so
+    // an aisle is only as good as its date and the UI can say so
+    seenAt: todayIso,
     ...(confirmed ? { confirmedAt: todayIso } : { provisional: true }),
   };
   return {
     ...pins,
     updated: todayIso,
     pins: { ...pins.pins, [key]: { ...(pins.pins[key] ?? {}), [store]: pin } },
+  };
+}
+
+/**
+ * Refresh the STORE FACTS on an existing pin from a live product payload,
+ * without touching what the pin means.
+ *
+ * The weekly refresh already holds a fresh product for every pinned UPC and
+ * used to spend it on price alone, so aisle, brand and pack size on a pin
+ * made months ago stayed frozen forever and pins made before 2026-08-22
+ * could never gain an aisle at all. This is the backfill: it runs on every
+ * refresh and costs nothing, because the payload is already in hand.
+ *
+ * It deliberately does NOT touch `upc` (identity), `confirmedAt` or
+ * `provisional` (what a human decided). Re-pinning to a different product is
+ * `setPin`'s job and requires a person; this only updates what the store says
+ * about the product already pinned.
+ * @param {PinBook} pins
+ * @param {string} food
+ * @param {string} store
+ * @param {KrogerProduct} product
+ * @param {string} todayIso
+ * @returns {PinBook} unchanged (same reference) when nothing moved
+ */
+export function refreshPinFacts(pins, food, store, product, todayIso) {
+  const key = pinKey(food);
+  const cur = pins.pins?.[key]?.[store];
+  if (!cur || cur.upc !== product.upc) return pins;
+  /** @type {Pin} */
+  const next = {
+    ...cur,
+    ...(product.description ? { description: product.description } : {}),
+    ...(product.size ? { size: product.size } : {}),
+    ...(product.soldBy ? { soldBy: product.soldBy } : {}),
+    ...(product.aisle ? { aisle: product.aisle } : {}),
+    ...(product.brand ? { brand: product.brand } : {}),
+    ...(Array.isArray(product.categories) && product.categories.length
+      ? { categories: product.categories.slice(0, 6) }
+      : {}),
+    seenAt: todayIso,
+  };
+  const same = Object.keys(next).every(
+    (k) =>
+      k === "seenAt" ||
+      JSON.stringify(/** @type {any} */ (next)[k]) === JSON.stringify(/** @type {any} */ (cur)[k]),
+  );
+  // a pin whose only change is "we looked again today" still records the
+  // look, because an aisle's age is what tells a shopper whether to trust it
+  if (same && cur.seenAt === todayIso) return pins;
+  return {
+    ...pins,
+    updated: todayIso,
+    pins: { ...pins.pins, [key]: { ...pins.pins[key], [store]: next } },
   };
 }
 
@@ -95,6 +165,9 @@ export function confirmPin(pins, food, store, todayIso) {
   if (!cur) return pins;
   const rest = { ...cur };
   delete rest.provisional;
+  // a human just stood in front of this product, so whatever store data the
+  // pin carries was true today
+  if (rest.aisle) rest.seenAt = todayIso;
   return {
     ...pins,
     updated: todayIso,
@@ -103,6 +176,80 @@ export function confirmPin(pins, food, store, todayIso) {
       [key]: { ...pins.pins[key], [store]: { ...rest, confirmedAt: todayIso } },
     },
   };
+}
+
+/**
+ * WHERE THE THING ACTUALLY IS, at this store, in the store's own words.
+ *
+ * The store's answer beats our taxonomy every time: `aisleOf()` in
+ * ingredients.js is one hardcoded walk order applied to every shop on earth,
+ * whereas this is what Kroger says about THIS location. Absent means Kroger
+ * did not say, which is common enough that a caller must always have a
+ * fallback rather than treat "" as an error.
+ * @param {PinBook | null | undefined} pins
+ * @param {string} food
+ * @param {string} store
+ * @returns {string} the store's aisle description, or "" when unknown
+ */
+export function shelfAisle(pins, food, store) {
+  const a = pinFor(pins, food, store)?.aisle;
+  return typeof a === "string" ? a.trim() : "";
+}
+
+/**
+ * How stale a pin's store data is, in days, or null when it carries no date.
+ * An aisle survives a store reset only by luck, so the age is what tells a
+ * shopper whether to trust it.
+ * @param {PinBook | null | undefined} pins
+ * @param {string} food
+ * @param {string} store
+ * @param {string} todayIso
+ * @returns {number | null}
+ */
+export function shelfAisleAgeDays(pins, food, store, todayIso) {
+  const seen = pinFor(pins, food, store)?.seenAt;
+  if (typeof seen !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(seen)) return null;
+  const ms = Date.parse(`${todayIso}T00:00:00Z`) - Date.parse(`${seen}T00:00:00Z`);
+  return Number.isFinite(ms) ? Math.max(0, Math.round(ms / 86400000)) : null;
+}
+
+/**
+ * Aisle labels for a store's section headers, DERIVED from what the store
+ * itself said about the products we have pinned there.
+ *
+ * `prices.json` has always supported a hand-curated `aisles: { <store>: {
+ * order, labels } }` map, on the reasoning that "a store's layout is a stable
+ * fact that no chain publishes". Kroger does publish it, per product, per
+ * location, and Mise has been fetching it all along. This turns those pins
+ * into the map nobody had to curate.
+ *
+ * One section spans several real aisles (produce is a wall, not an aisle), so
+ * the label is the MODAL aisle among that section's pinned foods, and it is
+ * only offered when it actually dominates: a section whose pins are scattered
+ * across five aisles gets no label rather than a misleading one. Ties break
+ * alphabetically so the same pin book always yields the same map.
+ * @param {PinBook | null | undefined} pins
+ * @param {string} store
+ * @param {number} [minShare] fraction of a section's pins that must agree
+ * @returns {Record<string, string>} section → aisle label
+ */
+export function aisleLabelsFromPins(pins, store, minShare = 0.5) {
+  /** @type {Record<string, Record<string, number>>} */
+  const tally = {};
+  for (const [key, byStore] of Object.entries(pins?.pins ?? {})) {
+    const aisle = typeof byStore?.[store]?.aisle === "string" ? byStore[store].aisle.trim() : "";
+    if (!aisle) continue;
+    const section = aisleOf(key);
+    (tally[section] ??= {})[aisle] = (tally[section][aisle] ?? 0) + 1;
+  }
+  /** @type {Record<string, string>} */
+  const labels = {};
+  for (const [section, counts] of Object.entries(tally)) {
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const best = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+    if (best && best[1] / total >= minShare) labels[section] = best[0];
+  }
+  return labels;
 }
 
 /**

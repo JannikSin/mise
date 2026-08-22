@@ -4,6 +4,7 @@ import { tokenBroken } from "../lib/github.js";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { krogerPricesById, krogerSearch, scanPhoto, scanReceipt } from "../lib/worker.js";
 import {
+  aisleLabelsFromPins,
   allergenHits,
   applyLivePrice,
   confirmPin,
@@ -12,6 +13,7 @@ import {
   normalizePins,
   pinFor,
   rankCandidates,
+  refreshPinFacts,
   setPin,
 } from "../lib/kroger.js";
 import {
@@ -141,15 +143,21 @@ const SECTION_ORDER = AISLES;
  * map can never hide groceries.
  * @param {Record<string, any> | null} prices
  * @param {string} store
+ * @param {import("../lib/kroger.js").PinBook | null} [pins]
  * @returns {{ order: string[], labels: Record<string, string> }}
  */
-function aisleOrderFor(prices, store) {
+function aisleOrderFor(prices, store, pins = null) {
   const map = prices?.aisles?.[store];
   const curated = Array.isArray(map?.order)
     ? map.order.filter((/** @type {string} */ a) => AISLES.includes(a))
     : [];
   const order = [...curated, ...SECTION_ORDER.filter((a) => !curated.includes(a))];
-  return { order, labels: map?.labels ?? {} };
+  // The store's own answer fills every section a human never curated
+  // (David, 2026-08-22: "know where it is, don't discard the answer"). A
+  // hand-curated label still WINS, because someone stood in the shop; the
+  // derived one only fills gaps, so curating never gets overwritten by data.
+  const derived = aisleLabelsFromPins(pins, store);
+  return { order, labels: { ...derived, ...(map?.labels ?? {}) } };
 }
 
 /**
@@ -581,12 +589,19 @@ export function ShoppingView({
       const upcs = pinnedForStore.map((p) => p.pin.upc);
       const { products, failed } = await krogerPricesById(upcs, locId);
       let cat = prices;
-      let book = normalizePins(pins);
+      const book0 = normalizePins(pins);
+      let book = book0;
       let updated = 0;
       let repinned = 0;
       for (const p of products) {
         const hit = pinnedForStore.find((x) => x.pin.upc === p.upc);
-        if (!hit || p.price.regular == null) continue;
+        if (!hit) continue;
+        // the store's aisle, brand and pack size ride along on the same
+        // payload as the price; spending it on price alone is what left 89
+        // Pay Less pins with no aisle. Runs even when the price is missing,
+        // because knowing where a thing sits is useful without a price.
+        book = refreshPinFacts(book, hit.key, homeStore, p, todayIso);
+        if (p.price.regular == null) continue;
         cat = applyLivePrice(cat, homeStore, hit.key, p, todayIso);
         updated += 1;
       }
@@ -611,7 +626,11 @@ export function ShoppingView({
         }
       }
       if (cat !== prices) onSavePrices(cat);
-      if (repinned > 0 && onSavePins) onSavePins(book);
+      // book changes on a re-pin OR on a store-facts backfill, so compare
+      // against the book we STARTED with (normalizePins returns a fresh
+      // object every call, so comparing to a new one is always true). Was
+      // `repinned > 0`, which is why a backfill would never have been saved.
+      if (book !== book0 && onSavePins) onSavePins(book);
       const unpriceable = failed.length - repinned;
       setRefreshNote(
         `${updated} refreshed${repinned > 0 ? `, ${repinned} re-pinned (tap ? to confirm)` : ""}${unpriceable > 0 ? `, ${unpriceable} gone from the store` : ""}`,
@@ -659,7 +678,7 @@ export function ShoppingView({
     </div>`;
 
   // the aisle walk order for the store actually being shopped
-  const aisles = aisleOrderFor(prices, homeStore);
+  const aisles = aisleOrderFor(prices, homeStore, pins);
   const sections = aisles.order
     .map((s) => ({
       section: s,

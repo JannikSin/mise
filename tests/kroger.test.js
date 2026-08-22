@@ -3,20 +3,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  aisleLabelsFromPins,
   allergenHits,
   applyLivePrice,
   confirmPin,
+  shelfAisle,
+  shelfAisleAgeDays,
   isStalePrice,
   locationIdFor,
   normalizePins,
   pinFor,
   priceAgeDays,
   rankCandidates,
+  refreshPinFacts,
   setPin,
   swapClassFor,
   unitPriceOf,
   STALE_PRICE_DAYS,
 } from "../app/lib/kroger.js";
+import { aisleOf } from "../app/lib/ingredients.js";
 
 /** @param {Partial<import("../app/lib/kroger.js").KrogerProduct>} p */
 const product = (p = {}) => ({
@@ -193,4 +198,190 @@ test("3.6: WEIGHT-sold items cover a need at pay-what-it-weighs", () => {
   const rows = [product({ upc: "w", description: "Chicken Thighs", soldBy: "WEIGHT", size: "1 lb", price: { regular: 1.79, promo: null }, categories: ["Meat"] })];
   const ranked = rankCandidates(rows, "chicken thighs", [], "meat", { qty: 2, unit: "lb" });
   assert.equal(ranked[0].spend, 3.58);
+});
+
+// ---- the store's own answer is kept (David, 2026-08-22) --------------------
+// `trimProduct` has always returned the per-store aisle, brand and categories
+// on every lookup, free. `setPin` used to drop all three, so the list sorted
+// by a taxonomy identical for every store on earth while Kroger's real answer
+// was thrown away. These lock that shut.
+
+test("setPin keeps the store's aisle, brand and categories", () => {
+  const product = {
+    upc: "0001",
+    description: "Broccoli Crowns",
+    brand: "Private Selection",
+    categories: ["Produce", "Vegetables"],
+    size: "1 lb",
+    soldBy: "WEIGHT",
+    price: { regular: 2.49, promo: null },
+    stock: "HIGH",
+    aisle: "PRODUCE",
+  };
+  const book = setPin(normalizePins(null), "broccoli", "pay-less", product, "2026-08-22", true);
+  const pin = pinFor(book, "broccoli", "pay-less");
+  assert.equal(pin.aisle, "PRODUCE");
+  assert.equal(pin.brand, "Private Selection");
+  assert.deepEqual(pin.categories, ["Produce", "Vegetables"]);
+  assert.equal(pin.seenAt, "2026-08-22");
+  assert.equal(pin.confirmedAt, "2026-08-22");
+});
+
+test("a product Kroger gave no aisle for stores no aisle key at all, not an empty string", () => {
+  const bare = {
+    upc: "0002", description: "Mystery", brand: "", categories: [],
+    size: "", soldBy: "", price: { regular: null, promo: null }, stock: "", aisle: "",
+  };
+  const book = setPin(normalizePins(null), "mystery", "pay-less", bare, "2026-08-22", false);
+  const pin = pinFor(book, "mystery", "pay-less");
+  assert.ok(!("aisle" in pin), "absent, so a caller must fall back rather than render blank");
+  assert.ok(!("brand" in pin));
+  assert.equal(pin.provisional, true);
+});
+
+test("shelfAisle reads the store's answer, and is empty when there is none", () => {
+  const product = {
+    upc: "3", description: "d", brand: "", categories: [], size: "", soldBy: "",
+    price: { regular: null, promo: null }, stock: "", aisle: "AISLE 12",
+  };
+  const book = setPin(normalizePins(null), "quinoa", "pay-less", product, "2026-08-22", true);
+  assert.equal(shelfAisle(book, "quinoa", "pay-less"), "AISLE 12");
+  assert.equal(shelfAisle(book, "quinoa", "marianos"), "", "aisle is per STORE, never shared");
+  assert.equal(shelfAisle(book, "nothing-pinned", "pay-less"), "");
+  assert.equal(shelfAisle(null, "quinoa", "pay-less"), "");
+});
+
+test("shelfAisleAgeDays ages the store data, because a reset moves aisles", () => {
+  const product = {
+    upc: "4", description: "d", brand: "", categories: [], size: "", soldBy: "",
+    price: { regular: null, promo: null }, stock: "", aisle: "AISLE 3",
+  };
+  const book = setPin(normalizePins(null), "oats", "pay-less", product, "2026-08-01", true);
+  assert.equal(shelfAisleAgeDays(book, "oats", "pay-less", "2026-08-22"), 21);
+  assert.equal(shelfAisleAgeDays(book, "never-pinned", "pay-less", "2026-08-22"), null);
+});
+
+test("confirmPin refreshes seenAt: a human just stood in front of it", () => {
+  const product = {
+    upc: "5", description: "d", brand: "", categories: [], size: "", soldBy: "",
+    price: { regular: null, promo: null }, stock: "", aisle: "AISLE 7",
+  };
+  let book = setPin(normalizePins(null), "rice", "pay-less", product, "2026-08-01", false);
+  book = confirmPin(book, "rice", "pay-less", "2026-08-22");
+  const pin = pinFor(book, "rice", "pay-less");
+  assert.equal(pin.seenAt, "2026-08-22");
+  assert.equal(pin.confirmedAt, "2026-08-22");
+  assert.ok(!("provisional" in pin));
+});
+
+test("aisleLabelsFromPins derives a store's walk map from what the store said", () => {
+  const p = (aisle) => ({
+    upc: "x", description: "d", brand: "", categories: [], size: "", soldBy: "",
+    price: { regular: null, promo: null }, stock: "", aisle,
+  });
+  let book = normalizePins(null);
+  // three produce foods, all agreeing
+  for (const f of ["broccoli", "carrot", "onion"])
+    book = setPin(book, f, "pay-less", p("PRODUCE"), "2026-08-22", true);
+  const labels = aisleLabelsFromPins(book, "pay-less");
+  assert.equal(labels[aisleOf("broccoli")], "PRODUCE");
+});
+
+test("a section whose pins disagree gets NO label rather than a misleading one", () => {
+  const p = (aisle) => ({
+    upc: "x", description: "d", brand: "", categories: [], size: "", soldBy: "",
+    price: { regular: null, promo: null }, stock: "", aisle,
+  });
+  let book = normalizePins(null);
+  // four produce foods scattered over four different aisles: nothing dominates
+  const scattered = [["broccoli", "A1"], ["carrot", "A2"], ["onion", "A3"], ["tomato", "A4"]];
+  for (const [f, a] of scattered) book = setPin(book, f, "pay-less", p(a), "2026-08-22", true);
+  const labels = aisleLabelsFromPins(book, "pay-less");
+  assert.equal(labels[aisleOf("broccoli")], undefined, "no majority, so no claim");
+});
+
+test("the derived map is per store and never borrows another store's layout", () => {
+  const p = (aisle) => ({
+    upc: "x", description: "d", brand: "", categories: [], size: "", soldBy: "",
+    price: { regular: null, promo: null }, stock: "", aisle,
+  });
+  let book = normalizePins(null);
+  book = setPin(book, "quinoa", "marianos", p("AISLE 9"), "2026-08-22", true);
+  assert.deepEqual(aisleLabelsFromPins(book, "pay-less"), {}, "Vernon Hills says nothing about West Lafayette");
+  assert.equal(aisleLabelsFromPins(book, "marianos")[aisleOf("quinoa")], "AISLE 9");
+});
+
+test("the derived map is stable: equal counts break alphabetically, not by insertion order", () => {
+  const p = (aisle) => ({
+    upc: "x", description: "d", brand: "", categories: [], size: "", soldBy: "",
+    price: { regular: null, promo: null }, stock: "", aisle,
+  });
+  let a = normalizePins(null);
+  a = setPin(a, "broccoli", "s", p("ZZZ"), "2026-08-22", true);
+  a = setPin(a, "carrot", "s", p("AAA"), "2026-08-22", true);
+  let b = normalizePins(null);
+  b = setPin(b, "carrot", "s", p("AAA"), "2026-08-22", true);
+  b = setPin(b, "broccoli", "s", p("ZZZ"), "2026-08-22", true);
+  assert.deepEqual(aisleLabelsFromPins(a, "s", 0.5), aisleLabelsFromPins(b, "s", 0.5));
+});
+
+// ---- the weekly refresh backfills store facts onto pins made before this ---
+
+test("refreshPinFacts backfills an aisle onto a pin that never had one", () => {
+  const old = {
+    upc: "9", description: "Old Name", brand: "", categories: [], size: "12 oz", soldBy: "UNIT",
+    price: { regular: 1, promo: null }, stock: "", aisle: "",
+  };
+  let book = setPin(normalizePins(null), "oats", "pay-less", old, "2026-06-01", true);
+  assert.equal(shelfAisle(book, "oats", "pay-less"), "", "starts with nothing, like the 89 real pins");
+
+  const fresh = { ...old, description: "Rolled Oats", aisle: "AISLE 5", brand: "Kroger", categories: ["Breakfast"] };
+  book = refreshPinFacts(book, "oats", "pay-less", fresh, "2026-08-22");
+  const pin = pinFor(book, "oats", "pay-less");
+  assert.equal(pin.aisle, "AISLE 5");
+  assert.equal(pin.brand, "Kroger");
+  assert.equal(pin.description, "Rolled Oats");
+  assert.equal(pin.seenAt, "2026-08-22");
+  assert.equal(pin.confirmedAt, "2026-06-01", "a human's confirmation is NOT reset by a refresh");
+});
+
+test("refreshPinFacts refuses to touch a pin whose UPC has moved on", () => {
+  const a = {
+    upc: "AAA", description: "A", brand: "", categories: [], size: "", soldBy: "",
+    price: { regular: 1, promo: null }, stock: "", aisle: "AISLE 1",
+  };
+  const book = setPin(normalizePins(null), "rice", "pay-less", a, "2026-08-01", true);
+  const other = { ...a, upc: "BBB", aisle: "AISLE 99" };
+  assert.equal(
+    refreshPinFacts(book, "rice", "pay-less", other, "2026-08-22"),
+    book,
+    "a different product is a RE-pin, which needs a person",
+  );
+});
+
+test("refreshPinFacts leaves a provisional pin provisional", () => {
+  const p = {
+    upc: "7", description: "d", brand: "", categories: [], size: "", soldBy: "",
+    price: { regular: 1, promo: null }, stock: "", aisle: "AISLE 2",
+  };
+  let book = setPin(normalizePins(null), "beans", "pay-less", p, "2026-08-01", false);
+  book = refreshPinFacts(book, "beans", "pay-less", { ...p, aisle: "AISLE 3" }, "2026-08-22");
+  const pin = pinFor(book, "beans", "pay-less");
+  assert.equal(pin.provisional, true, "still needs a human tap");
+  assert.equal(pin.aisle, "AISLE 3", "but the store moved it and we know that");
+});
+
+test("refreshPinFacts is a no-op on an unpinned food and on a same-day repeat", () => {
+  const p = {
+    upc: "8", description: "d", brand: "", categories: [], size: "", soldBy: "",
+    price: { regular: 1, promo: null }, stock: "", aisle: "AISLE 4",
+  };
+  const empty = normalizePins(null);
+  assert.equal(refreshPinFacts(empty, "nothing", "pay-less", p, "2026-08-22"), empty);
+  const book = setPin(empty, "corn", "pay-less", p, "2026-08-22", true);
+  assert.equal(
+    refreshPinFacts(book, "corn", "pay-less", p, "2026-08-22"),
+    book,
+    "nothing moved and we already looked today, so no write",
+  );
 });

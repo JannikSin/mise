@@ -307,6 +307,23 @@ catalogue row ids and pantry matching converge on.
         "description": "Heritage Farm® Boneless Skinless Chicken Breasts",
         "size": "1 lb",
         "soldBy": "WEIGHT", // WEIGHT = priced per lb (catalogue stores "per lb")
+        // ---- the store's own answer, kept (2026-08-22) ----
+        // `trimProduct` has always returned these three on every lookup, free,
+        // under the scope we already hold. Until 2026-08-22 `setPin` dropped
+        // all of them, so Mise asked Pay Less where things were, was told, and
+        // sorted by a hardcoded taxonomy identical for every store on earth.
+        // ALL THREE ARE OPTIONAL: absent means Kroger did not say, which is
+        // common, so every reader must carry a fallback. Never written as "".
+        "aisle": "AISLE 12", // PER STORE, which is why it lives on the pin and
+        // not on the catalogue row. Feeds aisleLabelsFromPins(), which derives
+        // a store's section→aisle walk map as the MODAL aisle of that
+        // section's pins, and declines to label a section whose pins disagree.
+        "brand": "Heritage Farm",
+        "categories": ["Meat", "Chicken"], // capped at 6
+        "seenAt": "2026-08-22", // when this store data was last OBSERVED. A
+        // store reset moves aisles, so an aisle is only as good as its date.
+        // Set by setPin, by confirmPin (a human stood in front of it), and by
+        // refreshPinFacts on every weekly refresh.
         "confirmedAt": "2026-08-19", // ? the confirm-once tap happened
         "provisional": true, // ? auto-picked (seed / re-pin), awaiting the tap;
         // renders a ? button on the row. confirmPin swaps it for confirmedAt.
@@ -328,6 +345,17 @@ allergen-screened on its description + categories before it can be pinned.
 Quota discipline (3.3): pins cache resolution forever, REFRESH is weekly and
 by UPC, the app never loops live searches, and a revoked API degrades to
 last-known (†-stale) prices.
+
+**Store-facts backfill (2026-08-22).** The weekly REFRESH already holds a
+fresh product for every pinned UPC and used to spend it on price alone, so a
+pin made before this date could never gain an aisle and `size`/`brand` on an
+old pin stayed frozen forever. `refreshPinFacts` now runs on every refreshed
+product and costs nothing, because the payload is already in hand. It updates
+only what the STORE says (description, size, soldBy, aisle, brand, categories,
+seenAt) and never touches `upc`, `confirmedAt` or `provisional`, which are
+identity and what a human decided. Re-pinning to a different product remains
+`setPin`'s job and still requires a person. It also runs when the price is
+missing, because knowing where a thing sits is useful without a price.
 
 ## Recipe — `recipes/<id>.json`
 
