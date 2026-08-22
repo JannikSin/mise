@@ -17,7 +17,7 @@ import { initRouter } from "./lib/router.js";
 import { formatSyncTime, isoWeekId, localIsoDate, parseLocalIso, statusDate } from "./lib/dates.js";
 import { applyScanItems } from "./lib/scan.js";
 import { dinerFacts } from "./lib/annotate.js";
-import { tailorTable, dinnerWeek } from "./lib/worker.js";
+import { tailorTable, dinnerWeek , krogerConsumeRedirect } from "./lib/worker.js";
 import { ProfileGateView } from "./views/profile-gate.js";
 import { CookbookView } from "./views/cookbook.js";
 import { RecipeView } from "./views/recipe.js";
@@ -197,6 +197,18 @@ function App() {
   const planRef = useRef(plan);
   planRef.current = plan;
   const [targets, setTargets] = useState(/** @type {Record<string, any> | null} */ (null));
+
+  // Kroger's consent redirect lands back here with the customer's tokens in
+  // the URL FRAGMENT (never sent to a server). Consume it BEFORE the router
+  // reads the hash, or the router sees `#kroger_access=...` as a route and
+  // the link silently never completes — the exact "built but never called"
+  // failure app/lib/synth.js is this repo's standing lesson about.
+  const [krogerLinkNote, setKrogerLinkNote] = useState("");
+  useEffect(() => {
+    const r = krogerConsumeRedirect();
+    if (r === "linked") setKrogerLinkNote("Kroger account linked — SEND TO CART is ready on List.");
+    else if (r === "error") setKrogerLinkNote("Kroger sign-in did not complete. Try LINK KROGER again.");
+  }, []);
 
   useEffect(() => initRouter(setRoute), []);
 
@@ -3652,6 +3664,13 @@ function App() {
         unshopped=${!(/** @type {any} */ (plan)?.shoppedAt || houseShopped)}
         onClose=${() => setPeek(null)}
       />`
+    }
+    ${
+      krogerLinkNote &&
+      html`<div class="toast" role="status">
+        <span>${krogerLinkNote}</span>
+        <button class="toast-undo" onClick=${() => setKrogerLinkNote("")}>OK</button>
+      </div>`
     }
     ${
       undoToast &&
