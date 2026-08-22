@@ -63,13 +63,19 @@ export function SystemView({
   const [gearBusy, setGearBusy] = useState(false);
   const [gearNote, setGearNote] = useState("");
   const gear = gearDraft ?? declared ?? [];
+  // UNDECLARED IS NOT EMPTY, and the readout has to say so. Showing the
+  // empty-kitchen count to someone who has declared nothing reads as "you can
+  // cook 33 things and no dinners", which is both false and alarming: an
+  // undeclared kitchen is offered everything. Caught by opening the app.
+  const undeclared = gearDraft === null && declared === null;
+  const filterWith = undeclared ? null : gear;
   const bank = Array.isArray(bankRecipes) ? bankRecipes : [];
-  const cookableNow = bank.filter((r) => canMake(gear, r.equipment)).length;
+  const cookableNow = bank.filter((r) => canMake(filterWith, r.equipment)).length;
   const dinnersNow = bank.filter(
-    (r) => r.mealType === "dinner" && canMake(gear, r.equipment),
+    (r) => r.mealType === "dinner" && canMake(filterWith, r.equipment),
   ).length;
   const totalDinners = bank.filter((r) => r.mealType === "dinner").length;
-  const unlocks = gearDraft === null && declared === null ? [] : unlockCounts(gear, bank);
+  const unlocks = undeclared ? [] : unlockCounts(gear, bank);
   const toggleGear = (/** @type {string} */ id) =>
     setGearDraft(gear.includes(id) ? gear.filter((/** @type {string} */ x) => x !== id) : [...gear, id].sort());
   const saveGear = async () => {
@@ -303,10 +309,19 @@ export function SystemView({
           >
         </div>
         ${
-          dinnersNow === 0 && gear.length > 0
+          undeclared
+            ? html`<p class="hint">
+                Nothing declared yet, so everything is offered. Tick a box and this becomes what
+                YOUR kitchen can cook.
+              </p>`
+            : null
+        }
+        ${
+          dinnersNow === 0 && !undeclared
             ? html`<p class="hint">
                 ⚠️ Nothing in the bank is a dinner you can cook with this. A microwave alone cannot
-                make any of them — you need at least a burner and a pan.
+                make any of them, and an empty kitchen certainly cannot — you need at least a
+                burner and a pan.
               </p>`
             : null
         }
