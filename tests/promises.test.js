@@ -38,6 +38,7 @@ import {
   setMemberRoles,
 } from "../app/lib/household.js";
 import { priceWeek, swapToFit } from "../app/lib/budget.js";
+import { rankAgreement, scoreRecipe, scoreWeek, validateBundle } from "../app/lib/philosophy.js";
 import { buildServe } from "../app/lib/serve.js";
 import {
   clampGuests,
@@ -123,6 +124,7 @@ const DOC =
 // is a first-run fixture that has already drifted 19 recipes away from it.
 const BANK_DIR = new URL("../../mise-data/recipes/", import.meta.url);
 const CATALOGUE = new URL("../../mise-data/prices.json", import.meta.url);
+const PHILOSOPHIES = new URL("../../mise-data/philosophies/", import.meta.url);
 
 // ───────────────────────────────────────────────────────────────────────────
 // Fixtures. Synthetic where a promise is about ENGINE behaviour (so the test
@@ -1580,7 +1582,7 @@ const PROMISES = [
 
   {
     id: "P12",
-    name: "P12 the whole bank is audited with evidence, and nothing enters the plan unaudited",
+    name: "P12 the bank is audited, nothing enters the plan unaudited, and more than one nutrition philosophy ranks it",
     fn: () => {
       const files = readdirSync(BANK_DIR).filter((f) => f.endsWith(".json"));
       /** @type {string[]} */
@@ -1684,9 +1686,66 @@ const PROMISES = [
       );
 
       assert.ok(audited > 0, "not one recipe in the bank carries an audit");
+
+      // ── SECOND CLAUSE: more than one nutrition philosophy is represented ──
+      // The bar is the council's own (2026-08-22, five isolated seats), and
+      // it is deliberately falsifiable, because authoring a second FILE is
+      // not evidence of a second VOICE:
+      //
+      //   A second bundle counts only if it RE-RANKS THE BANK: Spearman rho
+      //   below 0.8, and at least 15 recipes crossing the pass/fail line.
+      //
+      // Two bundles agreeing at rho 0.9 would be one philosophy wearing two
+      // labels, however different their prose.
+      assert.ok(existsSync(PHILOSOPHIES), "no philosophies/ directory in the data repo");
+      const bundles = readdirSync(PHILOSOPHIES)
+        .filter((f) => f.endsWith(".json"))
+        .map((f) => JSON.parse(readFileSync(new URL(f, PHILOSOPHIES), "utf8")));
+      assert.ok(bundles.length >= 2, `P12 needs more than one philosophy, found ${bundles.length}`);
+      // a bundle naming a fact the engine cannot compute is REFUSED, never
+      // silently scored zero
+      for (const b of bundles) {
+        assert.deepEqual(validateBundle(b), [], `bundle "${b.id}" is not scoreable`);
+      }
+      const bankRecipes = files.map((f) => JSON.parse(readFileSync(new URL(f, BANK_DIR), "utf8")));
+      const [pa, pb] = bundles;
+      const { rho, crossings, n } = rankAgreement(pa, pb, bankRecipes);
+      assert.equal(n, bankRecipes.length);
+      assert.ok(
+        rho < 0.8,
+        `"${pa.id}" and "${pb.id}" rank the bank at rho ${rho}; below 0.8 required or they are one voice`,
+      );
+      assert.ok(
+        crossings >= 15,
+        `only ${crossings} recipes cross the pass line between "${pa.id}" and "${pb.id}"; 15 required`,
+      );
+      // they disagree in the DIRECTION the philosophies claim: the
+      // food-quality voice declines to score where protein came from, so a
+      // clean whole-food animal dish must rank higher under it
+      const animalWhole = bankRecipes.find(
+        (r) => r.id === "sheet-pan-lemon-chicken-broccoli-cauliflower",
+      );
+      if (animalWhole) {
+        const plantVoice = bundles.find((x) => x.weights?.plantProteinShare);
+        const qualityVoice = bundles.find((x) => !x.weights?.plantProteinShare);
+        assert.ok(plantVoice && qualityVoice, "expected one plant-weighted and one quality bundle");
+        assert.ok(
+          scoreRecipe(qualityVoice, animalWhole).score > scoreRecipe(plantVoice, animalWhole).score,
+          "a whole-food animal dish must score higher under the voice that ignores protein source",
+        );
+      }
+      // and a philosophy can express a WEEK-shaped floor, which the per-day
+      // food-group machinery structurally cannot. Two seats independently
+      // called this the tell that the engine truly holds no philosophy.
+      const withFloor = bundles.find((x) => Number(x.weekFloors?.distinctPlantSpecies) > 0);
+      assert.ok(withFloor, "no bundle expresses a week-level floor");
+      const wideWeek = scoreWeek(withFloor, bankRecipes.slice(0, 40));
+      const narrowWeek = scoreWeek(withFloor, bankRecipes.slice(0, 2));
+      assert.ok(wideWeek.distinctPlantSpecies > narrowWeek.distinctPlantSpecies);
+      assert.equal(narrowWeek.meets.distinctPlantSpecies, false, "two recipes cannot meet the floor");
+      assert.equal(wideWeek.meets.distinctPlantSpecies, true, "forty recipes must");
     },
   },
-
   {
     id: "P11",
     name: "P11 the review shows plan against reality, takes your own words, and the next week reads it",
@@ -1897,39 +1956,7 @@ const UNBUILT = [
       "engineering job. The first half of the done test, a first-time cook reaching a result that " +
       "tastes good, is not machine-checkable and this ledger does not pretend otherwise.",
   },
-  {
-    id: "P12",
-    name: "P12 GAP a second nutrition philosophy, which is the pending council's question, not a build",
-    why:
-      "owner David and the pending nutrition council, which was queued 2026-08-18 and has not sat. " +
-      "The bank half of this promise closed 2026-08-19: 126 of 126 recipes audited with evidence, and " +
-      "promotion through the annotator now requires an audit rather than a hand-set flag. What is left " +
-      "is not a build. The bank holds ONE reviewing voice, greger, plus a clinical set that is a medical " +
-      "constraint and not a nutrition philosophy; calling it one would close this promise by relabelling. " +
-      "The council's own question is whether a meal generator should hold one philosophy or several " +
-      "selected per goal-phase, with Phillips, Gardner and Longo proposed alongside Greger and Attia. " +
-      "Nobody may invent a second standard before it sits.",
-  },
-  {
-    id: "P4",
-    name: "P4 GATE the Kroger cart push is built and dark until David registers the app",
-    why:
-      "owner DAVID, opened 2026-08-22, and it is a configuration job not an engineering one. " +
-      "The cart push is built, tested and deployed: worker /kroger/cart/{link,refresh,add} plus the " +
-      "one GET callback, an HMAC-signed state with a 10-minute TTL and an origin allowlist as the " +
-      "open-redirect defence, and a SEND TO CART button that hides itself on the 503. It cannot run " +
-      "until three things exist that only David can create: KROGER_REDIRECT_URI pointing at " +
-      "https://<worker>/kroger/cart/callback and registered as a redirect URI on the Kroger app, " +
-      "KROGER_STATE_SECRET as a Worker secret, and cart.basic:write granted on that Kroger app. " +
-      "Verified 2026-08-22 by probing the gateway directly: PUT /v1/cart/add answers 401 (registered) " +
-      "while PUT /v1/cart/zzz answers 404, so the endpoint is live and reachable on the public tier. " +
-      "TWO LIMITS THE UI ALREADY STATES AND MUST KEEP STATING: the public tier is ADD-ONLY with no " +
-      "read-back, so an HTTP 200 is the only evidence a row landed and the copy says 'sent' rather " +
-      "than 'added'; and the cart write carries NO locationId, so items land in whichever store the " +
-      "customer ACCOUNT has selected. There is no order-placement and no pickup-slot endpoint at any " +
-      "tier, so this is a hand-off to the Pay Less app and P4 must never be read as claiming Mise can " +
-      "place an order. Close this gate by setting the three values and running one real push.",
-  },
+
 ];
 
 for (const u of UNBUILT) test(u.name, { todo: u.why }, () => {});
