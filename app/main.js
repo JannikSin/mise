@@ -5,12 +5,13 @@ import {
   initStore,
   write,
   read,
-  readMeta,
   readCollection,
   readProfiles,
   activeProfile,
   getSyncStatus,
   onSyncChange,
+  readTargetsOf,
+  readTargetsMetaOf,
 } from "./lib/store.js";
 import { initRouter } from "./lib/router.js";
 import { formatSyncTime, isoWeekId, localIsoDate, parseLocalIso, statusDate } from "./lib/dates.js";
@@ -1011,8 +1012,8 @@ function App() {
       read("fitness/daily.json").then((d) => {
         if (alive && d) setDailyLog(/** @type {any} */ (d));
       });
-      read("fitness/targets.json").then((t) => {
-        if (alive && t) setTargets(t);
+      readTargetsOf(activeProfile()).then((t) => {
+        if (alive && t) setTargets(/** @type {any} */ (t));
       });
     };
     load();
@@ -2133,14 +2134,7 @@ function App() {
       readProfiles().then(async (p) => {
         const map = new Map();
         for (const pr of p.profiles) {
-          const path =
-            pr.id === "david" ? "fitness/targets.json" : `profiles/${pr.id}/fitness/targets.json`;
-          const rec = await readMeta(path, { raw: true }).catch(() => ({
-            data: null,
-            sha: null,
-            dirty: false,
-          }));
-          map.set(pr.id, rec);
+          map.set(pr.id, await readTargetsMetaOf(pr.id));
         }
         if (alive) setHouseTargets(map);
       });
@@ -2513,9 +2507,7 @@ function App() {
       const known = new Set(allProfilesRef.current.map((p) => p.id));
       for (const s of t.seats ?? []) {
         if (!known.has(s.id) || s.status === "skipped") continue;
-        const path =
-          s.id === "david" ? "fitness/targets.json" : `profiles/${s.id}/fitness/targets.json`;
-        const tg = /** @type {any} */ (await read(path, { raw: true }).catch(() => null));
+        const tg = /** @type {any} */ (await readTargetsOf(s.id));
         rules[s.id] = tg
           ? {
               diet: tg.diet,
@@ -2642,11 +2634,7 @@ function App() {
    */
   const handleScreenOccasion = useCallback(
     async (/** @type {string} */ profileId, /** @type {string[]} */ recipeIds) => {
-      const path =
-        profileId === "david"
-          ? "fitness/targets.json"
-          : `profiles/${profileId}/fitness/targets.json`;
-      const t = /** @type {any} */ (await read(path, { raw: true }).catch(() => null));
+      const t = /** @type {any} */ (await readTargetsOf(profileId));
       const byId = recipesById([...bankRecipesRef.current, ...allRecipesRef.current]);
       /** @type {Record<string, string[]>} */
       const out = {};
@@ -2818,9 +2806,7 @@ function App() {
       /** @type {Map<string, any>} */
       const targetsById = new Map();
       for (const id of brigade.memberIds) {
-        const path =
-          id === "david" ? "fitness/targets.json" : `profiles/${id}/fitness/targets.json`;
-        targetsById.set(id, await read(path, { raw: true }).catch(() => null));
+        targetsById.set(id, await readTargetsOf(id));
       }
 
       const { events, made, thin } = materializeBrigade(cur, brigade, {
@@ -2854,9 +2840,7 @@ function App() {
     const out = {};
     if (!recipe) return out;
     for (const p of allProfilesRef.current) {
-      const path =
-        p.id === "david" ? "fitness/targets.json" : `profiles/${p.id}/fitness/targets.json`;
-      const t = /** @type {any} */ (await read(path, { raw: true }).catch(() => null));
+      const t = /** @type {any} */ (await readTargetsOf(p.id));
       out[p.id] = recipeConflicts(recipe, t?.diet, t?.avoidIngredients, t?.avoidRecipes);
     }
     return out;
@@ -2869,10 +2853,9 @@ function App() {
     const out = [];
     for (const id of ids) {
       const p = allProfilesRef.current.find((x) => x.id === id);
-      const path = id === "david" ? "fitness/targets.json" : `profiles/${id}/fitness/targets.json`;
       // a failed read maps to unconfirmed:true (fail-closed split, C1) — the
-      // catch keeps the null, dinerFacts makes it distinguishable from clean
-      const t = /** @type {any} */ (await read(path, { raw: true }).catch(() => null));
+      // null survives, and dinerFacts makes it distinguishable from clean
+      const t = /** @type {any} */ (await readTargetsOf(id));
       out.push(dinerFacts(id, /** @type {string} */ (p?.name ?? id), t));
     }
     return out;
@@ -3065,12 +3048,7 @@ function App() {
       const targetsById = new Map();
       if (brigade) {
         for (const id of participantIds) {
-          const path =
-            id === "david" ? "fitness/targets.json" : `profiles/${id}/fitness/targets.json`;
-          targetsById.set(
-            id,
-            /** @type {any} */ (await read(path, { raw: true }).catch(() => null)),
-          );
+          targetsById.set(id, /** @type {any} */ (await readTargetsOf(id)));
         }
       }
       const brigadeCtx = brigade

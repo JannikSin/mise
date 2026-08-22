@@ -1209,6 +1209,36 @@ verbatim.
 }
 ```
 
+## Food profile — `profile/targets.json` (was `fitness/targets.json`)
+
+**Renamed 2026-08-22 (David).** Mise and Anvil are separate apps, and
+everything in this file is Mise's: macros, the calorie floor and ceiling, the
+protein band, phase, meal slots, food groups, avoided ingredients, the weekly
+budget. It sat under `fitness/` only because it predates the split.
+
+**Both paths are live, on purpose.**
+
+| | path | who writes it |
+|---|---|---|
+| canonical | `profile/targets.json` | Mise, via `writeTargetsOf` |
+| mirror | `fitness/targets.json` | Mise, same call, same object |
+
+- **Reads** (`readTargetsOf`) try the canonical path and fall back to the
+  legacy one, so a profile that has not been migrated behaves exactly as it
+  did before. Never read either path directly; the fallback is the point.
+- **Writes** (`writeTargetsOf`) write both. Mise is the ONLY writer of either
+  — Anvil throws `refusing to write ${path}: owned by Mise` — so the mirror
+  cannot drift.
+- **The mirror exists for Anvil**, which reads `fitness/targets.json` as its
+  calorie and protein spine (`anvil/app/lib/github.js`, `MISE_TARGETS`).
+  ⚠️ **Deleting `fitness/targets.json` before Anvil is repointed breaks
+  Anvil.** Removing the mirror is a coordinated two-repo change, not a
+  cleanup.
+
+`fitness/daily.json` is NOT part of this rename. Both apps write that file
+deliberately, through one sha-and-merge path with field-wise resolution.
+That is designed sharing, not leftover mixing.
+
 ## Fitness — `fitness/targets.json`
 
 The stable reference the fitness page renders (blueprint §6.6 "Targets" tab).

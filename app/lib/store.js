@@ -30,20 +30,157 @@ export function activeProfile() {
 }
 
 /**
- * The one scoping chokepoint: David stays at the data-repo root (his live
- * synced mise-data repo is never migrated); every other profile's files
- * live under `profiles/<id>/`. `profiles.json` itself is the one path that
- * is NEVER scoped — it has to be readable before a profile is even chosen.
+ * THE ONE PLACE THE SCOPING RULE EXISTS. David stays at the data-repo root
+ * (his live synced mise-data repo is never migrated); every other profile's
+ * files live under `profiles/<id>/`. `profiles.json` is the one path that is
+ * NEVER scoped — it has to be readable before a profile is even chosen.
+ *
+ * The comment above `scoped()` used to call itself "the one scoping
+ * chokepoint" while SEVENTEEN open-coded copies of this same ternary lived in
+ * main.js, each rebuilding a cross-profile path by hand. That is why this
+ * takes the profile id as an argument: cross-profile reads are the majority
+ * of the call sites, and a chokepoint only the active profile can pass
+ * through is not one.
+ * @param {string} id
+ * @param {string} path
+ * @returns {string}
+ */
+export function pathFor(id, path) {
+  if (path === "profiles.json") return path;
+  return id === "david" ? path : `profiles/${id}/${path}`;
+}
+
+/**
+ * `pathFor` bound to whoever is signed in.
  * Exported only so tests can exercise it directly — views never call this;
  * they always go through read/write/readCollection below.
  * @param {string} path
  * @returns {string}
  */
 export function scoped(path) {
-  if (path === "profiles.json") return path;
-  const p = activeProfile();
-  return p === "david" ? path : `profiles/${p}/${path}`;
+  return pathFor(activeProfile(), path);
 }
+
+/**
+ * Does this profile keep recipe overrides separate from the shared bank?
+ *
+ * False for david, and NOT as an optimization: `pathFor("david", "recipes")`
+ * resolves to `"recipes"`, which IS the shared bank root. Reading that as his
+ * "own" recipes would merge all 126 bank recipes into the per-profile pool a
+ * second time. This is a semantic predicate, which is why it cannot be
+ * absorbed into the path helper.
+ * @param {string} id
+ * @returns {boolean}
+ */
+export function hasOwnRecipes(id) {
+  return id !== "david";
+}
+
+// ---------------------------------------------------------------------------
+// THE FOOD PROFILE IS NOT FITNESS DATA (David, 2026-08-22)
+//
+// Mise and Anvil are separate apps. Everything Mise needs to plan food —
+// macros, calorie floor and ceiling, protein band, phase, meal slots, food
+// groups, avoided ingredients, weekly budget — has been living in a file
+// called `fitness/targets.json` since before the split, next to genuinely
+// fitness-owned fields. The path is a leftover, and it is the wrong shape for
+// two apps that no longer share a purpose.
+//
+// The canonical home is now `profile/targets.json`. The migration is
+// deliberately boring, because this is the most load-bearing file in the app
+// (P1 numbers, P3 knows-you, P8 plates all read it) and four people use Mise
+// daily:
+//   - reads try the new path and FALL BACK to the legacy one, so a profile
+//     that has not been migrated behaves exactly as it did yesterday;
+//   - writes go to the new path AND mirror to the legacy one, because Anvil
+//     still reads `fitness/targets.json` as its calorie and protein spine
+//     (anvil/app/lib/github.js, MISE_TARGETS) and refuses in code to write it.
+//     Mise is the only writer of both, so the mirror cannot diverge.
+// The mirror is removed, and the legacy file deleted, once Anvil is repointed.
+// Until then, deleting `fitness/targets.json` breaks Anvil.
+//
+// `fitness/daily.json` is NOT touched and is not the same problem: both apps
+// write it on purpose, through one sha-and-merge path, and merge.js resolves
+// it field-wise. That is a designed sharing, not leftover mixing.
+// ---------------------------------------------------------------------------
+
+/** Where a profile's food targets live now. */
+export const TARGETS_PATH = "profile/targets.json";
+/** Where they used to live, still mirrored for Anvil. */
+export const LEGACY_TARGETS_PATH = "fitness/targets.json";
+
+/**
+ * One profile's food targets, wherever they currently live.
+ * @param {string} id
+ * @param {typeof read} [readFn] injectable for tests
+ * @returns {Promise<Record<string, unknown> | null>}
+ */
+export async function readTargetsOf(id, readFn = read) {
+  const fresh = await readFn(pathFor(id, TARGETS_PATH), { raw: true }).catch(() => null);
+  if (fresh) return /** @type {any} */ (fresh);
+  return /** @type {any} */ (
+    await readFn(pathFor(id, LEGACY_TARGETS_PATH), { raw: true }).catch(() => null)
+  );
+}
+
+/**
+ * Same as readTargetsOf, but keeps the sha/dirty envelope the SYS house-
+ * targets panel renders.
+ * @param {string} id
+ * @returns {Promise<{ data: any, sha: string | null, dirty: boolean }>}
+ */
+export async function readTargetsMetaOf(id) {
+  const miss = { data: null, sha: null, dirty: false };
+  const fresh = await readMeta(pathFor(id, TARGETS_PATH), { raw: true }).catch(() => miss);
+  if (fresh?.data) return /** @type {any} */ (fresh);
+  return /** @type {any} */ (
+    await readMeta(pathFor(id, LEGACY_TARGETS_PATH), { raw: true }).catch(() => miss)
+  );
+}
+
+/**
+ * Write one profile's food targets to the canonical path, and mirror to the
+ * legacy path so Anvil keeps seeing the calorie and protein spine.
+ * @param {string} id
+ * @param {Record<string, unknown>} data
+ * @param {typeof write} [writeFn] injectable for tests
+ * @returns {Promise<void>}
+ */
+export async function writeTargetsOf(id, data, writeFn = write) {
+  await writeFn(pathFor(id, TARGETS_PATH), data, { raw: true });
+  await writeFn(pathFor(id, LEGACY_TARGETS_PATH), data, { raw: true });
+}
+
+/**
+ * One profile's plan for a week.
+ * @param {string} id
+ * @param {string} week
+ */
+export const readPlanOf = (id, week) =>
+  read(pathFor(id, `plans/${week}.json`), { raw: true }).catch(() => null);
+
+/**
+ * @param {string} id
+ * @param {string} week
+ * @param {Record<string, unknown>} data
+ */
+export const writePlanOf = (id, week, data) =>
+  write(pathFor(id, `plans/${week}.json`), data, { raw: true });
+
+/** @param {string} id */
+export const readShoppingOf = (id) =>
+  read(pathFor(id, "shopping.json"), { raw: true }).catch(() => null);
+
+/** @param {string} id */
+export const readOccasionsOf = (id) =>
+  read(pathFor(id, "occasions.json"), { raw: true }).catch(() => null);
+
+/**
+ * @param {string} id
+ * @param {Record<string, unknown>} data
+ */
+export const writeOccasionsOf = (id, data) =>
+  write(pathFor(id, "occasions.json"), data, { raw: true });
 
 /**
  * Cache-first read of profiles.json used by readProfiles. Offline-first: the

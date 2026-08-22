@@ -11,9 +11,10 @@ globalThis.localStorage = /** @type {any} */ ({
   removeItem: (/** @type {string} */ k) => kv.delete(k),
 });
 
-const { activeProfile, scoped, readProfiles, patchProfiles, writeErrorMessage } = await import(
-  "../app/lib/store.js"
-);
+const {
+  activeProfile, scoped, pathFor, hasOwnRecipes, readProfiles, patchProfiles,
+  writeErrorMessage, readTargetsOf, writeTargetsOf,
+} = await import("../app/lib/store.js");
 
 test("activeProfile defaults to david when the key is unset", () => {
   kv.clear();
@@ -182,4 +183,107 @@ test("the three states are genuinely distinct, so no two failures read alike", (
     writeErrorMessage("HTTP 500"),
   ];
   assert.equal(new Set(msgs).size, 4);
+});
+
+// ---- pathFor: the scoping rule now has exactly one home ------------------
+// The comment above scoped() called itself "the one scoping chokepoint" while
+// seventeen open-coded copies of the same ternary lived in main.js. This is
+// the table proof that collapsing them changed nothing: for every profile and
+// every document type, pathFor reproduces the rule that was open-coded.
+
+const PROFILES = ["david", "mom", "laurie", "dad"];
+const DOCS = [
+  "profiles.json", "shopping.json", "pantry.json", "occasions.json",
+  "meta.json", "pins.json", "prices.json",
+  "fitness/targets.json", "fitness/daily.json", "profile/targets.json",
+  "plans/2026-W33.json", "recipes",
+];
+/** the rule exactly as main.js used to open-code it, 17 times over */
+const legacyRule = (id, path) =>
+  path === "profiles.json" ? path : id === "david" ? path : `profiles/${id}/${path}`;
+
+test("pathFor reproduces the open-coded rule for every profile x every document", () => {
+  for (const id of PROFILES)
+    for (const path of DOCS)
+      assert.equal(pathFor(id, path), legacyRule(id, path), `${id} / ${path}`);
+});
+
+test("pathFor handles a profile id nobody has created yet, like a roommate", () => {
+  assert.equal(pathFor("roommate", "shopping.json"), "profiles/roommate/shopping.json");
+  assert.equal(pathFor("roommate", "profiles.json"), "profiles.json");
+});
+
+test("scoped is exactly pathFor bound to the active profile", () => {
+  for (const id of PROFILES) {
+    kv.clear();
+    kv.set("mise.activeProfile", id);
+    for (const path of DOCS) assert.equal(scoped(path), pathFor(id, path));
+  }
+});
+
+test("hasOwnRecipes is false ONLY for david, and that is not an optimization", () => {
+  assert.equal(hasOwnRecipes("david"), false);
+  assert.equal(pathFor("david", "recipes"), "recipes", "which IS the shared bank root");
+  for (const id of ["mom", "laurie", "dad", "roommate"]) assert.equal(hasOwnRecipes(id), true);
+});
+
+// ---- the food profile leaves fitness/ (David, 2026-08-22) ----------------
+
+test("readTargetsOf prefers the new path and never reads the legacy one once migrated", async () => {
+  const asked = [];
+  const readFn = (p) => {
+    asked.push(p);
+    // BOTH exist, carrying different numbers, so a wrong preference is visible
+    const val =
+      p === "profile/targets.json"
+        ? { macros: { calories: 3700 } }
+        : { macros: { calories: 1 } };
+    return Object.assign(Promise.resolve(val), { catch: () => Promise.resolve(val) });
+  };
+  const got = await readTargetsOf("david", /** @type {any} */ (readFn));
+  assert.deepEqual(got, { macros: { calories: 3700 } }, "the new path wins");
+  assert.deepEqual(asked, ["profile/targets.json"], "and the legacy file is not even opened");
+});
+
+test("readTargetsOf FALLS BACK to fitness/targets.json when the new path is absent", async () => {
+  const asked = [];
+  const readFn = (p) => {
+    asked.push(p);
+    const val = p === "fitness/targets.json" ? { macros: { calories: 3700 } } : null;
+    return Object.assign(Promise.resolve(val), { catch: () => Promise.resolve(val) });
+  };
+  const got = await readTargetsOf("david", /** @type {any} */ (readFn));
+  assert.deepEqual(got, { macros: { calories: 3700 } }, "an unmigrated profile behaves as yesterday");
+  assert.deepEqual(asked, ["profile/targets.json", "fitness/targets.json"], "new first, legacy second");
+});
+
+test("readTargetsOf scopes the fallback per profile, never reading David's file for Mom", async () => {
+  const asked = [];
+  const readFn = (p) => {
+    asked.push(p);
+    return Object.assign(Promise.resolve(null), { catch: () => Promise.resolve(null) });
+  };
+  await readTargetsOf("mom", /** @type {any} */ (readFn));
+  assert.deepEqual(asked, [
+    "profiles/mom/profile/targets.json",
+    "profiles/mom/fitness/targets.json",
+  ]);
+});
+
+test("writeTargetsOf writes the new path AND mirrors the legacy one for Anvil", async () => {
+  const wrote = [];
+  const writeFn = async (p, d) => { wrote.push([p, d]); };
+  await writeTargetsOf("david", { macros: { calories: 3700 } }, /** @type {any} */ (writeFn));
+  assert.deepEqual(wrote.map((w) => w[0]), ["profile/targets.json", "fitness/targets.json"]);
+  assert.deepEqual(wrote[0][1], wrote[1][1], "the mirror cannot drift: same object, one writer");
+});
+
+test("the mirror is scoped too, so Mom's write never lands on David's spine", async () => {
+  const wrote = [];
+  const writeFn = async (p) => { wrote.push(p); };
+  await writeTargetsOf("mom", { macros: {} }, /** @type {any} */ (writeFn));
+  assert.deepEqual(wrote, [
+    "profiles/mom/profile/targets.json",
+    "profiles/mom/fitness/targets.json",
+  ]);
 });

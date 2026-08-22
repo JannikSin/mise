@@ -1,6 +1,6 @@
 import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
-import { readProfiles, patchProfiles, write } from "../lib/store.js";
+import { readProfiles, patchProfiles, writeTargetsOf } from "../lib/store.js";
 import { getToken } from "../lib/github.js";
 import { targetsFromQuestionnaire } from "../lib/targets.js";
 import { localIsoDate } from "../lib/dates.js";
@@ -245,7 +245,7 @@ export function ProfileGateView() {
     // survives fine) so the reload below never races the local records.
     // Both paths are raw: the gate runs BEFORE a profile is chosen, so
     // scoping must not apply. profiles.json is never scoped anyway.
-    await write(`profiles/${id}/fitness/targets.json`, targets, { raw: true });
+    await writeTargetsOf(id, targets);
     // G2: append against the REAL list, never this component's snapshot —
     // a device that hadn't synced used to erase every profile it didn't
     // know about right here. allowSeed covers the genuinely-fresh repo.

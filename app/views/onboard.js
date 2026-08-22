@@ -1,7 +1,7 @@
 import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { onboardTurn } from "../lib/worker.js";
-import { readProfiles, patchProfiles, write } from "../lib/store.js";
+import { readProfiles, patchProfiles, writeTargetsOf } from "../lib/store.js";
 import { targetsFromQuestionnaire } from "../lib/targets.js";
 import { localIsoDate } from "../lib/dates.js";
 
@@ -69,7 +69,7 @@ async function finalizeProfile(p, existing) {
         }
       : {}),
   };
-  await write(`profiles/${id}/fitness/targets.json`, targets, { raw: true });
+  await writeTargetsOf(id, targets);
   // G2: append against the REAL list via the safe path — never a whole-array
   // replacement from this component's snapshot (that's the clobber bug)
   let duped = false;
