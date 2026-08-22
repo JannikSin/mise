@@ -363,6 +363,34 @@ export async function write(path, data, opts) {
 }
 
 /**
+ * Turn a failed write into something the person holding the phone can ACT on.
+ *
+ * The three real cases, and they need three different actions:
+ *  - 404: the token is valid but cannot see the data repo. Renewing it is the
+ *    one thing that cannot help. Say so, and name the two things that can.
+ *  - 401/403 with a rate-limit message: nothing is wrong. Wait.
+ *  - 401/403 otherwise: the token really was rejected.
+ * Anything else is reachability, which the heartbeat retries on its own.
+ * @param {string} msg
+ * @returns {string}
+ */
+export function writeErrorMessage(msg) {
+  if (/HTTP 404/.test(msg)) {
+    return "this token can't see the data repo — check the token's repository access, and the data repo in SYS (do NOT create a new token)";
+  }
+  if (/HTTP 40[13]/.test(msg)) {
+    // GitHub answers a secondary rate limit with 403 and says so in the body,
+    // which writeFile now carries. Telling someone to renew a perfectly good
+    // token because they wrote too fast is the same wrong instruction.
+    if (/rate limit|abuse|secondary/i.test(msg)) {
+      return "GitHub is rate-limiting writes (auto-retrying shortly)";
+    }
+    return "GitHub rejected the token (renew it in SYS)";
+  }
+  return "can't reach GitHub right now (auto-retrying)";
+}
+
+/**
  * Push every queued write, oldest first. Network failure stops the pass
  * (writes stay queued for the next reconnect); a conflict that survives
  * merge retries is counted and skipped so one bad file can't block the rest.
@@ -396,12 +424,18 @@ async function flush() {
           continue; // stays dirty; next flush retries the merge
         }
         // network/auth failure — stop, everything stays queued, and SAY WHY
-        // (A5): a 401/403 means the token is the problem and waiting won't
-        // fix it; anything else is reachability and the heartbeat retries.
+        // (A5). THREE states, not two (2026-08-22). A 404 on a write means
+        // the token authenticates fine but cannot SEE the data repo, which is
+        // what a fine-grained PAT left on GitHub's default "Public
+        // repositories" radio does — the trap that cost David five tokens on
+        // 2026-08-16. That case used to fall through to "can't reach GitHub
+        // right now (auto-retrying)" and retry forever, while the cache-first
+        // read made the app look like it had saved. `checkDataRepo` was given
+        // a distinct `norepo` state for exactly this on the READ path; the
+        // write path never got it. Telling someone to renew a working token
+        // is the one instruction that can never work, so it gets its own line.
         const msg = e instanceof Error ? e.message : String(e);
-        status.lastError = /HTTP 40[13]/.test(msg)
-          ? "GitHub rejected the token (renew it in SYS)"
-          : "can't reach GitHub right now (auto-retrying)";
+        status.lastError = writeErrorMessage(msg);
         break;
       }
     }

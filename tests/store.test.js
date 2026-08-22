@@ -11,7 +11,9 @@ globalThis.localStorage = /** @type {any} */ ({
   removeItem: (/** @type {string} */ k) => kv.delete(k),
 });
 
-const { activeProfile, scoped, readProfiles, patchProfiles } = await import("../app/lib/store.js");
+const { activeProfile, scoped, readProfiles, patchProfiles, writeErrorMessage } = await import(
+  "../app/lib/store.js"
+);
 
 test("activeProfile defaults to david when the key is unset", () => {
   kv.clear();
@@ -136,4 +138,48 @@ test("patchProfiles seeds a confirmed-fresh repo only with allowSeed", async () 
     writes[0][1].profiles.map((/** @type {any} */ p) => p.id),
     ["first"],
   );
+});
+
+// ---- the write path stops lying about why a write failed (2026-08-22) -----
+// A fine-grained PAT left on GitHub's default "Public repositories" radio
+// authenticates perfectly and 404s on the private data repo. On the READ path
+// that got its own `norepo` state on 2026-08-16, after it cost David five
+// tokens. The WRITE path kept mapping it to "can't reach GitHub right now
+// (auto-retrying)" and retrying forever, while the cache-first read made the
+// app look like it had saved. That is the bug that swallowed the roommate's
+// profile: it exists only in his phone's IndexedDB, and nothing said so.
+
+test("a 404 write says the token cannot SEE the repo, and says not to make another", () => {
+  const m = writeErrorMessage("write profiles.json: HTTP 404 Not Found");
+  assert.match(m, /can't see the data repo/);
+  assert.match(m, /do NOT create a new token/);
+  assert.doesNotMatch(m, /auto-retrying/, "this never fixes itself by waiting");
+});
+
+test("a genuinely rejected token still says renew it", () => {
+  const m = writeErrorMessage("write shopping.json: HTTP 401 Bad credentials");
+  assert.equal(m, "GitHub rejected the token (renew it in SYS)");
+});
+
+test("a secondary rate limit is NOT a bad token", () => {
+  const m = writeErrorMessage(
+    "write plans/2026-W34.json: HTTP 403 You have exceeded a secondary rate limit",
+  );
+  assert.match(m, /rate-limiting/);
+  assert.doesNotMatch(m, /renew/, "telling someone to renew a working token is the wrong instruction");
+});
+
+test("anything else stays a reachability problem the heartbeat retries", () => {
+  assert.match(writeErrorMessage("write pantry.json: HTTP 502"), /can't reach GitHub/);
+  assert.match(writeErrorMessage("NetworkError when attempting to fetch"), /can't reach GitHub/);
+});
+
+test("the three states are genuinely distinct, so no two failures read alike", () => {
+  const msgs = [
+    writeErrorMessage("HTTP 404"),
+    writeErrorMessage("HTTP 403 Bad credentials"),
+    writeErrorMessage("HTTP 403 secondary rate limit"),
+    writeErrorMessage("HTTP 500"),
+  ];
+  assert.equal(new Set(msgs).size, 4);
 });

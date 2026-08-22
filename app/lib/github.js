@@ -192,7 +192,19 @@ export async function writeFile(path, data, sha) {
   // for sha-less creates racing an existing file; with a sha it's a real
   // validation error that must surface, not be retried forever as a merge.
   if (res.status === 409 || (res.status === 422 && !sha)) throw new ConflictError(path);
-  if (!res.ok) throw new Error(`write ${path}: HTTP ${res.status}`);
+  if (!res.ok) {
+    // Carry GitHub's own words. A 403 is BOTH "your token may not write here"
+    // and "you are being secondary-rate-limited", and the sync layer cannot
+    // tell a permanent failure from a wait-and-retry one without the message.
+    let detail = "";
+    try {
+      const body = /** @type {any} */ (await res.json());
+      detail = typeof body?.message === "string" ? ` ${body.message}` : "";
+    } catch {
+      // a non-JSON error body is not worth failing the failure over
+    }
+    throw new Error(`write ${path}: HTTP ${res.status}${detail}`);
+  }
   const json = await res.json();
   return { sha: json.content.sha };
 }
