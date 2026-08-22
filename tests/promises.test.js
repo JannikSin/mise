@@ -1910,6 +1910,26 @@ const UNBUILT = [
       "selected per goal-phase, with Phillips, Gardner and Longo proposed alongside Greger and Attia. " +
       "Nobody may invent a second standard before it sits.",
   },
+  {
+    id: "P4",
+    name: "P4 GATE the Kroger cart push is built and dark until David registers the app",
+    why:
+      "owner DAVID, opened 2026-08-22, and it is a configuration job not an engineering one. " +
+      "The cart push is built, tested and deployed: worker /kroger/cart/{link,refresh,add} plus the " +
+      "one GET callback, an HMAC-signed state with a 10-minute TTL and an origin allowlist as the " +
+      "open-redirect defence, and a SEND TO CART button that hides itself on the 503. It cannot run " +
+      "until three things exist that only David can create: KROGER_REDIRECT_URI pointing at " +
+      "https://<worker>/kroger/cart/callback and registered as a redirect URI on the Kroger app, " +
+      "KROGER_STATE_SECRET as a Worker secret, and cart.basic:write granted on that Kroger app. " +
+      "Verified 2026-08-22 by probing the gateway directly: PUT /v1/cart/add answers 401 (registered) " +
+      "while PUT /v1/cart/zzz answers 404, so the endpoint is live and reachable on the public tier. " +
+      "TWO LIMITS THE UI ALREADY STATES AND MUST KEEP STATING: the public tier is ADD-ONLY with no " +
+      "read-back, so an HTTP 200 is the only evidence a row landed and the copy says 'sent' rather " +
+      "than 'added'; and the cart write carries NO locationId, so items land in whichever store the " +
+      "customer ACCOUNT has selected. There is no order-placement and no pickup-slot endpoint at any " +
+      "tier, so this is a hand-off to the Pay Less app and P4 must never be read as claiming Mise can " +
+      "place an order. Close this gate by setting the three values and running one real push.",
+  },
 ];
 
 for (const u of UNBUILT) test(u.name, { todo: u.why }, () => {});

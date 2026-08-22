@@ -11,6 +11,13 @@ preview_urls = false
 #   MISE_DATA_TOKEN  (read-only fine-grained PAT on mise-data — cron reads)
 #   NTFY_TOPIC       (unguessable ntfy.sh topic David's phone subscribes to)
 #   KROGER_CLIENT_ID / KROGER_CLIENT_SECRET  (Kroger Developer API, /kroger/*)
+#   KROGER_STATE_SECRET  (any long random string; HMACs the OAuth state, which
+#                         is the ONLY thing stopping /kroger/cart/callback
+#                         being an open redirect)
+# Optional plain var, and the cart push stays dark (503) until it is set:
+#   KROGER_REDIRECT_URI  https://<this-worker>/kroger/cart/callback — must ALSO
+#                        be registered as a redirect URI on the Kroger app, and
+#                        that app needs the cart.basic:write scope granted.
 # Optional plain vars to override models:
 #   SCAN_MODEL / REMEDY_MODEL (default claude-sonnet-5 in code)
 

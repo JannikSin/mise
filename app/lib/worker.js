@@ -313,3 +313,116 @@ export async function askTurn(messages, context) {
   const data = await post("/ask", { messages, context });
   return { reply: typeof data.reply === "string" ? data.reply : "" };
 }
+
+// ---------------------------------------------------------------------------
+// KROGER CART PUSH. Mise builds the list; Kroger's own app does checkout.
+// There is no order-placement and no pickup-slot endpoint in the public API
+// at any tier, so this is a hand-off and never claims otherwise.
+//
+// The customer's Kroger tokens live HERE, in this browser, not on the Worker.
+// The Worker holds the client secret and proxies; unlinking is just clearing
+// these keys, which is why there is no server-side token store to revoke.
+// ---------------------------------------------------------------------------
+
+const KROGER_ACCESS = "mise.kroger.access";
+const KROGER_REFRESH = "mise.kroger.refresh";
+const KROGER_EXPIRES = "mise.kroger.expires";
+
+/** @returns {boolean} true when this browser holds a Kroger customer link */
+export function krogerLinked() {
+  try {
+    return Boolean(localStorage.getItem(KROGER_REFRESH));
+  } catch {
+    return false;
+  }
+}
+
+/** Forget the Kroger link. The only revoke this feature needs. */
+export function krogerUnlink() {
+  try {
+    for (const k of [KROGER_ACCESS, KROGER_REFRESH, KROGER_EXPIRES]) localStorage.removeItem(k);
+  } catch {
+    // a browser that refuses storage was never linked
+  }
+}
+
+/**
+ * Consume the tokens Kroger's callback put in the URL fragment, if any.
+ * The fragment is used deliberately: browsers never send it to a server.
+ * Clears the hash so a reload cannot replay it.
+ * @returns {"linked" | "error" | null}
+ */
+export function krogerConsumeRedirect() {
+  let hash;
+  try {
+    hash = location.hash.startsWith("#") ? location.hash.slice(1) : "";
+  } catch {
+    return null;
+  }
+  if (!hash) return null;
+  const p = new URLSearchParams(hash);
+  const clear = () => {
+    try {
+      history.replaceState(null, "", location.pathname + location.search);
+    } catch {
+      // a browser that refuses replaceState just keeps a stale hash
+    }
+  };
+  if (p.get("kroger_error")) {
+    clear();
+    return "error";
+  }
+  const access = p.get("kroger_access");
+  const refresh = p.get("kroger_refresh");
+  if (!access || !refresh) return null;
+  try {
+    localStorage.setItem(KROGER_ACCESS, access);
+    localStorage.setItem(KROGER_REFRESH, refresh);
+    localStorage.setItem(
+      KROGER_EXPIRES,
+      String(Date.now() + (Number(p.get("kroger_expires")) || 1800) * 1000),
+    );
+  } catch {
+    return "error";
+  }
+  clear();
+  return "linked";
+}
+
+/**
+ * Start the Kroger consent hand-off. Returns the URL to navigate to.
+ * @returns {Promise<string>}
+ */
+export async function krogerCartLink() {
+  const { url } = await post("/kroger/cart/link", { returnTo: location.href.split("#")[0] });
+  return url;
+}
+
+/** A live customer access token, refreshed if it is close to expiry. */
+async function krogerAccessToken() {
+  const access = localStorage.getItem(KROGER_ACCESS);
+  const refresh = localStorage.getItem(KROGER_REFRESH);
+  const expires = Number(localStorage.getItem(KROGER_EXPIRES)) || 0;
+  if (!refresh) throw new Error("not linked to a Kroger account yet");
+  // refresh a minute early rather than discovering expiry as a 401 mid-push
+  if (access && expires > Date.now() + 60000) return access;
+  const t = await post("/kroger/cart/refresh", { refreshToken: refresh });
+  localStorage.setItem(KROGER_ACCESS, t.accessToken);
+  localStorage.setItem(KROGER_REFRESH, t.refreshToken);
+  localStorage.setItem(KROGER_EXPIRES, String(Date.now() + (Number(t.expiresIn) || 1800) * 1000));
+  return t.accessToken;
+}
+
+/**
+ * Send items to the signed-in customer's Kroger cart.
+ * Resolves with how many rows WE SENT. The public API is add-only with no
+ * read-back, so this can never report what Kroger actually holds, and the
+ * caller must not phrase it as though it can.
+ * @param {{ upc: string, quantity: number }[]} items
+ * @returns {Promise<number>}
+ */
+export async function krogerCartAdd(items) {
+  const accessToken = await krogerAccessToken();
+  const { sent } = await post("/kroger/cart/add", { accessToken, items });
+  return Number(sent) || 0;
+}

@@ -2,7 +2,16 @@ import { html } from "htm/preact";
 import { Fragment } from "preact";
 import { tokenBroken } from "../lib/github.js";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { krogerPricesById, krogerSearch, scanPhoto, scanReceipt } from "../lib/worker.js";
+import {
+  krogerCartAdd,
+  krogerCartLink,
+  krogerLinked,
+  krogerPricesById,
+  krogerSearch,
+  krogerUnlink,
+  scanPhoto,
+  scanReceipt,
+} from "../lib/worker.js";
 import {
   aisleLabelsFromPins,
   allergenHits,
@@ -582,6 +591,48 @@ export function ShoppingView({
   // PROVISIONAL re-pin — a form swap by construction (rankCandidates only
   // returns the same food, fix list 3.4); anything dish-changing can only
   // enter through the pick sheet, which is the ask.
+  // ---- Kroger cart push (David, 2026-08-22) --------------------------------
+  // Mise builds the list; Kroger's own app does checkout. There is NO order
+  // placement and NO pickup-slot endpoint in the public API at any tier, so
+  // this hands off and never claims to have ordered anything.
+  const [cartNote, setCartNote] = useState("");
+  const [cartOff, setCartOff] = useState(false);
+  // rows we can actually send: a UPC only exists once a food is pinned here
+  const cartRows = tripItems
+    .filter((/** @type {any} */ i) => !i.checked)
+    .map((/** @type {any} */ i) => ({ item: i, pin: pinFor(pins, i.food, homeStore) }))
+    .flatMap((r) => (r.pin?.upc ? [{ upc: r.pin.upc, quantity: 1 }] : []));
+
+  const sendToKrogerCart = async () => {
+    if (cartRows.length === 0) return;
+    setCartNote("sending…");
+    try {
+      if (!krogerLinked()) {
+        setCartNote("opening Kroger to sign in…");
+        location.href = await krogerCartLink();
+        return;
+      }
+      const sent = await krogerCartAdd(cartRows);
+      // "sent", never "added": the public tier is add-only with no read-back,
+      // so an HTTP 200 is the ONLY evidence there is. Overclaiming here is
+      // how a missing item becomes a surprise at the pickup counter.
+      setCartNote(`sent ${sent} row${sent === 1 ? "" : "s"} to your Kroger cart — open the Pay Less app to check it and place the order`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "that did not work";
+      if (/not set up yet/.test(msg)) {
+        setCartOff(true);
+        setCartNote("");
+        return;
+      }
+      if (/link expired|not linked/.test(msg)) {
+        krogerUnlink();
+        setCartNote("that link expired — tap again to sign in to Kroger");
+        return;
+      }
+      setCartNote(msg);
+    }
+  };
+
   const refreshLivePrices = async () => {
     if (!canLive || !onSavePrices || !prices || pinnedForStore.length === 0) return;
     setRefreshNote("refreshing…");
@@ -1457,6 +1508,32 @@ export function ShoppingView({
                   </div>`
                 }
                 ${canLive && refreshNote && html`<p class="hint">${refreshNote}</p>`}
+                ${
+                  canLive &&
+                  !cartOff &&
+                  html`<div class="row">
+                      <span class="k"
+                        >kroger cart · ${cartRows.length} of ${tripItems.length} rows have a
+                        UPC</span
+                      >
+                      <button
+                        class="linktext"
+                        disabled=${cartRows.length === 0 || cartNote === "sending…"}
+                        onClick=${sendToKrogerCart}
+                      >
+                        ${krogerLinked() ? "SEND TO CART" : "LINK KROGER"}
+                      </button>
+                    </div>
+                    <p class="hint">
+                      Sends the unticked rows to your Kroger cart for
+                      ${" "}${STORE_NAMES[homeStore] ?? homeStore}. It cannot place the order and
+                      cannot choose a pickup slot — no Kroger API does — so you finish in the app.
+                      ⚠️ Kroger has no store field on a cart write: items land in whichever store
+                      your Kroger ACCOUNT has selected, so set that to
+                      ${" "}${STORE_NAMES[homeStore] ?? homeStore} first.
+                    </p>`
+                }
+                ${canLive && cartNote && html`<p class="hint">${cartNote}</p>`}
                 ${
                   canLive &&
                   homeSummary.unpriced > 0 &&

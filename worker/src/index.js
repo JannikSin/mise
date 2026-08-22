@@ -60,7 +60,7 @@ import {
 
 const DATA_REPO = "JannikSin/mise-data";
 import { callModel, providerConfigured } from "./provider.js";
-import { handleKroger } from "./kroger.js";
+import { handleKroger, handleKrogerCallback } from "./kroger.js";
 
 const DEFAULT_MODEL = "claude-sonnet-5";
 const AUTH_TTL_MS = 10 * 60 * 1000;
@@ -407,8 +407,25 @@ export default {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: cors ? 204 : 403, headers: cors ?? {} });
     }
-    if (!cors) return json(403, { error: "origin not allowed" }, {});
     const url = new URL(request.url);
+
+    // THE ONE GET ROUTE, and the one thing that runs BEFORE the CORS gate.
+    // Kroger redirects the customer's BROWSER here after consent. That is a
+    // top-level navigation, not a fetch: it carries no Origin, so corsFor()
+    // returns null and the 403 below would eat it. CORS is not the control
+    // here anyway — the control is an HMAC signature this Worker minted
+    // during an AUTHENTICATED POST, which is also what stops this being an
+    // open redirect. handleKrogerCallback returns null for every other path,
+    // so exactly ONE unauthenticated route exists and everything else still
+    // requires a POST, an allowed origin and a valid PAT.
+    if (request.method === "GET") {
+      const cb = await handleKrogerCallback(url, env);
+      if (cb) return cb;
+      return new Response("not found", { status: 404 });
+    }
+
+    if (!cors) return json(403, { error: "origin not allowed" }, {});
+
     if (
       request.method !== "POST" ||
       (![
