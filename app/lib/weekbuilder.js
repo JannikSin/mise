@@ -1835,11 +1835,10 @@ export function generateWeek({
     // lean calorie fills instead of protein-first snacks
     proteinTargetG: proteinTarget,
   });
-  if (topUpReport.macroTopUp) {
-    topUpReport.macroTopUp.snackServingsAdded =
-      next.entries.filter((e) => e.slot === "snack").reduce((s, e) => s + (e.servings ?? 0), 0) -
-      snackServingsBefore;
-  }
+  // the tally is taken AFTER step 4.65's floor restore (see below), so the
+  // manifest counts every snack the top-up added, not just the ones it added
+  // before the trims ran. Counting only the first call reported
+  // `snackServingsAdded: 0` on a week that later needed two.
 
   // Step 4.5: calorie CEILING trim, run LAST. The two passes above only ever
   // ADD servings, so days routinely overshoot the target by 5-9%; this trims
@@ -1882,6 +1881,33 @@ export function generateWeek({
     },
     slotPools,
   );
+
+  // Step 4.65: FLOOR RESTORE. The top-up at step 4 runs BEFORE both trims, so
+  // for as long as this file has existed nothing could put back calories a
+  // trim took out. That was invisible while the generator over-delivered:
+  // days sat at 3,600-3,700 and no trim could reach the floor. Picking to a
+  // protein target instead of past it lands days near the floor, and the
+  // first real week generated on his device came back with TWO days under
+  // 3,500 kcal (3,480 and 3,442) and `snackServingsAdded: 0` — the top-up had
+  // run when they were still fat and never got a second look.
+  //
+  // A no-op on a day that already clears its floors, so a clean week is
+  // byte-identical. Runs in the SAME lean mode as step 4: `proteinTargetG`
+  // makes it rank by non-protein calories once protein is met, so restoring
+  // calories does not re-inflate the protein bill the trim just paid to
+  // reduce. Deliberately NOT followed by another protein trim: two passes
+  // that can undo each other is a loop, and the floor is health while the
+  // ceiling is money, so the floor wins the tie.
+  next = macroTopUp(next, pool("snack"), byId, floors, targets?.snackAppetite === "meals" ? 1 : 3, {
+    budget: targets?.budget,
+    weekFoodPool,
+    proteinTargetG: proteinTarget,
+  });
+  if (topUpReport.macroTopUp) {
+    topUpReport.macroTopUp.snackServingsAdded =
+      next.entries.filter((e) => e.slot === "snack").reduce((s, e) => s + (e.servings ?? 0), 0) -
+      snackServingsBefore;
+  }
 
   // Step 4.7: weekly BUFFER snack (David, 2026-07-20) — ONE batch-prepped,
   // measured fridge stand-by for the whole week, the answer to "still hungry"

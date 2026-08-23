@@ -2350,3 +2350,53 @@ test("quantities are shelf-sized, not just arithmetically right", () => {
   assert.equal(flax?.unit, "g");
   assert.ok(flax && flax.qty > 150, `expected a weight, got ${flax?.qty}`);
 });
+
+test("a trim can never leave a day under its calorie floor (P1)", () => {
+  // The top-up runs BEFORE both trims, so nothing could put back calories a
+  // trim removed. Invisible while the generator over-delivered (days sat at
+  // 3,600-3,700 and no trim reached the floor); picking to a protein target
+  // instead of past it lands days near the floor, and the first real week
+  // generated on David's device came back with TWO days under 3,500 kcal and
+  // `snackServingsAdded: 0`. Step 4.65 restores the floor after the trims.
+  //
+  // The review signals are the point of this fixture, not decoration: they
+  // are what the live app passes and what the first harness did not, and
+  // 19 penalised recipes is what pushed the week into the corner of the bank
+  // where the floor became reachable.
+  const recipes = liveBank();
+  const targets = JSON.parse(readFileSync(LIVE_PROFILE, "utf8"));
+  const byId = new Map(recipes.map((r) => [r.id, r]));
+  const floors = enforcedFloors(targets.macros);
+  const ceiling = enforcedCeilings(targets.macros).protein;
+
+  const skipped = recipes.slice(0, 19).map((r) => r.id);
+  const tossed = [...new Set(recipes.flatMap((r) => (r.ingredients ?? []).map((i) => i.food)))]
+    .filter(Boolean)
+    .slice(0, 18);
+  const review = { signals: { tossedFoods: tossed, skippedRecipeIds: skipped } };
+
+  const bad = [];
+  for (const salt of SALTS) {
+    const { plan } = generateWeek({
+      recipes,
+      targets,
+      pantry: {},
+      weekId: LIVE_WEEK,
+      plan: { week: LIVE_WEEK, entries: [] },
+      salt,
+      today: LIVE_DATES[0],
+      recentRecipeIds: skipped,
+      review,
+    });
+    for (const d of LIVE_DATES) {
+      const t = dayTotals(plan.entries, byId, d);
+      if (t.calories < floors.calories) bad.push(`${d} kcal ${Math.round(t.calories)}`);
+      if (t.protein < floors.protein) bad.push(`${d} protein ${Math.round(t.protein)}`);
+      // and restoring the floor must not hand the money back: the restore
+      // runs in lean mode precisely so it cannot re-inflate the protein bill
+      const b = dayBought(plan.entries, byId, d);
+      if (b > ceiling) bad.push(`${d} bought ${Math.round(b)} over ${ceiling}`);
+    }
+  }
+  assert.deepEqual(bad, [], "a penalised week still lands inside every bound");
+});
