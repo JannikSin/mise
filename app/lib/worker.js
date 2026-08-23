@@ -4,7 +4,7 @@
 // If WORKER_URL's origin changes, the CSP connect-src in index.html must
 // change with it.
 
-import { getToken, DATA_REPO } from "./github.js";
+import { getToken, DATA_REPO, dataRepoOverridden } from "./github.js";
 
 const WORKER_URL = "https://mise-worker.janniksin.workers.dev";
 
@@ -53,9 +53,20 @@ async function post(path, body) {
         "x-mise-auth": token,
         // B4: tell the Worker WHICH private repo this token is for, so an
         // install pointed at its own data repo can use the AI endpoints
-        // instead of syncing fine and getting 403 on all of them. The Worker
+        // instead of syncing fine and getting 401 on all of them. The Worker
         // allowlists this value, so sending it buys nothing on its own.
-        "x-mise-repo": `${DATA_REPO.owner}/${DATA_REPO.repo}`,
+        //
+        // ONLY when this install actually overrides the repo, and that is not
+        // tidiness: a header outside the Worker's CORS allow-list fails the
+        // PREFLIGHT, which would take out scan, receipt, menu, tailor,
+        // dinner, onboard, remedy and ask for everyone the moment Pages
+        // served this file and before the Worker was redeployed. Sending it
+        // only on the path that needs it means the default install is
+        // byte-identical to before, and the override path needs the new
+        // Worker anyway.
+        ...(dataRepoOverridden()
+          ? { "x-mise-repo": `${DATA_REPO.owner}/${DATA_REPO.repo}` }
+          : {}),
       },
       body: JSON.stringify(body),
       // explicit ceiling: iOS Safari gives up around 60s of silence and
