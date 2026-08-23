@@ -301,3 +301,10 @@ test("tokenBroken covers BOTH failure modes, because either means nothing saves"
   assert.equal(tokenBroken("unknown"), false, "offline is not broken");
   assert.equal(tokenBroken(undefined), false);
 });
+
+test("throttling is NOT a broken token: it fixes itself and must not raise the alarm", () => {
+  // a 403 is two different things wearing one status code. Sending someone to
+  // regenerate a perfectly good token because they wrote too fast is the same
+  // class of wrong instruction as the norepo case.
+  assert.equal(tokenBroken("throttled"), false);
+});

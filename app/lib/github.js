@@ -95,7 +95,7 @@ export const TOKEN_WARN_AGE_DAYS = 351;
  *
  * @returns {Promise<{
  *   privacy: "private" | "PUBLIC" | "unknown",
- *   auth: "ok" | "invalid" | "norepo" | "missing" | "unknown",
+ *   auth: "ok" | "invalid" | "norepo" | "throttled" | "missing" | "unknown",
  *   reachable: boolean
  * }>}
  */
@@ -114,7 +114,7 @@ export async function checkDataRepo() {
   }
 
   const token = getToken();
-  /** @type {"ok" | "invalid" | "norepo" | "missing" | "unknown"} */
+  /** @type {"ok" | "invalid" | "norepo" | "throttled" | "missing" | "unknown"} */
   let auth = "missing";
   if (token) {
     try {
@@ -124,12 +124,27 @@ export async function checkDataRepo() {
         const repo = await authed.json();
         if (repo.private === true) privacy = "private";
         else if (repo.private === false) privacy = "PUBLIC";
+      } else if (authed.status === 404) {
+        // the token authenticated but the repo is not in its selected-
+        // repositories list — a scope mistake, NOT a dead token. Telling him
+        // "invalid" sends him off minting new tokens with the same default
+        // ("Public repositories") and the same 404 forever.
+        auth = "norepo";
       } else {
-        // 404 here means the token authenticated but the repo is not in its
-        // selected-repositories list — a scope mistake, NOT a dead token.
-        // Telling him "invalid" sends him off minting new tokens with the same
-        // default ("Public repositories") and the same 404 forever.
-        auth = authed.status === 404 ? "norepo" : "invalid";
+        // A 403 is TWO different things wearing one status code: "this token
+        // may not do that" and "you are going too fast". Sending someone to
+        // regenerate a perfectly good token because they were rate-limited is
+        // the same class of wrong instruction as the norepo case, so read
+        // GitHub's own words before deciding which to say.
+        let why = "";
+        try {
+          const body = /** @type {any} */ (await authed.json());
+          why = typeof body?.message === "string" ? body.message : "";
+        } catch {
+          // a non-JSON error body just means we fall through to "invalid"
+        }
+        auth =
+          authed.status === 403 && /rate limit|abuse|secondary/i.test(why) ? "throttled" : "invalid";
       }
     } catch {
       auth = "unknown"; // offline
@@ -148,6 +163,8 @@ export async function checkDataRepo() {
  * @param {string | undefined} auth
  */
 export function tokenBroken(auth) {
+  // "throttled" is deliberately NOT here: nothing is wrong with the token and
+  // it fixes itself, so it must not raise a fix-your-credentials alarm.
   return auth === "invalid" || auth === "norepo";
 }
 

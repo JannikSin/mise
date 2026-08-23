@@ -3325,6 +3325,9 @@ function App() {
   // wrong, and telling someone to renew in the norepo case is the instruction
   // that cost David five tokens on 2026-08-16.
   const syncDead = tokenBroken(repo?.auth);
+  // throttling is not a broken token and must not send anyone to regenerate a
+  // working one; it says so and gets out of the way
+  const syncThrottled = repo?.auth === "throttled";
   // header and probe results must never disagree: offline if either says so
   const effectiveOnline = online && (repo ? repo.reachable : true);
   // IDENTITY lookup (allRecipes, not the screened pool): detail pages, peek,
@@ -3379,6 +3382,15 @@ function App() {
           sync.pending > 0 ? ` (${sync.pending} waiting)` : ""
         }, and it will push itself once this is fixed. Until then do NOT reinstall the app or change
         the data repo, because this device is the only copy.
+      </div>`
+    }
+    ${
+      syncThrottled &&
+      html`<div class="banner">
+        GitHub is rate-limiting writes right now. Nothing is wrong with your token and there is
+        nothing to fix: everything is kept on this device${
+          sync.pending > 0 ? ` (${sync.pending} waiting)` : ""
+        } and pushes itself shortly. Do NOT regenerate the token.
       </div>`
     }
     ${
