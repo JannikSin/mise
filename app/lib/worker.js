@@ -4,7 +4,7 @@
 // If WORKER_URL's origin changes, the CSP connect-src in index.html must
 // change with it.
 
-import { getToken } from "./github.js";
+import { getToken, DATA_REPO } from "./github.js";
 
 const WORKER_URL = "https://mise-worker.janniksin.workers.dev";
 
@@ -48,7 +48,15 @@ async function post(path, body) {
   try {
     res = await fetch(WORKER_URL + path, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-mise-auth": token },
+      headers: {
+        "content-type": "application/json",
+        "x-mise-auth": token,
+        // B4: tell the Worker WHICH private repo this token is for, so an
+        // install pointed at its own data repo can use the AI endpoints
+        // instead of syncing fine and getting 403 on all of them. The Worker
+        // allowlists this value, so sending it buys nothing on its own.
+        "x-mise-repo": `${DATA_REPO.owner}/${DATA_REPO.repo}`,
+      },
       body: JSON.stringify(body),
       // explicit ceiling: iOS Safari gives up around 60s of silence and
       // surfaces it as a network error, which used to render as the LYING

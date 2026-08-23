@@ -64,6 +64,22 @@ export function slug(food) {
     .replace(/^-|-$/g, "");
 }
 
+/**
+ * Food you COOKED, not food you buy. A pantry row for a leftover is a real
+ * and useful record (it is dinner on Thursday), but it can never become a
+ * shopping row: no store sells "cooked chicken", and a line item nobody can
+ * shop reads as covered when it is not.
+ *
+ * Deliberately narrow. It matches a leading "cooked"/"roasted" and the word
+ * leftover, and nothing else, because the cost of a false positive here is a
+ * real food silently dropped off the buy list.
+ * @param {string} food
+ * @returns {boolean}
+ */
+export function isPreparedFood(food) {
+  return /^(cooked|roasted|grilled)\b|\bleftovers?\b/i.test(String(food ?? "").trim());
+}
+
 /** Foods that come out of the tap or the freezer tray, never off a shelf. */
 const FREE_FOODS = new Set(["water", "ice", "ice-cube", "ice-cubes", "tap-water", "hot-water"]);
 
@@ -194,6 +210,14 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
     if (
       it.state !== "low" ||
       !it.food || // a nameless row can't be shopped
+      // a LEFTOVER is not a purchasable thing (2026-08-23). Running low on
+      // "cooked chicken" means the batch you cooked is nearly gone, not that
+      // Pay Less sells it: the real week put `cooked chicken x1` on the buy
+      // list, which is a row nobody can shop and which quietly implies the
+      // protein is covered. The pantry is right to track it and the LIST is
+      // the wrong place for it. Recipe-derived rows are untouched, so a
+      // recipe that genuinely calls for cooked rice still shops normally.
+      isPreparedFood(it.food) ||
       shoppedFoods.has(slug(it.food)) ||
       shoppedFoods.has(canonicalFood(it.food))
     )

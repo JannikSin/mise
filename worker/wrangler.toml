@@ -18,6 +18,14 @@ preview_urls = false
 #   KROGER_REDIRECT_URI  https://<this-worker>/kroger/cart/callback — must ALSO
 #                        be registered as a redirect URI on the Kroger app, and
 #                        that app needs the cart.basic:write scope granted.
+# Optional plain var, B4 (friend groups). Comma-separated "owner/repo" list of
+# ADDITIONAL private data repos this Worker will authenticate against, e.g.
+#   MISE_DATA_REPOS = "roommate/mise-data"
+# Absent = only JannikSin/mise-data, which is today's behaviour exactly.
+# This is the ONLY thing standing between the Worker and anyone on the
+# internet who owns a private repo, so a name goes on this list as a
+# deliberate decision, never to make an error message go away.
+#   MISE_DATA_REPOS
 # Optional plain vars to override models:
 #   SCAN_MODEL / REMEDY_MODEL (default claude-sonnet-5 in code)
 

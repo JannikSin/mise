@@ -14,7 +14,7 @@ export function corsFor(origin) {
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "content-type, x-mise-auth",
+    "Access-Control-Allow-Headers": "content-type, x-mise-auth, x-mise-repo",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };

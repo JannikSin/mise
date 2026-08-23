@@ -58,9 +58,57 @@ import {
   hbpSlug,
 } from "./lib.js";
 
-const DATA_REPO = "JannikSin/mise-data";
 import { callModel, providerConfigured } from "./provider.js";
 import { handleKroger, handleKrogerCallback } from "./kroger.js";
+
+const DATA_REPO = "JannikSin/mise-data";
+
+/**
+ * Which data repos this Worker will authenticate against (B4, friend groups).
+ *
+ * The client has supported a per-install data repo since B4 landed; the
+ * Worker did not, so an install pointed at its own repo synced fine and got
+ * 403 on every AI endpoint (scan, remedy, menu, dinner, ask). That is the
+ * roommate's blocker, and it is one constant.
+ *
+ * ⚠️ THE ALLOWLIST IS THE ENTIRE DEFENCE, so it is a list and not a flag.
+ * `isAuthorized` proves a token can see a PRIVATE repo, which is the only
+ * thing standing between this Worker and anyone on the internet: without an
+ * allowlist, presenting a token for any private repo you own would buy you
+ * David's Anthropic key. Membership is therefore a deliberate decision, never
+ * a side effect of someone pointing an install somewhere new.
+ *
+ * Defaults to the family repo alone, so this change is a NO-OP until David
+ * sets `MISE_DATA_REPOS`. Adding the roommate is then one env var, and the
+ * questions that gate it (does he join this household or his own, and whose
+ * data he can see) stay David's to answer.
+ * @param {any} env
+ * @returns {string[]} lowercased "owner/repo"
+ */
+export function allowedRepos(env) {
+  const extra = String(env?.MISE_DATA_REPOS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => /^[\w.-]+\/[\w.-]+$/.test(s));
+  return [DATA_REPO.toLowerCase(), ...extra];
+}
+
+/**
+ * The data repo this REQUEST claims, validated against the allowlist.
+ * An absent or unrecognised header falls back to the family repo, so an old
+ * client and a spoofed one behave identically: neither gains anything.
+ * @param {Request} req
+ * @param {any} env
+ * @returns {string} "owner/repo"
+ */
+export function repoForRequest(req, env) {
+  const asked = String(req.headers.get("x-mise-repo") ?? "")
+    .trim()
+    .toLowerCase();
+  if (!asked) return DATA_REPO;
+  return allowedRepos(env).includes(asked) ? asked : DATA_REPO;
+}
+
 
 const DEFAULT_MODEL = "claude-sonnet-5";
 const AUTH_TTL_MS = 10 * 60 * 1000;
@@ -108,15 +156,23 @@ async function tokenKey(token) {
 }
 
 /**
- * The presented PAT must be able to see the PRIVATE data repo.
+ * The presented PAT must be able to see the PRIVATE data repo it claims.
+ *
+ * `repo` is already allowlisted by `repoForRequest` before it gets here; this
+ * function's job is only to prove the holder of THIS token can see THAT repo
+ * and that the repo is private. Both halves matter: a public repo would let
+ * anyone read their way to a valid answer.
  * @param {string | null} token
+ * @param {string} [repo] "owner/repo"; defaults to the family data repo
  */
-async function isAuthorized(token) {
+async function isAuthorized(token, repo = DATA_REPO) {
   if (!token) return false;
-  const key = await tokenKey(token);
+  // the cache key is token AND repo: a token authorised for one repo must not
+  // ride that cache entry into another one
+  const key = `${await tokenKey(token)}|${repo}`;
   const cached = authCache.get(key);
   if (cached && cached > Date.now()) return true;
-  const res = await fetch(`https://api.github.com/repos/${DATA_REPO}`, {
+  const res = await fetch(`https://api.github.com/repos/${repo}`, {
     headers: {
       authorization: `Bearer ${token}`,
       accept: "application/vnd.github+json",
@@ -124,8 +180,10 @@ async function isAuthorized(token) {
     },
   });
   if (!res.ok) return false;
-  const repo = await res.json();
-  if (repo?.private !== true) return false;
+  const meta = await res.json();
+  // PRIVATE, always. A public repo anyone can read would make "can you see
+  // this repo" prove nothing about who is asking.
+  if (meta?.private !== true) return false;
   authCache.set(key, Date.now() + AUTH_TTL_MS);
   return true;
 }
@@ -448,7 +506,7 @@ export default {
     }
 
     const token = request.headers.get("x-mise-auth");
-    if (!(await isAuthorized(token))) {
+    if (!(await isAuthorized(token, repoForRequest(request, env)))) {
       return json(401, { error: "unauthorized" }, cors);
     }
     if (

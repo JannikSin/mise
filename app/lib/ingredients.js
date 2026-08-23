@@ -197,7 +197,10 @@ const NAME_ALIASES = {
 const FOOD_UNITS = {
   // cross-dimension: these are the rows that were splitting
   broccoli: { unit: "g", cup: 91, piece: 600 },
-  "baby-spinach": { unit: "cup", cup: 30 },
+  // GRAMS, not cups (2026-08-23). At 30 g/cup a real week reads "19.5 cup",
+  // which is arithmetically right and useless at a shelf: nobody sells
+  // spinach by the cup. 585 g maps to bags.
+  "baby-spinach": { unit: "g", cup: 30 },
   "rolled-oats": { unit: "g", cup: 90 },
   "cooked-brown-rice": { unit: "cup", cup: 195 },
   "brown-rice": { unit: "g", cup: 190 },
@@ -236,6 +239,12 @@ const FOOD_UNITS = {
   "kidney-beans": { unit: "can", cup: 177, can: 425 },
   "cannellini-beans": { unit: "can", cup: 179, can: 425 },
   "crushed-tomatoes": { unit: "can", cup: 244, can: 411 },
+  // dry lentils were in NO unit table, so mergeIdentity fell back to
+  // `${key}-${unit}` and the same food bought in grams by one recipe and in
+  // cups by another became TWO rows on the list, bought twice (2026-08-23).
+  // 1 cup dry ~ 192 g.
+  "red-lentils": { unit: "g", cup: 192 },
+  lentils: { unit: "g", cup: 192 },
   "dried-apricots": { unit: "g", cup: 130, piece: 8 },
   "fresh-mint": { unit: "cup", cup: 16 },
   "green-tea-bags": { unit: "each" },
@@ -251,7 +260,10 @@ const FOOD_UNITS = {
   "ground-cumin": { unit: "tsp" },
   "cocoa-powder": { unit: "tbsp" },
   "sesame-seeds": { unit: "tbsp" },
-  "ground-flaxseed": { unit: "tbsp" },
+  // was { unit: "tbsp" } with NO cup weight, so it could not convert to
+  // anything purchasable and a real week read "31.25 tbsp" (2026-08-23).
+  // 1 tbsp = 7 g, so 1 cup = 112 g.
+  "ground-flaxseed": { unit: "g", cup: 112 },
   honey: { unit: "tbsp" },
   "maple-syrup": { unit: "tbsp" },
   sugar: { unit: "tbsp" },
@@ -504,8 +516,18 @@ export const AISLES = [
  */
 const AISLE_RULES = [
   ["frozen", /\bfrozen\b/],
+  // BEFORE meat and produce, both of which used to claim it: "chicken broth"
+  // matched `chicken` and filed under MEAT, "low-sodium vegetable broth"
+  // matched `vegetables?` and filed under PRODUCE. Neither is where a carton
+  // of stock is shelved, and an aisle is a walking order, so a wrong one
+  // costs a lap of the store (2026-08-23).
+  ["canned", /\b(broth|stock)\b/],
   ["seafood", /\b(salmon|tuna|cod|tilapia|shrimp|prawn|scallop|fish|seafood|anchov)\b/],
-  ["meat", /\b(beef|chicken|pork|lamb|turkey|thigh|breast|steak|mince|bacon|sausage|ground)\b/],
+  // NO bare `ground` (2026-08-23). It filed "ground flaxseed" under MEAT, and
+  // would do the same to ground cumin, cinnamon and ginger. Every real ground
+  // meat is already caught by its animal: ground beef by `beef`, ground
+  // turkey by `turkey`, with `mince` for the rest.
+  ["meat", /\b(beef|chicken|pork|lamb|turkey|thigh|breast|steak|mince|bacon|sausage)\b/],
   [
     "dairy",
     /\b(milk|kefir|yogurt|yoghurt|cheese|butter|cream|cottage|parmesan|feta|brie|halloumi|egg|eggs)\b/,
@@ -519,7 +541,7 @@ const AISLE_RULES = [
     "canned",
     // legumes in a tin. NOT plain "beans": produce above already claimed the
     // fresh ones, and a bag of green beans is not a canned good
-    /\b(can|canned|crushed tomatoes|tomato paste|coconut milk|broth|stock|black beans|kidney beans|cannellini|pinto|butter beans|baked beans|refried|chickpeas|garbanzo|lentil)\b/,
+    /\b(can|canned|crushed tomatoes|tomato paste|coconut milk|broth|stock|black beans|kidney beans|cannellini|pinto|butter beans|baked beans|refried|chickpeas|garbanzo|lentils?)\b/,
   ],
   [
     // cooking oils shelve with the vinegars and dressings in a US store

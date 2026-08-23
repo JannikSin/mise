@@ -25,8 +25,10 @@ import {
   targetsSanity,
 } from "../app/lib/targets.js";
 import { itemCost, parsePackSize, matchPrice, tripTotal } from "../app/lib/prices.js";
+import { aisleOf, mergeIdentity } from "../app/lib/ingredients.js";
 import {
   deriveShoppingList,
+  isPreparedFood,
   subtractPantryFromTrip,
   withAutoUseSoon,
 } from "../app/lib/shopping.js";
@@ -2275,4 +2277,76 @@ test("the budget pass never makes the protein bill worse", () => {
       `salt${salt}: swapToFit raised bought protein ${before} -> ${weekProtein(out.plan)}`,
     );
   }
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// P4: EVERY ROW IS A THING YOU CAN PUT IN A TROLLEY. Five bugs read off the
+// real 2026-W35 list (2026-08-23). Each is a row that was arithmetically
+// correct and useless at a shelf, which is precisely the failure P4 names.
+// ───────────────────────────────────────────────────────────────────────────
+
+test("a leftover never becomes a shopping row", () => {
+  // "cooked chicken x1" appeared on the real list: a pantry leftover marked
+  // `low` re-entering the buy list. No store sells it, and a row nobody can
+  // shop reads as protein already covered.
+  assert.equal(isPreparedFood("cooked chicken"), true);
+  assert.equal(isPreparedFood("leftover chili"), true);
+  assert.equal(isPreparedFood("roasted vegetables"), true);
+  // narrow on purpose: a false positive silently drops real food off the list
+  assert.equal(isPreparedFood("chicken breast"), false);
+  assert.equal(isPreparedFood("baby spinach"), false);
+
+  const pantry = {
+    items: [
+      { id: "cooked-chicken", food: "cooked chicken", state: "low" },
+      { id: "avocado", food: "avocado", state: "low" },
+    ],
+  };
+  const list = deriveShoppingList(
+    { week: WEEK, entries: [] },
+    new Map(),
+    pantry,
+    null,
+    undefined,
+    undefined,
+    new Map(),
+  );
+  const foods = list.items.map((i) => String(i.food).toLowerCase());
+  assert.ok(!foods.includes("cooked chicken"), "a leftover is not purchasable");
+  assert.ok(foods.includes("avocado"), "a real food running low still gets bought");
+});
+
+test("an aisle is a walking order, so broth is not meat and flaxseed is not either", () => {
+  // both were real misfilings: "chicken broth" matched `chicken`, "ground
+  // flaxseed" matched a bare `ground`, and "low-sodium vegetable broth"
+  // matched `vegetables?` and landed in PRODUCE.
+  assert.equal(aisleOf("chicken broth"), "canned");
+  assert.equal(aisleOf("low-sodium vegetable broth"), "canned");
+  assert.equal(aisleOf("ground flaxseed"), "snacks");
+  assert.equal(aisleOf("ground cinnamon"), "spices");
+  // and the ground meats must still be meat, which is why `ground` could not
+  // simply be deleted without checking each one
+  for (const m of ["ground beef", "ground turkey", "ground pork", "minced lamb"]) {
+    assert.equal(aisleOf(m), "meat", m);
+  }
+});
+
+test("one food is one row, whatever unit the recipe wrote it in", () => {
+  // `red lentils` was in no unit table, so mergeIdentity fell back to
+  // `${key}-${unit}` and 150 g from one recipe plus 1 cup from another became
+  // two rows and two bags bought.
+  const inGrams = mergeIdentity("red lentils", "g");
+  const inCups = mergeIdentity("red lentils", "cup");
+  assert.equal(inGrams.id, inCups.id, "same food, one row");
+});
+
+test("quantities are shelf-sized, not just arithmetically right", () => {
+  // the real list said "baby spinach 23 1/4 cup" and "ground flaxseed 22 tbsp".
+  // Both true, both unusable: nobody sells spinach by the cup.
+  const spinach = mergeIdentity("baby spinach", "cup").qty(19.5);
+  assert.equal(spinach?.unit, "g");
+  assert.ok(spinach && spinach.qty > 400, `expected a weight, got ${spinach?.qty}`);
+  const flax = mergeIdentity("ground flaxseed", "tbsp").qty(31.25);
+  assert.equal(flax?.unit, "g");
+  assert.ok(flax && flax.qty > 150, `expected a weight, got ${flax?.qty}`);
 });
