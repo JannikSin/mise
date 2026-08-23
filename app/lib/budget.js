@@ -22,7 +22,7 @@
 import { deriveShoppingList } from "./shopping.js";
 import { recipeServingCost } from "./money.js";
 import { tripTotal } from "./prices.js";
-import { dayTotals } from "./plan.js";
+import { dayTotals, dayBought } from "./plan.js";
 import { enforcedCeilings, enforcedFloors } from "./targets.js";
 
 /**
@@ -191,9 +191,17 @@ export function swapToFit(args) {
         // burning the search on swaps that could never have been kept. Only
         // consider a candidate that carries roughly the same food: the saving
         // has to come from cheaper INGREDIENTS, not from less dinner.
+        // The band is two-sided as of 2026-08-23. It used to have a floor
+        // only, so "keeps roughly the same food" permitted UNBOUNDED protein
+        // increases, and since cheap-per-calorie food in this bank is
+        // disproportionately protein-dense (beans, eggs, yogurt, edamame)
+        // optimising for price walked straight toward protein: measured
+        // 1,661 g to 1,701 g across 20 swaps. The budget pass and the protein
+        // ceiling were fighting and neither knew the other existed.
         const keeps =
           (r.nutrition?.calories ?? 0) >= (from.nutrition?.calories ?? 0) * 0.9 &&
-          (r.nutrition?.protein ?? 0) >= (from.nutrition?.protein ?? 0) * 0.9;
+          (r.nutrition?.protein ?? 0) >= (from.nutrition?.protein ?? 0) * 0.9 &&
+          (r.nutrition?.protein ?? 0) <= (from.nutrition?.protein ?? 0) * 1.1;
         if (!keeps) continue;
         const est = (current - costOf(r.id)) * (Number(e.servings) || 1);
         if (est > 0.01) candidates.push({ entry: e, to: r.id, est });
@@ -211,6 +219,17 @@ export function swapToFit(args) {
       };
       // never buy the budget with a broken promise
       if (breaksDay(next.entries, recipesById, c.entry.date, floors, ceiling)) continue;
+      // and never buy it with MORE protein than it started with. The ceiling
+      // is a money number (P5) and protein is the most expensive macro, so a
+      // "saving" that raises the protein bill is a saving in one column and a
+      // cost in another. Bought protein only, since a swipe's grams are free
+      // and were never on this bill.
+      if (
+        dayBought(next.entries, recipesById, c.entry.date) >
+        dayBought(plan.entries, recipesById, c.entry.date) + 0.01
+      ) {
+        continue;
+      }
       const after = price(next);
       // the ranking is an estimate; the shopping list is the truth. A swap
       // that does not actually reduce the bill is not a saving, it is churn.

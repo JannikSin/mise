@@ -18,6 +18,7 @@ import { canMake } from "./equipment.js";
 import {
   addEntry,
   dayTotals,
+  dayBought,
   datesOfWeek,
   entriesAt,
   recipesById,
@@ -185,6 +186,33 @@ export function foodGroupGapBonus(recipe, coverageSoFar, targets) {
 }
 
 /**
+ * Committee scoring weights, and the ONE place they live.
+ *
+ * Every number here was a bare constant inside `bonus()` until 2026-08-23.
+ * Defaults reproduce that behaviour exactly, so a profile that writes no
+ * `targets.weights` gets byte-identical picks. Two independent council seats
+ * made the same objection about this file: a philosophy cannot be data while
+ * the weights that express it are constants.
+ *
+ * `proteinUnder` / `proteinOver` are the two halves of the satiating protein
+ * term (see `proteinTerm`). The asymmetry is the point: undershooting the
+ * protein target is a health miss, overshooting is only money, so the under
+ * slope is steeper. Raising `proteinOver` buys a leaner week; setting it to
+ * 0 restores a flat top, which is NOT recommended (density would stop
+ * breaking ties exactly where cost should start).
+ */
+export const COMMITTEE_WEIGHTS = {
+  useSoon: 3,
+  onHand: 1,
+  avoidOverlap: 0.75,
+  protein: 1,
+  proteinUnder: 2,
+  proteinOver: 1.1,
+  foodGroupGap: 2,
+  recentPenalty: 2.5,
+};
+
+/**
  * Greedy committee for one meal type: seed with the recipe most connected to
  * foods already in play this week (falling back to within-candidate
  * recurrence when the week pool is still empty — i.e. for the first meal
@@ -217,7 +245,8 @@ export function foodGroupGapBonus(recipe, coverageSoFar, targets) {
  *   cuisinePrefs?: { loved: string[], avoided: string[] },
  *   budget?: "tight" | "normal" | "loose",
  *   breakfastStyle?: string,
- *   proteinRatioNeeded?: number
+ *   proteinRatioNeeded?: number,
+ *   weights?: Record<string, number>
  * }} [opts]
  * @returns {Record<string, any>[]}
  */
@@ -273,6 +302,12 @@ export function pickCommittee(candidates, opts = {}) {
   // survey-v2 Q18: tight budget doubles the ingredient-overlap dial (the
   // existing core of committee scoring) so weeks converge on fewer shop items.
   const overlapWeight = tight ? 2 : 1;
+  // COMMITTEE WEIGHTS as data (two council seats, independently: "philosophies
+  // cannot be data while the weights are constants"). Defaults are exactly the
+  // constants that were hard-coded here before 2026-08-23, so a profile that
+  // writes nothing behaves identically. A profile overrides any subset via
+  // `targets.weights`.
+  const W = { ...COMMITTEE_WEIGHTS, ...(opts.weights ?? {}) };
   if (size === 0) return [];
 
   const jitter = (/** @type {Record<string, any>} */ r) => (hash(`${r.id}|${salt}`) % 997) / 9970;
@@ -303,22 +338,50 @@ export function pickCommittee(candidates, opts = {}) {
   };
   /** Protein score: density against what the profile needs, or the old
    *  absolute gram nudge when no ratio was supplied. Bounded so it nudges
-   *  the pick rather than overriding ingredient overlap outright. */
+   *  the pick rather than overriding ingredient overlap outright.
+   *
+   *  SATIATING, as of 2026-08-23. The old term was
+   *    ((ratio - needRatio) / needRatio) * 2, clamped to [-1.5, 1.5]
+   *  which is monotonically increasing in protein density with NO satiation
+   *  point: a recipe at exactly the needed density scored 0 and one at twice
+   *  the density scored +1.5 and beat it. Only the clamp stopped "more
+   *  protein" always winning. On David's bank (median density 0.27 against a
+   *  0.195 need) that pinned most of the bank at the clamp and produced
+   *  234 g/day against a 180 g target, 34 of 35 days over his ceiling.
+   *
+   *  This peaks AT needRatio and goes negative above it, because past the
+   *  target protein is money (P5), not health. ASYMMETRIC on purpose: under
+   *  is punished harder than over, since a missed floor is a health miss
+   *  while an overshoot is only cost.
+   *
+   *  NOT a flat clamp at zero. A flat top would make density stop being a
+   *  tiebreak at exactly the point where cost should start being one, so
+   *  two recipes either side of the target would score identically.
+   *
+   *  ⚠️ It must still fix MOM'S BUG, which is what the original density term
+   *  was written for: picking on absolute grams gave her, on a low calorie
+   *  target, meals that could not reach her protein without extra calories.
+   *  The steep under-target slope below is that fix, preserved. */
   const proteinTerm = (/** @type {Record<string, any>} */ r) => {
     const cal = r.nutrition?.calories ?? 0;
     const prot = r.nutrition?.protein ?? 0;
     if (!needRatio || cal <= 0) return prot / 200;
     const ratio = (prot * 4) / cal;
-    return Math.max(-1.5, Math.min(1.5, ((ratio - needRatio) / needRatio) * 2));
+    const rel = (ratio - needRatio) / needRatio;
+    // under target: steep, so a thin recipe is genuinely rejected (Mom).
+    // over target: shallower and NEGATIVE, so density keeps ordering picks
+    // but every gram past the target is a cost, never a reward.
+    const scored = rel < 0 ? rel * W.proteinUnder : -rel * W.proteinOver;
+    return Math.max(-1.5, Math.min(1.5, scored));
   };
   const bonus = (/** @type {Record<string, any>} */ r) =>
-    foodMatchCount(r, useSoon) * 3 +
-    foodMatchCount(r, onHand) * 1 +
-    foodMatchCount(r, avoidOverlap) * -0.75 +
-    proteinTerm(r) +
-    foodGroupGapBonus(r, coverageSoFar, dailyDozenTargets) * 2 +
+    foodMatchCount(r, useSoon) * W.useSoon +
+    foodMatchCount(r, onHand) * W.onHand +
+    foodMatchCount(r, avoidOverlap) * -W.avoidOverlap +
+    proteinTerm(r) * W.protein +
+    foodGroupGapBonus(r, coverageSoFar, dailyDozenTargets) * W.foodGroupGap +
     tasteBonus(r) +
-    (recent.has(r.id) ? -2.5 : 0) +
+    (recent.has(r.id) ? -W.recentPenalty : 0) +
     jitter(r);
 
   // seed: most "connected" candidate to the week pool so far; if nothing has
@@ -754,11 +817,20 @@ function breaksFloor(entries, recipesById, date, bounds) {
  *   proteinFloor: number,
  *   groupFloors: Record<string, number>
  * }} bounds
+ * @param {Record<string, Record<string, any>[]> | null} [slotPools] per-slot
+ *   eligible recipes, so the pass can SWAP a calorie-dense entry for a
+ *   lighter one of similar PROTEIN when no legal serving shrink exists.
+ *   Omitted = the old shrink-only behaviour, unchanged.
  * @returns {import("./plan.js").Plan}
  */
-export function calorieTrimPass(plan, recipesById, bounds) {
+export function calorieTrimPass(plan, recipesById, bounds, slotPools = null) {
   const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
   let next = plan;
+  /** @type {Map<string, number>} */
+  const usedCount = new Map();
+  for (const e of plan.entries) {
+    if (e.recipeId) usedCount.set(e.recipeId, (usedCount.get(e.recipeId) ?? 0) + 1);
+  }
 
   const tierOf = (/** @type {import("./plan.js").PlanEntry} */ e) => {
     if (e.slot === "snack") return 0;
@@ -799,6 +871,53 @@ export function calorieTrimPass(plan, recipesById, bounds) {
         next = { ...next, entries: candidateEntries };
         applied = true;
         break;
+      }
+
+      // SWAP, the mirror of the lever in proteinTrimPass (2026-08-23) and
+      // the fix for MOM'S BUG. Shrinking servings removes calories AND
+      // protein together, so on a loss-phase profile the PROTEIN floor
+      // blocks it: measured on her real profile, 23 of 35 days sat over her
+      // 1,627 kcal ceiling at 1,722 kcal/day because cutting the dinner that
+      // would have fixed it took her 106 g of protein down to 80 against a
+      // 100 g floor. She was over-fed by a pass that had no legal move.
+      //
+      // A swap holds PROTEIN still and moves calories: replace the entry
+      // with a recipe of similar protein and fewer calories from the same
+      // slot's eligible pool, sized to the protein it is replacing. Exactly
+      // the same shape as the protein-side lever, with the two macros
+      // swapped over. Only reached when no legal shrink exists.
+      if (!applied && slotPools) {
+        let best = null;
+        for (const entry of trimmable) {
+          const current = recipesById.get(/** @type {string} */ (entry.recipeId));
+          if (!current) continue;
+          const outCal = (current.nutrition?.calories ?? 0) * entry.servings;
+          const outProt = (current.nutrition?.protein ?? 0) * entry.servings;
+          if (!(outProt > 0)) continue;
+          for (const cand of slotPools[entry.slot] ?? []) {
+            if (cand.id === entry.recipeId) continue;
+            if ((usedCount.get(cand.id) ?? 0) >= 2) continue;
+            const candProt = cand.nutrition?.protein ?? 0;
+            if (!(candProt > 0)) continue;
+            // hold PROTEIN still, so only calories move
+            const servings = Math.min(
+              3,
+              Math.max(0.25, Math.round((outProt / candProt) / 0.25) * 0.25),
+            );
+            const dCal = outCal - (cand.nutrition?.calories ?? 0) * servings;
+            if (dCal <= 0) continue; // must actually reduce calories
+            const candidateEntries = next.entries.map((e) =>
+              e.id === entry.id ? { ...e, recipeId: cand.id, servings } : e,
+            );
+            if (breaksFloor(candidateEntries, recipesById, date, bounds)) continue;
+            if (!best || dCal > best.gain) best = { gain: dCal, cand, candidateEntries };
+          }
+        }
+        if (best) {
+          next = { ...next, entries: best.candidateEntries };
+          usedCount.set(best.cand.id, (usedCount.get(best.cand.id) ?? 0) + 1);
+          applied = true;
+        }
       }
       if (!applied) break; // every candidate would break a floor: leave the day over ceiling
     }
@@ -847,14 +966,25 @@ export function calorieTrimPass(plan, recipesById, bounds) {
  *   proteinFloor: number,
  *   groupFloors: Record<string, number>
  * }} bounds
+ * @param {Record<string, Record<string, any>[]> | null} [slotPools] per-slot
+ *   eligible recipes, so the pass can SWAP a dense entry for a leaner one of
+ *   similar calories when no legal serving shrink exists. Omitted = the old
+ *   shrink-only behaviour, unchanged.
  * @returns {import("./plan.js").Plan}
  */
-export function proteinTrimPass(plan, recipesById, bounds) {
+export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
   const ceiling = Number(bounds.proteinCeiling);
   // no written ceiling = nothing to enforce. Never invent one.
   if (!(ceiling > 0)) return plan;
   const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
   let next = plan;
+  // how often each recipe already appears: a swap must not push any recipe
+  // past the <=2-repeat promise the committees hold to.
+  /** @type {Map<string, number>} */
+  const usedCount = new Map();
+  for (const e of plan.entries) {
+    if (e.recipeId) usedCount.set(e.recipeId, (usedCount.get(e.recipeId) ?? 0) + 1);
+  }
 
   const tierOf = (/** @type {import("./plan.js").PlanEntry} */ e) => {
     if (e.slot === "snack") return 0;
@@ -866,8 +996,13 @@ export function proteinTrimPass(plan, recipesById, bounds) {
 
   for (const date of dates) {
     for (;;) {
-      const totals = dayTotals(next.entries, recipesById, date);
-      if (totals.protein <= ceiling) break;
+      // BOUGHT protein, not eaten (2026-08-23). The ceiling is a money
+      // number and a swipe's grams cost nothing, so trimming against
+      // dayTotals spent this pass removing protein that was never on the
+      // grocery bill — and reported 35/35 days failing on a week whose list
+      // had already dropped from 234 g/day to 196. See plan.js dayBought.
+      const bought = dayBought(next.entries, recipesById, date);
+      if (bought <= ceiling) break;
 
       const trimmable = next.entries
         .filter(
@@ -897,11 +1032,66 @@ export function proteinTrimPass(plan, recipesById, bounds) {
         applied = true;
         break;
       }
+
+      // SWAP, the second lever (2026-08-23). Shrinking servings removes
+      // protein AND calories together, so the 3,500 kcal floor blocks it
+      // after roughly one half-serving on a 3,650 kcal day: measured
+      // recovery was ~5 g/day and 34 of 35 days stayed over. The pass was
+      // never broken, it was being asked to undo a choice made two passes
+      // earlier using the only lever that also breaks a different floor.
+      //
+      // A swap moves protein while holding calories still: replace a dense
+      // entry with a LEANER recipe of similar calories from the same slot's
+      // eligible pool. Only reached when no legal shrink exists, so the
+      // cheaper lever is always tried first and a bank with no leaner
+      // option degrades to exactly the old behaviour.
+      if (!applied && slotPools) {
+        let best = null;
+        for (const entry of trimmable) {
+          const current = recipesById.get(/** @type {string} */ (entry.recipeId));
+          if (!current) continue;
+          const outCal = (current.nutrition?.calories ?? 0) * entry.servings;
+          const outProt = (current.nutrition?.protein ?? 0) * entry.servings;
+          if (!(outCal > 0)) continue;
+          for (const cand of slotPools[entry.slot] ?? []) {
+            if (cand.id === entry.recipeId) continue;
+            // the <=2-repeat promise still binds: a swap may reach a recipe
+            // used once, never one already twice in the week
+            if ((usedCount.get(cand.id) ?? 0) >= 2) continue;
+            const candCal = cand.nutrition?.calories ?? 0;
+            if (!(candCal > 0)) continue;
+            // HOLD CALORIES STILL. This is the whole point of the lever: size
+            // the replacement to the calories it is replacing, so only the
+            // protein moves. Sizing it at 1 serving instead would drop
+            // calories through the 3,500 floor and `breaksFloor` would veto
+            // every candidate, which is exactly what happened before this
+            // line existed: 5 of 35 days stayed over on days sitting 1 to
+            // 73 kcal above the floor with no legal move.
+            const servings = Math.min(
+              3,
+              Math.max(0.25, Math.round(outCal / candCal / 0.25) * 0.25),
+            );
+            const dProt = outProt - (cand.nutrition?.protein ?? 0) * servings;
+            if (dProt <= 0) continue; // must actually reduce protein
+            const candidateEntries = next.entries.map((e) =>
+              e.id === entry.id ? { ...e, recipeId: cand.id, servings } : e,
+            );
+            if (breaksFloor(candidateEntries, recipesById, date, bounds)) continue;
+            if (!best || dProt > best.gain) best = { gain: dProt, cand, candidateEntries };
+          }
+        }
+        if (best) {
+          next = { ...next, entries: best.candidateEntries };
+          usedCount.set(best.cand.id, (usedCount.get(best.cand.id) ?? 0) + 1);
+          applied = true;
+        }
+      }
       if (!applied) break; // every candidate would break a floor: say so instead
     }
   }
   return next;
 }
+
 
 /**
  * Protein/calorie floor misses, per day, after the top-up has run. Days are
@@ -1113,7 +1303,7 @@ export function poolAdequacy(recipes, targets) {
  *   foodGroupGapsWeekly: { group: string, have: number, target: number }[],
  *   poolInsufficient: { reason: string, suggestion: string }[],
  *   calorieOverDays: { date: string, calories: number, ceiling: number }[],
- *   proteinOverDays: { date: string, protein: number, ceiling: number | null }[],
+ *   proteinOverDays: { date: string, protein: number, eaten?: number, ceiling: number | null }[],
  *   timeBudgetRelaxed: string[],
  *   outDays: { date: string, slots: string[], estCalories: number, estProtein: number }[],
  *   occasionDays: { date: string, occasion: string, name: string }[],
@@ -1430,6 +1620,7 @@ export function generateWeek({
         dailyDozenTargets: dailyDozenWeekly,
         dislikeIngredients: targets?.dislikeIngredients,
         proteinRatioNeeded: remainingNeedRatio,
+        weights: targets?.weights,
         tiredOf: targets?.tiredOf,
         reviewTossedFoods,
         reviewSkippedIds,
@@ -1653,24 +1844,44 @@ export function generateWeek({
   // Step 4.5: calorie CEILING trim, run LAST. The two passes above only ever
   // ADD servings, so days routinely overshoot the target by 5-9%; this trims
   // back down without breaking any floor those passes just secured.
-  next = calorieTrimPass(next, byId, {
-    calorieCeiling: ceilings.calories,
-    calorieFloor: floors.calories,
-    proteinFloor: floors.protein,
-    groupFloors: dailyGroupFloors,
-  });
+  // the SAME screened pools the committees drew from, so neither trim's swap
+  // lever can reach a recipe the diet screens, the avoid list or the
+  // AI-special rule already excluded
+  const slotPools = {
+    breakfast: pool("breakfast"),
+    lunch: pool("lunch"),
+    dinner: pool("dinner"),
+    smoothie: pool("smoothie"),
+    snack: pool("snack"),
+  };
+  next = calorieTrimPass(
+    next,
+    byId,
+    {
+      calorieCeiling: ceilings.calories,
+      calorieFloor: floors.calories,
+      proteinFloor: floors.protein,
+      groupFloors: dailyGroupFloors,
+    },
+    slotPools,
+  );
 
   // Step 4.6: protein CEILING trim (P5, David's ratified 215 g, 2026-08-19).
   // The money mirror of 4.5: protein is the expensive macro, so grams above
   // the ceiling are budget bought for nothing. Skipped entirely when the
   // profile writes no ceiling; a derived one would take food off people who
   // never asked for it.
-  next = proteinTrimPass(next, byId, {
-    proteinCeiling: ceilings.protein,
-    calorieFloor: floors.calories,
-    proteinFloor: floors.protein,
-    groupFloors: dailyGroupFloors,
-  });
+  next = proteinTrimPass(
+    next,
+    byId,
+    {
+      proteinCeiling: ceilings.protein,
+      calorieFloor: floors.calories,
+      proteinFloor: floors.protein,
+      groupFloors: dailyGroupFloors,
+    },
+    slotPools,
+  );
 
   // Step 4.7: weekly BUFFER snack (David, 2026-07-20) — ONE batch-prepped,
   // measured fridge stand-by for the whole week, the answer to "still hungry"
@@ -1703,6 +1914,10 @@ export function generateWeek({
       r.batchPrep?.sundayComponent,
   );
   const bufferCandidates = batchable.length > 0 ? batchable : snackPool;
+  // the buffer snack is scored against the SAME remaining-need density the
+  // committees use, so a swipe-heavy week does not get a protein-loaded
+  // snack stacked on top of protein it already banked.
+  const bufferNeedRatio = remainingNeedRatio;
   const [bandLo, bandHi] = targets?.phase === "gain" ? [250, 400] : [120, 300];
   let bufferPick = null;
   let bufferScore = -Infinity;
@@ -1711,9 +1926,16 @@ export function generateWeek({
     const cal = n.calories ?? 0;
     const plantMass = BUFFER_PLANT_GROUPS.reduce((s, g) => s + (Number(r.foodGroups?.[g]) || 0), 0);
     const bandMiss = cal < bandLo ? (bandLo - cal) / 100 : cal > bandHi ? (cal - bandHi) / 100 : 0;
+    // SATIATING, same fix as proteinTerm (2026-08-23). This was
+    //   protein/10 + (protein/cal)*100*0.4
+    // monotonic in protein TWICE OVER, absolute grams AND density, on a
+    // snack eaten every single day of the week. It was a second, independent
+    // cause of the overshoot, and fixing the committee term while leaving
+    // this one would have been a half fix.
+    const bufRatio = cal > 0 ? ((n.protein ?? 0) * 4) / cal : 0;
+    const bufRel = bufferNeedRatio > 0 ? (bufRatio - bufferNeedRatio) / bufferNeedRatio : 0;
     const score =
-      (n.protein ?? 0) / 10 +
-      ((n.protein ?? 0) / Math.max(1, cal)) * 100 * 0.4 +
+      (bufRel < 0 ? bufRel * 2 : -bufRel * 1.1) * 1.5 +
       plantMass * 1.5 +
       (r.effort === "assembly" ? 1 : 0) -
       bandMiss * 1.5 +
@@ -1749,11 +1971,19 @@ export function generateWeek({
   // breaking a floor is REPORTED over the protein ceiling, never fudged. An
   // empty list when no ceiling is written is correct, and the manifest is
   // where the absence itself gets said out loud.
+  // `protein` here is BOUGHT protein (the money axis the ceiling governs);
+  // `eaten` rides along so the planner can show both numbers rather than
+  // printing one and meaning two. The FLOOR above still reads dayTotals,
+  // because a swipe genuinely feeds him. See plan.js dayBought.
   const proteinOverDays =
     ceilings.protein == null
       ? []
       : liveDates
-          .map((date) => ({ date, protein: dayTotals(next.entries, byId, date).protein }))
+          .map((date) => ({
+            date,
+            protein: dayBought(next.entries, byId, date),
+            eaten: dayTotals(next.entries, byId, date).protein,
+          }))
           .filter((d) => d.protein > /** @type {number} */ (ceilings.protein))
           .map((d) => ({ ...d, ceiling: ceilings.protein }));
 

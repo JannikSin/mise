@@ -956,6 +956,49 @@ export function dayTotals(entries, recipesById, date) {
 }
 
 /**
+ * Protein the GROCERY LIST paid for on `date`: cooked entries only, with
+ * every away/swipe/table estimate deliberately excluded.
+ *
+ * THE FLOOR AND THE CEILING MEASURE DIFFERENT THINGS, AND THAT IS CORRECT.
+ * The protein FLOOR is a health number, so it reads `dayTotals` — a dining
+ * swipe genuinely feeds him and those grams count. The protein CEILING is a
+ * MONEY number (P5: "Protein above target is money spent for nothing. The
+ * budget treats over-delivered protein as a leak"), so it reads THIS — a
+ * buffet swipe delivers 49-56 g at a marginal cash cost of zero, and
+ * charging it against a spend ceiling is a category error.
+ *
+ * Measured before this existed (2026-08-23, session quake): on David's real
+ * week, seven dinner swipes cut BOUGHT protein from 234 g/day to 196 g while
+ * the app reported 35 of 35 days over ceiling — WORSE than the 34 of 35 it
+ * reported with no swipes at all. The 7.11 swipe arbitrage had been working
+ * the whole time and the scoreboard was reading the wrong number, so every
+ * trim pass spent itself removing protein that was never on the bill.
+ *
+ * Calories are NOT split this way and must not be: he eats the swipe's
+ * calories, and the calorie floor/ceiling are physiological.
+ * @param {PlanEntry[]} entries
+ * @param {Map<string, any>} recipesById
+ * @param {string} date
+ * @returns {number} grams of protein bought for that date
+ */
+export function dayBought(entries, recipesById, date) {
+  let protein = 0;
+  for (const e of entries) {
+    if (e.date !== date) continue;
+    // same predicate as dayTotals' est branch, inverted: anything not cooked
+    // from this profile's own pool was not bought by this grocery list
+    if (e.out || e.table || (!e.recipeId && (e.estCalories != null || e.estProtein != null))) {
+      continue;
+    }
+    if (!e.recipeId) continue;
+    const n = recipesById.get(e.recipeId)?.nutrition;
+    if (!n) continue;
+    protein += (n.protein ?? 0) * e.servings;
+  }
+  return protein;
+}
+
+/**
  * The person's own words about the week just closed (P11): "was not hungry
  * Tuesday, ate it for lunch Wednesday", "starving Friday, ate out".
  *

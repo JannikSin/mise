@@ -14,7 +14,7 @@
 
 import { weightTrend } from "./weight.js";
 import { weekAdherence } from "./adherence.js";
-import { datesOfWeek, dayTotals } from "./plan.js";
+import { datesOfWeek, dayTotals, dayBought } from "./plan.js";
 import { leftoverLedger } from "./portions.js";
 import { enforcedCeilings, enforcedFloors } from "./targets.js";
 
@@ -95,20 +95,33 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
     let protShort = 0;
     let calOver = 0;
     let protOver = 0;
+    let bought = 0;
     for (const d of dates) {
       const t = dayTotals(current.entries, byId, d);
+      const b = dayBought(current.entries, byId, d);
       cal += t.calories;
       prot += t.protein;
+      bought += b;
       if (t.calories < (subsystems.floors.calories ?? 0)) calShort++;
+      // FLOORS read what he EATS (health): a swipe genuinely feeds him.
+      // The protein CEILING reads what the list BOUGHT (money). They are
+      // different questions and must not share a number. See plan.js
+      // dayBought.
       if (t.protein < (subsystems.floors.protein ?? 0)) protShort++;
       if (t.calories > ceilings.calories) calOver++;
-      if (ceilings.protein != null && t.protein > ceilings.protein) protOver++;
+      if (ceilings.protein != null && b > ceilings.protein) protOver++;
     }
     const days = Math.max(1, dates.length);
     subsystems.floors = {
       ...subsystems.floors,
       avgCalories: Math.round(cal / days),
       avgProteinG: Math.round(prot / days),
+      // what the GROCERY LIST paid for, which is the number the protein
+      // ceiling governs. avgProteinG above is what he EATS, swipes included.
+      // They differ by the whole swipe arbitrage and conflating them is what
+      // made a week that cut the bill from 234 g/day to 196 g report as
+      // 35 of 35 days failing (2026-08-23).
+      avgBoughtProteinG: Math.round(bought / days),
       calorieShortDays: calShort,
       proteinShortDays: protShort,
       calorieOverDays: calOver,

@@ -809,7 +809,13 @@ test("calorieTrimPass reports calorieOverDays when no legal trim exists", () => 
   // 0.5 step available would cut calories in half, straight through the
   // calorie floor, so every day is left over the ceiling, honestly.
   const denseDinners = uniformPool("dinner", 4, 180, 1200);
-  const targets = { macros: { calories: 1000, protein: 189 } };
+  // protein target 170, so the derived protein floor is 170 (2026-08-23: an
+  // absent proteinFloor now derives `protein`, not `protein - 25`, per the
+  // 2026-08-19 council). The 180 g these dinners deliver clears it, which is
+  // what this test needs — it is about the CALORIE trim having no legal move,
+  // and a protein shortfall here would fire the top-up and add calories,
+  // which is exactly what it did while the target was 189.
+  const targets = { macros: { calories: 1000, protein: 170 } };
   const { report } = generateWeek({
     recipes: denseDinners,
     targets,
@@ -826,7 +832,7 @@ test("calorieTrimPass reports calorieOverDays when no legal trim exists", () => 
   assert.deepEqual(
     report.proteinShortDays,
     [],
-    "protein floor (179.55) is comfortably cleared at 180",
+    "protein floor (170) is comfortably cleared at 180",
   );
   assert.deepEqual(
     report.calorieShortDays,

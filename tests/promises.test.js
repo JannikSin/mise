@@ -5,8 +5,10 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { generateWeek } from "../app/lib/weekbuilder.js";
 import { composeManifest, manifestLines, remanifest } from "../app/lib/manifest.js";
 import {
+  buffetMacroEstimate,
   cycleSlotAway,
   datesOfWeek,
+  dayBought,
   dayTotals,
   mergeRecipePool,
   recipeConflicts,
@@ -14,6 +16,7 @@ import {
   recordCook,
   saveFallback,
   restoreFallback,
+  SWIPE_TEXT,
 } from "../app/lib/plan.js";
 import {
   avoidTermsFromAllergens,
@@ -2101,4 +2104,175 @@ test("META: the scoreboard, printed so the number can never be a matter of opini
     12,
     "a promise fell out of the tally entirely",
   );
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// THE PROTEIN OVERSHOOT (2026-08-23, session quake). Against the LIVE bank
+// and David's LIVE profile, because this was never an engine bug in the
+// abstract: it was this bank, at this calorie target, with these swipes.
+//
+// Before this work, on 5 salts of a real week: 234 g/day bought, 34 of 35
+// days over his ratified 215 g ceiling, and every swipe scenario reported
+// 35 of 35 — WORSE than using no swipes at all, because the ceiling was
+// being charged for buffet protein nobody paid for.
+// ───────────────────────────────────────────────────────────────────────────
+
+const LIVE_PROFILE = new URL("../../mise-data/profile/targets.json", import.meta.url);
+const MOM_PROFILE = new URL("../../mise-data/profiles/mom/profile/targets.json", import.meta.url);
+const LIVE_WEEK = "2026-W35";
+const LIVE_DATES = datesOfWeek(LIVE_WEEK);
+const SALTS = [0, 1, 2, 3, 4];
+
+function liveBank() {
+  return readdirSync(BANK_DIR)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => JSON.parse(readFileSync(new URL(f, BANK_DIR), "utf8")));
+}
+
+/** Swipe pins for a slot. `pinned: true` is REQUIRED — generateWeek filters
+ *  on it, so an out entry without it is silently cleared and the run looks
+ *  byte-identical to a no-swipe run. This cost a whole measurement pass. */
+function swipePins(recipes, slot, dates) {
+  return dates.map((date) => ({
+    date,
+    slot,
+    out: true,
+    pinned: true,
+    freeText: SWIPE_TEXT,
+    currency: "swipes",
+    ...buffetMacroEstimate(recipes, slot),
+  }));
+}
+
+function liveRun(recipes, targets, pins, salt) {
+  const { plan } = generateWeek({
+    recipes,
+    targets,
+    pantry: {},
+    weekId: LIVE_WEEK,
+    plan: { week: LIVE_WEEK, entries: pins },
+    salt,
+    today: LIVE_DATES[0],
+  });
+  return plan;
+}
+
+test("the protein CEILING is measured on what the list BOUGHT, not what he ate", () => {
+  const recipes = liveBank();
+  const targets = JSON.parse(readFileSync(LIVE_PROFILE, "utf8"));
+  const byId = new Map(recipes.map((r) => [r.id, r]));
+  const plan = liveRun(recipes, targets, swipePins(recipes, "dinner", LIVE_DATES), 0);
+  const d = LIVE_DATES[3];
+  const eaten = dayTotals(plan.entries, byId, d).protein;
+  const bought = dayBought(plan.entries, byId, d);
+  // the swipe's grams are real food and cost nothing: they must show up in
+  // what he EATS and be absent from what he BUYS
+  assert.ok(eaten > bought, `a swipe day must eat more than it buys (${eaten} vs ${bought})`);
+  assert.ok(bought > 0, "the cooked meals still cost something");
+});
+
+test("no day is over the protein ceiling, with swipes or without", () => {
+  const recipes = liveBank();
+  const targets = JSON.parse(readFileSync(LIVE_PROFILE, "utf8"));
+  const byId = new Map(recipes.map((r) => [r.id, r]));
+  const ceiling = enforcedCeilings(targets.macros).protein;
+  assert.equal(ceiling, 215, "David ratified 215 g on 2026-08-19");
+
+  const scenarios = [
+    ["no swipes", []],
+    ["7 lunch swipes", swipePins(recipes, "lunch", LIVE_DATES)],
+    ["7 dinner swipes", swipePins(recipes, "dinner", LIVE_DATES)],
+  ];
+  for (const [label, pins] of scenarios) {
+    const over = [];
+    for (const salt of SALTS) {
+      const plan = liveRun(recipes, targets, pins, salt);
+      for (const d of LIVE_DATES) {
+        const bought = dayBought(plan.entries, byId, d);
+        if (bought > ceiling) over.push(`${label} salt${salt} ${d} ${Math.round(bought)}g`);
+      }
+    }
+    assert.deepEqual(over, [], `${label}: days over the ${ceiling} g bought-ceiling`);
+  }
+});
+
+test("the fix did not trade an overshoot for an undershoot", () => {
+  const recipes = liveBank();
+  const targets = JSON.parse(readFileSync(LIVE_PROFILE, "utf8"));
+  const byId = new Map(recipes.map((r) => [r.id, r]));
+  const floors = enforcedFloors(targets.macros);
+  // the ratified floor, not the derived 155 that the deleted proteinFloor
+  // key used to produce (council 2026-08-19: "protein IS the floor now")
+  assert.equal(floors.protein, 180, "an absent proteinFloor derives `protein`");
+
+  const misses = [];
+  for (const pins of [[], swipePins(recipes, "lunch", LIVE_DATES)]) {
+    for (const salt of SALTS) {
+      const plan = liveRun(recipes, targets, pins, salt);
+      for (const d of LIVE_DATES) {
+        const t = dayTotals(plan.entries, byId, d);
+        // the FLOOR reads what he EATS: a swipe genuinely feeds him
+        if (t.protein < floors.protein) misses.push(`${d} protein ${Math.round(t.protein)}`);
+        if (t.calories < floors.calories) misses.push(`${d} kcal ${Math.round(t.calories)}`);
+      }
+    }
+  }
+  assert.deepEqual(misses, [], "days below a floor after the ceiling work");
+});
+
+test("mom's bug stays fixed: dense picks, and no calorie overshoot to reach protein", () => {
+  if (!existsSync(MOM_PROFILE)) return; // her profile is optional in a clone
+  const recipes = liveBank();
+  const targets = JSON.parse(readFileSync(MOM_PROFILE, "utf8"));
+  const byId = new Map(recipes.map((r) => [r.id, r]));
+  const floors = enforcedFloors(targets.macros);
+  const ceiling = enforcedCeilings(targets.macros).calories;
+
+  const bad = [];
+  for (const salt of SALTS) {
+    const plan = liveRun(recipes, targets, [], salt);
+    for (const d of LIVE_DATES) {
+      const t = dayTotals(plan.entries, byId, d);
+      // the original bug: reaching her protein required extra calories, and
+      // the top-up added them until her day ran over its own ceiling. She sat
+      // at 1,722 kcal/day against a 1,627 ceiling on 23 of 35 days.
+      if (t.protein < floors.protein) bad.push(`${d} protein ${Math.round(t.protein)}`);
+      if (t.calories > ceiling) bad.push(`${d} kcal ${Math.round(t.calories)} > ${ceiling}`);
+    }
+  }
+  assert.deepEqual(bad, [], "a loss-phase profile must hit protein without overshooting calories");
+});
+
+test("the budget pass never makes the protein bill worse", () => {
+  const recipes = liveBank();
+  const targets = JSON.parse(readFileSync(LIVE_PROFILE, "utf8"));
+  const byId = new Map(recipes.map((r) => [r.id, r]));
+  const catalogue = JSON.parse(readFileSync(CATALOGUE, "utf8"));
+  const weekProtein = (p) =>
+    LIVE_DATES.reduce((s, d) => s + dayBought(p.entries, byId, d), 0);
+
+  for (const salt of [0, 1]) {
+    const gen = liveRun(recipes, targets, [], salt);
+    const before = weekProtein(gen);
+    const out = swapToFit({
+      plan: gen,
+      recipes,
+      recipesById: byId,
+      pantry: {},
+      catalogue,
+      store: "pay-less",
+      region: catalogue.region,
+      budgetUsd: 100,
+      targets,
+      fromDate: LIVE_DATES[0],
+      today: LIVE_DATES[0],
+      bankById: byId,
+    });
+    // it used to walk TOWARD protein (1,661 g to 1,701 g across 20 swaps),
+    // because cheap-per-calorie food in this bank is protein-dense
+    assert.ok(
+      weekProtein(out.plan) <= before + 0.01,
+      `salt${salt}: swapToFit raised bought protein ${before} -> ${weekProtein(out.plan)}`,
+    );
+  }
 });

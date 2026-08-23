@@ -333,12 +333,20 @@ export function PlannerView({
               html`<div class="d num">
                 day over protein ceiling:${" "}
                 ${buildReport.proteinOverDays
-                  .map(
-                    (s) =>
-                      `${parseLocalIso(s.date).toLocaleDateString([], { weekday: "short" })} ${Math.round(s.protein)}`,
-                  )
+                  .map((s) => {
+                    const day = parseLocalIso(s.date).toLocaleDateString([], { weekday: "short" });
+                    // BOUGHT vs EATEN, said out loud (2026-08-23). This line
+                    // printed one number and meant two: a dining swipe's
+                    // grams are eaten but not bought, and the ceiling is a
+                    // MONEY number, so showing the eaten total here read as a
+                    // failure on weeks whose grocery bill had actually gone
+                    // down. Show both whenever they differ.
+                    return s.eaten != null && Math.round(s.eaten) !== Math.round(s.protein)
+                      ? `${day} ${Math.round(s.protein)} bought of ${Math.round(s.eaten)} eaten`
+                      : `${day} ${Math.round(s.protein)}`;
+                  })
                   .join(" · ")}
-                / ${buildReport.proteinOverDays[0]?.ceiling} g ceiling · every gram over is bought
+                / ${buildReport.proteinOverDays[0]?.ceiling} g bought-ceiling · every gram over is bought
               </div>`
             }
           </div>

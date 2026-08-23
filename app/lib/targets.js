@@ -293,7 +293,19 @@ export function enforcedFloors(macros) {
   const written = (/** @type {any} */ v) => (Number.isFinite(Number(v)) ? Number(v) : null);
   return {
     calories: written(macros?.caloriesFloor) ?? Math.max(1200, calories - 200),
-    protein: written(macros?.proteinFloor) ?? Math.max(0, protein - 25),
+    // `protein` IS the floor when no override is written (council
+    // 2026-08-19: "Set protein to 180 g as a FLOOR, add proteinCeiling: 215,
+    // delete proteinFloor" / "proteinFloor is DELETED. protein IS the floor
+    // now."). The old fallback here was `protein - 25`, a leftover of the
+    // retired ONE-number semantics where `protein` was a target with a soft
+    // floor beneath it. That derivation silently defeated the verdict:
+    // David's profile deleted `proteinFloor` exactly as ordered and the
+    // generator then enforced 155 against a ratified 180 for four days, with
+    // the council's own kill-signal (deliveredG < 200/week) watching a floor
+    // that had already been lowered. CARRYING OUT THE INSTRUCTION IS WHAT
+    // BROKE IT. A profile that genuinely wants a soft floor beneath its
+    // target writes `proteinFloor` explicitly, which is what the key is for.
+    protein: written(macros?.proteinFloor) ?? Math.max(0, protein),
   };
 }
 
