@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { tokenBroken } from "../app/lib/github.js";
 
 // store.js touches localStorage at call time (inside activeProfile/scoped) —
 // stub the boundary before import, same pattern as github-token.test.js.
@@ -286,4 +287,17 @@ test("the mirror is scoped too, so Mom's write never lands on David's spine", as
     "profiles/mom/profile/targets.json",
     "profiles/mom/fitness/targets.json",
   ]);
+});
+
+// ---- a dead token must be loud, and the two failure modes need OPPOSITE
+// instructions (2026-08-22, after GENERATE "did not work" and the real cause
+// was that every write was being rejected while the screen looked fine) ----
+
+test("tokenBroken covers BOTH failure modes, because either means nothing saves", () => {
+  assert.equal(tokenBroken("invalid"), true, "GitHub rejected it: renew");
+  assert.equal(tokenBroken("norepo"), true, "valid token, wrong repo access: do NOT renew");
+  assert.equal(tokenBroken("ok"), false);
+  assert.equal(tokenBroken("missing"), false, "no token at all is a different screen");
+  assert.equal(tokenBroken("unknown"), false, "offline is not broken");
+  assert.equal(tokenBroken(undefined), false);
 });

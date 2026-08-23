@@ -1,6 +1,6 @@
 import { html, render } from "htm/preact";
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { checkDataRepo, getToken, setToken, DATA_REPO } from "./lib/github.js";
+import { checkDataRepo, getToken, setToken, DATA_REPO , tokenBroken } from "./lib/github.js";
 import {
   initStore,
   write,
@@ -3316,6 +3316,15 @@ function App() {
   const moneyBalances = useMemo(() => balancesFor(ledger, me), [ledger, me]);
 
   const publicAlarm = repo?.privacy === "PUBLIC";
+  // A DEAD TOKEN MUST BE LOUD, not a two-word badge in a corner.
+  // The statusline already flips to "⚠ n UNSAVED" when a push fails, and that
+  // is not enough: you press GENERATE, watch a whole week appear on screen,
+  // and nothing tells you it will evaporate on reload. `tokenBroken` covers
+  // BOTH failure modes and they need opposite instructions — "invalid" means
+  // renew it, "norepo" means the token is fine and its repository access is
+  // wrong, and telling someone to renew in the norepo case is the instruction
+  // that cost David five tokens on 2026-08-16.
+  const syncDead = tokenBroken(repo?.auth);
   // header and probe results must never disagree: offline if either says so
   const effectiveOnline = online && (repo ? repo.reachable : true);
   // IDENTITY lookup (allRecipes, not the screened pool): detail pages, peek,
@@ -3351,6 +3360,27 @@ function App() {
 
   const now = new Date();
   return html`
+    ${
+      syncDead &&
+      html`<div class="banner red">
+        ⚠ NOTHING IS SAVING.
+        ${
+          repo?.auth === "norepo"
+            ? html` Your token is valid, but it cannot see
+                ${DATA_REPO.owner}/${DATA_REPO.repo}. Do NOT create a new one, that is the one thing
+                that cannot help. Fix its repository access: github.com → Settings → Developer
+                settings → Fine-grained tokens → your token → Repository access → Only select
+                repositories → ${DATA_REPO.repo}, and Permissions → Contents: Read and write.`
+            : html` GitHub is rejecting your token. Renew it in SYS: github.com → Settings →
+                Developer settings → Fine-grained tokens → your token → Regenerate, then paste the
+                new string into SYS.`
+        }
+        Everything you do still works and is kept on this device${
+          sync.pending > 0 ? ` (${sync.pending} waiting)` : ""
+        }, and it will push itself once this is fixed. Until then do NOT reinstall the app or change
+        the data repo, because this device is the only copy.
+      </div>`
+    }
     ${
       publicAlarm &&
       html`<div class="banner red">
