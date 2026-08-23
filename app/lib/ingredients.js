@@ -232,6 +232,12 @@ const FOOD_UNITS = {
   // frozen berries ≈ 150 g/cup — without it the cups-vs-oz-bag conversion
   // failed and every berry row fell back to "one whole package, flagged"
   "mixed-berries": { unit: "cup", cup: 150 },
+  // same class as the spinach and flaxseed rows (2026-08-23): berries carried
+  // no weight, so a real week read "blueberries 11 cup" — true, and not a
+  // thing you can pick up. ~148 g/cup, so it reads as a bag.
+  blueberries: { unit: "g", cup: 148 },
+  strawberries: { unit: "g", cup: 152 },
+  raspberries: { unit: "g", cup: 123 },
   // canned goods read in CANS, because that is the thing on the shelf you put
   // in the trolley. "1.3 kg black beans" is a true number and a useless one.
   "black-beans": { unit: "can", cup: 172, can: 425 },
@@ -522,6 +528,11 @@ const AISLE_RULES = [
   // of stock is shelved, and an aisle is a walking order, so a wrong one
   // costs a lap of the store (2026-08-23).
   ["canned", /\b(broth|stock)\b/],
+  // a GROUND spice is a shaker in the spice aisle, whatever the plant is.
+  // Without this, "ground ginger" matched `ginger` and filed under PRODUCE,
+  // sending him to the fresh-root shelf for a jar (2026-08-23). Same shape
+  // as the bare-`ground` fix in the meat rule below.
+  ["spices", /\bground (ginger|cinnamon|cumin|coriander|turmeric|nutmeg|clove|allspice|cardamom|mustard)\b/],
   ["seafood", /\b(salmon|tuna|cod|tilapia|shrimp|prawn|scallop|fish|seafood|anchov)\b/],
   // NO bare `ground` (2026-08-23). It filed "ground flaxseed" under MEAT, and
   // would do the same to ground cumin, cinnamon and ginger. Every real ground
