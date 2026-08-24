@@ -12,7 +12,7 @@ import {
   onSyncChange,
   readTargetsOf,
   readTargetsMetaOf,
- writeTargetsOf } from "./lib/store.js";
+ writeTargetsOf , pathFor } from "./lib/store.js";
 import { initRouter } from "./lib/router.js";
 import { normalizeEquipment } from "./lib/equipment.js";
 import { formatSyncTime, isoWeekId, localIsoDate, parseLocalIso, statusDate } from "./lib/dates.js";
@@ -24,6 +24,7 @@ import { CookbookView } from "./views/cookbook.js";
 import { RecipeView } from "./views/recipe.js";
 import { RecipePeek } from "./views/recipe-peek.js";
 import { SystemView } from "./views/system.js";
+import { HallView } from "./views/hall.js";
 import { TourOverlay, TourOffer } from "./views/tour.js";
 import { readTourState, writeTourState } from "./lib/tour.js";
 import { PlannerView } from "./views/planner.js";
@@ -221,6 +222,40 @@ function App() {
       const cur = /** @type {any} */ (await readTargetsOf(me)) ?? {};
       await writeTargetsOf(me, { ...cur, equipment: normalizeEquipment(owned) });
       setTargets(/** @type {any} */ (await readTargetsOf(me)));
+    },
+    [],
+  );
+
+  // A COMPOSED DINING-HALL TRAY GOES ON THE PLAN AS A SWIPE (P10).
+  // It is an `out` entry carrying the tray's own estimate, which is what
+  // dayTotals already understands: the calories COUNT (he eats them) and the
+  // protein counts toward the floor but not toward the money ceiling, because
+  // a swipe costs no groceries. That split is the fix quake shipped.
+  const handleHallTray = useCallback(
+    async (/** @type {string} */ mealName, /** @type {any} */ tray, /** @type {string} */ court) => {
+      const slot = String(mealName).toLowerCase().includes("breakfast")
+        ? "breakfast"
+        : String(mealName).toLowerCase().includes("dinner")
+          ? "dinner"
+          : "lunch";
+      const date = localIsoDate(new Date());
+      const week = isoWeekId(new Date());
+      const path = pathFor(activeProfile(), `plans/${week}.json`);
+      const cur = /** @type {any} */ (await read(path, { raw: true }).catch(() => null)) ?? {
+        week,
+        entries: [],
+      };
+      const next = addEntry(cur, date, slot, {
+        freeText: `${court} ${mealName}: ${tray.picks.map((/** @type {any} */ p) => p.name).join(", ")}`,
+        servings: 1,
+        out: true,
+        estCalories: Math.round(tray.calories),
+        estProtein: Math.round(tray.protein),
+      });
+      await write(path, next, { raw: true });
+      setKrogerLinkNote(
+        `Added to today's ${slot}: ${Math.round(tray.calories)} kcal, ${Math.round(tray.protein)} g from ${court}.`,
+      );
     },
     [],
   );
@@ -3570,6 +3605,10 @@ function App() {
         pantryLocations=${PANTRY_LOCATIONS}
         onRemovePantry=${handleRemovePantry}
       />`
+    }
+    ${
+      route.view === "hall" &&
+      html`<${HallView} targets=${targets} onAddToPlan=${handleHallTray} />`
     }
     ${
       route.view === "remedies" &&

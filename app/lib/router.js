@@ -31,6 +31,7 @@ export function parseRoute(hash) {
     case "ask":
     case "occasions":
     case "tables":
+    case "hall":
       return { view: head };
     case "recipe": {
       if (!id) return { view: "plan" };

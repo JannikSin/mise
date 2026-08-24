@@ -404,7 +404,7 @@ function legacyId(e, twinIndex) {
  * @param {Plan} plan
  * @param {string} date
  * @param {string} slot
- * @param {{ recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean }} content
+ * @param {{ recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, estCalories?: number, estProtein?: number, table?: string }} content
  * @returns {Plan}
  */
 export function addEntry(plan, date, slot, content) {
