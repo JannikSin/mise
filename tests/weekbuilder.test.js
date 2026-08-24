@@ -16,7 +16,7 @@ import {
   generateWeek,
   generatorEligible,
 } from "../app/lib/weekbuilder.js";
-import { dayTotals, datesOfWeek, recipesById } from "../app/lib/plan.js";
+import { dayTotals, datesOfWeek, recipesById , buffetMacroEstimate } from "../app/lib/plan.js";
 
 const EMPTY_FOOD_GROUPS = {
   beans: 0,
@@ -71,6 +71,9 @@ const BREAKFAST = r("eggs", "breakfast", ["eggs", "bread"], { protein: 50, calor
 const SMOOTHIE = r("shake", "smoothie", ["whey", "banana"], { protein: 55, calories: 700 });
 const LUNCH = r("lunchbox", "lunch", ["chicken thigh", "broccoli"], { protein: 60, calories: 800 });
 const SNACK = r("cheese", "snack", ["cottage cheese"], { protein: 25, calories: 205 });
+
+/** A pool wide enough for a whole week, shared by the swipe-credit tests. */
+const POOL = [CHICKEN_A, CHICKEN_B, BREAKFAST, SMOOTHIE, LUNCH, SNACK];
 
 const ALL = [
   CHICKEN_A,
@@ -1743,4 +1746,77 @@ test("generateWeek: a heavy-credit swipe day SIZES its cooked slots smaller (sam
     withSwipe < control * 0.75,
     `a 1800-kcal credit must shrink the cooked slots by a real margin: ${withSwipe} vs ${control} kcal generated`,
   );
+});
+
+// ---- the swipe credit must come off the GROCERY bill (David 2026-08-24) ---
+// "I can get sixty or eighty grams of protein in one meal on a swipe. That
+// means I should be buying sixty to eighty grams less." He was right and the
+// app was not doing it: 7 swipes budgeted still bought 195 g/day and ate 244
+// against a 180 g target, because the bought-ceiling was a flat number that
+// ignored the credit entirely.
+
+test("free protein comes off what the week BUYS, gram for gram", () => {
+  const targets = {
+    macros: { calories: 3700, caloriesFloor: 3500, protein: 180, proteinCeiling: 215 },
+    mealSlots: ["breakfast", "lunch", "dinner", "smoothie"],
+  };
+  const W = "2026-W40";
+  const dates = datesOfWeek(W);
+  const swipe = { estCalories: 800, estProtein: 65 };
+  const withSwipes = {
+    week: W,
+    entries: dates.map((d, i) => ({
+      id: `s${i}`,
+      date: d,
+      slot: "lunch",
+      freeText: "dining swipe",
+      servings: 1,
+      pinned: true,
+      out: true,
+      currency: "swipes",
+      ...swipe,
+    })),
+  };
+  const bought = (plan) => {
+    const byId = recipesById(POOL);
+    let g = 0;
+    for (const e of plan.entries) {
+      if (!e.recipeId) continue;
+      g += (byId.get(e.recipeId)?.nutrition?.protein ?? 0) * e.servings;
+    }
+    return g / dates.length;
+  };
+  const plain = generateWeek({
+    recipes: POOL,
+    targets,
+    pantry: { items: [] },
+    weekId: W,
+    plan: { week: W, entries: [] },
+    salt: 1,
+  });
+  const swiped = generateWeek({
+    recipes: POOL,
+    targets,
+    pantry: { items: [] },
+    weekId: W,
+    plan: withSwipes,
+    salt: 1,
+  });
+  const saved = bought(plain.plan) - bought(swiped.plan);
+  assert.ok(
+    saved > swipe.estProtein * 0.5,
+    `a ${swipe.estProtein} g swipe should take most of that off the grocery bill; it took ${Math.round(saved)} g`,
+  );
+});
+
+test("a stated tray size beats the derived one, because he knows what he can eat", () => {
+  const derived = buffetMacroEstimate(POOL, "lunch");
+  const stated = buffetMacroEstimate(POOL, "lunch", { estProtein: 65, estCalories: 800 });
+  assert.equal(stated.estProtein, 65);
+  assert.equal(stated.estCalories, 800);
+  assert.notEqual(stated.estProtein, derived.estProtein);
+  // a currency that states nothing still derives, so nothing changes for
+  // anyone who has not filled it in
+  assert.deepEqual(buffetMacroEstimate(POOL, "lunch", {}), derived);
+  assert.deepEqual(buffetMacroEstimate(POOL, "lunch", null), derived);
 });

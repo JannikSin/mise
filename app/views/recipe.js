@@ -154,6 +154,7 @@ export function RecipeView({
       held: false,
       supported: true,
       reason: "",
+      via: "none",
     }),
   );
   useEffect(() => keepAwake(setAwake), []);

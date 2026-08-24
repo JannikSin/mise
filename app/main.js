@@ -1392,7 +1392,7 @@ function App() {
         date,
         slot,
         slotMacroEstimate(recipesRef.current, slot),
-        buffetMacroEstimate(recipesRef.current, slot),
+        buffetMacroEstimate(recipesRef.current, slot, buffet),
         buffet?.id ?? null,
       );
       updatePlan(next);
@@ -1565,7 +1565,7 @@ function App() {
           perWeek: buffet.perWeek,
           currencyId: buffet.id,
           slot,
-          estimate: buffetMacroEstimate(recipesRef.current, slot),
+          estimate: buffetMacroEstimate(recipesRef.current, slot, buffet),
           today: localIsoDate(new Date()),
         });
       }

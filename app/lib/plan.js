@@ -557,7 +557,27 @@ export const SWIPE_TEXT = "dining swipe";
  * @param {string} slot
  * @returns {{ estCalories: number, estProtein: number }}
  */
-export function buffetMacroEstimate(recipes, slot) {
+export function buffetMacroEstimate(recipes, slot, currency = /** @type {any} */ (null)) {
+  // A CURRENCY MAY STATE ITS OWN TRAY (David 2026-08-24: "I can get sixty or
+  // eighty grams of protein in one meal on a swipe"). The derived figure
+  // below is the average slot scaled up, which for lunch lands at 49 g and
+  // badly understates what an all-you-care-to-eat buffet actually delivers —
+  // and every gram it understates is a gram the grocery list buys anyway.
+  // A stated number wins, because he knows what he can eat and the app does
+  // not. The tray composer then AIMS at this figure, so it is self-checking:
+  // if the hall cannot reach it, the screen says so.
+  const stated = {
+    estCalories: Number(currency?.estCalories),
+    estProtein: Number(currency?.estProtein),
+  };
+  if (Number.isFinite(stated.estProtein) && stated.estProtein > 0) {
+    return {
+      estCalories: Number.isFinite(stated.estCalories) && stated.estCalories > 0
+        ? Math.round(stated.estCalories)
+        : slotMacroEstimate(recipes, slot).estCalories,
+      estProtein: Math.round(stated.estProtein),
+    };
+  }
   const base = slotMacroEstimate(recipes, slot);
   // slotMacroEstimate already applied the 0.85 undershoot; rebase to the
   // pool average, then load

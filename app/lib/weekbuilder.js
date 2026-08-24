@@ -962,6 +962,7 @@ export function calorieTrimPass(plan, recipesById, bounds, slotPools = null) {
  * @param {Map<string, any>} recipesById
  * @param {{
  *   proteinCeiling: number | null,
+ *   proteinTarget?: number | null,
  *   calorieFloor: number,
  *   proteinFloor: number,
  *   groupFloors: Record<string, number>
@@ -996,13 +997,34 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
 
   for (const date of dates) {
     for (;;) {
-      // BOUGHT protein, not eaten (2026-08-23). The ceiling is a money
-      // number and a swipe's grams cost nothing, so trimming against
-      // dayTotals spent this pass removing protein that was never on the
-      // grocery bill — and reported 35/35 days failing on a week whose list
-      // had already dropped from 234 g/day to 196. See plan.js dayBought.
+      // BOUGHT protein against a ceiling the FREE protein has already eaten
+      // into (2026-08-24).
+      //
+      // Two corrections stacked here and both are needed.
+      //   1. Trim BOUGHT, not eaten (2026-08-23): the ceiling is a money
+      //      number and a swipe's grams cost nothing, so trimming against
+      //      dayTotals removed protein that was never on the grocery bill.
+      //   2. But a FLAT bought-ceiling ignores the credit entirely, so a day
+      //      with a 49 g swipe could buy the full 215 and EAT 264. Measured:
+      //      7 swipes budgeted still bought 195 g/day and ate 244 against a
+      //      180 g target. The arbitrage said buy 131; nothing enforced it.
+      //
+      // So the allowance shrinks by what the day already got free. Eat at
+      // most the ceiling, buy at most what is left of it. Never below the
+      // floor: `breaksFloor` still guards every step, and the floor reads
+      // dayTotals because a swipe genuinely feeds him.
+      const free = dayTotals(next.entries, recipesById, date).protein
+        - dayBought(next.entries, recipesById, date);
+      // AIM AT THE TARGET, not the ceiling. 180 is what he wants to eat; 215
+      // is only the outer bound. Trimming to the ceiling alone left the week
+      // eating 208 g/day. The floor still guards every step, so this lands
+      // between the floor and the target rather than at either extreme.
+      const aim = Number.isFinite(Number(bounds.proteinTarget))
+        ? Math.min(ceiling, Number(bounds.proteinTarget))
+        : ceiling;
+      const spendable = Math.max(0, aim - free);
       const bought = dayBought(next.entries, recipesById, date);
-      if (bought <= ceiling) break;
+      if (bought <= spendable) break;
 
       const trimmable = next.entries
         .filter(
@@ -1875,6 +1897,12 @@ export function generateWeek({
     byId,
     {
       proteinCeiling: ceilings.protein,
+      // David 2026-08-24: "I only want to eat 180 grams of protein a day."
+      // The ceiling is the hard limit; the TARGET is what the week should
+      // actually land on, and trimming only to the ceiling left him eating
+      // 208 g against a 180 g target. The pass now aims at the target and
+      // treats the ceiling as the outer bound.
+      proteinTarget: proteinTarget,
       calorieFloor: floors.calories,
       proteinFloor: floors.protein,
       groupFloors: dailyGroupFloors,
