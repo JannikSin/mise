@@ -93,7 +93,7 @@ import {
   mergeRecipePool,
   recipeConflicts,
   SLOT_KEYS,
-} from "./lib/plan.js";
+ planSwipes } from "./lib/plan.js";
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
 import { composeManifest, remanifest } from "./lib/manifest.js";
 import { swapToFit } from "./lib/budget.js";
@@ -231,30 +231,52 @@ function App() {
   // dayTotals already understands: the calories COUNT (he eats them) and the
   // protein counts toward the floor but not toward the money ceiling, because
   // a swipe costs no groceries. That split is the fix quake shipped.
+  // A COMPOSED TRAY LANDS ON THE SLOT IT WAS PICKED FOR (P10).
+  // Opened from a swipe placeholder, it REPLACES that placeholder's estimate
+  // rather than adding a second entry beside it: the placeholder was always a
+  // guess standing in for a real tray, and two entries would double-count the
+  // day. Opened standalone, it appends to today.
   const handleHallTray = useCallback(
-    async (/** @type {string} */ mealName, /** @type {any} */ tray, /** @type {string} */ court) => {
-      const slot = String(mealName).toLowerCase().includes("breakfast")
-        ? "breakfast"
-        : String(mealName).toLowerCase().includes("dinner")
-          ? "dinner"
-          : "lunch";
-      const date = localIsoDate(new Date());
-      const week = isoWeekId(new Date());
+    async (
+      /** @type {string} */ mealName,
+      /** @type {any} */ tray,
+      /** @type {string} */ court,
+      /** @type {string} */ forDate,
+      /** @type {string} */ forSlot,
+    ) => {
+      const slot =
+        forSlot ||
+        (String(mealName).toLowerCase().includes("breakfast")
+          ? "breakfast"
+          : String(mealName).toLowerCase().includes("dinner")
+            ? "dinner"
+            : "lunch");
+      const date = forDate || localIsoDate(new Date());
+      const week = isoWeekId(parseLocalIso(date));
       const path = pathFor(activeProfile(), `plans/${week}.json`);
       const cur = /** @type {any} */ (await read(path, { raw: true }).catch(() => null)) ?? {
         week,
         entries: [],
       };
-      const next = addEntry(cur, date, slot, {
-        freeText: `${court} ${mealName}: ${tray.picks.map((/** @type {any} */ p) => p.name).join(", ")}`,
-        servings: 1,
-        out: true,
+      const label = `${court} ${mealName}: ${tray.picks.map((/** @type {any} */ p) => p.name).join(", ")}`;
+      const est = {
         estCalories: Math.round(tray.calories),
         estProtein: Math.round(tray.protein),
-      });
+      };
+      const existing = (cur.entries ?? []).find(
+        (/** @type {any} */ e) => e.date === date && e.slot === slot && e.out,
+      );
+      const next = existing
+        ? {
+            ...cur,
+            entries: cur.entries.map((/** @type {any} */ e) =>
+              e.id === existing.id ? { ...e, freeText: label, ...est } : e,
+            ),
+          }
+        : addEntry(cur, date, slot, { freeText: label, servings: 1, out: true, ...est });
       await write(path, next, { raw: true });
       setKrogerLinkNote(
-        `Added to today's ${slot}: ${Math.round(tray.calories)} kcal, ${Math.round(tray.protein)} g from ${court}.`,
+        `${existing ? "Filled in" : "Added to"} ${slot} on ${date}: ${est.estCalories} kcal, ${est.estProtein} g from ${court}.`,
       );
     },
     [],
@@ -1524,6 +1546,30 @@ function App() {
       // no readable prior week is a working state, not a failure: a skipped
       // review never blocks the next week (canon P11)
     }
+    // BUDGET THE SWIPES BEFORE GENERATING (P5, P10, David 2026-08-24).
+    // The arbitrage only pays off on swipes that are IN the plan when the
+    // committees run, and nothing ever put one there: a seven-swipe meal
+    // plan only worked if he remembered to tap seven slots first, and if he
+    // forgot, the week bought protein he had already paid for.
+    // One a day, on the currency's preferred slot, up to its weekly
+    // allowance, never over a past day or a day already eating away.
+    /** @type {import("./lib/plan.js").Plan} */
+    let seeded = /** @type {any} */ (viewPlanRef.current);
+    {
+      const buffet = (targetsRef.current?.currencies ?? []).find(
+        (/** @type {any} */ c) => c.venue === "buffet",
+      );
+      if (buffet?.perWeek > 0) {
+        const slot = String(buffet.preferredSlot || "lunch");
+        seeded = planSwipes(seeded, datesOfWeek(weekRef.current), {
+          perWeek: buffet.perWeek,
+          currencyId: buffet.id,
+          slot,
+          estimate: buffetMacroEstimate(recipesRef.current, slot),
+          today: localIsoDate(new Date()),
+        });
+      }
+    }
     const result = generateWeek({
       recipes: recipesRef.current,
       targets: targetsRef.current,
@@ -1537,7 +1583,7 @@ function App() {
       weekId: weekRef.current,
       // viewPlan: derived table entries enter as pins so the generator
       // plans each member's day around the shared meal
-      plan: /** @type {import("./lib/plan.js").Plan} */ (viewPlanRef.current),
+      plan: seeded,
       salt: bs.salt,
       recentRecipeIds: recentRecipeIdsRef.current,
       // day-aware: past days of the current week survive and are not
@@ -3608,7 +3654,12 @@ function App() {
     }
     ${
       route.view === "hall" &&
-      html`<${HallView} targets=${targets} onAddToPlan=${handleHallTray} />`
+      html`<${HallView}
+        targets=${targets}
+        onAddToPlan=${handleHallTray}
+        forDate=${/** @type {any} */ (route).date ?? ""}
+        forMeal=${/** @type {any} */ (route).meal ?? ""}
+      />`
     }
     ${
       route.view === "remedies" &&

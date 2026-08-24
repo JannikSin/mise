@@ -32,7 +32,7 @@ import {
   unlockRecipe,
   switchCandidate,
   setEntryRecipe,
-} from "../app/lib/plan.js";
+ planSwipes } from "../app/lib/plan.js";
 
 test("prepSundayOf is the day before the week's Monday", () => {
   assert.equal(prepSundayOf("2026-W30"), "2026-07-19");
@@ -754,4 +754,101 @@ test("buffetMacroEstimate overshoots protein against the pool average; currencyU
     { id: "3", date: "2026-08-21", slot: "dinner", freeText: OUT_TEXT, servings: 1, out: true },
   ] };
   assert.equal(currencyUsed(plan, "swipes"), 2, "plain eating-out is not a swipe");
+});
+
+// ---- budgeting the week's swipes (P5, P10, David 2026-08-24) --------------
+// The swipe machinery was complete and MANUAL: the generator does the
+// arbitrage beautifully for swipes already in the plan, and nothing ever put
+// one there. A seven-swipe meal plan only paid off if he remembered to tap
+// seven slots before pressing GENERATE.
+
+const WEEK_DATES = [
+  "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27",
+  "2026-08-28", "2026-08-29", "2026-08-30",
+];
+const SWIPE_OPTS = {
+  perWeek: 7,
+  currencyId: "swipes",
+  slot: "lunch",
+  estimate: { estCalories: 900, estProtein: 60 },
+};
+
+test("one swipe a day, on the preferred slot, up to the weekly allowance", () => {
+  const out = planSwipes({ week: "2026-W35", entries: [] }, WEEK_DATES, SWIPE_OPTS);
+  const swipes = out.entries.filter((e) => e.out && e.currency === "swipes");
+  assert.equal(swipes.length, 7);
+  assert.deepEqual([...new Set(swipes.map((e) => e.date))].sort(), WEEK_DATES);
+  assert.ok(swipes.every((e) => e.slot === "lunch"));
+  assert.ok(swipes.every((e) => e.estProtein === 60 && e.estCalories === 900));
+});
+
+test("a smaller allowance places fewer, not one a day regardless", () => {
+  const out = planSwipes({ week: "2026-W35", entries: [] }, WEEK_DATES, {
+    ...SWIPE_OPTS,
+    perWeek: 3,
+  });
+  assert.equal(out.entries.filter((e) => e.currency === "swipes").length, 3);
+});
+
+test("running it twice does not spend fourteen swipes on a seven-swipe plan", () => {
+  const once = planSwipes({ week: "2026-W35", entries: [] }, WEEK_DATES, SWIPE_OPTS);
+  const twice = planSwipes(once, WEEK_DATES, SWIPE_OPTS);
+  assert.equal(twice.entries.filter((e) => e.currency === "swipes").length, 7);
+});
+
+test("a PAST day is never planned: yesterday's lunch is not re-plannable", () => {
+  const out = planSwipes({ week: "2026-W35", entries: [] }, WEEK_DATES, {
+    ...SWIPE_OPTS,
+    today: "2026-08-28",
+  });
+  const dates = out.entries.filter((e) => e.currency === "swipes").map((e) => e.date);
+  assert.deepEqual(dates.sort(), ["2026-08-28", "2026-08-29", "2026-08-30"]);
+});
+
+test("a day already eating away is left alone, however that was decided", () => {
+  const seeded = {
+    week: "2026-W35",
+    entries: [{ id: "x", date: "2026-08-26", slot: "dinner", out: true, servings: 1 }],
+  };
+  const out = planSwipes(seeded, WEEK_DATES, SWIPE_OPTS);
+  const onThatDay = out.entries.filter((e) => e.date === "2026-08-26");
+  assert.equal(onThatDay.length, 1, "no swipe stacked onto a day already out");
+  assert.equal(out.entries.filter((e) => e.currency === "swipes").length, 6);
+});
+
+test("a hand-planned meal in the preferred slot is skipped, never cleared", () => {
+  const seeded = {
+    week: "2026-W35",
+    entries: [{ id: "m", date: "2026-08-25", slot: "lunch", recipeId: "chana-masala", servings: 1 }],
+  };
+  const out = planSwipes(seeded, WEEK_DATES, SWIPE_OPTS);
+  assert.ok(
+    out.entries.some((e) => e.id === "m" && e.recipeId === "chana-masala"),
+    "the planned meal survives",
+  );
+  assert.equal(
+    out.entries.filter((e) => e.date === "2026-08-25" && e.currency === "swipes").length,
+    0,
+  );
+});
+
+test("no currency, or a zero allowance, changes nothing at all", () => {
+  const plan = { week: "2026-W35", entries: [] };
+  assert.equal(planSwipes(plan, WEEK_DATES, { ...SWIPE_OPTS, perWeek: 0 }), plan);
+  assert.equal(planSwipes(plan, WEEK_DATES, { ...SWIPE_OPTS, currencyId: "" }), plan);
+});
+
+test("the placeholder carries everything dayTotals and the generator read", () => {
+  const [s] = planSwipes({ week: "2026-W35", entries: [] }, WEEK_DATES, SWIPE_OPTS).entries;
+  assert.equal(s.out, true, "so the generator pins it and does not re-roll it");
+  assert.equal(s.currency, "swipes", "so it renders as SWIPE, not EATING OUT");
+  assert.equal(s.freeText, SWIPE_TEXT);
+  assert.ok(s.id, "every entry needs an id, it is the merge key");
+});
+
+test("a budgeted swipe is PINNED, or the generator deletes the thing it exists to inform", () => {
+  // generateWeek keeps only pinned entries and clears the rest. Measured
+  // before this was fixed: 7 swipes in, 0 out.
+  const [s] = planSwipes({ week: "2026-W35", entries: [] }, WEEK_DATES, SWIPE_OPTS).entries;
+  assert.equal(s.pinned, true);
 });

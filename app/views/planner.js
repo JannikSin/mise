@@ -689,6 +689,21 @@ export function PlannerView({
                           ${/** @type {any} */ (outEntry)?.currency ? "🎫 SWIPE" : "🍴 EATING OUT"}
                         </button>`
                       }
+                      ${
+                        // A SWIPE IS NOW SOMETHING YOU CAN OPEN. Until today
+                        // the placeholder said "dining swipe" and that was the
+                        // end of it: the tray composer existed and there was no
+                        // way to reach it from the meal it was for. The date
+                        // and the meal are already known, so the hall screen is
+                        // handed both rather than asking again.
+                        /** @type {any} */ (outEntry)?.currency &&
+                        html`<a
+                          class="linktext"
+                          href=${`#/hall?date=${date}&meal=${key}`}
+                          aria-label=${`Pick what to eat at the dining hall for ${full} ${monthDay(date)}`}
+                          >🍽 PICK MY TRAY →</a
+                        >`
+                      }
                     </div>
                   `;
                 })}

@@ -22,14 +22,20 @@ import { localIsoDate } from "../lib/dates.js";
  *
  * @param {{
  *   targets?: Record<string, any> | null,
- *   onAddToPlan?: (meal: string, tray: Record<string, any>, court: string) => void
+ *   onAddToPlan?: (meal: string, tray: Record<string, any>, court: string, date: string, slot: string) => void,
+ *   forDate?: string,
+ *   forMeal?: string
  * }} props
  */
-export function HallView({ targets = null, onAddToPlan }) {
+export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = "" }) {
   const today = localIsoDate(new Date());
   const [court, setCourt] = useState(COURTS[0]?.id ?? "Earhart");
-  const [date, setDate] = useState(today);
-  const [meal, setMeal] = useState("Dinner");
+  // opened from a swipe slot: the date and meal are already decided, so they
+  // are the starting values rather than another two questions
+  const [date, setDate] = useState(forDate || today);
+  const [meal, setMeal] = useState(
+    forMeal ? forMeal.charAt(0).toUpperCase() + forMeal.slice(1).toLowerCase() : "Dinner",
+  );
   const [state, setState] = useState(/** @type {"idle"|"loading"|"done"|"error"} */ ("idle"));
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [err, setErr] = useState("");
@@ -59,7 +65,20 @@ export function HallView({ targets = null, onAddToPlan }) {
   // profile). Deriving until touched keeps it honest.
   const [mealsLeftDraft, setMealsLeft] = useState(/** @type {string | null} */ (null));
   const mealsLeft = mealsLeftDraft ?? String(Math.max(1, slotCount));
-  const quota = quotaFor(dayTarget, already, Number(mealsLeft) || 1);
+  const evenQuota = quotaFor(dayTarget, already, Number(mealsLeft) || 1);
+  // A SWIPE IS WHERE PROTEIN IS FREE (P5). The grocery budget treats protein
+  // above target as money spent for nothing, and a buffet delivers it at a
+  // marginal cash cost of zero — so a tray deliberately overshoots protein
+  // and undershoots calories, and the week's cooking then buys less of the
+  // expensive macro. Same 1.5x/1.15x loading `buffetMacroEstimate` already
+  // applies to the placeholder this screen was opened from.
+  const isSwipe = Boolean(forDate && forMeal);
+  const quota = isSwipe
+    ? {
+        calories: Math.round(evenQuota.calories * 1.15),
+        protein: Math.round(evenQuota.protein * 1.5),
+      }
+    : evenQuota;
   const avoid = Array.isArray(targets?.avoidAllergens) ? targets.avoidAllergens : [];
 
   const load = async () => {
@@ -175,6 +194,14 @@ export function HallView({ targets = null, onAddToPlan }) {
         <span class="k">This tray aims at</span>
         <span class="status num">${quota.calories} kcal · ${quota.protein} g</span>
       </div>
+      ${
+        isSwipe &&
+        html`<p class="hint">
+          🎫 This is your swipe for ${meal.toLowerCase()} on ${date}, so the tray deliberately
+          loads protein: it costs nothing here, and every gram you eat at the hall is a gram the
+          week's groceries do not have to buy.
+        </p>`
+      }
 
       <div class="actions">
         <button class="primary" onClick=${load} disabled=${state === "loading"}>
@@ -267,7 +294,7 @@ export function HallView({ targets = null, onAddToPlan }) {
           onAddToPlan &&
           tray.picks.length > 0 &&
           html`<div class="actions">
-            <button class="secondary" onClick=${() => onAddToPlan(meal, tray, court)}>
+            <button class="secondary" onClick=${() => onAddToPlan(meal, tray, court, date, forMeal || "")}>
               PUT THIS ON ${date === today ? "TODAY" : "THAT DAY"}'S PLAN
             </button>
           </div>`

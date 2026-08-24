@@ -570,6 +570,80 @@ export function buffetMacroEstimate(recipes, slot) {
 }
 
 /**
+ * BUDGET THE WEEK'S SWIPES UP FRONT (P5, P10).
+ *
+ * The swipe machinery has always been complete and always been MANUAL: the
+ * generator does the arbitrage beautifully for swipes that are already in the
+ * plan, and nothing ever put one there. So a seven-swipe meal plan only paid
+ * off if David remembered to tap seven slots before pressing GENERATE, and if
+ * he did not, the week bought protein he had already paid for.
+ *
+ * One a day, on a preferred slot, up to the currency's weekly allowance.
+ *
+ * Rules that matter:
+ *  - Never touches a PAST day. Yesterday's lunch is not re-plannable.
+ *  - Never touches a day that already has an away meal in any slot, so a hand
+ *    placement and an occasion both win over the budget.
+ *  - Counts swipes ALREADY in the week against the allowance, so running this
+ *    twice does not spend fourteen swipes on a seven-swipe plan.
+ *  - Replaces nothing. A slot with a planned meal in it is skipped rather than
+ *    cleared; the generator fills around what this leaves.
+ * @param {Plan} plan
+ * @param {string[]} dates the week's dates, in order
+ * @param {{
+ *   perWeek: number,
+ *   currencyId: string,
+ *   slot: string,
+ *   estimate: { estCalories: number, estProtein: number },
+ *   today?: string | null
+ * }} opts
+ * @returns {Plan}
+ */
+export function planSwipes(plan, dates, opts) {
+  const perWeek = Math.max(0, Math.floor(Number(opts.perWeek) || 0));
+  if (perWeek === 0 || !opts.currencyId || !opts.slot) return plan;
+
+  const already = new Set(
+    plan.entries.filter((e) => e.out && /** @type {any} */ (e).currency).map((e) => e.date),
+  );
+  let budget = perWeek - already.size;
+  if (budget <= 0) return plan;
+
+  const busy = new Set(plan.entries.filter((e) => e.out).map((e) => e.date));
+  let next = plan;
+  for (const date of dates) {
+    if (budget <= 0) break;
+    if (opts.today && date < opts.today) continue; // a past day is read-only
+    if (busy.has(date)) continue; // already eating away that day, however placed
+    if (entriesAt(next.entries, date, opts.slot).length > 0) continue; // hand-planned
+    next = {
+      ...next,
+      entries: [
+        ...next.entries,
+        {
+          id: genId(),
+          date,
+          slot: opts.slot,
+          freeText: SWIPE_TEXT,
+          servings: 1,
+          // PINNED, exactly as the manual toggle does. generateWeek keeps
+          // only pinned entries (weekbuilder.js:1442) and clears the rest, so
+          // an unpinned placeholder is deleted by the very run it exists to
+          // inform. Caught by measuring: 7 swipes went in and 0 came out.
+          pinned: true,
+          out: true,
+          currency: opts.currencyId,
+          ...opts.estimate,
+        },
+      ],
+    };
+    busy.add(date);
+    budget -= 1;
+  }
+  return next;
+}
+
+/**
  * One tap walks a slot through its away states (7.11):
  *   planned/empty → EATING OUT → DINING SWIPE (only when the profile has a
  *   buffet currency) → back to an empty slot.

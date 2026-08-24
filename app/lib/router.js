@@ -31,8 +31,19 @@ export function parseRoute(hash) {
     case "ask":
     case "occasions":
     case "tables":
-    case "hall":
       return { view: head };
+    // the hall screen is opened FROM a swipe slot, which already knows the
+    // date and the meal; carrying them in the hash means it never asks twice
+    case "hall": {
+      const params = new URLSearchParams(query);
+      /** @type {{ view: string, date?: string, meal?: string }} */
+      const route = { view: "hall" };
+      const d = params.get("date");
+      const m = params.get("meal");
+      if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) route.date = d;
+      if (m) route.meal = m;
+      return route;
+    }
     case "recipe": {
       if (!id) return { view: "plan" };
       let decoded;
