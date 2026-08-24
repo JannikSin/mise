@@ -13,10 +13,7 @@ const TOKEN_URL = "https://api.kroger.com/v1/connect/oauth2/token";
 const API = "https://api.kroger.com/v1";
 
 /** Where a cart consent hand-off may return to. Mirrors the Worker CORS list. */
-export const ALLOWED_RETURN_ORIGINS = [
-  "https://janniksin.github.io",
-  "http://127.0.0.1:8378",
-];
+export const ALLOWED_RETURN_ORIGINS = ["https://janniksin.github.io", "http://127.0.0.1:8378"];
 
 /** per-isolate token cache; client-credentials tokens live ~30 min */
 let cachedToken = /** @type {{ value: string, expiresAt: number } | null} */ (null);
@@ -97,8 +94,46 @@ export function trimProduct(p) {
       promo: typeof price.promo === "number" && price.promo > 0 ? price.promo : null,
     },
     stock: String(it.inventory?.stockLevel ?? ""),
-    aisle: String((Array.isArray(p?.aisleLocations) ? p.aisleLocations[0] : null)?.description ?? ""),
+    aisle: String(
+      (Array.isArray(p?.aisleLocations) ? p.aisleLocations[0] : null)?.description ?? "",
+    ),
+    shelf: shelfOf(p),
   };
+}
+
+/**
+ * WHERE THE THING PHYSICALLY IS (David, 2026-08-24: "I was just at Pay Less
+ * the other day and it would be nice if I could have navigated that better").
+ *
+ * Kroger returns a whole `aisleLocations` object per product and we were
+ * keeping ONE string from it, `description`, and throwing the rest away.
+ * `description` is a merchandising label ("NATURAL FOODS") -- useful for
+ * sorting a list into store order, useless for walking to a shelf. The
+ * navigable fields are the aisle NUMBER, which SIDE of it, and the bay.
+ *
+ * Every field is optional in Kroger's response and frequently absent
+ * (independent banners like Pay Less populate less of it than Mariano's), so
+ * this returns only what the store actually said and an empty object when it
+ * said nothing. A caller must always be able to fall back to the description.
+ *
+ * @param {any} p a Kroger product payload
+ * @returns {{ number?: string, side?: string, bay?: string, shelf?: string, description?: string }}
+ */
+function shelfOf(p) {
+  const a = (Array.isArray(p?.aisleLocations) ? p.aisleLocations[0] : null) ?? null;
+  if (!a) return {};
+  /** @type {Record<string, string>} */
+  const out = {};
+  const put = (/** @type {string} */ k, /** @type {any} */ v) => {
+    const s = String(v ?? "").trim();
+    if (s) out[k] = s;
+  };
+  put("number", a.number);
+  put("side", a.side);
+  put("bay", a.bayNumber);
+  put("shelf", a.shelfNumber);
+  put("description", a.description);
+  return out;
 }
 
 /**
@@ -136,7 +171,9 @@ export async function handleKroger(pathname, body, env, respond) {
       });
     }
     if (pathname === "/kroger/search") {
-      const term = String(body.term ?? "").trim().slice(0, 60);
+      const term = String(body.term ?? "")
+        .trim()
+        .slice(0, 60);
       const locationId = String(body.locationId ?? "").trim();
       if (!term || !locationId) return respond(400, { error: "term + locationId required" });
       const limit = Math.min(Math.max(Number(body.limit) || 30, 1), 50);
@@ -183,7 +220,11 @@ export async function handleKroger(pathname, body, env, respond) {
         // never a silent no-op. The app hides the button on this response.
         return respond(503, {
           error: "cart push not set up yet",
-          needs: ["KROGER_REDIRECT_URI", "KROGER_STATE_SECRET", "cart.basic:write on the Kroger app"],
+          needs: [
+            "KROGER_REDIRECT_URI",
+            "KROGER_STATE_SECRET",
+            "cart.basic:write on the Kroger app",
+          ],
         });
       }
       if (pathname === "/kroger/cart/link") {
@@ -238,7 +279,11 @@ export async function handleKroger(pathname, body, env, respond) {
 export async function handleKrogerCallback(url, env) {
   if (url.pathname !== "/kroger/cart/callback") return null;
   if (!krogerCartConfigured(env)) return new Response("cart push not configured", { status: 503 });
-  const returnTo = await verifyState(url.searchParams.get("state") ?? "", env, ALLOWED_RETURN_ORIGINS);
+  const returnTo = await verifyState(
+    url.searchParams.get("state") ?? "",
+    env,
+    ALLOWED_RETURN_ORIGINS,
+  );
   // a bad or stale signature is the whole defence against an open redirect,
   // so it fails flat here rather than bouncing the browser anywhere
   if (!returnTo) return new Response("bad or expired state", { status: 400 });
@@ -298,9 +343,7 @@ const STATE_TTL_MS = 10 * 60 * 1000;
  * @param {{ KROGER_CLIENT_ID?: string, KROGER_CLIENT_SECRET?: string, KROGER_REDIRECT_URI?: string, KROGER_STATE_SECRET?: string }} env
  */
 export function krogerCartConfigured(env) {
-  return Boolean(
-    krogerConfigured(env) && env.KROGER_REDIRECT_URI && env.KROGER_STATE_SECRET,
-  );
+  return Boolean(krogerConfigured(env) && env.KROGER_REDIRECT_URI && env.KROGER_STATE_SECRET);
 }
 
 /**

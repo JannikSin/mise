@@ -11,8 +11,8 @@
 import { aisleOf, canonicalFood, canonicalUnit, convertUnit, toGrams } from "./ingredients.js";
 import { matchPrice, parsePackSize } from "./prices.js";
 
-/** @typedef {{ upc: string, description: string, brand: string, categories: string[], size: string, soldBy: string, price: { regular: number | null, promo: number | null }, stock: string, aisle: string }} KrogerProduct */
-/** @typedef {{ upc: string, description: string, size: string, soldBy: string, aisle?: string, brand?: string, categories?: string[], seenAt?: string, confirmedAt?: string, provisional?: boolean }} Pin */
+/** @typedef {{ upc: string, description: string, brand: string, categories: string[], size: string, soldBy: string, price: { regular: number | null, promo: number | null }, stock: string, aisle: string, shelf?: { number?: string, side?: string, bay?: string, shelf?: string, description?: string } }} KrogerProduct */
+/** @typedef {{ upc: string, description: string, size: string, soldBy: string, aisle?: string, shelf?: { number?: string, side?: string, bay?: string, shelf?: string, description?: string }, brand?: string, categories?: string[], seenAt?: string, confirmedAt?: string, provisional?: boolean }} Pin */
 /** @typedef {{ updated?: string, redList: string[], stores: Record<string, { locationId: string, name: string }>, pins: Record<string, Record<string, Pin>> }} PinBook */
 
 /** A live price older than this renders visibly stale (fix list 3.5). */
@@ -82,6 +82,13 @@ export function setPin(pins, food, store, product, todayIso, confirmed) {
     // and not on the catalogue row. Empty string is a real answer meaning
     // "Kroger did not say", and is stored as absent rather than "".
     ...(product.aisle ? { aisle: product.aisle } : {}),
+    // WHERE IT PHYSICALLY IS, when the store says. `aisle` is a merchandising
+    // label ("NATURAL FOODS"): good for sorting a list into store order, no
+    // use for walking to a shelf. `shelf` carries the navigable half -- aisle
+    // number, side, bay -- which Kroger returns on the same payload and this
+    // writer also dropped. Absent when the store said nothing, which is
+    // common on independent banners, so every reader needs a fallback.
+    ...(product.shelf && Object.keys(product.shelf).length ? { shelf: product.shelf } : {}),
     ...(product.brand ? { brand: product.brand } : {}),
     ...(Array.isArray(product.categories) && product.categories.length
       ? { categories: product.categories.slice(0, 6) }
@@ -266,22 +273,67 @@ export function locationIdFor(pins, store) {
 
 /** Categories that are never groceries. */
 const CAT_DENY = [
-  "baby", "personal care", "beauty", "health", "household", "pet", "cleaning",
-  "paper", "home", "office", "floral", "garden", "apparel", "toys",
-  "electronics", "hardware", "automotive", "tobacco",
+  "baby",
+  "personal care",
+  "beauty",
+  "health",
+  "household",
+  "pet",
+  "cleaning",
+  "paper",
+  "home",
+  "office",
+  "floral",
+  "garden",
+  "apparel",
+  "toys",
+  "electronics",
+  "hardware",
+  "automotive",
+  "tobacco",
 ];
 
 /** Product forms that are never the raw ingredient (a chocolate bar is not
  *  almond butter, ramen is not soy sauce, a muffin mix is not walnuts,
  *  Gatorade is not a cucumber), unless the term itself asks. */
 const FORM_DENY = [
-  "ramen", "noodle", "candy", "chocolate", "protein bar", "granola bar",
-  "snack pack", "yogurt", "ice cream", "cracker", "chips", "cookie", "baklava",
-  "cereal bar", "trail mix", "drink mix", "seasoning packet", "pizza",
-  "sandwich", "burrito", "smoothie", "soda", "sports drink", "nectar",
-  "muffin mix", "cake mix", "juice drink", "shaker", "salad kit",
-  "chopped salad", "dip", "hoagie", "kombucha", "popcorn", "granola",
-  "smoked", "skewer",
+  "ramen",
+  "noodle",
+  "candy",
+  "chocolate",
+  "protein bar",
+  "granola bar",
+  "snack pack",
+  "yogurt",
+  "ice cream",
+  "cracker",
+  "chips",
+  "cookie",
+  "baklava",
+  "cereal bar",
+  "trail mix",
+  "drink mix",
+  "seasoning packet",
+  "pizza",
+  "sandwich",
+  "burrito",
+  "smoothie",
+  "soda",
+  "sports drink",
+  "nectar",
+  "muffin mix",
+  "cake mix",
+  "juice drink",
+  "shaker",
+  "salad kit",
+  "chopped salad",
+  "dip",
+  "hoagie",
+  "kombucha",
+  "popcorn",
+  "granola",
+  "smoked",
+  "skewer",
 ];
 
 /**
@@ -301,7 +353,14 @@ const CAT_OK = {
   spices: ["baking goods", "condiment & sauces", "natural & organic", "international"],
   canned: ["canned & packaged", "pantry", "natural & organic", "international", "soup"],
   condiments: ["condiment & sauces", "international", "natural & organic", "pantry"],
-  grains: ["pasta, sauces, grain", "breakfast", "baking goods", "natural & organic", "canned & packaged", "pantry"],
+  grains: [
+    "pasta, sauces, grain",
+    "breakfast",
+    "baking goods",
+    "natural & organic",
+    "canned & packaged",
+    "pantry",
+  ],
   frozen: ["frozen"],
   snacks: ["snacks", "natural & organic", "candy"],
   beverages: ["beverages", "adult beverage", "natural & organic"],
@@ -312,21 +371,89 @@ const MATCH_STOP = new Set(["fresh", "raw", "whole", "large", "small", "organic"
 
 /** Marketing/prep words that do not count as description NOISE (see noiseOf). */
 const NOISE_STOP = new Set([
-  "kroger", "roundy", "roundys", "simple", "truth", "organic", "natural",
-  "naturally", "fresh", "big", "deal", "value", "family", "size", "pack",
-  "bag", "tub", "tray", "roll", "jar", "bottle", "box", "carton", "jug",
-  "sleeve", "count", "grade", "large", "small", "whole",
-  "premium", "select", "selection", "private", "heritage", "farm", "style",
-  "original", "classic", "traditional", "creamy", "plain", "unsweetened",
-  "unsalted", "salted", "roasted", "sea", "raw", "boneless", "skinless",
-  "bone", "skin", "pitted", "shredded", "sliced", "halves", "pieces",
-  "chunk", "wild", "caught", "farmed", "raised", "sustainably", "sourced",
-  "pure", "extra", "thick", "grain", "long", "peeled", "deveined",
-  "service", "counter", "cage", "free", "stir",
+  "kroger",
+  "roundy",
+  "roundys",
+  "simple",
+  "truth",
+  "organic",
+  "natural",
+  "naturally",
+  "fresh",
+  "big",
+  "deal",
+  "value",
+  "family",
+  "size",
+  "pack",
+  "bag",
+  "tub",
+  "tray",
+  "roll",
+  "jar",
+  "bottle",
+  "box",
+  "carton",
+  "jug",
+  "sleeve",
+  "count",
+  "grade",
+  "large",
+  "small",
+  "whole",
+  "premium",
+  "select",
+  "selection",
+  "private",
+  "heritage",
+  "farm",
+  "style",
+  "original",
+  "classic",
+  "traditional",
+  "creamy",
+  "plain",
+  "unsweetened",
+  "unsalted",
+  "salted",
+  "roasted",
+  "sea",
+  "raw",
+  "boneless",
+  "skinless",
+  "bone",
+  "skin",
+  "pitted",
+  "shredded",
+  "sliced",
+  "halves",
+  "pieces",
+  "chunk",
+  "wild",
+  "caught",
+  "farmed",
+  "raised",
+  "sustainably",
+  "sourced",
+  "pure",
+  "extra",
+  "thick",
+  "grain",
+  "long",
+  "peeled",
+  "deveined",
+  "service",
+  "counter",
+  "cage",
+  "free",
+  "stir",
 ]);
 
 /** @param {string} s */
-const flat = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const flat = (s) =>
+  String(s ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 
 /**
  * How many description words are neither the searched food, its brand, nor
@@ -339,10 +466,15 @@ const flat = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
  */
 function noiseOf(p, needFlat) {
   const brandW = new Set(
-    String(p.brand ?? "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean),
+    String(p.brand ?? "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean),
   );
   let n = 0;
-  for (const w of String(p.description ?? "").toLowerCase().split(/[^a-z0-9]+/)) {
+  for (const w of String(p.description ?? "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)) {
     const fw = flat(w);
     if (fw.length < 3) continue;
     if (brandW.has(w) || NOISE_STOP.has(w)) continue;
@@ -376,7 +508,9 @@ function noiseOf(p, needFlat) {
  * @returns {(KrogerProduct & { unitPrice: number | null, unitLabel: string, noise: number, spend: number | null })[]}
  */
 export function rankCandidates(products, food, redList = [], section = "", need = null) {
-  const term = String(food ?? "").replace(/\s*\([^)]*\)/g, "").trim();
+  const term = String(food ?? "")
+    .replace(/\s*\([^)]*\)/g, "")
+    .trim();
   const words = term
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -493,7 +627,13 @@ export function unitPriceOf(p) {
   const pack = parsePackSize(p.size);
   if (!pack) return { unitPrice: null, unitLabel: "" };
   const OZ = /** @type {Record<string, number>} */ ({
-    oz: 1, "fl oz": 1, lb: 16, kg: 35.274, g: 1 / 28.35, ml: 1 / 29.57, l: 33.814,
+    oz: 1,
+    "fl oz": 1,
+    lb: 16,
+    kg: 35.274,
+    g: 1 / 28.35,
+    ml: 1 / 29.57,
+    l: 33.814,
   });
   const factor = OZ[pack.unit];
   if (factor && pack.qty > 0) {
@@ -614,7 +754,37 @@ export function swapClassFor(originalFood, candidateFood) {
  */
 export function allergenHits(product, avoid) {
   const hay = flat(`${product.description} ${(product.categories ?? []).join(" ")}`);
-  return (avoid ?? [])
-    .map((a) => String(a ?? "").trim())
-    .filter((a) => a && hay.includes(flat(a)));
+  return (avoid ?? []).map((a) => String(a ?? "").trim()).filter((a) => a && hay.includes(flat(a)));
+}
+
+/**
+ * WHERE TO WALK, in the words a person standing in the store would use.
+ *
+ * David, 2026-08-24: "I was just at Pay Less the other day and it would be
+ * nice if I could have navigated that better." The pin's `aisle` is a
+ * merchandising label; the aisle NUMBER and SIDE are what get you there.
+ *
+ * Kroger populates these unevenly -- a big Mariano's returns far more than an
+ * independent banner like Pay Less -- so this degrades in steps rather than
+ * all-or-nothing: number+side if both are known, number alone, else the
+ * merchandising label, else "".
+ *
+ * @param {PinBook | null | undefined} pins
+ * @param {string} food
+ * @param {string} store
+ * @returns {string} e.g. "aisle 12, right side" — "" when the store said nothing
+ */
+export function shelfDirections(pins, food, store) {
+  const pin = pinFor(pins, food, store);
+  const sh = pin?.shelf ?? {};
+  const num = String(sh.number ?? "").trim();
+  const side = String(sh.side ?? "")
+    .trim()
+    .toLowerCase();
+  if (num) {
+    const sideWord = side === "l" ? "left side" : side === "r" ? "right side" : side;
+    const bay = String(sh.bay ?? "").trim();
+    return [`aisle ${num}`, sideWord, bay ? `bay ${bay}` : ""].filter(Boolean).join(", ");
+  }
+  return shelfAisle(pins, food, store);
 }

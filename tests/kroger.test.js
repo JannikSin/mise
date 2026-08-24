@@ -20,6 +20,7 @@ import {
   swapClassFor,
   unitPriceOf,
   STALE_PRICE_DAYS,
+  shelfDirections,
 } from "../app/lib/kroger.js";
 import { aisleOf } from "../app/lib/ingredients.js";
 
@@ -384,4 +385,33 @@ test("refreshPinFacts is a no-op on an unpinned food and on a same-day repeat", 
     book,
     "nothing moved and we already looked today, so no write",
   );
+});
+
+// WHERE TO WALK (David, 2026-08-24: "it would be nice if I could have
+// navigated that better"). Kroger populates these unevenly, so the degrade
+// path matters more than the happy path.
+test("aisle number and side beat the merchandising label", () => {
+  const pins = { pins: { broccoli: { "pay-less": { upc: "u", shelf: { number: "12", side: "R" }, aisle: "PRODUCE" } } } };
+  assert.equal(shelfDirections(pins, "broccoli", "pay-less"), "aisle 12, right side");
+});
+
+test("a bay is added when the store gave one", () => {
+  const pins = { pins: { rice: { "pay-less": { upc: "u", shelf: { number: "7", side: "L", bay: "3" } } } } };
+  assert.equal(shelfDirections(pins, "rice", "pay-less"), "aisle 7, left side, bay 3");
+});
+
+test("number alone still directs, without inventing a side", () => {
+  const pins = { pins: { barley: { "pay-less": { upc: "u", shelf: { number: "9" } } } } };
+  assert.equal(shelfDirections(pins, "barley", "pay-less"), "aisle 9");
+});
+
+test("FALLS BACK to the merchandising label when there is no number", () => {
+  const pins = { pins: { kale: { "pay-less": { upc: "u", aisle: "NATURAL FOODS" } } } };
+  assert.equal(shelfDirections(pins, "kale", "pay-less"), "NATURAL FOODS");
+});
+
+test("a store that said nothing returns empty, never a fake aisle", () => {
+  const pins = { pins: { salt: { "pay-less": { upc: "u" } } } };
+  assert.equal(shelfDirections(pins, "salt", "pay-less"), "");
+  assert.equal(shelfDirections(null, "salt", "pay-less"), "");
 });

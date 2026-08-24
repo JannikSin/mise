@@ -642,10 +642,30 @@ export function ShoppingView({
     (i) => itemCost(i, prices, homeStore)?.packs,
   );
 
-  const sendToKrogerCart = async () => {
-    if (cartRows.length === 0) return;
-    // already sent this list once: make the second push a deliberate choice
-    if (cartSent > 0 && !cartArmed) {
+  // A THREE-ITEM TEST PUSH (David, 2026-08-24: "push a few things onto the
+  // payless cart so that i can check to see them... just a few test items and
+  // tell me the quantities as well ... and the price").
+  //
+  // Kroger's cart API is add-only with NO read-back, so the only way to know a
+  // push landed -- with the right products, at the right counts -- is for a
+  // human to open the Kroger app and look. Committing a whole week's groceries
+  // to find that out is an expensive way to run a test, and undoing it means
+  // deleting ~40 lines by hand. Three rows proves the same pipeline: auth,
+  // UPC match, quantity, store selection.
+  //
+  // The three cheapest rows on purpose: if the store selection turns out to be
+  // wrong, the mistake is a few dollars, not a week of food.
+  const testRows = [...cartRows]
+    .sort((a, b) => a.quantity - b.quantity)
+    .slice(0, 3)
+    .map((r) => ({ ...r, quantity: 1 }));
+
+  const sendToKrogerCart = async (/** @type {{ test?: boolean }} */ opts = {}) => {
+    const rows = opts.test === true ? testRows : cartRows;
+    if (rows.length === 0) return;
+    // a test push is small and repeatable by design, so it skips the re-arm
+    // that protects the full list
+    if (opts.test !== true && cartSent > 0 && !cartArmed) {
       setCartArmed(true);
       setCartNote(
         `already sent ${cartSent} time${cartSent === 1 ? "" : "s"} — sending again ADDS another copy to your Kroger cart. Tap once more only if you really want doubles.`,
@@ -660,8 +680,8 @@ export function ShoppingView({
         location.href = await krogerCartLink();
         return;
       }
-      const sent = await krogerCartAdd(cartRows);
-      setCartSent((n) => n + 1);
+      const sent = await krogerCartAdd(rows);
+      if (opts.test !== true) setCartSent((n) => n + 1);
       // "sent", never "added": the public tier is add-only with no read-back,
       // so an HTTP 200 is the ONLY evidence there is. Overclaiming here is
       // how a missing item becomes a surprise at the pickup counter.
@@ -1598,7 +1618,7 @@ export function ShoppingView({
                       <button
                         class="linktext"
                         disabled=${cartRows.length === 0 || cartNote === "sending…"}
-                        onClick=${sendToKrogerCart}
+                        onClick=${() => sendToKrogerCart()}
                       >
                         ${krogerLinked() ? "SEND TO CART" : "LINK KROGER"}
                       </button>
@@ -1610,7 +1630,27 @@ export function ShoppingView({
                       ⚠️ Kroger has no store field on a cart write: items land in whichever store
                       your Kroger ACCOUNT has selected, so set that to
                       ${" "}${STORE_NAMES[homeStore] ?? homeStore} first.
-                    </p>`
+                    </p>
+                    ${
+                      testRows.length > 0 &&
+                      html`<div class="row">
+                          <span class="k"
+                            >test it first · ${testRows.length} cheap rows, 1 each</span
+                          >
+                          <button
+                            class="linktext"
+                            disabled=${cartNote === "sending…"}
+                            onClick=${() => sendToKrogerCart({ test: true })}
+                          >
+                            SEND 3 TEST ITEMS
+                          </button>
+                        </div>
+                        <p class="hint">
+                          Proves the whole path — sign-in, product match, quantity, which store —
+                          for a few dollars instead of a week of food. Check them in the Kroger app,
+                          then send the real list.
+                        </p>`
+                    }`
                 }
                 ${canLive && cartNote && html`<p class="hint">${cartNote}</p>`}
                 ${
