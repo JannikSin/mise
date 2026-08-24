@@ -95,20 +95,33 @@ function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
     const took = entry.cookSeconds > 0 ? Math.round(entry.cookSeconds / 60) : null;
     return html`<div class="tile">
       <div class="row">
-        <span class="k">COOKED ✓${took != null ? ` · took ${took}m` : ""}${statedMinutes ? ` · plan said ${statedMinutes}m` : ""}</span>
+        <span class="k"
+          >COOKED
+          ✓${took != null ? ` · took ${took}m` : ""}${statedMinutes ? ` · plan said ${statedMinutes}m` : ""}</span
+        >
       </div>
       ${
         onCookComment &&
         html`<div class="token-form">
-          <input aria-label="Cook note" placeholder="optional note: why it ran long/short (burned the first batch)" value=${comment} onInput=${(/** @type {{ currentTarget: HTMLInputElement }} */ e) => setComment(e.currentTarget.value)} />
-          <button class="primary" onClick=${() => onCookComment(entry.id, comment)}>${entry.cookComment ? "UPDATE" : "SAVE"}</button>
+          <input
+            aria-label="Cook note"
+            placeholder="optional note: why it ran long/short (burned the first batch)"
+            value=${comment}
+            onInput=${(/** @type {{ currentTarget: HTMLInputElement }} */ e) => setComment(e.currentTarget.value)}
+          />
+          <button class="primary" onClick=${() => onCookComment(entry.id, comment)}>
+            ${entry.cookComment ? "UPDATE" : "SAVE"}
+          </button>
         </div>`
       }
     </div>`;
   }
   return html`<div class="tile">
     <div class="row">
-      <span class="k">cook timer${statedMinutes ? html` <span class="hint">plan says ${statedMinutes}m</span>` : ""}</span>
+      <span class="k"
+        >cook
+        timer${statedMinutes ? html` <span class="hint">plan says ${statedMinutes}m</span>` : ""}</span
+      >
       ${mine && html`<span class="status num">${clockOf(elapsedMs)}${running ? "" : " · paused"}</span>`}
     </div>
     <div class="actions">
@@ -125,7 +138,7 @@ function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
 }
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void }} props
  */
 export function RecipeView({
   recipe,
@@ -137,6 +150,8 @@ export function RecipeView({
   potRows,
   unshopped = false,
   onPromote,
+  avoided = false,
+  onAvoid = undefined,
   entry = undefined,
   onCooked = undefined,
   onCookComment = undefined,
@@ -144,6 +159,7 @@ export function RecipeView({
   tableCooked = false,
   onCookedTable = undefined,
 }) {
+  const [avoidBusy, setAvoidBusy] = useState(false);
   const [promoting, setPromoting] = useState(
     /** @type {null | "busy" | "done" | "error"} */ (null),
   );
@@ -272,6 +288,44 @@ export function RecipeView({
         promoting === "done" &&
         html`<p class="hint" role="status">promoted: the planner can use this recipe now.</p>`
       }
+      ${
+        // NEVER SUGGEST THIS AGAIN (David, 2026-08-24). `targets.avoidRecipes`
+        // was honoured by the generator for weeks with NO way to write it from
+        // the app -- its only entry had been hand-edited into the JSON. A
+        // toggle rather than a delete: the recipe stays, so a mistaken tap
+        // costs nothing and the same button undoes it.
+        onAvoid &&
+        recipe?.id &&
+        html`<div class="actions">
+          <button
+            class=${avoided ? "primary" : ""}
+            disabled=${avoidBusy}
+            onClick=${async () => {
+              setAvoidBusy(true);
+              try {
+                await onAvoid(recipe.id, !avoided);
+              } finally {
+                setAvoidBusy(false);
+              }
+            }}
+          >
+            ${
+              avoidBusy
+                ? "SAVING…"
+                : avoided
+                  ? "ON YOUR NEVER-AGAIN LIST — TAP TO ALLOW IT BACK"
+                  : "NEVER SUGGEST THIS AGAIN"
+            }
+          </button>
+          <p class="hint">
+            ${
+              avoided
+                ? "the week generator skips this, and it stays off your shopping list."
+                : "keeps the recipe, but the week generator stops choosing it for you."
+            }
+          </p>
+        </div>`
+      }
 
       <div class="macros4">
         <div class="tile">
@@ -335,21 +389,26 @@ export function RecipeView({
         tableId &&
         onCookedTable &&
         html`<div class="tile serve">
-          <div class="serve-title">SERVE${serve && serve.rows.length > 0 ? "" : " · same plate for everyone"}</div>
+          <div class="serve-title">
+            SERVE${serve && serve.rows.length > 0 ? "" : " · same plate for everyone"}
+          </div>
           ${serve && serve.rows.length > 0 && html`<div class="serve-sub">Amounts for tonight's table.</div>`}
           ${(serve?.rows ?? []).map((r) =>
             r.kind === "aside"
               ? html`<div class="serve-seat aside" key=${r.id}>
                   <div class="serve-name">SET ASIDE</div>
                   <div class="serve-line">
-                    ${r.name.toUpperCase()}'s portion, ${r.fraction}, set apart${r.note ? ` (${r.note})` : ""}
+                    ${r.name.toUpperCase()}'s portion, ${r.fraction}, set
+                    apart${r.note ? ` (${r.note})` : ""}
                   </div>
                 </div>`
               : html`<div class="serve-seat" key=${r.id}>
                   <div class="serve-name">${r.name.toUpperCase()}</div>
                   ${
                     r.lines && r.lines.length > 0
-                      ? r.lines.map((line, i) => html`<div class="serve-line" key=${i}>${line}</div>`)
+                      ? r.lines.map(
+                          (line, i) => html`<div class="serve-line" key=${i}>${line}</div>`,
+                        )
                       : html`<div class="serve-line">${r.fraction}</div>`
                   }
                   ${r.note && html`<div class="serve-line hint">${r.note}</div>`}
@@ -367,7 +426,6 @@ export function RecipeView({
           </div>
         </div>`
       }
-
       ${
         recipe.batchPrep &&
         html`<div class="tile portion batch" role="note">
@@ -387,7 +445,6 @@ export function RecipeView({
           }
         </div>`
       }
-
       ${
         // TODAY'S ROTATION (David 2026-08-24). The bowl and the smoothie are
         // eaten every day, which is right nutritionally and is exactly how a
@@ -405,31 +462,33 @@ export function RecipeView({
             </p>
             <div>
               ${chosen.kept.map(
-                (/** @type {any} */ c) => html`<div class="ing staple" key=${c.food}>
-                  <span>${c.food} <span class="pantry-mark">every day</span></span>
-                  <span class="q">${formatRecipeQty(c.qty, c.unit)}</span>
-                </div>`,
+                (/** @type {any} */ c) =>
+                  html`<div class="ing staple" key=${c.food}>
+                    <span>${c.food} <span class="pantry-mark">every day</span></span>
+                    <span class="q">${formatRecipeQty(c.qty, c.unit)}</span>
+                  </div>`,
               )}
               ${chosen.rotated.map(
-                (/** @type {any} */ c) => html`<div class="ing" key=${c.food}>
-                  <span>${c.food}</span>
-                  <span class="q">${formatRecipeQty(c.qty, c.unit)}</span>
-                </div>`,
+                (/** @type {any} */ c) =>
+                  html`<div class="ing" key=${c.food}>
+                    <span>${c.food}</span>
+                    <span class="q">${formatRecipeQty(c.qty, c.unit)}</span>
+                  </div>`,
               )}
             </div>
             <div class="row">
               <span class="k">Today comes to</span>
               <span class="status num"
-                >${Math.round(chosen.macros.calories)} kcal ·
-                ${Math.round(chosen.macros.protein)} g</span
+                >${Math.round(chosen.macros.calories)} kcal · ${Math.round(chosen.macros.protein)}
+                g</span
               >
             </div>
             ${
               chosen.withinTolerance
                 ? null
                 : html`<p class="hint">
-                    ⚠️ No combination of these hits the stated macros. This is the closest, and
-                    the pool or the tolerance needs a look.
+                    ⚠️ No combination of these hits the stated macros. This is the closest, and the
+                    pool or the tolerance needs a look.
                   </p>`
             }
             <p class="hint">
@@ -479,4 +538,3 @@ export function RecipeView({
     </div>
   `;
 }
-

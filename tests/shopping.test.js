@@ -33,6 +33,7 @@ import {
   normalizeShoppingList,
   cycleDayPick,
   expiryFrom,
+  cartLines,
 } from "../app/lib/shopping.js";
 
 test("tripOf: perishable sections are the fresh trip, shelf-stable the pantry trip", () => {
@@ -1969,4 +1970,46 @@ test("perishableStatus reads the stamped expiry when present", () => {
   assert.deepEqual(perishableStatus(stamped, "2026-08-19"), { goodUntil: "2026-08-21", daysLeft: 2 });
   const legacy = { food: "spinach", added: "2026-08-16", location: "fridge" };
   assert.equal(perishableStatus(legacy, "2026-08-19").goodUntil, "2026-08-22", "regex fallback unchanged");
+});
+
+// THE SEVEN BROCCOLIS (David, 2026-08-24: "last time I ended up with like
+// seven things of frozen broccoli"). Both halves of that bug get a test.
+test("rows sharing ONE product become ONE cart line, not seven", () => {
+  const items = [
+    { food: "broccoli", qty: 340, unit: "g" },
+    { food: "broccoli florets", qty: 340, unit: "g" },
+    { food: "frozen broccoli", qty: 340, unit: "g" },
+  ];
+  const lines = cartLines(items, () => "0001111041700", () => 1);
+  assert.equal(lines.length, 1, "three rows on one UPC must send one line");
+  assert.equal(lines[0].quantity, 3, "and carry the summed count, not three lines of 1");
+});
+
+test("quantity is the REAL pack count, never a hard-coded 1", () => {
+  // 900 g of broccoli against a 12 oz bag is three bags, not one
+  const lines = cartLines([{ food: "broccoli", qty: 900, unit: "g" }], () => "u1", () => 3);
+  assert.equal(lines[0].quantity, 3);
+});
+
+test("an unpriced row still orders one package rather than vanishing", () => {
+  const lines = cartLines([{ food: "saffron", qty: 2, unit: "g" }], () => "u1", () => null);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].quantity, 1);
+});
+
+test("checked and unpinned rows never reach the cart", () => {
+  const lines = cartLines(
+    [
+      { food: "broccoli", qty: 1, unit: "each", checked: true },
+      { food: "unpinned thing", qty: 1, unit: "each" },
+    ],
+    (f) => (f === "broccoli" ? "u1" : null),
+    () => 1,
+  );
+  assert.deepEqual(lines, []);
+});
+
+test("a line is clamped to what Kroger will accept", () => {
+  const lines = cartLines([{ food: "x", qty: 1, unit: "each" }], () => "u1", () => 500);
+  assert.equal(lines[0].quantity, 99);
 });

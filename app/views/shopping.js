@@ -38,6 +38,7 @@ import {
   formatStoreQty,
   sectionOf,
   tripOf,
+  cartLines,
 } from "../lib/shopping.js";
 import { AISLES } from "../lib/ingredients.js";
 import { decodeReceiptLine, shopScore } from "../lib/receipt.js";
@@ -489,7 +490,9 @@ export function ShoppingView({
   // repeat identically under a per-trip header. The buy column is always
   // explicit — "×1 avocado but a 4 ct bag" must be visible without a tap.
   const spFor = (/** @type {any} */ item) =>
-    prices && homeStore ? matchPrice(item.food, prices.items ?? [])?.prices?.[homeStore] : undefined;
+    prices && homeStore
+      ? matchPrice(item.food, prices.items ?? [])?.prices?.[homeStore]
+      : undefined;
   const buyCell = (/** @type {any} */ item) => {
     if (!prices || !homeStore) return "";
     const c = rowCost(item);
@@ -504,7 +507,9 @@ export function ShoppingView({
     if (!prices || !homeStore) return "";
     const sp = spFor(item);
     if (!sp || rowCost(item) == null) return "—";
-    const perLb = String(sp.size ?? "").toLowerCase().includes("per lb");
+    const perLb = String(sp.size ?? "")
+      .toLowerCase()
+      .includes("per lb");
     // sale = the card price the API returned under promo (applyLivePrice
     // writes it as the effective price and flags the row)
     return `$${sp.price.toFixed(2)}${perLb ? "/lb" : ""}${/** @type {any} */ (sp).sale ? " 🏷" : ""}`;
@@ -520,18 +525,20 @@ export function ShoppingView({
     const stale = isStalePrice(spFor(item), todayIso);
     return `$${c.cost.toFixed(2)}${c.estimate ? "~" : ""}${stale ? " †" : ""}`;
   };
-  const colCells = (/** @type {any} */ item) => html`<span class="cols num">
-    <span class="c">${formatStoreQty(item.qty, item.unit)}</span>
-    <span class="c">${buyCell(item)}</span>
-    <span class="c">${unitCell(item)}</span>
-    <span class="c">${totalCell(item)}</span>
-  </span>`;
-  const colHead = () => html`<div class="colhead num">
-    <span class="c">NEED</span>
-    <span class="c">BUY</span>
-    <span class="c">$/UNIT</span>
-    <span class="c">TOTAL</span>
-  </div>`;
+  const colCells = (/** @type {any} */ item) =>
+    html`<span class="cols num">
+      <span class="c">${formatStoreQty(item.qty, item.unit)}</span>
+      <span class="c">${buyCell(item)}</span>
+      <span class="c">${unitCell(item)}</span>
+      <span class="c">${totalCell(item)}</span>
+    </span>`;
+  const colHead = () =>
+    html`<div class="colhead num">
+      <span class="c">NEED</span>
+      <span class="c">BUY</span>
+      <span class="c">$/UNIT</span>
+      <span class="c">TOTAL</span>
+    </div>`;
 
   // ---- live Kroger pricing (fix list Tier 3: pins, refresh, confirm-once) --
   // Only a store with a registered locationId in pins.json gets live
@@ -597,14 +604,55 @@ export function ShoppingView({
   // this hands off and never claims to have ordered anything.
   const [cartNote, setCartNote] = useState("");
   const [cartOff, setCartOff] = useState(false);
+  // THE SEVEN BROCCOLIS (David, 2026-08-24: "last time I ended up with like
+  // seven things of frozen broccoli"). Kroger's cart endpoint is ADD-ONLY and
+  // ADDITIVE, with no read-back at the public tier -- the same push twice puts
+  // the food in twice. Nothing here stopped a second tap: no disabled state,
+  // no sent flag, no confirm. A slow response on store wifi, an impatient
+  // second tap, or simply opening the list again later all stacked another
+  // full copy of the week into the cart, silently.
+  //
+  // So a send is now a one-time act that has to be explicitly re-armed. The
+  // count is what makes it legible: he can SEE it is about to go in twice.
+  const [cartSent, setCartSent] = useState(0);
+  const [cartArmed, setCartArmed] = useState(false);
   // rows we can actually send: a UPC only exists once a food is pinned here
-  const cartRows = tripItems
-    .filter((/** @type {any} */ i) => !i.checked)
-    .map((/** @type {any} */ i) => ({ item: i, pin: pinFor(pins, i.food, homeStore) }))
-    .flatMap((r) => (r.pin?.upc ? [{ upc: r.pin.upc, quantity: 1 }] : []));
+  //
+  // TWO BUGS LIVED IN THE ONE LINE THIS REPLACES (David, 2026-08-24: "last
+  // time I ended up with like seven things of frozen broccoli"):
+  //
+  //  1. NO DEDUPE BY UPC. Several rows legitimately pin to the SAME product --
+  //     a week's broccoli arrives from a stir-fry, a steam-fry and a bowl, and
+  //     the list keeps them as separate foods. Each sent its own
+  //     `{upc, quantity: 1}` line and **Kroger SUMS duplicate UPCs**, so seven
+  //     rows became seven bags. That is the reported bug, exactly.
+  //  2. QUANTITY WAS HARD-CODED TO 1. A row needing 900 g of broccoli against
+  //     a 12 oz bag ordered one bag: a quarter of the need. The two bugs
+  //     pulled in opposite directions, which is why neither showed up as a
+  //     simple "too much" or "too little" and both survived.
+  //
+  // Both are answered by the pack count `itemCost` ALREADY computes for the
+  // budget line. Using it here means the number that PRICES a row is the same
+  // number that ORDERS it, so the cart and the week's total cannot drift apart.
+  // An unpriced row still falls back to one package, which is the old
+  // behaviour and is flagged to the user as an estimate elsewhere.
+  const cartRows = cartLines(
+    tripItems,
+    (food) => pinFor(pins, food, homeStore)?.upc,
+    (i) => itemCost(i, prices, homeStore)?.packs,
+  );
 
   const sendToKrogerCart = async () => {
     if (cartRows.length === 0) return;
+    // already sent this list once: make the second push a deliberate choice
+    if (cartSent > 0 && !cartArmed) {
+      setCartArmed(true);
+      setCartNote(
+        `already sent ${cartSent} time${cartSent === 1 ? "" : "s"} — sending again ADDS another copy to your Kroger cart. Tap once more only if you really want doubles.`,
+      );
+      return;
+    }
+    setCartArmed(false);
     setCartNote("sending…");
     try {
       if (!krogerLinked()) {
@@ -613,10 +661,13 @@ export function ShoppingView({
         return;
       }
       const sent = await krogerCartAdd(cartRows);
+      setCartSent((n) => n + 1);
       // "sent", never "added": the public tier is add-only with no read-back,
       // so an HTTP 200 is the ONLY evidence there is. Overclaiming here is
       // how a missing item becomes a surprise at the pickup counter.
-      setCartNote(`sent ${sent} row${sent === 1 ? "" : "s"} to your Kroger cart — open the Pay Less app to check it and place the order`);
+      setCartNote(
+        `sent ${sent} row${sent === 1 ? "" : "s"} to your Kroger cart — open the Pay Less app to check it and place the order`,
+      );
     } catch (e) {
       const msg = e instanceof Error ? e.message : "that did not work";
       if (/not set up yet/.test(msg)) {
@@ -701,18 +752,37 @@ export function ShoppingView({
     pricePick &&
     html`<div class="tile">
       <div class="row">
-        <span class="k">${pricePick.confirm ? "confirm product for" : "price"} ${pricePick.item.food} · ${STORE_NAMES[homeStore] ?? homeStore}</span>
+        <span class="k"
+          >${pricePick.confirm ? "confirm product for" : "price"} ${pricePick.item.food} ·
+          ${STORE_NAMES[homeStore] ?? homeStore}</span
+        >
         <button class="linktext" onClick=${() => setPricePick(null)}>CLOSE</button>
       </div>
       ${
         pricePick.confirm &&
         html`<div class="row">
-            <span class="k">${pricePick.confirm.description} <span class="hint">${pricePick.confirm.size}</span></span>
-            <button class="linktext" onClick=${() => { if (onSavePins) onSavePins(confirmPin(normalizePins(pins), pricePick.item.food, homeStore, todayIso)); setPricePick(null); }}>CONFIRM</button>
+            <span class="k"
+              >${pricePick.confirm.description}
+              <span class="hint">${pricePick.confirm.size}</span></span
+            >
+            <button
+              class="linktext"
+              onClick=${() => {
+                if (onSavePins)
+                  onSavePins(
+                    confirmPin(normalizePins(pins), pricePick.item.food, homeStore, todayIso),
+                  );
+                setPricePick(null);
+              }}
+            >
+              CONFIRM
+            </button>
           </div>
           <p class="hint">
             auto-picked as the cheapest match — confirming keeps it, or${" "}
-            <button class="linktext" onClick=${() => openPricePick(pricePick.item)}>search for something better</button>
+            <button class="linktext" onClick=${() => openPricePick(pricePick.item)}>
+              search for something better
+            </button>
           </p>`
       }
       ${pricePick.busy && html`<p class="hint">searching the store…</p>`}
@@ -721,7 +791,12 @@ export function ShoppingView({
       ${pricePick.candidates.slice(0, 8).map((/** @type {any} */ c) => {
         const hits = allergenHits(c, avoid);
         return html`<div class="row" key=${c.upc}>
-          <span class="k">${c.description} <span class="hint">${c.brand ? `${c.brand} · ` : ""}${c.size}${c.unitLabel ? ` · ${c.unitLabel}` : ""}${c.spend != null && c.spend !== c.price.regular ? ` · covers yours $${c.spend.toFixed(2)}` : ""}${c.aisle ? ` · ${c.aisle}` : ""}${c.price.promo != null ? ` · promo $${c.price.promo.toFixed(2)}` : ""}</span></span>
+          <span class="k"
+            >${c.description}
+            <span class="hint"
+              >${c.brand ? `${c.brand} · ` : ""}${c.size}${c.unitLabel ? ` · ${c.unitLabel}` : ""}${c.spend != null && c.spend !== c.price.regular ? ` · covers yours $${c.spend.toFixed(2)}` : ""}${c.aisle ? ` · ${c.aisle}` : ""}${c.price.promo != null ? ` · promo $${c.price.promo.toFixed(2)}` : ""}</span
+            ></span
+          >
           ${hits.length > 0 ? html`<span class="status warn">contains ${hits.join(", ")}</span>` : html`<button class="linktext num" onClick=${() => choosePick(pricePick.item, c)}>$${c.price.regular.toFixed(2)} PIN</button>`}
         </div>`;
       })}
@@ -1319,9 +1394,9 @@ export function ShoppingView({
           <p class="hint lockhint">
             ${
               /** @type {any} */ (plan)?.fallback
-                ? html`<strong>Shopped plan saved ✓</strong> — the week stays freely changeable;
-                    the Plan tab watches that every bought perishable still gets cooked before it
-                    dies, and ↩ can always put the shopped plan back.`
+                ? html`<strong>Shopped plan saved ✓</strong> — the week stays freely changeable; the
+                    Plan tab watches that every bought perishable still gets cooked before it dies,
+                    and ↩ can always put the shopped plan back.`
                 : html`<strong>Going shopping? Tap 🛒 GOING TO THE STORE first.</strong> It saves
                     this plan as your fallback — the week stays changeable after you buy, and the
                     app tracks that everything perishable still gets used.`
@@ -1355,41 +1430,42 @@ export function ShoppingView({
                         // Preact diff the list positionally (ui-review
                         // 2026-08-19: P+ removing a row would remount every
                         // row below it)
-                        (i) => html`<${Fragment} key=${i.id}>
-                          <div class="checkrow listcols ${i.checked ? "done" : ""}">
-                            <button
-                              class="tickarea"
-                              aria-pressed=${i.checked}
-                              onClick=${() => onToggleItem(i.id)}
-                            >
-                              <span class="box" aria-hidden="true">${i.checked ? "✓" : ""}</span>
-                              <span class="food"
-                                >${i.food}${
-                                  i.manual ? html` <span class="tag">manual</span>` : ""
-                                }${
-                                  /** @type {any} */ (i).kitchenHas
-                                    ? html` <span class="tag"
-                                        >buy this much — kitchen has the rest</span
-                                      >`
-                                    : ""
-                                }</span
-                              >
-                            </button>
-                            <div class="rowbtns">
+                        (i) =>
+                          html`<${Fragment} key=${i.id}>
+                            <div class="checkrow listcols ${i.checked ? "done" : ""}">
                               <button
-                                class="ownbtn"
-                                aria-label="Already have ${i.food} — move to pantry staples"
-                                onClick=${() => onOwnItem(i.id)}
+                                class="tickarea"
+                                aria-pressed=${i.checked}
+                                onClick=${() => onToggleItem(i.id)}
                               >
-                                P+
+                                <span class="box" aria-hidden="true">${i.checked ? "✓" : ""}</span>
+                                <span class="food"
+                                  >${i.food}${
+                                    i.manual ? html` <span class="tag">manual</span>` : ""
+                                  }${
+                                    /** @type {any} */ (i).kitchenHas
+                                      ? html` <span class="tag"
+                                          >buy this much — kitchen has the rest</span
+                                        >`
+                                      : ""
+                                  }</span
+                                >
                               </button>
-                              ${canLive && !rowCost(i) && html`<button class="ownbtn" aria-label="Find live price for ${i.food}" onClick=${() => openPricePick(i)}>$?</button>`}
-                              ${canLive && pinFor(pins, i.food, homeStore)?.provisional && html`<button class="ownbtn" aria-label="Confirm auto-picked product for ${i.food}" onClick=${() => openPinConfirm(i)}>?</button>`}
+                              <div class="rowbtns">
+                                <button
+                                  class="ownbtn"
+                                  aria-label="Already have ${i.food} — move to pantry staples"
+                                  onClick=${() => onOwnItem(i.id)}
+                                >
+                                  P+
+                                </button>
+                                ${canLive && !rowCost(i) && html`<button class="ownbtn" aria-label="Find live price for ${i.food}" onClick=${() => openPricePick(i)}>$?</button>`}
+                                ${canLive && pinFor(pins, i.food, homeStore)?.provisional && html`<button class="ownbtn" aria-label="Confirm auto-picked product for ${i.food}" onClick=${() => openPinConfirm(i)}>?</button>`}
+                              </div>
+                              ${colCells(i)}
                             </div>
-                            ${colCells(i)}
-                          </div>
-                          ${pricePick?.item?.id === i.id ? pickSheet() : ""}
-                        <//>`,
+                            ${pricePick?.item?.id === i.id ? pickSheet() : ""}
+                          <//>`,
                       )}
                     </div>
                   `,
@@ -1449,8 +1525,9 @@ export function ShoppingView({
                   homeSummary.variableRows > 0 &&
                   html`<div class="row">
                     <span class="k hint">
-                      ↳ ${homeSummary.variableRows} row${homeSummary.variableRows === 1 ? " is" : "s are"}
-                      sold by weight, so the pack you get decides the cents
+                      ↳ ${homeSummary.variableRows}
+                      row${homeSummary.variableRows === 1 ? " is" : "s are"} sold by weight, so the
+                      pack you get decides the cents
                     </span>
                   </div>`
                 }
@@ -1463,7 +1540,9 @@ export function ShoppingView({
                   homeSummary.eaten < homeSummary.subtotal - 0.5 &&
                   html`<div class="row">
                     <span class="k">↳ eaten this week ≈ $${homeSummary.eaten.toFixed(2)}</span>
-                    <span class="status num">$${(homeSummary.subtotal - homeSummary.eaten).toFixed(2)} becomes stock</span>
+                    <span class="status num"
+                      >$${(homeSummary.subtotal - homeSummary.eaten).toFixed(2)} becomes stock</span
+                    >
                   </div>`
                 }
                 ${
@@ -1537,7 +1616,9 @@ export function ShoppingView({
                 ${
                   canLive &&
                   homeSummary.unpriced > 0 &&
-                  html`<p class="hint">unpriced rows carry a $? button — one search, one tap, priced forever.</p>`
+                  html`<p class="hint">
+                    unpriced rows carry a $? button — one search, one tap, priced forever.
+                  </p>`
                 }
                 ${
                   bestStore &&
@@ -2227,8 +2308,7 @@ export function ShoppingView({
               </div>
             `
           }
-          ${coveredBlock(combinedTrip.covered)}
-          ${combinedSections.length > 0 && colHead()}
+          ${coveredBlock(combinedTrip.covered)} ${combinedSections.length > 0 && colHead()}
           ${combinedSections.map(
             (g) => html`
               <h2 class="block-title" key=${g.section}>

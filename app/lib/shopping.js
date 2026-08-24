@@ -571,6 +571,47 @@ export function packHint(food, qty, unit, catalogue = null, store = "") {
 }
 
 /**
+ * THE CART LINES for a trip, deduped by product and counted in real packages.
+ *
+ * David, 2026-08-24: "make sure that you're buying like real stuff cuz last
+ * time I ended up with like seven things of frozen broccoli."
+ *
+ * He had. Two bugs, pulling in opposite directions, which is why neither read
+ * as a plain "too much" or "too little" and both survived:
+ *
+ *  1. **No dedupe by product.** Several rows legitimately pin to the SAME UPC:
+ *     a week's broccoli arrives from a stir-fry, a steam-fry and a bowl, and
+ *     the list keeps those as separate foods on purpose. Each row sent its own
+ *     line and **Kroger sums duplicate UPCs**, so seven rows became seven bags.
+ *  2. **Quantity was hard-coded to 1.** A row needing 900 g against a 12 oz bag
+ *     ordered one bag, a quarter of the need.
+ *
+ * The pack count is the one `itemCost` already computes for the budget, passed
+ * in rather than imported so this module stays free of the price catalogue:
+ * the number that PRICES a row is the number that ORDERS it, and the cart can
+ * no longer disagree with the week's total.
+ *
+ * @param {{ food: string, qty: number, unit: string, checked?: boolean }[]} items the trip's rows
+ * @param {(food: string) => string | null | undefined} upcFor pinned UPC for a food, if any
+ * @param {(item: any) => number | null | undefined} packsFor packages needed, from itemCost
+ * @returns {{ upc: string, quantity: number }[]}
+ */
+export function cartLines(items, upcFor, packsFor) {
+  /** @type {Map<string, number>} */
+  const byUpc = new Map();
+  for (const i of items ?? []) {
+    if (i?.checked) continue;
+    const upc = upcFor(i?.food);
+    if (!upc) continue;
+    const n = Number(packsFor(i));
+    // an unpriced row cannot know its pack size: one package, same as before
+    byUpc.set(upc, (byUpc.get(upc) ?? 0) + (Number.isFinite(n) && n > 0 ? Math.ceil(n) : 1));
+  }
+  // Kroger rejects a line over 99; clamp rather than have the whole push fail
+  return [...byUpc].map(([upc, quantity]) => ({ upc, quantity: Math.min(99, quantity) }));
+}
+
+/**
  * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, sources: { profileId: string, checked: boolean, qty: number, unit: string, food: string, section: string }[] }} CombinedItem
  */
 
@@ -964,9 +1005,7 @@ export function applySweep(pantry, location, items, today) {
 export function perishableStatus(p, todayIso) {
   if (!p.expires && !p.added) return { goodUntil: null, daysLeft: null };
   // a stamped expiry (written at buy time, PF.3) outranks the regex estimate
-  const until = p.expires
-    ? new Date(`${p.expires}T00:00:00`)
-    : new Date(`${p.added}T00:00:00`);
+  const until = p.expires ? new Date(`${p.expires}T00:00:00`) : new Date(`${p.added}T00:00:00`);
   if (!p.expires) until.setDate(until.getDate() + shelfLifeDays(p.food, p.location));
   const today = new Date(`${todayIso}T00:00:00`);
   const daysLeft = Math.round((until.getTime() - today.getTime()) / 86400000);

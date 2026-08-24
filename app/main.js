@@ -1,6 +1,6 @@
 import { html, render } from "htm/preact";
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { checkDataRepo, getToken, setToken, DATA_REPO , tokenBroken } from "./lib/github.js";
+import { checkDataRepo, getToken, setToken, DATA_REPO, tokenBroken } from "./lib/github.js";
 import {
   initStore,
   write,
@@ -12,13 +12,15 @@ import {
   onSyncChange,
   readTargetsOf,
   readTargetsMetaOf,
- writeTargetsOf , pathFor } from "./lib/store.js";
+  writeTargetsOf,
+  pathFor,
+} from "./lib/store.js";
 import { initRouter } from "./lib/router.js";
 import { normalizeEquipment } from "./lib/equipment.js";
 import { formatSyncTime, isoWeekId, localIsoDate, parseLocalIso, statusDate } from "./lib/dates.js";
 import { applyScanItems } from "./lib/scan.js";
 import { dinerFacts } from "./lib/annotate.js";
-import { tailorTable, dinnerWeek , krogerConsumeRedirect } from "./lib/worker.js";
+import { tailorTable, dinnerWeek, krogerConsumeRedirect } from "./lib/worker.js";
 import { ProfileGateView } from "./views/profile-gate.js";
 import { CookbookView } from "./views/cookbook.js";
 import { RecipeView } from "./views/recipe.js";
@@ -93,7 +95,8 @@ import {
   mergeRecipePool,
   recipeConflicts,
   SLOT_KEYS,
- planSwipes } from "./lib/plan.js";
+  planSwipes,
+} from "./lib/plan.js";
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
 import { composeManifest, remanifest } from "./lib/manifest.js";
 import { swapToFit } from "./lib/budget.js";
@@ -209,18 +212,41 @@ function App() {
   useEffect(() => {
     const r = krogerConsumeRedirect();
     if (r === "linked") setKrogerLinkNote("Kroger account linked — SEND TO CART is ready on List.");
-    else if (r === "error") setKrogerLinkNote("Kroger sign-in did not complete. Try LINK KROGER again.");
+    else if (r === "error")
+      setKrogerLinkNote("Kroger sign-in did not complete. Try LINK KROGER again.");
   }, []);
 
   // KITCHEN EQUIPMENT (P6/P7). Writes the profile's own targets, so the
   // generator's pool filter and the "what would this unlock" counter both
   // read one declared list. Goes through writeTargetsOf, which writes the
   // canonical path and mirrors the legacy one.
-  const handleSaveEquipment = useCallback(
-    async (/** @type {string[]} */ owned) => {
+  const handleSaveEquipment = useCallback(async (/** @type {string[]} */ owned) => {
+    const me = activeProfile();
+    const cur = /** @type {any} */ (await readTargetsOf(me)) ?? {};
+    await writeTargetsOf(me, { ...cur, equipment: normalizeEquipment(owned) });
+    setTargets(/** @type {any} */ (await readTargetsOf(me)));
+  }, []);
+
+  // NEVER SUGGEST THIS AGAIN (P3, P12). David, 2026-08-24, about a recipe the
+  // generator kept buying $12 of dates for: "I don't need almond date flax
+  // energy bites like what the fuck even is this."
+  //
+  // `targets.avoidRecipes` has been honoured by the pool filter since the
+  // office-lunch-box incident, but NOTHING IN THE APP EVER WROTE IT -- its one
+  // entry was put there by hand, which is the standing-rule failure exactly:
+  // he could not remove a recipe he disliked without asking someone to edit
+  // JSON for him.
+  //
+  // A toggle, not a delete. The recipe survives, so a hasty tap costs nothing
+  // and the same button takes it back off the list.
+  const handleAvoidRecipe = useCallback(
+    async (/** @type {string} */ id, /** @type {boolean} */ avoid) => {
       const me = activeProfile();
       const cur = /** @type {any} */ (await readTargetsOf(me)) ?? {};
-      await writeTargetsOf(me, { ...cur, equipment: normalizeEquipment(owned) });
+      const list = new Set(Array.isArray(cur.avoidRecipes) ? cur.avoidRecipes : []);
+      if (avoid) list.add(id);
+      else list.delete(id);
+      await writeTargetsOf(me, { ...cur, avoidRecipes: [...list] });
       setTargets(/** @type {any} */ (await readTargetsOf(me)));
     },
     [],
@@ -466,9 +492,7 @@ function App() {
   );
   // ingredient→UPC pins per store (data-repo root, fix list 3.2/PF.3): the
   // ledger's identity file. Normalized-empty until pins.json loads/exists.
-  const [pins, setPins] = useState(
-    /** @type {import("./lib/kroger.js").PinBook | null} */ (null),
-  );
+  const [pins, setPins] = useState(/** @type {import("./lib/kroger.js").PinBook | null} */ (null));
 
   useEffect(() => {
     let alive = true;
@@ -829,14 +853,19 @@ function App() {
       // it unlocks the week's cook reminders and the eaten tracking. Its trip
       // total is the spend leg of the one ledger (PF.3): recorded on the
       // plan, so spent-vs-budgeted stops being estimates-only.
-      const tripSpend = Math.round(lines.reduce((s, l) => s + (Number(l.price) || 0), 0) * 100) / 100;
+      const tripSpend =
+        Math.round(lines.reduce((s, l) => s + (Number(l.price) || 0), 0) * 100) / 100;
       // the receipt IS proof of shopping, so it also guarantees the fallback
       // exists (7.2): a user who skips GOING TO THE STORE and scans straight
       // at the till still gets the shopped plan saved before anything can
       // reshape it (diff review 2026-08-19)
       const shoppedBase = prevPlan.fallback ? prevPlan : saveFallback(prevPlan, today);
       updatePlan(
-        setPlanShopped(shoppedBase, today, tripSpend > 0 ? { store, date: today, total: tripSpend } : null),
+        setPlanShopped(
+          shoppedBase,
+          today,
+          tripSpend > 0 ? { store, date: today, total: tripSpend } : null,
+        ),
       );
       // the trip is DONE: every row the till confirms (plus anything ticked in
       // the aisle) leaves the list and lands on a shelf. A fully-bought list
@@ -976,13 +1005,10 @@ function App() {
 
   // persist the shared pins book / price catalogue (Kroger loop, Tier 3):
   // the shopping view runs the searches, these write the results home
-  const handleSavePins = useCallback(
-    (/** @type {import("./lib/kroger.js").PinBook} */ next) => {
-      setPins(next);
-      void write("pins.json", /** @type {any} */ (next), { raw: true });
-    },
-    [],
-  );
+  const handleSavePins = useCallback((/** @type {import("./lib/kroger.js").PinBook} */ next) => {
+    setPins(next);
+    void write("pins.json", /** @type {any} */ (next), { raw: true });
+  }, []);
   const handleSavePrices = useCallback(
     (/** @type {import("./lib/prices.js").PriceCatalogue} */ next) => {
       setPriceCatalogue(next);
@@ -1378,7 +1404,10 @@ function App() {
       // empties the slot and never needs a gate.
       const marking = !outEntryAt(p.entries, date, slot);
       if (marking && entriesAt(p.entries, date, slot).length > 0) {
-        if (!(await askConfirm("Eating out instead? The planned meal in this slot will be removed."))) return;
+        if (
+          !(await askConfirm("Eating out instead? The planned meal in this slot will be removed."))
+        )
+          return;
         p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       }
       // 7.11: with a buffet currency on the profile, the away tap cycles
@@ -1434,7 +1463,12 @@ function App() {
   const handleRestoreFallback = useCallback(async () => {
     const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
     if (!p.fallback) return;
-    if (!(await askConfirm("Put the week back to the plan you shopped for? Cooked meals stay cooked."))) return;
+    if (
+      !(await askConfirm(
+        "Put the week back to the plan you shopped for? Cooked meals stay cooked.",
+      ))
+    )
+      return;
     updatePlan(restoreFallback(/** @type {import("./lib/plan.js").Plan} */ (planRef.current)));
   }, [updatePlan, askConfirm]);
 
@@ -1534,7 +1568,7 @@ function App() {
       if (prev) {
         lastReview = composeWeekReview({
           plan: prev,
-              waste: /** @type {any} */ (manifestInputs.current.waste),
+          waste: /** @type {any} */ (manifestInputs.current.waste),
           daily: /** @type {any} */ (dailyRef.current),
           targets: targetsRef.current,
           weekDates: datesOfWeek(prevId),
@@ -1574,9 +1608,7 @@ function App() {
       recipes: recipesRef.current,
       targets: targetsRef.current,
       review: lastReview,
-      drainDownIso: drainDownDate(
-        manifestInputs.current.household ?? normalizeHousehold(null),
-      ),
+      drainDownIso: drainDownDate(manifestInputs.current.household ?? normalizeHousehold(null)),
       // expiring-soon perishables are auto-flagged useSoon so the committees
       // favor recipes that cook them before they leave on their own
       pantry: withAutoUseSoon(pantryRef.current, localIsoDate(new Date())),
@@ -2343,7 +2375,9 @@ function App() {
     /** @type {Record<string, number>} */
     const slotShares = {};
     for (const s of seats) {
-      const own = /** @type {any} */ (s).guest ? GUEST_TARGETS : houseTargetsRef.current.get(s.id)?.data;
+      const own = /** @type {any} */ (s).guest
+        ? GUEST_TARGETS
+        : houseTargetsRef.current.get(s.id)?.data;
       targetsById.set(s.id, /** @type {any} */ (own ?? null));
       slotShares[s.id] = slotShareFor(/** @type {any} */ (own), t.slot);
     }
@@ -3450,28 +3484,28 @@ function App() {
         ⚠ NOTHING IS SAVING.
         ${
           repo?.auth === "norepo"
-            ? html` Your token is valid, but it cannot see
-                ${DATA_REPO.owner}/${DATA_REPO.repo}. Do NOT create a new one, that is the one thing
-                that cannot help. Fix its repository access: github.com → Settings → Developer
-                settings → Fine-grained tokens → your token → Repository access → Only select
-                repositories → ${DATA_REPO.repo}, and Permissions → Contents: Read and write.`
+            ? html` Your token is valid, but it cannot see ${DATA_REPO.owner}/${DATA_REPO.repo}. Do
+              NOT create a new one, that is the one thing that cannot help. Fix its repository
+              access: github.com → Settings → Developer settings → Fine-grained tokens → your token
+              → Repository access → Only select repositories → ${DATA_REPO.repo}, and Permissions →
+              Contents: Read and write.`
             : html` GitHub is rejecting your token. Renew it in SYS: github.com → Settings →
-                Developer settings → Fine-grained tokens → your token → Regenerate, then paste the
-                new string into SYS.`
+              Developer settings → Fine-grained tokens → your token → Regenerate, then paste the new
+              string into SYS.`
         }
-        Everything you do still works and is kept on this device${
-          sync.pending > 0 ? ` (${sync.pending} waiting)` : ""
-        }, and it will push itself once this is fixed. Until then do NOT reinstall the app or change
-        the data repo, because this device is the only copy.
+        Everything you do still works and is kept on this
+        device${sync.pending > 0 ? ` (${sync.pending} waiting)` : ""}, and it will push itself once
+        this is fixed. Until then do NOT reinstall the app or change the data repo, because this
+        device is the only copy.
       </div>`
     }
     ${
       syncThrottled &&
       html`<div class="banner">
         GitHub is rate-limiting writes right now. Nothing is wrong with your token and there is
-        nothing to fix: everything is kept on this device${
-          sync.pending > 0 ? ` (${sync.pending} waiting)` : ""
-        } and pushes itself shortly. Do NOT regenerate the token.
+        nothing to fix: everything is kept on this
+        device${sync.pending > 0 ? ` (${sync.pending} waiting)` : ""} and pushes itself shortly. Do
+        NOT regenerate the token.
       </div>`
     }
     ${
@@ -3590,6 +3624,8 @@ function App() {
         })()}
         unshopped=${!(/** @type {any} */ (plan)?.shoppedAt || houseShopped)}
         onPromote=${handlePromoteRecipe}
+        avoided=${(targets?.avoidRecipes ?? []).includes(route.id)}
+        onAvoid=${handleAvoidRecipe}
         entry=${route.entry ? (plan.entries ?? []).find((e) => e.id === route.entry) : undefined}
         onCooked=${handleMarkCooked}
         onCookComment=${handleCookComment}
