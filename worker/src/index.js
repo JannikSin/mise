@@ -60,6 +60,7 @@ import {
 
 import { callModel, providerConfigured } from "./provider.js";
 import { handleKroger, handleKrogerCallback } from "./kroger.js";
+import { handleHall } from "./hall.js";
 
 const DATA_REPO = "JannikSin/mise-data";
 
@@ -499,6 +500,8 @@ export default {
         "/annotate",
         "/annotate-save",
         "/notify-test",
+        "/hall/day",
+        "/hall/items",
       ].includes(url.pathname) &&
         !url.pathname.startsWith("/kroger/"))
     ) {
@@ -568,6 +571,7 @@ export default {
     if (
       url.pathname !== "/annotate-save" &&
       !url.pathname.startsWith("/kroger/") &&
+      !url.pathname.startsWith("/hall/") &&
       !providerConfigured(env)
     ) {
       return json(503, { error: "AI provider not configured yet" }, cors);
@@ -591,6 +595,11 @@ export default {
     {
       const kr = await handleKroger(url.pathname, body, env, (s, b) => json(s, b, cors));
       if (kr) return kr;
+    }
+
+    {
+      const hall = await handleHall(url.pathname, body, (s, b) => json(s, b, cors));
+      if (hall) return hall;
     }
 
     try {

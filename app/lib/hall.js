@@ -8,14 +8,21 @@
 //
 // The fetches live here rather than in the view because the item endpoint is
 // the only place nutrition exists, so composing one tray means one request per
-// candidate item. That needs bounding, caching and an abort path, none of
-// which belong in a render function.
+// candidate item. That needs bounding and caching, neither of which belongs
+// in a render function.
 //
-// The Worker is deliberately NOT in the path. Purdue's API is public, needs no
-// key, and is already in the page's connect-src. Proxying it would add a
-// dependency and a rate limit for nothing.
+// THE WORKER IS IN THE PATH, and I argued it should not be an hour before
+// writing this. **Purdue's API sends no Access-Control-Allow-Origin.** It is
+// public and keyless, so curl and node reach it happily and a browser will
+// not. The CSP already allowed api.hfs.purdue.edu and that was never the
+// blocker. The first click on a real device said "Failed to fetch", which is
+// what found it.
+//
+// The proxy also turns ~40 item lookups into one round trip, which matters
+// more on dorm wifi than it does here.
 
-import { itemsForMeal, itemUrlFor, menuUrlFor, parseItem } from "./dininghall.js";
+import { itemsForMeal, parseItem } from "./dininghall.js";
+import { hallDay, hallItems } from "./worker.js";
 
 /**
  * Purdue's residential dining courts. Names are the API's own location
@@ -40,13 +47,10 @@ const itemCache = new Map();
  * One court's published menu for one date.
  * @param {string} court
  * @param {string} dateIso
- * @param {{ signal?: AbortSignal }} [opts]
  * @returns {Promise<Record<string, any>>}
  */
-export async function fetchDay(court, dateIso, opts = {}) {
-  const res = await fetch(menuUrlFor(court, dateIso), { signal: opts.signal });
-  if (!res.ok) throw new Error(`the hall menu did not load (HTTP ${res.status})`);
-  return res.json();
+export async function fetchDay(court, dateIso) {
+  return hallDay(court, dateIso);
 }
 
 /**
@@ -70,30 +74,28 @@ export function mealsOn(day) {
  * would earn a reputation for hanging. Items the hall published no numbers for
  * are dropped by the composer anyway, so they are not fetched.
  * @param {{ id: string, name: string, nutritionReady: boolean }[]} items
- * @param {{ signal?: AbortSignal, max?: number, onProgress?: (done: number, total: number) => void }} [opts]
+ * @param {{ max?: number, onProgress?: (done: number, total: number) => void }} [opts]
  */
 export async function fetchNutrition(items, opts = {}) {
   const max = Math.max(1, opts.max ?? 60);
   const wanted = items.filter((i) => i.nutritionReady !== false).slice(0, max);
-  const out = [];
-  let done = 0;
-  for (const it of wanted) {
-    if (opts.signal?.aborted) break;
-    try {
-      let parsed = itemCache.get(it.id);
-      if (!parsed) {
-        const res = await fetch(itemUrlFor(it.id), { signal: opts.signal });
-        if (res.ok) {
-          parsed = parseItem(await res.json());
-          if (parsed) itemCache.set(it.id, parsed);
-        }
-      }
-      if (parsed) out.push({ ...it, ...parsed });
-    } catch {
-      // one dish failing to load is not a reason to fail the tray; the
-      // composer reports what it could not use
+  const missing = wanted.filter((i) => !itemCache.has(i.id));
+  if (missing.length > 0) {
+    opts.onProgress?.(0, missing.length);
+    const raw = await hallItems(missing.map((i) => i.id));
+    for (const j of raw) {
+      const parsed = parseItem(j);
+      // the id lives on the payload; match on it rather than on order, which
+      // the batch does not promise
+      const id = String(j?.ID ?? j?.Id ?? j?.id ?? "");
+      if (parsed && id) itemCache.set(id, parsed);
     }
-    opts.onProgress?.(++done, wanted.length);
+    opts.onProgress?.(missing.length, missing.length);
+  }
+  const out = [];
+  for (const it of wanted) {
+    const parsed = itemCache.get(it.id);
+    if (parsed) out.push({ ...it, ...parsed });
   }
   return out;
 }
@@ -103,10 +105,10 @@ export async function fetchNutrition(items, opts = {}) {
  * @param {string} court
  * @param {string} dateIso
  * @param {string} mealType
- * @param {{ signal?: AbortSignal, onProgress?: (done: number, total: number) => void }} [opts]
+ * @param {{ onProgress?: (done: number, total: number) => void }} [opts]
  */
 export async function loadMeal(court, dateIso, mealType, opts = {}) {
-  const day = await fetchDay(court, dateIso, opts);
+  const day = await fetchDay(court, dateIso);
   const listed = itemsForMeal(day, mealType);
   const priced = await fetchNutrition(listed, opts);
   return { day, listed, priced, published: day?.IsPublished !== false };

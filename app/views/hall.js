@@ -60,9 +60,12 @@ export function HallView({ targets = null, onAddToPlan }) {
     setProgress({ done: 0, total: 0 });
     try {
       const r = await loadMeal(court, date, meal, {
-        signal: ac.signal,
         onProgress: (done, total) => setProgress({ done, total }),
       });
+      // a stale request must not overwrite a newer one: the fetch itself is
+      // no longer abortable (it goes through the Worker), so the guard moves
+      // here rather than disappearing
+      if (ac.signal.aborted) return;
       setLoaded(r);
       setState("done");
     } catch (e) {

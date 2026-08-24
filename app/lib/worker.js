@@ -445,3 +445,31 @@ export async function krogerCartAdd(items) {
   const { sent } = await post("/kroger/cart/add", { accessToken, items });
   return Number(sent) || 0;
 }
+
+// ---------------------------------------------------------------------------
+// PURDUE DINING (P10). Proxied because their API sends no CORS header, not
+// because it needs a key. See worker/src/hall.js.
+// ---------------------------------------------------------------------------
+
+/**
+ * One court's published menu for one ISO date.
+ * @param {string} court
+ * @param {string} date ISO yyyy-mm-dd
+ * @returns {Promise<Record<string, any>>}
+ */
+export async function hallDay(court, date) {
+  const { day } = await post("/hall/day", { court, date });
+  return day;
+}
+
+/**
+ * Nutrition for many dishes in ONE round trip. The item endpoint is the only
+ * place nutrition lives, so a dinner menu is ~40 lookups; batching them is the
+ * difference between one request from a phone and forty.
+ * @param {string[]} ids
+ * @returns {Promise<Record<string, any>[]>}
+ */
+export async function hallItems(ids) {
+  const { items } = await post("/hall/items", { ids });
+  return Array.isArray(items) ? items : [];
+}
