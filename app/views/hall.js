@@ -53,7 +53,12 @@ export function HallView({ targets = null, onAddToPlan }) {
   // profile's own slot count is the honest default; a person eating their
   // last meal of the day sets it to 1 and gets the rest of the budget.
   const slotCount = Array.isArray(targets?.mealSlots) ? targets.mealSlots.length : 3;
-  const [mealsLeft, setMealsLeft] = useState(String(Math.max(1, slotCount)));
+  // null until the person types: useState captures its initial value ONCE, and
+  // `targets` arrives from IndexedDB AFTER first render, so seeding it here
+  // would freeze whatever was known at mount (it showed 3 for a four-slot
+  // profile). Deriving until touched keeps it honest.
+  const [mealsLeftDraft, setMealsLeft] = useState(/** @type {string | null} */ (null));
+  const mealsLeft = mealsLeftDraft ?? String(Math.max(1, slotCount));
   const quota = quotaFor(dayTarget, already, Number(mealsLeft) || 1);
   const avoid = Array.isArray(targets?.avoidAllergens) ? targets.avoidAllergens : [];
 
