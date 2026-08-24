@@ -49,6 +49,33 @@ export const MACRO = /** @type {Record<string, [number, number]>} */ ({
   tofu: [76, 8],
   tempeh: [193, 20],
   "greek yogurt": [59, 10],
+  // ---- 2026-08-24: foods the table had never heard of ----
+  // Found by auditing every recipe's stated protein against its own
+  // ingredients: EVERY whey-containing recipe scored ~0 g, which made the
+  // audit accuse 8 perfectly good smoothies and oat bowls. The gap is real
+  // and it is not only the audit's problem — synth.js prices plates from
+  // this table, so a whey shake was unpriceable.
+  "whey protein powder": [400, 80],
+  "protein powder": [400, 80],
+  whey: [400, 80],
+  "unsweetened soy milk": [33, 3.3],
+  "soy milk": [33, 3.3],
+  "skim milk": [34, 3.4],
+  milk: [50, 3.4],
+  "ground flaxseed": [534, 18],
+  flaxseed: [534, 18],
+  "chia seeds": [486, 17],
+  "cocoa powder": [228, 20],
+  // fruit: protein is near zero, but the CALORIES matter and were also
+  // missing, which skewed every calorie estimate that touched them
+  banana: [89, 1.1],
+  "mixed berries": [57, 0.7],
+  blueberries: [57, 0.7],
+  strawberries: [32, 0.7],
+  mango: [60, 0.8],
+  pineapple: [50, 0.5],
+  dates: [282, 2.5],
+  applesauce: [42, 0.2],
   "cottage cheese": [98, 11],
   skyr: [63, 11],
   feta: [264, 14],

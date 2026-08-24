@@ -987,10 +987,22 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
     if (e.recipeId) usedCount.set(e.recipeId, (usedCount.get(e.recipeId) ?? 0) + 1);
   }
 
+  // WHAT GETS TRIMMED FIRST (David 2026-08-24).
+  //
+  // Was: snack, then breakfast/lunch/smoothie, then dinner LAST. That
+  // protected the cooked meal and shaved the cheap assembled ones, which is
+  // backwards for how he actually eats: "if breakfast is a really easy way to
+  // get protein, a scoop of yogurt and a scoop of protein, why don't you just
+  // take some protein off of dinner? And then that makes dinner easier."
+  //
+  // Breakfast and the smoothie are assembly, he likes them, and they are the
+  // meals that start a day he eats late in. Dinner is the one he cooks, so
+  // taking grams off it makes the cooking smaller as well as the bill.
+  // Snack still goes first: it is the reactive top-up and the least missed.
   const tierOf = (/** @type {import("./plan.js").PlanEntry} */ e) => {
     if (e.slot === "snack") return 0;
-    if (e.slot === "dinner") return 2;
-    return 1;
+    if (e.slot === "dinner") return 1;
+    return 2;
   };
   const proteinOf = (/** @type {import("./plan.js").PlanEntry} */ e) =>
     recipesById.get(/** @type {string} */ (e.recipeId))?.nutrition?.protein ?? 0;
