@@ -816,20 +816,39 @@ test("a day already eating away is left alone, however that was decided", () => 
   assert.equal(out.entries.filter((e) => e.currency === "swipes").length, 6);
 });
 
-test("a hand-planned meal in the preferred slot is skipped, never cleared", () => {
+test("a PINNED meal in the preferred slot is respected, and never cleared", () => {
   const seeded = {
     week: "2026-W35",
-    entries: [{ id: "m", date: "2026-08-25", slot: "lunch", recipeId: "chana-masala", servings: 1 }],
+    entries: [
+      { id: "m", date: "2026-08-25", slot: "lunch", recipeId: "chana-masala", servings: 1, pinned: true },
+    ],
   };
   const out = planSwipes(seeded, WEEK_DATES, SWIPE_OPTS);
   assert.ok(
     out.entries.some((e) => e.id === "m" && e.recipeId === "chana-masala"),
-    "the planned meal survives",
+    "the pinned meal survives",
   );
   assert.equal(
     out.entries.filter((e) => e.date === "2026-08-25" && e.currency === "swipes").length,
     0,
   );
+});
+
+test("an UNPINNED auto-picked meal does NOT block a swipe, because generate clears it anyway", () => {
+  // measured: skipping on "any entry" meant an already-generated week could
+  // never gain a swipe, which is every week after the first. 0 of 7 placed.
+  const seeded = {
+    week: "2026-W35",
+    entries: WEEK_DATES.map((d, i) => ({
+      id: `a${i}`,
+      date: d,
+      slot: "lunch",
+      recipeId: "turkish-lentil-soup",
+      servings: 1,
+    })),
+  };
+  const out = planSwipes(seeded, WEEK_DATES, SWIPE_OPTS);
+  assert.equal(out.entries.filter((e) => e.currency === "swipes").length, 7);
 });
 
 test("no currency, or a zero allowance, changes nothing at all", () => {

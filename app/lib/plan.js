@@ -615,7 +615,12 @@ export function planSwipes(plan, dates, opts) {
     if (budget <= 0) break;
     if (opts.today && date < opts.today) continue; // a past day is read-only
     if (busy.has(date)) continue; // already eating away that day, however placed
-    if (entriesAt(next.entries, date, opts.slot).length > 0) continue; // hand-planned
+    // Only a PINNED meal is a real obstacle. generateWeek's step 1 clears
+    // every unpinned entry, so a slot holding an auto-picked lunch is about
+    // to be emptied anyway and must not block the swipe. Skipping on "any
+    // entry" meant a week that had already been generated could never gain a
+    // swipe, which is every week after the first: measured 0 of 7 placed.
+    if (entriesAt(next.entries, date, opts.slot).some((e) => e.pinned)) continue;
     next = {
       ...next,
       entries: [
