@@ -1,4 +1,6 @@
 import { html } from "htm/preact";
+import { rotateComponents, rotates } from "../lib/rotate.js";
+import { localIsoDate } from "../lib/dates.js";
 import { useEffect, useState } from "preact/hooks";
 import { cookPlan } from "../lib/portions.js";
 import { formatRecipeQty } from "../lib/shopping.js";
@@ -384,6 +386,58 @@ export function RecipeView({
             </div>`
           }
         </div>`
+      }
+
+      ${
+        // TODAY'S ROTATION (David 2026-08-24). The bowl and the smoothie are
+        // eaten every day, which is right nutritionally and is exactly how a
+        // person gets bored. The spine is fixed and the trimmings rotate,
+        // deterministically per date so a re-render never reshuffles
+        // breakfast, and only within a stated macro tolerance.
+        rotates(recipe) &&
+        (() => {
+          const chosen = rotateComponents(recipe.rotation, entry?.date ?? localIsoDate(new Date()));
+          return html`<div class="card rotation">
+            <h2 class="block-title">Today's bowl</h2>
+            <p class="hint">
+              ${recipe.rotation.perDay} of ${recipe.rotation.pool.length}, chosen for
+              ${entry?.date ?? "today"}. Same day, same bowl.
+            </p>
+            <div>
+              ${chosen.kept.map(
+                (/** @type {any} */ c) => html`<div class="ing staple" key=${c.food}>
+                  <span>${c.food} <span class="pantry-mark">every day</span></span>
+                  <span class="q">${formatRecipeQty(c.qty, c.unit)}</span>
+                </div>`,
+              )}
+              ${chosen.rotated.map(
+                (/** @type {any} */ c) => html`<div class="ing" key=${c.food}>
+                  <span>${c.food}</span>
+                  <span class="q">${formatRecipeQty(c.qty, c.unit)}</span>
+                </div>`,
+              )}
+            </div>
+            <div class="row">
+              <span class="k">Today comes to</span>
+              <span class="status num"
+                >${Math.round(chosen.macros.calories)} kcal ·
+                ${Math.round(chosen.macros.protein)} g</span
+              >
+            </div>
+            ${
+              chosen.withinTolerance
+                ? null
+                : html`<p class="hint">
+                    ⚠️ No combination of these hits the stated macros. This is the closest, and
+                    the pool or the tolerance needs a look.
+                  </p>`
+            }
+            <p class="hint">
+              The full list below is the recipe as written; this is what to actually put in it
+              today.
+            </p>
+          </div>`;
+        })()
       }
 
       <h2 class="block-title">Ingredients</h2>
