@@ -47,7 +47,14 @@ export function HallView({ targets = null, onAddToPlan }) {
     protein: Number(targets?.macros?.protein) || 0,
   };
   const already = { calories: Number(eatenCal) || 0, protein: Number(eatenPro) || 0 };
-  const quota = quotaFor(dayTarget, already, 1);
+  // MEALS LEFT, not 1. Defaulting to "the whole day" produced a tray of three
+  // turkey burgers, three queso dips and two slices of Boston cream pie
+  // totalling 3,972 kcal, which is a day at one sitting and not a meal. The
+  // profile's own slot count is the honest default; a person eating their
+  // last meal of the day sets it to 1 and gets the rest of the budget.
+  const slotCount = Array.isArray(targets?.mealSlots) ? targets.mealSlots.length : 3;
+  const [mealsLeft, setMealsLeft] = useState(String(Math.max(1, slotCount)));
+  const quota = quotaFor(dayTarget, already, Number(mealsLeft) || 1);
   const avoid = Array.isArray(targets?.avoidAllergens) ? targets.avoidAllergens : [];
 
   const load = async () => {
@@ -144,6 +151,20 @@ export function HallView({ targets = null, onAddToPlan }) {
           onInput=${(/** @type {any} */ e) => setEatenPro(e.currentTarget.value)}
         />
       </div>
+
+      <div class="row">
+        <span class="k">meals left today</span>
+        <input
+          inputmode="numeric"
+          aria-label="Meals left to eat today, including this one"
+          value=${mealsLeft}
+          onInput=${(/** @type {any} */ e) => setMealsLeft(e.currentTarget.value)}
+        />
+      </div>
+      <p class="hint">
+        Including this one. Set it to 1 if this is your last meal of the day and the tray should
+        carry everything you have left.
+      </p>
 
       <div class="row">
         <span class="k">This tray aims at</span>
