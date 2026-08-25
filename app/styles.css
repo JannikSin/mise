@@ -2506,7 +2506,9 @@ details.dayrow summary:focus-visible {
   margin: 0.5rem 0;
 }
 @media (min-width: 30rem) {
-  .gear-grid { grid-template-columns: 1fr 1fr; }
+  .gear-grid {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 .gear-item {
   display: flex;
@@ -2517,6 +2519,41 @@ details.dayrow summary:focus-visible {
   cursor: pointer;
   min-height: 2.75rem;
 }
-.gear-item:active { background: rgba(127, 127, 127, 0.12); }
-.gear-item input { width: 1.15rem; height: 1.15rem; flex: 0 0 auto; margin-top: 0.1rem; }
-.gear-item small { display: block; }
+.gear-item:active {
+  background: rgba(127, 127, 127, 0.12);
+}
+.gear-item input {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+}
+.gear-item small {
+  display: block;
+}
+
+/* KROGER PUSH LOG (David, 2026-08-25: "I'm logged in to my account on the Pay
+   Less app, but I see nothing"). Kroger's cart cannot be read back, so this is
+   the only record of what was sent. Collapsed by default — it is a diagnostic,
+   not something to read every shop. */
+.pushlog {
+  margin-top: 0.6rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.5rem;
+}
+.pushlog > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--dim);
+  padding: 0.35rem 0;
+}
+.pushrow {
+  border-left: 2px solid var(--line);
+  padding-left: 0.6rem;
+  margin: 0.4rem 0;
+}
+.pushlog .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  word-break: break-all;
+}

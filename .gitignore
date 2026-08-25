@@ -22,3 +22,9 @@ docs/BUILD_PLAN.md
 spike/
 claude-config/
 .claude/settings.local.json
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example

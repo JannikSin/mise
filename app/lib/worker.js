@@ -346,6 +346,60 @@ export async function askTurn(messages, context) {
 const KROGER_ACCESS = "mise.kroger.access";
 const KROGER_REFRESH = "mise.kroger.refresh";
 const KROGER_EXPIRES = "mise.kroger.expires";
+const KROGER_LOG = "mise.kroger.log";
+
+/**
+ * A DURABLE RECORD OF WHAT WAS PUSHED (David, 2026-08-25: "I'm logged in to my
+ * account on the Pay Less app, but I see nothing").
+ *
+ * Kroger's cart API is add-only with NO read-back at any public tier, so the
+ * app genuinely cannot look in his cart and say what is there. What it CAN do,
+ * and did not, is remember what it sent. The old note was transient component
+ * state: it vanished on the next navigation, so a push that failed and a push
+ * that never happened looked identical an hour later, and he had no way to
+ * tell me which one he was living in.
+ *
+ * Keeps the last few pushes with the exact UPCs and counts, so a missing item
+ * is checkable by searching that UPC in the Kroger app.
+ *
+ * @param {{ ok: boolean, rows: { upc: string, quantity: number }[], message: string, test?: boolean, store?: string }} entry
+ */
+export function recordKrogerPush(entry) {
+  try {
+    const log = krogerPushLog();
+    log.unshift({ ...entry, at: new Date().toISOString() });
+    localStorage.setItem(KROGER_LOG, JSON.stringify(log.slice(0, 5)));
+  } catch {
+    // a browser refusing storage still gets the live note; only history is lost
+  }
+}
+
+/**
+ * @returns {{ ok: boolean, rows: { upc: string, quantity: number }[], message: string, test?: boolean, store?: string, at: string }[]}
+ */
+export function krogerPushLog() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(KROGER_LOG) ?? "[]");
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * When this browser's Kroger link expires, as an ISO string, or "" when it
+ * holds no link. A link that LOOKS present but expired is the other way a
+ * push silently does nothing.
+ * @returns {string}
+ */
+export function krogerLinkExpiry() {
+  try {
+    const ms = Number(localStorage.getItem(KROGER_EXPIRES));
+    return Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : "";
+  } catch {
+    return "";
+  }
+}
 
 /** @returns {boolean} true when this browser holds a Kroger customer link */
 export function krogerLinked() {

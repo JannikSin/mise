@@ -11,6 +11,9 @@ import {
   krogerUnlink,
   scanPhoto,
   scanReceipt,
+  recordKrogerPush,
+  krogerPushLog,
+  krogerLinkExpiry,
 } from "../lib/worker.js";
 import {
   aisleLabelsFromPins,
@@ -615,6 +618,8 @@ export function ShoppingView({
   // So a send is now a one-time act that has to be explicitly re-armed. The
   // count is what makes it legible: he can SEE it is about to go in twice.
   const [cartSent, setCartSent] = useState(0);
+  const [pushLog, setPushLog] = useState(/** @type {any[]} */ ([]));
+  useEffect(() => setPushLog(krogerPushLog()), []);
   const [cartArmed, setCartArmed] = useState(false);
   // rows we can actually send: a UPC only exists once a food is pinned here
   //
@@ -682,6 +687,14 @@ export function ShoppingView({
       }
       const sent = await krogerCartAdd(rows);
       if (opts.test !== true) setCartSent((n) => n + 1);
+      recordKrogerPush({
+        ok: true,
+        rows,
+        test: opts.test === true,
+        store: homeStore,
+        message: `Kroger accepted ${sent} row${sent === 1 ? "" : "s"}`,
+      });
+      setPushLog(krogerPushLog());
       // "sent", never "added": the public tier is add-only with no read-back,
       // so an HTTP 200 is the ONLY evidence there is. Overclaiming here is
       // how a missing item becomes a surprise at the pickup counter.
@@ -690,6 +703,14 @@ export function ShoppingView({
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : "that did not work";
+      recordKrogerPush({
+        ok: false,
+        rows,
+        test: opts.test === true,
+        store: homeStore,
+        message: msg,
+      });
+      setPushLog(krogerPushLog());
       if (/not set up yet/.test(msg)) {
         setCartOff(true);
         setCartNote("");
@@ -1653,6 +1674,66 @@ export function ShoppingView({
                     }`
                 }
                 ${canLive && cartNote && html`<p class="hint">${cartNote}</p>`}
+                ${
+                  // WHAT ACTUALLY HAPPENED (David, 2026-08-25: "I'm logged in
+                  // to my account on the Pay Less app, but I see nothing").
+                  // Kroger cannot be read back, so this shows what WE sent and
+                  // what Kroger said about it, durably. The UPCs are printed
+                  // because searching one in the Kroger app is the only way to
+                  // tell "never arrived" from "arrived, looking in the wrong
+                  // place".
+                  canLive &&
+                  html`<details class="pushlog">
+                    <summary>
+                      kroger status ·
+                      ${krogerLinked() ? "linked" : "NOT LINKED — that is why nothing arrives"}
+                    </summary>
+                    ${
+                      !krogerLinked() &&
+                      html`<p class="hint">
+                        Signing in to the Pay Less app is <b>not</b> the same as linking Mise. Tap
+                        LINK KROGER above, finish Kroger's sign-in page, and let it bounce you back
+                        here — the link only exists once you land back in Mise.
+                      </p>`
+                    }
+                    ${
+                      krogerLinked() &&
+                      html`<p class="hint">
+                        link valid until
+                        ${krogerLinkExpiry().slice(0, 16).replace("T", " ") || "unknown"}. Items
+                        land in whichever store your Kroger ACCOUNT has selected, and in its PICKUP
+                        basket — check that it says ${" "}${STORE_NAMES[homeStore] ?? homeStore},
+                        and look under Pickup rather than Delivery.
+                      </p>`
+                    }
+                    ${
+                      pushLog.length === 0
+                        ? html`<p class="hint">
+                            No push has ever been made from this phone. If you tapped and saw
+                            nothing, the tap did not reach Kroger.
+                          </p>`
+                        : pushLog.map(
+                            (/** @type {any} */ e) =>
+                              html`<div class="pushrow">
+                                <p class="hint">
+                                  <b>${e.ok ? "sent" : "FAILED"}</b>
+                                  ${e.at.slice(0, 16).replace("T", " ")} ${e.test ? " (test)" : ""}
+                                  · ${e.store} · ${e.message}
+                                </p>
+                                <p class="hint mono">
+                                  ${e.rows
+                                  .map((/** @type {any} */ r) => `${r.upc} ×${r.quantity}`)
+                                  .join("  ")}
+                                </p>
+                              </div>`,
+                          )
+                    }
+                    <p class="hint">
+                      Search one of those UPCs in the Kroger app. Found = it arrived and the cart
+                      you are looking at is the wrong one. Not found = it never arrived.
+                    </p>
+                  </details>`
+                }
                 ${
                   canLive &&
                   homeSummary.unpriced > 0 &&
