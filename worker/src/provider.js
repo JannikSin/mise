@@ -14,23 +14,76 @@
 //   AI_BASE_URL   openai only: base URL of a /chat/completions-speaking
 //                 server, e.g. https://mac-tunnel.example.com/v1
 //   AI_MODEL      optional model override applied to every request
+//   LOCAL_BASE_URL   OpenAI-compatible local server, tried FIRST when set
+//                    (llama-server on the Mac Studio via a Cloudflare Tunnel)
+//   LOCAL_MODEL      model id for that server, e.g. qwen3-vl-30b
+//   LOCAL_API_KEY    optional bearer for the tunnel / llama-server --api-key
+//   LOCAL_TIMEOUT_MS how long to wait before falling back (default 12000)
 //   AI_API_KEY    key for the configured provider (falls back to
 //                 ANTHROPIC_API_KEY for the anthropic provider)
 
 /**
  * @param {Record<string, any>} body Anthropic Messages request
- * @param {{ AI_PROVIDER?: string, AI_BASE_URL?: string, AI_MODEL?: string, AI_API_KEY?: string, ANTHROPIC_API_KEY?: string }} env
+ * @param {{ AI_PROVIDER?: string, AI_BASE_URL?: string, AI_MODEL?: string, AI_API_KEY?: string, ANTHROPIC_API_KEY?: string, LOCAL_BASE_URL?: string, LOCAL_MODEL?: string, LOCAL_API_KEY?: string, LOCAL_TIMEOUT_MS?: string|number }} env
  * @returns {Promise<Record<string, any>>} Anthropic Messages response shape
  */
 export async function callModel(body, env) {
+  // LOCAL FIRST, then the cloud. This is the architecture the 2026-07-20 council
+  // approved and that was only half-built: the OpenAI-format request builders
+  // below were written, the local endpoint was never wired, so every call has
+  // been going to the paid Anthropic key. Qwen3-VL was downloaded FOR this.
+  //
+  // The council's own words: "wrap every route in try-local-then-fallback-to-
+  // Anthropic with a short timeout. The fallback is the load-bearing wall: a
+  // basement has no SLA." That is exactly what this is. The Mac may be asleep,
+  // rebooting, or holding the other model in memory, and a user waiting on a
+  // menu scan must never pay for that.
+  //
+  // Opt-in by design: with LOCAL_BASE_URL unset this behaves exactly as before,
+  // which keeps the council's gate intact (user-facing traffic moves local only
+  // after it beats the accuracy bar on real receipts).
+  if (env.LOCAL_BASE_URL) {
+    const localReq = env.LOCAL_MODEL ? { ...body, model: env.LOCAL_MODEL } : body;
+    try {
+      const out = await callOpenAICompat(localReq, {
+        AI_BASE_URL: env.LOCAL_BASE_URL,
+        AI_API_KEY: env.LOCAL_API_KEY ?? "",
+      }, Number(env.LOCAL_TIMEOUT_MS ?? 12000));
+      if (hasUsableContent(out)) {
+        console.log("callModel: served locally");
+        return out;
+      }
+      console.log("callModel: local returned empty, falling back");
+    } catch (e) {
+      // Asleep, cold-loading a model, tunnel down, timeout: all the same here.
+      console.log(`callModel: local unavailable (${e}), falling back`);
+    }
+  }
+
   const provider = env.AI_PROVIDER ?? "anthropic";
   const req = env.AI_MODEL ? { ...body, model: env.AI_MODEL } : body;
   if (provider === "openai") return callOpenAICompat(req, env);
   return callAnthropic(req, env.AI_API_KEY ?? env.ANTHROPIC_API_KEY ?? "");
 }
 
+/**
+ * True when a response actually carries content. A local model that answers with
+ * an empty string has not served the request, and silently returning that would
+ * surface as a blank menu scan rather than as a fallback.
+ * @param {Record<string, any>} out Anthropic-shaped response
+ */
+function hasUsableContent(out) {
+  const blocks = out?.content;
+  if (!Array.isArray(blocks) || blocks.length === 0) return false;
+  return blocks.some(
+    (b) => (b?.type === "text" && String(b.text ?? "").trim()) || b?.type === "tool_use",
+  );
+}
+
 /** True when a key is configured for the active provider. */
 export function providerConfigured(/** @type {Record<string, any>} */ env) {
+  // A local endpoint alone is enough to serve, even with no cloud key at all.
+  if (env.LOCAL_BASE_URL) return true;
   if ((env.AI_PROVIDER ?? "anthropic") === "openai")
     return Boolean(env.AI_BASE_URL); // local servers often need no key
   return Boolean(env.AI_API_KEY ?? env.ANTHROPIC_API_KEY);
@@ -64,7 +117,7 @@ async function callAnthropic(body, apiKey) {
  * @param {Record<string, any>} body
  * @param {Record<string, any>} env
  */
-async function callOpenAICompat(body, env) {
+async function callOpenAICompat(body, env, timeoutMs = 0) {
   const messages = [];
   if (body.system) messages.push({ role: "system", content: String(body.system) });
   for (const m of body.messages ?? []) {
@@ -90,6 +143,7 @@ async function callOpenAICompat(body, env) {
   }
   const base = String(env.AI_BASE_URL ?? "").replace(/\/$/, "");
   const res = await fetch(`${base}/chat/completions`, {
+    ...(timeoutMs > 0 ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
     method: "POST",
     headers: {
       "content-type": "application/json",

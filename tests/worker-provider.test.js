@@ -87,3 +87,72 @@ test("providerConfigured gates on the ACTIVE provider", () => {
   assert.equal(providerConfigured({ AI_PROVIDER: "openai", AI_BASE_URL: "http://x" }), true);
   assert.equal(providerConfigured({ AI_PROVIDER: "openai" }), false);
 });
+
+// --- local-first with cloud fallback -----------------------------------------
+// The 2026-07-20 council approved a local engine "as a second engine, never a
+// replacement", with the explicit warning that "the fallback is the load-bearing
+// wall: a basement has no SLA". These tests are that wall.
+
+test("local endpoint is tried FIRST and its answer is used", async () => {
+  /** @type {any[]} */ const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: "from the mac" } }] }),
+      { status: 200 },
+    );
+  };
+  const out = await callModel(BODY, {
+    ANTHROPIC_API_KEY: "k",
+    LOCAL_BASE_URL: "https://mac.example/v1",
+    LOCAL_MODEL: "qwen3-vl-30b",
+  });
+  assert.equal(urls.length, 1, "cloud must not be called when local succeeds");
+  assert.match(urls[0], /mac\.example/);
+  assert.equal(out.content[0].text, "from the mac");
+});
+
+test("a sleeping Mac falls back to the cloud instead of failing the user", async () => {
+  /** @type {any[]} */ const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    if (String(url).includes("mac.example")) throw new Error("ECONNREFUSED");
+    return new Response(JSON.stringify({ content: [{ type: "text", text: "from anthropic" }] }), { status: 200 });
+  };
+  const out = await callModel(BODY, {
+    ANTHROPIC_API_KEY: "k",
+    LOCAL_BASE_URL: "https://mac.example/v1",
+  });
+  assert.equal(urls.length, 2, "must try local then cloud");
+  assert.match(urls[1], /api\.anthropic\.com/);
+  assert.equal(out.content[0].text, "from anthropic");
+});
+
+test("an EMPTY local answer falls back rather than surfacing a blank result", async () => {
+  /** @type {any[]} */ const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    if (String(url).includes("mac.example"))
+      return new Response(JSON.stringify({ choices: [{ message: { content: "   " } }] }), { status: 200 });
+    return new Response(JSON.stringify({ content: [{ type: "text", text: "real answer" }] }), { status: 200 });
+  };
+  const out = await callModel(BODY, { ANTHROPIC_API_KEY: "k", LOCAL_BASE_URL: "https://mac.example/v1" });
+  assert.equal(urls.length, 2, "an empty local reply is a failure, not a result");
+  assert.equal(out.content[0].text, "real answer");
+});
+
+test("with LOCAL_BASE_URL unset nothing changes at all", async () => {
+  /** @type {any[]} */ const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ content: [{ type: "text", text: "ok" }] }), { status: 200 });
+  };
+  await callModel(BODY, { ANTHROPIC_API_KEY: "k" });
+  assert.equal(urls.length, 1);
+  assert.match(urls[0], /api\.anthropic\.com/);
+});
+
+test("a local endpoint alone counts as configured, with no cloud key", () => {
+  assert.equal(providerConfigured({ LOCAL_BASE_URL: "https://mac.example/v1" }), true);
+  assert.equal(providerConfigured({}), false);
+});
