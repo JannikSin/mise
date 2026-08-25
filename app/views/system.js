@@ -8,7 +8,13 @@ import {
   dataRepoOverridden,
 } from "../lib/github.js";
 import { formatSyncTime } from "../lib/dates.js";
-import { activeProfile, readProfiles, patchProfiles } from "../lib/store.js";
+import { activeProfile, readProfiles, patchProfiles, read, write } from "../lib/store.js";
+import {
+  canAssignRoles,
+  householdPathFor,
+  normalizeHousehold,
+  setMemberRoles,
+} from "../lib/household.js";
 import { TOUR_STEPS, TOUR_TABS } from "../lib/tour.js";
 import { EQUIPMENT, canMake, unlockCounts } from "../lib/equipment.js";
 import { notifyTest } from "../lib/worker.js";
@@ -181,6 +187,172 @@ export function SystemView({
     });
   };
 
+  // ---- HOUSEHOLD MANAGEMENT (P6, spec 2026-08-25) ------------------------
+  // "Do this from the app": creating a house was already MOVE HOUSE above,
+  // but renaming one for EVERYONE and adding a housemate could only be done
+  // by editing JSON, which meant David could not do it. Standing rule: ship
+  // the button, never fix the data backstage.
+  const housemates = (allProfiles ?? []).filter(
+    (x) => (x.household ?? "home") === household,
+  );
+  const outsiders = (allProfiles ?? []).filter(
+    (x) => (x.household ?? "home") !== household,
+  );
+  const [houseDoc, setHouseDoc] = useState(/** @type {Record<string, any> | null} */ (null));
+  useEffect(() => {
+    let alive = true;
+    void read(householdPathFor(household), { raw: true }).then((h) => {
+      if (alive) setHouseDoc(/** @type {any} */ (h));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [household]);
+  const [houseBusy, setHouseBusy] = useState(false);
+  const [houseNote, setHouseNote] = useState("");
+  const [renameDraft, setRenameDraft] = useState("");
+  const [addPick, setAddPick] = useState("");
+  const slugify = (/** @type {string} */ s) =>
+    s
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+  // Rename the house for EVERYONE in it: carry the shared files to the new
+  // slug, then re-point every member profile. The old files are left in
+  // place (a copy, not a destructive move) — pantryPathFor derives from
+  // profiles.json, so once the profiles move nothing reads them again.
+  // Reviewer findings 2-4 (2026-08-25) shaped three guards below: the
+  // cache-only read means "null" can be "not synced to this device" as well
+  // as "does not exist", so misses are NAMED rather than swallowed; a
+  // rename into an existing slug would field-wise-MERGE two households'
+  // pantries and depose the target's head, so it is refused (with "home",
+  // every unmoved profile's default, refused outright); and the members to
+  // move are selected inside patchProfiles against the real list, never
+  // from this device's possibly-stale snapshot.
+  const HOUSE_FILES = ["household.json", "pantry.json", "waste.json", "events.json", "ledger.json"];
+  const renameHouse = async () => {
+    const to = slugify(renameDraft);
+    if (!to || to === household || houseBusy) return;
+    if (to === "home") {
+      setHouseNote(`"home" is the shared default house — renaming into it would mix this house's pantry and ledger into everyone else's`);
+      return;
+    }
+    const hh = normalizeHousehold(houseDoc);
+    if (!canAssignRoles(hh, me ?? "")) {
+      setHouseNote("only the head of the household renames it");
+      return;
+    }
+    setHouseBusy(true);
+    setHouseNote("");
+    try {
+      const existing = await Promise.all([
+        read(householdPathFor(to), { raw: true }),
+        read(`households/${to}/pantry.json`, { raw: true }),
+      ]);
+      if (existing.some(Boolean)) {
+        setHouseNote(`a house called "${to}" already exists — pick another name, or move people into it one by one`);
+        return;
+      }
+      /** @type {string[]} */
+      const carried = [];
+      /** @type {string[]} */
+      const missing = [];
+      for (const f of HOUSE_FILES) {
+        const doc = await read(`households/${household}/${f}`, { raw: true });
+        if (doc) {
+          await write(`households/${to}/${f}`, doc, { raw: true });
+          carried.push(f);
+        } else {
+          missing.push(f);
+        }
+      }
+      const move = (/** @type {Record<string, any>} */ x) => {
+        const rest = { ...x };
+        delete rest.household;
+        return { ...rest, household: to };
+      };
+      const ok = await patchProfiles((list) =>
+        list.map((x) => ((x.household ?? "home") === household ? move(x) : x)),
+      );
+      if (!ok) {
+        setHouseNote("couldn't load the real profile list — nobody moved (the copied files are harmless)");
+        return;
+      }
+      setAllProfiles((cur) =>
+        cur ? cur.map((x) => ((x.household ?? "home") === household ? move(x) : x)) : cur,
+      );
+      setRenameDraft("");
+      setHouseNote(
+        `renamed — everyone here now shops from "${to}" (carried ${carried.join(", ") || "nothing"}` +
+          (missing.length > 0
+            ? `; ${missing.join(", ")} not on this device — if they exist they stayed at "${household}", rename again from a synced device to carry them)`
+            : `)`),
+      );
+    } catch (e) {
+      setHouseNote(e instanceof Error ? e.message : "rename failed");
+    } finally {
+      setHouseBusy(false);
+    }
+  };
+
+  // Add a housemate: writes them into household.json (head-gated — adding IS
+  // assigning roles) and points their profile at this house. New members
+  // start as an eater; the head can hand out cook/shopper later.
+  // Deliberately NEVER writes a headId it did not read (reviewer finding 5,
+  // 2026-08-25): the read is cache-only, so a null here can mean "this
+  // device hasn't synced the file yet" — inventing headId = me would depose
+  // the real head through the field-wise merge. A house with no written
+  // head stays headless until someone assigns roles explicitly, which the
+  // lib already allows.
+  const addMember = async () => {
+    const id = addPick;
+    if (!id || houseBusy) return;
+    setHouseBusy(true);
+    setHouseNote("");
+    try {
+      const path = householdPathFor(household);
+      const raw = /** @type {Record<string, any> | null} */ (await read(path, { raw: true }));
+      const hh = normalizeHousehold(raw);
+      const res = setMemberRoles(hh, me ?? "", id, ["eater"]);
+      if (!res.changed) {
+        setHouseNote(res.reason);
+        return;
+      }
+      await write(path, { ...(raw ?? {}), members: res.household.members }, { raw: true });
+      const ok = await patchProfiles((list) =>
+        list.map((x) => {
+          if (x.id !== id) return x;
+          const rest = { ...x };
+          delete rest.household;
+          return household === "home" ? rest : { ...rest, household };
+        }),
+      );
+      if (!ok) {
+        setHouseNote("profile list unreachable — they are in household.json but not moved");
+        return;
+      }
+      setAllProfiles((cur) =>
+        cur
+          ? cur.map((x) => {
+              if (x.id !== id) return x;
+              const rest = { ...x };
+              delete rest.household;
+              return household === "home" ? rest : { ...rest, household };
+            })
+          : cur,
+      );
+      setHouseDoc({ ...(raw ?? {}), members: res.household.members });
+      setAddPick("");
+      setHouseNote(`added — they now share this house's pantry and trip`);
+    } catch (e) {
+      setHouseNote(e instanceof Error ? e.message : "add failed");
+    } finally {
+      setHouseBusy(false);
+    }
+  };
+
   // family (profiles.json family, optional): the top-level grouping the
   // profile gate organizes people under. Family = who you ARE (fixed-ish);
   // household = who you shop with right now (movable). David's structure,
@@ -281,6 +453,62 @@ export function SystemView({
             MOVE HOUSE
           </button>
         </div>
+        <div class="row">
+          <span class="k">In this house</span>
+          <span class="status dim">
+            ${
+              housemates.length > 0
+                ? housemates
+                    .map((h) => {
+                      const m = normalizeHousehold(houseDoc).members.find((x) => x.id === h.id);
+                      const roles = m && m.roles.length > 0 ? ` (${m.roles.join(", ")})` : "";
+                      return `${h.emoji ?? ""} ${h.name}${roles}`;
+                    })
+                    .join(" · ")
+                : "…"
+            }
+          </span>
+        </div>
+        ${
+          outsiders.length > 0 &&
+          html`<div class="row">
+              <span class="k">Add housemate</span>
+              <select
+                aria-label="Profile to add to this house"
+                value=${addPick}
+                onChange=${(/** @type {any} */ e) => setAddPick(e.currentTarget.value)}
+              >
+                <option value="">choose…</option>
+                ${outsiders.map(
+                  (o) => html`<option key=${o.id} value=${o.id}>${o.emoji ?? ""} ${o.name}</option>`,
+                )}
+              </select>
+            </div>
+            <div class="actions">
+              <button class="secondary" onClick=${addMember} disabled=${!addPick || houseBusy}>
+                ADD TO THIS HOUSE
+              </button>
+            </div>`
+        }
+        <div class="row">
+          <span class="k">Rename house</span>
+          <input
+            aria-label="New name for this house, moves everyone in it"
+            placeholder=${household}
+            value=${renameDraft}
+            onInput=${(/** @type {any} */ e) => setRenameDraft(e.currentTarget.value)}
+          />
+        </div>
+        <div class="actions">
+          <button
+            class="secondary"
+            onClick=${renameHouse}
+            disabled=${houseBusy || !slugify(renameDraft) || slugify(renameDraft) === household}
+          >
+            RENAME FOR EVERYONE
+          </button>
+        </div>
+        ${houseNote && html`<p class="hint" role="status">${houseNote}</p>`}
         <h3>Your kitchen</h3>
         <p class="hint">
           Tick what you actually own. Mise will stop offering food you cannot cook, and adding a

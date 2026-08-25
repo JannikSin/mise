@@ -53,12 +53,16 @@ export function priceWeek(plan, recipesById, pantry, catalogue, store, region, f
 }
 
 /**
- * Can this entry be swapped at all? Pinned, past, away and table entries are
- * somebody's decision or somebody else's meal, and the budget does not get to
- * overrule either.
+ * Can this entry be swapped at all? Pinned, past, away, table and FIXED
+ * entries are somebody's decision or somebody else's meal, and the budget
+ * does not get to overrule any of them. `fixed` is a profile's declared
+ * "this recipe, every day" slot (targets.fixedSlots, spec 2026-08-25) — a
+ * cheaper breakfast is exactly the swap the declaration forbids.
  */
 function swappable(/** @type {any} */ e, /** @type {string|undefined} */ today) {
-  return Boolean(e.recipeId) && !e.pinned && !e.out && !e.table && !(today && e.date < today);
+  return (
+    Boolean(e.recipeId) && !e.pinned && !e.out && !e.table && !e.fixed && !(today && e.date < today)
+  );
 }
 
 /**

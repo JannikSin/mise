@@ -440,6 +440,13 @@ missing, because knowing where a thing sits is useful without a price.
   //   closed to "this dish is one thing nutritionally". tests/promises.test.js
   //   (P8) checks that for every tagged recipe on every run.
   "assembly": "plated", // ? plated | absent (= mixed)
+  "portable": true, // ? survives hours in a backpack: no fridge, no cooking,
+  //   no fork required (spec 2026-08-25). ABSENT = not portable. Read by
+  //   generateWeek's snack pool when a profile declares
+  //   `targets.snackPortable: true` — that profile's auto-planned snacks
+  //   (floor pass, macro top-up, weekly buffer, trim swaps) come only from
+  //   flagged recipes, honest-relaxed to the full pool if zero carry it.
+  //   Meaningful on mealType "snack"; harmless elsewhere.
   "ingredients": [
     {
       "qty": 500,
@@ -1082,6 +1089,13 @@ even the same slot — merge without losing either entry.
       "freeText": "leftovers", // e.g. "leftovers", "eating out"
       "servings": 2,
       "pinned": false, // ? true = GENERATE WEEK must never clear or overwrite this entry
+      "fixed": true, // ? written by GENERATE for a targets.fixedSlots slot
+      //   (spec 2026-08-25): the profile's declared every-day recipe at 1
+      //   serving. UNLIKE pinned it does not survive a regenerate (a profile
+      //   that drops fixedSlots gets committees back on the next GENERATE),
+      //   but every swap surface honours it: the engine's trim/top-up
+      //   passes, budget swapToFit, and shopping substitutionPlan all leave
+      //   a fixed entry alone. Absent = normal entry.
       "out": false, // ? true = eating-out placeholder (see below)
       "estCalories": 595, // ? out entries only: assumed macros of the restaurant meal
       "estProtein": 34, // ? (slotMacroEstimate: pool average for the slot x 0.85 undershoot)
@@ -1355,6 +1369,24 @@ Seeded from the FITNESS.md system; edited rarely.
   //   ["breakfast", "lunch", "dinner"] so the generator
   //   doesn't force a 4th proactive meal past the calorie
   //   ceiling.
+  "fixedSlots": { "breakfast": "berry-walnut-greek-yogurt-bowl" },
+  // ? "this recipe, every day" per slot, DECLARED ON THE PROFILE
+  //   (spec 2026-08-25: David eats the same yogurt bowl every
+  //   morning by choice). NOT the office-lunch-box special case:
+  //   no id lives in code, any profile can fix any slot it lists
+  //   in mealSlots, and the named recipe must survive the same
+  //   screens as a committee pick (diet, avoid, equipment,
+  //   trust) — a fixed id the screens removed falls back to a
+  //   normal committee and the manifest's fixedSlots line says
+  //   so. Daily repetition bypasses the ≤2-repeat rotation by
+  //   declared intent; variety comes from the recipe's own
+  //   `rotation` block if it carries one. Absent = no slot fixed.
+  "snackPortable": true,
+  // ? every auto-planned snack (floor pass, macro top-up, weekly
+  //   buffer, trim swaps) must carry `portable: true` (spec
+  //   2026-08-25: "smth i can bring in my backpack"). Honest-relax:
+  //   zero portable recipes = full pool + a manifest line, never a
+  //   silent empty pool. Absent = no filter.
 
   // ---- survey-v2 onboarding answers (docs/survey-v2-design.md) ----
   // All optional; every field ABSENT = its safe default (no filter, no
@@ -1695,6 +1727,10 @@ exists to prevent.
 `ai-special` there is no `promoted` escape: apple juice does not become a good
 Tuesday snack once somebody audits it. Those recipes also declare ZERO across
 every Daily Dozen food group, honestly, so no floor pass can reach for them.
+The `remedy` tag (sick-day food, `remedies.js`) is fenced the same way since
+2026-08-25: a BRAT plate had auto-planned itself into a well week. Remedy
+recipes stay reachable by hand and through a symptom protocol, never by the
+generator, with the same no-promotion rule.
 
 **Safety.** Presets are hand-written in `app/lib/occasions.js`, versioned and
 reviewed. They are never model-generated and never model-edited (council

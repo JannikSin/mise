@@ -217,17 +217,6 @@ export function PlannerView({
           })}
         </p>`
       }
-      ${
-        hasBuffet &&
-        html`<div class="actions">
-          <a class="linktext" href="#/hall">🍽 BUILD A DINING-HALL TRAY →</a>
-        </div>
-        <p class="hint">
-          Pick a court and a meal and Mise composes a tray from what Purdue is actually serving
-          today, aimed at what is left of your day, screened against your allergens.
-        </p>`
-      }
-
       <div class="actions">
         <button
           class="ask"

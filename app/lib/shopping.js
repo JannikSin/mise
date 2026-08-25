@@ -1714,7 +1714,9 @@ export function substitutionPlan(combined, meId, myEntries, myPool, recipesById,
   const weekRecipeIds = new Set(myEntries.map((e) => e.recipeId).filter(Boolean));
   const out = [];
   for (const entry of myEntries) {
-    if (!entry.recipeId || entry.pinned || entry.out || entry.table) continue;
+    // `fixed` = a declared every-day slot (targets.fixedSlots): never
+    // suggested away, however much its foods overlap a housemate's list
+    if (!entry.recipeId || entry.pinned || entry.out || entry.table || entry.fixed) continue;
     // history is not a suggestion surface: a cooked meal already came off the
     // pantry shelves, and a past day already happened
     if (entry.cookedAt) continue;

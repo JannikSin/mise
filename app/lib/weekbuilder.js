@@ -509,16 +509,21 @@ function dayGroupTotal(entries, recipesById, date, group) {
  * @param {Record<string, any>[]} pool
  * @param {Map<string, any>} recipesById
  * @param {Record<string, number>} floors
- * @param {{ calorieCeiling?: number }} [opts] when a ceiling is given, this
+ * @param {{ calorieCeiling?: number, lockedSlots?: string[] }} [opts] when a
+ *   ceiling is given, this
  *   pass stops trading calories for food groups at any price: a serving bump
  *   that would cross the ceiling is refused so the cheaper lever runs
  *   instead, and the added-recipe lever prefers the candidate that closes the
  *   gap for the fewest calories. Absent = the old unbounded behavior.
+ *   `lockedSlots` (fixed slots) are never resized by lever 1.
  * @returns {import("./plan.js").Plan}
  */
 export function foodGroupFloorPass(plan, pool, recipesById, floors, opts = {}) {
   const candidates = pool.filter((r) => r.effort !== "project");
   const ceiling = Number(opts.calorieCeiling) || Infinity;
+  // fixed-slot entries are the daily constant (spec 2026-08-25): their
+  // servings are never raised here, the gap closes with lever 2 instead
+  const locked = new Set(/** @type {string[]} */ (opts.lockedSlots ?? []));
   const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
   let next = plan;
 
@@ -535,6 +540,7 @@ export function foodGroupFloorPass(plan, pool, recipesById, floors, opts = {}) {
           (e) =>
             e.date === date &&
             !e.pinned &&
+            !locked.has(e.slot) &&
             e.recipeId &&
             (recipesById.get(e.recipeId)?.foodGroups?.[group] ?? 0) > 0,
         )
@@ -630,7 +636,8 @@ export function foodGroupFloorPass(plan, pool, recipesById, floors, opts = {}) {
  *   budget?: "tight" | "normal" | "loose",
  *   weekFoodPool?: Set<string>,
  *   report?: Record<string, any>,
- *   proteinTargetG?: number
+ *   proteinTargetG?: number,
+ *   lockedSlots?: string[]
  * }} [opts] fix list 2.4 (council 2026-08-18): macroTopUp takes the SAME
  *   budget parameter as pickCommittee. Without it the budget dial was a
  *   waste generator: tight pushed dinners to bean stews, opened a calorie
@@ -716,12 +723,17 @@ export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks 
     // lever 1: portion bumps on already-chosen meals, 0.5 steps at a time.
     // A day whose protein target is already banked (7.11 swipe credit) bumps
     // its LEANEST meal first — the bump is buying calories, not protein.
-    const bumpCandidates = PORTION_BUMPS.map(({ slot, maxBump }) => ({
-      maxBump,
-      target: entriesAt(next.entries, date, slot).find(
-        (e) => !e.pinned && e.recipeId && recipesById.has(e.recipeId),
-      ),
-    })).filter((c) => c.target);
+    const bumpCandidates = PORTION_BUMPS.filter(
+      // a fixed slot's portion is the declared constant, never a bump lever
+      ({ slot }) => !(opts.lockedSlots ?? []).includes(slot),
+    )
+      .map(({ slot, maxBump }) => ({
+        maxBump,
+        target: entriesAt(next.entries, date, slot).find(
+          (e) => !e.pinned && e.recipeId && recipesById.has(e.recipeId),
+        ),
+      }))
+      .filter((c) => c.target);
     if (proteinEnough(date)) {
       const densityOf = (/** @type {import("./plan.js").PlanEntry | undefined} */ e) => {
         const n = e?.recipeId ? (recipesById.get(e.recipeId)?.nutrition ?? {}) : {};
@@ -777,18 +789,34 @@ export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks 
 /**
  * Whether trimming ENTRIES down for `date` to these servings would push the
  * day below any hard floor: calories, protein, or an enforced daily group.
- * @param {import("./plan.js").PlanEntry[]} entries
+ *
+ * Judged against the CURRENT state when `before` is given: a floor the day
+ * already misses only vetoes moves that make that number WORSE. The absolute
+ * check wedged real days (found 2026-08-25): a generated day with zero
+ * cruciferous sat 17 g over the protein ceiling, and every legal-looking
+ * swap was refused for "breaking" a floor that was already broken — so the
+ * one floor nothing could fix froze every other number in place.
+ * @param {import("./plan.js").PlanEntry[]} entries the candidate state
  * @param {Map<string, any>} recipesById
  * @param {string} date
  * @param {{ calorieFloor: number, proteinFloor: number, groupFloors: Record<string, number> }} bounds
+ * @param {import("./plan.js").PlanEntry[] | null} [before] the current state;
+ *   omitted = the strict absolute check, unchanged
  * @returns {boolean}
  */
-function breaksFloor(entries, recipesById, date, bounds) {
+function breaksFloor(entries, recipesById, date, bounds, before = null) {
   const totals = dayTotals(entries, recipesById, date);
-  if (totals.calories < bounds.calorieFloor) return true;
-  if (totals.protein < bounds.proteinFloor) return true;
+  const prior = before ? dayTotals(before, recipesById, date) : null;
+  // broken-and-worsened, or newly broken; a floor already missed does not
+  // veto a move that leaves its number the same or better
+  const trips = (/** @type {number} */ now, /** @type {number} */ floor, /** @type {number | null} */ was) =>
+    now < floor && (was == null || was >= floor || now < was);
+  if (trips(totals.calories, bounds.calorieFloor, prior ? prior.calories : null)) return true;
+  if (trips(totals.protein, bounds.proteinFloor, prior ? prior.protein : null)) return true;
   for (const [group, floor] of Object.entries(bounds.groupFloors ?? {})) {
-    if (dayGroupTotal(entries, recipesById, date, group) < floor) return true;
+    const now = dayGroupTotal(entries, recipesById, date, group);
+    const was = before ? dayGroupTotal(before, recipesById, date, group) : null;
+    if (trips(now, floor, was)) return true;
   }
   return false;
 }
@@ -815,8 +843,12 @@ function breaksFloor(entries, recipesById, date, bounds) {
  *   calorieCeiling: number,
  *   calorieFloor: number,
  *   proteinFloor: number,
- *   groupFloors: Record<string, number>
- * }} bounds
+ *   groupFloors: Record<string, number>,
+ *   lockedSlots?: string[]
+ * }} bounds `lockedSlots` names slots whose entries this pass must not
+ *   resize or swap — a profile's fixedSlots are the declared daily constant
+ *   (spec 2026-08-25: shaving the fixed smoothie to 0.5 halved its greens
+ *   and wedged the protein trim behind the greens floor). Absent = none.
  * @param {Record<string, Record<string, any>[]> | null} [slotPools] per-slot
  *   eligible recipes, so the pass can SWAP a calorie-dense entry for a
  *   lighter one of similar PROTEIN when no legal serving shrink exists.
@@ -826,6 +858,7 @@ function breaksFloor(entries, recipesById, date, bounds) {
 export function calorieTrimPass(plan, recipesById, bounds, slotPools = null) {
   const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
   let next = plan;
+  const locked = new Set(bounds.lockedSlots ?? []);
   /** @type {Map<string, number>} */
   const usedCount = new Map();
   for (const e of plan.entries) {
@@ -848,6 +881,7 @@ export function calorieTrimPass(plan, recipesById, bounds, slotPools = null) {
           (e) =>
             e.date === date &&
             !e.pinned &&
+            !locked.has(e.slot) &&
             e.recipeId &&
             recipesById.has(e.recipeId) &&
             e.servings > 0.5,
@@ -867,7 +901,7 @@ export function calorieTrimPass(plan, recipesById, bounds, slotPools = null) {
         const candidateEntries = next.entries.map((e) =>
           e.id === entry.id ? { ...e, servings } : e,
         );
-        if (breaksFloor(candidateEntries, recipesById, date, bounds)) continue;
+        if (breaksFloor(candidateEntries, recipesById, date, bounds, next.entries)) continue;
         next = { ...next, entries: candidateEntries };
         applied = true;
         break;
@@ -909,7 +943,7 @@ export function calorieTrimPass(plan, recipesById, bounds, slotPools = null) {
             const candidateEntries = next.entries.map((e) =>
               e.id === entry.id ? { ...e, recipeId: cand.id, servings } : e,
             );
-            if (breaksFloor(candidateEntries, recipesById, date, bounds)) continue;
+            if (breaksFloor(candidateEntries, recipesById, date, bounds, next.entries)) continue;
             if (!best || dCal > best.gain) best = { gain: dCal, cand, candidateEntries };
           }
         }
@@ -965,8 +999,15 @@ export function calorieTrimPass(plan, recipesById, bounds, slotPools = null) {
  *   proteinTarget?: number | null,
  *   calorieFloor: number,
  *   proteinFloor: number,
- *   groupFloors: Record<string, number>
- * }} bounds
+ *   groupFloors: Record<string, number>,
+ *   calorieCeiling?: number,
+ *   lockedSlots?: string[]
+ * }} bounds `calorieCeiling` guards the swap lever at both candidate sizes
+ *   (introduced for the up-notch escape, which may add calories to clear
+ *   the floor; applying it to the base size too is deliberate — a swap must
+ *   never push a day past the ceiling). Absent = no guard, exactly the old
+ *   behaviour. `lockedSlots` as in calorieTrimPass: fixed-slot entries are
+ *   the daily constant, never resized or swapped here.
  * @param {Record<string, Record<string, any>[]> | null} [slotPools] per-slot
  *   eligible recipes, so the pass can SWAP a dense entry for a leaner one of
  *   similar calories when no legal serving shrink exists. Omitted = the old
@@ -979,6 +1020,7 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
   if (!(ceiling > 0)) return plan;
   const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
   let next = plan;
+  const locked = new Set(bounds.lockedSlots ?? []);
   // how often each recipe already appears: a swap must not push any recipe
   // past the <=2-repeat promise the committees hold to.
   /** @type {Map<string, number>} */
@@ -1043,6 +1085,7 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
           (e) =>
             e.date === date &&
             !e.pinned &&
+            !locked.has(e.slot) &&
             e.recipeId &&
             recipesById.has(e.recipeId) &&
             e.servings > 0.5 &&
@@ -1057,14 +1100,23 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
 
       let applied = false;
       for (const entry of trimmable) {
-        const servings = Math.max(0.5, entry.servings - 0.5);
-        const candidateEntries = next.entries.map((e) =>
-          e.id === entry.id ? { ...e, servings } : e,
-        );
-        if (breaksFloor(candidateEntries, recipesById, date, bounds)) continue;
-        next = { ...next, entries: candidateEntries };
-        applied = true;
-        break;
+        // half-step first, quarter-step fallback: on a day sitting just above
+        // the calorie floor a 0.5 shrink overshoots it and every lever looked
+        // dead, while the 0.25 the rest of the engine already speaks (swap
+        // sizing, seat servings) was exactly legal (found 2026-08-25: a day
+        // 5 g over the ceiling with a quarter-portion of lunch to spare).
+        for (const step of [0.5, 0.25]) {
+          const servings = Math.max(0.5, entry.servings - step);
+          if (servings === entry.servings) continue;
+          const candidateEntries = next.entries.map((e) =>
+            e.id === entry.id ? { ...e, servings } : e,
+          );
+          if (breaksFloor(candidateEntries, recipesById, date, bounds, next.entries)) continue;
+          next = { ...next, entries: candidateEntries };
+          applied = true;
+          break;
+        }
+        if (applied) break;
       }
 
       // SWAP, the second lever (2026-08-23). Shrinking servings removes
@@ -1101,17 +1153,34 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
             // every candidate, which is exactly what happened before this
             // line existed: 5 of 35 days stayed over on days sitting 1 to
             // 73 kcal above the floor with no legal move.
-            const servings = Math.min(
+            const s0 = Math.min(
               3,
               Math.max(0.25, Math.round(outCal / candCal / 0.25) * 0.25),
             );
-            const dProt = outProt - (cand.nutrition?.protein ?? 0) * servings;
-            if (dProt <= 0) continue; // must actually reduce protein
-            const candidateEntries = next.entries.map((e) =>
-              e.id === entry.id ? { ...e, recipeId: cand.id, servings } : e,
-            );
-            if (breaksFloor(candidateEntries, recipesById, date, bounds)) continue;
-            if (!best || dProt > best.gain) best = { gain: dProt, cand, candidateEntries };
+            // The 0.25-serving rounding can land a near-equal candidate a few
+            // kcal UNDER the floor on a day already trimmed to it, vetoing
+            // every legal-looking swap over a 5 kcal float (found 2026-08-25,
+            // first fixed-slots week: a 236 g day had six leaner dinners and
+            // no legal move). One notch up is the escape: slightly more
+            // calories is always floor-legal, and the ceiling guard keeps it
+            // honest. The exact size is still tried first.
+            for (const servings of s0 + 0.25 <= 3 ? [s0, s0 + 0.25] : [s0]) {
+              const dProt = outProt - (cand.nutrition?.protein ?? 0) * servings;
+              if (dProt <= 0) continue; // must actually reduce protein
+              const candidateEntries = next.entries.map((e) =>
+                e.id === entry.id ? { ...e, recipeId: cand.id, servings } : e,
+              );
+              if (breaksFloor(candidateEntries, recipesById, date, bounds, next.entries)) continue;
+              const calCeil = Number(bounds.calorieCeiling);
+              if (
+                Number.isFinite(calCeil) &&
+                dayTotals(candidateEntries, recipesById, date).calories > calCeil
+              ) {
+                continue;
+              }
+              if (!best || dProt > best.gain) best = { gain: dProt, cand, candidateEntries };
+              break; // first legal size for this candidate is enough
+            }
           }
         }
         if (best) {
@@ -1218,6 +1287,11 @@ function foodGroupGapsReport(entries, recipesById, dates, dailyDozenPerDay) {
  *    the generator must never reach for them. They are placed BY an occasion,
  *    never picked. Unlike ai-special there is no promotion escape: apple
  *    juice does not become a good Tuesday snack once somebody audits it.
+ *  - `remedy`: sick-day food (BRAT plates, healing broths). Reachable by hand
+ *    and through remedies.js protocolFor, but a well week must never plan
+ *    recovery food (David, 2026-08-25: a BRAT plate landed in a normal week).
+ *    Same no-promotion rule as occasion-only: rice and applesauce do not
+ *    become a good Tuesday lunch once somebody audits them.
  * @param {Record<string, any>[]} recipes
  * @returns {Record<string, any>[]}
  */
@@ -1225,6 +1299,7 @@ export function generatorEligible(recipes) {
   return recipes.filter((r) => {
     const tags = r.tags ?? [];
     if (tags.includes("occasion-only")) return false;
+    if (tags.includes("remedy")) return false;
     return !untrustedForAutoPlan(r);
   });
 }
@@ -1442,6 +1517,14 @@ export function generateWeek({
     Array.isArray(haveEquipment) && !canMake(haveEquipment, r.equipment);
   /** @type {string[]} slots where the time cap emptied the pool and was relaxed (Q12 honest-failure) */
   const timeBudgetRelaxed = [];
+  // targets.snackPortable (spec 2026-08-25, David: "i need the snack to be
+  // something easy and smth i can bring in my backpack"): a profile that
+  // declares it draws every auto-planned snack — floor pass, macro top-up,
+  // buffer, trim swaps — from recipes flagged `portable: true` (survives a
+  // backpack, no fridge, no cooking). Generic profile field, honest-relax
+  // like the time cap: an empty portable pool falls back to the full one
+  // and the manifest says so.
+  let snackPortableRelaxed = false;
   const pool = (/** @type {string} */ meal) => {
     let list = recipes.filter((r) => r.mealType === meal);
     if (Array.isArray(haveEquipment)) list = list.filter((r) => !lacksGear(r));
@@ -1452,6 +1535,11 @@ export function generateWeek({
       // for this slot and reported plainly, never silently fudged.
       if (capped.length >= 2) list = capped;
       else if (!timeBudgetRelaxed.includes(meal)) timeBudgetRelaxed.push(meal);
+    }
+    if (meal === "snack" && targets?.snackPortable === true) {
+      const portable = list.filter((r) => r.portable === true);
+      if (portable.length >= 1) list = portable;
+      else snackPortableRelaxed = true;
     }
     return list;
   };
@@ -1614,10 +1702,64 @@ export function generateWeek({
       })),
   );
 
+  // which slots get proactively filled/committee-picked is profile-driven;
+  // snack is never in this set, it's always the reactive top-up pool
+  const mealSlots = targets?.mealSlots ?? DEFAULT_MEAL_SLOTS;
+  const mealSlotSet = new Set(mealSlots);
+  const mealOrder = MEAL_PRIORITY.filter((m) => mealSlotSet.has(m));
+
+  // [ENGINE, spec 2026-08-25] targets.fixedSlots: "this recipe, every day",
+  // DECLARED ON THE PROFILE — e.g. { "breakfast": "berry-walnut-greek-yogurt-
+  // bowl" }. This is NOT the office-lunch-box special case coming back (see
+  // the 2026-08-01 note above): no recipe id appears in code, any profile can
+  // fix any slot, and the named recipe is looked up in the SAME screened pool
+  // a committee would draw from, so the diet/avoid/equipment/trust screens
+  // all still apply. A fixed id the screens removed (or a typo) falls back to
+  // a normal committee and the manifest says so — never a silent empty slot.
+  // Daily repetition is the declared intent, so the ≤2-repeat rotation is
+  // deliberately bypassed for a fixed slot (variety there comes from the
+  // recipe's own rotation block, if it carries one).
+  const fixedSlotsRaw = /** @type {Record<string, any>} */ (
+    targets?.fixedSlots && typeof targets.fixedSlots === "object" ? targets.fixedSlots : {}
+  );
+  /** @type {Map<string, Record<string, any>>} */
+  const fixedBySlot = new Map();
+  /** @type {string[]} */
+  const fixedSlotMisses = [];
+  for (const [slot, rid] of Object.entries(fixedSlotsRaw)) {
+    if (typeof rid !== "string" || !rid) continue;
+    // a slot the profile doesn't proactively fill (snack, or one absent from
+    // mealSlots) is a MISS, not a silent drop — "declared but none applied"
+    // with no reason is exactly the mistake this field invites
+    if (!mealSlotSet.has(slot)) {
+      fixedSlotMisses.push(`${slot}: not one of this profile's mealSlots`);
+      continue;
+    }
+    const rec = pool(slot).find((x) => x.id === rid);
+    if (rec) fixedBySlot.set(slot, rec);
+    else fixedSlotMisses.push(`${slot}: "${rid}" is not in this profile's ${slot} pool`);
+  }
+  // Fixed slots are a KNOWN macro delivery — one serving of the named
+  // recipe on every live day whose slot is actually FREE (a day whose fixed
+  // slot holds a swipe placeholder or a hand-pin gets no fixed fill, and
+  // charging the credit there would double-discount against awayCredit).
+  // They join the remaining-need arithmetic below exactly as away/swipe
+  // credits do, and for the same reason: David's fixed bowl and smoothie
+  // bank 94 g before a committee meets, and scoring lunch/dinner against
+  // the whole-day density wedged days over the protein ceiling with no
+  // legal trim (found 2026-08-25, first fixed-slots week). WEEKLY totals.
+  const fixedCredit = { calories: 0, protein: 0 };
+  for (const [slot, rec] of fixedBySlot) {
+    const freeDays = liveDates.filter((d) => entriesAt(next.entries, d, slot).length === 0).length;
+    fixedCredit.calories += (rec.nutrition?.calories ?? 0) * freeDays;
+    fixedCredit.protein += (rec.nutrition?.protein ?? 0) * freeDays;
+  }
+
   // the committees score protein density against the REMAINING need (see
-  // awayCredit above): week protein minus away credit, over week calories
-  // minus away credit. Identical to the old (proteinTarget*4)/caloriesTarget
-  // when nothing is away. CLAMPED into [0.05, 1] (reviewer catches
+  // awayCredit above): week protein minus away and fixed-slot credits, over
+  // week calories minus the same. Identical to the old
+  // (proteinTarget*4)/caloriesTarget when nothing is away and no slot is
+  // fixed. CLAMPED into [0.05, 1] (reviewer catches
   // 2026-08-19): a raw 0 would trip pickCommittee's !needRatio fallback and
   // flip the term to "maximize protein" on an all-swipe week — the exact
   // inverse of the intent — and credits that eat the calorie budget faster
@@ -1625,23 +1767,26 @@ export function generateWeek({
   // which clamps every recipe's term to a constant and silently switches
   // protein scoring off. 0.05 keeps "leaner wins" ordering; 1 is the
   // physical ceiling (all-protein calories).
-  const weekProteinNeed = Math.max(0, proteinTarget * liveDates.length - awayCredit.protein);
-  const weekCaloriesNeed = Math.max(1, caloriesTarget * liveDates.length - awayCredit.calories);
+  const weekProteinNeed = Math.max(
+    0,
+    proteinTarget * liveDates.length - awayCredit.protein - fixedCredit.protein,
+  );
+  const weekCaloriesNeed = Math.max(
+    1,
+    caloriesTarget * liveDates.length - awayCredit.calories - fixedCredit.calories,
+  );
   const remainingNeedRatio =
     caloriesTarget > 0 && liveDates.length > 0
       ? Math.min(1, Math.max(0.05, (weekProteinNeed * 4) / weekCaloriesNeed))
       : 0;
 
-  // which slots get proactively filled/committee-picked is profile-driven;
-  // snack is never in this set, it's always the reactive top-up pool
-  const mealSlots = targets?.mealSlots ?? DEFAULT_MEAL_SLOTS;
-  const mealSlotSet = new Set(mealSlots);
-  const mealOrder = MEAL_PRIORITY.filter((m) => mealSlotSet.has(m));
-
   /** @type {{ dinner: Record<string, any>[], lunch: Record<string, any>[], breakfast: Record<string, any>[], smoothie: Record<string, any>[] }} */
   const committees = { dinner: [], lunch: [], breakfast: [], smoothie: [] };
   for (const meal of mealOrder) {
-    const committee = pickCommittee(
+    const fixed = fixedBySlot.get(meal);
+    const committee = fixed
+      ? [fixed]
+      : pickCommittee(
       pool(meal).filter((r) => !pinnedRecipeIds.has(r.id)),
       {
         size: COMMITTEE_SIZES[meal],
@@ -1666,10 +1811,10 @@ export function generateWeek({
     );
     committees[meal] = committee;
     // accrue coverage at each member's EXPECTED weekly appearances (dinner
-    // repeats twice; cycled meals appear 7/committee-size times) — otherwise
-    // a committee's ~1-serving accrual against 7x weekly targets makes the
-    // gap bonus too weak to discriminate
-    const expected = meal === "dinner" ? 2 : 7 / Math.max(1, committee.length);
+    // repeats twice; cycled meals appear 7/committee-size times; a FIXED slot
+    // appears every day) — otherwise a committee's ~1-serving accrual against
+    // 7x weekly targets makes the gap bonus too weak to discriminate
+    const expected = fixed ? 7 : meal === "dinner" ? 2 : 7 / Math.max(1, committee.length);
     for (const r of committee) {
       for (const f of foodSlugsOf(r)) weekFoodPool.add(f);
       for (const [k, v] of Object.entries(foodGroupContribution(r, expected))) {
@@ -1749,10 +1894,26 @@ export function generateWeek({
   ) => {
     if (!recipe) return;
     if (entriesAt(next.entries, date, slot).length > 0) return; // never overwrite (pins included)
-    next = addEntry(next, date, slot, {
-      recipeId: recipe.id,
-      servings: portionFor(date, slot, recipe),
-    });
+    // A FIXED slot is the dish AS WRITTEN, one serving: "greek yogurt and
+    // some toppings every day" is one bowl, and its rotation target and
+    // tolerance are per-serving facts. Portion-scaling it (the first cut
+    // shipped a 1.25x smoothie) both breaks the daily-identity promise and
+    // hard-wires extra protein the trims cannot legally remove. The rest of
+    // the day is sized and topped up around it by the existing passes.
+    const isFixed = fixedBySlot.get(slot)?.id === recipe.id;
+    // the `fixed: true` stamp travels WITH the entry so post-generation
+    // passes that never see this file's lockedSlots (budget swapToFit,
+    // shopping substitutionPlan) can honour the declaration too — the
+    // in-engine protection alone left the fixed breakfast swappable the
+    // moment generateWeek returned (reviewer finding 1, 2026-08-25)
+    next = addEntry(
+      next,
+      date,
+      slot,
+      isFixed
+        ? { recipeId: recipe.id, servings: 1, fixed: true }
+        : { recipeId: recipe.id, servings: portionFor(date, slot, recipe) },
+    );
   };
 
   const dinnerRotation = hash(`${weekId}|${salt}|dinner`) % Math.max(1, committees.dinner.length);
@@ -1799,13 +1960,17 @@ export function generateWeek({
     if (mealSlotSet.has("lunch") && entriesAt(next.entries, date, "lunch").length === 0) {
       assigned.lunch.set(date, committees.lunch[i % Math.max(1, committees.lunch.length)]);
     }
-    if (
-      mealSlotSet.has("dinner") &&
-      dinnerCursor < dinnerSequence.length &&
-      entriesAt(next.entries, date, "dinner").length === 0
-    ) {
-      assigned.dinner.set(date, dinnerSequence[dinnerCursor]);
-      dinnerCursor++;
+    if (mealSlotSet.has("dinner") && entriesAt(next.entries, date, "dinner").length === 0) {
+      // a FIXED dinner fills every day; the two-pass rotation would stop
+      // after two (its committee has one member), and an honest gap is wrong
+      // here because daily repetition is what the profile declared
+      const fixedDinner = fixedBySlot.get("dinner");
+      if (fixedDinner) {
+        assigned.dinner.set(date, fixedDinner);
+      } else if (dinnerCursor < dinnerSequence.length) {
+        assigned.dinner.set(date, dinnerSequence[dinnerCursor]);
+        dinnerCursor++;
+      }
     }
   });
   for (const meal of /** @type {("breakfast" | "lunch" | "dinner")[]} */ ([
@@ -1844,8 +2009,10 @@ export function generateWeek({
   // 2026-07-10 Opus audit) — must run BEFORE macroTopUp so the calorie/
   // protein top-up sees each day's post-floor totals, not the other way
   // around.
+  const lockedSlots = [...fixedBySlot.keys()];
   next = foodGroupFloorPass(next, pool("snack"), byId, dailyGroupFloors, {
     calorieCeiling: ceilings.calories,
+    lockedSlots,
   });
 
   // Step 4: macro top-up (calories + protein). Uses the FULL snack pool, not
@@ -1868,6 +2035,7 @@ export function generateWeek({
     // 7.11: a day already at its protein target (usually a swipe day) gets
     // lean calorie fills instead of protein-first snacks
     proteinTargetG: proteinTarget,
+    lockedSlots,
   });
   // the tally is taken AFTER step 4.65's floor restore (see below), so the
   // manifest counts every snack the top-up added, not just the ones it added
@@ -1880,11 +2048,20 @@ export function generateWeek({
   // the SAME screened pools the committees drew from, so neither trim's swap
   // lever can reach a recipe the diet screens, the avoid list or the
   // AI-special rule already excluded
+  // a FIXED slot's swap pool is the fixed recipe alone: the trim passes may
+  // resize its servings but must never swap it away for a leaner candidate —
+  // caught on the first real-data run (2026-08-25), where the protein trim
+  // quietly replaced the declared daily breakfast on six of seven days while
+  // the manifest still said "applied".
+  const slotPoolFor = (/** @type {string} */ m) => {
+    const fixed = fixedBySlot.get(m);
+    return fixed ? [fixed] : pool(m);
+  };
   const slotPools = {
-    breakfast: pool("breakfast"),
-    lunch: pool("lunch"),
-    dinner: pool("dinner"),
-    smoothie: pool("smoothie"),
+    breakfast: slotPoolFor("breakfast"),
+    lunch: slotPoolFor("lunch"),
+    dinner: slotPoolFor("dinner"),
+    smoothie: slotPoolFor("smoothie"),
     snack: pool("snack"),
   };
   next = calorieTrimPass(
@@ -1895,6 +2072,7 @@ export function generateWeek({
       calorieFloor: floors.calories,
       proteinFloor: floors.protein,
       groupFloors: dailyGroupFloors,
+      lockedSlots,
     },
     slotPools,
   );
@@ -1918,6 +2096,10 @@ export function generateWeek({
       calorieFloor: floors.calories,
       proteinFloor: floors.protein,
       groupFloors: dailyGroupFloors,
+      // the up-sized swap escape (above) may add calories; this keeps it
+      // from trading a protein overage for a calorie one
+      calorieCeiling: ceilings.calories,
+      lockedSlots,
     },
     slotPools,
   );
@@ -1942,6 +2124,7 @@ export function generateWeek({
     budget: targets?.budget,
     weekFoodPool,
     proteinTargetG: proteinTarget,
+    lockedSlots,
   });
   if (topUpReport.macroTopUp) {
     topUpReport.macroTopUp.snackServingsAdded =
@@ -2108,6 +2291,17 @@ export function generateWeek({
       weeklyGapsOpen: gaps.weekly.length,
     },
     macroTopUp: topUpReport.macroTopUp ?? { budget: "unknown", ranButDidNotReport: true },
+    // fixedSlots (spec 2026-08-25): which slots the profile pinned to one
+    // recipe, and any fixed id the screens removed (fell back to a committee
+    // — said here, never a silent empty slot). snackPortableRelaxed: the
+    // profile asked for portable-only snacks but zero recipes carry the flag.
+    fixedSlots: {
+      declared: Object.keys(fixedSlotsRaw).length,
+      applied: [...fixedBySlot.keys()],
+      misses: fixedSlotMisses,
+      snackPortable: targets?.snackPortable === true,
+      snackPortableRelaxed,
+    },
     // 7.11 (P5): the away/swipe credit and the remaining-need density the
     // committees actually aimed at — the arbitrage can never go dark again
     away: {

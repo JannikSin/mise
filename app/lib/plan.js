@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, cookSeconds?: number, cookComment?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, cookSeconds?: number, cookComment?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any>, fallback?: { savedAt: string, entries: PlanEntry[] }, spend?: { store: string, date: string, total: number }[], reviewNote?: string }} Plan
  */
@@ -404,7 +404,7 @@ function legacyId(e, twinIndex) {
  * @param {Plan} plan
  * @param {string} date
  * @param {string} slot
- * @param {{ recipeId?: string, freeText?: string, servings: number, pinned?: boolean, out?: boolean, estCalories?: number, estProtein?: number, table?: string }} content
+ * @param {{ recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, estCalories?: number, estProtein?: number, table?: string }} content
  * @returns {Plan}
  */
 export function addEntry(plan, date, slot, content) {

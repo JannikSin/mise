@@ -40,6 +40,7 @@ export const SUBSYSTEMS = [
   "leftovers",
   "swapToFit",
   "household",
+  "fixedSlots",
 ];
 
 /**
@@ -176,6 +177,18 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
       reason: "no fit pass has run on this plan yet (generate to price the week)",
     };
   }
+
+  // fixedSlots (P3, spec 2026-08-25). Defaulted here so the registry can
+  // never find it silent: "no slot is fixed" and "the fixed pick fell back"
+  // are different facts, and only the engine can tell them apart.
+  subsystems.fixedSlots = {
+    declared: 0,
+    applied: [],
+    misses: [],
+    snackPortable: false,
+    snackPortableRelaxed: false,
+    ...subsystems.fixedSlots,
+  };
 
   // P6, THE HOUSEHOLD. Defaulted here so the registry can never find it
   // silent; the generate path fills the capacity half, which needs the pantry.
@@ -477,6 +490,19 @@ function lineFor(key, s) {
         `$${s.startedAt?.toFixed?.(2) ?? s.startedAt} eaten becomes $${s.eaten?.toFixed?.(2) ?? s.eaten} ` +
         `against a $${s.budget} budget at ${s.store}, ${s.swaps} swap${s.swaps === 1 ? "" : "s"}: ` +
         (s.fits ? "FITS" : `OVER by $${s.over?.toFixed?.(2) ?? s.over}`)
+      );
+    case "fixedSlots":
+      // P3 (spec 2026-08-25). A declared fix that fell back to a committee is
+      // the one state that must never render like "nothing declared".
+      return (
+        (s.declared === 0
+          ? "no slot is fixed to one recipe"
+          : `${(s.applied ?? []).length ? `fixed daily: ${(s.applied ?? []).join(", ")}` : "declared but none applied"}${(s.misses ?? []).length ? `; FELL BACK to a committee — ${s.misses.join("; ")}` : ""}`) +
+        (s.snackPortable
+          ? s.snackPortableRelaxed
+            ? "; portable-only snacks asked for but NO recipe carries portable: true — full pool used"
+            : "; snacks drawn from portable-only pool"
+          : "")
       );
     case "plating":
       return `plating ${s.status}; ${s.platedRecipes} of ${s.bankRecipes} recipes tailor per person`;

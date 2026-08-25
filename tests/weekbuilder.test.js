@@ -1820,3 +1820,113 @@ test("a stated tray size beats the derived one, because he knows what he can eat
   assert.deepEqual(buffetMacroEstimate(POOL, "lunch", {}), derived);
   assert.deepEqual(buffetMacroEstimate(POOL, "lunch", null), derived);
 });
+
+// ---- spec 2026-08-25: remedy fence, fixedSlots, snackPortable --------------
+
+test("remedy-tagged recipes never enter a generated week (spec 1)", () => {
+  const brat = { ...r("brat-plate", "lunch", ["white rice", "applesauce"]), tags: ["remedy", "gentle"] };
+  assert.ok(!generatorEligible([brat, CHICKEN_A]).some((x) => x.id === "brat-plate"));
+  // 20 salts, belt and braces: the plate must appear in none of them
+  for (let salt = 0; salt < 20; salt++) {
+    const { plan } = generateWeek({
+      recipes: [brat, ...ALL],
+      targets: TARGETS,
+      pantry: { staples: [], perishables: [] },
+      weekId: "2026-W29",
+      plan: { week: "2026-W29", entries: [] },
+      salt,
+    });
+    assert.ok(
+      !plan.entries.some((e) => e.recipeId === "brat-plate"),
+      `salt ${salt} planned the remedy plate`,
+    );
+  }
+});
+
+test("fixedSlots places the named recipe on all seven days of its slot (spec 2)", () => {
+  const otherBreakfast = r("oatmeal", "breakfast", ["oats", "milk"], { protein: 30, calories: 600 });
+  const { plan, report } = generateWeek({
+    recipes: [...ALL, otherBreakfast],
+    targets: { ...TARGETS, fixedSlots: { breakfast: "eggs" } },
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  const breakfasts = plan.entries.filter((e) => e.slot === "breakfast");
+  assert.equal(breakfasts.length, 7);
+  assert.ok(breakfasts.every((e) => e.recipeId === "eggs"));
+  // the stamp post-generation passes (budget swapToFit, shopping
+  // substitutionPlan) key their hands-off rule on
+  assert.ok(breakfasts.every((e) => /** @type {any} */ (e).fixed === true));
+  assert.ok(breakfasts.every((e) => e.servings === 1));
+  assert.deepEqual(report.manifest.fixedSlots.applied, ["breakfast"]);
+  assert.deepEqual(report.manifest.fixedSlots.misses, []);
+});
+
+test("a fixed id missing from the pool falls back to a committee and says so", () => {
+  const { plan, report } = generateWeek({
+    recipes: ALL,
+    targets: { ...TARGETS, fixedSlots: { breakfast: "no-such-recipe" } },
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  // the slot still fills (the committee ran), and the miss is reported
+  assert.equal(plan.entries.filter((e) => e.slot === "breakfast").length, 7);
+  assert.equal(report.manifest.fixedSlots.applied.length, 0);
+  assert.equal(report.manifest.fixedSlots.misses.length, 1);
+  assert.match(report.manifest.fixedSlots.misses[0], /no-such-recipe/);
+});
+
+test("a profile without fixedSlots generates exactly as before", () => {
+  const args = {
+    recipes: ALL,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  };
+  const plain = generateWeek({ ...args, targets: TARGETS });
+  const empty = generateWeek({ ...args, targets: { ...TARGETS, fixedSlots: {} } });
+  assert.deepEqual(
+    plain.plan.entries.map((e) => [e.date, e.slot, e.recipeId, e.servings]),
+    empty.plan.entries.map((e) => [e.date, e.slot, e.recipeId, e.servings]),
+  );
+  assert.equal(plain.report.manifest.fixedSlots.declared, 0);
+});
+
+test("snackPortable restricts every auto-planned snack to portable recipes (spec 5)", () => {
+  const portableSnack = { ...r("jerky", "snack", ["beef jerky"], { protein: 20, calories: 125 }), portable: true };
+  const fridgeSnack = r("yogurt-cup", "snack", ["yogurt"], { protein: 25, calories: 205 });
+  const recipes = [CHICKEN_A, CHICKEN_B, BREAKFAST, SMOOTHIE, LUNCH, fridgeSnack, portableSnack];
+  const { plan, report } = generateWeek({
+    recipes,
+    targets: { ...TARGETS, snackPortable: true },
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  for (const e of plan.entries.filter((x) => x.slot === "snack")) {
+    assert.equal(e.recipeId, "jerky", `non-portable snack ${e.recipeId} was planned`);
+  }
+  if (plan.buffer) assert.equal(plan.buffer.recipeId, "jerky");
+  assert.equal(report.manifest.fixedSlots.snackPortable, true);
+  assert.equal(report.manifest.fixedSlots.snackPortableRelaxed, false);
+});
+
+test("snackPortable with zero portable recipes relaxes honestly, never an empty pool", () => {
+  const { plan, report } = generateWeek({
+    recipes: POOL,
+    targets: { ...TARGETS, snackPortable: true },
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  assert.equal(report.manifest.fixedSlots.snackPortableRelaxed, true);
+  // the full pool still serves the floors: the week is not starved
+  assert.ok(plan.entries.length > 0);
+});
