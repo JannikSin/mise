@@ -1629,6 +1629,23 @@ export function ShoppingView({
                 }
                 ${canLive && refreshNote && html`<p class="hint">${refreshNote}</p>`}
                 ${
+                  // NO FEATURE SHIPS DARK, and this one did (David,
+                  // 2026-08-25: "it said not linked and push failed"). The
+                  // Worker was missing KROGER_STATE_SECRET and
+                  // KROGER_REDIRECT_URI, so /kroger/cart/link answered 503
+                  // every time and no link could ever be made. The app's
+                  // response to that 503 was to HIDE the whole cart block,
+                  // which turned a server misconfiguration into a blank space
+                  // — the worst possible way to report it, and why he was left
+                  // guessing. Say it out loud instead.
+                  canLive &&
+                  cartOff &&
+                  html`<p class="hint">
+                    ⚠️ Cart push is switched off on the server, so nothing can be sent yet. This is
+                    a configuration gap, not something you did wrong.
+                  </p>`
+                }
+                ${
                   canLive &&
                   !cartOff &&
                   html`<div class="row">
@@ -1722,8 +1739,8 @@ export function ShoppingView({
                                 </p>
                                 <p class="hint mono">
                                   ${e.rows
-                                  .map((/** @type {any} */ r) => `${r.upc} ×${r.quantity}`)
-                                  .join("  ")}
+                                    .map((/** @type {any} */ r) => `${r.upc} ×${r.quantity}`)
+                                    .join("  ")}
                                 </p>
                               </div>`,
                           )

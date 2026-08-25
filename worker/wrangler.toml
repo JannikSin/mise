@@ -38,3 +38,16 @@ crons = ["0 * * * *"]
 # without this, console.log output exists only under a live `wrangler tail`
 [observability]
 enabled = true
+
+# THE CART WAS DARK FROM THE DAY IT SHIPPED (David, 2026-08-25: "it said not
+# linked and push failed"). krogerCartConfigured() requires FOUR values and only
+# two were ever set — KROGER_CLIENT_ID and KROGER_CLIENT_SECRET — so
+# /kroger/cart/link answered 503 "cart push not set up yet" every single time
+# and no link could ever be made. This is not sensitive (it is a public callback
+# URL) so it lives here in the open, where its absence is visible, rather than
+# as an invisible dashboard secret.
+#
+# STILL NEEDS DAVID: this exact URL must also be registered as a redirect URI on
+# his Kroger developer app, and that app needs the cart.basic:write scope.
+[vars]
+KROGER_REDIRECT_URI = "https://mise-worker.janniksin.workers.dev/kroger/cart/callback"
