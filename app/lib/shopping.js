@@ -128,14 +128,28 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
   );
 
   // the weekly buffer snack shops exactly like a planned entry: its batch is
-  // `portions` servings of the recipe
+  // `portions` servings of the recipe, NET of any planned entries that
+  // already carry the same recipe. In default mode the two never coincide
+  // and this subtracts zero; under targets.snackStyle "weekly" every planned
+  // snack IS the buffer recipe and portions already counts them, so shopping
+  // the full batch on top bought the week's snack nearly twice (reviewer
+  // catch 2026-08-25, the day the mode shipped).
   // the weekly buffer is a WEEK-long batch, so a partial shop leaves it out
   // rather than buying a full week of stand-by snack for three days of food
   const partial = Boolean(onlyDates || onlySlots);
+  const bufferNetServings = plan.buffer
+    ? Math.max(
+        0,
+        plan.buffer.portions -
+          plan.entries
+            .filter((e) => e.recipeId === plan.buffer?.recipeId)
+            .reduce((s, e) => s + (e.servings ?? 0), 0),
+      )
+    : 0;
   const toShop = [
     ...plan.entries,
-    ...(plan.buffer && !partial
-      ? [{ recipeId: plan.buffer.recipeId, servings: plan.buffer.portions }]
+    ...(plan.buffer && !partial && bufferNetServings > 0
+      ? [{ recipeId: plan.buffer.recipeId, servings: bufferNetServings }]
       : []),
   ];
   for (const entry of toShop) {

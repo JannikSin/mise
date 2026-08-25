@@ -187,6 +187,9 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
     misses: [],
     snackPortable: false,
     snackPortableRelaxed: false,
+    snackWeekly: false,
+    weeklySnackId: null,
+    snackWeeklyRelaxed: false,
     ...subsystems.fixedSlots,
   };
 
@@ -502,6 +505,11 @@ function lineFor(key, s) {
           ? s.snackPortableRelaxed
             ? "; portable-only snacks asked for but NO recipe carries portable: true — full pool used"
             : "; snacks drawn from portable-only pool"
+          : "") +
+        (s.snackWeekly
+          ? s.weeklySnackId
+            ? `; ONE snack all week: ${s.weeklySnackId}${s.snackWeeklyRelaxed ? " (a floor it couldn't close reopened the full pool)" : ""}`
+            : "; weekly snack style declared but no snack could be picked"
           : "")
       );
     case "plating":

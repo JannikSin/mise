@@ -131,6 +131,43 @@ test("fromDate skips entries already eaten; buffer still shops", () => {
   assert.ok(full.items.find((i) => i.food === "rolled oats"));
 });
 
+test("weekly-snack mode: the buffer batch nets out planned entries of the same recipe", () => {
+  // snackStyle "weekly": every planned snack IS the buffer recipe and the
+  // batch `portions` already count them, so shopping both bought the week's
+  // snack nearly twice (reviewer catch 2026-08-25)
+  const recipes = new Map([
+    ["mix", { id: "mix", servings: 1, ingredients: [{ qty: 70, unit: "g", food: "trail mix" }] }],
+  ]);
+  const plan = {
+    week: "2026-W30",
+    entries: [
+      { id: "a", date: "2026-07-20", slot: "snack", recipeId: "mix", servings: 1 },
+      { id: "b", date: "2026-07-22", slot: "snack", recipeId: "mix", servings: 2 },
+    ],
+    buffer: { recipeId: "mix", portions: 7 },
+  };
+  const list = deriveShoppingList(plan, recipes, { staples: [], perishables: [] });
+  const row = list.items.find((i) => i.food === "trail mix");
+  // 3 planned + net 4 stand-by = 7 servings x 70 g = 490 g, shelf-rounded to
+  // 500 — never the 10 x 70 g = 700 the double-count bought
+  assert.equal(row.qty, 500);
+});
+
+test("a buffer batch smaller than its planned entries shops nothing extra, never negative", () => {
+  const recipes = new Map([
+    ["mix", { id: "mix", servings: 1, ingredients: [{ qty: 70, unit: "g", food: "trail mix" }] }],
+  ]);
+  const plan = {
+    week: "2026-W30",
+    entries: [{ id: "a", date: "2026-07-20", slot: "snack", recipeId: "mix", servings: 9 }],
+    buffer: { recipeId: "mix", portions: 7 },
+  };
+  const list = deriveShoppingList(plan, recipes, { staples: [], perishables: [] });
+  // 9 planned servings x 70 g = 630 g, shelf-rounded to 650; the batch adds
+  // nothing (7 - 9 clamps to 0), and never a negative pseudo-entry
+  assert.equal(list.items.find((i) => i.food === "trail mix").qty, 650);
+});
+
 test("ownItemToPantry removes ALL list rows of that food, any unit", () => {
   const shopping = {
     generatedFrom: "2026-W28",

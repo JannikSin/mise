@@ -1168,13 +1168,17 @@ under `outDays` with their assumed totals (app/lib/weekbuilder.js).
 
 `buffer` (whole-plan, optional; absent = no weekly buffer, unchanged for
 existing data) names the week's BUFFER SNACK: one batch-prepped, measured
-fridge stand-by (per the 2026-07-20 Greger consult: batchable snacks only,
+stand-by (per the 2026-07-20 Greger consult: batchable snacks only,
 phase-keyed calorie band, protein-dense). Chosen by GENERATE WEEK
 (deterministic, re-rolls with the salt), its batch (`portions` servings) is
 added to the derived shopping list like a planned entry. Portions eaten are
 tallied per day on the Cook view into `fitness/daily.json` day rows as a
 `buffer` count (a plain number, absent = 0) — display-only, it never feeds
-plan `dayTotals`.
+plan `dayTotals`. Default `portions` = one per live day. Under
+`targets.snackStyle: "weekly"` the buffer pick is ALSO the only snack the
+passes may plan, and `portions` = the sum over live days of max(1, that
+day's planned snack servings), so the Sunday batch covers both the planned
+portions and a stand-by for every other day.
 
 THE FLUID WEEK (7.2, 2026-08-19; canon P4): `locked` is retired. GOING TO THE
 STORE now writes `fallback` (the shopped plan, always there to return to) and
@@ -1387,6 +1391,17 @@ Seeded from the FITNESS.md system; edited rarely.
   //   2026-08-25: "smth i can bring in my backpack"). Honest-relax:
   //   zero portable recipes = full pool + a manifest line, never a
   //   silent empty pool. Absent = no filter.
+  "snackStyle": "weekly",
+  // ? enum weekly | absent. "weekly" = ONE snack recipe for the whole
+  //   week (spec 2026-08-25 part 2, David: "each week can be its own
+  //   snack... smth i batch prep for the week"): the buffer pick is
+  //   selected FIRST and becomes the only snack candidate every pass
+  //   may place, so planned snack entries and the stand-by batch are
+  //   the same batch-prepped recipe; plan.buffer portions then cover
+  //   max(1, planned servings) per live day. Next week's salt/overlap
+  //   jitter rotates the pick. Composes with snackPortable (the pick
+  //   comes from the filtered pool). ABSENT = per-day variety from
+  //   the full snack pool (today's behavior for every other profile).
 
   // ---- survey-v2 onboarding answers (docs/survey-v2-design.md) ----
   // All optional; every field ABSENT = its safe default (no filter, no
@@ -1462,6 +1477,17 @@ Seeded from the FITNESS.md system; edited rarely.
       //   calories x1.15 vs pool average) so the grocery list buys less of
       //   the costliest thing it prices — David's swipe-protein arbitrage,
       //   generalized. Absent venue = a plain prepaid balance.
+      // "estCalories": 1200, "estProtein": 90,
+      //   ? THE STATED TRAY (2026-08-24, raised 2026-08-25): what this
+      //   person says a swipe meal actually delivers. When estProtein > 0
+      //   it beats the derived x1.5/x1.15 figure everywhere: the swipe
+      //   placeholder's credit, AND the dining-hall composer's aim (hall.js
+      //   — self-checking, the screen says so when the hall cannot reach
+      //   it). GENERATE RE-STAMPS every currency placeholder from the
+      //   CURRENT stated numbers (weekbuilder pinnedEntries), so raising
+      //   them here reaches an already-planned week on its next generate —
+      //   they froze at plan time before 2026-08-25, which left David's
+      //   live week crediting a stale 550/48 against a stated 800/65.
       "toGo": true // ? redeemable as a takeout container instead of eating
       //   in (a box of chicken breasts IS pantry stock). v1 records the
       //   field; the swipe→pantry flow is open 7.11 work.

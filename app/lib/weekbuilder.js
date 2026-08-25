@@ -17,12 +17,14 @@
 import { canMake } from "./equipment.js";
 import {
   addEntry,
+  buffetMacroEstimate,
   dayTotals,
   dayBought,
   datesOfWeek,
   entriesAt,
   recipesById,
   slotMacroEstimate,
+  SWIPE_TEXT,
   untrustedForAutoPlan,
 } from "./plan.js";
 import { slug, pantryItems, isDatedItem } from "./shopping.js";
@@ -1562,9 +1564,29 @@ export function generateWeek({
   const pastEntries = plan.entries.filter((e) => isPast(e.date) || isHeld(e.date));
   const pinnedEntries = plan.entries
     .filter((e) => e.pinned && !isPast(e.date) && !isHeld(e.date))
-    .map((e) =>
-      e.out && e.estCalories == null ? { ...e, ...slotMacroEstimate(recipes, e.slot) } : e,
-    );
+    .map((e) => {
+      if (!e.out) return e;
+      // A CURRENCY placeholder is RE-STAMPED from the profile's CURRENT
+      // stated tray on every generate (found 2026-08-25: David's live week
+      // carried seven swipes frozen at the pre-stated 550 kcal / 48 g
+      // derivation, under-crediting every day by ~250 kcal / 17 g that the
+      // grocery list then bought again — pinned entries preserve their
+      // stamp verbatim, so a raised estimate never reached them). The
+      // currency id on the entry names the declared source, so this is a
+      // refresh from the profile, never a guess. ONLY the untouched
+      // placeholder is refreshed: a swipe whose freeText names a COMPOSED
+      // tray (handleHallTray wrote the hall's real numbers onto it) is a
+      // measurement, and a measurement beats a self-report (reviewer catch
+      // 2026-08-25 — the first cut overwrote Purdue's published macros with
+      // the stated 1200/90 while keeping the dish list in the label).
+      const cur = (targets?.currencies ?? []).find(
+        (/** @type {any} */ c) => c.id === /** @type {any} */ (e).currency,
+      );
+      if (cur && (e.freeText === SWIPE_TEXT || e.estCalories == null)) {
+        return { ...e, ...buffetMacroEstimate(recipes, e.slot, cur) };
+      }
+      return e.estCalories == null ? { ...e, ...slotMacroEstimate(recipes, e.slot) } : e;
+    });
   let next = { ...plan, week: weekId, entries: pinnedEntries };
 
   const outDays = [...new Set(pinnedEntries.filter((e) => e.out).map((e) => e.date))]
@@ -2009,8 +2031,104 @@ export function generateWeek({
   // 2026-07-10 Opus audit) — must run BEFORE macroTopUp so the calorie/
   // protein top-up sees each day's post-floor totals, not the other way
   // around.
+  // Step 3.4: pick the weekly BUFFER snack (David, 2026-07-20) — ONE
+  // batch-prepped, measured stand-by for the whole week, the answer to
+  // "still hungry" that isn't an unplanned raid. Criteria per the Greger
+  // consult (2026-07-20): batchable is a PREREQUISITE, not a bonus (a snack
+  // with no batch story can't sit ready all week) — but an empty batchable
+  // pool degrades honestly to the full snack pool rather than skipping the
+  // buffer. Scoring: protein per portion AND per calorie (the buffer does
+  // double duty toward the protein target), a phase-keyed calorie band
+  // (gain wants ~250-400 kcal so the snack MOVES the day, not a 90-kcal
+  // appetite-killer plate; other phases band lower), whole-plant Daily
+  // Dozen mass (satiety with the fiber bundled in), zero-prep assembly
+  // effort, ingredient overlap with the week (tight list), salted jitter
+  // (RE-ROLL varies it). Deterministic like everything else here.
+  //
+  // SELECTED HERE, before the snack passes, because of snackStyle below;
+  // every input (weekFoodPool, remainingNeedRatio, the pools) is final by
+  // this point, so a profile without snackStyle gets the identical pick the
+  // old post-top-up position produced. The plan.buffer batch size is still
+  // written at the end, from the final entries.
+  const BUFFER_PLANT_GROUPS = [
+    "greens",
+    "cruciferousVeg",
+    "otherVeg",
+    "beans",
+    "nuts",
+    "berries",
+    "otherFruit",
+  ];
+  const BATCH_TAGS = ["make-ahead", "batch-friendly", "meal-prep"];
+  const snackWeeklyMode = targets?.snackStyle === "weekly";
+  const fullSnackPool = pool("snack");
+  const batchable = fullSnackPool.filter(
+    (r) =>
+      (r.tags ?? []).some((/** @type {string} */ t) => BATCH_TAGS.includes(t)) ||
+      r.batchPrep?.sundayComponent,
+  );
+  const bufferCandidates = batchable.length > 0 ? batchable : fullSnackPool;
+  // the buffer snack is scored against the SAME remaining-need density the
+  // committees use, so a swipe-heavy week does not get a protein-loaded
+  // snack stacked on top of protein it already banked.
+  const bufferNeedRatio = remainingNeedRatio;
+  const [bandLo, bandHi] = targets?.phase === "gain" ? [250, 400] : [120, 300];
+  let bufferPick = null;
+  let bufferScore = -Infinity;
+  for (const r of bufferCandidates) {
+    const n = r.nutrition ?? {};
+    const cal = n.calories ?? 0;
+    const plantMass = BUFFER_PLANT_GROUPS.reduce((s, g) => s + (Number(r.foodGroups?.[g]) || 0), 0);
+    const bandMiss = cal < bandLo ? (bandLo - cal) / 100 : cal > bandHi ? (cal - bandHi) / 100 : 0;
+    // SATIATING, same fix as proteinTerm (2026-08-23). This was
+    //   protein/10 + (protein/cal)*100*0.4
+    // monotonic in protein TWICE OVER, absolute grams AND density, on a
+    // snack eaten every single day of the week. It was a second, independent
+    // cause of the overshoot, and fixing the committee term while leaving
+    // this one would have been a half fix.
+    const bufRatio = cal > 0 ? ((n.protein ?? 0) * 4) / cal : 0;
+    const bufRel = bufferNeedRatio > 0 ? (bufRatio - bufferNeedRatio) / bufferNeedRatio : 0;
+    const score =
+      (bufRel < 0 ? bufRel * 2 : -bufRel * 1.1) * 1.5 +
+      plantMass * 1.5 +
+      (r.effort === "assembly" ? 1 : 0) -
+      bandMiss * 1.5 +
+      overlapWith(r, weekFoodPool) * 0.5 +
+      // "each week can be its own snack" (David, 2026-08-25). Two rotation
+      // pressures, BOTH gated on snackStyle "weekly": the week id in the
+      // jitter (a new week reshuffles the tie-breaks), and the committees'
+      // own recency penalty — the weekly snack rides into recentRecipeIds
+      // through its planned entries, so the -2.5 that keeps consecutive
+      // weeks' dinners different rotates the batch too. Default-mode
+      // profiles keep the exact old scoring: their top-up can plant the
+      // SAME recipe as the buffer in a prior week's entries, and an
+      // ungated penalty would silently reshuffle picks nobody asked to
+      // change.
+      (snackWeeklyMode && recentSet.has(r.id) ? -2.5 : 0) +
+      (hash(snackWeeklyMode ? `${r.id}|${weekId}|${salt}|buffer` : `${r.id}|${salt}|buffer`) %
+        997) /
+        9970;
+    if (score > bufferScore) {
+      bufferScore = score;
+      bufferPick = r;
+    }
+  }
+
+  // [spec 2026-08-25 part 2] targets.snackStyle: "weekly" — ONE snack for
+  // the whole week, David's design stated in his own words: "should there
+  // just be a snack category for the week and i should know i should have it
+  // whenever and keep it in the backpack... maybe it is smth i batch prep
+  // for the week and each week can be its own snack". The weekly buffer pick
+  // becomes THE week's snack: every snack the passes place is that recipe
+  // (servings vary per day as the macros need), the Sunday batch covers the
+  // planned portions plus a stand-by for every other day, and next week's
+  // salt/overlap jitter picks a different one. Generic: absent = today's
+  // behavior, per-day variety from the full pool. (One flag for the whole
+  // mode: snackWeeklyMode, declared beside the buffer candidates above.)
+  const passSnackPool = snackWeeklyMode && bufferPick ? [bufferPick] : fullSnackPool;
+
   const lockedSlots = [...fixedBySlot.keys()];
-  next = foodGroupFloorPass(next, pool("snack"), byId, dailyGroupFloors, {
+  next = foodGroupFloorPass(next, passSnackPool, byId, dailyGroupFloors, {
     calorieCeiling: ceilings.calories,
     lockedSlots,
   });
@@ -2028,7 +2146,7 @@ export function generateWeek({
   const snackServingsBefore = next.entries
     .filter((e) => e.slot === "snack")
     .reduce((s, e) => s + (e.servings ?? 0), 0);
-  next = macroTopUp(next, pool("snack"), byId, floors, targets?.snackAppetite === "meals" ? 1 : 3, {
+  next = macroTopUp(next, passSnackPool, byId, floors, targets?.snackAppetite === "meals" ? 1 : 3, {
     budget: targets?.budget,
     weekFoodPool,
     report: topUpReport,
@@ -2062,7 +2180,7 @@ export function generateWeek({
     lunch: slotPoolFor("lunch"),
     dinner: slotPoolFor("dinner"),
     smoothie: slotPoolFor("smoothie"),
-    snack: pool("snack"),
+    snack: passSnackPool,
   };
   next = calorieTrimPass(
     next,
@@ -2120,86 +2238,69 @@ export function generateWeek({
   // reduce. Deliberately NOT followed by another protein trim: two passes
   // that can undo each other is a loop, and the floor is health while the
   // ceiling is money, so the floor wins the tie.
-  next = macroTopUp(next, pool("snack"), byId, floors, targets?.snackAppetite === "meals" ? 1 : 3, {
+  next = macroTopUp(next, passSnackPool, byId, floors, targets?.snackAppetite === "meals" ? 1 : 3, {
     budget: targets?.budget,
     weekFoodPool,
     proteinTargetG: proteinTarget,
     lockedSlots,
   });
+
+  // Step 4.66: weekly-snack HONEST RELAX. One snack all week is a
+  // PREFERENCE; the floors are health, and they win. A day the weekly batch
+  // physically cannot close — its single entry caps at 2x base servings, so
+  // a small snack leaves the top-up with no lever — gets the full snack
+  // pool back for the remainder, and the manifest says so. Found on the
+  // penalised fixture the same day the mode shipped: chickpeas maxed at @2
+  // with the day sitting 26 kcal under its floor.
+  let snackWeeklyRelaxed = false;
+  if (snackWeeklyMode && bufferPick) {
+    const stillShort = liveDates.some((d) => {
+      const t = dayTotals(next.entries, byId, d);
+      return t.calories < floors.calories || t.protein < floors.protein;
+    });
+    if (stillShort) {
+      snackWeeklyRelaxed = true;
+      next = macroTopUp(next, fullSnackPool, byId, floors, targets?.snackAppetite === "meals" ? 1 : 3, {
+        budget: targets?.budget,
+        weekFoodPool,
+        proteinTargetG: proteinTarget,
+        lockedSlots,
+      });
+    }
+  }
+  // the tally counts AFTER the relax pass, so the manifest reports every
+  // snack serving the top-ups added — counting before 4.66 is the exact
+  // "snackServingsAdded: 0 on a week that needed two" bug step 4.65's
+  // comment records, reintroduced one step later (reviewer catch 2026-08-25)
   if (topUpReport.macroTopUp) {
     topUpReport.macroTopUp.snackServingsAdded =
       next.entries.filter((e) => e.slot === "snack").reduce((s, e) => s + (e.servings ?? 0), 0) -
       snackServingsBefore;
   }
 
-  // Step 4.7: weekly BUFFER snack (David, 2026-07-20) — ONE batch-prepped,
-  // measured fridge stand-by for the whole week, the answer to "still hungry"
-  // that isn't an unplanned raid. Criteria per the Greger consult
-  // (2026-07-20): batchable is a PREREQUISITE, not a bonus (a snack with no
-  // batch story can't sit in the fridge all week) — but an empty batchable
-  // pool degrades honestly to the full snack pool rather than skipping the
-  // buffer. Scoring: protein per portion AND per calorie (the buffer does
-  // double duty toward the protein target), a phase-keyed calorie band
-  // (gain wants ~250-400 kcal so the snack MOVES the day, not a 90-kcal
-  // appetite-killer plate; other phases band lower), whole-plant Daily
-  // Dozen mass (satiety with the fiber bundled in), zero-prep assembly
-  // effort, ingredient overlap with the week (tight list), salted jitter
-  // (RE-ROLL varies it). 7 portions: one per day available, eating fewer is
-  // the point. Deterministic like everything else here.
-  const BUFFER_PLANT_GROUPS = [
-    "greens",
-    "cruciferousVeg",
-    "otherVeg",
-    "beans",
-    "nuts",
-    "berries",
-    "otherFruit",
-  ];
-  const BATCH_TAGS = ["make-ahead", "batch-friendly", "meal-prep"];
-  const snackPool = pool("snack");
-  const batchable = snackPool.filter(
-    (r) =>
-      (r.tags ?? []).some((/** @type {string} */ t) => BATCH_TAGS.includes(t)) ||
-      r.batchPrep?.sundayComponent,
-  );
-  const bufferCandidates = batchable.length > 0 ? batchable : snackPool;
-  // the buffer snack is scored against the SAME remaining-need density the
-  // committees use, so a swipe-heavy week does not get a protein-loaded
-  // snack stacked on top of protein it already banked.
-  const bufferNeedRatio = remainingNeedRatio;
-  const [bandLo, bandHi] = targets?.phase === "gain" ? [250, 400] : [120, 300];
-  let bufferPick = null;
-  let bufferScore = -Infinity;
-  for (const r of bufferCandidates) {
-    const n = r.nutrition ?? {};
-    const cal = n.calories ?? 0;
-    const plantMass = BUFFER_PLANT_GROUPS.reduce((s, g) => s + (Number(r.foodGroups?.[g]) || 0), 0);
-    const bandMiss = cal < bandLo ? (bandLo - cal) / 100 : cal > bandHi ? (cal - bandHi) / 100 : 0;
-    // SATIATING, same fix as proteinTerm (2026-08-23). This was
-    //   protein/10 + (protein/cal)*100*0.4
-    // monotonic in protein TWICE OVER, absolute grams AND density, on a
-    // snack eaten every single day of the week. It was a second, independent
-    // cause of the overshoot, and fixing the committee term while leaving
-    // this one would have been a half fix.
-    const bufRatio = cal > 0 ? ((n.protein ?? 0) * 4) / cal : 0;
-    const bufRel = bufferNeedRatio > 0 ? (bufRatio - bufferNeedRatio) / bufferNeedRatio : 0;
-    const score =
-      (bufRel < 0 ? bufRel * 2 : -bufRel * 1.1) * 1.5 +
-      plantMass * 1.5 +
-      (r.effort === "assembly" ? 1 : 0) -
-      bandMiss * 1.5 +
-      overlapWith(r, weekFoodPool) * 0.5 +
-      (hash(`${r.id}|${salt}|buffer`) % 997) / 9970;
-    if (score > bufferScore) {
-      bufferScore = score;
-      bufferPick = r;
-    }
-  }
-  // portions = one per LIVE day (7 on a fresh week); a mid-week re-roll
-  // rescales the batch to the days that remain. A fully-past week keeps its
-  // existing buffer untouched.
+  // Step 4.7: write the weekly BUFFER batch, from the FINAL entries. The
+  // pick itself happened at step 3.4 (it feeds the snack passes under
+  // snackStyle "weekly"); only the batch size is decided here.
+  // Default mode: one portion per LIVE day (7 on a fresh week; a mid-week
+  // re-roll rescales to the days that remain; a fully-past week keeps its
+  // existing buffer untouched) — eating fewer is the point.
+  // Weekly mode: the batch must ALSO cover the portions the plan scheduled,
+  // so each live day contributes max(1, its planned servings OF THE BATCH
+  // RECIPE — a relax-added different snack is its own shopped entry, never
+  // batch inflation): a stand-by for every day, more where the macros
+  // already booked more.
   if (bufferPick && liveDates.length > 0) {
-    next = { ...next, buffer: { recipeId: bufferPick.id, portions: liveDates.length } };
+    const portions = snackWeeklyMode
+      ? liveDates.reduce((sum, d) => {
+          const planned = next.entries
+            .filter(
+              (e) => e.date === d && e.slot === "snack" && e.recipeId === bufferPick.id,
+            )
+            .reduce((t, e) => t + (e.servings ?? 0), 0);
+          return sum + Math.max(1, Math.ceil(planned));
+        }, 0)
+      : liveDates.length;
+    next = { ...next, buffer: { recipeId: bufferPick.id, portions } };
   }
 
   // Step 5: report, never fudge — short days are judged against the floors
@@ -2301,6 +2402,13 @@ export function generateWeek({
       misses: fixedSlotMisses,
       snackPortable: targets?.snackPortable === true,
       snackPortableRelaxed,
+      // snackStyle "weekly" (spec 2026-08-25 part 2): one snack recipe for
+      // the whole week, planned AND stand-by. snackWeeklyRelaxed = a floor
+      // the single batch could not close reopened the full pool (health
+      // beats the preference, said out loud).
+      snackWeekly: snackWeeklyMode,
+      weeklySnackId: snackWeeklyMode ? (bufferPick?.id ?? null) : null,
+      snackWeeklyRelaxed,
     },
     // 7.11 (P5): the away/swipe credit and the remaining-need density the
     // committees actually aimed at — the arbitrage can never go dark again

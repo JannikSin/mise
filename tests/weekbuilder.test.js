@@ -1930,3 +1930,164 @@ test("snackPortable with zero portable recipes relaxes honestly, never an empty 
   // the full pool still serves the floors: the week is not starved
   assert.ok(plan.entries.length > 0);
 });
+
+// ---- spec 2026-08-25 part 2: swipe re-stamp, weekly snack style ------------
+
+test("a currency swipe placeholder is re-stamped from the CURRENT stated tray on generate", () => {
+  const stale = {
+    id: "swipe-1",
+    date: MONDAY_W29,
+    slot: "lunch",
+    freeText: "dining swipe",
+    servings: 1,
+    pinned: true,
+    out: true,
+    currency: "swipes",
+    estCalories: 550,
+    estProtein: 48,
+  };
+  const targets = {
+    ...TARGETS,
+    currencies: [
+      { id: "swipes", venue: "buffet", perWeek: 7, estCalories: 1200, estProtein: 90 },
+    ],
+  };
+  const { plan } = generateWeek({
+    recipes: POOL,
+    targets,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [stale] },
+    salt: 0,
+  });
+  const swipe = plan.entries.find((e) => e.id === "swipe-1");
+  assert.ok(swipe, "the pinned placeholder survives");
+  assert.equal(swipe.estCalories, 1200, "stale 550 refreshed to the stated 1200");
+  assert.equal(swipe.estProtein, 90, "stale 48 refreshed to the stated 90");
+});
+
+test("an out entry with NO currency keeps its estimate (a restaurant guess is not a stated tray)", () => {
+  const restaurant = {
+    id: "out-1",
+    date: MONDAY_W29,
+    slot: "dinner",
+    freeText: "eating out",
+    servings: 1,
+    pinned: true,
+    out: true,
+    estCalories: 700,
+    estProtein: 30,
+  };
+  const { plan } = generateWeek({
+    recipes: POOL,
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [restaurant] },
+    salt: 0,
+  });
+  const e = plan.entries.find((x) => x.id === "out-1");
+  assert.equal(e.estCalories, 700);
+  assert.equal(e.estProtein, 30);
+});
+
+test("snackStyle weekly: every planned snack IS the buffer recipe, batch covers the week", () => {
+  const snackA = { ...r("balls", "snack", ["oats", "peanut butter"], { protein: 16, calories: 255 }), batchPrep: { sundayComponent: "roll the batch" } };
+  const snackB = r("mix", "snack", ["almonds", "raisins"], { protein: 10, calories: 345 });
+  const recipes = [CHICKEN_A, CHICKEN_B, BREAKFAST, SMOOTHIE, LUNCH, snackA, snackB];
+  const { plan, report } = generateWeek({
+    recipes,
+    targets: { ...TARGETS, snackStyle: "weekly" },
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  assert.ok(plan.buffer, "a buffer is picked");
+  const snacks = plan.entries.filter((e) => e.slot === "snack");
+  for (const e of snacks) {
+    assert.equal(e.recipeId, plan.buffer.recipeId, `snack ${e.recipeId} is not the week's snack`);
+  }
+  const planned = [...new Set(snacks.map((e) => e.date))].length;
+  assert.ok(
+    plan.buffer.portions >= 7,
+    `batch (${plan.buffer.portions}) covers a stand-by for every live day (planned snack days: ${planned})`,
+  );
+  assert.equal(report.manifest.fixedSlots.snackWeekly, true);
+  assert.equal(report.manifest.fixedSlots.weeklySnackId, plan.buffer.recipeId);
+});
+
+test("a profile without snackStyle keeps per-day variety and a 7-portion buffer", () => {
+  const { plan, report } = generateWeek({
+    recipes: POOL,
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  if (plan.buffer) assert.equal(plan.buffer.portions, 7);
+  assert.equal(report.manifest.fixedSlots.snackWeekly, false);
+});
+
+test("snackStyle weekly: next week's snack differs (last week's pick is penalised)", () => {
+  const snackA = { ...r("balls", "snack", ["oats", "peanut butter"], { protein: 16, calories: 255 }), batchPrep: { sundayComponent: "roll" } };
+  const snackB = { ...r("mix", "snack", ["almonds", "raisins"], { protein: 10, calories: 345 }), batchPrep: { sundayComponent: "jar" } };
+  const recipes = [CHICKEN_A, CHICKEN_B, BREAKFAST, SMOOTHIE, LUNCH, snackA, snackB];
+  const targets = { ...TARGETS, snackStyle: "weekly" };
+  const w1 = generateWeek({
+    recipes, targets,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [] },
+    salt: 0,
+  });
+  const w1ids = [...new Set(w1.plan.entries.map((e) => e.recipeId).filter(Boolean))];
+  const w2 = generateWeek({
+    recipes, targets,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W30",
+    plan: { week: "2026-W30", entries: [] },
+    salt: 0,
+    recentRecipeIds: w1ids,
+  });
+  assert.ok(w1.plan.buffer && w2.plan.buffer);
+  assert.notEqual(
+    w2.plan.buffer.recipeId,
+    w1.plan.buffer.recipeId,
+    "two candidates, consecutive weeks: the batch rotates",
+  );
+});
+
+test("a swipe whose freeText names a COMPOSED tray keeps its measured macros", () => {
+  const composed = {
+    id: "swipe-2",
+    date: MONDAY_W29,
+    slot: "lunch",
+    freeText: "Earhart tray: grilled chicken x2, rice, broccoli",
+    servings: 1,
+    pinned: true,
+    out: true,
+    currency: "swipes",
+    estCalories: 1030,
+    estProtein: 74,
+  };
+  const targets = {
+    ...TARGETS,
+    currencies: [
+      { id: "swipes", venue: "buffet", perWeek: 7, estCalories: 1200, estProtein: 90 },
+    ],
+  };
+  const { plan } = generateWeek({
+    recipes: POOL,
+    targets,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W29",
+    plan: { week: "2026-W29", entries: [composed] },
+    salt: 0,
+  });
+  const e = plan.entries.find((x) => x.id === "swipe-2");
+  // a measurement beats a self-report: the hall's published numbers survive
+  assert.equal(e.estCalories, 1030);
+  assert.equal(e.estProtein, 74);
+});

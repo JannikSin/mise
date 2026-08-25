@@ -68,16 +68,36 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
   const evenQuota = quotaFor(dayTarget, already, Number(mealsLeft) || 1);
   // A SWIPE IS WHERE PROTEIN IS FREE (P5). The grocery budget treats protein
   // above target as money spent for nothing, and a buffet delivers it at a
-  // marginal cash cost of zero — so a tray deliberately overshoots protein
-  // and undershoots calories, and the week's cooking then buys less of the
-  // expensive macro. Same 1.5x/1.15x loading `buffetMacroEstimate` already
-  // applies to the placeholder this screen was opened from.
+  // marginal cash cost of zero — so a tray deliberately overshoots protein,
+  // and the week's cooking then buys less of the expensive macro.
+  //
+  // THE STATED TRAY WINS (David 2026-08-25: "this is buffet style eating...
+  // i can get lots and lots of food"). buffetMacroEstimate has honoured a
+  // currency's stated estCalories/estProtein since 2026-08-24 and its
+  // comment promised "the tray composer then AIMS at this figure" — but
+  // this screen never read the currency, so the promise was false: the
+  // composer aimed at remaining-day ÷ meals-left, which lowballs an
+  // all-you-care-to-eat meal. Now the swipe quota IS the stated tray
+  // (self-checking: composeTray says so when the hall cannot reach it),
+  // with the old derived loading only as the fallback for a currency that
+  // states nothing.
   const isSwipe = Boolean(forDate && forMeal);
+  const statedTray = (() => {
+    const cur = (Array.isArray(targets?.currencies) ? targets.currencies : []).find(
+      (/** @type {any} */ c) => c?.venue === "buffet" && Number(c?.estProtein) > 0,
+    );
+    if (!cur) return null;
+    return {
+      calories:
+        Number(cur.estCalories) > 0 ? Math.round(Number(cur.estCalories)) : evenQuota.calories,
+      protein: Math.round(Number(cur.estProtein)),
+    };
+  })();
   const quota = isSwipe
-    ? {
+    ? (statedTray ?? {
         calories: Math.round(evenQuota.calories * 1.15),
         protein: Math.round(evenQuota.protein * 1.5),
-      }
+      })
     : evenQuota;
   const avoid = Array.isArray(targets?.avoidAllergens) ? targets.avoidAllergens : [];
 
@@ -151,44 +171,50 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
         />
       </div>
 
-      <p class="hint">
-        Already eaten today, if you know it. Leave blank and the tray aims at your whole day, which
-        is only right if this is your first meal.
-      </p>
-      <div class="row">
-        <span class="k">kcal so far</span>
-        <input
-          inputmode="numeric"
-          aria-label="Calories already eaten today"
-          placeholder="0"
-          value=${eatenCal}
-          onInput=${(/** @type {any} */ e) => setEatenCal(e.currentTarget.value)}
-        />
-      </div>
-      <div class="row">
-        <span class="k">protein so far</span>
-        <input
-          inputmode="numeric"
-          aria-label="Protein already eaten today"
-          placeholder="0"
-          value=${eatenPro}
-          onInput=${(/** @type {any} */ e) => setEatenPro(e.currentTarget.value)}
-        />
-      </div>
-
-      <div class="row">
-        <span class="k">meals left today</span>
-        <input
-          inputmode="numeric"
-          aria-label="Meals left to eat today, including this one"
-          value=${mealsLeft}
-          onInput=${(/** @type {any} */ e) => setMealsLeft(e.currentTarget.value)}
-        />
-      </div>
-      <p class="hint">
-        Including this one. Set it to 1 if this is your last meal of the day and the tray should
-        carry everything you have left.
-      </p>
+      ${
+        // when the STATED tray governs a swipe, these three inputs steer
+        // nothing — rendering controls that paint but cannot act is the
+        // named CLAUDE.md failure mode, so they are hidden rather than left
+        // as dead levers under hints that still promise they work
+        !(isSwipe && statedTray) &&
+        html`<p class="hint">
+            Already eaten today, if you know it. Leave blank and the tray aims at your whole day,
+            which is only right if this is your first meal.
+          </p>
+          <div class="row">
+            <span class="k">kcal so far</span>
+            <input
+              inputmode="numeric"
+              aria-label="Calories already eaten today"
+              placeholder="0"
+              value=${eatenCal}
+              onInput=${(/** @type {any} */ e) => setEatenCal(e.currentTarget.value)}
+            />
+          </div>
+          <div class="row">
+            <span class="k">protein so far</span>
+            <input
+              inputmode="numeric"
+              aria-label="Protein already eaten today"
+              placeholder="0"
+              value=${eatenPro}
+              onInput=${(/** @type {any} */ e) => setEatenPro(e.currentTarget.value)}
+            />
+          </div>
+          <div class="row">
+            <span class="k">meals left today</span>
+            <input
+              inputmode="numeric"
+              aria-label="Meals left to eat today, including this one"
+              value=${mealsLeft}
+              onInput=${(/** @type {any} */ e) => setMealsLeft(e.currentTarget.value)}
+            />
+          </div>
+          <p class="hint">
+            Including this one. Set it to 1 if this is your last meal of the day and the tray
+            should carry everything you have left.
+          </p>`
+      }
 
       <div class="row">
         <span class="k">This tray aims at</span>
@@ -199,7 +225,7 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
         html`<p class="hint">
           🎫 This is your swipe for ${meal.toLowerCase()} on ${date}, so the tray deliberately
           loads protein: it costs nothing here, and every gram you eat at the hall is a gram the
-          week's groceries do not have to buy.
+          week's groceries do not have to buy.${statedTray ? " The aim is YOUR stated swipe tray (Settings → your dining currency), eaten big on purpose; the day's cooking is already sized around it." : ""}
         </p>`
       }
 
