@@ -5,13 +5,17 @@
 // session can read a per-app list instead of guessing what "the button is
 // wrong" referred to.
 //
-// Self-contained on purpose: no imports, no build step, no framework. Seven
-// apps with seven different module setups (importmaps, app/main.js, plain
+// Self-contained on purpose: no imports, no build step, no framework. Eight
+// apps with eight different module setups (importmaps, app/main.js, plain
 // modules) all take a plain <script src="./suggest.js"></script>.
 //
-// All seven PWAs share the janniksin.github.io origin, so localStorage is
-// shared and the Crystal key ("crystal.key") is already there once Crystal has
-// been opened. No second login.
+// No key, no login, nothing to paste (David, 2026-08-26). The Worker accepts a
+// keyless POST on the two Desk write routes, so a note or a recording sends the
+// moment he taps Send. If a Crystal key happens to already be in localStorage
+// it rides along as provenance; it is never required and never asked for.
+//
+// The mic is here on purpose: most of these notes are spoken while walking, so
+// every app gets the recorder, not just the ones that grew one.
 //
 // Retire it for one app by deleting the script tag. Silence it everywhere for
 // a session with localStorage.setItem("suggest.off", "1").
@@ -36,7 +40,14 @@
     try { localStorage.setItem(QUEUE_KEY, JSON.stringify(v)); return true; }
     catch (e) { return false; }
   }
+  // Optional. Present on David's own phone because Crystal shares this origin;
+  // absent everywhere else and that is fine. Never gate on it.
   function keyOf() { return localStorage.getItem("crystal.key") || ""; }
+  function authHeaders(base) {
+    var k = keyOf();
+    if (k) base["x-brief-key"] = k;
+    return base;
+  }
 
   // The page you were looking at. Every one of these apps is hash-routed, so
   // the hash IS the page; strip the leading #/ and keep it short.
@@ -81,8 +92,6 @@
   var aSending = false;
   function aFlush() {
     if (aSending || !navigator.onLine) return;
-    var k = keyOf();
-    if (!k) return;
     aAll().then(function (all) {
       if (!all.length) return;
       aSending = true;
@@ -90,10 +99,12 @@
       fetch(WORKER + "/deskaudio?app=" + encodeURIComponent(item.app)
           + "&route=" + encodeURIComponent(item.route), {
         method: "POST",
-        headers: { "content-type": item.type || "audio/mp4", "x-brief-key": k },
+        headers: authHeaders({ "content-type": item.type || "audio/mp4" }),
         body: item.blob,
       }).then(function (r) {
         aSending = false;
+        // 401 still means retry: the send is keyless now, so a 401 is the
+        // Worker being mid-deploy, not these bytes being unwelcome.
         if (r.ok || (r.status >= 400 && r.status < 500 && r.status !== 401)) {
           aDel(item.id).then(function () { paintCount(); aFlush(); });
         }
@@ -107,19 +118,16 @@
     if (sending || !navigator.onLine) return;
     var q = qGet();
     if (!q.length) return;
-    var k = keyOf();
-    if (!k) return;                        // no key yet; the note waits, never lost
     sending = true;
     var item = q[0];
     fetch(WORKER + "/desk", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-brief-key": k },
+      headers: authHeaders({ "content-type": "application/json" }),
       body: JSON.stringify(item),
     }).then(function (r) {
       sending = false;
-      // /desk is built to return no 4xx but 401, so anything non-401 that is
-      // not ok is transient and the note stays queued. 401 also stays queued:
-      // the key is wrong, not the note.
+      // /desk is built to return no 4xx but 401, so anything that is not ok is
+      // transient and the note stays queued. Nothing is ever dropped.
       if (r.ok) {
         var q2 = qGet();
         q2.shift();
@@ -131,32 +139,13 @@
   }
 
   // ---------- UI ----------
-  var css =
-    ".sg-btn{position:fixed;right:12px;bottom:76px;z-index:2147483000;width:44px;height:44px;" +
-    "border-radius:50%;border:1px solid rgba(255,255,255,.28);background:#1b1d24;color:#fff;" +
-    "font:600 19px/1 system-ui,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.4);" +
-    "display:flex;align-items:center;justify-content:center;padding:0}" +
-    ".sg-btn:focus-visible{outline:2px solid #7cc4ff;outline-offset:2px}" +
-    ".sg-badge{position:absolute;top:-4px;right:-4px;min-width:17px;height:17px;border-radius:9px;" +
-    "background:#c2410c;color:#fff;font:600 11px/17px system-ui,sans-serif;text-align:center;padding:0 3px}" +
-    ".sg-wrap{position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.45);" +
-    "display:flex;align-items:flex-end;justify-content:center}" +
-    ".sg-panel{width:100%;max-width:560px;background:#15171d;color:#f2f4f8;border-radius:14px 14px 0 0;" +
-    "padding:14px 14px calc(14px + env(safe-area-inset-bottom));" +
-    "font:15px/1.45 system-ui,-apple-system,sans-serif;box-shadow:0 -8px 30px rgba(0,0,0,.5)}" +
-    ".sg-panel h2{margin:0 0 2px;font-size:15px;font-weight:650}" +
-    ".sg-where{margin:0 0 10px;font-size:12.5px;opacity:.62}" +
-    ".sg-panel textarea,.sg-panel input{width:100%;box-sizing:border-box;background:#0e1015;" +
-    "color:#f2f4f8;border:1px solid #333844;border-radius:9px;padding:10px;font:inherit;resize:vertical}" +
-    ".sg-row{display:flex;gap:8px;align-items:center;margin-top:9px}" +
-    ".sg-row button{flex:0 0 auto;border-radius:9px;border:1px solid #333844;background:#232733;" +
-    "color:#f2f4f8;font:inherit;padding:9px 15px;cursor:pointer}" +
-    ".sg-send{background:#2563eb !important;border-color:#2563eb !important;font-weight:600}" +
-    ".sg-mic{border-radius:50% !important;width:40px;height:40px;box-sizing:border-box;padding:9px 0 !important}" +
-    ".sg-stat{font-size:12.5px;opacity:.72;margin-left:auto;text-align:right}";
-
-  var style = document.createElement("style");
-  style.textContent = css;
+  // The sheet is a linked same-origin file (see suggest.css). A <style> element
+  // injected from script is blocked by these apps' style-src 'self', so the
+  // button rendered unstyled everywhere until this moved out of the script.
+  var SELF = document.currentScript && document.currentScript.src;
+  var style = document.createElement("link");
+  style.rel = "stylesheet";
+  style.href = new URL("suggest.css", SELF || location.href).href;
 
   var btn = document.createElement("button");
   btn.type = "button";
@@ -218,7 +207,6 @@
     mic.addEventListener("click", function () {
       if (rec && rec.state === "recording") { rec.stop(); return; }
       if (acquiring) return;
-      if (!keyOf()) { stat.textContent = "needs the Crystal key first"; return; }
       if (!navigator.mediaDevices || !window.MediaRecorder) {
         stat.textContent = "this browser cannot record; type it";
         return;
@@ -269,23 +257,9 @@
     var stat = document.createElement("span");
     stat.className = "sg-stat";
 
-    // The key is only asked for if this origin has never seen Crystal.
-    var keyInput = null;
-    if (!keyOf()) {
-      keyInput = document.createElement("input");
-      keyInput.type = "password";
-      keyInput.autocomplete = "current-password";
-      keyInput.placeholder = "Crystal key (once per phone)";
-      keyInput.setAttribute("aria-label", "Crystal key");
-      panel.appendChild(h);
-      panel.appendChild(where);
-      panel.appendChild(ta);
-      panel.appendChild(keyInput);
-    } else {
-      panel.appendChild(h);
-      panel.appendChild(where);
-      panel.appendChild(ta);
-    }
+    panel.appendChild(h);
+    panel.appendChild(where);
+    panel.appendChild(ta);
     row.appendChild(mic);
     row.appendChild(send);
     row.appendChild(close);
@@ -309,13 +283,6 @@
     send.addEventListener("click", function () {
       var text = ta.value.trim();
       if (!text) { stat.textContent = "say something first"; return; }
-      if (keyInput && keyInput.value.trim()) {
-        try { localStorage.setItem("crystal.key", keyInput.value.trim()); } catch (e) {}
-      }
-      // Hard gate, not a silent queue: without the key a note would sit in
-      // localStorage forever while the panel said "sent". Only the key holder
-      // (David) sends from here; that possession IS the per-person gate.
-      if (!keyOf()) { stat.textContent = "needs the Crystal key first"; return; }
       var q = qGet();
       q.push({
         app: APP,

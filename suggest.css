@@ -1,0 +1,18 @@
+/* suggest.css: styling for the ✎ change button.
+   A separate file, not a <style> block injected by suggest.js, because every one
+   of David's apps ships style-src 'self' with no 'unsafe-inline'. A linked
+   same-origin sheet passes that; an injected <style> is silently dropped, which is
+   what left this button unstyled in every app before 2026-08-26. */
+.sg-btn{position:fixed;right:12px;bottom:76px;z-index:2147483000;width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.28);background:#1b1d24;color:#fff;font:600 19px/1 system-ui,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;padding:0}
+.sg-btn:focus-visible{outline:2px solid #7cc4ff;outline-offset:2px}
+.sg-badge{position:absolute;top:-4px;right:-4px;min-width:17px;height:17px;border-radius:9px;background:#c2410c;color:#fff;font:600 11px/17px system-ui,sans-serif;text-align:center;padding:0 3px}
+.sg-wrap{position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center}
+.sg-panel{width:100%;max-width:560px;background:#15171d;color:#f2f4f8;border-radius:14px 14px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom));font:15px/1.45 system-ui,-apple-system,sans-serif;box-shadow:0 -8px 30px rgba(0,0,0,.5)}
+.sg-panel h2{margin:0 0 2px;font-size:15px;font-weight:650}
+.sg-where{margin:0 0 10px;font-size:12.5px;opacity:.62}
+.sg-panel textarea,.sg-panel input{width:100%;box-sizing:border-box;background:#0e1015;color:#f2f4f8;border:1px solid #333844;border-radius:9px;padding:10px;font:inherit;resize:vertical}
+.sg-row{display:flex;gap:8px;align-items:center;margin-top:9px}
+.sg-row button{flex:0 0 auto;border-radius:9px;border:1px solid #333844;background:#232733;color:#f2f4f8;font:inherit;padding:9px 15px;cursor:pointer}
+.sg-send{background:#2563eb !important;border-color:#2563eb !important;font-weight:600}
+.sg-mic{border-radius:50% !important;width:40px;height:40px;box-sizing:border-box;padding:9px 0 !important}
+.sg-stat{font-size:12.5px;opacity:.72;margin-left:auto;text-align:right}
