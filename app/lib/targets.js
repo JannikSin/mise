@@ -296,7 +296,9 @@ export function enforcedFloors(macros) {
     // `protein` IS the floor when no override is written (council
     // 2026-08-19: "Set protein to 180 g as a FLOOR, add proteinCeiling: 215,
     // delete proteinFloor" / "proteinFloor is DELETED. protein IS the floor
-    // now."). The old fallback here was `protein - 25`, a leftover of the
+    // now." — the VALUE moved to 190 on David's yes, council 2026-08-26,
+    // which also split the AIM out of this field entirely: the floor never
+    // steers, the engine aims at macros.proteinAim ?? the ceiling). The old fallback here was `protein - 25`, a leftover of the
     // retired ONE-number semantics where `protein` was a target with a soft
     // floor beneath it. That derivation silently defeated the verdict:
     // David's profile deleted `proteinFloor` exactly as ordered and the

@@ -56,6 +56,12 @@ export const CARB_FAT = {
   corn: [19, 1.2],
   parmesan: [4, 29],
   bread: [49, 3.2],
+  "rolled oats": [67, 6.5],
+  "peanut butter": [22, 50],
+  banana: [23, 0.3],
+  honey: [82, 0],
+  "mixed berries": [14, 0.3],
+  "unsweetened soy milk": [1.6, 1.8],
 };
 
 /** synth MACRO rows this tool also needs that the app table lacks; kcal and
@@ -67,6 +73,9 @@ export const EXTRA_MACRO = {
   "olive oil": [884, 0],
   "sesame oil": [884, 0],
   parmesan: [431, 38],
+  // RAW basis, unlike the app table's cooked-oatmeal "oats" row: a smoothie
+  // blends dry rolled oats, and 60 g raw is 227 kcal, not 43
+  "rolled oats": [379, 13.2],
 };
 
 const macroOf = (food) => {

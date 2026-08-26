@@ -2210,8 +2210,9 @@ test("the fix did not trade an overshoot for an undershoot", () => {
   const byId = new Map(recipes.map((r) => [r.id, r]));
   const floors = enforcedFloors(targets.macros);
   // the ratified floor, not the derived 155 that the deleted proteinFloor
-  // key used to produce (council 2026-08-19: "protein IS the floor now")
-  assert.equal(floors.protein, 180, "an absent proteinFloor derives `protein`");
+  // key used to produce (council 2026-08-19: "protein IS the floor now";
+  // value raised to 190 on David's named yes, council 2026-08-26)
+  assert.equal(floors.protein, 190, "an absent proteinFloor derives `protein` (190 since David's yes, council 2026-08-26)");
 
   const misses = [];
   for (const pins of [[], swipePins(recipes, "lunch", LIVE_DATES)]) {

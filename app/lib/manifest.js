@@ -190,6 +190,8 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
     snackWeekly: false,
     weeklySnackId: null,
     snackWeeklyRelaxed: false,
+    dinnerAnchor: false,
+    dinnerAnchorRelaxed: false,
     ...subsystems.fixedSlots,
   };
 
@@ -443,9 +445,14 @@ function lineFor(key, s) {
     case "away":
       // 7.11 (P5): the swipe arbitrage's report — with credits, the cooked
       // week aimed at the REMAINING need; without, it says so plainly
-      return s.slots > 0
-        ? `${s.slots} away slot${s.slots === 1 ? "" : "s"} (${s.swipeSlots} swipe) credit ${s.creditProtein} g protein / ${s.creditCalories} kcal — ${s.cookedNeedRatio != null ? `cooked week aims at the remaining need (density ${s.cookedNeedRatio} vs ${s.fullNeedRatio} full)` : "GENERATE again to aim the cooked week at the remaining need"}`
-        : "no away/swipe slots — cooked week aims at the full need";
+      return (
+        (s.slots > 0
+          ? `${s.slots} away slot${s.slots === 1 ? "" : "s"} (${s.swipeSlots} swipe) credit ${s.creditProtein} g protein / ${s.creditCalories} kcal — ${s.cookedNeedRatio != null ? `cooked week aims at the remaining need (density ${s.cookedNeedRatio} vs ${s.fullNeedRatio} full)` : "GENERATE again to aim the cooked week at the remaining need"}`
+          : "no away/swipe slots — cooked week aims at the full need") +
+        // council 2026-08-26: say when the density instrument is pinned at
+        // its clamp rail instead of printing a plausible number silently
+        (s.needRatioClamped ? " ⚠️ density CLAMPED at its rail (raw value out of range)" : "")
+      );
     case "floors":
       // both directions, always. A floors-only line is how a week sat over
       // its ceiling in plain sight (P1, 2026-08-19).
@@ -460,7 +467,12 @@ function lineFor(key, s) {
           : s.proteinOverDays === null
             ? ", no protein ceiling set (over-delivery is unconstrained)"
             : "") +
-        (s.avgCalories ? `, delivering ~${s.avgCalories} kcal/day avg` : "")
+        (s.avgCalories ? `, delivering ~${s.avgCalories} kcal/day avg` : "") +
+        // council 2026-08-26: the trim's give-up is never silent again
+        (s.proteinAimG ? `; trim aims at ${s.proteinAimG} g bought` : "") +
+        (s.trimResidualDays > 0
+          ? ` — COULD NOT REACH IT on ${s.trimResidualDays} day${s.trimResidualDays === 1 ? "" : "s"} (${(s.trimResiduals ?? []).map((/** @type {any} */ r) => `${r.date} +${r.residual}g`).join(", ")})`
+          : "")
       );
     case "household":
       // P6. A kitchen that has declared nothing says so, because "no capacity
@@ -510,6 +522,11 @@ function lineFor(key, s) {
           ? s.weeklySnackId
             ? `; ONE snack all week: ${s.weeklySnackId}${s.snackWeeklyRelaxed ? " (a floor it couldn't close reopened the full pool)" : ""}`
             : "; weekly snack style declared but no snack could be picked"
+          : "") +
+        (s.dinnerAnchor
+          ? s.dinnerAnchorRelaxed
+            ? "; anchored dinners asked for but the filter emptied the pool — relaxed"
+            : "; solo-planned dinners always carry a protein anchor (shared tables screen separately)"
           : "")
       );
     case "plating":

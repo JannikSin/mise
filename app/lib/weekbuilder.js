@@ -1003,8 +1003,12 @@ export function calorieTrimPass(plan, recipesById, bounds, slotPools = null) {
  *   proteinFloor: number,
  *   groupFloors: Record<string, number>,
  *   calorieCeiling?: number,
- *   lockedSlots?: string[]
- * }} bounds `calorieCeiling` guards the swap lever at both candidate sizes
+ *   lockedSlots?: string[],
+ *   report?: Record<string, any>
+ * }} bounds `report`, when passed, receives `proteinTrim.residualDays`: every
+ *   day the pass abandoned still over its aim, with the residual — the
+ *   give-up is never silent again (council 2026-08-26).
+ *   `calorieCeiling` guards the swap lever at both candidate sizes
  *   (introduced for the up-notch escape, which may add calories to clear
  *   the floor; applying it to the base size too is deliberate — a swap must
  *   never push a day past the ceiling). Absent = no guard, exactly the old
@@ -1023,6 +1027,13 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
   const dates = [...new Set(plan.entries.map((e) => e.date))].sort();
   let next = plan;
   const locked = new Set(bounds.lockedSlots ?? []);
+  // THE GIVE-UP IS REPORTED (council 2026-08-26, Hamilton's granted
+  // objection). This pass ran infeasible for days and nothing said so: the
+  // `if (!applied) break` below fired silently while the manifest printed a
+  // clean bill, and the re-aim would have been unverifiable without this.
+  // Every day the pass abandons over its aim lands here with its residual.
+  /** @type {{ date: string, bought: number, spendable: number, residual: number }[]} */
+  const residualDays = [];
   // how often each recipe already appears: a swap must not push any recipe
   // past the <=2-repeat promise the committees hold to.
   /** @type {Map<string, number>} */
@@ -1071,10 +1082,16 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
       // dayTotals because a swipe genuinely feeds him.
       const free = dayTotals(next.entries, recipesById, date).protein
         - dayBought(next.entries, recipesById, date);
-      // AIM AT THE TARGET, not the ceiling. 180 is what he wants to eat; 215
-      // is only the outer bound. Trimming to the ceiling alone left the week
-      // eating 208 g/day. The floor still guards every step, so this lands
-      // between the floor and the target rather than at either extreme.
+      // AIM AT WHAT THE CALLER PASSED, capped at the ceiling. History, so
+      // this comment can never contradict the code again (council
+      // 2026-08-26): from 08-24 to 08-26 the caller passed the FLOOR (David:
+      // "I only want to eat 180") and this line faithfully aimed there — a
+      // floor used as a setpoint. Its premise expired within days: the fixed
+      // slots (94 g, untrimmable) plus a 90 g swipe credit made a 180 aim
+      // INFEASIBLE (spendable 90 < locked 94), and the pass gave up silently
+      // every swipe day. The caller now passes the profile's AIM (the
+      // ceiling when no explicit aim exists); the floor guards every step
+      // via breaksFloor and never steers.
       const aim = Number.isFinite(Number(bounds.proteinTarget))
         ? Math.min(ceiling, Number(bounds.proteinTarget))
         : ceiling;
@@ -1191,9 +1208,29 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
           applied = true;
         }
       }
-      if (!applied) break; // every candidate would break a floor: say so instead
+      if (!applied) {
+        // every candidate would break a floor. This break used to be silent;
+        // the comment always promised "say so instead" and now it does.
+        const finalBought = dayBought(next.entries, recipesById, date);
+        const finalFree =
+          dayTotals(next.entries, recipesById, date).protein - finalBought;
+        const finalAim = Number.isFinite(Number(bounds.proteinTarget))
+          ? Math.min(ceiling, Number(bounds.proteinTarget))
+          : ceiling;
+        const finalSpendable = Math.max(0, finalAim - finalFree);
+        if (finalBought > finalSpendable) {
+          residualDays.push({
+            date,
+            bought: Math.round(finalBought * 100) / 100,
+            spendable: Math.round(finalSpendable * 100) / 100,
+            residual: Math.round((finalBought - finalSpendable) * 100) / 100,
+          });
+        }
+        break;
+      }
     }
   }
+  if (bounds.report) bounds.report.proteinTrim = { residualDays };
   return next;
 }
 
@@ -1527,6 +1564,7 @@ export function generateWeek({
   // like the time cap: an empty portable pool falls back to the full one
   // and the manifest says so.
   let snackPortableRelaxed = false;
+  let dinnerAnchorRelaxed = false;
   const pool = (/** @type {string} */ meal) => {
     let list = recipes.filter((r) => r.mealType === meal);
     if (Array.isArray(haveEquipment)) list = list.filter((r) => !lacksGear(r));
@@ -1542,6 +1580,20 @@ export function generateWeek({
       const portable = list.filter((r) => r.portable === true);
       if (portable.length >= 1) list = portable;
       else snackPortableRelaxed = true;
+    }
+    // targets.dinnerAnchor (council 2026-08-26, minimum-presence): a profile
+    // that declares it never gets an anchor-less dinner auto-planned — the
+    // "carb-forward" class (dishes whose protein was deliberately scaled
+    // out) leaves DINNER candidacy, staying choosable by hand and as second
+    // plates. This is an ADHERENCE rule, adopted with that justification
+    // written down and no physiological citation attached (Phillips's
+    // condition): a dish stripped of its anchor is a dish that does not get
+    // cooked. Honest-relax like every filter here: an emptied pool falls
+    // back and the manifest says so.
+    if (meal === "dinner" && targets?.dinnerAnchor === true) {
+      const anchored = list.filter((r) => !(r.tags ?? []).includes("carb-forward"));
+      if (anchored.length >= 2) list = anchored;
+      else dinnerAnchorRelaxed = true;
     }
     return list;
   };
@@ -1655,6 +1707,19 @@ export function generateWeek({
   // drift apart (they did: the ceiling was inlined twice here and reported
   // nowhere that survived an edit)
   const ceilings = enforcedCeilings({ ...targets?.macros, calories: caloriesTarget });
+  // THE PROTEIN AIM (council 2026-08-26): the number the trim converges to
+  // and the committees steer by. A setpoint and a limit must never be the
+  // same variable — from 08-24 to 08-26 the FLOOR (macros.protein) was the
+  // aim, which was infeasible on swipe days (94 g locked > 90 g spendable)
+  // and failed silently. The aim is macros.proteinAim when written, else
+  // the ceiling, else the floor. The floor never steers; it only guards.
+  const proteinAim = Math.min(
+    // never report or aim past the ceiling the pass itself clamps to
+    ceilings.protein ?? Infinity,
+    Number(targets?.macros?.proteinAim) > 0
+      ? Number(targets?.macros?.proteinAim)
+      : (ceilings.protein ?? proteinTarget),
+  );
   const dailyDozenPerDay = targets?.dailyDozen ?? {};
   // greedy committee scoring accumulates at week-level for efficiency (R1);
   // the REPORT is still computed per day from the actual generated plan
@@ -1789,6 +1854,15 @@ export function generateWeek({
   // which clamps every recipe's term to a constant and silently switches
   // protein scoring off. 0.05 keeps "leaner wins" ordering; 1 is the
   // physical ceiling (all-protein calories).
+  // steered by the FLOOR — the delivery requirement — never the aim
+  // (council 2026-08-26, Phillips's design: calories-first with protein as
+  // a floor constraint). The first cut of the re-aim steered committees by
+  // the 215 aim too, and cook weeks promptly picked protein past the money
+  // ceiling that the trim then could not legally remove (measured: 224-245 g
+  // bought). Division of labor: committees deliver the floor, the top-ups
+  // close what is short, and the TRIM alone converges bought grams down to
+  // the aim/ceiling from above. What un-leaned dinner picks was never this
+  // ratio: it was the floor moving 180 -> 190 and the dinnerAnchor rule.
   const weekProteinNeed = Math.max(
     0,
     proteinTarget * liveDates.length - awayCredit.protein - fixedCredit.protein,
@@ -2205,12 +2279,13 @@ export function generateWeek({
     byId,
     {
       proteinCeiling: ceilings.protein,
-      // David 2026-08-24: "I only want to eat 180 grams of protein a day."
-      // The ceiling is the hard limit; the TARGET is what the week should
-      // actually land on, and trimming only to the ceiling left him eating
-      // 208 g against a 180 g target. The pass now aims at the target and
-      // treats the ceiling as the outer bound.
-      proteinTarget: proteinTarget,
+      // THE AIM, not the floor (council 2026-08-26). History: from 08-24 to
+      // 08-26 this passed the floor, implementing David's "I only want to
+      // eat 180 grams" faithfully — and the premise expired within days
+      // when the fixed slots (94 g bought, untrimmable) plus a 90 g swipe
+      // credit made a 180 aim infeasible and the pass gave up silently
+      // every swipe day. The floor guards below and never steers.
+      proteinTarget: proteinAim,
       calorieFloor: floors.calories,
       proteinFloor: floors.protein,
       groupFloors: dailyGroupFloors,
@@ -2218,6 +2293,9 @@ export function generateWeek({
       // from trading a protein overage for a calorie one
       calorieCeiling: ceilings.calories,
       lockedSlots,
+      // the give-up residual lands in the manifest (Hamilton's condition:
+      // the re-aim does not ship without it)
+      report: topUpReport,
     },
     slotPools,
   );
@@ -2409,6 +2487,10 @@ export function generateWeek({
       snackWeekly: snackWeeklyMode,
       weeklySnackId: snackWeeklyMode ? (bufferPick?.id ?? null) : null,
       snackWeeklyRelaxed,
+      // council 2026-08-26: anchor-less dinners never auto-plan for a
+      // profile that declares dinnerAnchor
+      dinnerAnchor: targets?.dinnerAnchor === true,
+      dinnerAnchorRelaxed,
     },
     // 7.11 (P5): the away/swipe credit and the remaining-need density the
     // committees actually aimed at — the arbitrage can never go dark again
@@ -2418,6 +2500,13 @@ export function generateWeek({
       creditCalories: awayCredit.calories,
       creditProtein: awayCredit.protein,
       cookedNeedRatio: Math.round(remainingNeedRatio * 1000) / 1000,
+      // council 2026-08-26: a saturated instrument that prints a plausible
+      // in-range number is worse than a dead one — say when the clamp bound
+      needRatioClamped:
+        caloriesTarget > 0 &&
+        liveDates.length > 0 &&
+        ((weekProteinNeed * 4) / weekCaloriesNeed < 0.05 ||
+          (weekProteinNeed * 4) / weekCaloriesNeed > 1),
       fullNeedRatio:
         caloriesTarget > 0 ? Math.round(((proteinTarget * 4) / caloriesTarget) * 1000) / 1000 : 0,
     },
@@ -2442,6 +2531,14 @@ export function generateWeek({
         avgCalories: Math.round(cal / days),
         avgProteinG: Math.round(prot / days),
         proteinTargetG: proteinTarget,
+        // council 2026-08-26: the aim is a separate number from the floor,
+        // and the trim's give-up is reported, never silent. NULL when no
+        // ceiling is written: the trim never runs then, and printing an aim
+        // beside "no protein ceiling set" was a false instrument reading in
+        // the exact subsystem commissioned to end them (reviewer catch).
+        proteinAimG: ceilings.protein == null ? null : proteinAim,
+        trimResidualDays: (topUpReport.proteinTrim?.residualDays ?? []).length,
+        trimResiduals: topUpReport.proteinTrim?.residualDays ?? [],
       };
     })(),
   };

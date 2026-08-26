@@ -1302,15 +1302,36 @@ Seeded from the FITNESS.md system; edited rarely.
     //   same derivation the questionnaire writes. Never a ratio of target —
     //   the generator enforced 0.95 x target until 2026-08-10, holding David
     //   to 199.5 g against his written 185. See targets.js enforcedFloors.
-    "protein": 175, // grams (David's ratified 2026-08-18 numbers: 175 target,
-    //   155 floor, set from GOAL weight per the nutrition council; the old
-    //   210/185 pair is retired and must not reappear in fixtures)
-    "proteinFloor": 155, // ? as caloriesFloor; absent = max(0, protein - 25)
+    "protein": 190, // grams. THE FLOOR (proteinFloor is deleted; council
+    //   2026-08-19 "protein IS the floor", value raised to 190 on David's
+    //   yes 2026-08-26). The retired tokens 210, 185, 175 and 155 must not
+    //   reappear in fixtures or docs as current values.
+    "proteinFloor": 155, // ? LEGACY, deleted on David's profile. When absent
+    //   the floor IS `protein` itself (targets.js enforcedFloors; the old
+    //   `protein - 25` derivation silently defeated the 08-19 verdict and
+    //   is gone). Write it only to place a soft floor BENEATH the number.
     "caloriesCeiling": 3900,
     // ? OPTIONAL, rarely set. Above this the trim pass shaves servings back
     //   (never through a floor). Absent = 1.05 x calories. Unlike the floors
     //   this stays a ratio by design: a floor is a number the person agreed
     //   to, a ceiling is the generator's own slack for its top-up passes.
+    // "proteinAim": 215,
+    //   ? council 2026-08-26: A SETPOINT AND A LIMIT MUST NEVER BE THE SAME
+    //   VARIABLE. The AIM is what the protein trim converges bought grams
+    //   to, clamped at the ceiling; the COMMITTEES deliberately steer
+    //   density by the FLOOR, not the aim (documented council deviation:
+    //   aim-steering measured 224-254 g bought on cook weeks — committees
+    //   deliver the floor, the trim alone converges down to the aim); the
+    //   FLOOR (protein) only guards; the CEILING (proteinCeiling) is the
+    //   outer money bound. ABSENT = the ceiling (else the floor; with no
+    //   ceiling written the trim never runs and the manifest reports no
+    //   aim). From 08-24 to 08-26 the floor doubled as the aim, which was
+    //   INFEASIBLE on swipe days (94 g locked in fixed slots > 90 g
+    //   spendable) and failed silently — the class of bug this field ends.
+    //   The trim's give-up reports per-day residuals to the manifest
+    //   (floors.trimResiduals); the residual list describes the last
+    //   GENERATE, not later hand edits (avg/over-day fields recompute, the
+    //   residuals do not).
     "fat": 100, // ? grams
     "carbs": 525, // ? grams
     "waterLiters": 3.5, // daily target midpoint
@@ -1330,6 +1351,13 @@ Seeded from the FITNESS.md system; edited rarely.
   //   bank recipe tagged phases:["cut"] serves nobody
   //   until a profile is manually moved to cut.
   "phaseSince": "2026-07-10", // ? ISO date the current phase started
+  "phaseExit": { "onGoalWeightLb": 215, "reviewBy": "2026-12-20" },
+  // ? council 2026-08-26 (Longo's granted demand): the phase ENDS and its
+  //   surplus + protein architecture are RE-DECIDED (never inherited) at
+  //   goal weight or the review date, whichever comes first. Informational
+  //   today (no engine reads it); it exists so a phase cannot become an
+  //   architecture by inertia — without it the gain phase was an 8-18 month
+  //   default with no scheduled re-evaluation anywhere.
   "avoidIngredients": ["onion", "shallot"],
   // ? hard ingredient exclusions for this profile.
   //   Case-insensitive SUBSTRING match against bank
@@ -1391,6 +1419,17 @@ Seeded from the FITNESS.md system; edited rarely.
   //   2026-08-25: "smth i can bring in my backpack"). Honest-relax:
   //   zero portable recipes = full pool + a manifest line, never a
   //   silent empty pool. Absent = no filter.
+  "dinnerAnchor": true,
+  // ? council 2026-08-26 (minimum-presence, an ADHERENCE rule by its own
+  //   written justification, no physiological citation attached): a profile
+  //   that declares it never gets an anchor-less dinner SOLO-auto-planned.
+  //   The generator's dinner pool drops recipes tagged "carb-forward"
+  //   (dishes whose protein was deliberately scaled out); they stay
+  //   choosable by hand and as second plates. SCOPE: the solo week
+  //   generator only — shared-table brigades screen through brigadePool,
+  //   which (like the time cap and maxDifficulty) does not apply this
+  //   filter. Honest-relax when the filter would empty the pool, said in
+  //   the manifest. ABSENT = no filter.
   "snackStyle": "weekly",
   // ? enum weekly | absent. "weekly" = ONE snack recipe for the whole
   //   week (spec 2026-08-25 part 2, David: "each week can be its own

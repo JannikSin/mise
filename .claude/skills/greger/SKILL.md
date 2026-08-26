@@ -20,9 +20,10 @@ Always include:
 1. **The exact question** being asked (score this recipe / compare A vs B / audit this week).
 2. **Full JSON** of every recipe or food in question: don't summarize, paste the actual
    recipe object(s) so the agent can compute `foodGroups` itself, not trust a paraphrase.
-3. **David's targets**, read from `seed-data/generated/fitness/targets.json` (protein 210g/day,
-   floor 185g; calories 3400, floor 3200) so the agent optimizes composition within the real
-   target instead of guessing or inventing one.
+3. **David's targets**, read LIVE from the private mise-data repo's `profile/targets.json`
+   (as of 2026-08-26: 3,700 kcal floor 3,500; protein 190 g which IS the floor, 215 g bought
+   ceiling and engine aim; 210/185/175/155 are retired tokens) so the agent optimizes
+   composition within the real target instead of a cached or invented one.
 4. If scoring against the Daily Dozen, also point it at `docs/SCHEMAS.md` for the current
    `foodGroups` shape so its output matches the schema exactly.
 
