@@ -661,13 +661,34 @@ window and one more reason the window is short.**
       // section (locationForBuy): frozen → freezer, the fresh
       // run → fridge, shelf-stable → pantry. "unsorted" is the
       // quarantine for unplaced rows — no sweep touches it.
-      "group": "produce", // aisle, for grouping (aisleOf)
+      "group": "produce", // aisle, for grouping (aisleOf). DERIVED ON READ,
+      // never authoritative — see "The aisle is derived" below.
     },
   ],
   "staples": [], // derived write mirror (see above) — do not hand-edit
   "perishables": [], // derived write mirror — do not hand-edit
 }
 ```
+
+**The aisle is derived, not stored (2026-08-27).** An undated staple carries it
+as `section`, a dated row as `group`; both are recomputed from the food name by
+`aisleOf` on every read (`healItem`), exactly as `normalizeShoppingList` has
+recomputed its `section` since the aisle list widened. They used to be written
+once at scan time and kept forever behind `?? aisleOf(...)`, which meant a fix
+to the taxonomy could never reach a row that was already wrong and rescanning
+the shelf was the only cure. **Nothing is lost, because no screen lets a person
+set a row's aisle by hand: `aisleOf` is the only author.** `normalizePantry`'s
+settled check counts the aisle as part of mirror consistency, so a file whose
+stored aisles disagree with the current taxonomy is repacked rather than passed
+through by reference.
+
+David's first Wayne camera scan (2026-08-26) is why: `cayenne pepper` filed
+under PRODUCE because the produce rule claimed `pepper` before the spices rule
+could see `cayenne`; `almond butter` filed under DAIRY on `butter`; and
+`bananas`, `lemons` and `pumpkin seeds` filed under OTHER because every keyword
+in the taxonomy was singular inside a word boundary while a camera writes what
+the label says, and labels are plural. The rules are ordered specific-before-
+general and each fix names the food that broke it.
 
 **Fresh start (2026-08-01, no schema change):** the PANTRY tab's START FRESH
 wizard empties the whole file (staples included, behind the same confirm as

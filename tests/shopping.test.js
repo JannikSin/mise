@@ -5,6 +5,8 @@ import {
   deriveShoppingList,
   normalizePantry,
   sectionOf,
+  packPantry,
+  pantryItems,
   applyJustBought,
   ownItemToPantry,
   expirePerishables,
@@ -243,7 +245,11 @@ test("ownItemToPantry: list item becomes a permanent staple and leaves the list"
   assert.equal(s.name, "dried porcini");
   assert.equal(s.onHand, true);
   assert.equal(s.runningLow, false);
-  assert.equal(s.section, "dry-goods");
+  // the aisle is DERIVED from the food, never carried from the list row
+  // (2026-08-27). "dry-goods" is a retired bucket name: a row that kept it
+  // would match no section group and silently vanish from the pantry, which
+  // is the same failure normalizeShoppingList already re-derives to avoid.
+  assert.equal(s.section, "other");
 });
 
 test("ownItemToPantry: existing staple is refreshed, not duplicated", () => {
@@ -523,6 +529,64 @@ test("sectionOf classifies common foods across the wider aisle taxonomy", () => 
   // the trap: fresh green beans are produce, tinned legumes are canned
   assert.equal(sectionOf("green beans"), "produce");
   assert.equal(sectionOf("black beans"), "canned");
+});
+
+test("the aisle taxonomy: the specific food beats the general keyword", () => {
+  // Every case here is a real row from David's first Wayne camera scan
+  // (2026-08-26), where a general keyword in an earlier rule stole the food.
+  assert.equal(sectionOf("cayenne pepper"), "spices"); // produce claimed `pepper`
+  assert.equal(sectionOf("black pepper"), "spices");
+  assert.equal(sectionOf("red pepper flakes"), "spices");
+  assert.equal(sectionOf("bell pepper"), "produce"); // the fresh one still is
+  assert.equal(sectionOf("almond butter"), "condiments"); // dairy claimed `butter`
+  assert.equal(sectionOf("peanut butter"), "condiments");
+  assert.equal(sectionOf("unsalted butter"), "dairy"); // real butter still is
+  assert.equal(sectionOf("butter beans"), "canned"); // a tin, not a dairy case
+  assert.equal(sectionOf("parmesan crisps"), "snacks"); // dairy claimed `parmesan`
+  assert.equal(sectionOf("almond flour crackers"), "snacks"); // baking claimed `flour`
+  assert.equal(sectionOf("dark chocolate chips"), "baking"); // but these ARE baking
+  assert.equal(sectionOf("dried italian herbs"), "spices"); // produce claimed `herbs`
+  assert.equal(sectionOf("fresh parsley"), "produce"); // the fresh one still is
+  assert.equal(sectionOf("crushed tomatoes"), "canned"); // produce claimed `tomatoes`
+  assert.equal(sectionOf("tomato paste"), "canned");
+  assert.equal(sectionOf("cherry tomatoes"), "produce");
+});
+
+test("the aisle taxonomy reads PLURALS, because that is what a label says", () => {
+  // David, 2026-08-27: most of the fresh half of his first Wayne pantry landed
+  // in OTHER. Every keyword was singular inside a word boundary, so a camera
+  // that faithfully wrote "bananas" and "pumpkin seeds" classified nothing.
+  for (const [singular, plural] of [
+    ["banana", "bananas"],
+    ["lemon", "lemons"],
+    ["carrot", "carrots"],
+    ["onion", "onions"],
+    ["scallion", "scallions"],
+    ["mushroom", "mushrooms"],
+  ]) {
+    assert.equal(sectionOf(plural), sectionOf(singular), `${plural} vs ${singular}`);
+    assert.notEqual(sectionOf(plural), "other");
+  }
+  assert.equal(sectionOf("kiwi"), "produce");
+  // the seeds all landed apart: chia matched `chia`, the rest matched nothing
+  for (const f of ["chia seeds", "pumpkin seeds", "black sesame seeds", "hemp hearts"]) {
+    assert.equal(sectionOf(f), "snacks", f);
+  }
+});
+
+test("a stored pantry aisle self-heals when the taxonomy is fixed", () => {
+  // Before 2026-08-27 the aisle was written once at scan time and kept behind
+  // `?? aisleOf(...)`, so fixing the taxonomy could not reach a row that was
+  // already wrong and rescanning the shelf was the only cure.
+  const pantry = packPantry([
+    { id: "cayenne-pepper", food: "cayenne pepper", section: "produce", state: "plenty" },
+    { id: "abc12345", food: "bananas", qty: "1 bunch", added: "2026-08-26", group: "other" },
+  ]);
+  const items = pantryItems(pantry);
+  assert.equal(items[0].section, "spices");
+  assert.equal(items[1].group, "produce");
+  // the legacy mirror the app still writes agrees with the items array
+  assert.equal(pantry.staples[0].section, "spices");
 });
 
 test("applyJustBought: checked staples go onHand, others land in perishables", () => {

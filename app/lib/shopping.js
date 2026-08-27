@@ -1174,21 +1174,36 @@ export function isDatedItem(/** @type {Record<string, any>} */ it) {
  * @returns {Record<string, any>[]}
  */
 /**
- * Heal one item row: a stable id, and location/group on tracked rows (a
+ * Heal one item row: a stable id, the aisle, and location on tracked rows (a
  * sweep must be able to see them, and the settled check requires them).
+ *
+ * THE AISLE IS DERIVED ON READ, NOT STORED AND STUCK (David, 2026-08-27). It
+ * used to be written once, at scan time, and then kept forever behind
+ * `?? aisleOf(...)`, so fixing the taxonomy could never reach a row that was
+ * already wrong: David's first Wayne camera scan filed cayenne pepper under
+ * PRODUCE (the produce rule claimed `pepper` first) and almond butter under
+ * DAIRY, and rescanning the shelf was the only cure. `normalizeShoppingList`
+ * has re-derived ITS sections on every read since the aisle list widened,
+ * for exactly this reason, and the pantry now matches it. Nothing
+ * hand-authored is lost, because no screen anywhere lets a person set a
+ * row's aisle by hand: the only author is `aisleOf`.
  * @param {Record<string, any>} it
  * @returns {Record<string, any>}
  */
 function healItem(it) {
   const id = typeof it.id === "string" && it.id ? it.id : slug(String(it.food ?? ""));
-  const out = it.id === id ? it : { ...it, id };
-  if (!isDatedItem(out)) return out;
-  if (typeof out.location === "string" && typeof out.group === "string") return out;
-  return {
-    ...out,
-    location: typeof out.location === "string" ? out.location : "unsorted",
-    group: typeof out.group === "string" ? out.group : aisleOf(out.food ?? ""),
-  };
+  const aisle = aisleOf(String(it.food ?? ""));
+  const dated = isDatedItem(it);
+  // dated rows carry the aisle as `group` beside their location; undated
+  // staples carry it as `section`. Same value, two field names, both legacy.
+  const settled =
+    it.id === id &&
+    (dated ? it.group === aisle && typeof it.location === "string" : it.section === aisle);
+  if (settled) return it;
+  /** @type {Record<string, any>} */
+  const out = { ...it, id, ...(dated ? { group: aisle } : { section: aisle }) };
+  if (dated && typeof out.location !== "string") out.location = "unsorted";
+  return out;
 }
 
 /**
@@ -1366,10 +1381,26 @@ export function normalizePantry(pantry) {
   }
 
   if (!changed) {
-    // mirrors byte-consistent with items? then the stored file IS settled
+    // mirrors byte-consistent with items? then the stored file IS settled.
+    // The AISLE counts as part of that consistency (2026-08-27): healItem
+    // re-derives it on read, so a file whose stored aisles disagree with the
+    // current taxonomy is NOT settled and must be repacked. Without this the
+    // heal never reached disk, because a taxonomy fix changes no row count
+    // and no onHand flag, and this early return handed back the stored
+    // object with its stale sections intact.
+    const derivedStaple = new Map(derived.staples.map((/** @type {any} */ d) => [d.id, d]));
+    const derivedPerish = new Map(derived.perishables.map((/** @type {any} */ d) => [d.id, d]));
+    const aislesAgree =
+      pantry.staples.every(
+        (/** @type {any} */ x) => !isRow(x) || derivedStaple.get(x.id)?.section === x.section,
+      ) &&
+      pantry.perishables.every(
+        (/** @type {any} */ x) => !isRow(x) || derivedPerish.get(x.id)?.group === x.group,
+      );
     const same =
       pantry.staples.length === derived.staples.length &&
-      pantry.perishables.length === derived.perishables.length;
+      pantry.perishables.length === derived.perishables.length &&
+      aislesAgree;
     if (same) return pantry;
   }
   return packPantry(items);

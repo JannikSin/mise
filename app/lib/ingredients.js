@@ -527,50 +527,101 @@ const AISLE_RULES = [
   // matched `vegetables?` and filed under PRODUCE. Neither is where a carton
   // of stock is shelved, and an aisle is a walking order, so a wrong one
   // costs a lap of the store (2026-08-23).
-  ["canned", /\b(broth|stock)\b/],
+  ["canned", /\b(broth|stock)s?\b/],
   // a GROUND spice is a shaker in the spice aisle, whatever the plant is.
   // Without this, "ground ginger" matched `ginger` and filed under PRODUCE,
   // sending him to the fresh-root shelf for a jar (2026-08-23). Same shape
   // as the bare-`ground` fix in the meat rule below.
-  ["spices", /\bground (ginger|cinnamon|cumin|coriander|turmeric|nutmeg|clove|allspice|cardamom|mustard)\b/],
-  ["seafood", /\b(salmon|tuna|cod|tilapia|shrimp|prawn|scallop|fish|seafood|anchov)\b/],
+  [
+    "spices",
+    /\bground (ginger|cinnamon|cumin|coriander|turmeric|nutmeg|clove|allspice|cardamom|mustard)s?\b/,
+  ],
+  // BEFORE produce, which claims the entire `pepper` family. Cayenne was
+  // ALREADY listed in the spices rule further down and could never reach it,
+  // because produce matched `pepper` first and the first match wins. David
+  // scanned his spice cabinet on 2026-08-26 and cayenne pepper filed under
+  // PRODUCE. Paprika, peppercorns and a jar of red pepper flakes are shakers
+  // on a rack, not fresh peppers on a produce table. Same shape as the
+  // `ground ginger` fix above.
+  [
+    "spices",
+    /\b(cayenne|paprika|peppercorns?|black pepper|white pepper|red pepper flakes|crushed red pepper|pepper flakes|chill?i powder|curry powder)\b/,
+  ],
+  // BEFORE dairy, which claims every `butter`. A nut or seed butter is a jar
+  // on a shelf, not a refrigerated case, and TAHINI (a sesame butter) is
+  // already filed under condiments below, so its siblings belong beside it.
+  // "almond butter" filed under DAIRY in David's first Wayne scan.
+  [
+    "condiments",
+    /\b(almond|peanut|cashew|sunflower|hazelnut|pistachio|nut|seed|sesame|soy) butters?\b/,
+  ],
+  // butter BEANS are a tin. The canned rule below already says so and never
+  // got the chance, because dairy's `butter` matched first (2026-08-27).
+  ["canned", /\bbutter beans?\b/],
+  // BEFORE dairy and baking, each of which claims a snack by one word:
+  // "parmesan crisps" is not cheese and "almond flour crackers" are not
+  // flour (2026-08-27). Chocolate chips genuinely ARE baking, so they are
+  // claimed first.
+  ["baking", /\bchocolate chips?\b/],
+  ["snacks", /\b(crackers?|crisps?|chips?|pretzels?|popcorn)\b/],
+  ["seafood", /\b(salmon|tuna|cod|tilapia|shrimps?|prawns?|scallops?|fish|seafood|anchov)\b/],
   // NO bare `ground` (2026-08-23). It filed "ground flaxseed" under MEAT, and
   // would do the same to ground cumin, cinnamon and ginger. Every real ground
   // meat is already caught by its animal: ground beef by `beef`, ground
   // turkey by `turkey`, with `mince` for the rest.
-  ["meat", /\b(beef|chicken|pork|lamb|turkey|thigh|breast|steak|mince|bacon|sausage)\b/],
+  ["meat", /\b(beef|chicken|pork|lamb|turkey|thighs?|breasts?|steaks?|mince|bacon|sausages?)\b/],
   [
     "dairy",
-    /\b(milk|kefir|yogurt|yoghurt|cheese|butter|cream|cottage|parmesan|feta|brie|halloumi|egg|eggs)\b/,
+    /\b(milk|kefir|yogurt|yoghurt|cheeses?|butter|creams?|cottage|parmesan|feta|brie|halloumi|eggs?)\b/,
   ],
-  ["bakery", /\b(bread|sourdough|pita|tortilla|bun|bagel|naan|roll)\b/],
+  ["bakery", /\b(breads?|sourdough|pitas?|tortillas?|buns?|bagels?|naan|rolls?)\b/],
+  // BEFORE produce, which now matches the plural `tomatoes`. A tin of crushed
+  // tomatoes is not a produce run, and it used to file under canned only
+  // because the singular `tomato` missed the word entirely (2026-08-27).
+  ["canned", /\b(crushed|diced|canned|stewed)[- ]tomatoes\b|\btomato paste\b/],
+  // BEFORE produce, whose `herb` now matches the plural `herbs`. Dried herbs
+  // are a jar on the spice rack; the fresh ones below are the produce table.
+  [
+    "spices",
+    /\bdried (?:[a-z]+ )?(?:herbs?|herbes|oregano|basil|thyme|rosemary|parsley|mint|dill|sage|tarragon|chives?|bay)\b/,
+  ],
+  // PLURALS (David, 2026-08-27). Every keyword below used to be singular
+  // inside \b...\b, so "bananas", "lemons" and "pumpkin seeds" matched
+  // nothing and fell through to OTHER while "banana", "lemon" and "seed"
+  // classified fine. A camera scan writes what the LABEL says and labels are
+  // plural, so most of the fresh half of David's first Wayne pantry landed
+  // unsorted. The trailing (?:e?s)? covers -s and -es; irregular plurals
+  // (berries, cherries) stay spelled out.
   [
     "produce",
-    /\b(onion|garlic|tomato|cucumber|cabbage|spinach|broccoli|cauliflower|mushroom|lemon|lime|ginger|avocado|[a-z]*berr(y|ies)|potato|shallot|herb|parsley|cilantro|basil|mint|scallion|lettuce|arugula|kale|carrot|celery|pepper|apple|banana|mango|fruit|greens|zucchini|asparagus|edamame|sprouts|green beans|snap peas|vegetables?)\b/,
+    /\b(?:onion|garlic|tomato|cucumber|cabbage|spinach|broccoli|cauliflower|mushroom|lemon|lime|ginger|avocado|[a-z]*berr(?:y|ies)|cherr(?:y|ies)|potato|shallot|herb|parsley|cilantro|basil|mint|scallion|lettuce|arugula|kale|carrot|celery|pepper|apple|banana|mango|kiwi|pear|fruit|greens|zucchini|asparagus|edamame|sprouts|green bean|snap peas|vegetable)(?:e?s)?\b/,
   ],
   [
     "canned",
     // legumes in a tin. NOT plain "beans": produce above already claimed the
     // fresh ones, and a bag of green beans is not a canned good
-    /\b(can|canned|crushed tomatoes|tomato paste|coconut milk|broth|stock|black beans|kidney beans|cannellini|pinto|butter beans|baked beans|refried|chickpeas|garbanzo|lentils?)\b/,
+    /\b(?:can|canned|crushed tomatoes|tomato paste|coconut milk|broth|stock|black bean|kidney bean|cannellini|pinto|butter bean|baked bean|refried|chickpea|garbanzo|lentil)(?:e?s)?\b/,
   ],
   [
     // cooking oils shelve with the vinegars and dressings in a US store
     "condiments",
-    /\b(oil|sauce|soy|vinegar|mustard|sriracha|mayo|dressing|salsa|harissa|marinade|tahini|miso|mirin)\b/,
+    /\b(?:oil|sauce|soy|vinegar|mustard|sriracha|mayo|dressing|salsa|harissa|marinade|tahini|miso|mirin)(?:e?s)?\b/,
   ],
   [
     "spices",
-    /\b(cayenne|paprika|salt|peppercorn|black pepper|cumin|coriander|spice|saffron|oregano|thyme|turmeric|cinnamon|chili|curry|bay leaf|flakes)\b/,
+    /\b(?:cayenne|paprika|salt|peppercorn|black pepper|cumin|coriander|spice|saffron|oregano|thyme|turmeric|cinnamon|chili|curry|bay leaf|flake)(?:e?s)?\b/,
   ],
-  ["baking", /\b(flour|sugar|baking|yeast|cocoa|vanilla|cornstarch|honey|maple syrup)\b/],
-  ["grains", /\b(rice|oats|pasta|noodle|quinoa|couscous|farro|bulgur|barley|tortilla)\b/],
+  ["baking", /\b(?:flour|sugar|baking|yeast|cocoa|vanilla|cornstarch|honey|maple syrup)(?:e?s)?\b/],
+  [
+    "grains",
+    /\b(?:rice|oats|pasta|noodle|quinoa|couscous|farro|bulgur|barley|tortilla)(?:e?s)?\b/,
+  ],
   [
     "snacks",
-    /\b(nuts|almond|walnut|cashew|peanut|seed|flaxseed|chia|bar|chips|crackers|apricot|raisin)\b/,
+    /\b(?:nut|almond|walnut|cashew|peanut|seed|flaxseed|chia|hemp heart|granola|bar|chip|cracker|apricot|raisin)(?:e?s)?\b/,
   ],
-  ["beverages", /\b(coffee|tea|juice|water|wine|beer|soda)\b/],
-  ["household", /\b(foil|wrap|bag|towel|soap|detergent)\b/],
+  ["beverages", /\b(?:coffee|tea|juice|water|wine|beer|soda)(?:e?s)?\b/],
+  ["household", /\b(?:foil|wrap|bag|towel|soap|detergent)(?:e?s)?\b/],
 ];
 
 /**
