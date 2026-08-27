@@ -347,7 +347,7 @@ export function ShoppingView({
       setFresh(null);
       setScan({
         notice:
-          "kitchen scanned ✓ — now everyone taps GENERATE MY WEEK on Plan, then shop the FAMILY list once",
+          "kitchen scanned ✓ — now everyone taps GENERATE MY WEEK on Plan, then shop the HOUSEHOLD list once",
       });
     }
   };
@@ -434,7 +434,7 @@ export function ShoppingView({
 
   // fridge-first (David, 2026-08-01): food the kitchen already holds comes
   // off the trip at render time. Only where THIS list IS the trip — a profile
-  // alone in its house. With housemates, the FAMILY tab is the trip and the
+  // alone in its house. With housemates, the HOUSEHOLD tab is the trip and the
   // subtraction happens there exactly once: four lists each subtracting the
   // same fridge pack would collectively under-buy.
   // a row someone already TICKED never hides in the covered block, whatever
@@ -1298,7 +1298,7 @@ export function ShoppingView({
             aria-pressed=${tab === "combined"}
             onClick=${() => setTab("combined")}
           >
-            FAMILY ${combined.length ? `(${combined.length})` : ""}
+            HOUSEHOLD ${combined.length ? `(${combined.length})` : ""}
           </button>`
         }
       </div>
@@ -1307,9 +1307,9 @@ export function ShoppingView({
         tab === "list" &&
         others.length > 0 &&
         html`<div class="tile" role="note">
-          <div class="k">🛒 The store trip is the FAMILY tab</div>
+          <div class="k">🛒 The store trip is the HOUSEHOLD tab</div>
           <p class="hint">
-            This list is just your own meals. FAMILY merges the whole house, subtracts what the
+            This list is just your own meals. HOUSEHOLD merges the whole house, subtracts what the
             kitchen already holds, and is the one list to shop from.
           </p>
         </div>`
@@ -1448,7 +1448,7 @@ export function ShoppingView({
             staples${
               soloTrip
                 ? " and food already on the kitchen's shelves"
-                : " (the FAMILY tab subtracts what the kitchen already holds, once for the house)"
+                : " (the HOUSEHOLD tab subtracts what the kitchen already holds, once for the house)"
             },
             groups by aisle. Rebuilt lists keep your ticks and manual items. Tick = got it / have
             enough this week. P+ = already own it — moves it to your permanent pantry staples.
@@ -2538,8 +2538,8 @@ export function ShoppingView({
           }
           ${
             // THE receipt button (David, 2026-08-10: his mother stood at the
-            // till with the FAMILY list open and there was nothing to press).
-            // FAMILY is where the house shops, so FAMILY is where the receipt
+            // till with the HOUSEHOLD list open and there was nothing to press).
+            // HOUSEHOLD is where the house shops, so HOUSEHOLD is where the receipt
             // gets scanned. It was only ever on the personal list, which is
             // the one list that receipt is NOT for.
             prices && onReceiptApprove && receiptControl()

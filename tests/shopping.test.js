@@ -16,6 +16,7 @@ import {
   householdOthers,
   householdOf,
   pantryPathFor,
+  inheritsLegacyPantry,
   mergeProfileLists,
   swapCandidates,
   toStoreUnits,
@@ -1033,6 +1034,22 @@ test("householdOf and pantryPathFor: household keys the shared pantry (B2)", () 
     pantryPathFor(householdOf(profiles, "david")),
     pantryPathFor(householdOf(profiles, "mom")),
   );
+});
+
+test("a declared household starts with an EMPTY pantry, never the legacy one", () => {
+  // 2026-08-26: moving into the Wayne house created households/wayne/pantry.json
+  // by copying the old house's legacy root pantry, so a kitchen with bare
+  // shelves reported 52 staples at "plenty" and the shopping list then refused
+  // to buy them. Only the undeclared pre-B2 default describes the kitchen that
+  // legacy file came from; every declared household is a NEW kitchen.
+  assert.equal(inheritsLegacyPantry("home"), true);
+  assert.equal(inheritsLegacyPantry(""), true); // absent household field
+  assert.equal(inheritsLegacyPantry("wayne"), false);
+  assert.equal(inheritsLegacyPantry("taranowski"), false);
+  assert.equal(inheritsLegacyPantry("laurie-apt"), false);
+  const profiles = [{ id: "david", household: "wayne" }, { id: "mom" }];
+  assert.equal(inheritsLegacyPantry(householdOf(profiles, "david")), false);
+  assert.equal(inheritsLegacyPantry(householdOf(profiles, "mom")), true);
 });
 
 test("shelf life now knows WHERE the food is, and never lengthens an unknown", () => {

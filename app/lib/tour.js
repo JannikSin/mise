@@ -101,7 +101,7 @@ export const TOUR_STEPS = [
     route: "#/list",
     selector: ".chips",
     title: "Pantry and house",
-    text: "PANTRY holds what you own: ticked groceries flow in via ADD TO PANTRY, P+ marks things you already had. FAMILY merges your house's lists into one trip.",
+    text: "PANTRY holds what you own: ticked groceries flow in via ADD TO PANTRY, P+ marks things you already had. HOUSEHOLD merges your house's lists into one trip.",
   },
   {
     route: "#/system",

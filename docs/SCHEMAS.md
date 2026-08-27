@@ -25,9 +25,10 @@ ingredients, staple flags, slot-typed plans, derived shopping list; no stock led
 ```
 profiles.json              every profile that can sign in (ROOT, never scoped — see below)
 recipes/<id>.json         one recipe per file
-pantry.json               LEGACY root pantry (read as fallback only) — the live
-                          pantry is households/<h>/pantry.json: one items array
-                          + derived legacy write mirrors (see Pantry)
+pantry.json               LEGACY root pantry (read as fallback ONLY for the
+                          undeclared "home" household — see Pantry seeding) —
+                          the live pantry is households/<h>/pantry.json: one
+                          items array + derived legacy write mirrors (see Pantry)
 households/<h>/waste.json the waste ledger: explicit write-off events (see Waste)
 plans/<week>.json         e.g. plans/2026-W28.json
 shopping.json             current derived list + check-state
@@ -88,9 +89,21 @@ week's entries through the id-keyed merge while `locked: true` survives.
 Refresh every device after deploying the lock. New code guards in the
 handler body, not just the disabled button.
 
+**Pantry seeding across households** (2026-08-26): a household with no
+`households/<h>/pantry.json` yet starts EMPTY. The legacy root `pantry.json`
+is copied in only when the active profile's household resolves to `"home"`
+(`LEGACY_PANTRY_HOUSEHOLD` in `app/lib/shopping.js`), which is what a pre-B2
+profile with no `household` field resolves to and therefore the only kitchen
+that file ever described. Before this, ANY empty household inherited it, so
+declaring a new household silently furnished it with someone else's shelves:
+David's Wayne house opened holding 52 staples at "plenty" that were never in
+it, and the shopping list refused to buy them because the pantry said it had
+them. A DECLARED HOUSEHOLD IS A NEW KITCHEN. Scan it in (List → PANTRY →
+FRESH START); do not expect it to arrive stocked.
+
 **Combined household shopping list**: a read-time merge of every profile's
 `shopping.json` (`app/lib/shopping.js` `mergeProfileLists`) shown as the
-FAMILY tab in List (named EVERYONE before 2026-07-25; docs and code now both say FAMILY). No third file exists; ticking a combined item writes
+HOUSEHOLD tab in List (named EVERYONE before 2026-07-25, FAMILY until 2026-08-26; docs and code now both say HOUSEHOLD, because the tab merges a HOUSEHOLD and a household is not always a family — David's Wayne-house roommate is not kin). No third file exists; ticking a combined item writes
 the tick through to each source profile's own list. Swap suggestions
 (`swapCandidates`) flag single-profile items in partial-container sections
 (dairy/produce/spices/other) — report only, recipes are never auto-edited.
@@ -129,10 +142,10 @@ data to the app repo.
   2026-07-21)** — every label and hint says "house" (a physical kitchen);
   the storage field and the `households/` path keep this legacy name
   deliberately, zero data migration. Groups profiles into one grocery
-  trip: the List view's FAMILY tab merges only profiles that share the
+  trip: the List view's HOUSEHOLD tab merges only profiles that share the
   active profile's household (`app/lib/shopping.js` `householdOthers`, wired
   in `app/main.js`). A profile alone in its household (e.g. Laurie in her own
-  apartment) sees no FAMILY tab at all; absent-field profiles keep merging
+  apartment) sees no HOUSEHOLD tab at all; absent-field profiles keep merging
   exactly as before the field existed. Not asked in the gate questionnaire —
   edited from the SYS App tile ("MOVE HOUSEHOLD", `app\views\system.js`),
   which normalizes to lowercase-kebab and stores `"home"`/blank as absent.
@@ -1200,7 +1213,7 @@ ticked in the aisle that the scan never read leave too — a missed OCR line
 must not resurrect food already in the bag. A fully-bought list ends empty.
 Displayed `qty`/`unit` are rounded up to a purchasable amount (whole counts,
 sensible gram/ml/kg/L/cup/tbsp/tsp/lb/oz steps) after summing, not before.
-STORED quantities stay metric and authoritative; the List and FAMILY tabs
+STORED quantities stay metric and authoritative; the List and HOUSEHOLD tabs
 display a store-shelf conversion on top ("1.98 lb (900 g)") via
 `toStoreUnits`/`formatStoreQty` in app/lib/shopping.js — a faithful convert
 of the already-purchasable metric value, never re-rounded onto an imperial
@@ -1209,7 +1222,7 @@ grid (which would make the two numbers disagree or under-buy).
 **Fridge-first trips (2026-08-01, render-time only — no schema change):**
 `subtractPantryFromTrip` (app/lib/shopping.js) subtracts the household
 pantry's COUNTABLE perishables from the trip actually being shopped — the
-FAMILY tab's merged list (once, after summing everyone), or a solo profile's
+HOUSEHOLD tab's merged list (once, after summing everyone), or a solo profile's
 own list. Honesty fences mirror consumeForCook: free-text pantry quantities
 never fake-subtract, unit-"x" rows (manual items, running-low staples) never
 reduce, stock is consumed in item order so two rows can't claim the same
@@ -1220,7 +1233,7 @@ deliberate cross-profile list write) — that is what makes the render pass
 safe for four devices sharing one pantry.
 
 **The receipt ends the HOUSE's trip (2026-08-01, Tribunal-gated):** one
-person shops the FAMILY tab and photographs the till roll; the scanner's
+person shops the HOUSEHOLD tab and photographs the till roll; the scanner's
 device then (1) BANKS the pantry exactly once from the MERGED household trip
 — everyone's lists summed, fridge-first-reduced, so `banked === bought`
 (banking from any single profile's rows was the Tribunal BLOCK: portions of
@@ -1247,7 +1260,7 @@ verbatim.
       "checked": false,
       "manual": false, // true = David added by hand, survives regeneration
       "fromRecipes": ["chicken-bulgogi-bowl"], // ?
-      "weekQty": 0, // ? FAMILY-trip narrowed tick (2026-08-09): when a
+      "weekQty": 0, // ? HOUSEHOLD-trip narrowed tick (2026-08-09): when a
       //   day-narrowed household tick buys LESS than this row's week total,
       //   qty becomes the bought amount (so the receipt banks the truth) and
       //   the week total is stashed here; the untick restores it. Absent on

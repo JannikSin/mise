@@ -1191,7 +1191,7 @@ export function TablesView({
                   ? html`<p class="hint">
                       The cook rotates day by day in the order people are listed above — with four
                       people over a week, everyone cooks one or two dinners and shops for their own
-                      nights (the FAMILY list still merges it into one trip).
+                      nights (the HOUSEHOLD list still merges it into one trip).
                     </p>`
                   : html`<select
                       aria-label="Cook"

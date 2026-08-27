@@ -46,6 +46,7 @@ import {
   householdOthers,
   householdOf,
   pantryPathFor,
+  inheritsLegacyPantry,
   ownItemToPantry,
   expirePerishables,
   mergeProfileLists,
@@ -510,14 +511,26 @@ function App() {
       // (B3). Pre-B2 per-profile pantries are read as a fallback and seeded
       // into the household file once, so no data is lost and old devices
       // keep limping on the legacy path until they update.
+      //
+      // THE SEED IS SCOPED TO THE PRE-B2 HOUSEHOLD (David, 2026-08-26). It used
+      // to fire for ANY household with no file yet, which made a one-time
+      // migration into a permanent trap: moving into the Wayne house created
+      // households/wayne/pantry.json by COPYING the old house's legacy pantry,
+      // so a kitchen whose shelves were bare reported 52 staples — white rice,
+      // oats, whey protein — at "plenty", and the shopping list then refused to
+      // buy the things that were not there. A DECLARED HOUSEHOLD IS A NEW
+      // KITCHEN AND STARTS EMPTY. Only the undeclared default, which is what a
+      // pre-B2 profile resolves to, describes the same kitchen the legacy file
+      // did, so only that one inherits it.
       void (async () => {
         const prof = await readProfiles();
         if (!alive) return;
-        const path = pantryPathFor(householdOf(prof.profiles, activeProfile()));
+        const house = householdOf(prof.profiles, activeProfile());
+        const path = pantryPathFor(house);
         pantryPathRef.current = path;
         let src = /** @type {Record<string, any> | null} */ (await read(path, { raw: true }));
         if (!alive) return;
-        if (!src) {
+        if (!src && inheritsLegacyPantry(house)) {
           const legacy = /** @type {Record<string, any> | null} */ (await read("pantry.json"));
           if (!alive) return;
           if (
@@ -675,10 +688,22 @@ function App() {
     pantryRef.current = next;
     setPantry(next);
     const path = pantryPathRef.current;
-    // household path once known (B2); legacy per-profile path only in the
-    // narrow window before profiles resolve
-    if (path) void write(path, next, { raw: true });
-    else void write("pantry.json", next);
+    if (path) {
+      void write(path, next, { raw: true });
+      return;
+    }
+    // Profiles have not resolved yet, so the household is not known. This used
+    // to fall back to the legacy per-profile `pantry.json`, which since B2 is a
+    // DIFFERENT KITCHEN: a scan landing there is lost from this household and
+    // injected into another one (David, 2026-08-26). Resolve the household
+    // first instead — the read is cache-first, so the write is late by
+    // milliseconds rather than misfiled forever.
+    void (async () => {
+      const prof = await readProfiles();
+      const resolved = pantryPathFor(householdOf(prof.profiles, activeProfile()));
+      pantryPathRef.current = resolved;
+      void write(resolved, next, { raw: true });
+    })();
   }, []);
 
   // in-app confirm (roadmap A2): one modal at the App root replaces every
@@ -793,7 +818,7 @@ function App() {
         const self = p.profiles.find((pr) => pr.id === me);
         if (alive && self?.emoji) setOwnEmoji(self.emoji);
         // same household only: Laurie's solo-apartment list never mixes
-        // into the home EVERYONE trip (and vice versa)
+        // into the home HOUSEHOLD trip (and vice versa)
         const others = householdOthers(p.profiles, me);
         if (others.length === 0) {
           if (alive) setOtherLists([]);
@@ -814,7 +839,7 @@ function App() {
               )
             ),
             // their week plan too, read-only (same raw-path pattern as
-            // houseShopped): the FAMILY tab re-derives a person's trip
+            // houseShopped): the HOUSEHOLD tab re-derives a person's trip
             // contribution from it when only SOME of their days are shopped
             plan: /** @type {any} */ (
               await read(
@@ -872,12 +897,12 @@ function App() {
       // ends up empty, which is the whole point — the list is a to-do, not a
       // record of what you own.
       // BANK ONCE, FROM THE MERGED TRIP (Tribunal BLOCK, 2026-08-01). The
-      // FAMILY tab the shopper walked is everyone's lists SUMMED, minus the
+      // HOUSEHOLD tab the shopper walked is everyone's lists SUMMED, minus the
       // shared pantry once; the pantry must gain exactly what that trip
       // bought. Banking from this profile's own rows alone recorded a
       // fraction (or nothing) of the food now physically in the fridge, and
       // fridge-first then re-bought it every week. A row ticked by ANY
-      // source counts bought — the FAMILY tick writes through to all.
+      // source counts bought — the HOUSEHOLD tick writes through to all.
       const prevShopping = shoppingRef.current;
       const prevPantry = pantryRef.current;
       const prevOthers = otherListsRef.current;
@@ -1151,7 +1176,7 @@ function App() {
   const allRecipesRef = useRef(allRecipes);
   allRecipesRef.current = allRecipes;
 
-  // id → recipe map for the shopping view's FAMILY tab, which re-derives a
+  // id → recipe map for the shopping view's HOUSEHOLD tab, which re-derives a
   // member's partial-week trip contribution with deriveShoppingList. Built
   // from the UNSCREENED shared bank plus my pool: my own diet/avoid screen
   // must not hide a housemate's recipe from THEIR trip derivation. (Their
@@ -1221,7 +1246,7 @@ function App() {
 
   const handleJustBought = useCallback(() => {
     // fridgeFirst only when this list IS the rendered trip — a solo profile.
-    // A household member's list is a PORTION of the merged FAMILY trip, and
+    // A household member's list is a PORTION of the merged HOUSEHOLD trip, and
     // reducing each portion against the same shared stock banks ~nothing
     // (Tribunal BLOCK 2026-08-01); their manual path banks verbatim, and the
     // canonical household flow is the receipt, which banks the merged sum.
@@ -2078,7 +2103,7 @@ function App() {
     [updatePlan],
   );
 
-  // claim counts for the List's FAMILY tile: upcoming dinners in my house
+  // claim counts for the List's HOUSEHOLD tile: upcoming dinners in my house
   // with no buyer, and the ones I already claimed
   const dinnerClaims = useMemo(() => {
     const house = allProfiles.find((p) => p.id === me)?.household ?? "home";

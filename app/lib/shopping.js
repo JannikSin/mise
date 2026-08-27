@@ -449,7 +449,7 @@ export function formatRecipeQty(qty, unit) {
 export function formatStoreQty(qty, unit) {
   // count units: "banana 7 each" read as "7 per person? per serving?"
   // (David, 2026-08-02). It never was — every list qty is the WEEK'S TOTAL,
-  // already multiplied through servings and, on FAMILY, summed across
+  // already multiplied through servings and, on HOUSEHOLD, summed across
   // people. "×7" says "seven bananas, full stop" and leaves nothing to
   // interpret.
   const u = String(unit ?? "").toLowerCase();
@@ -630,7 +630,7 @@ export function cartLines(items, upcFor, packsFor) {
  */
 
 /**
- * One tap on a FAMILY-trip day chip (David, 2026-08-09: "buy the first three
+ * One tap on a HOUSEHOLD-trip day chip (David, 2026-08-09: "buy the first three
  * days for mom"). `current` empty = the whole week, so the first un-tap
  * starts from all of `allDates`. Returns the next picks array — [] means
  * back to the whole week — or null when the tap must be ignored (no dates
@@ -650,10 +650,10 @@ export function cycleDayPick(current, allDates, date) {
 }
 
 /**
- * The other profiles whose lists join this profile's EVERYONE trip: same
+ * The other profiles whose lists join this profile's HOUSEHOLD trip: same
  * `household` only (profiles.json, absent = "home" — every pre-household
  * profile keeps merging exactly as before). A profile alone in its
- * household gets an empty list, which also hides the EVERYONE tab.
+ * household gets an empty list, which also hides the HOUSEHOLD tab.
  * @param {Record<string, any>[]} profiles profiles.json entries
  * @param {string} meId active profile id
  * @returns {Record<string, any>[]}
@@ -665,7 +665,7 @@ export function householdOthers(profiles, meId) {
 
 /**
  * The active profile's household slug (absent = "home"), the key both the
- * EVERYONE trip and the shared pantry hang off.
+ * HOUSEHOLD trip and the shared pantry hang off.
  * @param {Record<string, any>[]} profiles profiles.json entries
  * @param {string} meId active profile id
  * @returns {string}
@@ -685,6 +685,30 @@ export function householdOf(profiles, meId) {
  */
 export function pantryPathFor(household) {
   return `households/${household || "home"}/pantry.json`;
+}
+
+/**
+ * The household a pre-B2 install resolves to: profiles written before the
+ * shared pantry existed carry no `household` field, so `householdOf` answers
+ * "home" for them. It is therefore the ONLY household whose kitchen the
+ * legacy per-profile `pantry.json` actually described, and the only one
+ * allowed to inherit it (David, 2026-08-26 — the Wayne house started life
+ * holding 52 staples it had never owned because every empty household
+ * inherited that file). Every other slug is a kitchen somebody declared
+ * AFTER the split: a new kitchen, and a new kitchen starts empty.
+ */
+export const LEGACY_PANTRY_HOUSEHOLD = "home";
+
+/**
+ * Whether this household may be SEEDED from the legacy root `pantry.json`
+ * when it has no pantry file of its own yet. Only the pre-B2 default may:
+ * every other slug was declared after the shared pantry existed, so it is a
+ * different kitchen and starts empty.
+ * @param {string} household
+ * @returns {boolean}
+ */
+export function inheritsLegacyPantry(household) {
+  return (household || "home") === LEGACY_PANTRY_HOUSEHOLD;
 }
 
 /**
@@ -1529,7 +1553,7 @@ export function applyReceiptStock(shopping, pantry, lines, today) {
 /**
  * The receipt ends the WHOLE HOUSE's trip, not just the scanner's (David,
  * 2026-08-01: "when a receipt is pictured it will exit everyone's list").
- * One person shops the FAMILY trip and photographs the till roll; every
+ * One person shops the HOUSEHOLD trip and photographs the till roll; every
  * housemate's rows the till confirms — plus rows already ticked in the
  * aisle, same rule as applyJustBought — leave THEIR list too.
  *
