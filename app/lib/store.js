@@ -193,7 +193,25 @@ export const writeOccasionsOf = (id, data) =>
 async function defaultProfilesRead(path) {
   const key = scoped(path);
   const rec = await dbGet(key);
-  if (rec) return { data: rec.data, sha: rec.sha ?? "" };
+  if (rec) {
+    // A CACHED PROFILE LIST IS NOT A FROZEN ONE (David, 2026-08-28).
+    //
+    // This return used to be bare, which made profiles.json the ONE file in
+    // the app that never refreshed: every other read goes through `read()`,
+    // which fires `revalidate` on the way past. So a device that had cached
+    // the list once kept serving that version forever. The symptom that found
+    // it: David moved into the Wayne house and Elliot was added, both landing
+    // in profiles.json — and his laptop went on reporting him in "taranowski"
+    // with no Elliot anywhere, which silently pointed the whole app (pantry,
+    // ledger, events, the shopping trip) at the wrong kitchen and left the
+    // "add housemate" picker with nobody to offer.
+    //
+    // `revalidate` skips dirty records, so an unflushed local profile edit
+    // still wins, and it emits on change, so the views listening to
+    // onSyncChange re-read and repaint.
+    void revalidate(key);
+    return { data: rec.data, sha: rec.sha ?? "" };
+  }
   try {
     const remote = await io.read(path);
     if (remote) {

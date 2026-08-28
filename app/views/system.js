@@ -8,7 +8,14 @@ import {
   dataRepoOverridden,
 } from "../lib/github.js";
 import { formatSyncTime } from "../lib/dates.js";
-import { activeProfile, readProfiles, patchProfiles, read, write } from "../lib/store.js";
+import {
+  activeProfile,
+  readProfiles,
+  patchProfiles,
+  read,
+  write,
+  onSyncChange,
+} from "../lib/store.js";
 import {
   canAssignRoles,
   householdPathFor,
@@ -83,7 +90,9 @@ export function SystemView({
   const totalDinners = bank.filter((r) => r.mealType === "dinner").length;
   const unlocks = undeclared ? [] : unlockCounts(gear, bank);
   const toggleGear = (/** @type {string} */ id) =>
-    setGearDraft(gear.includes(id) ? gear.filter((/** @type {string} */ x) => x !== id) : [...gear, id].sort());
+    setGearDraft(
+      gear.includes(id) ? gear.filter((/** @type {string} */ x) => x !== id) : [...gear, id].sort(),
+    );
   const saveGear = async () => {
     if (!onSaveEquipment || gearDraft === null) return;
     setGearBusy(true);
@@ -128,15 +137,25 @@ export function SystemView({
   );
   const [profilesFallback, setProfilesFallback] = useState(false);
   const [profileErr, setProfileErr] = useState("");
+  // Re-read on every sync tick, not once on mount: readProfiles serves the
+  // cache first and refreshes behind it, so the first answer on a device that
+  // has been away is the OLD list. Without this subscription the refreshed
+  // file lands in IndexedDB and never reaches the screen — which is how this
+  // view kept insisting David lived in "taranowski" days after he moved.
   useEffect(() => {
     let alive = true;
-    readProfiles().then((p) => {
-      if (!alive) return;
-      setAllProfiles(p.profiles);
-      setProfilesFallback(Boolean(/** @type {any} */ (p).fallback));
-    });
+    const load = () => {
+      readProfiles().then((p) => {
+        if (!alive) return;
+        setAllProfiles(p.profiles);
+        setProfilesFallback(Boolean(/** @type {any} */ (p).fallback));
+      });
+    };
+    load();
+    const unsub = onSyncChange(load);
     return () => {
       alive = false;
+      unsub();
     };
   }, []);
   const me = activeProfile();
@@ -166,24 +185,55 @@ export function SystemView({
     return true;
   };
 
+  const slugify = (/** @type {string} */ s) =>
+    s
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
   // household (profiles.json household, absent = "home"): which grocery trip
   // this profile's list merges into. Editable so a member can move for a week
   // (Laurie visiting joins "home", then moves back to hers).
-  const [householdDraft, setHouseholdDraft] = useState(/** @type {string | null} */ (null));
+  //
+  // MOVING IS A CHOICE FROM A LIST, NOT A SPELLING TEST (David, 2026-08-28).
+  // This was a bare text box holding the raw slug, so moving into an existing
+  // house meant knowing its slug and typing it byte-for-byte: one typo and
+  // you silently founded an empty house with its own empty pantry, next to
+  // the one you meant to join, with nothing on screen to say so. The houses
+  // that exist are knowable — they are the distinct households the profile
+  // list declares — so they are offered, and inventing a new one is an
+  // explicit choice rather than the accidental default.
   const household = /** @type {string} */ (profile?.household ?? "home");
-  const householdShown = householdDraft ?? household;
+  // Cannot collide with a real house: slugify only ever emits [a-z0-9-].
+  const NEW_HOUSE = "+new";
+  const [housePick, setHousePick] = useState(/** @type {string | null} */ (null));
+  const [newHouseDraft, setNewHouseDraft] = useState("");
+  // "home" is every undeclared profile's house, so it is always reachable
+  // even when nobody has declared it; the one you are in is always listed
+  // even if the profile list has not loaded yet.
+  const houseOptions = [
+    ...new Set([
+      "home",
+      household,
+      ...(allProfiles ?? []).map((x) => /** @type {string} */ (x.household ?? "home")),
+    ]),
+  ].sort();
+  const housePicked = housePick ?? household;
+  const houseTarget = housePicked === NEW_HOUSE ? slugify(newHouseDraft) : housePicked;
   const saveHousehold = () => {
-    const clean = householdShown
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, "-");
+    const clean = houseTarget;
+    if (!clean || clean === household) return;
     void applyPatch((x) => {
       const rest = { ...x };
       // "home" (or blank) is the default: store as absent, not as a string
       delete rest.household;
-      return clean && clean !== "home" ? { ...rest, household: clean } : rest;
+      return clean !== "home" ? { ...rest, household: clean } : rest;
     }).then((ok) => {
-      if (ok) setHouseholdDraft(null);
+      if (ok) {
+        setHousePick(null);
+        setNewHouseDraft("");
+      }
     });
   };
 
@@ -192,32 +242,31 @@ export function SystemView({
   // but renaming one for EVERYONE and adding a housemate could only be done
   // by editing JSON, which meant David could not do it. Standing rule: ship
   // the button, never fix the data backstage.
-  const housemates = (allProfiles ?? []).filter(
-    (x) => (x.household ?? "home") === household,
-  );
-  const outsiders = (allProfiles ?? []).filter(
-    (x) => (x.household ?? "home") !== household,
-  );
+  const housemates = (allProfiles ?? []).filter((x) => (x.household ?? "home") === household);
+  const outsiders = (allProfiles ?? []).filter((x) => (x.household ?? "home") !== household);
   const [houseDoc, setHouseDoc] = useState(/** @type {Record<string, any> | null} */ (null));
+  // Same cache-first trap as the profile list: `read` answers from IndexedDB
+  // and fetches behind your back, so the first answer for a house this device
+  // has not opened before is null — which reads as "headless, no members" and
+  // hides every role. Re-read on sync so the real file replaces it.
   useEffect(() => {
     let alive = true;
-    void read(householdPathFor(household), { raw: true }).then((h) => {
-      if (alive) setHouseDoc(/** @type {any} */ (h));
-    });
+    const load = () => {
+      void read(householdPathFor(household), { raw: true }).then((h) => {
+        if (alive) setHouseDoc(/** @type {any} */ (h));
+      });
+    };
+    load();
+    const unsub = onSyncChange(load);
     return () => {
       alive = false;
+      unsub();
     };
   }, [household]);
   const [houseBusy, setHouseBusy] = useState(false);
   const [houseNote, setHouseNote] = useState("");
   const [renameDraft, setRenameDraft] = useState("");
   const [addPick, setAddPick] = useState("");
-  const slugify = (/** @type {string} */ s) =>
-    s
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/^-+|-+$/g, "");
 
   // Rename the house for EVERYONE in it: carry the shared files to the new
   // slug, then re-point every member profile. The old files are left in
@@ -236,7 +285,9 @@ export function SystemView({
     const to = slugify(renameDraft);
     if (!to || to === household || houseBusy) return;
     if (to === "home") {
-      setHouseNote(`"home" is the shared default house — renaming into it would mix this house's pantry and ledger into everyone else's`);
+      setHouseNote(
+        `"home" is the shared default house — renaming into it would mix this house's pantry and ledger into everyone else's`,
+      );
       return;
     }
     const hh = normalizeHousehold(houseDoc);
@@ -252,7 +303,9 @@ export function SystemView({
         read(`households/${to}/pantry.json`, { raw: true }),
       ]);
       if (existing.some(Boolean)) {
-        setHouseNote(`a house called "${to}" already exists — pick another name, or move people into it one by one`);
+        setHouseNote(
+          `a house called "${to}" already exists — pick another name, or move people into it one by one`,
+        );
         return;
       }
       /** @type {string[]} */
@@ -277,7 +330,9 @@ export function SystemView({
         list.map((x) => ((x.household ?? "home") === household ? move(x) : x)),
       );
       if (!ok) {
-        setHouseNote("couldn't load the real profile list — nobody moved (the copied files are harmless)");
+        setHouseNote(
+          "couldn't load the real profile list — nobody moved (the copied files are harmless)",
+        );
         return;
       }
       setAllProfiles((cur) =>
@@ -438,57 +493,108 @@ export function SystemView({
         </div>
         <div class="row">
           <span class="k">House</span>
-          <input
+          <select
             aria-label="House this profile cooks and shops from"
-            value=${householdShown}
-            onInput=${(/** @type {any} */ e) => setHouseholdDraft(e.currentTarget.value)}
-          />
+            value=${housePicked}
+            onChange=${(/** @type {any} */ e) => setHousePick(e.currentTarget.value)}
+          >
+            ${houseOptions.map(
+              (h) =>
+                html`<option key=${h} value=${h}>
+                  ${h}${h === household ? " (you are here)" : ""}
+                </option>`,
+            )}
+            <option value=${NEW_HOUSE}>+ new house…</option>
+          </select>
         </div>
+        ${
+          housePicked === NEW_HOUSE &&
+          html`<div class="row">
+            <span class="k">Name it</span>
+            <input
+              aria-label="Name for the new house"
+              placeholder="e.g. wayne"
+              value=${newHouseDraft}
+              onInput=${(/** @type {any} */ e) => setNewHouseDraft(e.currentTarget.value)}
+            />
+          </div>`
+        }
         <div class="actions">
           <button
             class="secondary"
             onClick=${saveHousehold}
-            disabled=${!profile || householdDraft === null || householdShown.trim() === household}
+            disabled=${!profile || !houseTarget || houseTarget === household}
           >
-            MOVE HOUSE
+            ${
+              housePicked === NEW_HOUSE
+                ? `CREATE "${houseTarget || "…"}" AND MOVE IN`
+                : "MOVE HOUSE"
+            }
           </button>
         </div>
+        <p class="hint">
+          A house is one kitchen: everyone in it shares the pantry, the shopping trip, the table
+          calendar and the ledger. Moving re-points you at that kitchen; it never carries your
+          groceries with you. A brand-new house starts empty.
+        </p>
         <div class="row">
           <span class="k">In this house</span>
           <span class="status dim">
             ${
-              housemates.length > 0
-                ? housemates
-                    .map((h) => {
-                      const m = normalizeHousehold(houseDoc).members.find((x) => x.id === h.id);
-                      const roles = m && m.roles.length > 0 ? ` (${m.roles.join(", ")})` : "";
-                      return `${h.emoji ?? ""} ${h.name}${roles}`;
-                    })
-                    .join(" · ")
-                : "…"
+              allProfiles === null
+                ? "…"
+                : housemates.length > 0
+                  ? housemates
+                      .map((h) => {
+                        const m = normalizeHousehold(houseDoc).members.find((x) => x.id === h.id);
+                        const roles = m && m.roles.length > 0 ? ` (${m.roles.join(", ")})` : "";
+                        const head = normalizeHousehold(houseDoc).headId === h.id ? " ★" : "";
+                        return `${h.emoji ?? ""} ${h.name}${head}${roles}`;
+                      })
+                      .join(" · ")
+                  : "just you"
             }
           </span>
         </div>
         ${
-          outsiders.length > 0 &&
+          normalizeHousehold(houseDoc).occupancy.until &&
           html`<div class="row">
-              <span class="k">Add housemate</span>
-              <select
-                aria-label="Profile to add to this house"
-                value=${addPick}
-                onChange=${(/** @type {any} */ e) => setAddPick(e.currentTarget.value)}
-              >
-                <option value="">choose…</option>
-                ${outsiders.map(
-                  (o) => html`<option key=${o.id} value=${o.id}>${o.emoji ?? ""} ${o.name}</option>`,
-                )}
-              </select>
-            </div>
-            <div class="actions">
-              <button class="secondary" onClick=${addMember} disabled=${!addPick || houseBusy}>
-                ADD TO THIS HOUSE
-              </button>
-            </div>`
+            <span class="k">Occupancy</span>
+            <span class="status dim">
+              ${normalizeHousehold(houseDoc).occupancy.from ?? "…"} →
+              ${normalizeHousehold(houseDoc).occupancy.until} (perishables drain to zero by then)
+            </span>
+          </div>`
+        }
+        <div class="row">
+          <span class="k">Add housemate</span>
+          ${
+            outsiders.length > 0
+              ? html`<select
+                  aria-label="Profile to add to this house"
+                  value=${addPick}
+                  onChange=${(/** @type {any} */ e) => setAddPick(e.currentTarget.value)}
+                >
+                  <option value="">choose…</option>
+                  ${outsiders.map(
+                    (o) =>
+                      html`<option key=${o.id} value=${o.id}>
+                        ${o.emoji ?? ""} ${o.name} (${o.household ?? "home"})
+                      </option>`,
+                  )}
+                </select>`
+              : html`<span class="status dim">
+                  ${allProfiles === null ? "…" : "everybody already lives here"}
+                </span>`
+          }
+        </div>
+        ${
+          outsiders.length > 0 &&
+          html`<div class="actions">
+            <button class="secondary" onClick=${addMember} disabled=${!addPick || houseBusy}>
+              ADD TO THIS HOUSE
+            </button>
+          </div>`
         }
         <div class="row">
           <span class="k">Rename house</span>
@@ -517,17 +623,17 @@ export function SystemView({
         </p>
         <div class="gear-grid">
           ${EQUIPMENT.map(
-            (e) => html`<label class="gear-item" key=${e.id}>
-              <input
-                type="checkbox"
-                checked=${gear.includes(e.id)}
-                onChange=${() => toggleGear(e.id)}
-              />
-              <span>
-                ${e.label}
-                ${e.note ? html`<small class="hint"> — ${e.note}</small>` : null}
-              </span>
-            </label>`,
+            (e) =>
+              html`<label class="gear-item" key=${e.id}>
+                <input
+                  type="checkbox"
+                  checked=${gear.includes(e.id)}
+                  onChange=${() => toggleGear(e.id)}
+                />
+                <span>
+                  ${e.label} ${e.note ? html`<small class="hint"> — ${e.note}</small>` : null}
+                </span>
+              </label>`,
           )}
         </div>
         <div class="row">
@@ -548,8 +654,8 @@ export function SystemView({
           dinnersNow === 0 && !undeclared
             ? html`<p class="hint">
                 ⚠️ Nothing in the bank is a dinner you can cook with this. A microwave alone cannot
-                make any of them, and an empty kitchen certainly cannot — you need at least a
-                burner and a pan.
+                make any of them, and an empty kitchen certainly cannot — you need at least a burner
+                and a pan.
               </p>`
             : null
         }
