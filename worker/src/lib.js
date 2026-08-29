@@ -1246,8 +1246,8 @@ const DINNER_WEEK_SYSTEM =
   "potato, oil, fruit, a lean side) — NEVER by scaling up the protein " +
   "component or adding protein-dense extras, unless that person is still " +
   "short of their protein band. Put most of each person's planned protein " +
-  "in the main cooked meal (dinner, or a cooked lunch); breakfast, " +
-  "smoothie and snack plates stay light on protein. " +
+  "in the main meals (breakfast and dinner, or a cooked lunch); smoothie " +
+  "and snack plates stay light on protein. " +
   "Across a day the planned plates should land each person near " +
   "their daily calories and protein, leaving room for anything personal " +
   "the plan does not cover. CRITICAL: when a person's entry under 'Already " +

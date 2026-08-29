@@ -762,15 +762,18 @@ export function dailyCovered(targets, bankById, plannedSlots, swipe = null) {
 /** slots the lean-menu screen curates, each with its own density cap
  * (g protein per kcal). Dinner and lunch are exempt on purpose: they are
  * the main cooked meals and the day's protein anchor — the whole design
- * says light slots go lean so the anchor can stay real. Caps measured
- * against the live bank 2026-08-29: smoothie/snack at 0.040 keep the
- * foundry leans (27-29), oat-banana (37) and trail mix (29) while
- * excluding every 74-95 g/1000 shake that blew the measured week;
- * breakfast at 0.045 keeps seven real dishes (oatmeals 33-40, tortilla
- * española 42, avocado-sourdough egg 43) so a week of varied breakfasts
- * is composable without specials, while the 50-74 yogurt bowls and
- * pancake stacks leave the menu. */
-export const LEAN_MENU_SLOTS = { breakfast: 0.045, smoothie: 0.04, snack: 0.04 };
+ * says light slots go lean so the anchor can stay real. BREAKFAST is
+ * exempt too (David, 2026-08-29, hours after this shipped with a 0.045
+ * breakfast cap: "I don't want to be eating oatmeal and eggs... I like
+ * the yogurt and whey a lot, a lot better. Please don't make that
+ * change"). Adherence beats the gram — a breakfast he won't eat fixes
+ * nothing — so the yogurt bowls stay choosable and the residual shows up
+ * honestly in the per-day bounds notes instead of being engineered away.
+ * Caps measured against the live bank 2026-08-29: smoothie/snack at
+ * 0.040 keep the foundry leans (27-29), oat-banana (37) and trail mix
+ * (29) while excluding every 74-95 g/1000 shake that blew the measured
+ * week. */
+export const LEAN_MENU_SLOTS = { smoothie: 0.04, snack: 0.04 };
 /** a person is "tight" when the top of their planned band must average
  * leaner than this. David on a 90 g swipe day: (190-90)*1.2/2500 = 0.048
  * → tight. Him with no swipe: 190*1.2/3700 = 0.062 → not tight, full menu. */

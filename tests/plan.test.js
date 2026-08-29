@@ -974,16 +974,18 @@ const MENU = [
 const TIGHT_PEOPLE = [{ id: "david", calories: 3700, protein: 190 }];
 const TIGHT_COVERED = { david: { calories: 1200, protein: 90 } };
 
-test("leanWeekMenu: a tight covered credit strips dense picks from the light slots, dinner untouched", () => {
+test("leanWeekMenu: a tight covered credit strips dense picks from smoothie/snack; breakfast and dinner untouched", () => {
   const { candidates, curated } = leanWeekMenu(MENU, TIGHT_PEOPLE, TIGHT_COVERED);
   assert.equal(curated, true);
   const ids = candidates.map((c) => c.id);
-  // dense light-slot picks are OFF the menu — a dish not offered cannot be picked
+  // dense smoothie/snack picks are OFF the menu — a dish not offered cannot be picked
   assert.ok(!ids.includes("s-shake"));
-  assert.ok(!ids.includes("b-yogurt"));
   assert.ok(!ids.includes("n-jerky"));
   // the lean options survive
-  assert.ok(ids.includes("s-lean1") && ids.includes("b-oats") && ids.includes("n-mix"));
+  assert.ok(ids.includes("s-lean1") && ids.includes("n-mix"));
+  // breakfast is EXEMPT (David 2026-08-29: the yogurt-and-whey bowls stay
+  // choosable; adherence beats the gram) — dense bowls included
+  assert.ok(ids.includes("b-yogurt") && ids.includes("b-oats"));
   // dinner keeps its full menu, dense included: the anchor stays real
   assert.ok(ids.includes("d-dense") && ids.includes("d-lean"));
 });

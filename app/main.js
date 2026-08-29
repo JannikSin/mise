@@ -3379,7 +3379,7 @@ function App() {
       notes.push(...dropNotes);
       if (curated && cooked.length > 0) {
         notes.push(
-          "🥗 lean menu: a swipe/fixed credit already carries most of someone's protein, so breakfast, smoothie and snack were picked from the lean half of the bank; dinner kept the full menu",
+          "🥗 lean menu: a swipe/fixed credit already carries most of someone's protein, so smoothies and snacks were picked from the lean half of the bank; breakfast and dinner kept the full menu",
         );
       }
       const house = myHouseOf();
