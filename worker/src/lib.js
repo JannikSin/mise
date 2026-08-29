@@ -532,6 +532,156 @@ export function buildMenuRequest({ image, mediaType, diners, model }) {
   };
 }
 
+// ---- /hallplate: a PHOTO of the tray at the dining court → matched menu
+// items + portions + macros (P1, P10, David 2026-08-29 plenum: "I can take a
+// picture of my plate and since you should know what is there you should be
+// able to match the stuff very well and then calc the macros"). The model
+// only IDENTIFIES and counts portions; every macro for a matched item is
+// computed deterministically from Purdue's own published numbers, because
+// the model is never trusted with arithmetic (the 274 g lesson). ----------
+
+const HALL_PLATE_TOOL = {
+  name: "record_hall_plate",
+  description:
+    "Report what is on the photographed dining-court tray. Match each food " +
+    "to the menu item list by id wherever possible; report only genuinely " +
+    "unmatched food as extras.",
+  input_schema: {
+    type: "object",
+    properties: {
+      matches: {
+        type: "array",
+        description: "foods on the tray that match a listed menu item",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "the matched menu item id, exactly as listed" },
+            portions: {
+              type: "number",
+              description:
+                "how many of the item's OWN serving sizes are on the tray (e.g. serving size 4 oz, about 8 oz visible = 2)",
+            },
+            note: { type: "string", description: "what you saw, a few words" },
+          },
+          required: ["id", "portions"],
+        },
+      },
+      extras: {
+        type: "array",
+        description: "visible food that matches NO listed item",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            estCalories: { type: "number" },
+            estProtein: { type: "number" },
+          },
+          required: ["name", "estCalories", "estProtein"],
+        },
+      },
+      notes: { type: "array", items: { type: "string" } },
+    },
+    required: ["matches"],
+  },
+};
+
+const HALL_PLATE_SYSTEM =
+  "You are looking at a photo of one person's tray or plate at a university " +
+  "dining court, alongside the court's own published menu for this meal. " +
+  "Match every visible food to a listed item id where you honestly can " +
+  "(the list is what the court is serving, so most food WILL match); " +
+  "estimate portions in multiples of each item's OWN stated serving size, " +
+  "using plate geometry, and prefer quarter steps. Only report an extra " +
+  "when a food genuinely matches nothing listed. Do not compute calorie or " +
+  "protein totals for matched items; the app does that from the published " +
+  "numbers. Be honest about uncertainty in the notes. No em dashes.";
+
+/**
+ * Anthropic Messages request for the tray-photo match.
+ * @param {{ image: string, mediaType: string, items: { id: string, name: string, calories: number, protein: number, servingSize?: string }[], model: string }} args
+ */
+export function buildHallPlateRequest({ image, mediaType, items, model }) {
+  const menu = items
+    .map(
+      (i) =>
+        `${i.id}: ${i.name} (serving ${i.servingSize || "unstated"}, ${i.calories} kcal, ${i.protein}g P)`,
+    )
+    .join("\n");
+  return {
+    model,
+    max_tokens: 2048,
+    system: `${HALL_PLATE_SYSTEM}\n\nThis meal's published items:\n${menu}`,
+    tools: [HALL_PLATE_TOOL],
+    tool_choice: { type: "tool", name: "record_hall_plate" },
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: mediaType, data: image } },
+          { type: "text", text: "Match this tray to the published items and count portions." },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Validate the tray match. Matched ids must exist; portions clamp to
+ * [0.25, 6] in quarter steps; MACROS ARE COMPUTED HERE from the published
+ * per-serving numbers, never taken from the model. Extras are capped and
+ * clamped. Returns the same shape composeTray hands the hall screen, so the
+ * scanned tray rides the existing PUT-ON-PLAN path unchanged.
+ * @param {Record<string, any> | null} input
+ * @param {Map<string, { id: string, name: string, calories: number, protein: number, servingSize?: string }>} itemsById
+ * @returns {{ picks: { name: string, servings: number, calories: number, protein: number, servingSize: string }[], extras: { name: string, calories: number, protein: number }[], calories: number, protein: number, notes: string[] }}
+ */
+export function validateHallPlate(input, itemsById) {
+  /** @type {{ name: string, servings: number, calories: number, protein: number, servingSize: string }[]} */
+  const picks = [];
+  const seen = new Set();
+  for (const m of Array.isArray(input?.matches) ? input.matches : []) {
+    if (picks.length >= 12) break;
+    if (typeof m !== "object" || m === null) continue;
+    const item = itemsById.get(String(/** @type {any} */ (m).id ?? ""));
+    if (!item || seen.has(item.id)) continue;
+    const raw = Number(/** @type {any} */ (m).portions);
+    if (!Number.isFinite(raw) || raw <= 0) continue;
+    const servings = Math.min(6, Math.max(0.25, Math.round(raw * 4) / 4));
+    seen.add(item.id);
+    picks.push({
+      name: item.name,
+      servings,
+      calories: Math.round(item.calories * servings),
+      protein: Math.round(item.protein * servings),
+      servingSize: item.servingSize ?? "",
+    });
+  }
+  /** @type {{ name: string, calories: number, protein: number }[]} */
+  const extras = [];
+  for (const e of Array.isArray(input?.extras) ? input.extras : []) {
+    if (extras.length >= 4) break;
+    if (typeof e !== "object" || e === null) continue;
+    const name = typeof e.name === "string" ? e.name.trim().slice(0, 60) : "";
+    const cal = Number(e.estCalories);
+    const pro = Number(e.estProtein);
+    if (!name || !Number.isFinite(cal) || !Number.isFinite(pro)) continue;
+    extras.push({
+      name,
+      calories: Math.min(2500, Math.max(0, Math.round(cal))),
+      protein: Math.min(150, Math.max(0, Math.round(pro))),
+    });
+  }
+  const notes = (Array.isArray(input?.notes) ? input.notes : [])
+    .filter((n) => typeof n === "string" && n.trim())
+    .map((n) => n.trim().slice(0, 200))
+    .slice(0, 5);
+  const calories =
+    picks.reduce((a, p) => a + p.calories, 0) + extras.reduce((a, e) => a + e.calories, 0);
+  const protein =
+    picks.reduce((a, p) => a + p.protein, 0) + extras.reduce((a, e) => a + e.protein, 0);
+  return { picks, extras, calories, protein, notes };
+}
+
 /**
  * Sanitize the menu report: capped strings, finite numbers, bounded lists.
  * @param {Record<string, any> | null} input

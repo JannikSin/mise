@@ -2,6 +2,7 @@ import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { COURTS, MEALS, loadMeal, mealsOn, quotaFor } from "../lib/hall.js";
 import { composeTray } from "../lib/dininghall.js";
+import { scanHallPlate } from "../lib/worker.js";
 import { localIsoDate } from "../lib/dates.js";
 
 /**
@@ -44,7 +45,36 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
   // cannot know what a buffet plate weighed
   const [eatenCal, setEatenCal] = useState("");
   const [eatenPro, setEatenPro] = useState("");
+  // SCAN MY PLATE (P1, P10, David 2026-08-29): a photo of the actual tray,
+  // matched against this meal's published items — the model identifies and
+  // counts portions, the Worker computes macros from Purdue's own numbers
+  const [plateBusy, setPlateBusy] = useState(false);
+  const [plateErr, setPlateErr] = useState("");
+  const [plate, setPlate] = useState(/** @type {any} */ (null));
+  const plateRef = useRef(/** @type {HTMLInputElement | null} */ (null));
   const abortRef = useRef(/** @type {AbortController | null} */ (null));
+
+  const scanPlate = async (/** @type {any} */ e) => {
+    const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = "";
+    if (!file || !loaded?.priced?.length || plateBusy) return;
+    setPlateBusy(true);
+    setPlateErr("");
+    setPlate(null);
+    try {
+      const items = loaded.priced.map((/** @type {any} */ i) => ({
+        id: i.id,
+        name: i.name,
+        calories: i.calories,
+        protein: i.protein,
+        servingSize: i.servingSize ?? "",
+      }));
+      setPlate(await scanHallPlate(file, items));
+    } catch (err) {
+      setPlateErr(err instanceof Error ? err.message : "that scan failed — try again");
+    }
+    setPlateBusy(false);
+  };
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -278,7 +308,12 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
                   (/** @type {any} */ p) => html`<li key=${p.name}>
                     <strong>${p.servings}×</strong> ${p.name}
                     <small class="hint">
-                      ${Math.round(p.calories)} kcal · ${Math.round(p.protein)} g</small
+                      ${
+                        // the court's own serving language, so "2×" is
+                        // answerable at the counter: "2 × 4 oz" is an order,
+                        // "2×" alone is a guess (David 2026-08-29)
+                        p.servingSize ? `${p.servingSize} each · ` : ""
+                      }${Math.round(p.calories)} kcal · ${Math.round(p.protein)} g protein</small
                     >
                   </li>`,
                 )}
@@ -324,6 +359,89 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
               PUT THIS ON ${date === today ? "TODAY" : "THAT DAY"}'S PLAN
             </button>
           </div>`
+        }
+
+        <div class="actions">
+          <button
+            class="secondary"
+            disabled=${plateBusy}
+            onClick=${() => plateRef.current?.click()}
+          >
+            ${plateBusy ? "READING THE TRAY…" : "📷 SCAN MY PLATE"}
+          </button>
+          <input
+            ref=${plateRef}
+            class="visuallyhidden"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            tabindex="-1"
+            aria-hidden="true"
+            disabled=${plateBusy}
+            onChange=${scanPlate}
+          />
+        </div>
+        <p class="hint">
+          sat down with your real tray: photograph it and the plate is matched to what this court
+          published today, portions counted, macros from Purdue's own numbers.
+        </p>
+        ${plateErr && html`<p class="hint scanerr" role="status">${plateErr}</p>`}
+        ${
+          plate &&
+          html`<section class="card" role="status">
+            <h3>📷 your plate</h3>
+            ${
+              plate.picks.length === 0 && plate.extras.length === 0
+                ? html`<p class="hint">nothing on the photo matched — try a clearer shot</p>`
+                : html`<ul class="tray">
+                    ${plate.picks.map(
+                      (/** @type {any} */ p) => html`<li key=${p.name}>
+                        <strong>${p.servings}×</strong> ${p.name}
+                        <small class="hint">
+                          ${p.servingSize ? `${p.servingSize} each · ` : ""}${p.calories} kcal ·
+                          ${p.protein} g protein</small
+                        >
+                      </li>`,
+                    )}
+                    ${plate.extras.map(
+                      (/** @type {any} */ x) => html`<li key=${x.name}>
+                        ${x.name}
+                        <small class="hint">
+                          not on the published menu · ~${x.calories} kcal · ~${x.protein} g</small
+                        >
+                      </li>`,
+                    )}
+                  </ul>`
+            }
+            <div class="row">
+              <span class="k">Plate total</span>
+              <span class="status num">${plate.calories} kcal · ${plate.protein} g protein</span>
+            </div>
+            ${plate.notes.map((/** @type {string} */ n, /** @type {number} */ i) => html`<p class="hint" key=${i}>${n}</p>`)}
+            <p class="hint">
+              a court serving is whatever the server put on the plate — this is an estimate of an
+              estimate, honest about it.
+            </p>
+            ${
+              onAddToPlan &&
+              (plate.picks.length > 0 || plate.extras.length > 0) &&
+              html`<div class="actions">
+                <button
+                  class="secondary"
+                  onClick=${() =>
+                    onAddToPlan(
+                      meal,
+                      { ...plate, picks: [...plate.picks, ...plate.extras] },
+                      court,
+                      date,
+                      forMeal || "",
+                    )}
+                >
+                  LOG THIS AS ${date === today ? "TODAY" : "THAT DAY"}'S ${meal.toUpperCase()}
+                </button>
+              </div>`
+            }
+          </section>`
         }
       </section>`
     }

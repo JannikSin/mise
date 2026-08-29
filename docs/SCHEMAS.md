@@ -937,6 +937,14 @@ Rules (binding, from the Tribunal gate):
   `recipes/special-<slug>-<date>.json` tagged `"ai-special"` (normal recipe
   schema, `nutrition.method` and `foodGroups.method` = `"estimated"`), so
   macros, shopping, and every seat's plan work unchanged.
+- SCAN MY PLATE (Hall screen, Worker `/hallplate`, 2026-08-29 plenum): a
+  photo of the actual tray at a dining court plus that meal's published
+  items -> matched items with portion counts. The model only identifies
+  and counts portions in multiples of each item's own stated serving; every
+  matched macro is computed server-side from Purdue's published numbers
+  (`validateHallPlate`), never taken from the model. Unmatched food comes
+  back as clamped `extras`. The result is composeTray-shaped, so LOG THIS
+  rides the existing hall-tray plan write unchanged (P1, P10).
 - WEEK OF MEALS (Tables tab, Worker `/dinnerweek`, 2026-08-09): one call
   plans every remaining picked meal that has no table yet — people picked,
   slots picked (all five: smoothie and snack are plannable chips since

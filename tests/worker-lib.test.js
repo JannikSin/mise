@@ -24,6 +24,8 @@ import {
   buildDinnerWeekRequest,
   validateDinnerWeek,
   WEEK_MEAL_SLOTS,
+  buildHallPlateRequest,
+  validateHallPlate,
   hitsAvoid,
   screenTailorAvoid,
   specialAvoidHits,
@@ -591,6 +593,46 @@ test("candidates carry LEAN / PROTEIN-DENSE markers so the swipe-day picks exist
   assert.match(req.system, /dense1: Chicken bowl \(dinner, 700 kcal, 55g P · PROTEIN-DENSE\)/);
   assert.match(req.system, /mid1: Middle dish \(dinner, 700 kcal, 30g P\)/);
   assert.doesNotMatch(req.system, /mid1[^\n]*(LEAN|PROTEIN-DENSE)/);
+});
+
+test("hallplate: matched macros come from the published numbers, never the model", () => {
+  const items = new Map([
+    ["a1", { id: "a1", name: "Fajita Chicken", calories: 180, protein: 27, servingSize: "4 oz" }],
+    ["b2", { id: "b2", name: "Spanish Rice", calories: 160, protein: 3, servingSize: "1/2 cup" }],
+  ]);
+  const req = buildHallPlateRequest({
+    image: "x",
+    mediaType: "image/jpeg",
+    items: [...items.values()],
+    model: "m",
+  });
+  assert.equal(req.tool_choice.name, "record_hall_plate");
+  assert.match(req.system, /a1: Fajita Chicken \(serving 4 oz, 180 kcal, 27g P\)/);
+  const out = validateHallPlate(
+    {
+      matches: [
+        { id: "a1", portions: 2.1 }, // rounds to the quarter step
+        { id: "zz", portions: 1 }, // unknown id: dropped
+        { id: "b2", portions: 99 }, // clamps to 6
+      ],
+      extras: [{ name: "chocolate milk", estCalories: 220, estProtein: 8 }],
+      notes: ["rice partly hidden under the chicken"],
+    },
+    items,
+  );
+  assert.deepEqual(out.picks[0], {
+    name: "Fajita Chicken",
+    servings: 2,
+    calories: 360,
+    protein: 54,
+    servingSize: "4 oz",
+  });
+  assert.equal(out.picks[1].servings, 6);
+  assert.equal(out.picks.length, 2, "unknown ids never reach the plate");
+  assert.equal(out.calories, 360 + 160 * 6 + 220);
+  assert.equal(out.protein, 54 + 18 + 8);
+  assert.equal(out.extras[0].name, "chocolate milk");
+  assert.equal(out.notes.length, 1);
 });
 
 test("smoothie and snack are plannable week slots the tool schema accepts", () => {

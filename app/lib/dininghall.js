@@ -148,7 +148,7 @@ function unsafeFor(
  * @param {{ calories: number, protein: number }} quota what this SLOT owes
  * @param {{ avoidAllergens?: string[], maxServingsPerItem?: number, calorieCeiling?: number }} [opts]
  * @returns {{
- *   picks: { name: string, servings: number, calories: number, protein: number }[],
+ *   picks: { name: string, servings: number, calories: number, protein: number, servingSize: string }[],
  *   calories: number, protein: number,
  *   meets: { calories: boolean, protein: boolean },
  *   excluded: { name: string, because: string[] }[],
@@ -221,6 +221,10 @@ export function composeTray(items, quota, opts = {}) {
     servings: r.servings,
     calories: Math.round(r.item.calories * r.servings),
     protein: Math.round(r.item.protein * r.servings),
+    // the court's own stated serving ("4 oz", "1 each"): without it on the
+    // pick, "2x Fajita Chicken" is unactionable at the counter (David
+    // 2026-08-29: "the portions are very hard to look at and decide")
+    servingSize: String(r.item.servingSize ?? ""),
   }));
   return {
     picks,

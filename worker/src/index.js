@@ -20,6 +20,8 @@ import {
   buildOnboardRequest,
   buildRemedyRequest,
   buildMenuRequest,
+  buildHallPlateRequest,
+  validateHallPlate,
   buildTailorRequest,
   buildDinnerRequest,
   buildDinnerWeekRequest,
@@ -506,6 +508,7 @@ export default {
         "/onboard",
         "/remedy",
         "/menu",
+        "/hallplate",
         "/tailor",
         "/dinner",
         "/dinnerweek",
@@ -680,6 +683,47 @@ export default {
           env,
         );
         return json(200, validateMenuReport(parseToolUse(resp, "record_menu")), cors);
+      }
+      if (url.pathname === "/hallplate") {
+        // tray photo -> matched menu items + portions; macros computed from
+        // the published numbers in validateHallPlate, never by the model
+        const image = typeof body.image === "string" ? body.image : "";
+        const mediaType = ["image/jpeg", "image/png", "image/webp"].includes(body.mediaType)
+          ? body.mediaType
+          : "";
+        if (!image || !mediaType) return json(400, { error: "image + mediaType required" }, cors);
+        /** @type {Map<string, { id: string, name: string, calories: number, protein: number, servingSize?: string }>} */
+        const itemsById = new Map();
+        for (const i of Array.isArray(body.items) ? body.items.slice(0, 80) : []) {
+          if (typeof i !== "object" || i === null) continue;
+          const id = typeof i.id === "string" ? i.id.trim().slice(0, 40) : "";
+          const name = typeof i.name === "string" ? i.name.trim().slice(0, 80) : "";
+          const calories = Number(i.calories);
+          const protein = Number(i.protein);
+          if (!id || !name || !Number.isFinite(calories) || !Number.isFinite(protein)) continue;
+          itemsById.set(id, {
+            id,
+            name,
+            calories: Math.min(3000, Math.max(0, Math.round(calories))),
+            protein: Math.min(200, Math.max(0, Math.round(protein))),
+            servingSize: typeof i.servingSize === "string" ? i.servingSize.slice(0, 30) : "",
+          });
+        }
+        if (itemsById.size === 0) return json(400, { error: "items required" }, cors);
+        const resp = await callModel(
+          buildHallPlateRequest({
+            image,
+            mediaType,
+            items: [...itemsById.values()],
+            model: env.SCAN_MODEL ?? DEFAULT_MODEL,
+          }),
+          env,
+        );
+        return json(
+          200,
+          validateHallPlate(parseToolUse(resp, "record_hall_plate"), itemsById),
+          cors,
+        );
       }
       if (url.pathname === "/tailor") {
         const r = typeof body.recipe === "object" && body.recipe !== null ? body.recipe : {};

@@ -178,6 +178,26 @@ export async function scanMenu(file, diners) {
 }
 
 /**
+ * Tray photo at the dining court → matched published items + portions +
+ * macros (P1, P10). The Worker computes matched macros from Purdue's own
+ * numbers; the model only identifies and counts.
+ * @param {File | Blob} file
+ * @param {{ id: string, name: string, calories: number, protein: number, servingSize?: string }[]} items this meal's published items
+ * @returns {Promise<{ picks: { name: string, servings: number, calories: number, protein: number, servingSize: string }[], extras: { name: string, calories: number, protein: number }[], calories: number, protein: number, notes: string[] }>}
+ */
+export async function scanHallPlate(file, items) {
+  const { image, mediaType } = await downscalePhoto(file);
+  const data = await post("/hallplate", { image, mediaType, items });
+  return {
+    picks: Array.isArray(data.picks) ? data.picks : [],
+    extras: Array.isArray(data.extras) ? data.extras : [],
+    calories: Number(data.calories) || 0,
+    protein: Number(data.protein) || 0,
+    notes: Array.isArray(data.notes) ? data.notes : [],
+  };
+}
+
+/**
  * One shared table dish → per-seat plate specs (scale-first: weighed base
  * portion + measured adjustments) + sequenced cook notes. The caller
  * persists the result onto the table (setTableTailor).
