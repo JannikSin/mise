@@ -3364,11 +3364,23 @@ function App() {
             },
           }
         : null;
-      const rawCandidates = bankRecipesRef.current
+      const rawCandidates = generatorEligible(bankRecipesRef.current)
+        // THE GENERATOR'S TRUST GATE APPLIES HERE TOO (David 2026-08-29:
+        // "a lemon-lime sports drink is not a smoothie... what the fuck").
+        // The week run composed its menu from the RAW bank, so occasion-only
+        // clear-liquid drinks, remedy food and unpromoted ai-specials were
+        // all pickable — and the lean screen then surfaced the near-zero-
+        // calorie sick-day drinks as top "lean" snacks, which is where a
+        // thousand kcal of his day quietly went. Same predicate as GENERATE.
         // every plannable slot's recipes, smoothies and snacks included
         // (2026-08-28 plenum: a brigade sharing its smoothies found them
         // silently dropped by the old breakfast/lunch/dinner filter)
         .filter((r) => SLOT_KEYS.includes(r.mealType))
+        // a SNACK the plan hands you is food, not a beverage: hydration
+        // drinks (tagged drink) are real bank recipes reachable by hand,
+        // but an auto-planned 60 kcal iced tea occupying the day's snack
+        // slot is how a gain day starves politely
+        .filter((r) => !(r.mealType === "snack" && (r.tags ?? []).includes("drink")))
         // the model never sees ingredients, so a bank pick that hits ANY
         // participant's diet/avoid screen must never reach it — otherwise the
         // pick derives as a conflict banner on that person's phone and the
@@ -3403,6 +3415,71 @@ function App() {
         notes.push(
           "🥗 lean menu: a swipe/fixed credit already carries most of someone's protein, so smoothies and snacks were picked from the lean half of the bank; breakfast and dinner kept the full menu",
         );
+      }
+      // date-aware covered credit, shared by the calorie gate and the bounds
+      // notes below: fixed-slot delivery is daily, the swipe estimate lands
+      // only on the dates this run actually swiped (reviewer catch 2026-08-29)
+      const covPartsOf = (/** @type {string} */ id) => {
+        const b = buffetOf(id);
+        const est =
+          swipersById[id] && b
+            ? buffetMacroEstimate(recipesRef.current, String(b.preferredSlot || "lunch"), b)
+            : null;
+        const swipeCal = est?.estCalories ?? 0;
+        const swipeP = est?.estProtein ?? 0;
+        const fixedCal = Math.max(0, (coveredById[id]?.calories ?? 0) - swipeCal);
+        const fixedP = Math.max(0, (coveredById[id]?.protein ?? 0) - swipeP);
+        const swiped = new Set((swipersById[id] ?? []).map((m) => m.date));
+        return {
+          calOn: (/** @type {string} */ d) => fixedCal + (swiped.has(d) ? swipeCal : 0),
+          pOn: (/** @type {string} */ d) => fixedP + (swiped.has(d) ? swipeP : 0),
+        };
+      };
+      const platesByDateFor = (/** @type {string} */ id, /** @type {"estCalories" | "estProtein"} */ key) => {
+        /** @type {Record<string, number>} */
+        const byDate = {};
+        for (const n of nights) {
+          const slot = /** @type {string} */ (n.slot ?? "dinner");
+          if (isAway(id, n.date, slot)) continue;
+          const p = (n.plates ?? []).find((/** @type {any} */ x) => x.id === id);
+          if (p) byDate[n.date] = (byDate[n.date] ?? 0) + (Number(p[key]) || 0);
+        }
+        return byDate;
+      };
+      // THE CALORIE GATE, fail-closed (David 2026-08-29: "how could this even
+      // pass the generator if you're off by, like, a thousand calories?").
+      // It could pass because the week run never had a calorie floor: the
+      // deterministic GENERATE enforces floors and top-ups, but this path
+      // trusted the model's plates for calories with no check at all —
+      // measured that night at ~2,600 kcal days against a 3,500 floor. Now a
+      // run where any participant's planned day sits more than 10% under
+      // their calorie floor is REFUSED whole, before anything is written:
+      // half a week of too-small food is not a plan, and REPLACE makes the
+      // re-roll one tap. Days between the gate and the floor still land, with
+      // a loud note below.
+      if (cooked.length > 0) {
+        /** @type {string[]} */
+        const starved = [];
+        for (const id of participantIds) {
+          const t = targetsById.get(id);
+          const floor =
+            Number(t?.macros?.caloriesFloor) ||
+            Math.round((Number(t?.macros?.calories) || 0) * 0.95);
+          if (!floor) continue;
+          const cov = covPartsOf(id);
+          const who = allProfilesRef.current.find((p) => p.id === id)?.name ?? id;
+          for (const [d, kc] of Object.entries(platesByDateFor(id, "estCalories"))) {
+            const total = kc + cov.calOn(d);
+            if (total < floor * 0.9) {
+              starved.push(`${who} ${d.slice(5)} ~${Math.round(total)} kcal vs the ${floor} floor`);
+            }
+          }
+        }
+        if (starved.length > 0) {
+          throw new Error(
+            `the plan came back too small to eat and was refused whole — ${starved.length} planned ${starved.length === 1 ? "day sits" : "days sit"} more than 10% under a calorie floor (${starved.join("; ")}). Nothing was written. Run PLAN THE WEEK'S MEALS again; the model rolled low.`,
+          );
+        }
       }
       const house = myHouseOf();
       // resolve every recipe (specials write to the bank) BEFORE touching
@@ -3478,57 +3555,58 @@ function App() {
       if (made.length > 0) writeHouseEvents(house, cur);
       // HONEST BOUNDS CHECK (P1, P5; per-DAY since 2026-08-29 scorch — the
       // avg-only version let a 270 g Monday hide behind a lean Sunday).
-      // The model is ASKED for a protein band; the arithmetic is VERIFIED
-      // here, and a breach is said in the result instead of discovered
-      // later. Both directions: a day over the ceiling wastes money, a day
-      // under the floor breaks the one nonnegotiable, and each names its
-      // dates so 🔁 REPLACE has a target.
+      // The model is ASKED for bands; the arithmetic is VERIFIED here with
+      // the date-aware covered credit, and every breach is said in the
+      // result instead of discovered later. Protein both directions (over
+      // the ceiling wastes money, under the floor breaks the one
+      // nonnegotiable) and calories both directions (a floor miss inside
+      // the gate's 10% tolerance still gets named; over the ceiling too),
+      // each naming its dates so 🔁 REPLACE has a target.
       for (const id of participantIds) {
         const t = targetsById.get(id);
-        const floor = Number(t?.macros?.protein) || 0;
-        const ceil = Number(t?.macros?.proteinCeiling) || Math.round(floor * 1.15);
-        if (!ceil && !floor) continue;
-        /** @type {Record<string, number>} */
-        const byDate = {};
-        for (const { n } of resolved) {
-          const slot = /** @type {string} */ (n.slot ?? "dinner");
-          if (isAway(id, n.date, slot)) continue;
-          const p = (n.plates ?? []).find((/** @type {any} */ x) => x.id === id);
-          if (p) byDate[n.date] = (byDate[n.date] ?? 0) + (Number(p.estProtein) || 0);
-        }
-        if (Object.keys(byDate).length === 0) continue;
-        // the covered credit is DATE-AWARE here (reviewer catch 2026-08-29):
-        // fixed-slot delivery is daily, but the swipe estimate only lands on
-        // the dates this run actually swiped — a flat credit flagged normal
-        // non-swipe days over the ceiling and hid real floor misses whenever
-        // the allowance covered only part of the planned days
-        const covB = buffetOf(id);
-        const swipeP =
-          swipersById[id] && covB
-            ? buffetMacroEstimate(
-                recipesRef.current,
-                String(covB.preferredSlot || "lunch"),
-                covB,
-              ).estProtein
-            : 0;
-        const fixedP = Math.max(0, (coveredById[id]?.protein ?? 0) - swipeP);
-        const swipeDates = new Set((swipersById[id] ?? []).map((m) => m.date));
-        const covOn = (/** @type {string} */ d) => fixedP + (swipeDates.has(d) ? swipeP : 0);
-        const over = Object.entries(byDate)
-          .filter(([d, g]) => ceil > 0 && g + covOn(d) > ceil)
-          .map(([d, g]) => `${d.slice(5)} ~${Math.round(g + covOn(d))}g`);
-        const short = Object.entries(byDate)
-          .filter(([d, g]) => floor > 0 && g + covOn(d) < floor)
-          .map(([d, g]) => `${d.slice(5)} ~${Math.round(g + covOn(d))}g`);
+        const pFloor = Number(t?.macros?.protein) || 0;
+        const pCeil = Number(t?.macros?.proteinCeiling) || Math.round(pFloor * 1.15);
+        const calFloor =
+          Number(t?.macros?.caloriesFloor) ||
+          Math.round((Number(t?.macros?.calories) || 0) * 0.95);
+        const calCeil =
+          Number(t?.macros?.caloriesCeiling) ||
+          Math.round((Number(t?.macros?.calories) || 0) * 1.05);
+        const cov = covPartsOf(id);
         const who = allProfilesRef.current.find((p) => p.id === id)?.name ?? id;
-        if (over.length > 0) {
+        const gByDate = platesByDateFor(id, "estProtein");
+        const kcByDate = platesByDateFor(id, "estCalories");
+        const list = (
+          /** @type {Record<string, number>} */ byDate,
+          /** @type {(d: string) => number} */ credit,
+          /** @type {(total: number) => boolean} */ breach,
+          /** @type {string} */ unit,
+        ) =>
+          Object.entries(byDate)
+            .filter(([d, v]) => breach(v + credit(d)))
+            .map(([d, v]) => `${d.slice(5)} ~${Math.round(v + credit(d))}${unit}`);
+        const pOver = pCeil > 0 ? list(gByDate, cov.pOn, (v) => v > pCeil, "g") : [];
+        const pShort = pFloor > 0 ? list(gByDate, cov.pOn, (v) => v < pFloor, "g") : [];
+        const kcOver = calCeil > 0 ? list(kcByDate, cov.calOn, (v) => v > calCeil, " kcal") : [];
+        const kcShort = calFloor > 0 ? list(kcByDate, cov.calOn, (v) => v < calFloor, " kcal") : [];
+        if (pOver.length > 0) {
           notes.push(
-            `⚠ ${who}: ${over.length} ${over.length === 1 ? "day is" : "days are"} over the ${ceil} g ceiling (${over.join(", ")}) — 🔁 REPLACE re-picks leaner`,
+            `⚠ ${who}: ${pOver.length} ${pOver.length === 1 ? "day is" : "days are"} over the ${pCeil} g protein ceiling (${pOver.join(", ")}) — 🔁 REPLACE re-picks leaner`,
           );
         }
-        if (short.length > 0) {
+        if (pShort.length > 0) {
           notes.push(
-            `⚠ ${who}: ${short.length} ${short.length === 1 ? "day is" : "days are"} under the ${floor} g floor (${short.join(", ")}) — cover it with their own plan or a bigger plate`,
+            `⚠ ${who}: ${pShort.length} ${pShort.length === 1 ? "day is" : "days are"} under the ${pFloor} g protein floor (${pShort.join(", ")}) — cover it with their own plan or a bigger plate`,
+          );
+        }
+        if (kcOver.length > 0) {
+          notes.push(
+            `⚠ ${who}: ${kcOver.length} ${kcOver.length === 1 ? "day is" : "days are"} over the ${calCeil} kcal ceiling (${kcOver.join(", ")})`,
+          );
+        }
+        if (kcShort.length > 0) {
+          notes.push(
+            `⚠ ${who}: ${kcShort.length} ${kcShort.length === 1 ? "day is" : "days are"} under the ${calFloor} kcal floor (${kcShort.join(", ")}) — 🔁 REPLACE, or add a snack by hand`,
           );
         }
       }

@@ -1229,7 +1229,9 @@ const DINNER_WEEK_SYSTEM =
   "strongly prefer the candidate recipe list (the household already shops " +
   "and cooks these; match the slot — breakfast recipes at breakfast); " +
   "invent a special meal ONLY when no candidate honestly fits, keeping it " +
-  "cheap, whole-food-forward and weeknight-simple — and invent at most " +
+  "cheap, whole-food-forward, weeknight-simple and FAMILIAR — food a " +
+  "person would recognize from a normal kitchen (a berry smoothie, a " +
+  "peanut butter toast), never a novelty combination — and invent at most " +
   "TWO specials per run, the rest must come from candidates. When a " +
   "slot's candidate list is smaller than its number of days, REPEAT a " +
   "candidate rather than inventing: repetition is normal life, and a " +
@@ -1252,9 +1254,15 @@ const DINNER_WEEK_SYSTEM =
   "short of their protein band. Put most of each person's planned protein " +
   "in the main meals (breakfast and dinner, or a cooked lunch); smoothie " +
   "and snack plates stay light on protein. " +
-  "Across a day the planned plates should land each person near " +
-  "their daily calories and protein, leaving room for anything personal " +
-  "the plan does not cover. CRITICAL: when a person's entry under 'Already " +
+  "Across a day the planned plates MUST land each person near " +
+  "their daily calories and protein, leaving room only for what a " +
+  "covered-credit line explicitly says they eat elsewhere. THE CALORIE " +
+  "NUMBER IS A COMMITMENT, NOT A SUGGESTION: land every person's planned " +
+  "day within about 10% of their remaining calories — a day hundreds of " +
+  "kcal short is a failed answer and will be rejected by the app's own " +
+  "arithmetic check. 'Lean' means low protein DENSITY, never small " +
+  "portions: reach the calories with BIGGER portions of lean food (more " +
+  "oats, rice, fruit, bread, oil), not by leaving the plate small. CRITICAL: when a person's entry under 'Already " +
   "covered each day' states an amount they eat OUTSIDE these meals (a " +
   "dining-hall swipe, a fixed daily smoothie), their planned plates " +
   "together must aim at their daily targets MINUS that amount — never at " +
