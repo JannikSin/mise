@@ -1093,14 +1093,27 @@ const DINNER_WEEK_SYSTEM =
   "losing, a supplemental egg, or an omission with how the cook makes it " +
   "possible. Across a day the planned plates should land each person near " +
   "their daily calories and protein, leaving room for anything personal " +
-  "the plan does not cover. Respect diets and never-serve lists " +
-  "absolutely. No em dashes.";
+  "the plan does not cover. CRITICAL: when a person's entry under 'Already " +
+  "covered each day' states an amount they eat OUTSIDE these meals (a " +
+  "dining-hall swipe, a fixed daily smoothie), their planned plates " +
+  "together must aim at their daily targets MINUS that amount — never at " +
+  "the full daily targets, which double-feeds them. Respect diets and " +
+  "never-serve lists absolutely. No em dashes.";
 
 /**
  * Anthropic Messages request for the whole-week shared-meal plan.
- * @param {{ meals: { date: string, slot: string }[], cuisine: string, note: string, away?: Record<string, string[]>, people: ReturnType<typeof sanitizePeople>, candidates: { id: string, name: string, calories: number, protein: number, cuisine: string, meal?: string }[], model: string }} args
+ * @param {{ meals: { date: string, slot: string }[], cuisine: string, note: string, away?: Record<string, string[]>, covered?: Record<string, { calories: number, protein: number, note?: string }>, people: ReturnType<typeof sanitizePeople>, candidates: { id: string, name: string, calories: number, protein: number, cuisine: string, meal?: string }[], model: string }} args
  */
-export function buildDinnerWeekRequest({ meals, cuisine, note, away, people, candidates, model }) {
+export function buildDinnerWeekRequest({
+  meals,
+  cuisine,
+  note,
+  away,
+  covered,
+  people,
+  candidates,
+  model,
+}) {
   const who = people
     .map((p) => `[${p.id}] ${personLine(p)}${p.say ? ` | ask: "${p.say}"` : ""}`)
     .join("\n");
@@ -1131,9 +1144,25 @@ export function buildDinnerWeekRequest({ meals, cuisine, note, away, people, can
     })
     .filter(Boolean)
     .join("\n");
+  // per-person daily delivery OUTSIDE the planned meals (2026-08-28 plenum
+  // round two: without this the model balanced whole days over two cooked
+  // meals, and the swipe + fixed smoothie landed on top — 266 g days
+  // against a 190 target). The remainder is spelled out so the model does
+  // arithmetic it was given, not arithmetic it must invent.
+  const coveredLines = Object.entries(covered ?? {})
+    .map(([id, c]) => {
+      const person = people.find((p) => p.id === id);
+      const rest =
+        person && Number(person.calories) > 0
+          ? ` Their planned meals together must aim at roughly ${Math.max(0, Math.round(person.calories - c.calories))} kcal / ${Math.max(0, Math.round((person.protein ?? 0) - c.protein))} g protein a day, NOT the full daily targets.`
+          : "";
+      return `[${id}] already eats ~${c.calories} kcal / ~${c.protein} g protein each day outside these meals${c.note ? ` (${c.note})` : ""}.${rest}`;
+    })
+    .join("\n");
   const ask = [
     `Meals to plan: ${meals.map((m) => `${m.date} ${m.slot}`).join(", ")}`,
     attendance ? `Attendance:\n${attendance}` : "",
+    coveredLines ? `Already covered each day:\n${coveredLines}` : "",
     cuisine ? `Cuisine/theme preference: ${cuisine}` : "",
     note ? `Household note: ${note}` : "",
     "Plan every requested meal.",

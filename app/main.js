@@ -98,6 +98,7 @@ import {
   SLOT_KEYS,
   planSwipes,
   weekRunSwipes,
+  dailyCovered,
 } from "./lib/plan.js";
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
 import { composeManifest, remanifest } from "./lib/manifest.js";
@@ -3121,10 +3122,10 @@ function App() {
    * `events` so a week of meals composes into ONE events write. `buyerId`
    * pre-claims the groceries (the week runner shops today — 21 I'LL-BUY-THIS
    * taps is not a flow).
-   * @type {(events: any, decision: Record<string, any>, participantIds: string[], recipeId: string, date: string, slot: string, name: string, today: string, buyerId?: string, brigadeCtx?: { brigade: import("./lib/tables.js").Brigade, servingsFor: (id: string, slot: string, recipeId: string) => number, cookFor: (date: string) => string } | null) => any}
+   * @type {(events: any, decision: Record<string, any>, participantIds: string[], recipeId: string, date: string, slot: string, name: string, today: string, buyerId?: string, brigadeCtx?: { brigade: import("./lib/tables.js").Brigade, servingsFor: (id: string, slot: string, recipeId: string) => number, cookFor: (date: string) => string } | null, fromWeekRun?: boolean) => any}
    */
   const tableFromDecision = useCallback(
-    (events, decision, participantIds, recipeId, date, slot, name, today, buyerId, brigadeCtx) => {
+    (events, decision, participantIds, recipeId, date, slot, name, today, buyerId, brigadeCtx, fromWeekRun) => {
       const withTable = addTable(
         events,
         {
@@ -3133,6 +3134,9 @@ function App() {
           slot,
           recipeId,
           ...(buyerId ? { buyerId } : {}),
+          // stamped so REPLAN can tell this feature's tables from hand-set
+          // ones (plenum r2); validTable is a predicate, the field survives
+          ...(fromWeekRun ? { fromWeekRun: true } : {}),
           // run AS the brigade: deterministic id (two offline devices merge
           // onto the same rows), the brigade's rotated cook, and seats sized
           // from each member's own targets — one pot, different plates
@@ -3209,6 +3213,7 @@ function App() {
       /** @type {Record<string, string[]>} */ away = {},
       /** @type {import("./lib/tables.js").Brigade | null} */ brigade = null,
       useSwipes = true,
+      replace = false,
     ) => {
       const today = localIsoDate(new Date());
       const me = activeProfile();
@@ -3256,15 +3261,36 @@ function App() {
         return false;
       });
       const facts = await handleDinerFacts(participantIds);
-      // running AS a brigade: deterministic table ids, the brigade's cook
-      // rotation (same date-offset rule materializeBrigade uses), and seats
-      // sized from each member's own targets instead of a flat 1
+      // every participant's targets: brigades size seats from them, and the
+      // covered map below needs everyone's fixed slots (plenum r2)
       /** @type {Map<string, Record<string, any> | null>} */
       const targetsById = new Map();
-      if (brigade) {
-        for (const id of participantIds) {
-          targetsById.set(id, /** @type {any} */ (await readTargetsOf(id)));
-        }
+      for (const id of participantIds) {
+        targetsById.set(id, /** @type {any} */ (await readTargetsOf(id)));
+      }
+      // WHAT EACH DAY ALREADY DELIVERS outside the planned meals (P2, P5,
+      // plenum round two: "342 grams instead of the 190 target"). The model
+      // balanced whole days over two cooked meals, then the 1,200 kcal swipe
+      // and the 702 kcal fixed smoothie landed on top — 4,430 kcal / 266 g
+      // days measured on the real W36. Each person's swipe + unplanned
+      // fixed-slot delivery is spelled out so plates aim at the remainder.
+      const plannedSlots = new Set(cooked.map((m) => m.slot));
+      /** @type {Record<string, { calories: number, protein: number, note: string }>} */
+      const coveredById = {};
+      for (const id of participantIds) {
+        const cov = dailyCovered(
+          targetsById.get(id),
+          recipesById(bankRecipesRef.current),
+          plannedSlots,
+          id === me && swipePairs.length > 0 && buffet
+            ? buffetMacroEstimate(
+                recipesRef.current,
+                String(buffet.preferredSlot || "lunch"),
+                buffet,
+              )
+            : null,
+        );
+        if (cov) coveredById[id] = cov;
       }
       const brigadeCtx = brigade
         ? {
@@ -3317,7 +3343,7 @@ function App() {
         }));
       const { nights, notes } =
         cooked.length > 0
-          ? await dinnerWeek(facts, candidates, cooked, cuisine, note, away)
+          ? await dinnerWeek(facts, candidates, cooked, cuisine, note, away, coveredById)
           : { nights: [], notes: /** @type {string[]} */ ([]) };
       notes.push(...dropNotes);
       const house = myHouseOf();
@@ -3332,6 +3358,26 @@ function App() {
       }
       let cur =
         houseEventsRef.current.find((h) => h.house === house)?.events ?? normalizeEvents(null);
+      // REPLAN (plenum r2): replace what a previous week run set, so a run
+      // whose plates came out wrong is redone with one tap instead of
+      // fourteen CANCELs. Only upcoming tables THIS feature made (stamped
+      // fromWeekRun, or the pre-stamp runs' "Family <slot>" naming) and only
+      // for the date+slot pairs being replanned; hand-set tables and
+      // brigade-materialized tables are never touched.
+      if (replace) {
+        const wanted = new Set(meals.map((m) => `${m.date}|${m.slot}`));
+        cur = {
+          ...cur,
+          tables: cur.tables.filter(
+            (t) =>
+              !(
+                (/** @type {any} */ (t).fromWeekRun || (t.name ?? "").startsWith("Family ")) &&
+                t.date >= today &&
+                wanted.has(`${t.date}|${t.slot}`)
+              ),
+          ),
+        };
+      }
       /** @type {{ date: string, slot: string, name: string, why: string }[]} */
       const made = [];
       for (const { n, recipeId } of resolved) {
@@ -3356,6 +3402,7 @@ function App() {
           today,
           me,
           brigadeCtx,
+          true,
         );
         made.push({
           date: n.date,

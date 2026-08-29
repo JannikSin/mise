@@ -33,7 +33,8 @@ import {
   switchCandidate,
   setEntryRecipe,
  planSwipes,
-  weekRunSwipes } from "../app/lib/plan.js";
+  weekRunSwipes,
+  dailyCovered } from "../app/lib/plan.js";
 
 test("prepSundayOf is the day before the week's Monday", () => {
   assert.equal(prepSundayOf("2026-W30"), "2026-07-19");
@@ -919,6 +920,31 @@ test("weekRunSwipes: no buffet currency, or no allowance, claims nothing", () =>
   const plan = { week: "2026-W35", entries: [] };
   assert.deepEqual(weekRunSwipes(WEEK_MEALS, null, plan, "2026-08-24"), []);
   assert.deepEqual(weekRunSwipes(WEEK_MEALS, { ...BUFFET, perWeek: 0 }, plan, "2026-08-24"), []);
+});
+
+// dailyCovered (plenum r2): the off-plan day, spelled out for the model
+
+const BANK = new Map([
+  ["smoothie-x", { id: "smoothie-x", name: "Fuel", nutrition: { calories: 702, protein: 25.6 } }],
+  ["bowl-y", { id: "bowl-y", name: "Bowl", nutrition: { calories: 610, protein: 45 } }],
+]);
+
+test("dailyCovered: unplanned fixed slots + the swipe sum to the off-plan day", () => {
+  const cov = dailyCovered(
+    { fixedSlots: { smoothie: "smoothie-x", breakfast: "bowl-y" } },
+    BANK,
+    new Set(["breakfast", "dinner"]), // breakfast IS planned → its fixed fill yields
+    { estCalories: 1200, estProtein: 90 },
+  );
+  assert.equal(cov.calories, 1902); // 702 + 1200; the planned breakfast's 610 excluded
+  assert.equal(cov.protein, 116); // 26 + 90
+  assert.match(cov.note, /fixed daily smoothie/);
+  assert.match(cov.note, /dining-hall meal/);
+});
+
+test("dailyCovered: nothing off-plan is null, and a missing recipe never counts", () => {
+  assert.equal(dailyCovered({ fixedSlots: {} }, BANK, new Set(["dinner"]), null), null);
+  assert.equal(dailyCovered({ fixedSlots: { smoothie: "gone" } }, BANK, new Set(["dinner"]), null), null);
 });
 
 test("the placeholder carries everything dayTotals and the generator read", () => {

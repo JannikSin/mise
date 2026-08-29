@@ -949,7 +949,17 @@ Rules (binding, from the Tribunal gate):
   profile the run claims the preferred slot's meals as dining swipes first
   (P5/P10, `weekRunSwipes` in plan.js): the runner goes off those pots via
   per-meal away entries and the swipes are seeded pinned into their own
-  plan (`planSwipes`), reported back as `swiped`. Optional cuisine/theme,
+  plan (`planSwipes`), reported back as `swiped`. The request also carries
+  `covered` (personId → daily off-plan delivery: the swipe estimate plus
+  fixed-slot recipes the run is not planning, via `dailyCovered` in
+  plan.js), so the model aims each person's cooked plates at the REMAINDER
+  of their day instead of double-feeding them (plenum r2: without it the
+  model wrote 1,400 kcal breakfasts and real days hit 4,430 kcal / 266 g
+  against a 3,700/190 target). Tables the run sets are stamped
+  `fromWeekRun: true`; the form's 🔁 REPLACE chip cancels and replans
+  exactly those upcoming stamped tables (pre-stamp runs matched by their
+  "Family <slot>" naming) while hand-set and brigade tables are never
+  touched. Optional cuisine/theme,
   per-meal bank pick or special, per-person
   plate specs with weighed gram amounts so each person lands near their own
   daily calories/protein while the house cooks each slot ONCE. Each meal

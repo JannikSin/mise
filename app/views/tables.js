@@ -34,7 +34,7 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onSameForEveryone?: (house: string, tableId: string, same: boolean) => void,
  *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>,
  *   onTailorTable: (house: string, tableId: string) => Promise<void>,
- *   onDinnerWeek?: (participantIds: string[], meals: { date: string, slot: string }[], cuisine: string, note: string, away?: Record<string, string[]>, brigade?: import("../lib/tables.js").Brigade | null, useSwipes?: boolean) => Promise<{ made: { date: string, slot: string, name: string, why: string }[], notes: string[], swiped?: { date: string, slot: string }[] }>,
+ *   onDinnerWeek?: (participantIds: string[], meals: { date: string, slot: string }[], cuisine: string, note: string, away?: Record<string, string[]>, brigade?: import("../lib/tables.js").Brigade | null, useSwipes?: boolean, replace?: boolean) => Promise<{ made: { date: string, slot: string, name: string, why: string }[], notes: string[], swiped?: { date: string, slot: string }[] }>,
  *   swipeCurrency?: { name: string, perWeek: number, slot: string } | null,
  *   scoreboard: { id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, shopped: boolean }[],
  *   weekId: string,
@@ -271,7 +271,7 @@ export function TablesView({
   // default without a brigade, so left alone they stay personal.
   const WEEK_SLOTS = ["breakfast", "lunch", "dinner", "smoothie", "snack"];
   const [weekForm, setWeekForm] = useState(
-    /** @type {null | { unpicked: string[], slots: string[], away: Record<string, string[]>, cuisine: string, note: string, swipes: boolean }} */ (
+    /** @type {null | { unpicked: string[], slots: string[], away: Record<string, string[]>, cuisine: string, note: string, swipes: boolean, replace: boolean }} */ (
       null
     ),
   );
@@ -285,10 +285,25 @@ export function TablesView({
   const myHouseTables = (houseEvents ?? []).find((h) => h.house === myHouse)?.events?.tables ?? [];
   // a date+slot is taken by any table at MY house, or any table I'm seated
   // at elsewhere (planning over it would only trip the collision flag)
-  const takenMeals = new Set([
-    ...myHouseTables.map((t) => `${t.date}|${t.slot}`),
-    ...myTables.map(({ t }) => `${t.date}|${t.slot}`),
-  ]);
+  // meals a previous week run set at my house, upcoming only: the REPLAN
+  // chip offers to redo exactly these (plenum r2 — a run whose plates came
+  // out wrong took fourteen CANCELs to redo). Pre-stamp runs are recognized
+  // by their "Family <slot>" naming; hand-set and brigade tables never match.
+  const replaceableMeals = new Set(
+    myHouseTables
+      .filter(
+        (t) =>
+          t.date >= todayIso &&
+          (/** @type {any} */ (t).fromWeekRun || (t.name ?? "").startsWith("Family ")),
+      )
+      .map((t) => `${t.date}|${t.slot}`),
+  );
+  const takenMeals = new Set(
+    [
+      ...myHouseTables.map((t) => `${t.date}|${t.slot}`),
+      ...myTables.map(({ t }) => `${t.date}|${t.slot}`),
+    ].filter((k) => !(weekForm?.replace && replaceableMeals.has(k))),
+  );
   // an ACTIVE brigade owns the week run: the AI planner runs AS the brigade
   // (its members, its slots, its cook rotation) instead of a parallel thing
   const activeBrigade =
@@ -341,6 +356,7 @@ export function TablesView({
         away,
         activeBrigade,
         weekForm.swipes,
+        weekForm.replace,
       );
       setWeekResult(result);
       setWeekForm(null);
@@ -745,6 +761,7 @@ export function TablesView({
                 // defaults to dining swipes (P5, P10) — the chip below turns
                 // it off for a week of cooked lunches
                 swipes: Boolean(swipeCurrency),
+                replace: false,
               });
             }}
           >
@@ -825,6 +842,29 @@ export function TablesView({
                   swipeCurrency.slot}
                   becomes a 🎫 swipe on your plan (up to ${swipeCurrency.perWeek}/week) with PICK MY
                   TRAY to plan your plate at the hall — no cooked pot is sized for you there.
+                </p>`
+              }
+            `
+          }
+          ${
+            // REPLAN (plenum r2): redo what a previous run set instead of
+            // fourteen CANCELs — hand-set and brigade tables are untouched
+            replaceableMeals.size > 0 &&
+            html`
+              <div class="chips wrapchips" role="group" aria-label="Replace previous run">
+                <button
+                  class=${weekForm.replace ? "chip on" : "chip"}
+                  aria-pressed=${weekForm.replace}
+                  onClick=${() => setWeekForm({ ...weekForm, replace: !weekForm.replace })}
+                >
+                  🔁 replace the ${replaceableMeals.size} meals the last run set
+                </button>
+              </div>
+              ${
+                weekForm.replace &&
+                html`<p class="hint">
+                  the ${replaceableMeals.size} upcoming meals a previous run planned are cancelled
+                  and replanned fresh; anything set by hand stays.
                 </p>`
               }
             `

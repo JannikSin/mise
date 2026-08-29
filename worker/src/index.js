@@ -794,6 +794,26 @@ export default {
             if (clean.length > 0) away[id] = clean.slice(0, 14);
           }
         }
+        // per-person daily off-plan delivery (swipe + fixed slots), so the
+        // model aims cooked plates at the REMAINDER of the day (plenum r2)
+        /** @type {Record<string, { calories: number, protein: number, note?: string }>} */
+        const covered = {};
+        if (typeof body.covered === "object" && body.covered !== null) {
+          for (const [id, c] of Object.entries(body.covered)) {
+            if (!personIdSet.has(id) || typeof c !== "object" || c === null) continue;
+            const calories = Number(/** @type {any} */ (c).calories);
+            const protein = Number(/** @type {any} */ (c).protein);
+            if (!Number.isFinite(calories) || !Number.isFinite(protein)) continue;
+            covered[id] = {
+              calories: Math.min(6000, Math.max(0, Math.round(calories))),
+              protein: Math.min(500, Math.max(0, Math.round(protein))),
+              note:
+                typeof (/** @type {any} */ (c).note) === "string"
+                  ? /** @type {any} */ (c).note.slice(0, 300)
+                  : "",
+            };
+          }
+        }
         if (people.length === 0) return json(400, { error: "people required" }, cors);
         if (meals.length === 0) return json(400, { error: "meals required" }, cors);
         const resp = await callModel(
@@ -802,6 +822,7 @@ export default {
             cuisine,
             note,
             away,
+            covered,
             people,
             candidates,
             model: env.SCAN_MODEL ?? DEFAULT_MODEL,

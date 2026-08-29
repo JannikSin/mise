@@ -716,6 +716,50 @@ export function weekRunSwipes(meals, buffet, plan, today) {
 }
 
 /**
+ * WHAT A DAY ALREADY DELIVERS OUTSIDE A WEEK RUN'S MEALS (P2, P5, David
+ * 2026-08-28 plenum, round two: "342 grams of protein instead of the 190
+ * target"). The week run balanced each person's WHOLE day over just the
+ * meals it was planning, so two cooked meals were written at 1,400 kcal
+ * each — and then the swipe lunch (1,200/90) and the fixed daily smoothie
+ * (702/26) landed on top: measured 4,430 kcal / 266 g days on the real
+ * W36. The model can only aim at the remainder if it is told the
+ * remainder exists. This computes one person's daily off-plan delivery:
+ * their fixed slots (only those the run is NOT planning — a planned slot's
+ * shared table takes precedence and the fixed fill yields to it) plus, for
+ * the person swiping, the swipe estimate on its days.
+ * @param {Record<string, any> | null | undefined} targets that person's targets
+ * @param {Map<string, any>} bankById
+ * @param {Set<string>} plannedSlots the slots this run covers
+ * @param {{ estCalories: number, estProtein: number } | null} [swipe]
+ * @returns {{ calories: number, protein: number, note: string } | null}
+ */
+export function dailyCovered(targets, bankById, plannedSlots, swipe = null) {
+  let calories = 0;
+  let protein = 0;
+  /** @type {string[]} */
+  const parts = [];
+  for (const [slot, rid] of Object.entries(targets?.fixedSlots ?? {})) {
+    if (plannedSlots.has(slot)) continue;
+    const r = bankById.get(rid);
+    if (!r) continue;
+    calories += r.nutrition?.calories ?? 0;
+    protein += r.nutrition?.protein ?? 0;
+    parts.push(
+      `a fixed daily ${slot} (~${Math.round(r.nutrition?.calories ?? 0)} kcal / ${Math.round(r.nutrition?.protein ?? 0)} g)`,
+    );
+  }
+  if (swipe) {
+    calories += swipe.estCalories;
+    protein += swipe.estProtein;
+    parts.push(
+      `a dining-hall meal on their swipe days (~${Math.round(swipe.estCalories)} kcal / ${Math.round(swipe.estProtein)} g)`,
+    );
+  }
+  if (calories <= 0 && protein <= 0) return null;
+  return { calories: Math.round(calories), protein: Math.round(protein), note: parts.join(" and ") };
+}
+
+/**
  * One tap walks a slot through its away states (7.11):
  *   planned/empty → EATING OUT → DINING SWIPE (only when the profile has a
  *   buffet currency) → back to an empty slot.

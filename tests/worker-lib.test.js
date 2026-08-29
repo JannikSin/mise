@@ -539,6 +539,34 @@ test("a date|slot away entry empties ONE meal, not the day (a dining swipe)", ()
   assert.doesNotMatch(text, /\[david\] is NOT at the table/);
 });
 
+test("a covered entry makes the model aim at the REMAINDER of the day (plenum r2)", () => {
+  // measured on the real W36: without this the model wrote 1,400 kcal
+  // breakfasts because it balanced whole days over two cooked meals, then
+  // the swipe and the fixed smoothie landed on top — 266 g days vs 190
+  const req = buildDinnerWeekRequest({
+    meals: [
+      { date: "2026-08-31", slot: "breakfast" },
+      { date: "2026-08-31", slot: "dinner" },
+    ],
+    cuisine: "",
+    note: "",
+    covered: {
+      david: { calories: 1902, protein: 116, note: "a dining-hall lunch and a fixed smoothie" },
+    },
+    people: sanitizePeople([
+      { id: "david", name: "David", goal: "gain", calories: 3700, protein: 190 },
+    ]),
+    candidates: [],
+    model: "m",
+  });
+  const text = req.messages[0].content[0].text;
+  assert.match(text, /\[david\] already eats ~1902 kcal \/ ~116 g protein each day/);
+  assert.match(text, /a dining-hall lunch and a fixed smoothie/);
+  // 3700-1902 and 190-116, computed FOR the model, not left to it
+  assert.match(text, /aim at roughly 1798 kcal \/ 74 g protein a day/);
+  assert.match(req.system, /MINUS that amount/);
+});
+
 test("smoothie and snack are plannable week slots the tool schema accepts", () => {
   // 2026-08-28 plenum: a brigade sharing its smoothies was silently dropped
   // by the old breakfast/lunch/dinner enum

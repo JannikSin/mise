@@ -205,12 +205,15 @@ export async function tailorTable(recipe, seats) {
  * @param {{ date: string, slot: string }[]} meals date+slot pairs to plan
  * @param {string} cuisine cuisine/theme preference, "" = none
  * @param {string} note free-text household note, "" = none
- * @param {Record<string, string[]>} [away] personId → dates they are NOT at
- *   the table (no plate planned for them those days)
+ * @param {Record<string, string[]>} [away] personId → entries they are NOT at
+ *   the table for: a whole day ("YYYY-MM-DD") or one meal ("YYYY-MM-DD|slot")
+ * @param {Record<string, { calories: number, protein: number, note?: string }>} [covered]
+ *   personId → what they already eat each day OUTSIDE the planned meals
+ *   (swipe + fixed slots), so plates aim at the remainder (plenum r2)
  * @returns {Promise<{ nights: Record<string, any>[], notes: string[] }>}
  */
-export async function dinnerWeek(people, candidates, meals, cuisine, note, away = {}) {
-  const data = await post("/dinnerweek", { people, candidates, meals, cuisine, note, away });
+export async function dinnerWeek(people, candidates, meals, cuisine, note, away = {}, covered = {}) {
+  const data = await post("/dinnerweek", { people, candidates, meals, cuisine, note, away, covered });
   return {
     nights: Array.isArray(data.nights) ? data.nights : [],
     notes: Array.isArray(data.notes) ? data.notes : [],
