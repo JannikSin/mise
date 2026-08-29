@@ -3217,31 +3217,56 @@ function App() {
     ) => {
       const today = localIsoDate(new Date());
       const me = activeProfile();
-      // SWIPES BEFORE POTS (P5, P10, David 2026-08-28 plenum: "put swipes
-      // for lunch every day and have that in there"). With a buffet currency
-      // on MY profile, my lunches are dining swipes: the run takes me off
-      // those pots (a per-slot away entry) instead of seating me at a cooked
-      // lunch the swipe already paid for — which pinned the slot and blocked
-      // the swipe forever. Housemates' currencies are their own GENERATE's
-      // business (the Tribunal veto on writing other people's plans stands);
-      // theirs seed when they generate, exactly as 2026-08-24 wired it.
-      const buffet = (targetsRef.current?.currencies ?? []).find(
-        (/** @type {any} */ c) => c.venue === "buffet",
-      );
-      const swipePairs =
-        useSwipes && participantIds.includes(me)
-          ? weekRunSwipes(
-              meals.filter((m) => !(away[me] ?? []).includes(m.date)),
-              /** @type {any} */ (buffet),
-              /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
-              today,
-            )
-          : [];
-      if (swipePairs.length > 0)
-        away = {
-          ...away,
-          [me]: [...(away[me] ?? []), ...swipePairs.map((m) => `${m.date}|${m.slot}`)],
-        };
+      // every participant's targets, loaded up front: swipe claims and the
+      // covered map need them, brigade seat sizing reuses them below
+      /** @type {Map<string, Record<string, any> | null>} */
+      const targetsById = new Map();
+      for (const id of participantIds) {
+        targetsById.set(id, /** @type {any} */ (await readTargetsOf(id)));
+      }
+      const buffetOf = (/** @type {string} */ id) =>
+        (targetsById.get(id)?.currencies ?? []).find(
+          (/** @type {any} */ c) => c.venue === "buffet" && Number(c.perWeek) > 0,
+        );
+      // SWIPES BEFORE POTS (P5, P10, David 2026-08-28 plenum; widened round
+      // three: "elliot has swipes same as me"). EVERY participant whose own
+      // targets carry a buffet currency eats that slot on a swipe: the run
+      // takes them off those pots (per-slot away entries) instead of seating
+      // them at a cooked meal the swipe already paid for. Only the RUNNER's
+      // plan is seeded with swipe entries (the Tribunal veto on writing
+      // other people's plans stands); a housemate's own GENERATE places
+      // theirs, exactly as 2026-08-24 wired it — the run just leaves their
+      // seat empty and says so in the notes.
+      /** @type {Record<string, { date: string, slot: string }[]>} */
+      const swipersById = {};
+      if (useSwipes) {
+        for (const id of participantIds) {
+          const b = buffetOf(id);
+          if (!b) continue;
+          const mealsForId = meals.filter((m) => !(away[id] ?? []).includes(m.date));
+          // the runner's claim is ledger-aware against their own plan;
+          // a housemate's walks the same slot+allowance rules over an
+          // empty ledger (their plan is theirs to read on their device)
+          const pairs = weekRunSwipes(
+            mealsForId,
+            /** @type {any} */ (b),
+            id === me
+              ? /** @type {import("./lib/plan.js").Plan} */ (planRef.current)
+              : { week: "", entries: [] },
+            today,
+          );
+          if (pairs.length > 0) swipersById[id] = pairs;
+        }
+      }
+      for (const [id, pairs] of Object.entries(swipersById)) {
+        away = { ...away, [id]: [...(away[id] ?? []), ...pairs.map((m) => `${m.date}|${m.slot}`)] };
+      }
+      const buffet = buffetOf(me);
+      const swipePairs = swipersById[me] ?? [];
+      const anySwiped = (/** @type {{ date: string, slot: string }} */ m) =>
+        Object.values(swipersById).some((ps) =>
+          ps.some((s) => s.date === m.date && s.slot === m.slot),
+        );
       // the attendance test the whole run shares: a whole-day away entry or
       // this meal's own date|slot entry both empty the seat
       const isAway = (
@@ -3256,18 +3281,10 @@ function App() {
       const dropNotes = [];
       const cooked = meals.filter((m) => {
         if (participantIds.some((id) => !isAway(id, m.date, m.slot))) return true;
-        if (!swipePairs.some((s) => s.date === m.date && s.slot === m.slot))
-          dropNotes.push(`${m.date} ${m.slot}: everyone is away — no table set`);
+        if (!anySwiped(m)) dropNotes.push(`${m.date} ${m.slot}: everyone is away — no table set`);
         return false;
       });
       const facts = await handleDinerFacts(participantIds);
-      // every participant's targets: brigades size seats from them, and the
-      // covered map below needs everyone's fixed slots (plenum r2)
-      /** @type {Map<string, Record<string, any> | null>} */
-      const targetsById = new Map();
-      for (const id of participantIds) {
-        targetsById.set(id, /** @type {any} */ (await readTargetsOf(id)));
-      }
       // WHAT EACH DAY ALREADY DELIVERS outside the planned meals (P2, P5,
       // plenum round two: "342 grams instead of the 190 target"). The model
       // balanced whole days over two cooked meals, then the 1,200 kcal swipe
@@ -3278,16 +3295,13 @@ function App() {
       /** @type {Record<string, { calories: number, protein: number, note: string }>} */
       const coveredById = {};
       for (const id of participantIds) {
+        const b = buffetOf(id);
         const cov = dailyCovered(
           targetsById.get(id),
           recipesById(bankRecipesRef.current),
           plannedSlots,
-          id === me && swipePairs.length > 0 && buffet
-            ? buffetMacroEstimate(
-                recipesRef.current,
-                String(buffet.preferredSlot || "lunch"),
-                buffet,
-              )
+          swipersById[id] && b
+            ? buffetMacroEstimate(recipesRef.current, String(b.preferredSlot || "lunch"), b)
             : null,
         );
         if (cov) coveredById[id] = cov;
@@ -3433,7 +3447,19 @@ function App() {
         );
         if (seeded !== planRef.current) updatePlan(seeded);
       }
-      return { made, notes, swiped: swipePairs };
+      // housemate swipers are off the pots but their plans are their own to
+      // write (Tribunal veto): report it so it is never silent — their own
+      // GENERATE places the swipe entries on their plan
+      const swipedOthers = Object.entries(swipersById)
+        .filter(([id]) => id !== me)
+        .map(([id, pairs]) => ({
+          name: /** @type {string} */ (
+            allProfilesRef.current.find((p) => p.id === id)?.name ?? id
+          ),
+          count: pairs.length,
+          slot: pairs[0]?.slot ?? "lunch",
+        }));
+      return { made, notes, swiped: swipePairs, swipedOthers };
     },
     [writeHouseEvents, decisionRecipeId, tableFromDecision, handleDinerFacts, updatePlan],
   );

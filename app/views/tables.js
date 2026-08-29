@@ -34,7 +34,7 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onSameForEveryone?: (house: string, tableId: string, same: boolean) => void,
  *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>,
  *   onTailorTable: (house: string, tableId: string) => Promise<void>,
- *   onDinnerWeek?: (participantIds: string[], meals: { date: string, slot: string }[], cuisine: string, note: string, away?: Record<string, string[]>, brigade?: import("../lib/tables.js").Brigade | null, useSwipes?: boolean, replace?: boolean) => Promise<{ made: { date: string, slot: string, name: string, why: string }[], notes: string[], swiped?: { date: string, slot: string }[] }>,
+ *   onDinnerWeek?: (participantIds: string[], meals: { date: string, slot: string }[], cuisine: string, note: string, away?: Record<string, string[]>, brigade?: import("../lib/tables.js").Brigade | null, useSwipes?: boolean, replace?: boolean) => Promise<{ made: { date: string, slot: string, name: string, why: string }[], notes: string[], swiped?: { date: string, slot: string }[], swipedOthers?: { name: string, count: number, slot: string }[] }>,
  *   swipeCurrency?: { name: string, perWeek: number, slot: string } | null,
  *   scoreboard: { id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, shopped: boolean }[],
  *   weekId: string,
@@ -278,7 +278,7 @@ export function TablesView({
   const [weekBusy, setWeekBusy] = useState(false);
   const [weekErr, setWeekErr] = useState("");
   const [weekResult, setWeekResult] = useState(
-    /** @type {null | { made: { date: string, slot: string, name: string, why: string }[], notes: string[], swiped?: { date: string, slot: string }[] }} */ (
+    /** @type {null | { made: { date: string, slot: string, name: string, why: string }[], notes: string[], swiped?: { date: string, slot: string }[], swipedOthers?: { name: string, count: number, slot: string }[] }} */ (
       null
     ),
   );
@@ -842,6 +842,8 @@ export function TablesView({
                   swipeCurrency.slot}
                   becomes a 🎫 swipe on your plan (up to ${swipeCurrency.perWeek}/week) with PICK MY
                   TRAY to plan your plate at the hall — no cooked pot is sized for you there.
+                  Housemates with their own swipe plan come off those pots too; their own GENERATE
+                  places their swipes.
                 </p>`
               }
             `
@@ -1036,6 +1038,17 @@ export function TablesView({
               <span class="hint"> — on your plan with 🍽 PICK MY TRAY to plan your plate</span>
             </div>`
           }
+          ${(weekResult.swipedOthers ?? []).map(
+            (o) => html`
+              <div class="d" key=${o.name}>
+                🎫 ${o.name}: <b>${o.count} ${SLOT_META[o.slot]?.full.toLowerCase() ?? o.slot}
+                  swipes</b>
+                <span class="hint">
+                  — off those pots; their own GENERATE puts the swipes on their plan</span
+                >
+              </div>
+            `,
+          )}
           ${weekResult.notes.map((n, i) => html`<p class="hint scanerr" key=${i}>${n}</p>`)}
           ${
             weekResult.made.length > 0
