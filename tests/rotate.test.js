@@ -91,16 +91,30 @@ test("perDay larger than the pool takes the whole pool, never undefined entries"
 });
 
 test("THE LIVE BOWL AND SMOOTHIE rotate, and hold their macros all week", () => {
-  for (const id of ["berry-walnut-greek-yogurt-bowl", "berry-greens-protein-smoothie"]) {
+  // per-recipe spine: the bowl's spine is the yogurt ALONE since David's
+  // 2026-08-29 ruling took the whey out of the yogurt bowls ("take the whey
+  // out... we would be meeting our protein almost exactly"); the smoothie
+  // keeps its scoop — it is a protein shake, that is the point of it.
+  const spines = {
+    "berry-walnut-greek-yogurt-bowl": { pattern: /greek yogurt/i, never: /whey/i },
+    "berry-greens-protein-smoothie": { pattern: /whey/i, never: null },
+  };
+  for (const [id, spine] of Object.entries(spines)) {
     const r = load(id);
     assert.ok(rotates(r), `${id} lost its rotation block`);
     assert.equal(r.rotation.perDay, 7, `${id} should rotate 7 of its pool`);
     assert.ok(r.rotation.pool.length >= 10, `${id} pool is only ${r.rotation.pool.length}`);
-    // whey is the spine of both and must never rotate out
     assert.ok(
-      r.rotation.keep.some((k) => /whey/i.test(k.food)),
-      `${id} must keep the protein powder every day`,
+      r.rotation.keep.some((k) => spine.pattern.test(k.food)),
+      `${id} lost its spine (${spine.pattern})`,
     );
+    if (spine.never) {
+      assert.ok(
+        !r.rotation.keep.some((k) => /** @type {RegExp} */ (spine.never).test(k.food)) &&
+          !r.rotation.pool.some((p) => /** @type {RegExp} */ (spine.never).test(p.food)),
+        `${id} must not carry whey anywhere (David 2026-08-29)`,
+      );
+    }
     for (const d of ["2026-08-31", "2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"]) {
       const c = rotateComponents(r.rotation, d);
       assert.ok(c.withinTolerance, `${id} on ${d}: ${JSON.stringify(c.macros)}`);

@@ -3095,27 +3095,49 @@ function App() {
   // is first written to the shared bank (tagged ai-special) so the whole
   // table machinery — macros, shopping, everyone's plan — works unchanged.
   const decisionRecipeId = useCallback(
-    async (/** @type {Record<string, any>} */ decision, /** @type {string} */ date) => {
+    async (
+      /** @type {Record<string, any>} */ decision,
+      /** @type {string} */ date,
+      /** @type {string} */ slot = "dinner",
+    ) => {
       let recipeId = /** @type {string} */ (decision.pickRecipeId || "");
       if (!recipeId && decision.special) {
         const s = decision.special;
         // date-suffixed so two discussions landing on the same generic name
         // ("quick stir-fry") never overwrite each other's recipe
         recipeId = `special-${slug(s.name)}-${date}`;
+        const effort = s.totalTime <= 15 ? "assembly" : s.totalTime <= 30 ? "cook" : "project";
+        // SPECIALS ARE FULL BANK CITIZENS on the fields the promise suite
+        // enforces (found 2026-08-29 scorch: six week-run smoothie specials
+        // landed as equipment-less "dinners" with no safeDays and no audited
+        // key, failing P7, P12 and the equipment fence at once — this writer
+        // predated the 2026-08-28 smoothie/snack slots and stamped every
+        // special "dinner"). mealType follows the SLOT it was invented for;
+        // audited is explicitly null (P12's legal "never audited" state — a
+        // guest of the plan, fenced from auto-planning by its ai-special
+        // tag, never a silent absence); safeDays is a conservative window
+        // (a blended drink keeps a day, anything else three, matching the
+        // bank's own audited specials); equipment is the slot's honest
+        // minimum: a smoothie needs the blender, a cooked special needs a
+        // burner, an assembly plate needs nothing.
         const recipe = {
           id: recipeId,
           name: s.name,
-          description: s.description || "Special dinner from the household discussion.",
+          description: s.description || `Special ${slot} from the household discussion.`,
           servings: s.servings,
           totalTime: s.totalTime,
-          mealType: "dinner",
+          mealType: slot === "snack" ? "snack" : slot,
           tags: ["ai-special"],
           purpose: ["everyday"],
-          effort: s.totalTime <= 15 ? "assembly" : s.totalTime <= 30 ? "cook" : "project",
+          effort,
           ingredients: s.ingredients,
           instructions: s.instructions,
           nutrition: s.nutrition,
           foodGroups: s.foodGroups,
+          audited: null,
+          safeDays: slot === "smoothie" ? 1 : 3,
+          equipment:
+            slot === "smoothie" ? ["blender"] : effort === "assembly" ? [] : ["stovetop"],
         };
         await write(`recipes/${recipeId}.json`, /** @type {any} */ (recipe), { raw: true });
         setBankRecipes([...bankRecipesRef.current.filter((r) => r.id !== recipeId), recipe]);
@@ -3390,7 +3412,10 @@ function App() {
       /** @type {{ n: Record<string, any>, recipeId: string }[]} */
       const resolved = [];
       for (const n of nights) {
-        resolved.push({ n, recipeId: await decisionRecipeId(n, n.date) });
+        resolved.push({
+          n,
+          recipeId: await decisionRecipeId(n, n.date, /** @type {string} */ (n.slot ?? "dinner")),
+        });
       }
       let cur =
         houseEventsRef.current.find((h) => h.house === house)?.events ?? normalizeEvents(null);
