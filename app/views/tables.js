@@ -743,7 +743,12 @@ export function TablesView({
         html`<div class="actions">
           <button
             class="ask"
-            disabled=${tokenBlocked || mealsFor(defaultSlots).length === 0}
+            disabled=${
+              // a fully-set week must still open the form: REPLACE lives
+              // inside it, and disabling here trapped David into cancelling
+              // 35 tables by hand (plenum round five, 2026-08-28)
+              tokenBlocked || (mealsFor(defaultSlots).length === 0 && replaceableMeals.size === 0)
+            }
             onClick=${() => {
               setWeekResult(null);
               setWeekErr("");
@@ -761,7 +766,9 @@ export function TablesView({
                 // defaults to dining swipes (P5, P10) — the chip below turns
                 // it off for a week of cooked lunches
                 swipes: Boolean(swipeCurrency),
-                replace: false,
+                // nothing free but a previous run replaceable: REPLACE is
+                // the only useful run, so it starts ON instead of hiding
+                replace: mealsFor(defaultSlots).length === 0 && replaceableMeals.size > 0,
               });
             }}
           >
@@ -773,7 +780,9 @@ export function TablesView({
                     ? "needs the token — fix it in Settings"
                     : "needs the token — connect it in Settings"
                   : mealsFor(defaultSlots).length === 0
-                    ? "every remaining meal already has a table"
+                    ? replaceableMeals.size > 0
+                      ? `week already set — open to REPLACE the ${replaceableMeals.size} meals the last run made`
+                      : "every remaining meal already has a table"
                     : `one shared pot per meal, everyone's own portion — covers ${mealsFor(defaultSlots).length} meals`
               }
             </small>

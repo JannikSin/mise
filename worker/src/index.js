@@ -167,12 +167,12 @@ async function tokenKey(token) {
  * @param {string} [repo] "owner/repo"; defaults to the family data repo
  */
 async function isAuthorized(token, repo = DATA_REPO) {
-  if (!token) return false;
+  if (!token) return "no";
   // the cache key is token AND repo: a token authorised for one repo must not
   // ride that cache entry into another one
   const key = `${await tokenKey(token)}|${repo}`;
   const cached = authCache.get(key);
-  if (cached && cached > Date.now()) return true;
+  if (cached && cached > Date.now()) return "ok";
   const res = await fetch(`https://api.github.com/repos/${repo}`, {
     headers: {
       authorization: `Bearer ${token}`,
@@ -180,13 +180,26 @@ async function isAuthorized(token, repo = DATA_REPO) {
       "user-agent": "mise-worker",
     },
   });
-  if (!res.ok) return false;
+  // GITHUB SAYING NO vs GITHUB BEING UNREACHABLE (plenum round five,
+  // 2026-08-28: David hand-cancelled 35 tables in a burst, GitHub's
+  // secondary rate limit 403'd his perfectly good token for a few minutes,
+  // and this function reported it as "unauthorized" — a lie that reads as
+  // a broken token). A rate-limited or erroring probe is RETRY, never NO.
+  if (!res.ok) {
+    if (res.status >= 500) return "retry";
+    if (res.status === 403 || res.status === 429) {
+      const remaining = res.headers.get("x-ratelimit-remaining");
+      const body = await res.text().catch(() => "");
+      if (remaining === "0" || /rate limit|abuse|secondary/i.test(body)) return "retry";
+    }
+    return "no";
+  }
   const meta = await res.json();
   // PRIVATE, always. A public repo anyone can read would make "can you see
   // this repo" prove nothing about who is asking.
-  if (meta?.private !== true) return false;
+  if (meta?.private !== true) return "no";
   authCache.set(key, Date.now() + AUTH_TTL_MS);
-  return true;
+  return "ok";
 }
 
 /**
@@ -509,7 +522,15 @@ export default {
     }
 
     const token = request.headers.get("x-mise-auth");
-    if (!(await isAuthorized(token, repoForRequest(request, env)))) {
+    const auth = await isAuthorized(token, repoForRequest(request, env));
+    if (auth === "retry") {
+      return json(
+        503,
+        { error: "GitHub is rate-limiting right now (a burst of edits can do this) — wait two minutes and try again. Your token is fine." },
+        cors,
+      );
+    }
+    if (auth !== "ok") {
       return json(401, { error: "unauthorized" }, cors);
     }
     if (
