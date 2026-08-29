@@ -32,7 +32,8 @@ import {
   unlockRecipe,
   switchCandidate,
   setEntryRecipe,
- planSwipes } from "../app/lib/plan.js";
+ planSwipes,
+  weekRunSwipes } from "../app/lib/plan.js";
 
 test("prepSundayOf is the day before the week's Monday", () => {
   assert.equal(prepSundayOf("2026-W30"), "2026-07-19");
@@ -855,6 +856,69 @@ test("no currency, or a zero allowance, changes nothing at all", () => {
   const plan = { week: "2026-W35", entries: [] };
   assert.equal(planSwipes(plan, WEEK_DATES, { ...SWIPE_OPTS, perWeek: 0 }), plan);
   assert.equal(planSwipes(plan, WEEK_DATES, { ...SWIPE_OPTS, currencyId: "" }), plan);
+});
+
+// THE WEEK RUN EATS ITS SWIPES (P5, P10, 2026-08-28 plenum). The brigade's
+// week-of-meals run used to set a cooked table on every covered lunch and
+// seat David at it; the pinned derived entry then blocked the swipe forever,
+// so the arbitrage lost to the pot every single week.
+
+const WEEK_MEALS = WEEK_DATES.flatMap((date) => [
+  { date, slot: "lunch" },
+  { date, slot: "dinner" },
+]);
+const BUFFET = { id: "swipes", perWeek: 7, preferredSlot: "lunch" };
+
+test("weekRunSwipes claims every covered lunch, one a day, and never a dinner", () => {
+  const out = weekRunSwipes(WEEK_MEALS, BUFFET, { week: "2026-W35", entries: [] }, "2026-08-24");
+  assert.deepEqual(
+    out,
+    WEEK_DATES.map((date) => ({ date, slot: "lunch" })),
+  );
+});
+
+test("weekRunSwipes: the allowance caps it, net of swipes already in the plan", () => {
+  const seeded = {
+    week: "2026-W35",
+    entries: [
+      { id: "s", date: "2026-08-24", slot: "lunch", out: true, currency: "swipes", servings: 1 },
+    ],
+  };
+  const out = weekRunSwipes(WEEK_MEALS, { ...BUFFET, perWeek: 3 }, seeded, "2026-08-24");
+  // the already-swiped pair is still claimed (off the pot) without spending
+  // budget; two fresh days fit inside the remaining allowance of 2
+  assert.deepEqual(
+    out.map((m) => m.date),
+    ["2026-08-24", "2026-08-25", "2026-08-26"],
+  );
+});
+
+test("weekRunSwipes: a pinned lunch blocks its day, past days are read-only", () => {
+  const seeded = {
+    week: "2026-W35",
+    entries: [
+      { id: "m", date: "2026-08-26", slot: "lunch", recipeId: "chana", servings: 1, pinned: true },
+    ],
+  };
+  const out = weekRunSwipes(WEEK_MEALS, BUFFET, seeded, "2026-08-25");
+  assert.ok(!out.some((m) => m.date === "2026-08-24"), "yesterday is not re-plannable");
+  assert.ok(!out.some((m) => m.date === "2026-08-26"), "the pinned lunch keeps its day");
+  assert.equal(out.length, 5);
+});
+
+test("weekRunSwipes: a day already eating away in ANOTHER slot is left alone", () => {
+  const seeded = {
+    week: "2026-W35",
+    entries: [{ id: "x", date: "2026-08-27", slot: "dinner", out: true, servings: 1 }],
+  };
+  const out = weekRunSwipes(WEEK_MEALS, BUFFET, seeded, "2026-08-24");
+  assert.ok(!out.some((m) => m.date === "2026-08-27"));
+});
+
+test("weekRunSwipes: no buffet currency, or no allowance, claims nothing", () => {
+  const plan = { week: "2026-W35", entries: [] };
+  assert.deepEqual(weekRunSwipes(WEEK_MEALS, null, plan, "2026-08-24"), []);
+  assert.deepEqual(weekRunSwipes(WEEK_MEALS, { ...BUFFET, perWeek: 0 }, plan, "2026-08-24"), []);
 });
 
 test("the placeholder carries everything dayTotals and the generator read", () => {

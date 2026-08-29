@@ -1027,12 +1027,13 @@ export function validateDinnerDecision(input, candidateIds, personIds) {
 }
 
 // ---- /dinnerweek: one call → a tailored shared meal for every requested
-// date+slot (David, 2026-08-09: the whole house eats the SAME three cooked
-// meals a day; goals survive through per-person portioning, not separate
-// cooking; snacks and smoothies stay personal and are never planned here) --
+// date+slot (David, 2026-08-09: the whole house eats the SAME cooked meals;
+// goals survive through per-person portioning, not separate cooking.
+// 2026-08-28, plenum: smoothies and snacks are now plannable slots too — a
+// brigade that shares its smoothies was silently dropped by this enum) ----
 
-/** the slots a household cooks together; snacks/smoothies stay personal */
-export const WEEK_MEAL_SLOTS = ["breakfast", "lunch", "dinner"];
+/** every slot a household can plan together (display order = plan order) */
+export const WEEK_MEAL_SLOTS = ["breakfast", "lunch", "dinner", "smoothie", "snack"];
 
 const DINNER_WEEK_TOOL = {
   name: "record_dinner_week",
@@ -1083,14 +1084,17 @@ const DINNER_WEEK_SYSTEM =
   "week: never " +
   "the same recipe twice, vary proteins and preparations, keep breakfasts " +
   "fast, and honor the cuisine preference where it genuinely fits rather " +
-  "than forcing every meal into it. Every meal carries per-person plates: " +
+  "than forcing every meal into it. A smoothie slot gets a blended drink " +
+  "and a snack slot something small, fast and portable — match the slot, " +
+  "never a cooked dinner in either. Every meal carries per-person plates: " +
   "WHO eats WHAT and HOW MUCH, with weighed gram amounts (the kitchen has " +
   "a food scale) and concrete modifications toward each person's own " +
   "daily targets — extra rice for a gainer, more vegetables for someone " +
   "losing, a supplemental egg, or an omission with how the cook makes it " +
-  "possible. Across a day the three plates should land each person near " +
-  "their daily calories and protein, leaving room for their own personal " +
-  "snacks. Respect diets and never-serve lists absolutely. No em dashes.";
+  "possible. Across a day the planned plates should land each person near " +
+  "their daily calories and protein, leaving room for anything personal " +
+  "the plan does not cover. Respect diets and never-serve lists " +
+  "absolutely. No em dashes.";
 
 /**
  * Anthropic Messages request for the whole-week shared-meal plan.
@@ -1106,11 +1110,26 @@ export function buildDinnerWeekRequest({ meals, cuisine, note, away, people, can
         `${c.id}: ${c.name} (${c.meal ? `${c.meal}, ` : ""}${c.calories} kcal, ${c.protein}g P${c.cuisine ? `, ${c.cuisine}` : ""})`,
     )
     .join("\n");
+  // away entries are whole days ("YYYY-MM-DD") or one meal ("YYYY-MM-DD|slot",
+  // 2026-08-28 plenum: a dining-hall swipe takes a person off ONE slot's pot,
+  // not the whole day)
   const attendance = Object.entries(away ?? {})
-    .map(
-      ([id, dates]) =>
-        `[${id}] is NOT at the table on ${dates.join(", ")} — plan them no plate those days; size those days' pots for the people who ARE there`,
-    )
+    .map(([id, entries]) => {
+      const days = entries.filter((e) => !e.includes("|"));
+      const slots = entries.filter((e) => e.includes("|"));
+      return [
+        days.length > 0
+          ? `[${id}] is NOT at the table on ${days.join(", ")} — plan them no plate those days; size those days' pots for the people who ARE there`
+          : "",
+        ...slots.map((e) => {
+          const [d, sl] = e.split("|");
+          return `[${id}] is NOT at ${sl} on ${d} (eating elsewhere) — plan them no ${sl} plate that day; size that pot for the people who ARE there`;
+        }),
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .filter(Boolean)
     .join("\n");
   const ask = [
     `Meals to plan: ${meals.map((m) => `${m.date} ${m.slot}`).join(", ")}`,

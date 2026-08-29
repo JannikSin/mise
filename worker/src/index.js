@@ -753,7 +753,7 @@ export default {
         const meals = [];
         const seen = new Set();
         for (const m of Array.isArray(body.meals) ? body.meals : []) {
-          if (meals.length >= 21) break; // 7 days x the 3 cooked slots
+          if (meals.length >= 35) break; // 7 days x the 5 plannable slots
           if (typeof m !== "object" || m === null) continue;
           const date =
             typeof m.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(m.date) ? m.date : "";
@@ -769,9 +769,13 @@ export default {
         );
         const cuisine = typeof body.cuisine === "string" ? body.cuisine.trim().slice(0, 60) : "";
         const note = typeof body.note === "string" ? body.note.trim().slice(0, 300) : "";
-        // attendance: personId → dates they are NOT at the table. Ids must
-        // name someone in `people`, dates must be requested meal dates.
+        // attendance: personId → entries they are NOT at the table for. An
+        // entry is a whole day ("YYYY-MM-DD") or one meal ("YYYY-MM-DD|slot",
+        // a dining-hall swipe: off that slot's pot, still at the others).
+        // Ids must name someone in `people`; dates must be requested meal
+        // dates, slots must be requested for that date.
         const mealDates = new Set(meals.map((m) => m.date));
+        const mealKeys = new Set(meals.map((m) => `${m.date}|${m.slot}`));
         const personIdSet = new Set(people.map((p) => p.id));
         /** @type {Record<string, string[]>} */
         const away = {};
@@ -779,9 +783,15 @@ export default {
           for (const [id, dates] of Object.entries(body.away)) {
             if (!personIdSet.has(id) || !Array.isArray(dates)) continue;
             const clean = [
-              ...new Set(dates.filter((d) => typeof d === "string" && mealDates.has(d))),
+              ...new Set(
+                dates.filter(
+                  (d) =>
+                    typeof d === "string" &&
+                    (d.includes("|") ? mealKeys.has(d) : mealDates.has(d)),
+                ),
+              ),
             ].sort();
-            if (clean.length > 0) away[id] = clean.slice(0, 7);
+            if (clean.length > 0) away[id] = clean.slice(0, 14);
           }
         }
         if (people.length === 0) return json(400, { error: "people required" }, cors);

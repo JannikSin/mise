@@ -97,6 +97,7 @@ import {
   recipeConflicts,
   SLOT_KEYS,
   planSwipes,
+  weekRunSwipes,
 } from "./lib/plan.js";
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
 import { composeManifest, remanifest } from "./lib/manifest.js";
@@ -3192,10 +3193,11 @@ function App() {
   );
 
   // WEEK OF MEALS (David, 2026-08-09): pick people + a cuisine, one call
-  // plans every remaining breakfast/lunch/dinner — the house cooks each slot
-  // ONCE, everyone eats the same food, and goals survive through strict
-  // per-person portioning. Snacks and smoothies stay personal (not everyone
-  // has them). Each meal lands as a real table (seats, plan derivation,
+  // plans every remaining picked slot — the house cooks each slot ONCE,
+  // everyone eats the same food, and goals survive through strict
+  // per-person portioning. Smoothies and snacks are plannable slots too
+  // (2026-08-28 plenum); leave their chips off to keep them personal.
+  // Each meal lands as a real table (seats, plan derivation,
   // shopping, plate specs) with the groceries pre-claimed by the runner, so
   // the list is buildable and shoppable the same day.
   const handleDinnerWeek = useCallback(
@@ -3206,7 +3208,53 @@ function App() {
       /** @type {string} */ note,
       /** @type {Record<string, string[]>} */ away = {},
       /** @type {import("./lib/tables.js").Brigade | null} */ brigade = null,
+      useSwipes = true,
     ) => {
+      const today = localIsoDate(new Date());
+      const me = activeProfile();
+      // SWIPES BEFORE POTS (P5, P10, David 2026-08-28 plenum: "put swipes
+      // for lunch every day and have that in there"). With a buffet currency
+      // on MY profile, my lunches are dining swipes: the run takes me off
+      // those pots (a per-slot away entry) instead of seating me at a cooked
+      // lunch the swipe already paid for — which pinned the slot and blocked
+      // the swipe forever. Housemates' currencies are their own GENERATE's
+      // business (the Tribunal veto on writing other people's plans stands);
+      // theirs seed when they generate, exactly as 2026-08-24 wired it.
+      const buffet = (targetsRef.current?.currencies ?? []).find(
+        (/** @type {any} */ c) => c.venue === "buffet",
+      );
+      const swipePairs =
+        useSwipes && participantIds.includes(me)
+          ? weekRunSwipes(
+              meals.filter((m) => !(away[me] ?? []).includes(m.date)),
+              /** @type {any} */ (buffet),
+              /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
+              today,
+            )
+          : [];
+      if (swipePairs.length > 0)
+        away = {
+          ...away,
+          [me]: [...(away[me] ?? []), ...swipePairs.map((m) => `${m.date}|${m.slot}`)],
+        };
+      // the attendance test the whole run shares: a whole-day away entry or
+      // this meal's own date|slot entry both empty the seat
+      const isAway = (
+        /** @type {string} */ id,
+        /** @type {string} */ date,
+        /** @type {string} */ slot,
+      ) => (away[id] ?? []).includes(date) || (away[id] ?? []).includes(`${date}|${slot}`);
+      // a meal NOBODY is present for is never cooked: swipe-covered pairs go
+      // silently (the swiped report line covers them), a day everyone is
+      // away keeps the honest note it always got
+      /** @type {string[]} */
+      const dropNotes = [];
+      const cooked = meals.filter((m) => {
+        if (participantIds.some((id) => !isAway(id, m.date, m.slot))) return true;
+        if (!swipePairs.some((s) => s.date === m.date && s.slot === m.slot))
+          dropNotes.push(`${m.date} ${m.slot}: everyone is away — no table set`);
+        return false;
+      });
       const facts = await handleDinerFacts(participantIds);
       // running AS a brigade: deterministic table ids, the brigade's cook
       // rotation (same date-offset rule materializeBrigade uses), and seats
@@ -3245,7 +3293,10 @@ function App() {
           }
         : null;
       const candidates = bankRecipesRef.current
-        .filter((r) => ["breakfast", "lunch", "dinner"].includes(r.mealType))
+        // every plannable slot's recipes, smoothies and snacks included
+        // (2026-08-28 plenum: a brigade sharing its smoothies found them
+        // silently dropped by the old breakfast/lunch/dinner filter)
+        .filter((r) => SLOT_KEYS.includes(r.mealType))
         // the model never sees ingredients, so a bank pick that hits ANY
         // participant's diet/avoid screen must never reach it — otherwise the
         // pick derives as a conflict banner on that person's phone and the
@@ -3264,9 +3315,11 @@ function App() {
           cuisine: /** @type {string} */ (r.cuisine ?? ""),
           meal: /** @type {string} */ (r.mealType),
         }));
-      const { nights, notes } = await dinnerWeek(facts, candidates, meals, cuisine, note, away);
-      const today = localIsoDate(new Date());
-      const me = activeProfile();
+      const { nights, notes } =
+        cooked.length > 0
+          ? await dinnerWeek(facts, candidates, cooked, cuisine, note, away)
+          : { nights: [], notes: /** @type {string[]} */ ([]) };
+      notes.push(...dropNotes);
       const house = myHouseOf();
       // resolve every recipe (specials write to the bank) BEFORE touching
       // events, then compose all tables synchronously off a FRESH events read
@@ -3283,8 +3336,11 @@ function App() {
       const made = [];
       for (const { n, recipeId } of resolved) {
         // attendance: someone marked away for a date is seated on NONE of
-        // that day's tables — portions, plates and the buy shrink with them
-        const present = participantIds.filter((id) => !(away[id] ?? []).includes(n.date));
+        // that day's tables — and a per-slot entry (a dining swipe) empties
+        // just that one seat. Portions, plates and the buy shrink with it.
+        const present = participantIds.filter(
+          (id) => !isAway(id, n.date, /** @type {string} */ (n.slot ?? "dinner")),
+        );
         if (present.length === 0) {
           notes.push(`${n.date} ${n.slot ?? "dinner"}: everyone is away — no table set`);
           continue;
@@ -3312,9 +3368,27 @@ function App() {
         });
       }
       if (made.length > 0) writeHouseEvents(house, cur);
-      return { made, notes };
+      // the swipes land IN the plan right now — pinned, with the PICK MY
+      // TRAY link the planner already puts on every swipe entry — not on
+      // some later GENERATE he has to remember (the 2026-08-24 lesson)
+      if (swipePairs.length > 0 && buffet) {
+        const slot = String(buffet.preferredSlot || "lunch");
+        const seeded = planSwipes(
+          /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
+          swipePairs.map((m) => m.date),
+          {
+            perWeek: buffet.perWeek,
+            currencyId: buffet.id,
+            slot,
+            estimate: buffetMacroEstimate(recipesRef.current, slot, buffet),
+            today,
+          },
+        );
+        if (seeded !== planRef.current) updatePlan(seeded);
+      }
+      return { made, notes, swiped: swipePairs };
     },
-    [writeHouseEvents, decisionRecipeId, tableFromDecision, handleDinerFacts],
+    [writeHouseEvents, decisionRecipeId, tableFromDecision, handleDinerFacts, updatePlan],
   );
 
   // Adherence scoreboard (David, 2026-07-24): every household member's
@@ -3777,6 +3851,20 @@ function App() {
         onTailorTable=${handleTailorTable}
         onSameForEveryone=${handleSameForEveryone}
         onDinnerWeek=${handleDinnerWeek}
+        swipeCurrency=${(() => {
+          // the week form's "my lunches are swipes" chip (P5, P10): the
+          // buffet currency on MY profile, with its preferred slot resolved
+          const b = (targets?.currencies ?? []).find(
+            (/** @type {any} */ c) => c.venue === "buffet" && Number(c.perWeek) > 0,
+          );
+          return b
+            ? {
+                name: /** @type {string} */ (b.name ?? "dining swipes"),
+                perWeek: Number(b.perWeek),
+                slot: String(b.preferredSlot || "lunch"),
+              }
+            : null;
+        })()}
         scoreboard=${scoreboard}
         weekId=${weekId}
         onCreateBrigade=${handleCreateBrigade}

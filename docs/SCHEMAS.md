@@ -938,12 +938,19 @@ Rules (binding, from the Tribunal gate):
   schema, `nutrition.method` and `foodGroups.method` = `"estimated"`), so
   macros, shopping, and every seat's plan work unchanged.
 - WEEK OF MEALS (Tables tab, Worker `/dinnerweek`, 2026-08-09): one call
-  plans every remaining breakfast/lunch/dinner that has no table yet —
-  people picked, slots picked (snacks/smoothies stay personal, never planned
-  here), per-person ATTENDANCE days (`away`: personId → dates; an away day
-  seats that person on NONE of the day's tables, so cook totals, plates and
-  the buy all shrink with the seat, and the model is told to plan them no
-  plate), optional cuisine/theme, per-meal bank pick or special, per-person
+  plans every remaining picked meal that has no table yet — people picked,
+  slots picked (all five: smoothie and snack are plannable chips since
+  2026-08-28/plenum, off by default without a brigade so left alone they
+  stay personal), per-person ATTENDANCE (`away`: personId → entries; a
+  whole-day entry `"YYYY-MM-DD"` seats that person on NONE of the day's
+  tables, a per-meal entry `"YYYY-MM-DD|slot"` empties just that one seat —
+  cook totals, plates and the buy all shrink either way, and the model is
+  told to plan them no plate). With a buffet currency on the runner's
+  profile the run claims the preferred slot's meals as dining swipes first
+  (P5/P10, `weekRunSwipes` in plan.js): the runner goes off those pots via
+  per-meal away entries and the swipes are seeded pinned into their own
+  plan (`planSwipes`), reported back as `swiped`. Optional cuisine/theme,
+  per-meal bank pick or special, per-person
   plate specs with weighed gram amounts so each person lands near their own
   daily calories/protein while the house cooks each slot ONCE. Each meal
   lands as an ordinary table via the same apply path as `/dinner` (specials

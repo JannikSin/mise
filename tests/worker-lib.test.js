@@ -23,6 +23,7 @@ import {
   validateDinnerDecision,
   buildDinnerWeekRequest,
   validateDinnerWeek,
+  WEEK_MEAL_SLOTS,
   hitsAvoid,
   screenTailorAvoid,
   specialAvoidHits,
@@ -512,6 +513,54 @@ test("buildDinnerWeekRequest carries attendance so an away day plans no plate", 
   const text = req.messages[0].content[0].text;
   assert.match(text, /\[mom\] is NOT at the table on 2026-08-13, 2026-08-14/);
   assert.match(text, /no plate those days/);
+});
+
+test("a date|slot away entry empties ONE meal, not the day (a dining swipe)", () => {
+  // 2026-08-28 plenum: the week run takes the runner off just the lunch pot
+  // when a swipe covers it — dinner that same day still gets their plate
+  const req = buildDinnerWeekRequest({
+    meals: [
+      { date: "2026-08-31", slot: "lunch" },
+      { date: "2026-08-31", slot: "dinner" },
+    ],
+    cuisine: "",
+    note: "",
+    away: { david: ["2026-08-31|lunch"] },
+    people: sanitizePeople([
+      { id: "david", name: "David", goal: "gain", calories: 3700, protein: 210 },
+      { id: "mom", name: "Mom", goal: "loss", calories: 1500, protein: 100 },
+    ]),
+    candidates: [],
+    model: "m",
+  });
+  const text = req.messages[0].content[0].text;
+  assert.match(text, /\[david\] is NOT at lunch on 2026-08-31/);
+  assert.match(text, /no lunch plate that day/);
+  assert.doesNotMatch(text, /\[david\] is NOT at the table/);
+});
+
+test("smoothie and snack are plannable week slots the tool schema accepts", () => {
+  // 2026-08-28 plenum: a brigade sharing its smoothies was silently dropped
+  // by the old breakfast/lunch/dinner enum
+  assert.deepEqual(WEEK_MEAL_SLOTS, ["breakfast", "lunch", "dinner", "smoothie", "snack"]);
+  const req = buildDinnerWeekRequest({
+    meals: [{ date: "2026-08-31", slot: "smoothie" }],
+    cuisine: "",
+    note: "",
+    people: sanitizePeople([
+      { id: "david", name: "David", goal: "gain", calories: 3700, protein: 210 },
+    ]),
+    candidates: [
+      { id: "s1", name: "PB banana smoothie", calories: 600, protein: 40, cuisine: "", meal: "smoothie" },
+    ],
+    model: "m",
+  });
+  assert.match(req.messages[0].content[0].text, /2026-08-31 smoothie/);
+  assert.deepEqual(
+    req.tools[0].input_schema.properties.nights.items.properties.slot.enum,
+    WEEK_MEAL_SLOTS,
+  );
+  assert.match(req.system, /smoothie slot gets a blended drink/);
 });
 
 test("validateDinnerWeek: one decision per requested date+slot, junk meals dropped, order kept", () => {

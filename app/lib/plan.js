@@ -669,6 +669,53 @@ export function planSwipes(plan, dates, opts) {
 }
 
 /**
+ * THE WEEK RUN EATS ITS SWIPES (P5, P10, David 2026-08-28 plenum: "put
+ * swipes for lunch every day and have that in there").
+ *
+ * planSwipes budgets the week when HE generates, but the week-of-meals run
+ * used to set a cooked table on every covered lunch, seat him at it, and the
+ * pinned table entry then blocked the swipe forever — the arbitrage lost to
+ * the pot. Given the meals a week run is about to cover, this returns the
+ * date+slot pairs the RUNNER eats on a dining swipe instead of at a cooked
+ * table: the buffet currency's preferred slot, one a day, up to the weekly
+ * allowance net of swipes already in the plan. Same ledger rules as
+ * planSwipes (past days read-only, an away day is skipped, a pinned entry
+ * blocks the slot); a pair whose slot is ALREADY an away/swipe entry is
+ * returned without spending budget, so the runner stays off that pot.
+ * @param {{ date: string, slot: string }[]} meals the pairs the run covers
+ * @param {{ id?: string, perWeek?: number, preferredSlot?: string } | null | undefined} buffet
+ * @param {Plan} plan the runner's own stored plan (table entries stripped)
+ * @param {string} today
+ * @returns {{ date: string, slot: string }[]}
+ */
+export function weekRunSwipes(meals, buffet, plan, today) {
+  const perWeek = Math.max(0, Math.floor(Number(buffet?.perWeek) || 0));
+  if (perWeek === 0 || !buffet?.id) return [];
+  const slot = String(buffet.preferredSlot || "lunch");
+  const outEntries = plan.entries.filter((e) => e.out);
+  const alreadySwiped = new Set(
+    outEntries.filter((e) => /** @type {any} */ (e).currency).map((e) => e.date),
+  );
+  const outAt = new Set(outEntries.map((e) => `${e.date}|${e.slot}`));
+  const busy = new Set(outEntries.map((e) => e.date));
+  let budget = perWeek - alreadySwiped.size;
+  const out = [];
+  for (const m of [...meals].sort((a, b) => a.date.localeCompare(b.date))) {
+    if (m.slot !== slot || m.date < today) continue;
+    if (outAt.has(`${m.date}|${m.slot}`)) {
+      out.push(m); // already eating this meal away — off the pot, no spend
+      continue;
+    }
+    if (busy.has(m.date)) continue; // away in another slot that day
+    if (budget <= 0) continue;
+    if (entriesAt(plan.entries, m.date, slot).some((e) => e.pinned)) continue;
+    out.push(m);
+    budget -= 1;
+  }
+  return out;
+}
+
+/**
  * One tap walks a slot through its away states (7.11):
  *   planned/empty → EATING OUT → DINING SWIPE (only when the profile has a
  *   buffet currency) → back to an empty slot.

@@ -34,7 +34,8 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onSameForEveryone?: (house: string, tableId: string, same: boolean) => void,
  *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>,
  *   onTailorTable: (house: string, tableId: string) => Promise<void>,
- *   onDinnerWeek?: (participantIds: string[], meals: { date: string, slot: string }[], cuisine: string, note: string, away?: Record<string, string[]>, brigade?: import("../lib/tables.js").Brigade | null) => Promise<{ made: { date: string, slot: string, name: string, why: string }[], notes: string[] }>,
+ *   onDinnerWeek?: (participantIds: string[], meals: { date: string, slot: string }[], cuisine: string, note: string, away?: Record<string, string[]>, brigade?: import("../lib/tables.js").Brigade | null, useSwipes?: boolean) => Promise<{ made: { date: string, slot: string, name: string, why: string }[], notes: string[], swiped?: { date: string, slot: string }[] }>,
+ *   swipeCurrency?: { name: string, perWeek: number, slot: string } | null,
  *   scoreboard: { id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, shopped: boolean }[],
  *   weekId: string,
  *   onCreateBrigade: (b: { name: string, memberIds: string[], slots: string[], cookId?: string, from: string, until: string }) => void,
@@ -65,6 +66,7 @@ export function TablesView({
   onSeatScreen,
   onTailorTable,
   onDinnerWeek = undefined,
+  swipeCurrency = null,
   scoreboard,
   weekId,
   onCreateBrigade,
@@ -263,18 +265,20 @@ export function TablesView({
   };
 
   // WEEK OF MEALS (David, 2026-08-09): pick people, slots and a cuisine; one
-  // run sets a tailored shared table for every remaining breakfast/lunch/
-  // dinner that has none yet. Snacks and smoothies stay personal on purpose.
-  const WEEK_SLOTS = ["breakfast", "lunch", "dinner"];
+  // run sets a tailored shared table for every remaining picked meal that
+  // has none yet. Smoothie and snack are chips too (2026-08-28 plenum: a
+  // brigade sharing its smoothies found them silently dropped) — off by
+  // default without a brigade, so left alone they stay personal.
+  const WEEK_SLOTS = ["breakfast", "lunch", "dinner", "smoothie", "snack"];
   const [weekForm, setWeekForm] = useState(
-    /** @type {null | { unpicked: string[], slots: string[], away: Record<string, string[]>, cuisine: string, note: string }} */ (
+    /** @type {null | { unpicked: string[], slots: string[], away: Record<string, string[]>, cuisine: string, note: string, swipes: boolean }} */ (
       null
     ),
   );
   const [weekBusy, setWeekBusy] = useState(false);
   const [weekErr, setWeekErr] = useState("");
   const [weekResult, setWeekResult] = useState(
-    /** @type {null | { made: { date: string, slot: string, name: string, why: string }[], notes: string[] }} */ (
+    /** @type {null | { made: { date: string, slot: string, name: string, why: string }[], notes: string[], swiped?: { date: string, slot: string }[] }} */ (
       null
     ),
   );
@@ -299,7 +303,13 @@ export function TablesView({
       .flatMap((date) =>
         slots.filter((slot) => !takenMeals.has(`${date}|${slot}`)).map((slot) => ({ date, slot })),
       );
-  const weekMeals = mealsFor(weekForm?.slots ?? WEEK_SLOTS);
+  // the slots a fresh form starts with: the brigade's own shared slots when
+  // one is active (smoothie/snack included if the brigade shares them),
+  // else the three classic cooked meals — smoothie/snack stay opt-in chips
+  const defaultSlots = activeBrigade
+    ? WEEK_SLOTS.filter((sl) => activeBrigade.slots.includes(sl))
+    : ["breakfast", "lunch", "dinner"];
+  const weekMeals = mealsFor(weekForm?.slots ?? defaultSlots);
   // the bank's own cuisines as one-tap chips; free text still wins
   const cuisineChips = [
     ...new Set(
@@ -330,6 +340,7 @@ export function TablesView({
         weekForm.note.trim(),
         away,
         activeBrigade,
+        weekForm.swipes,
       );
       setWeekResult(result);
       setWeekForm(null);
@@ -716,7 +727,7 @@ export function TablesView({
         html`<div class="actions">
           <button
             class="ask"
-            disabled=${tokenBlocked || mealsFor(WEEK_SLOTS).length === 0}
+            disabled=${tokenBlocked || mealsFor(defaultSlots).length === 0}
             onClick=${() => {
               setWeekResult(null);
               setWeekErr("");
@@ -726,12 +737,14 @@ export function TablesView({
                       .map((p) => /** @type {string} */ (p.id))
                       .filter((id) => !activeBrigade.memberIds.includes(id))
                   : [],
-                slots: activeBrigade
-                  ? WEEK_SLOTS.filter((sl) => activeBrigade.slots.includes(sl))
-                  : [...WEEK_SLOTS],
+                slots: [...defaultSlots],
                 away: {},
                 cuisine: "",
                 note: "",
+                // with a buffet currency on the profile, the preferred slot
+                // defaults to dining swipes (P5, P10) — the chip below turns
+                // it off for a week of cooked lunches
+                swipes: Boolean(swipeCurrency),
               });
             }}
           >
@@ -742,9 +755,9 @@ export function TablesView({
                   ? tokenBroken(repo?.auth)
                     ? "needs the token — fix it in Settings"
                     : "needs the token — connect it in Settings"
-                  : mealsFor(WEEK_SLOTS).length === 0
+                  : mealsFor(defaultSlots).length === 0
                     ? "every remaining meal already has a table"
-                    : `one shared pot per meal, everyone's own portion — covers ${mealsFor(WEEK_SLOTS).length} meals`
+                    : `one shared pot per meal, everyone's own portion — covers ${mealsFor(defaultSlots).length} meals`
               }
             </small>
           </button>
@@ -760,8 +773,8 @@ export function TablesView({
           <p class="hint">
             the house cooks each meal ONCE and everyone eats the same food — each plate is portioned
             in grams to that person's own calories, protein and diet. Meals that already have a
-            table at this house (or that you're seated at elsewhere) are left alone; snacks and
-            smoothies stay personal.
+            table at this house (or that you're seated at elsewhere) are left alone; leave the
+            smoothie and snack chips off to keep those personal.
           </p>
           <div class="chips wrapchips" role="group" aria-label="Meals to cover">
             ${WEEK_SLOTS.map((slot) => {
@@ -784,6 +797,38 @@ export function TablesView({
               `;
             })}
           </div>
+          ${
+            // MY SWIPES EAT MY LUNCHES (P5, P10, David 2026-08-28: "put
+            // swipes for lunch every day"): with a buffet currency on the
+            // profile, the run makes the preferred slot a dining swipe for
+            // ME each day (up to the allowance) instead of seating me at a
+            // cooked pot the swipe already paid for. Visible and turnoffable
+            // here, never silent.
+            swipeCurrency &&
+            weekForm.slots.includes(swipeCurrency.slot) &&
+            html`
+              <div class="chips wrapchips" role="group" aria-label="Dining swipes">
+                <button
+                  class=${weekForm.swipes ? "chip on" : "chip"}
+                  aria-pressed=${weekForm.swipes}
+                  onClick=${() => setWeekForm({ ...weekForm, swipes: !weekForm.swipes })}
+                >
+                  🎫 my
+                  ${swipeCurrency.slot === "lunch" ? "lunches" : `${swipeCurrency.slot}s`} are
+                  dining swipes
+                </button>
+              </div>
+              ${
+                weekForm.swipes &&
+                html`<p class="hint">
+                  each day's ${SLOT_META[swipeCurrency.slot]?.full.toLowerCase() ??
+                  swipeCurrency.slot}
+                  becomes a 🎫 swipe on your plan (up to ${swipeCurrency.perWeek}/week) with PICK MY
+                  TRAY to plan your plate at the hall — no cooked pot is sized for you there.
+                </p>`
+              }
+            `
+          }
           <div class="chips wrapchips" role="group" aria-label="Who's eating this week">
             ${houseMates.map((p) => {
               const on = !weekForm.unpicked.includes(p.id);
@@ -919,11 +964,14 @@ export function TablesView({
         weekResult &&
         html`<div class="tile buffer" role="status">
           <div class="k">
-            ${
-              weekResult.made.length === 0
+            ${(() => {
+              // swipes count as covered meals: a run that placed 7 swipes
+              // and no tables still set the week, and must say so
+              const covered = weekResult.made.length + (weekResult.swiped ?? []).length;
+              return covered === 0
                 ? "🗓 no meals were set"
-                : `🗓 week set · ${weekResult.made.length} ${weekResult.made.length === 1 ? "meal" : "meals"}`
-            }
+                : `🗓 week set · ${covered} ${covered === 1 ? "meal" : "meals"}`;
+            })()}
           </div>
           ${weekResult.made.map(
             (m) => html`
@@ -934,6 +982,20 @@ export function TablesView({
               </div>
             `,
           )}
+          ${
+            // the swipes the run placed on MY plan (P5, P10): named, not
+            // implied — each one carries PICK MY TRAY on the Plan tab
+            (weekResult.swiped ?? []).length > 0 &&
+            html`<div class="d">
+              🎫
+              ${(weekResult.swiped ?? [])
+                .map((s) => parseLocalIso(s.date).toLocaleDateString([], { weekday: "short" }))
+                .join(", ")}
+              ${SLOT_META[(weekResult.swiped ?? [])[0]?.slot ?? "lunch"]?.label ?? "LUN"}:
+              <b>dining swipe</b>
+              <span class="hint"> — on your plan with 🍽 PICK MY TRAY to plan your plate</span>
+            </div>`
+          }
           ${weekResult.notes.map((n, i) => html`<p class="hint scanerr" key=${i}>${n}</p>`)}
           ${
             weekResult.made.length > 0
@@ -942,7 +1004,11 @@ export function TablesView({
                   List and you can shop today. Not feeling one? Cancel that table and set it by
                   hand.
                 </p>`
-              : html`<p class="hint">nothing changed — run it again or set meals by hand below.</p>`
+              : (weekResult.swiped ?? []).length > 0
+                ? ""
+                : html`<p class="hint">
+                    nothing changed — run it again or set meals by hand below.
+                  </p>`
           }
           <div class="actions">
             <button class="secondary" onClick=${() => setWeekResult(null)}>DISMISS</button>
