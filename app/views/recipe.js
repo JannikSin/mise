@@ -54,7 +54,7 @@ const clockOf = (ms) => {
  * START / PAUSE / END on a planned entry. END records the span AND marks the
  * meal cooked (the rehomed COOKED write); a cooked entry shows recorded vs
  * stated and takes the "overrun was me" comment the review reads.
- * @param {{ entry: Record<string, any>, statedMinutes?: number, onCooked: (entryId: string, seconds: number) => void, onCookComment?: (entryId: string, text: string) => void }} props
+ * @param {{ entry: Record<string, any>, statedMinutes?: number, onCooked: (entryId: string, seconds?: number) => void, onCookComment?: (entryId: string, text: string) => void }} props
  */
 function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
   const [timer, setTimer] = useState(readTimer);
@@ -129,16 +129,26 @@ function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
       ${running && html`<button onClick=${pause}>⏸ PAUSE</button>`}
       ${mine && !running && html`<button onClick=${resume}>▶ RESUME</button>`}
       ${mine && html`<button class="primary" onClick=${end}>■ END — SERVED, MARK COOKED</button>`}
+      ${
+        // ONE TAP, VALID AFTER THE FACT (doctrine Article 1: 0 of 228
+        // confirmations were ever recorded while the ONLY path was starting
+        // a stopwatch before cooking). Already-cooked-it is the honest
+        // common case and it must not require pretending to time it.
+        !mine &&
+        html`<button class="secondary" onClick=${() => onCooked(entry.id)}>
+          ✓ COOKED IT (no timer)
+        </button>`
+      }
     </div>
     <p class="hint">
-      START when you begin, END when you serve. Ending records the real time beside the plan's
-      promise and marks the meal cooked.
+      START/END times the cook and records the real span. Already ate it? ✓ COOKED IT records it
+      after the fact, no timer needed.
     </p>
   </div>`;
 }
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void }} props
  */
 export function RecipeView({
   recipe,

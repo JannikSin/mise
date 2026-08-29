@@ -1081,6 +1081,13 @@ export function TablesView({
         !tableForm
           ? html`<div class="actions">
               <button class="secondary" onClick=${openTableForm}>+ SET A TABLE</button>
+              <button
+                class="secondary"
+                aria-label="Create a guest profile"
+                onClick=${() => (location.hash = "#/guest")}
+              >
+                🛎 NEW GUEST PROFILE
+              </button>
             </div>`
           : html`<div class="tile tableform">
               <div class="k">Set a table</div>
@@ -1122,7 +1129,17 @@ export function TablesView({
                   (bankRecipes ?? []).map((r) => html`<option value=${r.id}>${r.name}</option>`)
                 }
               </select>
-              ${(profiles ?? []).map((p) => {
+              ${
+                // housemates first, then guesthouse members labeled as
+                // guests (spec §6: seatable from any house; cook and buyer
+                // stay in-house, which cookOf already enforces)
+                [...(profiles ?? [])]
+                  .sort(
+                    (a, b) =>
+                      (a.household === "guesthouse" ? 1 : 0) -
+                      (b.household === "guesthouse" ? 1 : 0),
+                  )
+                  .map((p) => {
                 const seat = tableForm.seats[p.id] ?? { in: false, servings: 1 };
                 const warns = seatWarnings[p.id] ?? [];
                 return html`
@@ -1140,7 +1157,11 @@ export function TablesView({
                             },
                           })}
                       />
-                      ${p.emoji ?? ""} ${p.name ?? p.id}
+                      ${p.emoji ?? ""} ${p.name ?? p.id}${
+                        p.household === "guesthouse"
+                          ? html` <span class="hint">(guest)</span>`
+                          : ""
+                      }
                       ${
                         seat.in &&
                         warns.length > 0 &&

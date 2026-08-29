@@ -58,7 +58,15 @@ function splitList(/** @type {string} */ s) {
     .filter(Boolean);
 }
 
-export function ProfileGateView() {
+/**
+ * @param {{ guest?: boolean, onDone?: (id: string) => void }} [props] guest
+ * mode (guesthouse spec §8, David's yes 2026-08-29 plenum): the SAME
+ * questionnaire, but the profile lands in the `guesthouse` household, the
+ * device stays signed in as its owner, and onDone fires instead of a
+ * profile switch. A guesthouse profile is never a sign-in identity (§5),
+ * so the picker below also refuses to offer one.
+ */
+export function ProfileGateView({ guest = false, onDone = undefined } = {}) {
   const [profiles, setProfiles] = useState(/** @type {Record<string, any>[]} */ ([]));
   const [loading, setLoading] = useState(true);
   const [fallback, setFallback] = useState(false);
@@ -145,6 +153,11 @@ export function ProfileGateView() {
   }, []);
 
   const choose = (/** @type {string} */ id) => {
+    if (guest) {
+      // never sign in as a guest: hand the phone back and land on Tables
+      onDone?.(id);
+      return;
+    }
     localStorage.setItem("mise.activeProfile", id);
     location.reload();
   };
@@ -235,10 +248,15 @@ export function ProfileGateView() {
       // (check-in, scoreboard, money) get hand-added to capabilities when
       // that person actually wants them; features argue their way IN.
       capabilities: /** @type {string[]} */ ([]),
-      // "home" (or blank) is the default: store as absent, not a string
-      ...(household.trim() && household.trim().toLowerCase() !== "home"
-        ? { household: slugify(household) }
-        : {}),
+      // "home" (or blank) is the default: store as absent, not a string.
+      // A guest lands in the guesthouse, always: an explicit slug that
+      // belongs to nobody (the spec's correction 1 — no household at all
+      // would silently mean "home", a real kitchen with real shelves)
+      ...(guest
+        ? { household: "guesthouse" }
+        : household.trim() && household.trim().toLowerCase() !== "home"
+          ? { household: slugify(household) }
+          : {}),
       ...(family.trim() ? { family: slugify(family) } : {}),
     };
     // await the cache writes (not the network flush, which queues and
@@ -311,7 +329,11 @@ export function ProfileGateView() {
     <div class="view">
       <div class="hero">
         <h1>Mise<span>.</span></h1>
-        <div class="sub">who's checking in?</div>
+        <div class="sub">
+          ${guest
+            ? "guest profile — fill this in and the table sets your plate to your own numbers"
+            : "who's checking in?"}
+        </div>
       </div>
       ${loading && html`<p class="hint">loading profiles…</p>`}
       ${
@@ -329,7 +351,10 @@ export function ProfileGateView() {
         // unit inside SYS. Headers only appear once 2+ families exist.
         (() => {
           const famOf = (/** @type {Record<string, any>} */ p) => p.family ?? "";
-          const fams = [...new Set(profiles.map(famOf))];
+          // §5: a guesthouse profile is never a sign-in identity — Sam must
+          // not see Priya, so nobody is ever "inside" the guesthouse
+          const offerable = profiles.filter((p) => p.household !== "guesthouse");
+          const fams = [...new Set(offerable.map(famOf))];
           const showHeaders = fams.filter(Boolean).length > 0 && fams.length > 1;
           const block = (/** @type {Record<string, any>[]} */ list) => html`
             <div class="slots">
@@ -342,24 +367,25 @@ export function ProfileGateView() {
               )}
             </div>
           `;
-          if (!showHeaders) return block(profiles);
+          if (guest) return "";
+          if (!showHeaders) return block(offerable);
           return fams
             .sort((a, b) => (a || "zz").localeCompare(b || "zz"))
             .map(
               (f) => html`
                 <div key=${f || "none"}>
                   <h2 class="block-title">${f ? f.toUpperCase() : "EVERYONE ELSE"}</h2>
-                  ${block(profiles.filter((p) => famOf(p) === f))}
+                  ${block(offerable.filter((p) => famOf(p) === f))}
                 </div>
               `,
             );
         })()
       }
-      <button class="secondary linkbtn" onClick=${() => setChatMode(true)}>
+      <button class="secondary linkbtn" hidden=${guest} onClick=${() => setChatMode(true)}>
         prefer to chat? set up by conversation →
       </button>
-      <details>
-        <summary class="block-title">+ add profile</summary>
+      <details open=${guest}>
+        <summary class="block-title">${guest ? "your profile" : "+ add profile"}</summary>
         <div class="tile">
           <p class="hint">
             fill what you like here, or tap "set up by conversation" above and answer a few
@@ -379,7 +405,7 @@ export function ProfileGateView() {
               onInput=${(/** @type {any} */ e) => setEmoji(e.currentTarget.value)}
             />
           </div>
-          <div class="token-form">
+          <div class="token-form" hidden=${guest}>
             <input
               aria-label="Family this person belongs to"
               placeholder="family (e.g. taranowski)"

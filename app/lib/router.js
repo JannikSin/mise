@@ -20,6 +20,8 @@ export function parseRoute(hash) {
     case "today":
     case "home":
       return { view: "plan" };
+    // "guest" is the guest onboarding form (guesthouse spec §8): David hands
+    // his phone over, the guest fills their own profile, nobody signs in
     case "cookbook":
     case "annotate":
     case "system":
@@ -31,6 +33,7 @@ export function parseRoute(hash) {
     case "ask":
     case "occasions":
     case "tables":
+    case "guest":
       return { view: head };
     // the hall screen is opened FROM a swipe slot, which already knows the
     // date and the meal; carrying them in the hash means it never asks twice

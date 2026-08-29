@@ -3891,6 +3891,20 @@ function App() {
       />`
     }
     ${
+      // GUEST PROFILE (guesthouse spec §8, David's yes 2026-08-29): the
+      // same questionnaire the gate uses, stamped guesthouse, never a
+      // sign-in — hand the phone over, they fill it, the reload lands
+      // back on Tables with them seatable
+      route.view === "guest" &&
+      html`<${ProfileGateView}
+        guest
+        onDone=${() => {
+          location.hash = "#/tables";
+          location.reload();
+        }}
+      />`
+    }
+    ${
       route.view === "hall" &&
       html`<${HallView}
         targets=${targets}
