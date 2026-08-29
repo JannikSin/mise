@@ -1230,9 +1230,13 @@ const DINNER_WEEK_SYSTEM =
   "and cooks these; match the slot — breakfast recipes at breakfast); " +
   "invent a special meal ONLY when no candidate honestly fits, keeping it " +
   "cheap, whole-food-forward and weeknight-simple — and invent at most " +
-  "THREE specials per run, the rest must come from candidates. Vary the " +
-  "week: never " +
-  "the same recipe twice, vary proteins and preparations, keep breakfasts " +
+  "TWO specials per run, the rest must come from candidates. When a " +
+  "slot's candidate list is smaller than its number of days, REPEAT a " +
+  "candidate rather than inventing: repetition is normal life, and a " +
+  "special costs far more of your output budget than a pick. Vary the " +
+  "week where the menu allows it: never the same DINNER twice; a " +
+  "breakfast, smoothie or snack may appear up to three times across the " +
+  "week. Vary proteins and preparations, keep breakfasts " +
   "fast, and honor the cuisine preference where it genuinely fits rather " +
   "than forcing every meal into it. A smoothie slot gets a blended drink " +
   "and a snack slot something small, fast and portable — match the slot, " +
@@ -1341,7 +1345,15 @@ export function buildDinnerWeekRequest({
     .join("\n");
   return {
     model,
-    max_tokens: 16384,
+    // 32k, was 16k (2026-08-29 scorch): a full-week brigade run is up to 35
+    // meals x per-person plates, and each invented special is a complete
+    // recipe in the tool schema. Measured failure at 16k: the lean smoothie
+    // menu (5 options, 7 days) plus "never the same recipe twice" pushed
+    // the model to invent five specials, the tool call truncated at the
+    // cap, and 24 of 28 meals validated away — David saw a one-day week.
+    // The prompt now caps specials at two and allows light-slot repeats,
+    // which shrinks the output; this cap is the belt to that suspender.
+    max_tokens: 32768,
     system: `${DINNER_WEEK_SYSTEM}\n\nPeople at the table:\n${who}\n\nCandidate recipes:\n${menu}`,
     tools: [DINNER_WEEK_TOOL],
     tool_choice: { type: "tool", name: "record_dinner_week" },
@@ -1552,8 +1564,9 @@ const RATE_WINDOW_MS = 10 * 60 * 1000;
  * @param {string} key
  * @param {number} now epoch ms
  * @param {number} [weight] window slots this request consumes (default 1);
- *   /dinnerweek passes 4 — its 16k max_tokens buys ~4x the spend of any
- *   other route, so a stolen token cannot 4x the cost ceiling for free
+ *   /dinnerweek passes 6 — its 32k max_tokens buys the biggest single
+ *   spend of any route, so a stolen token cannot multiply the cost
+ *   ceiling for free
  * @returns {boolean} true if the request may proceed
  */
 export function allowRequest(state, key, now, weight = 1) {

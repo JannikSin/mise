@@ -541,11 +541,14 @@ export default {
         rateState,
         await tokenKey(/** @type {string} */ (token)),
         Date.now(),
-        // /dinnerweek's 16k max_tokens is ~4x any other route's spend;
-        // /annotate is a transcribe call plus up to two 8k annotate
-        // attempts, the most expensive route per request (Tribunal M1);
-        // /kroger/byId fans out one upstream call per UPC
-        url.pathname === "/dinnerweek" ? 4
+        // /dinnerweek's 32k max_tokens (raised from 16k, 2026-08-29: a
+        // 35-meal brigade week with specials truncated at 16k) is the
+        // most expensive single call — weight 6 keeps a stolen token to
+        // ~5 week-runs per window while leaving room for a real re-plan
+        // burst; /annotate is a transcribe call plus up to two 8k annotate
+        // attempts (Tribunal M1); /kroger/byId fans out one upstream call
+        // per UPC
+        url.pathname === "/dinnerweek" ? 6
           : url.pathname === "/annotate" ? 4
           : url.pathname === "/kroger/byId" ? 2
           : 1,
