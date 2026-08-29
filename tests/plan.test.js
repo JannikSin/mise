@@ -34,7 +34,9 @@ import {
   setEntryRecipe,
  planSwipes,
   weekRunSwipes,
-  dailyCovered } from "../app/lib/plan.js";
+  dailyCovered,
+  toggleSwipeEaten,
+  currencyEaten } from "../app/lib/plan.js";
 
 test("prepSundayOf is the day before the week's Monday", () => {
   assert.equal(prepSundayOf("2026-W30"), "2026-07-19");
@@ -960,4 +962,33 @@ test("a budgeted swipe is PINNED, or the generator deletes the thing it exists t
   // before this was fixed: 7 swipes in, 0 out.
   const [s] = planSwipes({ week: "2026-W35", entries: [] }, WEEK_DATES, SWIPE_OPTS).entries;
   assert.equal(s.pinned, true);
+});
+
+// THE SWIPE'S COOKED BUTTON (P1, P11, 2026-08-29 plenum): eatenAt confirms
+// the swipe was spent and its allocated macros actually eaten.
+
+test("toggleSwipeEaten stamps only the swipe entry, and toggles back off", () => {
+  const plan = {
+    week: "2026-W36",
+    entries: [
+      { id: "s", date: "2026-08-31", slot: "lunch", out: true, currency: "swipes", servings: 1 },
+      { id: "m", date: "2026-08-31", slot: "dinner", recipeId: "x", servings: 1 },
+    ],
+  };
+  const on = toggleSwipeEaten(plan, "2026-08-31", "lunch", "2026-08-31");
+  assert.equal(on.entries[0].eatenAt, "2026-08-31");
+  assert.equal(on.entries[1].eatenAt, undefined, "a cooked meal is not a swipe");
+  assert.equal(currencyEaten(on, "swipes"), 1);
+  const off = toggleSwipeEaten(on, "2026-08-31", "lunch", "2026-09-01");
+  assert.equal(off.entries[0].eatenAt, undefined, "tapping again un-eats a mistake");
+  assert.equal(currencyEaten(off, "swipes"), 0);
+});
+
+test("toggleSwipeEaten never touches a plain OUT entry (no currency)", () => {
+  const plan = {
+    week: "2026-W36",
+    entries: [{ id: "o", date: "2026-09-01", slot: "dinner", out: true, servings: 1 }],
+  };
+  const out = toggleSwipeEaten(plan, "2026-09-01", "dinner", "2026-09-01");
+  assert.equal(out.entries[0].eatenAt, undefined);
 });

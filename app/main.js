@@ -99,6 +99,7 @@ import {
   planSwipes,
   weekRunSwipes,
   dailyCovered,
+  toggleSwipeEaten,
 } from "./lib/plan.js";
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
 import { composeManifest, remanifest } from "./lib/manifest.js";
@@ -299,10 +300,18 @@ function App() {
         ? {
             ...cur,
             entries: cur.entries.map((/** @type {any} */ e) =>
-              e.id === existing.id ? { ...e, freeText: label, ...est } : e,
+              e.id === existing.id
+                ? { ...e, freeText: label, ...est, eatenAt: localIsoDate(new Date()) }
+                : e,
             ),
           }
-        : addEntry(cur, date, slot, { freeText: label, servings: 1, out: true, ...est });
+        : addEntry(cur, date, slot, {
+            freeText: label,
+            servings: 1,
+            out: true,
+            ...est,
+            eatenAt: localIsoDate(new Date()),
+          });
       await write(path, next, { raw: true });
       setKrogerLinkNote(
         `${existing ? "Filled in" : "Added to"} ${slot} on ${date}: ${est.estCalories} kcal, ${est.estProtein} g from ${court}.`,
@@ -3764,6 +3773,15 @@ function App() {
         onSwitch=${handleSwitchEntry}
         onOpen=${handleOpenEntry}
         onToggleOut=${handleToggleOut}
+        onSwipeEaten=${(/** @type {string} */ date, /** @type {string} */ slot) =>
+          updatePlan(
+            toggleSwipeEaten(
+              /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
+              date,
+              slot,
+              localIsoDate(new Date()),
+            ),
+          )}
         onGenerateWeek=${handleGenerateWeek}
         buildReport=${buildReport}
         rebuilt=${buildReport !== null}

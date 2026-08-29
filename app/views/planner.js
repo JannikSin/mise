@@ -3,6 +3,7 @@ import { useRef, useState } from "preact/hooks";
 import { targetsSanity } from "../lib/targets.js";
 import {
   currencyUsed,
+  currencyEaten,
   datesOfWeek,
   dayTotals,
   entriesAt,
@@ -60,6 +61,7 @@ function monthDay(isoDate) {
  *   onSwitch: (id: string) => void,
  *   onOpen: (entry: Record<string, any>) => void,
  *   onToggleOut: (date: string, slot: string) => void,
+ *   onSwipeEaten?: (date: string, slot: string) => void,
  *   onGenerateWeek: () => void,
  *   buildReport: import("../lib/weekbuilder.js").WeekReport | null,
  *   rebuilt: boolean,
@@ -90,6 +92,7 @@ export function PlannerView({
   onSwitch,
   onOpen,
   onToggleOut,
+  onSwipeEaten = undefined,
   onGenerateWeek,
   buildReport,
   rebuilt,
@@ -213,7 +216,8 @@ export function PlannerView({
         html`<p class="hint" role="status">
           ${currencies.map((/** @type {any} */ c, /** @type {number} */ i) => {
             const used = currencyUsed(plan, c.id);
-            return html`<span key=${c.id}>${i > 0 ? " · " : ""}🎫 ${c.name}: <span class="num">${used} of ${c.perWeek ?? "?"}</span> planned this week${c.expires === "weekly" && (c.perWeek ?? 0) > used ? html` <span class="hint">(unused ones expire — the 🍴 button on any slot cycles to SWIPE${c.venue === "buffet" ? ", where the buffet eats the protein bill" : ""})</span>` : ""}</span>`;
+            const eaten = currencyEaten(plan, c.id);
+            return html`<span key=${c.id}>${i > 0 ? " · " : ""}🎫 ${c.name}: <span class="num">${eaten} eaten · ${used} of ${c.perWeek ?? "?"}</span> planned this week${c.expires === "weekly" && (c.perWeek ?? 0) > used ? html` <span class="hint">(unused ones expire — the 🍴 button on any slot cycles to SWIPE${c.venue === "buffet" ? ", where the buffet eats the protein bill" : ""})</span>` : ""}</span>`;
           })}
         </p>`
       }
@@ -692,6 +696,25 @@ export function PlannerView({
                           aria-label=${`Pick what to eat at the dining hall for ${full} ${monthDay(date)}`}
                           >🍽 PICK MY TRAY →</a
                         >`
+                      }
+                      ${
+                        // THE SWIPE'S COOKED BUTTON (P1, P11, David
+                        // 2026-08-29): one tap says the swipe was actually
+                        // spent and its allocated macros actually eaten —
+                        // more valuable than any estimate. SCAN MY PLATE's
+                        // log stamps this on its own; this is the no-photo
+                        // path, valid after the fact like every
+                        // confirmation surface (doctrine Article 1).
+                        onSwipeEaten &&
+                        /** @type {any} */ (outEntry)?.currency &&
+                        html`<button
+                          class=${/** @type {any} */ (outEntry)?.eatenAt ? "chip on" : "chip"}
+                          aria-pressed=${Boolean(/** @type {any} */ (outEntry)?.eatenAt)}
+                          aria-label=${`Mark the ${full} ${monthDay(date)} swipe eaten`}
+                          onClick=${() => onSwipeEaten(date, key)}
+                        >
+                          ${/** @type {any} */ (outEntry)?.eatenAt ? "✓ EATEN" : "eaten?"}
+                        </button>`
                       }
                     </div>
                   `;

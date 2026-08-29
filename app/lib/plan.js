@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, cookSeconds?: number, cookComment?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, eatenAt?: string, cookSeconds?: number, cookComment?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any>, fallback?: { savedAt: string, entries: PlanEntry[] }, spend?: { store: string, date: string, total: number }[], reviewNote?: string }} Plan
  */
@@ -404,7 +404,7 @@ function legacyId(e, twinIndex) {
  * @param {Plan} plan
  * @param {string} date
  * @param {string} slot
- * @param {{ recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, estCalories?: number, estProtein?: number, table?: string }} content
+ * @param {{ recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, estCalories?: number, estProtein?: number, table?: string, eatenAt?: string }} content
  * @returns {Plan}
  */
 export function addEntry(plan, date, slot, content) {
@@ -808,6 +808,50 @@ export function cycleSlotAway(plan, date, slot, outEst, swipeEst, currencyId) {
  */
 export function currencyUsed(plan, currencyId) {
   return plan.entries.filter((e) => /** @type {any} */ (e).currency === currencyId).length;
+}
+
+/**
+ * A SWIPE IS CONFIRMED BY EATING IT (P1, P11, David 2026-08-29 plenum:
+ * "an eaten button for the swipes... it tracks the actual swipes that I
+ * use... and it confirms that I will be eating the previously allocated
+ * protein calories"). `eatenAt` on a swipe entry is the cookedAt of a meal
+ * nobody cooks: one tap, valid after the fact (doctrine Article 1), and
+ * SCAN MY PLATE's log stamps it automatically because a photographed,
+ * logged tray was eaten. Toggle semantics mirror toggleEntryCooked.
+ * @param {Plan} plan
+ * @param {string} date
+ * @param {string} slot
+ * @param {string} today stamped on the way IN; cleared on the way out
+ * @returns {Plan}
+ */
+export function toggleSwipeEaten(plan, date, slot, today) {
+  return {
+    ...plan,
+    entries: plan.entries.map((e) => {
+      if (!(e.date === date && e.slot === slot && e.out && /** @type {any} */ (e).currency))
+        return e;
+      const cur = /** @type {any} */ (e);
+      if (cur.eatenAt) {
+        const rest = { ...cur };
+        delete rest.eatenAt;
+        return rest;
+      }
+      return { ...cur, eatenAt: today };
+    }),
+  };
+}
+
+/**
+ * How many of a currency's planned entries were actually EATEN this week —
+ * the number that says whether the 7-swipe plan is being spent or wasted.
+ * @param {Plan} plan
+ * @param {string} currencyId
+ * @returns {number}
+ */
+export function currencyEaten(plan, currencyId) {
+  return plan.entries.filter(
+    (e) => /** @type {any} */ (e).currency === currencyId && /** @type {any} */ (e).eatenAt,
+  ).length;
 }
 
 /**
