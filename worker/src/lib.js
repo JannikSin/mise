@@ -1241,7 +1241,14 @@ const DINNER_WEEK_SYSTEM =
   "a food scale) and concrete modifications toward each person's own " +
   "daily targets — extra rice for a gainer, more vegetables for someone " +
   "losing, a supplemental egg, or an omission with how the cook makes it " +
-  "possible. Across a day the planned plates should land each person near " +
+  "possible. When a bigger eater needs more calories than the shared base " +
+  "plate, give them extra CARB and FAT components (more rice, oats, bread, " +
+  "potato, oil, fruit, a lean side) — NEVER by scaling up the protein " +
+  "component or adding protein-dense extras, unless that person is still " +
+  "short of their protein band. Put most of each person's planned protein " +
+  "in the main cooked meal (dinner, or a cooked lunch); breakfast, " +
+  "smoothie and snack plates stay light on protein. " +
+  "Across a day the planned plates should land each person near " +
   "their daily calories and protein, leaving room for anything personal " +
   "the plan does not cover. CRITICAL: when a person's entry under 'Already " +
   "covered each day' states an amount they eat OUTSIDE these meals (a " +

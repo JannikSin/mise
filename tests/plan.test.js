@@ -35,6 +35,7 @@ import {
  planSwipes,
   weekRunSwipes,
   dailyCovered,
+  leanWeekMenu,
   toggleSwipeEaten,
   currencyEaten } from "../app/lib/plan.js";
 
@@ -947,6 +948,67 @@ test("dailyCovered: unplanned fixed slots + the swipe sum to the off-plan day", 
 test("dailyCovered: nothing off-plan is null, and a missing recipe never counts", () => {
   assert.equal(dailyCovered({ fixedSlots: {} }, BANK, new Set(["dinner"]), null), null);
   assert.equal(dailyCovered({ fixedSlots: { smoothie: "gone" } }, BANK, new Set(["dinner"]), null), null);
+});
+
+// THE LEAN MENU SCREEN (2026-08-29 scorch): deterministic, because the
+// prompt's band + LEAN labels measurably did not hold (asked 100-120 g
+// planned, delivered 139-180 — the model upsized dense picks for calories).
+
+const MENU = [
+  { id: "d-dense", name: "Bulgogi", calories: 900, protein: 60, cuisine: "", meal: "dinner" },
+  { id: "d-lean", name: "Rice+Peas", calories: 505, protein: 20, cuisine: "", meal: "dinner" },
+  { id: "s-shake", name: "Lassi", calories: 457, protein: 41, cuisine: "", meal: "smoothie" },
+  { id: "s-lean1", name: "Lean1", calories: 638, protein: 17, cuisine: "", meal: "smoothie" },
+  { id: "s-lean2", name: "Lean2", calories: 489, protein: 14, cuisine: "", meal: "smoothie" },
+  { id: "s-lean3", name: "Lean3", calories: 415, protein: 12, cuisine: "", meal: "smoothie" },
+  { id: "b-yogurt", name: "Yogurt", calories: 755, protein: 56, cuisine: "", meal: "breakfast" },
+  { id: "b-oats", name: "Oats", calories: 393, protein: 13, cuisine: "", meal: "breakfast" },
+  { id: "b-porridge", name: "Porridge", calories: 361, protein: 13, cuisine: "", meal: "breakfast" },
+  { id: "b-wheat", name: "Wheat", calories: 250, protein: 10, cuisine: "", meal: "breakfast" },
+  { id: "n-jerky", name: "Jerky", calories: 130, protein: 16, cuisine: "", meal: "snack" },
+  { id: "n-mix", name: "Trail mix", calories: 345, protein: 10, cuisine: "", meal: "snack" },
+  { id: "n-slaw", name: "Slaw", calories: 97, protein: 3, cuisine: "", meal: "snack" },
+  { id: "n-salad", name: "Salad", calories: 80, protein: 2, cuisine: "", meal: "snack" },
+];
+// David on a 90 g swipe day: (190-90)*1.2/2500 = 0.048 < 0.055 → tight
+const TIGHT_PEOPLE = [{ id: "david", calories: 3700, protein: 190 }];
+const TIGHT_COVERED = { david: { calories: 1200, protein: 90 } };
+
+test("leanWeekMenu: a tight covered credit strips dense picks from the light slots, dinner untouched", () => {
+  const { candidates, curated } = leanWeekMenu(MENU, TIGHT_PEOPLE, TIGHT_COVERED);
+  assert.equal(curated, true);
+  const ids = candidates.map((c) => c.id);
+  // dense light-slot picks are OFF the menu — a dish not offered cannot be picked
+  assert.ok(!ids.includes("s-shake"));
+  assert.ok(!ids.includes("b-yogurt"));
+  assert.ok(!ids.includes("n-jerky"));
+  // the lean options survive
+  assert.ok(ids.includes("s-lean1") && ids.includes("b-oats") && ids.includes("n-mix"));
+  // dinner keeps its full menu, dense included: the anchor stays real
+  assert.ok(ids.includes("d-dense") && ids.includes("d-lean"));
+});
+
+test("leanWeekMenu: no covered credit, or a roomy remainder, leaves the menu alone", () => {
+  // nobody covered
+  const a = leanWeekMenu(MENU, TIGHT_PEOPLE, {});
+  assert.equal(a.curated, false);
+  assert.equal(a.candidates.length, MENU.length);
+  // covered, but the remainder is roomy: (190-20)*1.2/3200 = 0.064 > 0.055
+  const b = leanWeekMenu(MENU, TIGHT_PEOPLE, { david: { calories: 500, protein: 20 } });
+  assert.equal(b.curated, false);
+});
+
+test("leanWeekMenu: honest-relax keeps the leanest few when a slot has too few lean options", () => {
+  const sparse = [
+    { id: "s1", name: "A", calories: 400, protein: 40, cuisine: "", meal: "smoothie" },
+    { id: "s2", name: "B", calories: 400, protein: 35, cuisine: "", meal: "smoothie" },
+    { id: "s3", name: "C", calories: 400, protein: 30, cuisine: "", meal: "smoothie" },
+    { id: "s4", name: "D", calories: 400, protein: 45, cuisine: "", meal: "smoothie" },
+  ];
+  const { candidates, curated } = leanWeekMenu(sparse, TIGHT_PEOPLE, TIGHT_COVERED);
+  assert.equal(curated, true);
+  // zero pass the density screen, so the 3 leanest stay — never an empty slot
+  assert.deepEqual(candidates.map((c) => c.id).sort(), ["s1", "s2", "s3"]);
 });
 
 test("the placeholder carries everything dayTotals and the generator read", () => {

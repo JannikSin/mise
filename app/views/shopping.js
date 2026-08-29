@@ -285,6 +285,10 @@ export function ShoppingView({
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry" | "combined"} */ ("list"));
   const [manual, setManual] = useState("");
+  // typed pantry add (David 2026-08-29: "I can just type in things" — a
+  // mis-scanned item should never mean re-shooting the shelf until the
+  // camera gets it right). Same applyScanItems path as an approved scan.
+  const [pantryTyped, setPantryTyped] = useState("");
   // which shelf the next photo is of. Tagging the shot turns an additive scan
   // into a SWEEP: those photos become the whole truth about that location.
   const [scanLocation, setScanLocation] = useState("fridge");
@@ -2033,9 +2037,41 @@ export function ShoppingView({
             }
             One pantry, no exempt class: tap an item's state to cycle it. PLENTY means the list
             skips it, LOW puts it on the next list, OUT means it gets bought whenever a recipe needs
-            it. Food arrives on a shelf when you scan the receipt, tap ADD TO PANTRY, or photograph
-            the shelf, and comes off it when you cook the meal.
+            it. Food arrives on a shelf when you scan the receipt, tap ADD TO PANTRY, photograph
+            the shelf, or type it in below, and comes off it when you cook the meal.
           </p>
+          <div class="token-form">
+            <input
+              aria-label="Type an item to add to the pantry"
+              placeholder="type an item (e.g. whey protein)"
+              value=${pantryTyped}
+              onInput=${(/** @type {any} */ e) => setPantryTyped(e.currentTarget.value)}
+            />
+            <button
+              class="secondary"
+              disabled=${!pantryTyped.trim()}
+              aria-label="Add typed item as a shelf-stable staple"
+              onClick=${() => {
+                if (!pantryTyped.trim()) return;
+                onScanApprove([{ name: pantryTyped.trim(), kind: "staple", qty: "" }], "unsorted", "add");
+                setPantryTyped("");
+              }}
+            >
+              + SHELF-STABLE
+            </button>
+            <button
+              class="secondary"
+              disabled=${!pantryTyped.trim() || scanLocation === "unsorted"}
+              aria-label="Add typed item to the ${scanLocation}, dated today"
+              onClick=${() => {
+                if (!pantryTyped.trim()) return;
+                onScanApprove([{ name: pantryTyped.trim(), kind: "fresh", qty: "" }], scanLocation, "add");
+                setPantryTyped("");
+              }}
+            >
+              + ${scanLocation.toUpperCase()}
+            </button>
+          </div>
           <h2 class="block-title">Shelf-stable</h2>
           ${(() => {
             const stateRows = pantryItems(pantry).filter((it) => !isDatedItem(it));

@@ -99,6 +99,7 @@ import {
   planSwipes,
   weekRunSwipes,
   dailyCovered,
+  leanWeekMenu,
   toggleSwipeEaten,
 } from "./lib/plan.js";
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
@@ -3341,7 +3342,7 @@ function App() {
             },
           }
         : null;
-      const candidates = bankRecipesRef.current
+      const rawCandidates = bankRecipesRef.current
         // every plannable slot's recipes, smoothies and snacks included
         // (2026-08-28 plenum: a brigade sharing its smoothies found them
         // silently dropped by the old breakfast/lunch/dinner filter)
@@ -3364,11 +3365,23 @@ function App() {
           cuisine: /** @type {string} */ (r.cuisine ?? ""),
           meal: /** @type {string} */ (r.mealType),
         }));
+      // THE LEAN MENU SCREEN (2026-08-29 scorch): when a swipe/fixed credit
+      // means someone's cooked day must run lean, the too-dense candidates
+      // leave the light slots BEFORE the model sees the menu. The prompt's
+      // band + LEAN labels measurably did not hold on their own (asked for
+      // 100-120 g planned, delivered 139-180); a dish not on the menu
+      // cannot be picked. Dinner/lunch keep the full menu (the anchor).
+      const { candidates, curated } = leanWeekMenu(rawCandidates, facts, coveredById);
       const { nights, notes } =
         cooked.length > 0
           ? await dinnerWeek(facts, candidates, cooked, cuisine, note, away, coveredById)
           : { nights: [], notes: /** @type {string[]} */ ([]) };
       notes.push(...dropNotes);
+      if (curated && cooked.length > 0) {
+        notes.push(
+          "🥗 lean menu: a swipe/fixed credit already carries most of someone's protein, so breakfast, smoothie and snack were picked from the lean half of the bank; dinner kept the full menu",
+        );
+      }
       const house = myHouseOf();
       // resolve every recipe (specials write to the bank) BEFORE touching
       // events, then compose all tables synchronously off a FRESH events read
@@ -3438,16 +3451,18 @@ function App() {
         });
       }
       if (made.length > 0) writeHouseEvents(house, cur);
-      // HONEST CEILING CHECK (P1, P5, plenum round six 2026-08-29: planned
-      // days averaged 274 g against a 215 ceiling and only the Plan tab knew).
+      // HONEST BOUNDS CHECK (P1, P5; per-DAY since 2026-08-29 scorch — the
+      // avg-only version let a 270 g Monday hide behind a lean Sunday).
       // The model is ASKED for a protein band; the arithmetic is VERIFIED
-      // here, and a breach is said in the result instead of discovered later.
+      // here, and a breach is said in the result instead of discovered
+      // later. Both directions: a day over the ceiling wastes money, a day
+      // under the floor breaks the one nonnegotiable, and each names its
+      // dates so 🔁 REPLACE has a target.
       for (const id of participantIds) {
         const t = targetsById.get(id);
-        const ceil =
-          Number(t?.macros?.proteinCeiling) ||
-          Math.round((Number(t?.macros?.protein) || 0) * 1.15);
-        if (!ceil) continue;
+        const floor = Number(t?.macros?.protein) || 0;
+        const ceil = Number(t?.macros?.proteinCeiling) || Math.round(floor * 1.15);
+        if (!ceil && !floor) continue;
         /** @type {Record<string, number>} */
         const byDate = {};
         for (const { n } of resolved) {
@@ -3456,15 +3471,39 @@ function App() {
           const p = (n.plates ?? []).find((/** @type {any} */ x) => x.id === id);
           if (p) byDate[n.date] = (byDate[n.date] ?? 0) + (Number(p.estProtein) || 0);
         }
-        const days = Object.values(byDate);
-        if (days.length === 0) continue;
-        const avg = Math.round(
-          days.reduce((a, b) => a + b, 0) / days.length + (coveredById[id]?.protein ?? 0),
-        );
-        if (avg > ceil) {
-          const who = allProfilesRef.current.find((p) => p.id === id)?.name ?? id;
+        if (Object.keys(byDate).length === 0) continue;
+        // the covered credit is DATE-AWARE here (reviewer catch 2026-08-29):
+        // fixed-slot delivery is daily, but the swipe estimate only lands on
+        // the dates this run actually swiped — a flat credit flagged normal
+        // non-swipe days over the ceiling and hid real floor misses whenever
+        // the allowance covered only part of the planned days
+        const covB = buffetOf(id);
+        const swipeP =
+          swipersById[id] && covB
+            ? buffetMacroEstimate(
+                recipesRef.current,
+                String(covB.preferredSlot || "lunch"),
+                covB,
+              ).estProtein
+            : 0;
+        const fixedP = Math.max(0, (coveredById[id]?.protein ?? 0) - swipeP);
+        const swipeDates = new Set((swipersById[id] ?? []).map((m) => m.date));
+        const covOn = (/** @type {string} */ d) => fixedP + (swipeDates.has(d) ? swipeP : 0);
+        const over = Object.entries(byDate)
+          .filter(([d, g]) => ceil > 0 && g + covOn(d) > ceil)
+          .map(([d, g]) => `${d.slice(5)} ~${Math.round(g + covOn(d))}g`);
+        const short = Object.entries(byDate)
+          .filter(([d, g]) => floor > 0 && g + covOn(d) < floor)
+          .map(([d, g]) => `${d.slice(5)} ~${Math.round(g + covOn(d))}g`);
+        const who = allProfilesRef.current.find((p) => p.id === id)?.name ?? id;
+        if (over.length > 0) {
           notes.push(
-            `⚠ ${who}: planned days average ~${avg} g protein against the ${ceil} g ceiling — 🔁 REPLACE re-picks leaner`,
+            `⚠ ${who}: ${over.length} ${over.length === 1 ? "day is" : "days are"} over the ${ceil} g ceiling (${over.join(", ")}) — 🔁 REPLACE re-picks leaner`,
+          );
+        }
+        if (short.length > 0) {
+          notes.push(
+            `⚠ ${who}: ${short.length} ${short.length === 1 ? "day is" : "days are"} under the ${floor} g floor (${short.join(", ")}) — cover it with their own plan or a bigger plate`,
           );
         }
       }
