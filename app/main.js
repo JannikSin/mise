@@ -3429,6 +3429,36 @@ function App() {
         });
       }
       if (made.length > 0) writeHouseEvents(house, cur);
+      // HONEST CEILING CHECK (P1, P5, plenum round six 2026-08-29: planned
+      // days averaged 274 g against a 215 ceiling and only the Plan tab knew).
+      // The model is ASKED for a protein band; the arithmetic is VERIFIED
+      // here, and a breach is said in the result instead of discovered later.
+      for (const id of participantIds) {
+        const t = targetsById.get(id);
+        const ceil =
+          Number(t?.macros?.proteinCeiling) ||
+          Math.round((Number(t?.macros?.protein) || 0) * 1.15);
+        if (!ceil) continue;
+        /** @type {Record<string, number>} */
+        const byDate = {};
+        for (const { n } of resolved) {
+          const slot = /** @type {string} */ (n.slot ?? "dinner");
+          if (isAway(id, n.date, slot)) continue;
+          const p = (n.plates ?? []).find((/** @type {any} */ x) => x.id === id);
+          if (p) byDate[n.date] = (byDate[n.date] ?? 0) + (Number(p.estProtein) || 0);
+        }
+        const days = Object.values(byDate);
+        if (days.length === 0) continue;
+        const avg = Math.round(
+          days.reduce((a, b) => a + b, 0) / days.length + (coveredById[id]?.protein ?? 0),
+        );
+        if (avg > ceil) {
+          const who = allProfilesRef.current.find((p) => p.id === id)?.name ?? id;
+          notes.push(
+            `⚠ ${who}: planned days average ~${avg} g protein against the ${ceil} g ceiling — 🔁 REPLACE re-picks leaner`,
+          );
+        }
+      }
       // the swipes land IN the plan right now — pinned, with the PICK MY
       // TRAY link the planner already puts on every swipe entry — not on
       // some later GENERATE he has to remember (the 2026-08-24 lesson)

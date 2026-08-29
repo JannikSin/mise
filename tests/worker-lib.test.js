@@ -562,9 +562,35 @@ test("a covered entry makes the model aim at the REMAINDER of the day (plenum r2
   const text = req.messages[0].content[0].text;
   assert.match(text, /\[david\] already eats ~1902 kcal \/ ~116 g protein each day/);
   assert.match(text, /a dining-hall lunch and a fixed smoothie/);
-  // 3700-1902 and 190-116, computed FOR the model, not left to it
-  assert.match(text, /aim at roughly 1798 kcal \/ 74 g protein a day/);
+  // 3700-1902 and 190-116, computed FOR the model, not left to it — as a
+  // BAND with a waste warning (round six: the model held calories and blew
+  // protein 274 vs 215 when given a single number)
+  assert.match(text, /aim at roughly 1798 kcal a day/);
+  assert.match(text, /between 74 and 89 g/);
+  assert.match(text, /money spent on macros the covered meals already deliver/);
   assert.match(req.system, /MINUS that amount/);
+  assert.match(req.system, /candidates marked LEAN/);
+});
+
+test("candidates carry LEAN / PROTEIN-DENSE markers so the swipe-day picks exist by name", () => {
+  const req = buildDinnerWeekRequest({
+    meals: [{ date: "2026-08-31", slot: "dinner" }],
+    cuisine: "",
+    note: "",
+    people: sanitizePeople([
+      { id: "david", name: "David", goal: "gain", calories: 3700, protein: 190 },
+    ]),
+    candidates: [
+      { id: "lean1", name: "Swipe-night veg", calories: 600, protein: 12, cuisine: "", meal: "dinner" },
+      { id: "dense1", name: "Chicken bowl", calories: 700, protein: 55, cuisine: "", meal: "dinner" },
+      { id: "mid1", name: "Middle dish", calories: 700, protein: 30, cuisine: "", meal: "dinner" },
+    ],
+    model: "m",
+  });
+  assert.match(req.system, /lean1: Swipe-night veg \(dinner, 600 kcal, 12g P · LEAN\)/);
+  assert.match(req.system, /dense1: Chicken bowl \(dinner, 700 kcal, 55g P · PROTEIN-DENSE\)/);
+  assert.match(req.system, /mid1: Middle dish \(dinner, 700 kcal, 30g P\)/);
+  assert.doesNotMatch(req.system, /mid1[^\n]*(LEAN|PROTEIN-DENSE)/);
 });
 
 test("smoothie and snack are plannable week slots the tool schema accepts", () => {

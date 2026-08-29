@@ -1097,7 +1097,12 @@ const DINNER_WEEK_SYSTEM =
   "covered each day' states an amount they eat OUTSIDE these meals (a " +
   "dining-hall swipe, a fixed daily smoothie), their planned plates " +
   "together must aim at their daily targets MINUS that amount — never at " +
-  "the full daily targets, which double-feeds them. Respect diets and " +
+  "the full daily targets, which double-feeds them. Protein above a " +
+  "person's daily need is not a bonus, it is money wasted: when a covered " +
+  "credit already carries much of someone's protein, fill their remaining " +
+  "calories with candidates marked LEAN rather than more protein-dense " +
+  "food, and hold their planned-protein band even when that means a " +
+  "lower-protein pick than you would normally favor. Respect diets and " +
   "never-serve lists absolutely. No em dashes.";
 
 /**
@@ -1117,11 +1122,17 @@ export function buildDinnerWeekRequest({
   const who = people
     .map((p) => `[${p.id}] ${personLine(p)}${p.say ? ` | ask: "${p.say}"` : ""}`)
     .join("\n");
+  // density markers (plenum round six, 2026-08-29): with a swipe already
+  // carrying 90 g, the cooked day must BUY CALORIES, NOT PROTEIN — but the
+  // bank is deliberately protein-forward, so the lean picks (built for
+  // exactly this, the swipe-night class) drown unless they are labeled.
+  // Measured before this: planned days averaged 274 g against a 215 ceiling.
   const menu = candidates
-    .map(
-      (c) =>
-        `${c.id}: ${c.name} (${c.meal ? `${c.meal}, ` : ""}${c.calories} kcal, ${c.protein}g P${c.cuisine ? `, ${c.cuisine}` : ""})`,
-    )
+    .map((c) => {
+      const dens = c.calories > 0 ? (c.protein * 1000) / c.calories : 0;
+      const tag = dens < 30 ? " · LEAN" : dens > 55 ? " · PROTEIN-DENSE" : "";
+      return `${c.id}: ${c.name} (${c.meal ? `${c.meal}, ` : ""}${c.calories} kcal, ${c.protein}g P${c.cuisine ? `, ${c.cuisine}` : ""}${tag})`;
+    })
     .join("\n");
   // away entries are whole days ("YYYY-MM-DD") or one meal ("YYYY-MM-DD|slot",
   // 2026-08-28 plenum: a dining-hall swipe takes a person off ONE slot's pot,
@@ -1152,9 +1163,11 @@ export function buildDinnerWeekRequest({
   const coveredLines = Object.entries(covered ?? {})
     .map(([id, c]) => {
       const person = people.find((p) => p.id === id);
+      const restCal = person ? Math.max(0, Math.round(person.calories - c.calories)) : 0;
+      const restP = person ? Math.max(0, Math.round((person.protein ?? 0) - c.protein)) : 0;
       const rest =
         person && Number(person.calories) > 0
-          ? ` Their planned meals together must aim at roughly ${Math.max(0, Math.round(person.calories - c.calories))} kcal / ${Math.max(0, Math.round((person.protein ?? 0) - c.protein))} g protein a day, NOT the full daily targets.`
+          ? ` Their planned meals together must aim at roughly ${restCal} kcal a day and land the day's planned protein between ${restP} and ${Math.round(restP * 1.2)} g — NOT the full daily targets, and never far above that band: protein beyond it is money spent on macros the covered meals already deliver. Reach the remaining calories with candidates marked LEAN.`
           : "";
       return `[${id}] already eats ~${c.calories} kcal / ~${c.protein} g protein each day outside these meals${c.note ? ` (${c.note})` : ""}.${rest}`;
     })
