@@ -683,13 +683,16 @@ export function clampGuests(t) {
  * same pot with two extra plates on a sensible default profile, not a
  * special event and not a separate feature").
  *
- * A guest has no profile and never will: they are a person at the table for
- * one night, not an account. So the plate they get is solved against a
- * stated, ordinary adult default rather than skipped, and the default is
- * WRITTEN DOWN here where a human can read and argue with it instead of
- * living as an implicit 1.0 somewhere. 2,000 kcal and 90 g of protein is a
- * moderate adult on maintenance; `recomp` clamps are the narrowest set,
- * which is the right bias for a plate nobody has told us anything about.
+ * SUPERSEDED IN PART (David's named yes, 2026-08-29, session plenum, per
+ * the guesthouse spec's ratification gate): a guest MAY now have a profile
+ * — a full one, in the `guesthouse` household, filled in by the guest
+ * themselves at #/guest and seated like anyone else, never a sign-in.
+ * What SURVIVES of the canon: the anonymous walk-in. "Friday it is us plus
+ * two" with no time for forms is still the ➕ GUEST PLATE button, and THAT
+ * plate is solved against this stated, ordinary adult default rather than
+ * skipped — written down here where a human can argue with it. 2,000 kcal
+ * and 90 g protein is a moderate adult on maintenance; `recomp` clamps are
+ * the narrowest set, the right bias for a plate nobody described.
  */
 export const GUEST_TARGETS = Object.freeze({
   phase: "recomp",

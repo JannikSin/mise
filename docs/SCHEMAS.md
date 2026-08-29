@@ -937,6 +937,20 @@ Rules (binding, from the Tribunal gate):
   `recipes/special-<slug>-<date>.json` tagged `"ai-special"` (normal recipe
   schema, `nutrition.method` and `foodGroups.method` = `"estimated"`), so
   macros, shopping, and every seat's plan work unchanged.
+- THE GUESTHOUSE (2026-08-29 plenum, David's named yes on the spec's two
+  gates): a guest profile is an ordinary profiles.json entry with
+  `household: "guesthouse"` plus a normal `profiles/<id>/profile/
+  targets.json`, created by the guest themselves on the host's phone at
+  `#/guest` (the profile gate's questionnaire in guest mode). Guesthouse
+  members are seatable at any house's table (labeled, after housemates),
+  their targets size their tailored plates, their share hits the list and
+  the per-seat pot; cook/buyer stay in-house (`cookOf` unchanged). A
+  guesthouse profile is NEVER a sign-in identity: the gate's picker
+  refuses them, so guests share nothing with each other and see nothing.
+  The anonymous ➕ GUEST PLATE walk-in path survives unchanged with
+  GUEST_TARGETS. Invite-by-link (remote onboarding + guest status page via
+  Worker KV) is specced, NOT built: new unauthenticated write surface,
+  full review pass first — owner: next Mise session, by 2026-09-04.
 - SCAN MY PLATE (Hall screen, Worker `/hallplate`, 2026-08-29 plenum): a
   photo of the actual tray at a dining court plus that meal's published
   items -> matched items with portion counts. The model only identifies
