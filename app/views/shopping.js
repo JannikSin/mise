@@ -42,6 +42,7 @@ import {
   formatStoreQty,
   sectionOf,
   tripOf,
+  isStapleRow,
   cartLines,
 } from "../lib/shopping.js";
 import { AISLES } from "../lib/ingredients.js";
@@ -996,8 +997,37 @@ export function ShoppingView({
     </span>`;
   };
 
+  // Section groups for an arbitrary subset of rows, in the same aisle order
+  const sectionsFor = (/** @type {any[]} */ items) =>
+    aisles.order
+      .map((s) => ({
+        section: s,
+        label: aisles.labels[s] ?? "",
+        items: items.filter((i) => i.section === s),
+      }))
+      .filter((g) => g.items.length > 0);
+
+  // What a trip block adds up to at this store — shown beside the block
+  // title so the staples block can be priced against a bulk order elsewhere
+  const tripSubtotal = (/** @type {{ items: any[] }[]} */ groups) => {
+    let sum = 0;
+    let partial = false;
+    for (const g of groups) {
+      for (const i of g.items) {
+        const c = rowCost(i);
+        if (c) sum += c.cost;
+        else partial = true;
+      }
+    }
+    return sum > 0 ? `$${sum.toFixed(2)}${partial ? "~" : ""}` : "";
+  };
+
   // survey-v2 David-ask #3: split the list into shopping trips when the
-  // profile shops more than once a week. One trip = today's single list.
+  // profile shops more than once a week. One trip = today's single list —
+  // ordered this week's food first, STAPLES LAST (David, 2026-08-30: the
+  // stock-up rows may be bought in bulk online instead, so they read as
+  // their own block with their own subtotal).
+  const stapleItems = tripItems.filter((i) => isStapleRow(i, prices, homeStore));
   const trips =
     shopsPerWeek >= 2
       ? [
@@ -1012,7 +1042,21 @@ export function ShoppingView({
             groups: sections.filter((g) => tripOf(g.section) === "fresh"),
           },
         ].filter((t) => t.groups.length > 0)
-      : [{ key: "all", label: "", groups: sections }];
+      : stapleItems.length > 0
+        ? [
+            {
+              key: "week",
+              label: "This week's food",
+              groups: sectionsFor(tripItems.filter((i) => !isStapleRow(i, prices, homeStore))),
+            },
+            {
+              key: "staples",
+              label: "Staples · stock-up",
+              hint: "These outlast the week — candidates for a bulk order (Amazon, Costco) instead of the trolley. Tick a row here once it's ordered, same as bought.",
+              groups: sectionsFor(stapleItems),
+            },
+          ].filter((t) => t.groups.length > 0)
+        : [{ key: "all", label: "", groups: sections }];
 
   // combined household trip: this profile's list + every other profile's,
   // merged read-time (no third artifact to sync)
@@ -1989,7 +2033,16 @@ export function ShoppingView({
           ${trips.map(
             (trip) => html`
               <div key=${trip.key}>
-                ${trip.label && html`<h2 class="block-title trip-title">${trip.label}</h2>`}
+                ${
+                  trip.label &&
+                  html`<h2 class="block-title trip-title">
+                    ${trip.label}${(() => {
+                      const sub = tripSubtotal(trip.groups);
+                      return sub && html` <span class="num">· ${sub}</span>`;
+                    })()}
+                  </h2>`
+                }
+                ${/** @type {any} */ (trip).hint && html`<p class="hint">${/** @type {any} */ (trip).hint}</p>`}
                 ${trip.groups.length > 0 && colHead()}
                 ${trip.groups.map(
                   (g) => html`

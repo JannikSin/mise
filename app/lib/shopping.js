@@ -13,7 +13,7 @@ import {
   toPreferred,
   toGrams,
 } from "./ingredients.js";
-import { matchPrice, parsePackSize, stem } from "./prices.js";
+import { itemCost, matchPrice, parsePackSize, stem } from "./prices.js";
 
 /**
  * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, checked: boolean, manual: boolean, fromRecipes?: string[] }} ShoppingItem
@@ -37,6 +37,35 @@ const FRESH_AISLES = new Set(["produce", "meat", "seafood", "dairy", "bakery"]);
  */
 export function tripOf(section) {
   return FRESH_AISLES.has(section) ? "fresh" : "pantry";
+}
+
+/**
+ * Is this list row a STAPLE — a shelf-stable buy that mostly outlives the
+ * week (David, 2026-08-30: "non staples first and then staples after,
+ * because we're going to buy some of the staples on Amazon at larger
+ * quantities")? Decided per ROW, never per section: six cans of crushed
+ * tomatoes cooked into this week's chili are this week's food; the salt jar
+ * beside them on the same aisle is stock.
+ *
+ * Rules: anything from a fresh or frozen aisle is never a staple (it cannot
+ * wait for a delivery). A shelf-stable row is a staple when this week eats
+ * under half the package it buys — the P5 stocking split, reused — or when
+ * it is unpriced (an unpriced shelf-stable row like creatine is exactly the
+ * kind of thing bought in bulk online).
+ * @param {{ food: string, qty: number, unit: string, section?: string }} item
+ * @param {import("./prices.js").PriceCatalogue | null} catalogue
+ * @param {string} store
+ * @returns {boolean}
+ */
+export function isStapleRow(item, catalogue, store) {
+  const sec = item.section ?? sectionOf(item.food);
+  // "other" means the taxonomy doesn't know this food — an unclassified row
+  // must never silently wait for a delivery (eggplant and fennel sat in
+  // "other" and drifted into the staples block on the first live run)
+  if (tripOf(sec) === "fresh" || sec === "frozen" || sec === "other") return false;
+  const c = catalogue && store ? itemCost(item, /** @type {any} */ (catalogue), store) : null;
+  if (!c) return true;
+  return c.cost > 0 && c.eaten < c.cost * 0.5;
 }
 
 /**

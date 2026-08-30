@@ -37,6 +37,7 @@ import {
   cycleDayPick,
   expiryFrom,
   cartLines,
+  isStapleRow,
 } from "../app/lib/shopping.js";
 
 test("tripOf: perishable sections are the fresh trip, shelf-stable the pantry trip", () => {
@@ -2130,4 +2131,44 @@ test("checked and unpinned rows never reach the cart", () => {
 test("a line is clamped to what Kroger will accept", () => {
   const lines = cartLines([{ food: "x", qty: 1, unit: "each" }], () => "u1", () => 500);
   assert.equal(lines[0].quantity, 99);
+});
+
+test("isStapleRow: stock-up shelf rows are staples, this week's food is not", () => {
+  const cat = {
+    stores: ["pay-less"],
+    items: [
+      { id: "salt", name: "salt", prices: { "pay-less": { price: 0.89, size: "26 oz" } } },
+      {
+        id: "crushed-tomatoes",
+        name: "crushed tomatoes",
+        prices: { "pay-less": { price: 1.0, size: "15 oz" } },
+      },
+      { id: "milk", name: "milk", prices: { "pay-less": { price: 3.29, size: "1 gal" } } },
+    ],
+  };
+  // a tsp of a 26 oz jar: nearly all of it is stock — staple
+  assert.equal(
+    isStapleRow({ food: "salt", qty: 2.75, unit: "tsp", section: "spices" }, cat, "pay-less"),
+    true,
+  );
+  // six cans cooked into this week's pots: this week's food, same aisle or not
+  assert.equal(
+    isStapleRow({ food: "crushed tomatoes", qty: 6, unit: "can", section: "canned" }, cat, "pay-less"),
+    false,
+  );
+  // fresh aisles are never staples, whatever the fraction
+  assert.equal(
+    isStapleRow({ food: "milk", qty: 1, unit: "cup", section: "dairy" }, cat, "pay-less"),
+    false,
+  );
+  // frozen cannot ride a bulk order either
+  assert.equal(
+    isStapleRow({ food: "frozen blueberries", qty: 1, unit: "cup", section: "frozen" }, cat, "pay-less"),
+    false,
+  );
+  // an unpriced shelf-stable row (creatine, matcha) is exactly the bulk-order kind
+  assert.equal(
+    isStapleRow({ food: "creatine monohydrate", qty: 35, unit: "g", section: "pantry" }, cat, "pay-less"),
+    true,
+  );
 });

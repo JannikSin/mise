@@ -623,7 +623,7 @@ const AISLE_RULES = [
   // (berries, cherries) stay spelled out.
   [
     "produce",
-    /\b(?:onion|garlic|tomato|cucumber|cabbage|spinach|broccoli|cauliflower|mushroom|lemon|lime|ginger|avocado|[a-z]*berr(?:y|ies)|cherr(?:y|ies)|potato|shallot|herb|parsley|cilantro|basil|mint|scallion|lettuce|arugula|kale|carrot|celery|pepper|apple|banana|mango|kiwi|pear|fruit|greens|zucchini|asparagus|edamame|sprouts|green bean|snap peas|vegetable)(?:e?s)?\b/,
+    /\b(?:onion|garlic|tomato|cucumber|cabbage|spinach|broccoli|cauliflower|mushroom|lemon|lime|ginger|avocado|[a-z]*berr(?:y|ies)|cherr(?:y|ies)|potato|shallot|herb|parsley|cilantro|basil|mint|scallion|lettuce|arugula|kale|carrot|celery|pepper|apple|banana|mango|kiwi|pear|fruit|greens|zucchini|eggplant|fennel|asparagus|edamame|sprouts|green bean|snap peas|vegetable)(?:e?s)?\b/,
   ],
   [
     "canned",
@@ -634,7 +634,7 @@ const AISLE_RULES = [
   [
     // cooking oils shelve with the vinegars and dressings in a US store
     "condiments",
-    /\b(?:oil|sauce|soy|vinegar|mustard|sriracha|mayo|dressing|salsa|harissa|marinade|tahini|miso|mirin)(?:e?s)?\b/,
+    /\b(?:oil|sauce|soy|vinegar|mustard|sriracha|mayo|dressing|salsa|harissa|marinade|tahini|miso|mirin|doubanjiang|gochujang|pesto)(?:e?s)?\b/,
   ],
   [
     "spices",
@@ -643,11 +643,11 @@ const AISLE_RULES = [
   ["baking", /\b(?:flour|sugar|baking|yeast|cocoa|vanilla|cornstarch|honey|maple syrup)(?:e?s)?\b/],
   [
     "grains",
-    /\b(?:rice|oats|pasta|noodle|quinoa|couscous|farro|bulgur|barley|tortilla)(?:e?s)?\b/,
+    /\b(?:rice|oats|pasta|noodle|quinoa|couscous|farro|bulgur|barley|tortilla|rigatoni|spaghetti|penne|macaroni|linguine|fettuccine|orzo)(?:e?s)?\b/,
   ],
   [
     "snacks",
-    /\b(?:nut|almond|walnut|cashew|peanut|seed|flaxseed|chia|hemp heart|granola|bar|chip|cracker|apricot|raisin)(?:e?s)?\b/,
+    /\b(?:nut|almond|walnut|pecan|cashew|peanut|seed|flaxseed|chia|hemp heart|granola|bar|chip|cracker|apricot|raisin|date)(?:e?s)?\b/,
   ],
   ["beverages", /\b(?:coffee|tea|juice|water|wine|beer|soda)(?:e?s)?\b/],
   ["household", /\b(?:foil|wrap|bag|towel|soap|detergent)(?:e?s)?\b/],
