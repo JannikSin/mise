@@ -47,7 +47,7 @@ export const TOUR_STEPS = [
     route: "#/tables",
     selector: ".tablecard",
     title: "Tables — shared meals",
-    text: "One shared dish, everyone seated at their own portion, each person's day replans around it. PLAN THE WEEK'S MEALS sets the whole family week in one tap; tailor the plates, or talk out tonight's dinner.",
+    text: "One shared dish, everyone seated at their own portion, each person's day replans around it. SET WHO COOKS creates the standing arrangement, SET THIS WEEK fills every shared meal to each person's numbers; tailor the plates, or talk out tonight's dinner.",
   },
   {
     route: "#/plan",
