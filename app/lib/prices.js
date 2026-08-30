@@ -86,6 +86,16 @@ function words(s) {
  * @returns {PriceItem | null}
  */
 export function matchPrice(food, items) {
+  // exact row first: fuzzy overlap TIES resolve by array order, and
+  // "crushed tomatoes" scores 1.0 against both "tomato" and
+  // "crushed-tomatoes" — the tie read a $2.99 fresh tomato for a $1.00 can
+  // and billed 6 cans at $26.91 (2026-08-30). A row that IS this food by
+  // name or slug is never outranked by a cousin. applyLivePrice already
+  // writes id-first, so this makes read and write agree.
+  const lc = String(food ?? "").trim().toLowerCase();
+  const slug = lc.replace(/\s+/g, "-");
+  const exact = items.find((p) => p.name === lc || p.id === slug);
+  if (exact) return exact;
   const itemWords = words(food);
   const overlap = (/** @type {Set<string>} */ candidate) => {
     if (!candidate.size) return 0;
@@ -229,12 +239,19 @@ export function itemCost(item, catalogue, store) {
       const cost = round(sp.price);
       return { cost, eaten: cost, estimate: true, size: sp.size, packs: 1 };
     }
+    // 10 cloves ≈ 1 purchasable head — packHint's own rule, which this
+    // branch never learned: a 16-clove week billed 16 heads at $0.75 each,
+    // $12 for a dollar and a half of garlic (2026-08-30)
+    const pieces =
+      /clove/.test(item.unit.toLowerCase()) && canonicalFood(item.food).includes("garlic")
+        ? Math.ceil(item.qty / 10)
+        : item.qty;
     const per = pack && dimensionOf(pack.unit) === "count" && pack.qty > 0 ? pack.qty : 1;
-    const packs = Math.max(1, Math.ceil(item.qty / per));
+    const packs = Math.max(1, Math.ceil(pieces / per));
     const cost = round(sp.price * packs);
     return {
       cost,
-      eaten: Math.min(cost, round(sp.price * (item.qty / per))),
+      eaten: Math.min(cost, round(sp.price * (pieces / per))),
       estimate: sp.estimate === true,
       size: sp.size,
       packs,

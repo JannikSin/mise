@@ -2349,6 +2349,10 @@ function App() {
       name: active.name ?? "Brigade",
       iShop,
       nights: myBuys.length,
+      // how many people this one buy feeds — the budget tile judges MY
+      // per-seat share of the eaten figure, never the whole kitchen's bill,
+      // against my personal weeklyBudgetUsd (David, 2026-08-30)
+      seats: Math.max(1, (active.memberIds ?? []).length),
       shopperName: cookName,
       buildWeek,
       rangeLabel,

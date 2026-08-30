@@ -341,3 +341,35 @@ test("applyReceipt creates new rows under the canonical key", () => {
   );
   assert.equal(catalogue.items[0].id, "chicken-breast", "parenthetical stripped, ledger key id");
 });
+
+test("matchPrice: an exact name/slug row beats a fuzzy cousin regardless of order", () => {
+  // the crushed-tomatoes rule (2026-08-30): fuzzy overlap ties at 1.0 for
+  // both "tomato" and "crushed-tomatoes", and the earlier row won — a $2.99
+  // fresh tomato was read for a $1.00 can, billing 6 cans at $26.91
+  const items = [
+    { id: "tomato", name: "tomato", prices: { "pay-less": { price: 2.99, size: "each" } } },
+    {
+      id: "crushed-tomatoes",
+      name: "crushed tomatoes",
+      prices: { "pay-less": { price: 1.0, size: "15 oz" } },
+    },
+  ];
+  assert.equal(matchPrice("crushed tomatoes", items)?.id, "crushed-tomatoes");
+  // and the write side agrees: the row itemCost reads is the $1.00 can
+  const c = itemCost({ food: "crushed tomatoes", qty: 6, unit: "can" }, { items }, "pay-less");
+  assert.equal(c.cost, 6.0);
+  // plain tomato still reads its own row
+  assert.equal(matchPrice("tomato", items)?.id, "tomato");
+});
+
+test("itemCost: garlic cloves buy heads, never a head per clove", () => {
+  // 10 cloves ≈ 1 head (packHint's rule) — 16 cloves billed 16 × $0.75
+  // heads before 2026-08-30
+  const items = [
+    { id: "garlic", name: "garlic", prices: { "pay-less": { price: 0.75, size: "1 ct" } } },
+  ];
+  const c = itemCost({ food: "garlic", qty: 16, unit: "clove" }, { items }, "pay-less");
+  assert.equal(c.cost, 1.5, "16 cloves = 2 heads");
+  const one = itemCost({ food: "garlic", qty: 3, unit: "cloves" }, { items }, "pay-less");
+  assert.equal(one.cost, 0.75, "3 cloves = 1 head");
+});

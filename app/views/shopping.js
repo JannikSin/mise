@@ -226,7 +226,7 @@ const FRESH_STEPS = [
  *   weeklyBudgetUsd?: number,
  *   region?: { country?: string, state?: string },
  *   storeSlug?: string,
- *   brigade?: { id: string, name: string, iShop: boolean, nights: number, shopperName: string, buildWeek: string | null, rangeLabel: string, weekNote: string | null } | null,
+ *   brigade?: { id: string, name: string, iShop: boolean, nights: number, seats: number, shopperName: string, buildWeek: string | null, rangeLabel: string, weekNote: string | null } | null,
  *   onBuildWeek?: (week: string) => void,
  *   repriceNote?: string,
  *   onReceiptApprove?: (store: string, lines: { name: string, price: number, size: string }[]) => void,
@@ -1523,12 +1523,26 @@ export function ShoppingView({
                     ${
                       typeof weeklyBudgetUsd === "number" &&
                       weeklyBudgetUsd > 0 &&
-                      html`<div class="row">
-                        <span class="k">weekly budget $${weeklyBudgetUsd.toFixed(0)}</span>
-                        <span class="status num ${homeSummary.eaten > weeklyBudgetUsd ? "warn" : ""}"
-                          >${homeSummary.eaten > weeklyBudgetUsd ? `eaten share over by $${(homeSummary.eaten - weeklyBudgetUsd).toFixed(2)}` : "eaten share fits ✓"}</span
-                        >
-                      </div>`
+                      (() => {
+                        // a brigade trip feeds every seat, but weeklyBudgetUsd
+                        // is MY number — judging the whole kitchen's eaten
+                        // total against one person's budget read "over by $35"
+                        // on a two-person week that was fine (David,
+                        // 2026-08-30). The even split is the honest headline
+                        // here; exact who-ate-what money lives in house money.
+                        const seats =
+                          brigade?.iShop && (brigade.seats ?? 1) > 1 ? /** @type {number} */ (brigade.seats) : 1;
+                        const share = homeSummary.eaten / seats;
+                        const label = seats > 1 ? `your ≈1/${seats} eaten share` : "eaten share";
+                        return html`<div class="row">
+                          <span class="k"
+                            >weekly budget $${weeklyBudgetUsd.toFixed(0)}${seats > 1 ? " (yours)" : ""}</span
+                          >
+                          <span class="status num ${share > weeklyBudgetUsd ? "warn" : ""}"
+                            >${share > weeklyBudgetUsd ? `${label} over by $${(share - weeklyBudgetUsd).toFixed(2)}` : `${label} ≈ $${share.toFixed(2)} fits ✓`}</span
+                          >
+                        </div>`;
+                      })()
                     }
                     ${
                       homeSummary.unpriced > 0 &&
