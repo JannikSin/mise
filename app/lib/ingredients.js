@@ -258,38 +258,67 @@ const FOOD_UNITS = {
   // same-dimension, listed only to pin the unit the list should read in
   "olive-oil": { unit: "tbsp" },
   "toasted-sesame-oil": { unit: "tbsp" },
-  salt: { unit: "tsp" },
-  "black-pepper": { unit: "tsp" },
-  cayenne: { unit: "tsp" },
-  paprika: { unit: "tsp" },
-  "smoked-paprika": { unit: "tsp" },
-  "ground-cumin": { unit: "tsp" },
+  // Cup weights on the spice/condiment rows (USDA): without one, a tsp-sized
+  // need against a weight-labelled jar cannot convert, itemCost falls back to
+  // "one whole package, flagged", and eaten==cost — $129.00 of the W36 week's
+  // $247 "eaten" was whole spice jars and syrup bottles counted as consumed
+  // (2026-08-30). The trip cost was right; the eaten meter was lying.
+  salt: { unit: "tsp", cup: 288 },
+  "black-pepper": { unit: "tsp", cup: 110 },
+  cayenne: { unit: "tsp", cup: 102 },
+  paprika: { unit: "tsp", cup: 110 },
+  "smoked-paprika": { unit: "tsp", cup: 110 },
+  "ground-cumin": { unit: "tsp", cup: 96 },
   "cocoa-powder": { unit: "tbsp" },
   "sesame-seeds": { unit: "tbsp" },
   // was { unit: "tbsp" } with NO cup weight, so it could not convert to
   // anything purchasable and a real week read "31.25 tbsp" (2026-08-23).
   // 1 tbsp = 7 g, so 1 cup = 112 g.
   "ground-flaxseed": { unit: "g", cup: 112 },
-  honey: { unit: "tbsp" },
-  "maple-syrup": { unit: "tbsp" },
-  sugar: { unit: "tbsp" },
-  mayonnaise: { unit: "tbsp" },
+  honey: { unit: "tbsp", cup: 336 },
+  "maple-syrup": { unit: "tbsp", cup: 315 },
+  sugar: { unit: "tbsp", cup: 200 },
+  mayonnaise: { unit: "tbsp", cup: 232 },
   // cup weight so a "3 tbsp" row can read "≈ 1 × 10 oz" against a
   // weight-labelled bottle (P4: every row maps to a purchasable thing)
   "soy-sauce": { unit: "tbsp", cup: 255 },
   sriracha: { unit: "tbsp" },
-  cornstarch: { unit: "tbsp" },
+  cornstarch: { unit: "tbsp", cup: 128 },
   "dijon-mustard": { unit: "tbsp" },
   "rice-vinegar": { unit: "tbsp" },
   "red-wine-vinegar": { unit: "tbsp" },
   "unsalted-butter": { unit: "tbsp" },
-  "fresh-cilantro": { unit: "cup" },
+  "fresh-cilantro": { unit: "cup", cup: 16 },
   "fresh-parsley": { unit: "tbsp" },
   "bulgogi-marinade": { unit: "tbsp" },
   water: { unit: "cup" },
   milk: { unit: "cup" },
-  "chicken-broth": { unit: "cup" },
-  "beef-broth": { unit: "cup" },
+  "chicken-broth": { unit: "cup", cup: 240 },
+  "beef-broth": { unit: "cup", cup: 240 },
+  "vegetable-broth": { unit: "cup", cup: 240 },
+  "low-sodium-vegetable-broth": { unit: "cup", cup: 240 },
+  "low-sodium-soy-sauce": { unit: "tbsp", cup: 255 },
+  // "ginger" unqualified means the fresh knob in this bank (mapo tofu et al);
+  // a separate key from fresh-ginger on purpose — aliasing them would re-key
+  // the existing pins and catalogue rows written under "ginger"
+  ginger: { unit: "tbsp", cup: 96, piece: 60 },
+  "ground-ginger": { unit: "tsp", cup: 86 },
+  turmeric: { unit: "tsp", cup: 150 },
+  "dried-oregano": { unit: "tsp", cup: 48 },
+  "dried-herbes-de-provence": { unit: "tsp", cup: 43 },
+  "chili-powder": { unit: "tsp", cup: 128 },
+  "baking-powder": { unit: "tsp", cup: 220 },
+  "pine-nuts": { unit: "tbsp", cup: 135 },
+  walnuts: { unit: "cup", cup: 117 },
+  pecans: { unit: "cup", cup: 109 },
+  almonds: { unit: "cup", cup: 143 },
+  raisins: { unit: "cup", cup: 145 },
+  "dark-chocolate-chips": { unit: "cup", cup: 170 },
+  "frozen-mango": { unit: "cup", cup: 165 },
+  "frozen-pineapple-chunks": { unit: "cup", cup: 165 },
+  "fresh-basil": { unit: "cup", cup: 24 },
+  "tomato-paste": { unit: "tbsp", cup: 262 },
+  "fermented-black-beans": { unit: "tbsp", cup: 160 },
   // Piece weights (grams, USDA medium sizes) for every counted food the bank
   // uses: without one, "3 each" against a weight-labelled package cannot be
   // weighed and used to charge one PACKAGE per piece — 3 lemons billed as

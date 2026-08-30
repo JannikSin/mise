@@ -362,6 +362,27 @@ test("matchPrice: an exact name/slug row beats a fuzzy cousin regardless of orde
   assert.equal(matchPrice("tomato", items)?.id, "tomato");
 });
 
+test("itemCost: a tiny need against a whole bottle eats its fraction, not the bottle", () => {
+  // the eaten-meter lie (2026-08-30): 50 g of maple syrup against a 16 fl oz
+  // bottle could not convert (no cup weight), fell to the one-package
+  // fallback, and counted the whole $12.49 bottle as eaten this week —
+  // $129.00 of the W36 "eaten" figure was this class of row
+  const items = [
+    { id: "maple-syrup", name: "maple syrup", prices: { "pay-less": { price: 12.49, size: "16 fl oz" } } },
+  ];
+  const c = itemCost({ food: "maple syrup", qty: 50, unit: "g" }, { items }, "pay-less");
+  assert.equal(c.cost, 12.49, "still buys the whole bottle");
+  assert.ok(c.eaten < 2, `eaten must be the consumed fraction, got $${c.eaten}`);
+  assert.equal(c.estimate, false, "a real price with real math is not an estimate");
+  // a spice-jar tsp need converts too now
+  const jar = [
+    { id: "ground-ginger", name: "ground ginger", prices: { "pay-less": { price: 8.29, size: "1.9 oz" } } },
+  ];
+  const g = itemCost({ food: "ground ginger", qty: 1, unit: "tsp" }, { items: jar }, "pay-less");
+  assert.equal(g.cost, 8.29);
+  assert.ok(g.eaten < 0.5, `1 tsp of a jar is cents, got $${g.eaten}`);
+});
+
 test("itemCost: garlic cloves buy heads, never a head per clove", () => {
   // 10 cloves ≈ 1 head (packHint's rule) — 16 cloves billed 16 × $0.75
   // heads before 2026-08-30
