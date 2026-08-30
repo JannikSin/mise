@@ -28,6 +28,41 @@ export function normalizeLedger(raw) {
 }
 
 /**
+ * What one cooked serving of a recipe costs to EAT at a store — the
+ * ingredients' consumed fractions (`itemCost().eaten`), never whole packs.
+ * This is the composer's cost signal (David's yes, 2026-08-30: "let the
+ * composer see cost"): recipeServingCost below charges whole packages, so a
+ * pinch from an $8 spice jar reads as +$8 per pot and the ranking would
+ * flee every seasoned dish; the eaten figure is the marginal cost of
+ * cooking the dish one more time, which is the thing a menu choice changes.
+ * `priced` counts ingredients the catalogue could price at all — a recipe
+ * with priced === 0 has NO signal and the caller must substitute something
+ * neutral (the bank median), never zero (free) or Infinity (banned).
+ * @param {Record<string, any>} recipe
+ * @param {import("./prices.js").PriceCatalogue | null} catalogue
+ * @param {string} store
+ * @returns {{ perServing: number, priced: number, of: number }}
+ */
+export function recipeEatenCost(recipe, catalogue, store) {
+  let eaten = 0;
+  let priced = 0;
+  let of = 0;
+  for (const ing of recipe.ingredients ?? []) {
+    of += 1;
+    const c = itemCost(
+      { food: String(ing.food), qty: Number(ing.qty) || 1, unit: String(ing.unit ?? "x") },
+      catalogue,
+      store,
+    );
+    if (!c) continue;
+    priced += 1;
+    eaten += c.eaten;
+  }
+  const servings = Number(recipe.servings) || 1;
+  return { perServing: Math.round((eaten / servings) * 100) / 100, priced, of };
+}
+
+/**
  * What one cooked serving of a recipe costs at a store, floor-priced like
  * the shopping list (unpriceable ingredients count 0 and flag the result).
  * @param {Record<string, any>} recipe

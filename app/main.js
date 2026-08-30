@@ -153,6 +153,7 @@ import {
   recordEntries,
   balancesFor,
   settleBetween,
+  recipeEatenCost,
 } from "./lib/money.js";
 
 export const APP = { name: "Mise", version: "0.3.0" };
@@ -3261,7 +3262,26 @@ function App() {
       const run = regenerate
         ? { ...brigade, salt: (Number(/** @type {any} */ (brigade).salt) || 0) + 1 }
         : brigade;
-      const { events, made, thin, report } = planBrigadeWeek(cur, run, {
+      // THE COMPOSER SEES COST (David's yes, 2026-08-30): per-serving eaten
+      // cost at my store for every bank recipe, computed once per run.
+      // Unpriced recipes get the bank MEDIAN — neither free nor banned —
+      // and with no catalogue or store the composer runs exactly as before.
+      const cat = priceCatalogueRef.current;
+      const store = myPriceStore();
+      /** @type {((recipeId: string) => number) | undefined} */
+      let costOf;
+      if (cat && store) {
+        /** @type {Map<string, number>} */
+        const perServing = new Map();
+        for (const r of bankRecipesRef.current) {
+          const c = recipeEatenCost(r, cat, store);
+          if (c.priced > 0) perServing.set(r.id, c.perServing);
+        }
+        const known = [...perServing.values()].sort((a, b) => a - b);
+        const median = known.length > 0 ? /** @type {number} */ (known[Math.floor(known.length / 2)]) : 0;
+        costOf = (rid) => perServing.get(rid) ?? median;
+      }
+      const { events, made, thin, report, swept } = planBrigadeWeek(cur, run, {
         dates: datesOfWeek(week),
         today,
         house,
@@ -3270,6 +3290,7 @@ function App() {
         plansById,
         bankById: recipesById(bankRecipesRef.current),
         regenerate,
+        ...(costOf ? { costOf } : {}),
       });
       const out =
         run === brigade
@@ -3329,6 +3350,7 @@ function App() {
         made,
         thin,
         report,
+        swept,
         swiped,
         assumed,
         outOfRange: overlap === 0,

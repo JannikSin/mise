@@ -255,9 +255,12 @@ const FOOD_UNITS = {
   "fresh-mint": { unit: "cup", cup: 16 },
   "green-tea-bags": { unit: "each" },
   "red-wine": { unit: "ml" },
-  // same-dimension, listed only to pin the unit the list should read in
-  "olive-oil": { unit: "tbsp" },
-  "toasted-sesame-oil": { unit: "tbsp" },
+  // Cup weights here too (2026-08-30, second round): a gram-written need
+  // against a fl-oz bottle, or a tsp against a weight jar, fell to the
+  // whole-package fallback — 10 g of olive oil "ate" the $7.49 bottle and
+  // the composer's cost signal read a $17/serving rice bowl.
+  "olive-oil": { unit: "tbsp", cup: 216 },
+  "toasted-sesame-oil": { unit: "tbsp", cup: 218 },
   // Cup weights on the spice/condiment rows (USDA): without one, a tsp-sized
   // need against a weight-labelled jar cannot convert, itemCost falls back to
   // "one whole package, flagged", and eaten==cost — $129.00 of the W36 week's
@@ -270,7 +273,7 @@ const FOOD_UNITS = {
   "smoked-paprika": { unit: "tsp", cup: 110 },
   "ground-cumin": { unit: "tsp", cup: 96 },
   "cocoa-powder": { unit: "tbsp" },
-  "sesame-seeds": { unit: "tbsp" },
+  "sesame-seeds": { unit: "tbsp", cup: 144 },
   // was { unit: "tbsp" } with NO cup weight, so it could not convert to
   // anything purchasable and a real week read "31.25 tbsp" (2026-08-23).
   // 1 tbsp = 7 g, so 1 cup = 112 g.
@@ -282,17 +285,20 @@ const FOOD_UNITS = {
   // cup weight so a "3 tbsp" row can read "≈ 1 × 10 oz" against a
   // weight-labelled bottle (P4: every row maps to a purchasable thing)
   "soy-sauce": { unit: "tbsp", cup: 255 },
-  sriracha: { unit: "tbsp" },
+  sriracha: { unit: "tbsp", cup: 260 },
   cornstarch: { unit: "tbsp", cup: 128 },
-  "dijon-mustard": { unit: "tbsp" },
-  "rice-vinegar": { unit: "tbsp" },
-  "red-wine-vinegar": { unit: "tbsp" },
-  "unsalted-butter": { unit: "tbsp" },
+  "dijon-mustard": { unit: "tbsp", cup: 249 },
+  "rice-vinegar": { unit: "tbsp", cup: 239 },
+  "red-wine-vinegar": { unit: "tbsp", cup: 239 },
+  "unsalted-butter": { unit: "tbsp", cup: 227 },
   "fresh-cilantro": { unit: "cup", cup: 16 },
-  "fresh-parsley": { unit: "tbsp" },
-  "bulgogi-marinade": { unit: "tbsp" },
-  water: { unit: "cup" },
-  milk: { unit: "cup" },
+  "fresh-parsley": { unit: "tbsp", cup: 60 },
+  "bulgogi-marinade": { unit: "tbsp", cup: 288 },
+  gochujang: { unit: "tbsp", cup: 336 },
+  "mixed-vegetables": { unit: "g", cup: 91 },
+  water: { unit: "cup", cup: 237 },
+  milk: { unit: "cup", cup: 245 },
+  "whole-milk": { unit: "cup", cup: 245 },
   "chicken-broth": { unit: "cup", cup: 240 },
   "beef-broth": { unit: "cup", cup: 240 },
   "vegetable-broth": { unit: "cup", cup: 240 },
@@ -325,7 +331,7 @@ const FOOD_UNITS = {
   // three 2 lb bags, the 2026-08-18 rescue-cart failure ($43 est → $70 till).
   onion: { unit: "each", piece: 200 },
   "red-onion": { unit: "each", piece: 200 },
-  egg: { unit: "each" },
+  egg: { unit: "each", piece: 50 }, // large egg, USDA — 150 g of eggs is 3, never a 60 ct carton
   tomato: { unit: "each", piece: 123 },
   cucumber: { unit: "each", piece: 300 },
   lemon: { unit: "each", piece: 100 },

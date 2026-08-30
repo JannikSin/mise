@@ -38,7 +38,7 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   weekId: string,
  *   onCreateBrigade: (b: { name: string, memberIds: string[], slots: string[], cookId?: string, from: string, until: string }) => void,
  *   onRemoveBrigade: (id: string) => void,
- *   onRunBrigade: (id: string, week: string, regenerate?: boolean) => Promise<{ made: number, thin: { slot: string, available: number }[], report?: { date: string, seatId: string, kcal: number, protein: number, dayKcal: number, dayProtein: number, share?: number, status: string }[], swiped?: { date: string, slot: string }[], assumed?: { id: string, slot: string }[] }>,
+ *   onRunBrigade: (id: string, week: string, regenerate?: boolean) => Promise<{ made: number, thin: { slot: string, available: number }[], report?: { date: string, seatId: string, kcal: number, protein: number, dayKcal: number, dayProtein: number, share?: number, status: string }[], swept?: { swaps: number, saved: number }, swiped?: { date: string, slot: string }[], assumed?: { id: string, slot: string }[] }>,
  *   showScoreboard?: boolean
  * }} props
  */
@@ -245,7 +245,7 @@ export function TablesView({
     setBrigadeBusy(id);
     setBrigadeNote([]);
     try {
-      const { made, thin, report, swiped, assumed, outOfRange, from, until } =
+      const { made, thin, report, swept, swiped, assumed, outOfRange, from, until } =
         /** @type {any} */ (await onRunBrigade(id, weekId, regenerate));
       const nameOf = (/** @type {string} */ pid) =>
         (profiles ?? []).find((p) => p.id === pid)?.name ?? pid;
@@ -290,6 +290,13 @@ export function TablesView({
       if (rows.length > 0 && offBand.length === 0) {
         lines.push(
           "Every planned day lands in everyone's calorie and protein band (planned from recipe estimates).",
+        );
+      }
+      // the cost sweep says what it did (P5; David's yes 2026-08-30) — a
+      // planned-ingredients estimate, never a till number
+      if (swept?.swaps > 0) {
+        lines.push(
+          `💸 Cost sweep: ${swept.swaps} swap${swept.swaps === 1 ? "" : "s"} to cheaper dishes, ~$${swept.saved.toFixed(2)} less to cook this week, every band kept.`,
         );
       }
       const wordFor = (/** @type {string} */ status) =>

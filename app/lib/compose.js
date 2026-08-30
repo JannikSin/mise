@@ -239,6 +239,12 @@ export function solveSeatDay(dishes, bands, sigma, fixed = {}) {
  *   (Engineer, loop 2: a flat count chose back-to-back stew over three
  *   equally-landing alternatives at zero arithmetic cost). Variety is
  *   still only a tie-break the bands outrank, in both directions.
+ *   Cost is NOT an objective here — deliberately. A per-day cheapest-fresh
+ *   preference was built first and MEASURED WORSE than cost-blind on the
+ *   live wayne week ($217 vs $194, 2026-08-30): greedy days burn the cheap
+ *   dishes early, the freshness window then forces pricier picks later.
+ *   Cost lives at the week level instead (sweepWeekCost below), where a
+ *   swap is only ever accepted when the whole week gets cheaper.
  * @returns {{
  *   picks: Record<string, Record<string, any>>,
  *   seats: Record<string, { servings: Record<string, number>, kcal: number, protein: number, status: string }>,
@@ -304,7 +310,6 @@ export function composeDay(day) {
     if (r) candidates.push(r);
     return r !== null && r.inBand === r.considered && r.repeats === 0;
   };
-
   const start = { ...day.startBySlot };
   if (tryTuple(start)) return finish(candidates);
 
@@ -494,16 +499,31 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
  *   plansById: Map<string, import("./plan.js").Plan | null>,
  *   bankById: Map<string, any>,
  *   regenerate?: boolean,
- * }} ctx
+ *   costOf?: (recipeId: string) => number,
+ * }} ctx `costOf` (David's yes, 2026-08-30: "let the composer see cost...
+ *   the composer needs to work to reduce it") turns on the WEEK-LEVEL cost
+ *   sweep: the week composes exactly as without it, then slot-by-slot swaps
+ *   are accepted only when the day gets strictly cheaper, no seat's status
+ *   degrades, and the swapped dish stays fresh in its slot's window — so the
+ *   swept week can never cost more than the blind one (a per-day
+ *   cheapest-first preference was tried first and MEASURED $23 WORSE on the
+ *   live wayne week: greedy days burn the cheap dishes early and the
+ *   freshness window forces pricier picks later). costOf must map every
+ *   recipe to its per-serving EATEN cost (recipeEatenCost), with a neutral
+ *   bank-median figure for unpriced recipes. Honest determinism scope:
+ *   prices drift, so the same salt can sweep to a different week after a
+ *   re-price — the same input-dependence class as coverage.
  * @returns {{
  *   events: import("./tables.js").HouseEvents,
  *   made: number,
  *   thin: { slot: string, available: number }[],
  *   report: { date: string, seatId: string, kcal: number, protein: number, dayKcal: number, dayProtein: number, share: number, status: string }[],
- * }}
+ *   swept: { swaps: number, saved: number },
+ * }} swept: what the cost sweep did — 0/0 when no costOf was given, or when
+ *   no swap could beat the blind week
  */
 export function planBrigadeWeek(events, brigade, ctx) {
-  if (!validBrigade(brigade)) return { events, made: 0, thin: [], report: [] };
+  if (!validBrigade(brigade)) return { events, made: 0, thin: [], report: [], swept: { swaps: 0, saved: 0 } };
 
   const members = brigade.memberIds
     .filter((id) => (ctx.profilesById.get(id)?.household ?? "home") === ctx.house)
@@ -520,7 +540,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         dinnerAnchor: t?.dinnerAnchor === true,
       };
     });
-  if (members.length < 2) return { events, made: 0, thin: [], report: [] };
+  if (members.length < 2) return { events, made: 0, thin: [], report: [], swept: { swaps: 0, saved: 0 } };
 
   const firstMember = /** @type {{ id: string }} */ (members[0]);
   const cookId = members.some((m) => m.id === brigade.cookId) ? brigade.cookId : firstMember.id;
@@ -609,7 +629,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
     walksBySlot[slot] = walk;
   }
   const liveSlots = brigade.slots.filter((s) => walksBySlot[s]);
-  if (liveSlots.length === 0) return { events: { ...events, tables }, made, thin, report };
+  if (liveSlots.length === 0) return { events: { ...events, tables }, made, thin, report, swept: { swaps: 0, saved: 0 } };
 
   const brigadeSlotSet = new Set(liveSlots);
   // what each slot served on nearby days (existing tables + this run's own
@@ -654,6 +674,8 @@ export function planBrigadeWeek(events, brigade, ctx) {
     ]),
   );
 
+  /** @type {{ date: string, existingBySlot: Record<string, import("./tables.js").TableEvent | undefined>, seats: any[], eating: any[], composed: ReturnType<typeof composeDay>, picks: Record<string, Record<string, any>> }[]} */
+  const composedDays = [];
   for (const date of dates) {
     /** @type {Record<string, import("./tables.js").TableEvent | undefined>} */
     const existingBySlot = {};
@@ -772,7 +794,120 @@ export function planBrigadeWeek(events, brigade, ctx) {
       const rid = picks[slot]?.id;
       if (rid) servedBySlot[slot]?.set(date, rid);
     }
+    composedDays.push({ date, existingBySlot, seats, eating, composed, picks });
+  }
 
+  // THE WEEK-LEVEL COST SWEEP (David's yes, 2026-08-30). Runs AFTER the
+  // whole week composes, so it sees the final freshness landscape a per-day
+  // greedy cannot: a swap is accepted only when the day gets strictly
+  // cheaper, no seat's day-status degrades, and the incoming dish is fresh
+  // in its slot's window on BOTH sides. Monotone by construction — the
+  // swept week is never dearer than the blind one it starts from.
+  const swept = { swaps: 0, saved: 0 };
+  if (ctx.costOf) {
+    const costOf = ctx.costOf;
+    const rank = (/** @type {string} */ st) => (st === "band" ? 3 : st === "floor" ? 2 : 1);
+    const dayCost = (/** @type {any} */ cd) => {
+      let sum = 0;
+      for (const slot of liveSlots) {
+        let servings = 0;
+        for (const s of cd.eating) {
+          const sv = cd.composed?.seats?.[s.id]?.servings?.[slot];
+          if (typeof sv === "number") servings += sv;
+        }
+        sum += costOf(String(cd.picks[slot]?.id ?? "")) * servings;
+      }
+      return sum;
+    };
+    // resolve one exact tuple: composeDay over singleton pools evaluates
+    // just that tuple with the same solve, statuses and hand-edit rules
+    const resolve = (/** @type {any} */ cd, /** @type {Record<string, any>} */ picks) =>
+      composeDay({
+        slots: liveSlots,
+        poolsBySlot: Object.fromEntries(liveSlots.map((s) => [s, picks[s] ? [picks[s]] : []])),
+        startBySlot: picks,
+        seats: cd.eating.map((/** @type {any} */ s) => ({
+          id: s.id,
+          targets: s.targets,
+          bands: s.bands,
+          fixed: s.fixed,
+          exclude: s.exclude,
+        })),
+      });
+    const windowOf = (/** @type {string} */ slot) =>
+      Math.max(0, (walksBySlot[slot]?.length ?? 1) - 1);
+    // The slot's repeat pressure, in the composer's own units (Σ 1/gap over
+    // same-recipe pairs inside the window). The sweep's variety contract is
+    // NOT "never repeat" — a 7-day week over a 6-dish pool must repeat once,
+    // and composeDay itself only prices repeats as a tie-break — it is "no
+    // worse than the blind week": a swap may move a repeat onto a cheaper
+    // dish or push it farther apart, never pack the menu tighter.
+    const repeatMetric = (/** @type {string} */ slot, /** @type {Map<string, string>} */ assignments) => {
+      const w = windowOf(slot);
+      const rows = [...assignments];
+      let metric = 0;
+      for (let i = 0; i < rows.length; i++) {
+        for (let k = i + 1; k < rows.length; k++) {
+          const a = /** @type {[string, string]} */ (rows[i]);
+          const b = /** @type {[string, string]} */ (rows[k]);
+          if (a[1] !== b[1]) continue;
+          const gap = Math.abs(dayOffset(a[0]) - dayOffset(b[0]));
+          if (gap > 0 && gap <= w) metric += 1 / gap;
+        }
+      }
+      return metric;
+    };
+    for (let pass = 0; pass < 6; pass++) {
+      let changed = false;
+      for (const cd of composedDays) {
+        if (!cd.composed) continue;
+        for (const slot of liveSlots) {
+          // never re-plan food that is already cooked
+          if (cd.existingBySlot[slot]?.cookedAt) continue;
+          // read the day's CURRENT baseline each slot — an accepted swap on
+          // an earlier slot of this same day already moved it
+          const base = cd.composed;
+          if (!base) continue;
+          const cur = cd.picks[slot];
+          if (!cur) continue;
+          const curDayCost = dayCost(cd);
+          const cheaper = (poolsBySlot[slot] ?? [])
+            .filter((r) => r.id !== cur.id && costOf(String(r.id)) < costOf(String(cur.id)) - 0.05)
+            .sort((a, b) => costOf(String(a.id)) - costOf(String(b.id)))
+            .slice(0, 6);
+          for (const alt of cheaper) {
+            const served = servedBySlot[slot] ?? new Map();
+            const nextServed = new Map(served);
+            nextServed.set(cd.date, String(alt.id));
+            if (repeatMetric(slot, nextServed) > repeatMetric(slot, served) + 1e-9) continue;
+            const nextPicks = { ...cd.picks, [slot]: alt };
+            const re = resolve(cd, nextPicks);
+            if (!re) continue;
+            const ok = cd.eating.every(
+              (/** @type {any} */ s) =>
+                rank(re.seats[s.id]?.status ?? "") >= rank(base.seats[s.id]?.status ?? ""),
+            );
+            if (!ok) continue;
+            const nextCd = { ...cd, picks: nextPicks, composed: re };
+            const nextCost = dayCost(nextCd);
+            if (nextCost >= curDayCost - 0.25) continue;
+            swept.swaps += 1;
+            swept.saved += curDayCost - nextCost;
+            cd.picks = nextPicks;
+            cd.composed = re;
+            servedBySlot[slot]?.set(cd.date, String(alt.id));
+            changed = true;
+            break;
+          }
+        }
+      }
+      if (!changed) break;
+    }
+    swept.saved = Math.round(swept.saved * 100) / 100;
+  }
+
+  for (const cd of composedDays) {
+    const { date, existingBySlot, seats, eating, composed, picks } = cd;
     for (const slot of liveSlots) {
       const meal = picks[slot];
       if (!meal) continue;
@@ -884,7 +1019,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
   }
 
   tables = [...byId.values()];
-  return { events: { ...events, tables }, made, thin, report };
+  return { events: { ...events, tables }, made, thin, report, swept };
 }
 
 /** FNV-1a, the same deterministic shuffle key tables.js uses. */

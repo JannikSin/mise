@@ -502,3 +502,92 @@ test("a seat with no usable targets gets a NAMED report row, never silence", () 
     "and is named as having no targets, not claimed in-band",
   );
 });
+
+// ---------------------------------------------------------------------------
+// THE WEEK-LEVEL COST SWEEP (David's yes, 2026-08-30: "let the composer see
+// cost... the composer needs to work to reduce it"). A per-day cheapest-first
+// preference was built first and measured $23 WORSE on the live wayne week,
+// so cost lives at the week level: swaps accepted only when the day gets
+// strictly cheaper, no seat's status degrades, and the dish stays fresh.
+// ---------------------------------------------------------------------------
+
+const SWEEP_PRICE = {
+  "bf-oats": 1.2, "bf-yogurt": 2.6, "bf-balls": 1.4, "bf-light": 1.1,
+  "smo-berry": 2.4, "smo-banana": 1.3, "smo-mango": 1.9, "smo-big": 3.1,
+  "snk-mix": 1.8, "snk-cottage": 1.1, "snk-fruitplate": 2.9, "snk-small": 0.9,
+  "din-bulgogi": 6.5, "din-gyros": 0.5, "din-soup": 2.1, "din-stew": 2.4,
+  "din-pasta": 3.2, "din-kofta": 0.6,
+};
+const sweepCostOf = (id) => SWEEP_PRICE[id] ?? 4;
+const sweepWeekCost = (events) =>
+  events.tables.reduce(
+    (sum, t) =>
+      sum +
+      sweepCostOf(t.recipeId) *
+        t.seats.filter((sx) => sx.status !== "skipped").reduce((n, sx) => n + sx.servings, 0),
+    0,
+  );
+
+test("cost sweep: never dearer than blind, every day still lands, deterministic, and it actually swaps", () => {
+  const blind = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+  const aware = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx({ costOf: sweepCostOf }));
+  const again = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx({ costOf: sweepCostOf }));
+  assert.deepEqual(aware.events, again.events, "the sweep is deterministic");
+  assert.ok(
+    sweepWeekCost(aware.events) <= sweepWeekCost(blind.events),
+    `swept week ($${sweepWeekCost(aware.events).toFixed(2)}) must never cost more than blind ($${sweepWeekCost(blind.events).toFixed(2)})`,
+  );
+  for (const row of aware.report) {
+    assert.equal(row.status, "band", `${row.seatId} ${row.date} still lands (${row.dayKcal} kcal / ${row.dayProtein} g)`);
+  }
+  assert.ok(aware.swept.swaps > 0, "the fixture's near-free dinners must attract at least one swap");
+  assert.ok(aware.swept.saved > 0, "a swap that saved nothing should not have been accepted");
+  assert.deepEqual(blind.swept, { swaps: 0, saved: 0 }, "no costOf, no sweep");
+});
+
+test("cost sweep: variety never gets worse than the blind week", () => {
+  // the contract is NOT "no repeats" — 7 days over a 6-dish pool must repeat
+  // — it is "the sweep never packs the menu tighter than blind composed it",
+  // measured in the composer's own units (sum of 1/gap inside the window)
+  const metricOf = (events) => {
+    let metric = 0;
+    const bySlot = new Map();
+    for (const t of events.tables) {
+      if (!bySlot.has(t.slot)) bySlot.set(t.slot, []);
+      bySlot.get(t.slot).push(t);
+    }
+    for (const [slot, tables] of bySlot) {
+      const w = Math.max(0, BANK.filter((r) => r.mealType === slot).length - 1);
+      for (let i = 0; i < tables.length; i++) {
+        for (let k = i + 1; k < tables.length; k++) {
+          if (tables[i].recipeId !== tables[k].recipeId) continue;
+          const gap = Math.abs((Date.parse(tables[i].date) - Date.parse(tables[k].date)) / 86400000);
+          if (gap > 0 && gap <= w) metric += 1 / gap;
+        }
+      }
+    }
+    return metric;
+  };
+  const blind = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+  const aware = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx({ costOf: sweepCostOf }));
+  assert.ok(
+    metricOf(aware.events) <= metricOf(blind.events) + 1e-9,
+    `swept repeat metric ${metricOf(aware.events).toFixed(3)} must not exceed blind ${metricOf(blind.events).toFixed(3)}`,
+  );
+});
+
+test("cost sweep: a cooked table is never re-planned for money", () => {
+  const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+  // stamp every dinner cooked; the sweep must leave all of them alone
+  const cooked = {
+    ...first.events,
+    tables: first.events.tables.map((t) =>
+      t.slot === "dinner" ? { ...t, cookedAt: "2026-08-31T18:00:00Z" } : t,
+    ),
+  };
+  const swept = planBrigadeWeek(cooked, BRIGADE, wayneCtx({ costOf: sweepCostOf, regenerate: true }));
+  for (const t of swept.events.tables.filter((x) => x.slot === "dinner")) {
+    const before = first.events.tables.find((x) => x.id === t.id);
+    assert.equal(t.recipeId, before.recipeId, `cooked dinner ${t.id} keeps its dish`);
+  }
+});
