@@ -25,7 +25,7 @@ import {
   recipesById,
   slotMacroEstimate,
   SWIPE_TEXT,
-  untrustedForAutoPlan,
+  autoPlanEligible,
 } from "./plan.js";
 import { slug, pantryItems, isDatedItem } from "./shopping.js";
 import { enforcedCeilings, enforcedFloors } from "./targets.js";
@@ -762,7 +762,14 @@ export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks 
     // never past the 2x per-entry cap; once the best pick is maxed the next
     // stack tries the next-best DISTINCT snack instead of stalling out.
     const maxedOut = new Set();
-    for (let stacked = 0; stacked < maxSnackStacks; stacked++) {
+    // a snack slot CLAIMED BY A TABLE is off-limits (Engineer E7,
+    // 2026-08-30): the brigade composer owns that slot, and any snack this
+    // pass stacked there would be displaced by mergeViewPlan while its
+    // ingredients stayed on the shopping list — bought food nobody is shown
+    const tableOwnsSnack = entriesAt(next.entries, date, "snack").some(
+      (e) => /** @type {any} */ (e).table,
+    );
+    for (let stacked = 0; stacked < maxSnackStacks && !tableOwnsSnack; stacked++) {
       const s = shortOf(date);
       if (!s.any) break;
       const pick = bestFor(s.protein, proteinEnough(date), maxedOut);
@@ -1335,12 +1342,10 @@ function foodGroupGapsReport(entries, recipesById, dates, dailyDozenPerDay) {
  * @returns {Record<string, any>[]}
  */
 export function generatorEligible(recipes) {
-  return recipes.filter((r) => {
-    const tags = r.tags ?? [];
-    if (tags.includes("occasion-only")) return false;
-    if (tags.includes("remedy")) return false;
-    return !untrustedForAutoPlan(r);
-  });
+  // ONE predicate for every auto-planner since 2026-08-30 (monolith): the
+  // rules above plus the no-drink-as-snack fence live in autoPlanEligible,
+  // shared with brigadePool, so the engines cannot drift apart again.
+  return recipes.filter(autoPlanEligible);
 }
 
 /**

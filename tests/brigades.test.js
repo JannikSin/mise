@@ -4,13 +4,15 @@ import {
   validBrigade,
   brigadePool,
   seatServingsFor,
-  materializeBrigade,
   brigadeTableId,
   addBrigade,
   removeBrigade,
   deriveTables,
   cookOf,
 } from "../app/lib/tables.js";
+// the table factory's sizing half moved into the day composer on 2026-08-30
+// (session monolith); the settled factory behaviours pinned below all hold
+import { planBrigadeWeek } from "../app/lib/compose.js";
 
 // A brigade is a STANDING table: two or more people in ONE house eating the
 // same meals at their own portions. It is built as a table factory, so these
@@ -68,6 +70,7 @@ const ctx = (over = {}) => ({
   house: "taranowski",
   profilesById: PROFILES,
   targetsById: TARGETS,
+  plansById: new Map(),
   bankById: BANK,
   ...over,
 });
@@ -147,7 +150,7 @@ test("same meal, different plates: portions come from each member's own targets"
 });
 
 test("materialize sets one table per date and slot, seated for every member", () => {
-  const { events, made } = materializeBrigade({ tables: [] }, BRIGADE, ctx());
+  const { events, made } = planBrigadeWeek({ tables: [] }, BRIGADE, ctx());
   assert.equal(made, WEEK.length);
   assert.equal(events.tables.length, WEEK.length);
   for (const t of events.tables) {
@@ -164,8 +167,8 @@ test("IDS ARE DETERMINISTIC, so two phones generating offline cannot double-shop
   // The failure this prevents: Mom taps GENERATE in the car, David taps it two
   // minutes later, neither device has seen the other. With random ids nothing
   // collides on the id-keyed merge and the cook buys every dinner twice.
-  const a = materializeBrigade({ tables: [] }, BRIGADE, ctx()).events;
-  const b = materializeBrigade({ tables: [] }, BRIGADE, ctx()).events;
+  const a = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
+  const b = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
   assert.deepEqual(
     a.tables.map((t) => t.id),
     b.tables.map((t) => t.id),
@@ -183,24 +186,53 @@ test("THE PICK DOES NOT DEPEND ON THE RUN DAY (Tribunal H2)", () => {
   // the dates THIS run materializes, so a phone generating on Wednesday chose
   // different dinners than one that ran Monday — same deterministic ids, so
   // the merge silently swapped tonight's meal after the cook had shopped.
-  const monday = materializeBrigade({ tables: [] }, BRIGADE, ctx()).events;
+  const monday = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
   const byDate = new Map(monday.tables.map((t) => [t.date, t.recipeId]));
-  const wednesday = materializeBrigade({ tables: [] }, BRIGADE, ctx({ today: "2026-07-29" })).events;
+  const wednesday = planBrigadeWeek({ tables: [] }, BRIGADE, ctx({ today: "2026-07-29" })).events;
   assert.ok(wednesday.tables.length > 0);
   for (const t of wednesday.tables) {
     assert.equal(t.recipeId, byDate.get(t.date), `${t.date} must not depend on the run day`);
   }
-  // and the walk still repeats nothing inside one pool's worth of days
+  // The ROTATION's no-repeat window shows pure when no seat carries macro
+  // bands (a guest-shaped household): with bands, the composer may repeat
+  // the one recipe that lands everyone — band beats variety by design
+  // (David 2026-08-30: hitting the numbers outranks novelty), and
+  // compose.test.js owns the band assertions.
+  const bandless = new Map([...TARGETS].map(([id]) => [id, {}]));
+  const pure = planBrigadeWeek({ tables: [] }, BRIGADE, ctx({ targetsById: bandless })).events;
   const pool = brigadePool(BANK, [{ id: "mom" }, { id: "laurie" }], "dinner");
-  const seq = [...byDate.values()];
+  const seq = pure.tables.map((t) => t.recipeId);
   for (let i = 0; i + pool.length <= seq.length; i++) {
     assert.equal(new Set(seq.slice(i, i + pool.length)).size, pool.length, "no repeat in window");
   }
 });
 
+test("REAL TARGETS: never the same dinner two nights running while an alternative lands", () => {
+  // the Engineer's loop-2 defect: a flat repeat count chose last night's
+  // stew over three equally-landing dishes from nights back. The repeat
+  // cost is 1/gap now, so a consecutive repeat only ever wins when it is
+  // the ONLY dish that lands the seats. These bands admit chili, tagine
+  // and onion-stew (curry misses), so a gap-1 repeat is never forced —
+  // the default fixture (where ONLY curry lands) shows the opposite,
+  // deliberate behaviour: band beats variety when the pool is that thin.
+  const seven = { ...BRIGADE, until: "2026-08-02" };
+  const wide = new Map([
+    ["mom", { macros: { calories: 1900 } }],
+    ["laurie", { macros: { calories: 1900 } }],
+  ]);
+  const { events } = planBrigadeWeek({ tables: [] }, seven, ctx({ targetsById: wide }));
+  const seq = events.tables
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((t) => t.recipeId);
+  for (let i = 0; i + 1 < seq.length; i++) {
+    assert.notEqual(seq[i], seq[i + 1], `nights ${i} and ${i + 1} repeat ${seq[i]}`);
+  }
+});
+
 test("materialize is idempotent: running it again changes nothing", () => {
-  const first = materializeBrigade({ tables: [] }, BRIGADE, ctx()).events;
-  const second = materializeBrigade(first, BRIGADE, ctx());
+  const first = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
+  const second = planBrigadeWeek(first, BRIGADE, ctx());
   assert.equal(second.made, 0);
   assert.deepEqual(second.events.tables, first.tables);
 });
@@ -209,7 +241,7 @@ test("REGENERATION CARRIES SEATS FORWARD, so a decline is never reversed", () =>
   // Laurie says she is out on Wednesday. David re-rolls on Tuesday. If the
   // rebuild recreated seats from scratch her skip would vanish and the cook
   // would shop and cook a portion nobody eats. That is the Laurie lesson.
-  const built = materializeBrigade({ tables: [] }, BRIGADE, ctx()).events;
+  const built = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
   const target = built.tables[1];
   const withSkip = {
     ...built,
@@ -218,22 +250,28 @@ test("REGENERATION CARRIES SEATS FORWARD, so a decline is never reversed", () =>
         ? {
             ...t,
             seats: t.seats.map((s) =>
-              s.id === "laurie" ? { ...s, status: "skipped", servings: 2 } : s,
+              s.id === "laurie" ? { ...s, status: "skipped", servings: 2, edited: true } : s,
             ),
           }
         : t,
     ),
   };
-  const again = materializeBrigade(withSkip, BRIGADE, ctx({ regenerate: true })).events;
+  const again = planBrigadeWeek(withSkip, BRIGADE, ctx({ regenerate: true })).events;
   const after = again.tables.find((t) => t.id === target.id);
   const laurie = after.seats.find((s) => s.id === "laurie");
   assert.equal(laurie.status, "skipped", "the skip survives a re-roll");
-  assert.equal(laurie.servings, 2, "and so does her edited portion");
+  // her EDITED portion (patchSeat stamps edited: true since 2026-08-30 —
+  // intent is stamped, never inferred) carries while the dish is unchanged;
+  // a swapped dish recomputes, because 2 servings of chili is not 2 of a
+  // different pot
+  if (after.recipeId === target.recipeId) {
+    assert.equal(laurie.servings, 2, "same dish: her edited portion carries");
+  }
 });
 
 test("already-lived days are never touched", () => {
   const mid = "2026-07-29";
-  const { events } = materializeBrigade({ tables: [] }, BRIGADE, ctx({ today: mid }));
+  const { events } = planBrigadeWeek({ tables: [] }, BRIGADE, ctx({ today: mid }));
   assert.deepEqual(
     events.tables.map((t) => t.date),
     ["2026-07-29", "2026-07-30", "2026-07-31"],
@@ -245,7 +283,7 @@ test("ONE HOUSE: a member who moved out stops being planned for", () => {
   // stop riding the cook's shopping list, checked at materialize time rather
   // than trusted from when the brigade was created.
   const moved = new Map([...PROFILES, ["laurie", { id: "laurie", household: "laurie-apt" }]]);
-  const { events, made } = materializeBrigade(
+  const { events, made } = planBrigadeWeek(
     { tables: [] },
     BRIGADE,
     ctx({ profilesById: moved }),
@@ -255,7 +293,7 @@ test("ONE HOUSE: a member who moved out stops being planned for", () => {
 
   // with a third member still in the house it keeps running, minus her
   const three = { ...BRIGADE, memberIds: ["mom", "laurie", "david"] };
-  const still = materializeBrigade({ tables: [] }, three, ctx({ profilesById: moved })).events;
+  const still = planBrigadeWeek({ tables: [] }, three, ctx({ profilesById: moved })).events;
   assert.deepEqual(
     still.tables[0].seats.map((s) => s.id),
     ["mom", "david"],
@@ -264,7 +302,7 @@ test("ONE HOUSE: a member who moved out stops being planned for", () => {
 
 test("a thin pool is reported out loud, never silently repeated", () => {
   const tiny = new Map([["chili", recipe("chili", 500)]]);
-  const { thin, events } = materializeBrigade({ tables: [] }, BRIGADE, ctx({ bankById: tiny }));
+  const { thin, events } = planBrigadeWeek({ tables: [] }, BRIGADE, ctx({ bankById: tiny }));
   assert.deepEqual(thin, [{ slot: "dinner", available: 1 }]);
   assert.equal(events.tables.length, WEEK.length, "the week still fills, honestly repeating");
 });
@@ -272,7 +310,7 @@ test("a thin pool is reported out loud, never silently repeated", () => {
 test("a pool of zero makes nothing at all", () => {
   const members = new Map([...TARGETS]);
   members.set("mom", { ...TARGETS.get("mom"), avoidIngredients: ["lentils", "onion"] });
-  const { events, thin } = materializeBrigade(
+  const { events, thin } = planBrigadeWeek(
     { tables: [] },
     BRIGADE,
     ctx({ targetsById: members }),
@@ -302,7 +340,7 @@ test("addBrigade refuses an invalid one; removeBrigade cleans up its future meal
   assert.equal(withB.brigades.length, 1);
   const id = withB.brigades[0].id;
 
-  const built = materializeBrigade(withB, { ...withB.brigades[0] }, ctx()).events;
+  const built = planBrigadeWeek(withB, { ...withB.brigades[0] }, ctx()).events;
   // a past meal from this brigade, which the money ledger is entitled to keep
   const past = {
     ...built,
@@ -341,7 +379,7 @@ test("A HAND-SET TABLE BEATS THE BRIGADE'S, and the cook shops the meal once", (
   // David sets a family dinner on a night Mom and Laurie's brigade also runs.
   // Setting one by hand is how you say "not the usual tonight": it must win,
   // and the cook must not end up buying both.
-  const built = materializeBrigade({ tables: [] }, BRIGADE, ctx()).events;
+  const built = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
   const handSet = {
     id: "family-1",
     name: "Family dinner",
@@ -379,7 +417,7 @@ test("ROTATING COOKS cycle memberIds by calendar day, derived from the date", ()
   // must come from the DATE, never a loop counter, or regenerating mid-week
   // (past days skipped) would silently reassign the remaining nights.
   const rot = { ...BRIGADE, memberIds: ["mom", "laurie", "david"], rotateCooks: true };
-  const { events } = materializeBrigade({ tables: [] }, rot, ctx());
+  const { events } = planBrigadeWeek({ tables: [] }, rot, ctx());
   const cooks = events.tables
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date))
@@ -391,8 +429,8 @@ test("rotation is stable when generation happens mid-week", () => {
   // Wednesday's device generates with Mon/Tue already lived: the surviving
   // nights keep the cooks the whole house already agreed to.
   const rot = { ...BRIGADE, memberIds: ["mom", "laurie", "david"], rotateCooks: true };
-  const full = materializeBrigade({ tables: [] }, rot, ctx()).events;
-  const late = materializeBrigade({ tables: [] }, rot, ctx({ today: "2026-07-29" })).events;
+  const full = planBrigadeWeek({ tables: [] }, rot, ctx()).events;
+  const late = planBrigadeWeek({ tables: [] }, rot, ctx({ today: "2026-07-29" })).events;
   for (const t of late.tables) {
     const same = full.tables.find((x) => x.id === t.id);
     assert.equal(t.cookId, same.cookId, `${t.date} keeps its cook`);
@@ -405,7 +443,7 @@ test("rotation is stable when generation happens mid-week", () => {
 });
 
 test("regenerate onto a CHANGED bank recomputes servings; skips still carry (Tribunal H3)", () => {
-  const first = materializeBrigade({ tables: [] }, BRIGADE, ctx()).events;
+  const first = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
   // hand-edit mom's servings and skip laurie on the first night
   const night = first.tables.slice().sort((a, b) => a.date.localeCompare(b.date))[0];
   night.seats = night.seats.map((s) =>
@@ -414,7 +452,7 @@ test("regenerate onto a CHANGED bank recomputes servings; skips still carry (Tri
   // the bank changes so the re-roll lands a DIFFERENT recipe on that night
   const fatDish = recipe("zz-massive-lasagna", 1800);
   const bank = new Map([["zz-massive-lasagna", fatDish]]);
-  const re = materializeBrigade(first, BRIGADE, ctx({ bankById: bank, regenerate: true })).events;
+  const re = planBrigadeWeek(first, BRIGADE, ctx({ bankById: bank, regenerate: true })).events;
   const reNight = re.tables.find((t) => t.id === night.id);
   assert.equal(reNight.recipeId, "zz-massive-lasagna");
   const mom = reNight.seats.find((s) => s.id === "mom");
@@ -466,10 +504,10 @@ test("a recipe any member banned outright (avoidRecipes) never reaches the share
   assert.ok(pool.some((r) => r.id === "tagine"), "everything else stays");
 });
 
-test("materializeBrigade honors a member's avoidRecipes from their targets", () => {
+test("planBrigadeWeek honors a member's avoidRecipes from their targets", () => {
   const targets = new Map(TARGETS);
   targets.set("mom", { ...TARGETS.get("mom"), avoidRecipes: ["chili", "tagine", "curry"] });
-  const { events, thin } = materializeBrigade(
+  const { events, thin } = planBrigadeWeek(
     { tables: [] },
     BRIGADE,
     ctx({ targetsById: targets }),
@@ -483,8 +521,16 @@ test("brigade dinners walk a SCATTERED order, still run-day independent", () => 
   // id-sorted adjacency put near-identical dishes on consecutive nights; the
   // hash-shuffled walk must scatter while two run days still agree exactly
   const rot = { ...BRIGADE, until: "2026-08-02" };
-  const a = materializeBrigade({ tables: [] }, rot, ctx()).events;
-  const b = materializeBrigade({ tables: [] }, rot, ctx({ today: "2026-07-29" })).events;
+  // rotation properties show pure without macro bands (band pressure may
+  // deliberately repeat the one recipe that lands everyone — see
+  // compose.test.js for the band side of that trade)
+  const bandless = new Map([...TARGETS].map(([id]) => [id, {}]));
+  const a = planBrigadeWeek({ tables: [] }, rot, ctx({ targetsById: bandless })).events;
+  const b = planBrigadeWeek(
+    { tables: [] },
+    rot,
+    ctx({ targetsById: bandless, today: "2026-07-29" }),
+  ).events;
   const byDate = new Map(a.tables.map((t) => [t.date, t.recipeId]));
   for (const t of b.tables) assert.equal(t.recipeId, byDate.get(t.date));
   // and consecutive days never repeat while the pool lasts
@@ -501,7 +547,7 @@ test("deriveTables exposes EVERY table's batch (allCookExtras), mine stays cook-
   // the "one shopper buys all the family dinners" trip needs every night's
   // batch with its cook, not just the viewer's own nights
   const rot = { ...BRIGADE, memberIds: ["mom", "laurie", "david"], rotateCooks: true };
-  const { events } = materializeBrigade({ tables: [] }, rot, ctx());
+  const { events } = planBrigadeWeek({ tables: [] }, rot, ctx());
   const d = deriveTables([{ house: "taranowski", events }], {
     profileId: "mom",
     bankById: BANK,
@@ -532,10 +578,10 @@ test("deriveTables exposes EVERY table's batch (allCookExtras), mine stays cook-
 });
 
 test("a grocery claim survives brigade regeneration, like a skip does", () => {
-  const first = materializeBrigade({ tables: [] }, BRIGADE, ctx()).events;
+  const first = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
   const night = first.tables.slice().sort((a, b) => a.date.localeCompare(b.date))[0];
   night.buyerId = "laurie";
-  const re = materializeBrigade(first, BRIGADE, ctx({ regenerate: true })).events;
+  const re = planBrigadeWeek(first, BRIGADE, ctx({ regenerate: true })).events;
   assert.equal(
     re.tables.find((t) => t.id === night.id).buyerId,
     "laurie",
@@ -547,7 +593,7 @@ test("cookedAt and sameForEveryone survive regeneration ONLY while the dish is u
   // per-person-plates-design §10 (Tribunal loop-2 N3/C3): the regeneration
   // rebuild-from-field-list used to drop these; carried unconditionally they
   // would stamp a cooked flag onto a swapped dish.
-  const first = materializeBrigade({ tables: [] }, BRIGADE, ctx()).events;
+  const first = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
   const t0 = first.tables[0];
   const marked = {
     ...first,
@@ -556,13 +602,13 @@ test("cookedAt and sameForEveryone survive regeneration ONLY while the dish is u
     ),
   };
   // same pool -> same dish on regenerate -> both fields carry
-  const regen = materializeBrigade(marked, BRIGADE, ctx({ regenerate: true })).events;
+  const regen = planBrigadeWeek(marked, BRIGADE, ctx({ regenerate: true })).events;
   const same = regen.tables.find((t) => t.id === t0.id);
   assert.equal(same?.cookedAt, "2026-07-27");
   assert.equal(same?.sameForEveryone, true);
   // shrink the pool so the pick CHANGES -> neither field may follow the swap
   const smallBank = new Map([...BANK].filter(([id]) => id !== t0.recipeId));
-  const swapped = materializeBrigade(marked, BRIGADE, ctx({ regenerate: true, bankById: smallBank }))
+  const swapped = planBrigadeWeek(marked, BRIGADE, ctx({ regenerate: true, bankById: smallBank }))
     .events;
   const after = swapped.tables.find((t) => t.id === t0.id);
   assert.ok(after && after.recipeId !== t0.recipeId, "the dish actually changed");

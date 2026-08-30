@@ -34,13 +34,11 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onSameForEveryone?: (house: string, tableId: string, same: boolean) => void,
  *   onSeatScreen: (recipeId: string) => Promise<Record<string, string[]>>,
  *   onTailorTable: (house: string, tableId: string) => Promise<void>,
- *   onDinnerWeek?: (participantIds: string[], meals: { date: string, slot: string }[], cuisine: string, note: string, away?: Record<string, string[]>, brigade?: import("../lib/tables.js").Brigade | null, useSwipes?: boolean, replace?: boolean) => Promise<{ made: { date: string, slot: string, name: string, why: string }[], notes: string[], swiped?: { date: string, slot: string }[], swipedOthers?: { name: string, count: number, slot: string }[] }>,
- *   swipeCurrency?: { name: string, perWeek: number, slot: string } | null,
  *   scoreboard: { id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, shopped: boolean }[],
  *   weekId: string,
  *   onCreateBrigade: (b: { name: string, memberIds: string[], slots: string[], cookId?: string, from: string, until: string }) => void,
  *   onRemoveBrigade: (id: string) => void,
- *   onRunBrigade: (id: string, week: string, regenerate?: boolean) => Promise<{ made: number, thin: { slot: string, available: number }[] }>,
+ *   onRunBrigade: (id: string, week: string, regenerate?: boolean) => Promise<{ made: number, thin: { slot: string, available: number }[], report?: { date: string, seatId: string, kcal: number, protein: number, dayKcal: number, dayProtein: number, share?: number, status: string }[], swiped?: { date: string, slot: string }[], assumed?: { id: string, slot: string }[] }>,
  *   showScoreboard?: boolean
  * }} props
  */
@@ -65,8 +63,6 @@ export function TablesView({
   onSameForEveryone,
   onSeatScreen,
   onTailorTable,
-  onDinnerWeek = undefined,
-  swipeCurrency = null,
   scoreboard,
   weekId,
   onCreateBrigade,
@@ -183,21 +179,26 @@ export function TablesView({
     ),
   );
   const [brigadeBusy, setBrigadeBusy] = useState(/** @type {string | null} */ (null));
-  const [brigadeNote, setBrigadeNote] = useState(/** @type {string} */ (""));
+  // the run's result, one line per fact — a 7-day 2-person report as a single
+  // semicolon-joined sentence was an unreadable wall on a phone (Final Gate)
+  const [brigadeNote, setBrigadeNote] = useState(/** @type {string[]} */ ([]));
 
-  const openBrigadeForm = () => {
+  /** @param {Partial<import("../lib/tables.js").Brigade>} [seed] renew path: prefill from the ended record */
+  const openBrigadeForm = (seed) => {
     const until = new Date(`${todayIso}T12:00:00`);
     until.setDate(until.getDate() + 27); // the lib caps a brigade at four weeks
     setBrigadeForm({
-      name: "",
-      memberIds: houseMates.filter((p) => p.id === me).map((p) => p.id),
-      slots: ["dinner"],
-      cookId: me,
-      rotateCooks: false,
+      name: seed?.name ?? "",
+      memberIds:
+        seed?.memberIds?.filter((id) => houseMates.some((p) => p.id === id)) ??
+        houseMates.filter((p) => p.id === me).map((p) => p.id),
+      slots: seed?.slots ?? ["dinner"],
+      cookId: seed?.cookId ?? me,
+      rotateCooks: Boolean(seed?.rotateCooks),
       from: todayIso,
       until: until.toISOString().slice(0, 10),
     });
-    setBrigadeNote("");
+    setBrigadeNote([]);
   };
 
   const toggleIn = (/** @type {string[]} */ list, /** @type {string} */ value) =>
@@ -206,11 +207,13 @@ export function TablesView({
   const submitBrigade = () => {
     if (!brigadeForm) return;
     if (brigadeForm.memberIds.length < 2) {
-      setBrigadeNote("Standing dinners need at least two people — that is what makes them shared.");
+      setBrigadeNote([
+        "Standing dinners need at least two people — that is what makes them shared.",
+      ]);
       return;
     }
     if (brigadeForm.slots.length === 0) {
-      setBrigadeNote("Pick at least one meal to share.");
+      setBrigadeNote(["Pick at least one meal to share."]);
       return;
     }
     // members stored in the picker's display order, so the rotation cycles
@@ -233,139 +236,112 @@ export function TablesView({
 
   const runBrigade = async (/** @type {string} */ id, /** @type {boolean} */ regenerate) => {
     setBrigadeBusy(id);
-    setBrigadeNote("");
+    setBrigadeNote([]);
     try {
-      const { made, thin, outOfRange, from, until } = /** @type {any} */ (
-        await onRunBrigade(id, weekId, regenerate)
-      );
+      const { made, thin, report, swiped, assumed, outOfRange, from, until } =
+        /** @type {any} */ (await onRunBrigade(id, weekId, regenerate));
+      const nameOf = (/** @type {string} */ pid) =>
+        (profiles ?? []).find((p) => p.id === pid)?.name ?? pid;
+      /** @type {string[]} */
+      const lines = [];
+      if (outOfRange) {
+        lines.push(
+          `This brigade runs ${from} to ${until}, and the Plan tab is on a different week. Flip Plan to a week inside that span, then SET THIS WEEK — nothing was set just now.`,
+        );
+        setBrigadeNote(lines);
+        setBrigadeBusy(null);
+        return;
+      }
       const short = thin
         .filter((/** @type {any} */ t) => t.available === 0)
         .map((/** @type {any} */ t) => t.slot);
-      const tight = thin.filter((/** @type {any} */ t) => t.available > 0);
-      setBrigadeNote(
-        outOfRange
-          ? `This brigade runs ${from} to ${until}, and the Plan tab is on a different week. Flip Plan to that week, then SET THIS WEEK — nothing was set just now.`
-          : short.length > 0
-            ? `No ${short.join(" or ")} works for everyone in this brigade. Nothing was set. Widen the bank or check the avoid lists.`
-            : tight.length > 0
-              ? `Set ${made} ${made === 1 ? "meal" : "meals"}. Only ${tight
-                  .map(
-                    (/** @type {any} */ t) =>
-                      `${t.available} ${t.slot} ${t.available === 1 ? "recipe" : "recipes"}`,
-                  )
-                  .join(", ")} suit everyone, so the week repeats itself.`
-              : made > 0
-                ? `Set ${made} ${made === 1 ? "meal" : "meals"} for this week.`
-                : "This week is already set. Use PICK DIFFERENT MEALS to change it.",
+      if (short.length > 0 && made === 0) {
+        lines.push(
+          `No ${short.join(" or ")} works for everyone in this brigade. Nothing was set. Widen the bank or check the avoid lists.`,
+        );
+        setBrigadeNote(lines);
+        setBrigadeBusy(null);
+        return;
+      }
+      if (made === 0) {
+        lines.push("This week is already set. Use PICK DIFFERENT MEALS to change it.");
+        setBrigadeNote(lines);
+        setBrigadeBusy(null);
+        return;
+      }
+      const range = `${parseLocalIso(datesOfWeek(weekId)[0] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })} – ${parseLocalIso(datesOfWeek(weekId)[6] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })}`;
+      lines.push(`Set ${made} ${made === 1 ? "meal" : "meals"} for ${range}.`);
+      // THE DAY REPORT (P1, 2026-08-30): the composer's per-seat verdicts,
+      // one line per fact. These are PLANNED numbers from recipe estimates —
+      // arithmetic the app guarantees, never a measurement of what anyone
+      // eats — and a miss names its DIRECTION, because too much and too
+      // little demand opposite reactions.
+      const rows = /** @type {{ date: string, seatId: string, dayKcal: number, dayProtein: number, share?: number, status: string }[]} */ (
+        report ?? []
       );
+      const offBand = rows.filter((r) => r.status !== "band");
+      if (rows.length > 0 && offBand.length === 0) {
+        lines.push(
+          "Every planned day lands in everyone's calorie and protein band (planned from recipe estimates).",
+        );
+      }
+      const wordFor = (/** @type {string} */ status) =>
+        status === "floor"
+          ? "under target but above their own minimum"
+          : status === "over"
+            ? "over — even the smallest plates exceed their ceiling"
+            : status === "no-targets"
+              ? "no targets on file — seated at standard portions"
+              : "short — the shared menu cannot reach their target";
+      const SHOWN = 6;
+      for (const r of offBand.slice(0, SHOWN)) {
+        const scope = (r.share ?? 1) < 0.95 ? "planned brigade meals" : "planned";
+        lines.push(
+          r.status === "no-targets"
+            ? `${nameOf(r.seatId)}: ${wordFor(r.status)}.`
+            : `${nameOf(r.seatId)} ${r.date.slice(5)}: ~${r.dayKcal} kcal / ${r.dayProtein} g ${scope} (${wordFor(r.status)}).`,
+        );
+      }
+      if (offBand.length > SHOWN) lines.push(`…and ${offBand.length - SHOWN} more like these.`);
+      if ((swiped ?? []).length > 0) {
+        lines.push(
+          `🎫 Your ${swiped.length} swipe ${swiped.length === 1 ? "lunch is" : "lunches are"} on your plan — 🍽 PICK MY TRAY on the Plan tab plans each plate.`,
+        );
+      }
+      for (const a of assumed ?? []) {
+        lines.push(
+          `🎫 Assumes ${nameOf(a.id)}'s daily swipe ${a.slot} — their day lands once they run their own GENERATE, which places the swipes on their plan.`,
+        );
+      }
+      const tight = thin.filter((/** @type {any} */ t) => t.available > 0);
+      if (tight.length > 0) {
+        lines.push(
+          `Only ${tight
+            .map(
+              (/** @type {any} */ t) =>
+                `${t.available} ${t.slot} ${t.available === 1 ? "recipe" : "recipes"}`,
+            )
+            .join(", ")} suit everyone, so the week repeats itself.`,
+        );
+      }
+      setBrigadeNote(lines);
     } catch {
-      setBrigadeNote("Could not set the week. Check the connection and try again.");
+      setBrigadeNote([
+        "Could not set the week — something failed while composing it. Try again; if it keeps failing, check SYS for a sync problem.",
+      ]);
     }
     setBrigadeBusy(null);
   };
 
-  // WEEK OF MEALS (David, 2026-08-09): pick people, slots and a cuisine; one
-  // run sets a tailored shared table for every remaining picked meal that
-  // has none yet. Smoothie and snack are chips too (2026-08-28 plenum: a
-  // brigade sharing its smoothies found them silently dropped) — off by
-  // default without a brigade, so left alone they stay personal.
-  const WEEK_SLOTS = ["breakfast", "lunch", "dinner", "smoothie", "snack"];
-  const [weekForm, setWeekForm] = useState(
-    /** @type {null | { unpicked: string[], slots: string[], away: Record<string, string[]>, cuisine: string, note: string, swipes: boolean, replace: boolean }} */ (
-      null
-    ),
-  );
-  const [weekBusy, setWeekBusy] = useState(false);
-  const [weekErr, setWeekErr] = useState("");
-  const [weekResult, setWeekResult] = useState(
-    /** @type {null | { made: { date: string, slot: string, name: string, why: string }[], notes: string[], swiped?: { date: string, slot: string }[], swipedOthers?: { name: string, count: number, slot: string }[] }} */ (
-      null
-    ),
-  );
-  const myHouseTables = (houseEvents ?? []).find((h) => h.house === myHouse)?.events?.tables ?? [];
-  // a date+slot is taken by any table at MY house, or any table I'm seated
-  // at elsewhere (planning over it would only trip the collision flag)
-  // meals a previous week run set at my house, upcoming only: the REPLAN
-  // chip offers to redo exactly these (plenum r2 — a run whose plates came
-  // out wrong took fourteen CANCELs to redo). Pre-stamp runs are recognized
-  // by their "Family <slot>" naming; hand-set and brigade tables never match.
-  const replaceableMeals = new Set(
-    myHouseTables
-      .filter(
-        (t) =>
-          t.date >= todayIso &&
-          (/** @type {any} */ (t).fromWeekRun || (t.name ?? "").startsWith("Family ")),
-      )
-      .map((t) => `${t.date}|${t.slot}`),
-  );
-  const takenMeals = new Set(
-    [
-      ...myHouseTables.map((t) => `${t.date}|${t.slot}`),
-      ...myTables.map(({ t }) => `${t.date}|${t.slot}`),
-    ].filter((k) => !(weekForm?.replace && replaceableMeals.has(k))),
-  );
-  // an ACTIVE brigade owns the week run: the AI planner runs AS the brigade
-  // (its members, its slots, its cook rotation) instead of a parallel thing
+  // the ACTIVE brigade: the standing arrangement SET THIS WEEK runs for.
+  // Since 2026-08-30 (monolith) this is THE week engine — deterministic
+  // picks sized by the day composer, offline, no model in the loop.
   const activeBrigade =
     ((houseEvents ?? []).find((h) => h.house === myHouse)?.events?.brigades ?? [])
       .filter((b) => (b.until ?? "9999-12-31") >= todayIso)
       // two overlapping brigades (one expiring today): the longest-running
       // one owns the week run
       .sort((a, b) => (b.until ?? "").localeCompare(a.until ?? ""))[0] ?? null;
-  const mealsFor = (/** @type {string[]} */ slots) =>
-    datesOfWeek(weekId)
-      .filter((d) => d >= todayIso)
-      .flatMap((date) =>
-        slots.filter((slot) => !takenMeals.has(`${date}|${slot}`)).map((slot) => ({ date, slot })),
-      );
-  // the slots a fresh form starts with: the brigade's own shared slots when
-  // one is active (smoothie/snack included if the brigade shares them),
-  // else the three classic cooked meals — smoothie/snack stay opt-in chips
-  const defaultSlots = activeBrigade
-    ? WEEK_SLOTS.filter((sl) => activeBrigade.slots.includes(sl))
-    : ["breakfast", "lunch", "dinner"];
-  const weekMeals = mealsFor(weekForm?.slots ?? defaultSlots);
-  // the bank's own cuisines as one-tap chips; free text still wins
-  const cuisineChips = [
-    ...new Set(
-      (bankRecipes ?? [])
-        .filter((r) => WEEK_SLOTS.includes(r.mealType))
-        .map((r) => /** @type {string} */ (r.cuisine ?? ""))
-        .filter(Boolean),
-    ),
-  ].slice(0, 8);
-  const runWeek = async () => {
-    if (!weekForm || !onDinnerWeek || weekBusy) return;
-    const ids = houseMates.map((p) => p.id).filter((id) => !weekForm.unpicked.includes(id));
-    if (ids.length === 0 || weekMeals.length === 0) return;
-    // attendance: only picked people, only days actually being planned
-    /** @type {Record<string, string[]>} */
-    const away = {};
-    for (const id of ids) {
-      const days = (weekForm.away[id] ?? []).filter((d) => weekMeals.some((m) => m.date === d));
-      if (days.length > 0) away[id] = days;
-    }
-    setWeekBusy(true);
-    setWeekErr("");
-    try {
-      const result = await onDinnerWeek(
-        ids,
-        weekMeals,
-        weekForm.cuisine.trim(),
-        weekForm.note.trim(),
-        away,
-        activeBrigade,
-        weekForm.swipes,
-        weekForm.replace,
-      );
-      setWeekResult(result);
-      setWeekForm(null);
-    } catch (err) {
-      setWeekErr(err instanceof Error ? err.message : "planning failed — try again");
-    }
-    setWeekBusy(false);
-  };
-
   // CREATE TABLE form state
   const [tableForm, setTableForm] = useState(
     /** @type {null | { name: string, date: string, slot: string, recipeId: string, seats: Record<string, { in: boolean, servings: number }> }} */ (
@@ -424,7 +400,9 @@ export function TablesView({
       myTables.length === 0 &&
       !tableForm &&
       html`<p class="hint">
-        no upcoming tables — set one below, or talk it out on
+        no upcoming tables. To plan the whole week: SET WHO COOKS creates the standing
+        arrangement, then SET THIS WEEK fills every shared meal to each person's calorie and
+        protein numbers. For one meal, set a table below or talk it out on
         <a href="#/dinner">tonight's dinner</a>.
       </p>`
     }
@@ -738,346 +716,6 @@ export function TablesView({
         </div>`
       }
       ${
-        onDinnerWeek &&
-        !weekForm &&
-        html`<div class="actions">
-          <button
-            class="ask"
-            disabled=${
-              // a fully-set week must still open the form: REPLACE lives
-              // inside it, and disabling here trapped David into cancelling
-              // 35 tables by hand (plenum round five, 2026-08-28)
-              tokenBlocked || (mealsFor(defaultSlots).length === 0 && replaceableMeals.size === 0)
-            }
-            onClick=${() => {
-              setWeekResult(null);
-              setWeekErr("");
-              setWeekForm({
-                unpicked: activeBrigade
-                  ? houseMates
-                      .map((p) => /** @type {string} */ (p.id))
-                      .filter((id) => !activeBrigade.memberIds.includes(id))
-                  : [],
-                slots: [...defaultSlots],
-                away: {},
-                cuisine: "",
-                note: "",
-                // with a buffet currency on the profile, the preferred slot
-                // defaults to dining swipes (P5, P10) — the chip below turns
-                // it off for a week of cooked lunches
-                swipes: Boolean(swipeCurrency),
-                // nothing free but a previous run replaceable: REPLACE is
-                // the only useful run, so it starts ON instead of hiding
-                replace: mealsFor(defaultSlots).length === 0 && replaceableMeals.size > 0,
-              });
-            }}
-          >
-            🗓 PLAN THE WEEK'S MEALS
-            <small>
-              ${
-                tokenBlocked
-                  ? tokenBroken(repo?.auth)
-                    ? "needs the token — fix it in Settings"
-                    : "needs the token — connect it in Settings"
-                  : mealsFor(defaultSlots).length === 0
-                    ? replaceableMeals.size > 0
-                      ? `week already set — open to REPLACE the ${replaceableMeals.size} meals the last run made`
-                      : "every remaining meal already has a table"
-                    : `one shared pot per meal, everyone's own portion — covers ${mealsFor(defaultSlots).length} meals`
-              }
-            </small>
-          </button>
-        </div>`
-      }
-      ${
-        onDinnerWeek &&
-        weekForm &&
-        html`<div class="tile tableform">
-          <div class="k">
-            🗓 ${activeBrigade ? `${activeBrigade.name} · the week's meals` : "The week's meals"}
-          </div>
-          <p class="hint">
-            the house cooks each meal ONCE and everyone eats the same food — each plate is portioned
-            in grams to that person's own calories, protein and diet. Meals that already have a
-            table at this house (or that you're seated at elsewhere) are left alone; leave the
-            smoothie and snack chips off to keep those personal.
-          </p>
-          <div class="chips wrapchips" role="group" aria-label="Meals to cover">
-            ${WEEK_SLOTS.map((slot) => {
-              const on = weekForm.slots.includes(slot);
-              return html`
-                <button
-                  key=${slot}
-                  class="chip ${on ? "on" : ""}"
-                  aria-pressed=${on}
-                  onClick=${() =>
-                    setWeekForm({
-                      ...weekForm,
-                      slots: on
-                        ? weekForm.slots.filter((x) => x !== slot)
-                        : [...weekForm.slots, slot],
-                    })}
-                >
-                  ${SLOT_META[slot]?.full ?? slot}
-                </button>
-              `;
-            })}
-          </div>
-          ${
-            // MY SWIPES EAT MY LUNCHES (P5, P10, David 2026-08-28: "put
-            // swipes for lunch every day"): with a buffet currency on the
-            // profile, the run makes the preferred slot a dining swipe for
-            // ME each day (up to the allowance) instead of seating me at a
-            // cooked pot the swipe already paid for. Visible and turnoffable
-            // here, never silent.
-            swipeCurrency &&
-            weekForm.slots.includes(swipeCurrency.slot) &&
-            html`
-              <div class="chips wrapchips" role="group" aria-label="Dining swipes">
-                <button
-                  class=${weekForm.swipes ? "chip on" : "chip"}
-                  aria-pressed=${weekForm.swipes}
-                  onClick=${() => setWeekForm({ ...weekForm, swipes: !weekForm.swipes })}
-                >
-                  🎫 my
-                  ${swipeCurrency.slot === "lunch" ? "lunches" : `${swipeCurrency.slot}s`} are
-                  dining swipes
-                </button>
-              </div>
-              ${
-                weekForm.swipes &&
-                html`<p class="hint">
-                  each day's ${SLOT_META[swipeCurrency.slot]?.full.toLowerCase() ??
-                  swipeCurrency.slot}
-                  becomes a 🎫 swipe on your plan (up to ${swipeCurrency.perWeek}/week) with PICK MY
-                  TRAY to plan your plate at the hall — no cooked pot is sized for you there.
-                  Housemates with their own swipe plan come off those pots too; their own GENERATE
-                  places their swipes.
-                </p>`
-              }
-            `
-          }
-          ${
-            // REPLAN (plenum r2): redo what a previous run set instead of
-            // fourteen CANCELs — hand-set and brigade tables are untouched
-            replaceableMeals.size > 0 &&
-            html`
-              <div class="chips wrapchips" role="group" aria-label="Replace previous run">
-                <button
-                  class=${weekForm.replace ? "chip on" : "chip"}
-                  aria-pressed=${weekForm.replace}
-                  onClick=${() => setWeekForm({ ...weekForm, replace: !weekForm.replace })}
-                >
-                  🔁 replace the ${replaceableMeals.size} meals the last run set
-                </button>
-              </div>
-              ${
-                weekForm.replace &&
-                html`<p class="hint">
-                  the ${replaceableMeals.size} upcoming meals a previous run planned are cancelled
-                  and replanned fresh; anything set by hand stays.
-                </p>`
-              }
-            `
-          }
-          <div class="chips wrapchips" role="group" aria-label="Who's eating this week">
-            ${houseMates.map((p) => {
-              const on = !weekForm.unpicked.includes(p.id);
-              return html`
-                <button
-                  key=${p.id}
-                  class="chip ${on ? "on" : ""}"
-                  aria-pressed=${on}
-                  onClick=${() =>
-                    setWeekForm({
-                      ...weekForm,
-                      unpicked: on
-                        ? [...weekForm.unpicked, p.id]
-                        : weekForm.unpicked.filter((x) => x !== p.id),
-                    })}
-                >
-                  ${p.emoji ?? ""} ${p.name ?? p.id}
-                </button>
-              `;
-            })}
-          </div>
-          ${(() => {
-            // WHICH DAYS each person is at the table (David, 2026-08-09:
-            // "mom home Mon-Wed only" should come OFF the portions, not just
-            // the shopping). All lit = every planned day; un-light a day and
-            // that person is seated on NONE of that day's tables — cook
-            // totals, plates and the buy all shrink with the seat.
-            const dayDates = [...new Set(weekMeals.map((m) => m.date))];
-            const picked = houseMates.filter((p) => !weekForm.unpicked.includes(p.id));
-            if (dayDates.length < 2 || picked.length === 0) return "";
-            return html`
-              <p class="hint">Days at the table (un-light the days someone is away):</p>
-              ${picked.map((p) => {
-                const away = weekForm.away[p.id] ?? [];
-                return html`
-                  <div key=${p.id}>
-                    <div class="d">${p.emoji ?? ""} ${p.name ?? p.id}</div>
-                    <div
-                      class="chips wrapchips"
-                      role="group"
-                      aria-label="Days ${p.name ?? p.id} eats at the table"
-                    >
-                      ${dayDates.map((d) => {
-                        const on = !away.includes(d);
-                        return html`<button
-                          key=${d}
-                          class=${on ? "chip on" : "chip"}
-                          aria-pressed=${on}
-                          onClick=${() =>
-                            setWeekForm({
-                              ...weekForm,
-                              away: {
-                                ...weekForm.away,
-                                [p.id]: on ? [...away, d] : away.filter((x) => x !== d),
-                              },
-                            })}
-                        >
-                          ${parseLocalIso(d).toLocaleDateString([], { weekday: "short" })}
-                        </button>`;
-                      })}
-                    </div>
-                  </div>
-                `;
-              })}
-            `;
-          })()}
-          ${
-            cuisineChips.length > 0 &&
-            html`<div class="chips wrapchips" role="group" aria-label="Cuisine">
-              ${cuisineChips.map(
-                (c) => html`
-                  <button
-                    key=${c}
-                    class="chip ${weekForm.cuisine === c ? "on" : ""}"
-                    aria-pressed=${weekForm.cuisine === c}
-                    onClick=${() =>
-                      setWeekForm({ ...weekForm, cuisine: weekForm.cuisine === c ? "" : c })}
-                  >
-                    ${c}
-                  </button>
-                `,
-              )}
-            </div>`
-          }
-          <input
-            aria-label="Cuisine or theme"
-            placeholder="cuisine or theme, e.g. italian, one-pot, spicy (optional)"
-            value=${weekForm.cuisine}
-            onInput=${(/** @type {any} */ e) =>
-              setWeekForm({ ...weekForm, cuisine: e.currentTarget.value })}
-          />
-          <input
-            aria-label="Anything else the planner should know"
-            placeholder="anything else, e.g. mom is home Mon-Wed only (optional)"
-            value=${weekForm.note}
-            onInput=${(/** @type {any} */ e) =>
-              setWeekForm({ ...weekForm, note: e.currentTarget.value })}
-          />
-          <div class="actions wrap">
-            <button
-              class="primary"
-              disabled=${
-                weekBusy ||
-                tokenBlocked ||
-                weekMeals.length === 0 ||
-                houseMates.every((p) => weekForm.unpicked.includes(p.id))
-              }
-              onClick=${runWeek}
-            >
-              ${
-                weekBusy
-                  ? "PLANNING THE WEEK…"
-                  : `SET ${weekMeals.length} ${weekMeals.length === 1 ? "MEAL" : "MEALS"} ✓`
-              }
-            </button>
-            <button class="secondary" disabled=${weekBusy} onClick=${() => setWeekForm(null)}>
-              CANCEL
-            </button>
-          </div>
-          ${
-            houseMates.length > 0 &&
-            houseMates.every((p) => weekForm.unpicked.includes(p.id)) &&
-            html`<p class="hint" role="status">pick at least one person</p>`
-          }
-          ${
-            weekForm.slots.length === 0 &&
-            html`<p class="hint" role="status">pick at least one meal</p>`
-          }
-          ${weekErr && html`<p class="hint scanerr" role="status">${weekErr}</p>`}
-        </div>`
-      }
-      ${
-        weekResult &&
-        html`<div class="tile buffer" role="status">
-          <div class="k">
-            ${(() => {
-              // swipes count as covered meals: a run that placed 7 swipes
-              // and no tables still set the week, and must say so
-              const covered = weekResult.made.length + (weekResult.swiped ?? []).length;
-              return covered === 0
-                ? "🗓 no meals were set"
-                : `🗓 week set · ${covered} ${covered === 1 ? "meal" : "meals"}`;
-            })()}
-          </div>
-          ${weekResult.made.map(
-            (m) => html`
-              <div class="d" key=${`${m.date}|${m.slot}`}>
-                ${parseLocalIso(m.date).toLocaleDateString([], { weekday: "short" })}
-                ${SLOT_META[m.slot]?.label ?? m.slot}: <b>${m.name}</b>
-                ${m.why && html`<span class="hint"> — ${m.why}</span>`}
-              </div>
-            `,
-          )}
-          ${
-            // the swipes the run placed on MY plan (P5, P10): named, not
-            // implied — each one carries PICK MY TRAY on the Plan tab
-            (weekResult.swiped ?? []).length > 0 &&
-            html`<div class="d">
-              🎫
-              ${(weekResult.swiped ?? [])
-                .map((s) => parseLocalIso(s.date).toLocaleDateString([], { weekday: "short" }))
-                .join(", ")}
-              ${SLOT_META[(weekResult.swiped ?? [])[0]?.slot ?? "lunch"]?.label ?? "LUN"}:
-              <b>dining swipe</b>
-              <span class="hint"> — on your plan with 🍽 PICK MY TRAY to plan your plate</span>
-            </div>`
-          }
-          ${(weekResult.swipedOthers ?? []).map(
-            (o) => html`
-              <div class="d" key=${o.name}>
-                🎫 ${o.name}: <b>${o.count} ${SLOT_META[o.slot]?.full.toLowerCase() ?? o.slot}
-                  swipes</b>
-                <span class="hint">
-                  — off those pots; their own GENERATE puts the swipes on their plan</span
-                >
-              </div>
-            `,
-          )}
-          ${weekResult.notes.map((n, i) => html`<p class="hint scanerr" key=${i}>${n}</p>`)}
-          ${
-            weekResult.made.length > 0
-              ? html`<p class="hint">
-                  each meal is a real table above with your grocery claim already on it — BUILD the
-                  List and you can shop today. Not feeling one? Cancel that table and set it by
-                  hand.
-                </p>`
-              : (weekResult.swiped ?? []).length > 0
-                ? ""
-                : html`<p class="hint">
-                    nothing changed — run it again or set meals by hand below.
-                  </p>`
-          }
-          <div class="actions">
-            <button class="secondary" onClick=${() => setWeekResult(null)}>DISMISS</button>
-          </div>
-        </div>`
-      }
-      ${
         !tableForm
           ? html`<div class="actions">
               <button class="secondary" onClick=${openTableForm}>+ SET A TABLE</button>
@@ -1215,7 +853,7 @@ export function TablesView({
         const cook = (profiles ?? []).find((p) => p.id === b.cookId);
         // the next few nights' cooks, so "take turns" is a schedule someone
         // can actually read, not a mystery (Tribunal U1). Same date-offset
-        // rule materializeBrigade uses.
+        // rule planBrigadeWeek (compose.js) uses.
         const rotation = [];
         if (b.rotateCooks && b.memberIds.length > 0) {
           const start = new Date(`${todayIso}T12:00:00`); // noon: UTC slice can't day-shift
@@ -1233,6 +871,36 @@ export function TablesView({
             );
           }
         }
+        // an ENDED arrangement must say so and offer renewal — live SET
+        // buttons on an expired brigade sent mom "flip Plan to that week"
+        // advice about a week that no longer exists (Final Gate Usability)
+        if (b.until < todayIso) {
+          return html`
+            <div class="tile" key=${b.id}>
+              <div class="k">${b.name}</div>
+              <div class="sub">${names.join(" · ")}</div>
+              <div class="sub">
+                ended
+                ${" "}${parseLocalIso(b.until).toLocaleDateString([], { month: "short", day: "numeric" })}
+                — renew it to keep planning shared weeks
+              </div>
+              <div class="actions">
+                <button class="primary" onClick=${() => openBrigadeForm(b)}>
+                  RENEW (same people and meals)
+                </button>
+                <button class="secondary" onClick=${() => onRemoveBrigade(b.id)}>REMOVE</button>
+              </div>
+            </div>
+          `;
+        }
+        const weekDates = datesOfWeek(weekId);
+        // the subtitle must never promise a range the tap cannot set: a
+        // brigade starting next week shows its start date instead of a
+        // confident range that would dead-end in outOfRange
+        const overlaps = weekDates.some((d) => d >= b.from && d <= b.until);
+        const range = overlaps
+          ? `${parseLocalIso(weekDates[0] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })} – ${parseLocalIso(weekDates[6] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })}`
+          : `starts ${parseLocalIso(b.from).toLocaleDateString([], { month: "short", day: "numeric" })} — flip Plan to that week`;
         return html`
           <div class="tile" key=${b.id}>
             <div class="k">${b.name}</div>
@@ -1256,6 +924,7 @@ export function TablesView({
                 onClick=${() => runBrigade(b.id, false)}
               >
                 ${brigadeBusy === b.id ? "SETTING…" : "SET THIS WEEK"}
+                <small>${range} · every plate sized to each person's numbers</small>
               </button>
               <button
                 class="secondary"
@@ -1269,12 +938,18 @@ export function TablesView({
           </div>
         `;
       })}
-      ${brigadeNote && html`<p class="hint" role="status">${brigadeNote}</p>`}
+      ${
+        brigadeNote.length > 0 &&
+        html`<div class="tile buffer" role="status">
+          ${brigadeNote.map((line, i) => html`<p class="hint" key=${i}>${line}</p>`)}
+        </div>`
+      }
       ${
         !brigadeForm
           ? html`<div class="actions">
-              <button class="secondary" onClick=${openBrigadeForm}>
-                + SET WHO COOKS (standing dinners)
+              <button class="secondary" onClick=${() => openBrigadeForm()}>
+                + SET WHO COOKS
+                <small>the standing arrangement — SET THIS WEEK then plans the whole week</small>
               </button>
             </div>`
           : html`<div class="tile tableform">

@@ -320,7 +320,9 @@ test("setTablePot writes and clears atomically-mergeable strings", () => {
 
 // ---- reviewer-required coverage: shopping potRows + brigade carry ----
 import { deriveShoppingList } from "../app/lib/shopping.js";
-import { materializeBrigade } from "../app/lib/tables.js";
+// the table factory is planBrigadeWeek since 2026-08-30 (session monolith);
+// the pot/rawServings carry rules it pins here are unchanged
+import { planBrigadeWeek } from "../app/lib/compose.js";
 
 test("deriveShoppingList: frozen potRows are ABSOLUTE and ident-canonicalized (N13)", () => {
   const bank = new Map([["chicken-rice", { ...RECIPE, assembly: undefined }]]);
@@ -349,7 +351,7 @@ test("deriveShoppingList: frozen potRows are ABSOLUTE and ident-canonicalized (N
   assert.ok(Math.abs(grams - 500) < 1, `expected 500 g, got ${chicken.qty} ${chicken.unit}`);
 });
 
-test("materializeBrigade carries pot + rawServings ONLY while the dish is unchanged", () => {
+test("planBrigadeWeek carries pot + rawServings ONLY while the dish is unchanged", () => {
   const targets = new Map([["a", TARGETS], ["b", TARGETS]]);
   const profiles = new Map([
     ["a", { id: "a", household: "h" }],
@@ -357,14 +359,14 @@ test("materializeBrigade carries pot + rawServings ONLY while the dish is unchan
   ]);
   const brigade = { id: "b1", name: "x", memberIds: ["a", "b"], slots: ["dinner"], cookId: "a", from: "2026-09-07", until: "2026-09-13" };
   const bank = new Map([["chicken-rice", { ...RECIPE, mealType: "dinner", assembly: undefined }]]);
-  const ctx = { dates: ["2026-09-08"], today: "2026-09-07", house: "h", profilesById: profiles, targetsById: targets, bankById: bank };
-  const first = materializeBrigade({ tables: [] }, brigade, ctx).events;
+  const ctx = { dates: ["2026-09-08"], today: "2026-09-07", house: "h", profilesById: profiles, targetsById: targets, plansById: new Map(), bankById: bank };
+  const first = planBrigadeWeek({ tables: [] }, brigade, ctx).events;
   const t0 = first.tables[0];
   assert.ok(typeof t0.seats[0].rawServings === "number", "rawServings stored with servings");
   const marked = { ...first, tables: first.tables.map((t) => ({ ...t, pot: '{"synthMode":"solved","rows":[]}' })) };
-  const regen = materializeBrigade(marked, brigade, { ...ctx, regenerate: true }).events;
+  const regen = planBrigadeWeek(marked, brigade, { ...ctx, regenerate: true }).events;
   assert.equal(regen.tables[0].pot, '{"synthMode":"solved","rows":[]}', "same dish: pot carries");
-  const swapped = materializeBrigade(marked, brigade, { ...ctx, regenerate: true, bankById: new Map([["other", { ...RECIPE, id: "other", mealType: "dinner" }]]) }).events;
+  const swapped = planBrigadeWeek(marked, brigade, { ...ctx, regenerate: true, bankById: new Map([["other", { ...RECIPE, id: "other", mealType: "dinner" }]]) }).events;
   assert.equal(swapped.tables[0].pot, undefined, "swapped dish: a stale pot must NOT follow");
 });
 

@@ -4,14 +4,14 @@
 // cross-profile writes, ever. Cancel/edit = one file edit, propagates on
 // the next sync tick. Derived entries are NEVER persisted into a plan file
 // (main.js strips `e.table` before every plan write).
-import { recipeConflicts, SLOT_KEYS, untrustedForAutoPlan } from "./plan.js";
+import { autoPlanEligible, recipeConflicts, SLOT_KEYS } from "./plan.js";
 import { parsePot, solveSeat } from "./synth.js";
 
 /**
- * @typedef {{ id: string, servings: number, rawServings?: number, status?: "in" | "skipped" }} Seat seat id = profileId
+ * @typedef {{ id: string, servings: number, rawServings?: number, status?: "in" | "skipped", auto?: boolean, edited?: boolean }} Seat seat id = profileId; `auto: true` marks a MACHINE-stamped skip (recomputed every run, unlike a human decline which carries); `edited: true` marks a HUMAN servings edit (patchSeat) that binds the composer while the dish is unchanged
  * @typedef {{ portionGrams?: number, plate: string[], estCalories: number, estProtein: number }} TailorSeat scale-first: portionGrams = weighed grams of the finished dish on this plate (absent/0 on pre-scale tailors)
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
- * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, fromWeekRun?: boolean, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string }} TableEvent
+ * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, fromWeekRun?: boolean, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string }} TableEvent `fromWeekRun` is LEGACY: written only by the retired AI week run; read solely by planBrigadeWeek's shadow sweep, which clears such tables from a brigade's span
  * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string }} Brigade
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
@@ -37,8 +37,8 @@ export function normalizeEvents(raw) {
     tables: /** @type {TableEvent[]} */ (
       Array.isArray(raw?.tables) ? raw.tables.filter(isPlainObject) : []
     ),
-    // brigades drive a WRITE loop (materializeBrigade), so unlike the old
-    // pass-through this is now a real trust boundary: one bad brigade is
+    // brigades drive a WRITE loop (planBrigadeWeek, compose.js), so unlike
+    // the old pass-through this is a real trust boundary: one bad brigade is
     // dropped on its own rather than throwing or, worse, materializing five
     // meals a day forever into the file all four devices read every load.
     ...(raw?.brigades !== undefined
@@ -518,9 +518,16 @@ export function removeTable(events, id, today) {
  * @returns {HouseEvents}
  */
 export function patchSeat(events, tableId, profileId, patch, today) {
-  // whitelist: a patch may change servings/status, never id or junk keys
+  // whitelist: a patch may change servings/status, never id or junk keys.
+  // A servings patch also stamps `edited: true` — the EXPLICIT marker the
+  // composer honors on regeneration (Final Gate 2026-08-30: the old
+  // detector inferred hand-edits by comparing servings against quantized
+  // rawServings, which misread 80% of the composer's own output as human
+  // and froze regenerations; intent is stamped now, never derived).
   const clean = {
-    ...(patch.servings != null ? { servings: clampServings(patch.servings) } : {}),
+    ...(patch.servings != null
+      ? { servings: clampServings(patch.servings), edited: true }
+      : {}),
     ...(patch.status != null ? { status: patch.status } : {}),
   };
   const base = today ? pruneTables(events, today) : events;
@@ -832,8 +839,11 @@ export function setTableTailor(events, tableId, tailor, today) {
 // out of plan files.
 // ---------------------------------------------------------------------------
 
-/** Rough share of a day each slot carries, before a member's own slots renormalize it. */
-const SLOT_WEIGHT = { breakfast: 1, lunch: 1.15, dinner: 1.3, smoothie: 0.7, snack: 0.5 };
+/** Rough share of a day each slot carries, before a member's own slots
+ * renormalize it. Exported since 2026-08-30: the day composer budgets a
+ * subset-brigade (say, dinner-only) at the planned slots' share of the day
+ * with the SAME weights, so the two sizings can never disagree. */
+export const SLOT_WEIGHT = { breakfast: 1, lunch: 1.15, dinner: 1.3, smoothie: 0.7, snack: 0.5 };
 
 /** Brigade portions are tighter than hand-set table portions. */
 export const BRIGADE_SERVINGS_MAX = 3;
@@ -916,42 +926,62 @@ export function slotShareFor(targets, slot) {
  * private variants), which is safe when only they eat them and unsafe the
  * moment the meal is served to three other people.
  * @param {Map<string, any>} bankById
- * @param {{ id: string, diet?: string, avoid?: string[], avoidRecipes?: string[] }[]} members
+ * @param {{ id: string, diet?: string, avoid?: string[], avoidRecipes?: string[], slotAvoid?: Record<string, string[]>, breakfastStyle?: string, snackPortable?: boolean }[]} members
  * @param {string} slot
  * @returns {Record<string, any>[]} eligible recipes, id-sorted for determinism
  */
 export function brigadePool(bankById, members, slot) {
   const out = [];
+  // per-slot avoids, intersected like everything else: "no eggs at
+  // breakfast" (David, 2026-08-30) must not ban the egg in his fried rice
+  // at dinner, so the term list is scoped to the slot it screens
+  const slotTerms = members
+    .flatMap((m) => m.slotAvoid?.[slot] ?? [])
+    .map((t) => String(t).toLowerCase())
+    .filter(Boolean);
+  // grab-and-go mornings: tag lists lie (the pancakes carry meal-prep tags
+  // and still need a griddle at 7am), so the screen keys on EFFORT — the
+  // field that states what the eater actually does at eating time
+  const noCookBreakfast =
+    slot === "breakfast" && members.some((m) => m.breakfastStyle === "grab-and-go");
+  // snackPortable is the profile's existing "smth i can bring in my backpack"
+  // rule (weekbuilder honors it; this pool did not, which is how a 2×
+  // portion of sautéed spinach became a planned "snack" — Final Gate,
+  // 2026-08-30). Honest-relax like weekbuilder: an empty portable pool
+  // falls back to the full one rather than silently starving the slot.
+  const portableSnack = slot === "snack" && members.some((m) => m.snackPortable);
+  /** @type {Record<string, any>[]} */
+  const nonPortable = [];
   for (const recipe of bankById.values()) {
     if (recipe.mealType && recipe.mealType !== slot) continue;
     if ((recipe.nutrition?.calories ?? 0) <= 0) continue;
-    // an AI-written recipe is choosable deliberately, never auto-planned
-    // (council 2026-07-23: "AI at the table, never in the plan"). Shared
-    // TAG-keyed predicate: the old `recipe.source` check here was dead code,
-    // production writes tags:["ai-special"] and never a source key.
-    if (untrustedForAutoPlan(recipe)) continue;
+    // ONE fence for every auto-planner (autoPlanEligible, plan.js): the
+    // occasion-only/remedy screen, the AI trust fence (council 2026-07-23:
+    // "AI at the table, never in the plan"), and the no-drink-as-snack rule
+    // — the gaps between each engine's private subset of these rules are
+    // where the sick-day sports drinks reached live smoothie slots.
+    if (!autoPlanEligible(recipe)) continue;
     // a recipe any member has banned outright (targets.avoidRecipes) never
     // reaches the shared pot — intersection, same as the diet screens
     if (members.some((m) => (m.avoidRecipes ?? []).includes(recipe.id))) continue;
-    if (members.every((m) => recipeConflicts(recipe, m.diet, m.avoid).length === 0))
-      out.push(recipe);
+    if (noCookBreakfast && recipe.effort !== "assembly" && recipe.effort !== "assemble")
+      continue;
+    if (
+      slotTerms.length > 0 &&
+      (recipe.ingredients ?? []).some(
+        (/** @type {any} */ ing) =>
+          !ing.optional &&
+          slotTerms.some((t) => String(ing.food ?? "").toLowerCase().includes(t)),
+      )
+    )
+      continue;
+    if (members.every((m) => recipeConflicts(recipe, m.diet, m.avoid).length === 0)) {
+      if (portableSnack && recipe.portable !== true) nonPortable.push(recipe);
+      else out.push(recipe);
+    }
   }
-  return out.sort((a, b) => String(a.id).localeCompare(String(b.id)));
-}
-
-/**
- * FNV-1a over a string. The same trick plan.js and shopping.js use to make
- * independent devices agree without talking to each other.
- * @param {string} s
- * @returns {number}
- */
-function hash(s) {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h;
+  const pool = out.length > 0 ? out : nonPortable;
+  return pool.sort((a, b) => String(a.id).localeCompare(String(b.id)));
 }
 
 /**
@@ -967,189 +997,10 @@ function hash(s) {
  */
 export const brigadeTableId = (brigadeId, date, slot) => `b-${brigadeId}-${date}-${slot}`;
 
-/**
- * Materialize a brigade's meals into ordinary tables for the given dates.
- *
- * Idempotent on (brigade, date, slot) via the deterministic id above, so ANY
- * member may generate: whoever gets there first fixes the week, and a second
- * device's write merges onto the same rows instead of duplicating them. The
- * `cookId` decides who SHOPS, not who is allowed to generate, otherwise
- * everyone else stares at empty dinner slots waiting on the cook.
- *
- * Regeneration REPLACES only this brigade's own future tables, and carries
- * every existing seat forward. That second half matters: seats hold
- * `status: "skipped"`, so rebuilding them from scratch would silently
- * un-decline someone who had already said they were out, and the cook would
- * shop and cook a portion nobody eats.
- * @param {HouseEvents} events
- * @param {Brigade} brigade
- * @param {{
- *   dates: string[],
- *   today: string,
- *   house: string,
- *   profilesById: Map<string, any>,
- *   targetsById: Map<string, any>,
- *   bankById: Map<string, any>,
- *   regenerate?: boolean
- * }} ctx
- * @returns {{ events: HouseEvents, made: number, thin: { slot: string, available: number }[] }}
- */
-export function materializeBrigade(events, brigade, ctx) {
-  if (!validBrigade(brigade)) return { events, made: 0, thin: [] };
-
-  // ONE HOUSE. Members who have moved out stop counting, rechecked here every
-  // time rather than trusted from when the brigade was created: Laurie goes
-  // home after the visit and her seat must stop riding the cook's list.
-  const members = brigade.memberIds
-    .filter((id) => (ctx.profilesById.get(id)?.household ?? "home") === ctx.house)
-    .map((id) => ({
-      id,
-      diet: ctx.targetsById.get(id)?.diet,
-      avoid: ctx.targetsById.get(id)?.avoidIngredients,
-      avoidRecipes: ctx.targetsById.get(id)?.avoidRecipes,
-    }));
-  if (members.length < 2) return { events, made: 0, thin: [] };
-
-  const firstMember = members[0];
-  if (!firstMember) return { events, made: 0, thin: [] };
-  const cookId = members.some((m) => m.id === brigade.cookId) ? brigade.cookId : firstMember.id;
-  // ROTATING COOKS (David, 2026-08-01: "each person is responsible for 1-2
-  // dinners"): with `rotateCooks`, the cook cycles through the members in
-  // memberIds order, one per calendar day from the brigade's start. Derived
-  // from the DATE, never from a loop counter, so a regeneration run next
-  // Wednesday assigns the same cooks the whole house already agreed to, and
-  // two offline devices materialize identical tables (the id-keyed merge
-  // depends on that).
-  // whole days since the brigade began, UTC-parsed ISO dates so every device
-  // in every timezone computes the same offset
-  const dayOffset = (/** @type {string} */ date) =>
-    Math.round((Date.parse(date) - Date.parse(brigade.from)) / 86400000);
-  const cookFor = (/** @type {string} */ date) => {
-    if (!brigade.rotateCooks || members.length === 0) return cookId;
-    const at = ((dayOffset(date) % members.length) + members.length) % members.length;
-    return (members[at] ?? firstMember).id;
-  };
-  const dates = ctx.dates
-    .filter((d) => d >= brigade.from && d <= brigade.until)
-    .filter((d) => d >= ctx.today) // day-aware: never touch a day already lived
-    .sort();
-
-  let tables = pruneTables(events, ctx.today).tables;
-  /** @type {Map<string, TableEvent>} */
-  const byId = new Map(tables.map((t) => [t.id, t]));
-  /** @type {{ slot: string, available: number }[]} */
-  const thin = [];
-  let made = 0;
-
-  for (const slot of brigade.slots) {
-    const pool = brigadePool(ctx.bankById, members, slot);
-    if (pool.length === 0) {
-      thin.push({ slot, available: 0 });
-      continue;
-    }
-    if (pool.length < dates.length) thin.push({ slot, available: pool.length });
-
-    // the walk order is a deterministic SHUFFLE of the pool, keyed on
-    // brigade+slot (David, 2026-08-01: "variety in the food"). The pool is
-    // id-sorted, so a plain walk put beef-bulgogi-rice-bowl next to
-    // beef-kofta-with-rice — near-identical dinners on consecutive nights.
-    // Hash-ordering scatters cuisines while staying byte-identical on every
-    // device and keeping the no-repeat-within-pool.length window.
-    const walk = [...pool].sort(
-      (a, b) =>
-        hash(`${brigade.id}|${slot}|${a.id}`) - hash(`${brigade.id}|${slot}|${b.id}`) ||
-        String(a.id).localeCompare(String(b.id)),
-    );
-
-    for (const date of dates) {
-      const id = brigadeTableId(brigade.id, date, slot);
-      const existing = byId.get(id);
-      if (existing && !ctx.regenerate) continue; // idempotent: already set
-
-      // STATELESS per-date pick (Tribunal 2026-08-01): the meal is a pure
-      // function of (brigade, slot, date), never of which dates this RUN
-      // happens to materialize. The old used-set walked the pool relative to
-      // the run's date list, so a device generating on Wednesday picked
-      // different meals than one that ran Monday — same deterministic ids,
-      // DIFFERENT dinners, and the id-keyed merge silently swapped tonight's
-      // meal after the cook had shopped for the other one. Anchoring on the
-      // brigade+slot hash and walking by day offset repeats nothing within
-      // pool.length days and is byte-identical on every device on every day.
-      const meal =
-        walk[
-          (((hash(`${brigade.id}|${slot}`) + dayOffset(date)) % walk.length) + walk.length) %
-            walk.length
-        ];
-      if (!meal) continue;
-
-      // seats carry FORWARD on regeneration: a skip is a decision, not a
-      // detail to rebuild away (Tribunal amendment A3). SERVINGS carry only
-      // while the recipe is unchanged — 1.25 servings of a 500-kcal chili
-      // carried onto an 1800-kcal dish would be a 2250-kcal plate and the
-      // cook would shop for it; a new recipe recomputes from targets.
-      const seats = members.map((m) => {
-        const old = existing?.seats?.find((s) => s.id === m.id);
-        const sameRecipe = existing?.recipeId === meal.id;
-        const carried = sameRecipe ? old?.servings : undefined;
-        // rawServings carries and recomputes UNDER THE SAME GATE as
-        // servings (spec 10, loop-2 C2): carrying one while recomputing
-        // the other trips the manual-override detector and silently
-        // degrades the seat to sigma := s_p.
-        const carriedRaw = sameRecipe ? /** @type {any} */ (old)?.rawServings : undefined;
-        const rawExact = carriedRaw ?? seatServingsRaw(ctx.targetsById.get(m.id), slot, meal);
-        // BOTH numbers derive from the SAME 3-decimal value (review 2b #4):
-        // rounding raw after computing servings from the unrounded value
-        // opens a ~0.2% window where the manual-override detector falsely
-        // reclassifies an untouched seat as hand-edited, silently.
-        const raw3 =
-          rawExact === null || rawExact === undefined
-            ? undefined
-            : Math.round(rawExact * 1000) / 1000;
-        const fromRaw =
-          raw3 === undefined
-            ? undefined
-            : Math.min(BRIGADE_SERVINGS_MAX, Math.max(SERVINGS_MIN, Math.round(raw3 * 4) / 4));
-        return {
-          id: m.id,
-          servings: carried ?? fromRaw ?? seatServingsFor(ctx.targetsById.get(m.id), slot, meal),
-          ...(raw3 !== undefined ? { rawServings: raw3 } : {}),
-          ...(old?.status ? { status: old.status } : {}),
-        };
-      });
-
-      // fields that survive regeneration ONLY while the dish is unchanged
-      // (per-person-plates-design §10): a cooked flag or an opt-out carried
-      // onto a swapped meal would mark a dish cooked that never was, or
-      // silently opt a new dish out of tailoring
-      const sameDish = existing?.recipeId === meal.id;
-      byId.set(id, {
-        id,
-        name: brigade.name,
-        date,
-        slot,
-        recipeId: meal.id,
-        seats,
-        cookId: cookFor(date),
-        // a grocery claim survives regeneration like a skip does: "I'm
-        // buying Wednesday" is a decision, not a detail to rebuild away
-        ...(existing?.buyerId ? { buyerId: existing.buyerId } : {}),
-        // the tapped head is about PEOPLE, not the dish: it survives even a
-        // dish swap (resolveHead re-validates presence at read time anyway)
-        ...(existing?.headId ? { headId: existing.headId } : {}),
-        ...(sameDish && existing?.cookedAt ? { cookedAt: existing.cookedAt } : {}),
-        ...(sameDish && existing?.sameForEveryone ? { sameForEveryone: true } : {}),
-        ...(sameDish && /** @type {any} */ (existing)?.pot
-          ? { pot: /** @type {any} */ (existing).pot }
-          : {}),
-        fromBrigade: brigade.id,
-      });
-      made++;
-    }
-  }
-
-  tables = [...byId.values()];
-  return { events: { ...events, tables }, made, thin };
-}
+// materializeBrigade moved to compose.js as planBrigadeWeek on 2026-08-30
+// (session monolith): the picking half (FNV walk) survives unchanged there,
+// and the sizing half is the day composer — ONE arithmetic authority. This
+// file keeps the table primitives (pools, ids, servings, prune) both share.
 
 /**
  * Add a brigade. Rejects anything validBrigade would drop, so a bad one can

@@ -21,9 +21,6 @@ import {
   buildDinnerRequest,
   parseDinnerResponse,
   validateDinnerDecision,
-  buildDinnerWeekRequest,
-  validateDinnerWeek,
-  WEEK_MEAL_SLOTS,
   buildHallPlateRequest,
   validateHallPlate,
   hitsAvoid,
@@ -471,130 +468,6 @@ test("parseDinnerResponse: text is reply, a valid pick is a decision", () => {
   assert.equal(done.decision.plates[0].note, "extra rice");
 });
 
-test("buildDinnerWeekRequest lists the meals, cuisine and people, and forces the tool", () => {
-  const req = buildDinnerWeekRequest({
-    meals: [
-      { date: "2026-08-10", slot: "breakfast" },
-      { date: "2026-08-10", slot: "dinner" },
-    ],
-    cuisine: "italian",
-    note: "mom home Mon-Wed only",
-    people: sanitizePeople([
-      { id: "david", name: "David", goal: "gain", calories: 3700, protein: 210 },
-    ]),
-    candidates: [
-      { id: "r1", name: "Lentil ragu", calories: 700, protein: 35, cuisine: "italian", meal: "dinner" },
-    ],
-    model: "m",
-  });
-  assert.equal(req.tool_choice.name, "record_dinner_week");
-  const text = req.messages[0].content[0].text;
-  assert.match(text, /2026-08-10 breakfast, 2026-08-10 dinner/);
-  assert.match(text, /italian/);
-  assert.match(text, /mom home Mon-Wed only/);
-  assert.match(req.system, /\[david\]/);
-  assert.match(req.system, /r1: Lentil ragu \(dinner, /);
-});
-
-test("buildDinnerWeekRequest carries attendance so an away day plans no plate", () => {
-  const req = buildDinnerWeekRequest({
-    meals: [
-      { date: "2026-08-13", slot: "dinner" },
-      { date: "2026-08-14", slot: "dinner" },
-    ],
-    cuisine: "",
-    note: "",
-    away: { mom: ["2026-08-13", "2026-08-14"] },
-    people: sanitizePeople([
-      { id: "david", name: "David", goal: "gain", calories: 3700, protein: 210 },
-      { id: "mom", name: "Mom", goal: "loss", calories: 1500, protein: 100 },
-    ]),
-    candidates: [],
-    model: "m",
-  });
-  const text = req.messages[0].content[0].text;
-  assert.match(text, /\[mom\] is NOT at the table on 2026-08-13, 2026-08-14/);
-  assert.match(text, /no plate those days/);
-});
-
-test("a date|slot away entry empties ONE meal, not the day (a dining swipe)", () => {
-  // 2026-08-28 plenum: the week run takes the runner off just the lunch pot
-  // when a swipe covers it — dinner that same day still gets their plate
-  const req = buildDinnerWeekRequest({
-    meals: [
-      { date: "2026-08-31", slot: "lunch" },
-      { date: "2026-08-31", slot: "dinner" },
-    ],
-    cuisine: "",
-    note: "",
-    away: { david: ["2026-08-31|lunch"] },
-    people: sanitizePeople([
-      { id: "david", name: "David", goal: "gain", calories: 3700, protein: 210 },
-      { id: "mom", name: "Mom", goal: "loss", calories: 1500, protein: 100 },
-    ]),
-    candidates: [],
-    model: "m",
-  });
-  const text = req.messages[0].content[0].text;
-  assert.match(text, /\[david\] is NOT at lunch on 2026-08-31/);
-  assert.match(text, /no lunch plate that day/);
-  assert.doesNotMatch(text, /\[david\] is NOT at the table/);
-});
-
-test("a covered entry makes the model aim at the REMAINDER of the day (plenum r2)", () => {
-  // measured on the real W36: without this the model wrote 1,400 kcal
-  // breakfasts because it balanced whole days over two cooked meals, then
-  // the swipe and the fixed smoothie landed on top — 266 g days vs 190
-  const req = buildDinnerWeekRequest({
-    meals: [
-      { date: "2026-08-31", slot: "breakfast" },
-      { date: "2026-08-31", slot: "dinner" },
-    ],
-    cuisine: "",
-    note: "",
-    covered: {
-      david: { calories: 1902, protein: 116, note: "a dining-hall lunch and a fixed smoothie" },
-    },
-    people: sanitizePeople([
-      { id: "david", name: "David", goal: "gain", calories: 3700, protein: 190 },
-    ]),
-    candidates: [],
-    model: "m",
-  });
-  const text = req.messages[0].content[0].text;
-  assert.match(text, /\[david\] already eats ~1902 kcal \/ ~116 g protein each day/);
-  assert.match(text, /a dining-hall lunch and a fixed smoothie/);
-  // 3700-1902 and 190-116, computed FOR the model, not left to it — as a
-  // BAND with a waste warning (round six: the model held calories and blew
-  // protein 274 vs 215 when given a single number)
-  assert.match(text, /aim at roughly 1798 kcal a day/);
-  assert.match(text, /between 74 and 89 g/);
-  assert.match(text, /money spent on macros the covered meals already deliver/);
-  assert.match(req.system, /MINUS that amount/);
-  assert.match(req.system, /candidates marked LEAN/);
-});
-
-test("candidates carry LEAN / PROTEIN-DENSE markers so the swipe-day picks exist by name", () => {
-  const req = buildDinnerWeekRequest({
-    meals: [{ date: "2026-08-31", slot: "dinner" }],
-    cuisine: "",
-    note: "",
-    people: sanitizePeople([
-      { id: "david", name: "David", goal: "gain", calories: 3700, protein: 190 },
-    ]),
-    candidates: [
-      { id: "lean1", name: "Swipe-night veg", calories: 600, protein: 12, cuisine: "", meal: "dinner" },
-      { id: "dense1", name: "Chicken bowl", calories: 700, protein: 55, cuisine: "", meal: "dinner" },
-      { id: "mid1", name: "Middle dish", calories: 700, protein: 30, cuisine: "", meal: "dinner" },
-    ],
-    model: "m",
-  });
-  assert.match(req.system, /lean1: Swipe-night veg \(dinner, 600 kcal, 12g P · LEAN\)/);
-  assert.match(req.system, /dense1: Chicken bowl \(dinner, 700 kcal, 55g P · PROTEIN-DENSE\)/);
-  assert.match(req.system, /mid1: Middle dish \(dinner, 700 kcal, 30g P\)/);
-  assert.doesNotMatch(req.system, /mid1[^\n]*(LEAN|PROTEIN-DENSE)/);
-});
-
 test("hallplate: matched macros come from the published numbers, never the model", () => {
   const items = new Map([
     ["a1", { id: "a1", name: "Fajita Chicken", calories: 180, protein: 27, servingSize: "4 oz" }],
@@ -635,79 +508,6 @@ test("hallplate: matched macros come from the published numbers, never the model
   assert.equal(out.notes.length, 1);
 });
 
-test("smoothie and snack are plannable week slots the tool schema accepts", () => {
-  // 2026-08-28 plenum: a brigade sharing its smoothies was silently dropped
-  // by the old breakfast/lunch/dinner enum
-  assert.deepEqual(WEEK_MEAL_SLOTS, ["breakfast", "lunch", "dinner", "smoothie", "snack"]);
-  const req = buildDinnerWeekRequest({
-    meals: [{ date: "2026-08-31", slot: "smoothie" }],
-    cuisine: "",
-    note: "",
-    people: sanitizePeople([
-      { id: "david", name: "David", goal: "gain", calories: 3700, protein: 210 },
-    ]),
-    candidates: [
-      { id: "s1", name: "PB banana smoothie", calories: 600, protein: 40, cuisine: "", meal: "smoothie" },
-    ],
-    model: "m",
-  });
-  assert.match(req.messages[0].content[0].text, /2026-08-31 smoothie/);
-  assert.deepEqual(
-    req.tools[0].input_schema.properties.nights.items.properties.slot.enum,
-    WEEK_MEAL_SLOTS,
-  );
-  assert.match(req.system, /smoothie slot gets a blended drink/);
-});
-
-test("validateDinnerWeek: one decision per requested date+slot, junk meals dropped, order kept", () => {
-  const meals = [
-    { date: "2026-08-10", slot: "breakfast" },
-    { date: "2026-08-10", slot: "dinner" },
-    { date: "2026-08-11", slot: "dinner" },
-    { date: "2026-08-12", slot: "dinner" },
-  ];
-  const good = (date, slot, pick) => ({
-    date,
-    slot,
-    pickRecipeId: pick,
-    plates: [{ id: "david", note: "450 g of the dish", estCalories: 1100, estProtein: 50 }],
-    why: "fits",
-  });
-  const out = validateDinnerWeek(
-    {
-      nights: [
-        good("2026-08-11", "dinner", "b"), // out of order — result re-sorts to request order
-        good("2026-08-10", "breakfast", "a"),
-        // absent slot defaults to dinner (pre-slot tool shape still validates)
-        { ...good("2026-08-10", "dinner", "b"), slot: undefined },
-        good("2026-08-10", "dinner", "a"), // duplicate date+slot ignored
-        good("2026-08-10", "snack", "a"), // slot never requested
-        good("2026-08-30", "dinner", "a"), // date never requested
-        { date: "2026-08-12", slot: "dinner", pickRecipeId: "nope", plates: [], why: "" }, // unknown pick
-        "junk",
-      ],
-    },
-    ["a", "b"],
-    ["david"],
-    meals,
-  );
-  assert.deepEqual(
-    out.map((n) => [n.date, n.slot, n.pickRecipeId]),
-    [
-      ["2026-08-10", "breakfast", "a"],
-      ["2026-08-10", "dinner", "b"],
-      ["2026-08-11", "dinner", "b"],
-    ],
-  );
-  assert.equal(out[0].plates[0].note, "450 g of the dish");
-});
-
-test("validateDinnerWeek returns [] for junk input", () => {
-  const meals = [{ date: "2026-08-10", slot: "dinner" }];
-  assert.deepEqual(validateDinnerWeek(null, ["a"], ["p"], meals), []);
-  assert.deepEqual(validateDinnerWeek({ nights: "x" }, ["a"], ["p"], meals), []);
-});
-
 test("specialAvoidHits screens name and instructions, not only ingredients", () => {
   const people = [{ name: "Mom", avoid: ["peanut"] }];
   assert.equal(
@@ -728,6 +528,10 @@ test("specialAvoidHits screens name and instructions, not only ingredients", () 
     "an avoided food in the instructions is as real as an ingredient row",
   );
 });
+
+// buildDinnerWeekRequest / validateDinnerWeek / WEEK_MEAL_SLOTS retired with
+// the /dinnerweek endpoint on 2026-08-30 (session monolith): the brigade week
+// is composed deterministically on-device (app/lib/compose.js).
 
 test("validateDinnerDecision clamps runaway macros before they reach stored files", () => {
   const d = validateDinnerDecision(

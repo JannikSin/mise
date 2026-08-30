@@ -235,6 +235,33 @@ export function untrustedForAutoPlan(recipe) {
 }
 
 /**
+ * THE auto-plan eligibility fence, ONE name for every engine (monolith,
+ * 2026-08-30). Before this predicate existed the week generator, the brigade
+ * pool and the AI week run each carried their own subset of these rules, and
+ * the gaps between them are where the sick-day sports drinks got into live
+ * smoothie slots. A recipe failing here is still choosable BY HAND everywhere
+ * — this fences auto-planners only.
+ *  - occasion-only / remedy: sick-day food plans only through an occasion.
+ *  - the AI trust fence (untrustedForAutoPlan, council 2026-07-23).
+ *  - a drink is never auto-planned as a snack: an auto-planned 60 kcal iced
+ *    tea occupying the day's snack slot is how a gain day starves politely.
+ *    The bank spells the tag two ways ("drink" on the coolers, "beverage" on
+ *    the latte) — both count, or the rule has a synonym-shaped hole
+ *    (Final Gate Realist, 2026-08-30: a 2× skim-milk latte planned as the
+ *    day's snack through exactly that hole).
+ * @param {Record<string, any>} recipe
+ * @returns {boolean}
+ */
+export function autoPlanEligible(recipe) {
+  const tags = recipe.tags ?? [];
+  if (tags.includes("occasion-only") || tags.includes("remedy")) return false;
+  if (untrustedForAutoPlan(recipe)) return false;
+  if (recipe.mealType === "snack" && (tags.includes("drink") || tags.includes("beverage")))
+    return false;
+  return true;
+}
+
+/**
  * THE shared diet/avoid screen (Tribunal amendment 1): the same predicate
  * mergeRecipePool filters with, exported so table creation and derivation
  * can never bypass it. Returns human-readable conflict reasons, empty =
@@ -759,83 +786,10 @@ export function dailyCovered(targets, bankById, plannedSlots, swipe = null) {
   return { calories: Math.round(calories), protein: Math.round(protein), note: parts.join(" and ") };
 }
 
-/** slots the lean-menu screen curates, each with its own density cap
- * (g protein per kcal). Dinner and lunch are exempt on purpose: they are
- * the main cooked meals and the day's protein anchor — the whole design
- * says light slots go lean so the anchor can stay real. BREAKFAST is
- * exempt too (David, 2026-08-29, hours after this shipped with a 0.045
- * breakfast cap: "I don't want to be eating oatmeal and eggs... I like
- * the yogurt and whey a lot, a lot better. Please don't make that
- * change"). Adherence beats the gram — a breakfast he won't eat fixes
- * nothing — so the yogurt bowls stay choosable and the residual shows up
- * honestly in the per-day bounds notes instead of being engineered away.
- * Caps measured against the live bank 2026-08-29: smoothie/snack at
- * 0.040 keep the foundry leans (27-29), oat-banana (37) and trail mix
- * (29) while excluding every 74-95 g/1000 shake that blew the measured
- * week. */
-export const LEAN_MENU_SLOTS = { smoothie: 0.04, snack: 0.04 };
-/** a person is "tight" when the top of their planned band must average
- * leaner than this. David on a 90 g swipe day: (190-90)*1.2/2500 = 0.048
- * → tight. Him with no swipe: 190*1.2/3700 = 0.062 → not tight, full menu. */
-const LEAN_TRIGGER_DENSITY = 0.055;
-/** honest-relax floor: a curated slot always keeps at least this many
- * candidates (the leanest available) so the model never faces an empty slot. */
-const LEAN_MENU_MIN = 3;
-
-/**
- * THE LEAN MENU SCREEN (P1, P5; David 2026-08-29 scorch: "it just needs to
- * portion it so it doesn't go insanely above the protein goals").
- *
- * Deterministic, because the prompt alone measurably was not enough: the
- * 2026-08-29 week run was ASKED for a 100-120 g planned band and LEAN-labeled
- * candidates, and still delivered 139-180 g cooked (229-270 eaten) — the
- * model upsized protein-dense picks to close the calorie gap. This screen
- * removes the too-dense candidates from the light slots BEFORE the model
- * sees them, the same pool-level move every other screen here makes
- * (diet, avoid, trust). A dish that is not on the menu cannot be picked.
- *
- * Fires only when some participant's covered credit (a swipe, a fixed slot)
- * already carries so much of their protein that their remaining cooked day
- * must average leaner than LEAN_TRIGGER_DENSITY. No covered credit, or a
- * roomy remainder = the full menu, untouched. Dinner/lunch always keep the
- * full menu: the anchor stays real, light slots go lean around it.
- * Honest-relax: a curated slot with fewer than LEAN_MENU_MIN lean options
- * keeps its LEAN_MENU_MIN leanest instead — never an empty slot, and the
- * caller reports curation so it is visible, never silent.
- * @param {{ id: string, name: string, calories: number, protein: number, cuisine: string, meal?: string }[]} candidates
- * @param {{ id: string, calories: number, protein: number }[]} people diner facts
- * @param {Record<string, { calories: number, protein: number }>} covered per-person daily off-plan delivery
- * @returns {{ candidates: { id: string, name: string, calories: number, protein: number, cuisine: string, meal?: string }[], curated: boolean }}
- */
-export function leanWeekMenu(candidates, people, covered) {
-  const tight = people.some((p) => {
-    const c = covered?.[p.id];
-    if (!c) return false;
-    const restCal = Number(p.calories) - Number(c.calories);
-    const restP = Math.max(0, Number(p.protein ?? 0) - Number(c.protein));
-    return restCal > 0 && (restP * 1.2) / restCal < LEAN_TRIGGER_DENSITY;
-  });
-  if (!tight) return { candidates, curated: false };
-  const densityOf = (/** @type {{ protein: number, calories: number }} */ c) =>
-    c.calories > 0 ? c.protein / c.calories : 0;
-  /** @type {typeof candidates} */
-  const out = [];
-  for (const slot of [...new Set(candidates.map((c) => c.meal))]) {
-    const slotCands = candidates.filter((c) => c.meal === slot);
-    const cap = LEAN_MENU_SLOTS[/** @type {keyof typeof LEAN_MENU_SLOTS} */ (slot)];
-    if (!cap) {
-      out.push(...slotCands);
-      continue;
-    }
-    const lean = slotCands.filter((c) => densityOf(c) <= cap);
-    out.push(
-      ...(lean.length >= LEAN_MENU_MIN
-        ? lean
-        : [...slotCands].sort((a, b) => densityOf(a) - densityOf(b)).slice(0, LEAN_MENU_MIN)),
-    );
-  }
-  return { candidates: out, curated: true };
-}
+// The lean-menu screen (2026-08-29) retired 2026-08-30 (session monolith):
+// it existed to talk the /dinnerweek model out of protein-dense picks, and
+// the model left the week path entirely — the day composer (compose.js)
+// enforces every band arithmetically instead of curating what an AI sees.
 
 /**
  * One tap walks a slot through its away states (7.11):

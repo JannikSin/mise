@@ -959,41 +959,34 @@ Rules (binding, from the Tribunal gate):
   (`validateHallPlate`), never taken from the model. Unmatched food comes
   back as clamped `extras`. The result is composeTray-shaped, so LOG THIS
   rides the existing hall-tray plan write unchanged (P1, P10).
-- WEEK OF MEALS (Tables tab, Worker `/dinnerweek`, 2026-08-09): one call
-  plans every remaining picked meal that has no table yet — people picked,
-  slots picked (all five: smoothie and snack are plannable chips since
-  2026-08-28/plenum, off by default without a brigade so left alone they
-  stay personal), per-person ATTENDANCE (`away`: personId → entries; a
-  whole-day entry `"YYYY-MM-DD"` seats that person on NONE of the day's
-  tables, a per-meal entry `"YYYY-MM-DD|slot"` empties just that one seat —
-  cook totals, plates and the buy all shrink either way, and the model is
-  told to plan them no plate). With a buffet currency on the runner's
-  profile the run claims the preferred slot's meals as dining swipes first
-  (P5/P10, `weekRunSwipes` in plan.js): the runner goes off those pots via
-  per-meal away entries and the swipes are seeded pinned into their own
-  plan (`planSwipes`), reported back as `swiped`. The request also carries
-  `covered` (personId → daily off-plan delivery: the swipe estimate plus
-  fixed-slot recipes the run is not planning, via `dailyCovered` in
-  plan.js), so the model aims each person's cooked plates at the REMAINDER
-  of their day instead of double-feeding them (plenum r2: without it the
-  model wrote 1,400 kcal breakfasts and real days hit 4,430 kcal / 266 g
-  against a 3,700/190 target). Tables the run sets are stamped
-  `fromWeekRun: true`; the form's 🔁 REPLACE chip cancels and replans
-  exactly those upcoming stamped tables (pre-stamp runs matched by their
-  "Family <slot>" naming) while hand-set and brigade tables are never
-  touched. Optional cuisine/theme,
-  per-meal bank pick or special, per-person
-  plate specs with weighed gram amounts so each person lands near their own
-  daily calories/protein while the house cooks each slot ONCE. Each meal
-  lands as an ordinary table via the same apply path as `/dinner` (specials
-  to the bank first, plates as the table's tailor block) with `buyerId`
-  pre-set to the runner, so the groceries are claimable-free and the List is
-  buildable the same day. Derivation, shopping claims, and the money ledger
-  work unchanged. The same deterministic avoid screen runs per meal: a
-  special hitting any never-serve list (ingredients, name, or instructions)
-  drops that MEAL (reported in `notes`, never silently), and offending plate
-  notes are blanked. Macro fields are clamped server-side (kcal ≤5000/serving,
-  macros ≤500 g, plate estimates ≤6000 kcal) before anything is stored.
+- THE WEEK IS COMPOSED, NOT ASKED FOR (2026-08-30, session monolith; this
+  replaces the retired Worker `/dinnerweek` AI week run of 2026-08-09). The
+  brigade card's SET THIS WEEK runs `planBrigadeWeek` (`app/lib/compose.js`):
+  deterministic, offline, no model in the loop. Per slot, candidates come
+  from `brigadePool` (every member's screens intersected + the one
+  `autoPlanEligible` fence + `slotAvoid` + grab-and-go + portable-snack);
+  the FNV rotation names each day's START pick, and the day composer then
+  solves every seated member's servings JOINTLY so each person's day lands
+  inside their own remaining calorie band ([target, target+100] after
+  covered credit) and protein band ([floor, ceiling], pulled toward aim),
+  swapping candidates fresh-before-repeat when the start picks cannot land.
+  Acceptance is GRADUATED: a seat that cannot reach target degrades to its
+  own calorie floor with the shortfall NAMED in the per-seat `report`
+  (statuses: band | floor | miss | over | no-targets); a whole-day refusal
+  does not exist. Covered credit is per member per DATE (`memberCoverage`):
+  their own plan's pinned/OUT entries (which also take that seat off the
+  slot's pot, written `status: "skipped", auto: true` — machine skips are
+  recomputed every run, human declines carry), presumed dining swipes at
+  the currency's stated tray, and fixed slots ONLY where they pass that
+  member's own screens. A seat's `edited: true` servings (stamped by
+  patchSeat, never inferred) bind the solve while the dish is unchanged.
+  THE SHADOW SWEEP: upcoming tables the retired AI run wrote
+  (`fromWeekRun: true`, or the pre-stamp "Family <slot>" naming) at the
+  brigade's own date+slots are cleared before composing — a standing
+  brigade owns its span; hand-set tables survive and still outrank at
+  derivation. The runner's swipes are seeded pinned into their own plan
+  (`planSwipes`) and reported (`swiped`); housemates' swipes are ASSUMED
+  and reported (`assumed`) — their plans are theirs alone to write.
 - **Generator trust gate (council 2026-07-23):** an `ai-special` recipe is
   settable as a table and browsable in the cookbook, but `generateWeek` and
   `poolAdequacy` exclude it (`generatorEligible` in weekbuilder.js) until a
@@ -1388,6 +1381,14 @@ Seeded from the FITNESS.md system; edited rarely.
     //   (never through a floor). Absent = 1.05 x calories. Unlike the floors
     //   this stays a ratio by design: a floor is a number the person agreed
     //   to, a ceiling is the generator's own slack for its top-up passes.
+    //   THE DAY COMPOSER (compose.js, 2026-08-30) additionally DERIVES a
+    //   proteinCeiling of round(protein x 1.15) when none is written — four
+    //   of five live profiles carry none, and an unconstrained upper band
+    //   re-creates the measured 229-270 g overshoot. Derived, and said here
+    //   rather than discovered; write proteinCeiling to override it. Its aim
+    //   is proteinAim ?? protein. A profile with no protein number at all
+    //   gets no protein optimization (the composer only optimizes numbers
+    //   the person tracks).
     // "proteinAim": 215,
     //   ? council 2026-08-26: A SETPOINT AND A LIMIT MUST NEVER BE THE SAME
     //   VARIABLE. The AIM is what the protein trim converges bought grams
@@ -1446,6 +1447,12 @@ Seeded from the FITNESS.md system; edited rarely.
   //   generator, and swaps everywhere. brigadePool honors every member's
   //   list (a shared pot never serves a meal one member banned).
   //   Absent = none. Hand-edited for now; no SYS UI yet.
+  "slotAvoid": { "breakfast": ["egg"] },
+  // ? PER-SLOT ingredient exclusions (David 2026-08-30: "I don't want eggs
+  //   in the morning" — while the egg in his dinner fried rice stays
+  //   legal). Same case-insensitive substring semantics as avoidIngredients,
+  //   scoped to the named slot; enforced in brigadePool (intersected across
+  //   members like every other screen). Absent = none.
   "region": { "country": "USA", "state": "IL" },
   // ? where this profile buys groceries, for sales tax on the List
   //   trip total (app/lib/prices.js GROCERY_TAX_RATE by state;
@@ -1551,6 +1558,11 @@ Seeded from the FITNESS.md system; edited rarely.
   "breakfastStyle": "savory", // ? enum sweet | savory | grab-and-go | surprise.
   //   ABSENT = surprise (no weight). WEIGHT (+1.5 on style match) in
   //   bonus(), applied to the breakfast committee only.
+  //   GRAB-AND-GO is also a HARD screen for shared brigade breakfasts
+  //   (brigadePool, 2026-08-30): when ANY member declares it, breakfast
+  //   candidates must be effort "assembly" — nothing cooked at eating time.
+  //   The screen keys on effort, never on tags: the pancakes carry
+  //   meal-prep tags and still need a 7am griddle.
   "budget": "tight", // ? enum tight | normal | loose. ABSENT = normal.
   //   WEIGHT (tight only): +1 for the "cheap" tag, +0.5*foodGroups.
   //   beans, and doubles the ingredient-overlap dial so the week

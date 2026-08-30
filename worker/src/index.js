@@ -5,7 +5,6 @@
 //   POST /menu    { image, mediaType, diners }    -> { diners: [{name, picks, skip}], notes }
 //   POST /tailor  { recipe, seats }               -> { seats: {id: {plate, est*}}, cook }
 //   POST /dinner  { messages, people, candidates } -> { reply, decision }
-//   POST /dinnerweek { people, candidates, meals, cuisine, note } -> { nights, notes }
 //   POST /onboard { messages, survey }            -> { reply, profile }
 //   POST /remedy  { text }                        -> { protocol: {teas, foods, avoid, notes} }
 // Auth: the caller proves they are David by presenting the SAME fine-grained
@@ -24,9 +23,6 @@ import {
   validateHallPlate,
   buildTailorRequest,
   buildDinnerRequest,
-  buildDinnerWeekRequest,
-  validateDinnerWeek,
-  WEEK_MEAL_SLOTS,
   parseToolUse,
   parseOnboardResponse,
   parseDinnerResponse,
@@ -130,8 +126,7 @@ const authCache = new Map();
 const rateState = new Map();
 
 /**
- * Bounded candidate-recipe list at the trust boundary (shared by /dinner and
- * /dinnerweek).
+ * Bounded candidate-recipe list at the trust boundary (/dinner).
  * @param {any} input
  * @returns {{ id: string, name: string, calories: number, protein: number, cuisine: string }[]}
  */
@@ -511,7 +506,6 @@ export default {
         "/hallplate",
         "/tailor",
         "/dinner",
-        "/dinnerweek",
         "/ask",
         "/annotate",
         "/annotate-save",
@@ -541,15 +535,11 @@ export default {
         rateState,
         await tokenKey(/** @type {string} */ (token)),
         Date.now(),
-        // /dinnerweek's 32k max_tokens (raised from 16k, 2026-08-29: a
-        // 35-meal brigade week with specials truncated at 16k) is the
-        // most expensive single call — weight 6 keeps a stolen token to
-        // ~5 week-runs per window while leaving room for a real re-plan
-        // burst; /annotate is a transcribe call plus up to two 8k annotate
+        // /annotate is a transcribe call plus up to two 8k annotate
         // attempts (Tribunal M1); /kroger/byId fans out one upstream call
-        // per UPC
-        url.pathname === "/dinnerweek" ? 6
-          : url.pathname === "/annotate" ? 4
+        // per UPC. (/dinnerweek and its weight-6 branch retired 2026-08-30:
+        // the brigade week is composed deterministically on-device.)
+        url.pathname === "/annotate" ? 4
           : url.pathname === "/kroger/byId" ? 2
           : 1,
       )
@@ -814,128 +804,11 @@ export default {
         }
         return json(200, turn, cors);
       }
-      if (url.pathname === "/dinnerweek") {
-        const people = sanitizePeople(body.people).filter((p) => p.id);
-        const candidates = sanitizeCandidates(body.candidates);
-        /** @type {{ date: string, slot: string }[]} */
-        const meals = [];
-        const seen = new Set();
-        for (const m of Array.isArray(body.meals) ? body.meals : []) {
-          if (meals.length >= 35) break; // 7 days x the 5 plannable slots
-          if (typeof m !== "object" || m === null) continue;
-          const date =
-            typeof m.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(m.date) ? m.date : "";
-          const slot = typeof m.slot === "string" && WEEK_MEAL_SLOTS.includes(m.slot) ? m.slot : "";
-          if (!date || !slot || seen.has(`${date}|${slot}`)) continue;
-          seen.add(`${date}|${slot}`);
-          meals.push({ date, slot });
-        }
-        meals.sort(
-          (a, b) =>
-            a.date.localeCompare(b.date) ||
-            WEEK_MEAL_SLOTS.indexOf(a.slot) - WEEK_MEAL_SLOTS.indexOf(b.slot),
-        );
-        const cuisine = typeof body.cuisine === "string" ? body.cuisine.trim().slice(0, 60) : "";
-        const note = typeof body.note === "string" ? body.note.trim().slice(0, 300) : "";
-        // attendance: personId → entries they are NOT at the table for. An
-        // entry is a whole day ("YYYY-MM-DD") or one meal ("YYYY-MM-DD|slot",
-        // a dining-hall swipe: off that slot's pot, still at the others).
-        // Ids must name someone in `people`; dates must be requested meal
-        // dates, slots must be requested for that date.
-        const mealDates = new Set(meals.map((m) => m.date));
-        const mealKeys = new Set(meals.map((m) => `${m.date}|${m.slot}`));
-        const personIdSet = new Set(people.map((p) => p.id));
-        /** @type {Record<string, string[]>} */
-        const away = {};
-        if (typeof body.away === "object" && body.away !== null) {
-          for (const [id, dates] of Object.entries(body.away)) {
-            if (!personIdSet.has(id) || !Array.isArray(dates)) continue;
-            const clean = [
-              ...new Set(
-                dates.filter(
-                  (d) =>
-                    typeof d === "string" &&
-                    (d.includes("|") ? mealKeys.has(d) : mealDates.has(d)),
-                ),
-              ),
-            ].sort();
-            if (clean.length > 0) away[id] = clean.slice(0, 14);
-          }
-        }
-        // per-person daily off-plan delivery (swipe + fixed slots), so the
-        // model aims cooked plates at the REMAINDER of the day (plenum r2)
-        /** @type {Record<string, { calories: number, protein: number, note?: string }>} */
-        const covered = {};
-        if (typeof body.covered === "object" && body.covered !== null) {
-          for (const [id, c] of Object.entries(body.covered)) {
-            if (!personIdSet.has(id) || typeof c !== "object" || c === null) continue;
-            const calories = Number(/** @type {any} */ (c).calories);
-            const protein = Number(/** @type {any} */ (c).protein);
-            if (!Number.isFinite(calories) || !Number.isFinite(protein)) continue;
-            covered[id] = {
-              calories: Math.min(6000, Math.max(0, Math.round(calories))),
-              protein: Math.min(500, Math.max(0, Math.round(protein))),
-              note:
-                typeof (/** @type {any} */ (c).note) === "string"
-                  ? /** @type {any} */ (c).note.slice(0, 300)
-                  : "",
-            };
-          }
-        }
-        if (people.length === 0) return json(400, { error: "people required" }, cors);
-        if (meals.length === 0) return json(400, { error: "meals required" }, cors);
-        const resp = await callModel(
-          buildDinnerWeekRequest({
-            meals,
-            cuisine,
-            note,
-            away,
-            covered,
-            people,
-            candidates,
-            model: env.SCAN_MODEL ?? DEFAULT_MODEL,
-          }),
-          env,
-        );
-        const nights = validateDinnerWeek(
-          parseToolUse(resp, "record_dinner_week"),
-          candidates.map((c) => c.id),
-          people.map((p) => p.id),
-          meals,
-        );
-        // deterministic avoid screen AFTER the model — never an AI judgment.
-        // A special that hits a never-serve list drops its MEAL (reported),
-        // and a plate note naming an avoided food is blanked, same as /dinner.
-        const avoidById = new Map(people.map((p) => [p.id, p.avoid]));
-        /** @type {string[]} */
-        const notes = [];
-        const clean = nights.filter((n) => {
-          if (n.special) {
-            const hits = specialAvoidHits(/** @type {any} */ (n.special), people);
-            if (hits.length > 0) {
-              notes.push(
-                `${n.date} ${n.slot}: the proposed special was refused (${hits.join("; ")})`,
-              );
-              return false;
-            }
-          }
-          n.plates = n.plates.map((p) =>
-            hitsAvoid(p.note, avoidById.get(p.id) ?? []).length > 0 ? { ...p, note: "" } : p,
-          );
-          return true;
-        });
-        for (const m of meals) {
-          const label = `${m.date} ${m.slot}`;
-          if (
-            !clean.some((n) => n.date === m.date && n.slot === m.slot) &&
-            !notes.some((s) => s.startsWith(label))
-          )
-            notes.push(
-              `${label}: nothing came back for this meal — run it again or set it by hand`,
-            );
-        }
-        return json(200, { nights: clean, notes }, cors);
-      }
+      // /dinnerweek retired 2026-08-30 (session monolith): the brigade week
+      // is composed deterministically on-device (app/lib/compose.js) — the
+      // model measurably could not hold the day arithmetic through six
+      // prompt layers, and a job a pure function does for $0 offline does
+      // not get a 32k-token API call.
       if (url.pathname === "/annotate") {
         const objective = OBJECTIVES.includes(body.objective) ? body.objective : "fit-the-plan";
         // server-side twin of the client's fail-closed gate (C1): a diner the

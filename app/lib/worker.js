@@ -213,32 +213,9 @@ export async function tailorTable(recipe, seats) {
   };
 }
 
-/**
- * One call → a settled, people-tailored SHARED meal for every requested
- * date+slot (the house cooks each slot once; goals survive via per-person
- * portioning). Each meal is a full decision (bank pick or special,
- * per-person plate specs with weighed amounts, why); `notes` reports meals
- * the screen refused or the model skipped, so silence never reads as
- * covered.
- * @param {{ id: string, name: string, goal: string, calories: number, protein: number, diet: string, avoid: string[], say?: string }[]} people
- * @param {{ id: string, name: string, calories: number, protein: number, cuisine: string, meal?: string }[]} candidates
- * @param {{ date: string, slot: string }[]} meals date+slot pairs to plan
- * @param {string} cuisine cuisine/theme preference, "" = none
- * @param {string} note free-text household note, "" = none
- * @param {Record<string, string[]>} [away] personId → entries they are NOT at
- *   the table for: a whole day ("YYYY-MM-DD") or one meal ("YYYY-MM-DD|slot")
- * @param {Record<string, { calories: number, protein: number, note?: string }>} [covered]
- *   personId → what they already eat each day OUTSIDE the planned meals
- *   (swipe + fixed slots), so plates aim at the remainder (plenum r2)
- * @returns {Promise<{ nights: Record<string, any>[], notes: string[] }>}
- */
-export async function dinnerWeek(people, candidates, meals, cuisine, note, away = {}, covered = {}) {
-  const data = await post("/dinnerweek", { people, candidates, meals, cuisine, note, away, covered });
-  return {
-    nights: Array.isArray(data.nights) ? data.nights : [],
-    notes: Array.isArray(data.notes) ? data.notes : [],
-  };
-}
+// dinnerWeek retired 2026-08-30 (session monolith): the brigade week is
+// composed deterministically on-device (app/lib/compose.js), so the 32k-token
+// /dinnerweek call and this client left together.
 
 /**
  * One turn of the household dinner discussion. Gets back either the
