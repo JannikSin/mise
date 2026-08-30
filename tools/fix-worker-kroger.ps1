@@ -36,7 +36,11 @@ $cid | npx wrangler secret put KROGER_CLIENT_ID --config wrangler.toml
 if (-not $?) { throw "wrangler put KROGER_CLIENT_ID failed" }
 $csec | npx wrangler secret put KROGER_CLIENT_SECRET --config wrangler.toml
 if (-not $?) { throw "wrangler put KROGER_CLIENT_SECRET failed" }
-Write-Host "secrets re-uploaded. Verifying with one live search (1 rate unit)..."
+Write-Host "secrets re-uploaded. Waiting 20s for the secret rollout, then verifying (1 rate unit)..."
+# a secret change creates a new Worker version; verifying instantly can hit
+# an isolate still running the OLD env and report the very error just fixed
+# (David hit exactly this on 2026-08-30 — the fix had worked)
+Start-Sleep -Seconds 20
 
 $fill = "protocol=https`nhost=github.com`n`n" | git credential fill
 $pat = (($fill | Select-String "^password=").Line) -replace "^password=", ""

@@ -206,6 +206,10 @@ const FOOD_UNITS = {
   "brown-rice": { unit: "g", cup: 190 },
   "shelled-edamame": { unit: "g", cup: 155 },
   "greek-yogurt": { unit: "g", cup: 245 },
+  // David, 2026-08-30: "cottage cheese is good though, don't avoid it" — a
+  // cup against a 24 oz tub couldn't convert, the whole $4.99 tub counted
+  // as eaten, and the cost sweep read his best pre-bed protein as expensive
+  "cottage-cheese": { unit: "g", cup: 226 },
   "cherry-tomatoes": { unit: "g", cup: 149 },
   parmesan: { unit: "g", cup: 100 },
   "whole-wheat-couscous": { unit: "g", cup: 173 },
