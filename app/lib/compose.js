@@ -517,6 +517,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         slotAvoid: t?.slotAvoid,
         breakfastStyle: t?.breakfastStyle,
         snackPortable: t?.snackPortable === true,
+        dinnerAnchor: t?.dinnerAnchor === true,
       };
     });
   if (members.length < 2) return { events, made: 0, thin: [], report: [] };

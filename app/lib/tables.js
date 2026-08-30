@@ -926,7 +926,7 @@ export function slotShareFor(targets, slot) {
  * private variants), which is safe when only they eat them and unsafe the
  * moment the meal is served to three other people.
  * @param {Map<string, any>} bankById
- * @param {{ id: string, diet?: string, avoid?: string[], avoidRecipes?: string[], slotAvoid?: Record<string, string[]>, breakfastStyle?: string, snackPortable?: boolean }[]} members
+ * @param {{ id: string, diet?: string, avoid?: string[], avoidRecipes?: string[], slotAvoid?: Record<string, string[]>, breakfastStyle?: string, snackPortable?: boolean, dinnerAnchor?: boolean }[]} members
  * @param {string} slot
  * @returns {Record<string, any>[]} eligible recipes, id-sorted for determinism
  */
@@ -950,6 +950,11 @@ export function brigadePool(bankById, members, slot) {
   // 2026-08-30). Honest-relax like weekbuilder: an empty portable pool
   // falls back to the full one rather than silently starving the slot.
   const portableSnack = slot === "snack" && members.some((m) => m.snackPortable);
+  // dinnerAnchor (council 2026-08-26, an adherence rule): a member who
+  // declares it never gets an anchor-less dinner auto-planned — the personal
+  // generator honored this and the shared pot did not, which is how a bowl
+  // of butter rice became the house dinner (found live, 2026-08-30)
+  const anchoredDinner = slot === "dinner" && members.some((m) => m.dinnerAnchor);
   /** @type {Record<string, any>[]} */
   const nonPortable = [];
   for (const recipe of bankById.values()) {
@@ -966,6 +971,7 @@ export function brigadePool(bankById, members, slot) {
     if (members.some((m) => (m.avoidRecipes ?? []).includes(recipe.id))) continue;
     if (noCookBreakfast && recipe.effort !== "assembly" && recipe.effort !== "assemble")
       continue;
+    if (anchoredDinner && (recipe.tags ?? []).includes("carb-forward")) continue;
     if (
       slotTerms.length > 0 &&
       (recipe.ingredients ?? []).some(
