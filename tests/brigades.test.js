@@ -543,9 +543,13 @@ test("brigade dinners walk a SCATTERED order, still run-day independent", () => 
   }
 });
 
-test("deriveTables exposes EVERY table's batch (allCookExtras), mine stays cook-only", () => {
-  // the "one shopper buys all the family dinners" trip needs every night's
-  // batch with its cook, not just the viewer's own nights
+test("THE BRIGADE'S COOK BUYS: each rotating cook shops exactly their own nights", () => {
+  // David 2026-08-30 ("in a brigade you shouldn't have the option to buy
+  // just for yourself — the brigade buys"): an unclaimed BRIGADE table
+  // defaults its buy to the table's NAMED cook, which is exactly what the
+  // brigade form has always promised ("everyone cooks one or two dinners
+  // and shops for their own nights"). Hand-set tables keep the 2026-08-03
+  // claims model untouched — that case is pinned separately below.
   const rot = { ...BRIGADE, memberIds: ["mom", "laurie", "david"], rotateCooks: true };
   const { events } = planBrigadeWeek({ tables: [] }, rot, ctx());
   const d = deriveTables([{ house: "taranowski", events }], {
@@ -559,10 +563,32 @@ test("deriveTables exposes EVERY table's batch (allCookExtras), mine stays cook-
   const cooks = new Set(d.allCookExtras.map((x) => x.cookId));
   assert.ok(cooks.has("mom") && cooks.has("laurie") && cooks.has("david"));
   for (const x of d.allCookExtras) assert.ok(x.servings > 0 && x.recipeId && x.date);
-  // CLAIMS model: with no buyerId anywhere, NOBODY's list carries a batch —
-  // not even the cook's (David 2026-08-03: "you don't know who will buy it")
-  assert.deepEqual(d.cookExtras, []);
-  // claiming two nights puts exactly those two on the claimant's list
+  // mom's list carries exactly the nights SHE cooks — no more, no less
+  const momNights = events.tables.filter((t) => t.cookId === "mom").map((t) => t.date).sort();
+  assert.ok(momNights.length > 0, "the rotation gives mom nights");
+  assert.deepEqual(
+    d.cookExtras.map((x) => x.date).sort(),
+    momNights,
+    "the named cook buys their own nights by rule",
+  );
+  // the effective buyer travels on allCookExtras so claim UIs stop nagging
+  for (const x of d.allCookExtras) {
+    assert.equal(/** @type {any} */ (x).buyerId, x.cookId, "brigade batches carry their buyer");
+  }
+  // the union across all three members is the whole week, with no overlap
+  let union = 0;
+  for (const who of ["mom", "laurie", "david"]) {
+    const view = deriveTables([{ house: "taranowski", events }], {
+      profileId: who,
+      bankById: BANK,
+      ownEntries: [],
+      today: TODAY,
+      profilesById: PROFILES,
+    });
+    union += view.cookExtras.length;
+  }
+  assert.equal(union, WEEK.length, "every night bought exactly once across the house");
+  // an EXPLICIT claim still beats the cook (multi-shopper houses unchanged)
   const claimed = {
     ...events,
     tables: events.tables.map((t, i) => (i < 2 ? { ...t, buyerId: "mom" } : t)),
@@ -574,7 +600,124 @@ test("deriveTables exposes EVERY table's batch (allCookExtras), mine stays cook-
     today: TODAY,
     profilesById: PROFILES,
   });
-  assert.equal(d2.cookExtras.length, 2, "exactly the claimed nights ride mom's list");
+  const momCookNightsInFirstTwo = events.tables
+    .slice(0, 2)
+    .filter((t) => t.cookId === "mom").length;
+  assert.equal(
+    d2.cookExtras.length,
+    momNights.length + 2 - momCookNightsInFirstTwo,
+    "her claims add to her cook nights without double-counting",
+  );
+});
+
+test("a hand-set (non-brigade) table still rides NOBODY's list unclaimed", () => {
+  // the 2026-08-03 claims model is untouched outside brigades: taranowski's
+  // hand-set dinners must not start auto-shopping for anyone
+  const { events } = planBrigadeWeek({ tables: [] }, BRIGADE, ctx());
+  const hand = {
+    ...events,
+    tables: [
+      ...events.tables,
+      {
+        id: "hand-x",
+        name: "Birthday dinner",
+        date: "2026-07-28",
+        slot: "lunch",
+        recipeId: "tagine",
+        cookId: "mom",
+        seats: [
+          { id: "mom", servings: 1 },
+          { id: "laurie", servings: 1 },
+        ],
+      },
+    ],
+  };
+  const d = deriveTables([{ house: "taranowski", events: hand }], {
+    profileId: "mom",
+    bankById: BANK,
+    ownEntries: [],
+    today: TODAY,
+    profilesById: PROFILES,
+  });
+  assert.ok(
+    !d.cookExtras.some((x) => x.date === "2026-07-28" && x.slot === "lunch"),
+    "no fromBrigade, no auto-buy — the claim button is the only path",
+  );
+});
+
+test("a SKIPPED named cook auto-buys nothing, and seat order cannot move the buy", () => {
+  // Red Team, plan gate 2026-08-30: cookOf's positional fallback flips with
+  // seat order under a 409 merge, so the auto-buy keys ONLY on the named
+  // cook. A skipped named cook leaves the night unclaimed and visible.
+  const { events } = planBrigadeWeek({ tables: [] }, BRIGADE, ctx());
+  const skewed = {
+    ...events,
+    tables: events.tables.map((t, i) =>
+      i === 0
+        ? {
+            ...t,
+            seats: [...t.seats].reverse().map((s) =>
+              s.id === t.cookId ? { ...s, status: "skipped" } : s,
+            ),
+          }
+        : { ...t, seats: [...t.seats].reverse() },
+    ),
+  };
+  for (const who of ["mom", "laurie"]) {
+    const view = deriveTables([{ house: "taranowski", events: skewed }], {
+      profileId: who,
+      bankById: BANK,
+      ownEntries: [],
+      today: TODAY,
+      profilesById: PROFILES,
+    });
+    const skippedNight = skewed.tables[0];
+    assert.ok(
+      !view.cookExtras.some((x) => x.date === skippedNight.date),
+      `${who} does not auto-buy the skipped cook's night`,
+    );
+  }
+  // reversing seats on the OTHER nights moved no buys (named cook only)
+  const base = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
+  for (const who of ["mom", "laurie"]) {
+    const a = deriveTables([{ house: "taranowski", events: base }], {
+      profileId: who, bankById: BANK, ownEntries: [], today: TODAY, profilesById: PROFILES,
+    }).cookExtras.map((x) => x.date).sort();
+    const rev = {
+      ...base,
+      tables: base.tables.map((t) => ({ ...t, seats: [...t.seats].reverse() })),
+    };
+    const b = deriveTables([{ house: "taranowski", events: rev }], {
+      profileId: who, bankById: BANK, ownEntries: [], today: TODAY, profilesById: PROFILES,
+    }).cookExtras.map((x) => x.date).sort();
+    assert.deepEqual(a, b, `${who}'s buys are identical under seat reordering`);
+  }
+});
+
+test("the cook-buys rule is scoped to MY OWN household — no cross-house buying", () => {
+  // David sits in two brigades (his apartment + his parents' family table).
+  // Without this scope, the day the family brigade regenerates he silently
+  // starts buying his parents' dinners (measured, plan gate 2026-08-30).
+  const { events } = planBrigadeWeek({ tables: [] }, BRIGADE, ctx());
+  // "away" lives in ANOTHER house but views this house's tables
+  const view = deriveTables([{ house: "taranowski", events }], {
+    profileId: "away",
+    bankById: BANK,
+    ownEntries: [],
+    today: TODAY,
+    profilesById: PROFILES,
+  });
+  assert.deepEqual(view.cookExtras, [], "an out-of-house viewer never auto-buys");
+  // and even the COOK, if their own household is elsewhere, does not
+  const movedCook = new Map([...PROFILES, ["mom", { id: "mom", household: "elsewhere" }]]);
+  const view2 = deriveTables([{ house: "taranowski", events }], {
+    profileId: "mom",
+    bankById: BANK,
+    ownEntries: [],
+    today: TODAY,
+    profilesById: movedCook,
+  });
+  assert.deepEqual(view2.cookExtras, [], "a cook who moved out stops buying that kitchen");
 });
 
 test("a grocery claim survives brigade regeneration, like a skip does", () => {

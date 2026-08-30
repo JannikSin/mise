@@ -89,7 +89,7 @@ export const TOUR_STEPS = [
     route: "#/list",
     selector: ".actions .primary",
     title: "Build the list",
-    text: "Turns the week into a priced grocery list, minus what your pantry already has. Works offline in the store.",
+    text: "One tap turns the week's meals into a grocery list, priced live at your store. In a brigade it builds the whole kitchen's week: the cook buys once for everyone. Works offline in the store.",
   },
   {
     route: "#/list",
@@ -101,7 +101,7 @@ export const TOUR_STEPS = [
     route: "#/list",
     selector: ".chips",
     title: "Pantry and house",
-    text: "PANTRY holds what you own: ticked groceries flow in via ADD TO PANTRY, P+ marks things you already had. HOUSEHOLD merges your house's lists into one trip.",
+    text: "PANTRY holds what you own: ticked groceries flow in via ADD TO PANTRY, P+ marks things you already had. The first chip is the buy list. In a brigade the cook shops it once for the whole kitchen.",
   },
   {
     route: "#/system",

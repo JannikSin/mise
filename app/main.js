@@ -20,7 +20,8 @@ import { normalizeEquipment } from "./lib/equipment.js";
 import { formatSyncTime, isoWeekId, localIsoDate, parseLocalIso, statusDate } from "./lib/dates.js";
 import { applyScanItems } from "./lib/scan.js";
 import { dinerFacts } from "./lib/annotate.js";
-import { tailorTable, krogerConsumeRedirect } from "./lib/worker.js";
+import { tailorTable, krogerConsumeRedirect, krogerPricesById, krogerSearch } from "./lib/worker.js";
+import { repriceList, reapplyOps } from "./lib/repricer.js";
 import { ProfileGateView } from "./views/profile-gate.js";
 import { CookbookView } from "./views/cookbook.js";
 import { RecipeView } from "./views/recipe.js";
@@ -66,7 +67,7 @@ import {
   sectionOf,
   slug,
 } from "./lib/shopping.js";
-import { applyReceipt, parsePackSize } from "./lib/prices.js";
+import { applyReceipt, parsePackSize, storeSlugOf, resolveHomeStore } from "./lib/prices.js";
 import { normalizePins } from "./lib/kroger.js";
 import { perishableCoverage } from "./lib/coverage.js";
 import { composeWeekReview } from "./lib/review.js";
@@ -127,6 +128,7 @@ import {
   GUEST_TARGETS,
   addBrigade,
   removeBrigade,
+  effectiveBuyerOf,
   setTableTailor,
   setTableSameForEveryone,
   setTableBuyer,
@@ -502,6 +504,11 @@ function App() {
   // ingredient→UPC pins per store (data-repo root, fix list 3.2/PF.3): the
   // ledger's identity file. Normalized-empty until pins.json loads/exists.
   const [pins, setPins] = useState(/** @type {import("./lib/kroger.js").PinBook | null} */ (null));
+  // refs for the build-time repricer, which runs from a stable callback
+  const priceCatalogueRef = useRef(priceCatalogue);
+  priceCatalogueRef.current = priceCatalogue;
+  const pinsRef = useRef(pins);
+  pinsRef.current = pins;
 
   useEffect(() => {
     let alive = true;
@@ -1207,22 +1214,116 @@ function App() {
   const todayIfCurrentWeek = (week) =>
     week === isoWeekId(new Date()) ? localIsoDate(new Date()) : undefined;
 
+  const targetsRef = useRef(targets);
+  targetsRef.current = targets;
+
+  // BUILD prices its own list (repricer.js): stale pinned rows re-priced by
+  // UPC, then the search budget goes to the most expensive unpriced rows.
+  // One pins save + one prices save per run, and only when something moved.
+  const [repriceNote, setRepriceNote] = useState("");
+
+  // THE one store answer for headless callers (the repricer and the money
+  // ledger) — same resolveHomeStore chain the List view renders with, same
+  // stale-pick rule, so the tile and the engine can never disagree about
+  // which store the user is in (Tribunal, 2026-08-30)
+  const myPriceStore = useCallback(() => {
+    const catStores = priceCatalogueRef.current?.stores ?? [];
+    let picked = "";
+    let pickedDecl = "";
+    try {
+      picked = localStorage.getItem(`mise.priceStore.${me}`) ?? "";
+      pickedDecl = localStorage.getItem(`mise.priceStoreDecl.${me}`) ?? "";
+    } catch {
+      /* storage unavailable: fall through */
+    }
+    return resolveHomeStore({
+      picked,
+      pickedDecl,
+      declared: storeSlugOf(targetsRef.current?.stores?.[0]),
+      stores: catStores,
+    });
+  }, [me]);
+
+  // a second BUILD while a run is in flight would double-spend the 18-unit
+  // quota budget and race two coalesced pins saves — drop it (with a note),
+  // never queue it
+  const repriceBusyRef = useRef(false);
+  const repriceAfterBuild = useCallback(
+    async (/** @type {import("./lib/shopping.js").ShoppingList} */ built) => {
+      if (repriceBusyRef.current) {
+        setRepriceNote("already pricing this list, hold on");
+        return;
+      }
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        setRepriceNote("offline: using saved prices");
+        return;
+      }
+      const cat = priceCatalogueRef.current;
+      const book = pinsRef.current;
+      if (!cat || !book) return;
+      const store = myPriceStore();
+      if (!store) return;
+      repriceBusyRef.current = true;
+      try {
+        const res = await repriceList({
+          items: built.items.filter((i) => !i.checked),
+          pins: book,
+          prices: cat,
+          store,
+          avoid: targetsRef.current?.avoidIngredients ?? [],
+          todayIso: localIsoDate(new Date()),
+          api: { pricesById: krogerPricesById, search: krogerSearch },
+          onProgress: setRepriceNote,
+        });
+        // the run took long enough for the user to have tapped $?, confirmed
+        // a pin, or applied a receipt: their write wins. If the live books
+        // moved, replay the run's ops onto them (reapplyOps skips any
+        // food+store a human touched) instead of saving the stale snapshot.
+        const raced = pinsRef.current !== book || priceCatalogueRef.current !== cat;
+        if (raced) {
+          const merged = reapplyOps(
+            normalizePins(pinsRef.current),
+            priceCatalogueRef.current ?? cat,
+            normalizePins(book),
+            res.ops,
+            store,
+            localIsoDate(new Date()),
+          );
+          if (merged.pinsChanged) handleSavePins(merged.pins);
+          if (merged.pricesChanged) handleSavePrices(merged.prices);
+        } else {
+          if (res.pinsChanged) handleSavePins(res.pins);
+          if (res.pricesChanged) handleSavePrices(res.prices);
+        }
+        setRepriceNote(res.note);
+      } catch {
+        setRepriceNote("live pricing failed. The list still built.");
+      } finally {
+        repriceBusyRef.current = false;
+      }
+    },
+    [myPriceStore, handleSavePins, handleSavePrices],
+  );
+
   const handleBuildList = useCallback(
     (/** @type {{ dates?: string[], slots?: string[] } | undefined} */ only) => {
       const byId = recipesById(allRecipesRef.current);
-      updateShopping(
-        deriveShoppingList(
-          withCookExtras(/** @type {import("./lib/plan.js").Plan} */ (planRef.current)),
-          byId,
-          pantryRef.current,
-          shoppingRef.current,
-          todayIfCurrentWeek(/** @type {any} */ (planRef.current).week),
-          only,
-          recipesById(bankRecipesRef.current),
-        ),
+      const built = deriveShoppingList(
+        withCookExtras(/** @type {import("./lib/plan.js").Plan} */ (planRef.current)),
+        byId,
+        pantryRef.current,
+        shoppingRef.current,
+        todayIfCurrentWeek(/** @type {any} */ (planRef.current).week),
+        only,
+        recipesById(bankRecipesRef.current),
       );
+      updateShopping(built);
+      // fire-and-forget: BUILD prices its own list when the network is there
+      // (repricer.js owns the quota arithmetic); a dead network prices
+      // nothing and breaks nothing, and the build itself never waits
+      void repriceAfterBuild(built);
     },
-    [updateShopping],
+    [updateShopping, repriceAfterBuild],
   );
 
   const handleToggleItem = useCallback(
@@ -1252,9 +1353,17 @@ function App() {
     [updateShopping],
   );
 
+  // set beside the listBrigade memo below; declared here so earlier
+  // callbacks can body-reference it without a use-before-define
+  const listBrigadeRef = useRef(
+    /** @type {{ iShop: boolean } | null} */ (null),
+  );
   const handleJustBought = useCallback(() => {
-    // fridgeFirst only when this list IS the rendered trip — a solo profile.
-    // A household member's list is a PORTION of the merged HOUSEHOLD trip, and
+    // fridgeFirst only when this list IS the rendered trip — a solo profile,
+    // or the brigade's shopper, whose list is the whole kitchen's one buy
+    // (hiding the HOUSEHOLD tab under a brigade removed the only other
+    // subtraction site — Tribunal Engineer, 2026-08-30). A non-brigade
+    // household member's list is a PORTION of the merged HOUSEHOLD trip, and
     // reducing each portion against the same shared stock banks ~nothing
     // (Tribunal BLOCK 2026-08-01); their manual path banks verbatim, and the
     // canonical household flow is the receipt, which banks the merged sum.
@@ -1262,7 +1371,10 @@ function App() {
       shoppingRef.current,
       pantryRef.current,
       localIsoDate(new Date()),
-      { fridgeFirst: otherListsRef.current.length === 0 },
+      {
+        fridgeFirst:
+          otherListsRef.current.length === 0 || Boolean(listBrigadeRef.current?.iShop),
+      },
     );
     updateShopping(result.shopping);
     updatePantry(result.pantry);
@@ -1379,9 +1491,6 @@ function App() {
       document.removeEventListener("visibilitychange", sync);
     };
   }, []);
-
-  const targetsRef = useRef(targets);
-  targetsRef.current = targets;
 
   // THE FLUID WEEK (7.2, canon P4): the locked week is abolished. Shopping
   // stores the plan as a FALLBACK and the plan stays freely changeable; the
@@ -2112,16 +2221,21 @@ function App() {
   );
 
   // claim counts for the List's HOUSEHOLD tile: upcoming dinners in my house
-  // with no buyer, and the ones I already claimed
+  // with no EFFECTIVE buyer, and the ones that land on me. A brigade table
+  // with a named cook is bought by rule (effectiveBuyerOf), so it must never
+  // count as unclaimed — 28 false "nobody has claimed" nags otherwise
+  // (Tribunal, 2026-08-30).
   const dinnerClaims = useMemo(() => {
-    const house = allProfiles.find((p) => p.id === me)?.household ?? "home";
+    const profilesById = new Map(allProfiles.map((p) => [p.id, p]));
+    const house = profilesById.get(me)?.household ?? "home";
     const todayIso = localIsoDate(new Date());
     const tables = (houseEvents.find((h) => h.house === house)?.events?.tables ?? []).filter(
       (t) => typeof t.date === "string" && t.date >= todayIso,
     );
+    const buyers = tables.map((t) => effectiveBuyerOf(t, house, profilesById));
     return {
-      unclaimed: tables.filter((t) => !t.buyerId).length,
-      mine: tables.filter((t) => t.buyerId === me).length,
+      unclaimed: buyers.filter((b) => b === null).length,
+      mine: buyers.filter((b) => b === me).length,
     };
   }, [houseEvents, allProfiles, me]);
 
@@ -2154,6 +2268,121 @@ function App() {
     [plan, tableDerived],
   );
   const viewPlan = merged.plan;
+
+  // the List's brigade posture. When my household runs an active brigade the
+  // List stops being a personal surface: the cook buys for the whole kitchen
+  // (effectiveBuyerOf), everyone else has nothing to buy. iShop = at least one
+  // upcoming table's buy lands on me. weekNote catches the Sunday trap: the
+  // viewed week (often the ending one) holds none of my buy dates, so BUILD
+  // would produce leftover rows instead of the brigade week.
+  const listBrigade = useMemo(() => {
+    const profilesById = new Map(allProfiles.map((p) => [p.id, p]));
+    const house = profilesById.get(me)?.household ?? "home";
+    const todayIso = localIsoDate(new Date());
+    const active =
+      (houseEvents.find((h) => h.house === house)?.events?.brigades ?? [])
+        .filter((b) => (b.until ?? "9999-12-31") >= todayIso)
+        .sort((a, b) => (b.until ?? "").localeCompare(a.until ?? ""))[0] ?? null;
+    if (!active) return null;
+    const myBuys = tableDerived.allCookExtras
+      .filter((x) => /** @type {any} */ (x).buyerId === me && x.date >= todayIso)
+      .map((x) => x.date)
+      .sort();
+    const iShop = myBuys.length > 0;
+    const cookName = profilesById.get(active.cookId)?.name ?? "The cook";
+    let buildWeek = /** @type {string | null} */ (null);
+    let rangeLabel = "";
+    let weekNote = /** @type {string | null} */ (null);
+    if (iShop) {
+      const fmt = (/** @type {string} */ iso) =>
+        parseLocalIso(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      // the target week holds the MOST upcoming buy dates, not the first
+      // one: on a Sunday evening tonight's dinner is still last week, and
+      // "week of the first buy" would rebuild the dying week — the exact
+      // trap this button exists to kill (verified on real data 2026-08-30:
+      // 1 buy in W35, 7 in W36)
+      /** @type {Map<string, number>} */
+      const perWeek = new Map();
+      for (const d of myBuys) {
+        const w = isoWeekId(parseLocalIso(d));
+        perWeek.set(w, (perWeek.get(w) ?? 0) + 1);
+      }
+      buildWeek =
+        [...perWeek.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ??
+        null;
+      const inWeek = buildWeek
+        ? myBuys.filter((d) => isoWeekId(parseLocalIso(d)) === buildWeek)
+        : myBuys;
+      const first = /** @type {string} */ (inWeek[0]);
+      const last = /** @type {string} */ (inWeek[inWeek.length - 1]);
+      rangeLabel = `${fmt(first)} – ${fmt(last)}`;
+      if (buildWeek !== weekId) {
+        weekNote = `Your brigade week is ${rangeLabel}. Tap BUILD below to build the whole kitchen's list for that week.`;
+      }
+    }
+    return {
+      id: active.id,
+      name: active.name ?? "Brigade",
+      iShop,
+      nights: myBuys.length,
+      shopperName: cookName,
+      buildWeek,
+      rangeLabel,
+      weekNote,
+    };
+  }, [houseEvents, allProfiles, me, tableDerived, weekId]);
+  listBrigadeRef.current = listBrigade;
+
+  // one-tap brigade build: flip the viewed week to the brigade's, then build
+  // once that week's plan has actually loaded. CAUTION (Red Team + Engineer,
+  // 2026-08-30): read() is cache-first — on a cache miss it returns null
+  // instantly and normalizePlan makes an EMPTY skeleton whose week already
+  // matches, so "plan.week === pending" alone would build a list missing
+  // every personal entry. An empty arrival therefore waits for the
+  // background revalidation (which emits a sync change and reloads the
+  // plan); a short timer builds anyway when nothing lands (offline, or the
+  // week genuinely has no file). The 30s expiry kills the other trap: a
+  // pending marker surviving a manual week change and firing a surprise
+  // rebuild much later.
+  const pendingBuildWeekRef = useRef(
+    /** @type {{ week: string, at: number, waitedForData?: boolean } | null} */ (null),
+  );
+  useEffect(() => {
+    const p = pendingBuildWeekRef.current;
+    if (!p) return;
+    if (Date.now() - p.at > 30000) {
+      pendingBuildWeekRef.current = null;
+      return;
+    }
+    if (plan.week !== p.week) return;
+    if (plan.entries.length === 0 && !p.waitedForData) {
+      p.waitedForData = true;
+      setTimeout(() => {
+        const q = pendingBuildWeekRef.current;
+        // the loaded plan must STILL be the pending week when the timer
+        // fires — a manual week change inside the wait would otherwise
+        // build whichever week is now on screen (Loyalist, 2026-08-30)
+        if (q && q.week === p.week && planRef.current.week === p.week) {
+          pendingBuildWeekRef.current = null;
+          handleBuildList(undefined);
+        }
+      }, 4000);
+      return;
+    }
+    pendingBuildWeekRef.current = null;
+    handleBuildList(undefined);
+  }, [plan, handleBuildList]);
+  const handleBuildWeek = useCallback(
+    (/** @type {string} */ week) => {
+      if (week === weekRef.current) {
+        handleBuildList(undefined);
+        return;
+      }
+      pendingBuildWeekRef.current = { week, at: Date.now() };
+      setWeekId(week);
+    },
+    [handleBuildList],
+  );
 
   // compact live snapshot for the ASK chat: enough to ground an answer,
   // small enough to cost pennies. Strings only; the Worker clamps again.
@@ -2556,7 +2785,10 @@ function App() {
       let n = 0;
       const tables = cur.tables.map((t) => {
         if (typeof t.date !== "string" || t.date < today) return t;
-        if (claim && !t.buyerId) {
+        // a brigade table's buy already belongs to its named cook by rule
+        // (effectiveBuyerOf); bulk-claiming it would fight the cook rule and
+        // silently re-route a whole standing week to whoever tapped first
+        if (claim && !t.buyerId && !t.fromBrigade) {
           n++;
           return { ...t, buyerId: me };
         }
@@ -3402,7 +3634,9 @@ function App() {
           if (!payer || payer !== me) continue; // the payer records
           const recipe = bankById.get(t.recipeId);
           if (!recipe) continue;
-          const store = priceCatalogue?.stores?.[0] ?? "";
+          // price the debt at MY store, not whatever sits first in the shared
+          // catalogue (that was trader-joes — a store nobody here shops at)
+          const store = myPriceStore();
           const entry = ledgerEntryFor(t, me, recipe, priceCatalogue, store, profilesById);
           if (entry) candidates.push(entry);
         }
@@ -3675,6 +3909,9 @@ function App() {
         tripFromDate=${todayIfCurrentWeek(weekId)}
         onCombinedToggle=${handleCombinedToggle}
         onClaimAllDinners=${handleClaimAllDinners}
+        brigade=${listBrigade}
+        onBuildWeek=${handleBuildWeek}
+        repriceNote=${repriceNote}
         dinnerClaims=${dinnerClaims}
         onRemoveDinnerRows=${handleRemoveDinnerRows}
         shopsPerWeek=${targets?.shopsPerWeek ?? 1}
@@ -3686,11 +3923,7 @@ function App() {
         avoid=${targets?.avoidIngredients ?? []}
         weeklyBudgetUsd=${targets?.weeklyBudgetUsd}
         region=${targets?.region}
-        storeSlug=${(targets?.stores?.[0] ?? "")
-          .toLowerCase()
-          .replace(/'/g, "")
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "")}
+        storeSlug=${storeSlugOf(targets?.stores?.[0])}
         onReceiptApprove=${handleReceiptApprove}
         onClearList=${handleClearList}
         onEmptyPantry=${handleEmptyPantry}

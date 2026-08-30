@@ -309,15 +309,19 @@ export async function krogerSearch(term, locationId) {
  * Current prices for pinned UPCs at one store (the weekly refresh, fix list
  * 3.5). `failed` lists UPCs the API no longer returns — those pins render
  * stale rather than silently keeping an old price.
+ * `requested` echoes how many UPCs the worker actually processed (it caps at
+ * 60 per call) so callers can detect a truncated batch instead of treating
+ * dropped pins as priced.
  * @param {string[]} upcs
  * @param {string} locationId
- * @returns {Promise<{ products: import("./kroger.js").KrogerProduct[], failed: string[] }>}
+ * @returns {Promise<{ products: import("./kroger.js").KrogerProduct[], failed: string[], requested: number }>}
  */
 export async function krogerPricesById(upcs, locationId) {
   const data = await post("/kroger/byId", { upcs, locationId });
   return {
     products: Array.isArray(data.products) ? data.products : [],
     failed: Array.isArray(data.failed) ? data.failed : [],
+    requested: typeof data.requested === "number" ? data.requested : upcs.length,
   };
 }
 

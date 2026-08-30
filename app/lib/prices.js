@@ -46,11 +46,23 @@ const STOP_WORDS = new Set(["a", "an", "the", "of", "no", "added", "with", "per"
 
 /**
  * Cheap plural stem so "banana" finds catalogue "bananas" (and vice versa).
- * Only a trailing s, only on words long enough to survive it, and never on
- * -ss/-us/-is endings (hummus, couscous, swiss) where the s is not a plural.
+ * Trailing s only on words long enough to survive it, never on -ss/-us/-is
+ * endings (hummus, couscous, swiss) where the s is not a plural; -ies → y
+ * (berries → berry) and -ches/-shes/-oes → drop the es (peaches, radishes,
+ * tomatoes). NOT a general -es rule: "cheeses" must stem to "cheese", so
+ * everything else loses only the bare s (limes → lime, apples → apple).
+ * Shared with plentyKey (lib/shopping.js) — the singular and the plural of a
+ * food MUST land on one key or the plenty suppression buys food you own.
  * @param {string} w
  */
-const stem = (w) => (w.length > 3 && w.endsWith("s") && !/(ss|us|is)$/.test(w) ? w.slice(0, -1) : w);
+export const stem = (w) =>
+  w.length > 3 && w.endsWith("s") && !/(ss|us|is)$/.test(w)
+    ? w.endsWith("ies")
+      ? w.slice(0, -3) + "y"
+      : /(?:ches|shes|oes)$/.test(w)
+        ? w.slice(0, -2)
+        : w.slice(0, -1)
+    : w;
 
 /** @param {string} s */
 function words(s) {
@@ -496,6 +508,48 @@ function isFoodName(s) {
   const first = t.toLowerCase().split(/[^a-z]+/).filter(Boolean)[0] || "";
   if (TILL_JUNK.has(first)) return false;
   return true;
+}
+
+/**
+ * THE store slug: how a declared store name ("Pay Less", "Mariano's") maps to
+ * a catalogue store key ("pay-less", "marianos"). One definition — the
+ * apostrophe strip is what separates "marianos" from a never-matching
+ * "mariano-s", so ad-hoc copies of this chain drift into silent misses.
+ * @param {string | null | undefined} name
+ * @returns {string}
+ */
+export function storeSlugOf(name) {
+  return String(name ?? "")
+    .toLowerCase()
+    .replace(/'/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * THE store-resolution chain (Tribunal 2026-08-30: three ad-hoc copies had
+ * already diverged, which is exactly how the trader-joes ledger bug was
+ * born). Every reader of "which store is this user's" goes through here:
+ * the List view, the build-time repricer, and the money ledger.
+ *
+ * Precedence: the user's tapped pick, but ONLY if it was made under the
+ * CURRENT store declaration (`pickedDecl` is the declaration slug stamped
+ * beside the pick when it was made; a pick from before the declaration
+ * changed is ignored, not deleted — non-destructive, so nothing can wipe a
+ * deliberate tap during a half-loaded render) → the declared store → the
+ * caller's fallback (the view passes its coverage-ranked first; headless
+ * callers pass nothing) → the catalogue's first store. Candidates count
+ * only when the catalogue actually knows them.
+ * @param {{ picked?: string, pickedDecl?: string, declared?: string, stores: string[], fallback?: string }} opts
+ *   `declared` is already a slug (storeSlugOf the profile's stores[0]).
+ * @returns {string}
+ */
+export function resolveHomeStore({ picked = "", pickedDecl = "", declared = "", stores, fallback = "" }) {
+  const livePick = !declared || pickedDecl === declared ? picked : "";
+  return (
+    [livePick, declared].find((s) => s && stores.includes(s)) ??
+    (fallback && stores.includes(fallback) ? fallback : (stores[0] ?? ""))
+  );
 }
 
 /**

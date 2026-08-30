@@ -12,7 +12,7 @@
 // byte-different sw.js, the browser installs it (skipWaiting+claim), and
 // main.js reloads once on controllerchange so no load ever runs a half-old
 // module graph. tests/sw.test.js pins the SHELL list to the real app files.
-const CACHE_VERSION = "mise-shell-v175";
+const CACHE_VERSION = "mise-shell-v176";
 
 const SHELL = [
   "./suggest.css",
@@ -45,6 +45,7 @@ const SHELL = [
   "./app/lib/portions.js",
   "./app/lib/prices.js",
   "./app/lib/receipt.js",
+  "./app/lib/repricer.js",
   "./app/lib/remedies.js",
   "./app/lib/review.js",
   "./app/lib/router.js",

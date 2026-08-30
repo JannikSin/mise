@@ -150,6 +150,51 @@ export function cookOf(t, house, profilesById) {
 }
 
 /**
+ * WHO ACTUALLY BUYS a table's groceries — the ONE rule every surface reads
+ * (the derive, the claim counters, the Today claim cards), so a "nobody has
+ * claimed this" nag can never disagree with the list.
+ *
+ * An explicit in-house `buyerId` claim always wins (the 2026-08-03 model,
+ * untouched for hand-set tables and multi-shopper houses). An UNCLAIMED
+ * BRIGADE table defaults to its NAMED cook — David 2026-08-30: "when you're
+ * in a brigade you shouldn't have the option to buy just for yourself; the
+ * brigade buys" — and that is what the brigade form always promised
+ * ("everyone cooks one or two dinners and shops for their own nights").
+ * NAMED means `t.cookId`, seated, not skipped, living in the table's house:
+ * never cookOf's positional fallback, because a 409 merge can reorder seats
+ * and a positional buyer flips between devices (measured double-buy,
+ * Tribunal plan gate 2026-08-30). A skipped or moved-out named cook leaves
+ * the table unclaimed and visible to the claim buttons. The in-house check
+ * is also the cross-house guard: a cook who moved out (David on his
+ * parents' old family brigade) stops buying that kitchen automatically.
+ * @param {TableEvent} t
+ * @param {string} house the house whose events file holds this table
+ * @param {Map<string, any>} profilesById
+ * @returns {string | null} the profile who buys, or null = genuinely unclaimed
+ */
+export function effectiveBuyerOf(t, house, profilesById) {
+  // a claim only counts from a KNOWN in-house profile — without the
+  // has() guard, a buyerId naming a deleted profile passed the house check
+  // in a house named "home" (via the ?? default), short-circuiting the cook
+  // rule below and parking the table on a ghost's list (Red Team,
+  // 2026-08-30). The ?? "home" default itself stays, matching the cook
+  // branch: a real profile with no household field lives in "home".
+  if (
+    t.buyerId &&
+    profilesById.has(t.buyerId) &&
+    (profilesById.get(t.buyerId)?.household ?? "home") === house
+  ) {
+    return t.buyerId;
+  }
+  if (!t.fromBrigade || !t.cookId) return null;
+  const seat = (t.seats ?? []).find((s) => s.id === t.cookId && s.status !== "skipped");
+  if (!seat) return null;
+  if (!profilesById.has(seat.id)) return null;
+  if ((profilesById.get(seat.id)?.household ?? "home") !== house) return null;
+  return seat.id;
+}
+
+/**
  * Everything ONE profile derives from every house's tables, computed fresh
  * at read time (a memo in main.js, never persisted):
  *  - `entries`: virtual PINNED plan entries for tables I'm seated at —
@@ -250,16 +295,10 @@ export function deriveTables(houses, ctx) {
       // My-plan collision/pin keys (takenSlots/derivedSlots) stay date|slot —
       // I eat one dinner however many houses are cooking.
       const houseSlotKey = `${house}|${slotKey}`;
-      // GROCERY CLAIMS (David, 2026-08-03): a family dinner's ingredients
-      // ride NOBODY's shopping list until someone claims the buy — "you
-      // don't know who will buy it, it may not be the cook." `buyerId`
-      // names the volunteer (I'LL BUY THIS); absent = the batch appears on
-      // no list at all, while the dinner still pins and plans for every
-      // seat. The buyer must be an in-house profile or the claim is inert.
-      const buyer =
-        t.buyerId && (ctx.profilesById?.get(t.buyerId)?.household ?? "home") === house
-          ? t.buyerId
-          : null;
+      // who buys: the ONE rule (effectiveBuyerOf) — explicit claim, else a
+      // brigade table's named in-house cook, else nobody. Every claim UI
+      // reads the same predicate so the nag and the list cannot disagree.
+      const buyer = ctx.profilesById ? effectiveBuyerOf(t, house, ctx.profilesById) : null;
       if (cook && recipe && !cookSlots.has(houseSlotKey)) {
         // A GUEST IS ONE MORE PLATE (canon P8, fix list 7.4): the same pot
         // with extra plates on a sensible default — one recipe serving each.
@@ -301,6 +340,10 @@ export function deriveTables(houses, ctx) {
               /** @type {any} */ ({
                 recipeId: t.recipeId,
                 date: t.date,
+                // slot travels with the batch so JUST SOME DAYS' meal chips
+                // filter brigade buys too (they were inert on cookExtras —
+                // Final Gate Usability, 2026-08-30)
+                slot: t.slot,
                 servings: total,
                 potFromBank: true,
                 // rung-3 top-ups are part of the buy (§11.4): appended to

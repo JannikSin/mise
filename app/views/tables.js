@@ -3,7 +3,7 @@ import { tokenBroken } from "../lib/github.js";
 import { useEffect, useState } from "preact/hooks";
 import { datesOfWeek, recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { parseLocalIso } from "../lib/dates.js";
-import { SERVINGS_MIN, SERVINGS_MAX, resolveHead } from "../lib/tables.js";
+import { SERVINGS_MIN, SERVINGS_MAX, effectiveBuyerOf, resolveHead } from "../lib/tables.js";
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
@@ -110,6 +110,7 @@ export function TablesView({
   const collisionIds = new Set((tableCollisions ?? []).map((t) => t.id));
   const nameOf = (/** @type {string} */ id) =>
     (profiles ?? []).find((p) => p.id === id)?.name ?? id;
+  const profilesById = new Map((profiles ?? []).map((p) => [p.id, p]));
   const tokenBlocked = !hasToken || tokenBroken(repo?.auth);
 
   // AI plate-tailoring per table: busy flag + last error, keyed by table id
@@ -473,16 +474,19 @@ export function TablesView({
               }
             </div>`
           }
-          ${
-            // GROCERY CLAIM: cooking and buying are separate jobs now.
-            // Nobody's list carries this dinner until someone claims it.
-            t.buyerId
+          ${(() => {
+            // GROCERY CLAIM: the ONE rule (effectiveBuyerOf) — an explicit
+            // claim, else a brigade table's named cook buys by rule, else
+            // nobody. The nag renders only when the buy is genuinely
+            // homeless, so 28 brigade tables no longer cry "unclaimed".
+            const eb = effectiveBuyerOf(t, house, profilesById);
+            return eb
               ? html`<div class="d">
-                  🛒 <strong>${nameOf(t.buyerId)}${t.buyerId === me ? " (you)" : ""}</strong>
-                  buys the groceries
+                  🛒 <strong>${nameOf(eb)}${eb === me ? " (you)" : ""}</strong>
+                  buys the groceries${!t.buyerId ? html`<span class="hint"> · the brigade's cook</span>` : ""}
                 </div>`
-              : html`<div class="d hint">🛒 nobody has claimed the groceries yet</div>`
-          }
+              : html`<div class="d hint">🛒 nobody has claimed the groceries yet</div>`;
+          })()}
           <div class="d num">
             ${
               // NO SERVING COUNTS (David, 2026-08-10). "David ×2.5 · Mom ×0.75
@@ -610,7 +614,7 @@ export function TablesView({
             }
             ${
               house === myHouse &&
-              !t.buyerId &&
+              !effectiveBuyerOf(t, house, profilesById) &&
               onSetBuyer &&
               html`<button class="primary" onClick=${() => onSetBuyer(house, t.id, me)}>
                 🛒 I'LL BUY THIS

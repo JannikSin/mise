@@ -211,7 +211,10 @@ export async function handleKroger(pathname, body, env, respond) {
           failed.push(upc);
         }
       }
-      return respond(200, { products, failed });
+      // `requested` echoes how many UPCs were actually processed AFTER the
+      // 60-cap, so a client that sent more can SEE the truncation instead of
+      // silently treating dropped pins as priced (89 sent, 29 vanished)
+      return respond(200, { requested: upcs.length, products, failed });
     }
     // ---- cart push: three POST routes, all gated on the cart config ------
     if (pathname.startsWith("/kroger/cart")) {

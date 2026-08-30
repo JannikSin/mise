@@ -13,7 +13,10 @@ import { matchPrice, parsePackSize } from "./prices.js";
 
 /** @typedef {{ upc: string, description: string, brand: string, categories: string[], size: string, soldBy: string, price: { regular: number | null, promo: number | null }, stock: string, aisle: string, shelf?: { number?: string, side?: string, bay?: string, shelf?: string, description?: string } }} KrogerProduct */
 /** @typedef {{ upc: string, description: string, size: string, soldBy: string, aisle?: string, shelf?: { number?: string, side?: string, bay?: string, shelf?: string, description?: string }, brand?: string, categories?: string[], seenAt?: string, confirmedAt?: string, provisional?: boolean }} Pin */
-/** @typedef {{ updated?: string, redList: string[], stores: Record<string, { locationId: string, name: string }>, pins: Record<string, Record<string, Pin>> }} PinBook */
+/** @typedef {{ updated?: string, redList: string[], stores: Record<string, { locationId: string, name: string }>, pins: Record<string, Record<string, Pin>>, misses: Record<string, Record<string, string>> }} PinBook */
+// `misses` is the NEGATIVE cache (repricer.js): food -> store -> dateIso of
+// the last search that found nothing pinnable. Entries expire after 30 days.
+// It is NOT the redList, which is a brand filter on candidates.
 
 /** A live price older than this renders visibly stale (fix list 3.5). */
 export const STALE_PRICE_DAYS = 14;
@@ -30,6 +33,7 @@ export function normalizePins(raw) {
     redList: Array.isArray(r.redList) ? r.redList.map(String) : [],
     stores: r.stores && typeof r.stores === "object" ? r.stores : {},
     pins: r.pins && typeof r.pins === "object" ? r.pins : {},
+    misses: r.misses && typeof r.misses === "object" ? r.misses : {},
   };
 }
 
@@ -666,6 +670,11 @@ export function unitPriceOf(p) {
  */
 export function applyLivePrice(catalogue, store, food, product, todayIso) {
   if (product.price.regular == null) return catalogue;
+  // P4 guard: a pack-sold product with no size cannot cost a row (itemCost
+  // needs the pack to know how many to buy), and a written size:"" poisons
+  // the catalogue for every later read. Refuse the write; the pin can still
+  // carry the product, the row just stays honestly unpriced.
+  if (product.soldBy !== "WEIGHT" && !product.size) return catalogue;
   const key = pinKey(food);
   const items = (catalogue.items ?? []).map((i) => ({ ...i, prices: { ...i.prices } }));
   let row = items.find((i) => i.id === key) ?? matchPrice(food, items);

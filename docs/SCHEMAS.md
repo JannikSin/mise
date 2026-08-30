@@ -373,8 +373,39 @@ catalogue row ids and pantry matching converge on.
       },
     },
   },
+  "misses": {
+    // NEGATIVE cache (repricer.js, 2026-08-30): plentyKey(food) → store →
+    // dateIso (plentyKey, not pinKey: it is the key the repricer dedupes
+    // search slots by, so banana/bananas share one miss entry) of the
+    // last live search whose PRODUCTS came back empty — the store genuinely
+    // carries nothing under this name. The build-time repricer skips a missed
+    // food for 30 days (MISS_EXPIRY_DAYS), then it becomes eligible again;
+    // recordMiss prunes expired entries on every write. Products that came
+    // back but were all gated out (stock-out, red list, allergen, sizeless
+    // pack) record NOTHING — a stock-out ends by Thursday (Red Team,
+    // 2026-08-30) — and a search that THREW (network, 429) also records
+    // nothing: failure to ask is not an answer. This is NOT the redList,
+    // which is a brand filter on candidates.
+    "fresh-dill": { "pay-less": "2026-08-30" },
+  },
 }
 ```
+
+**The build-time repricer (`app/lib/repricer.js`, 2026-08-30).** BUILD prices
+its own list, fire-and-forget after the list saves: stale/unpriced pinned
+rows re-price by UPC (chunks of ≤40, at most 3 calls), then a budget of 12
+live searches goes to the most expensive still-unpriced pinless rows, cheapest
+left for the next build. Budget arithmetic: 3×2 + 12×1 = 18 of the worker's
+30 rate units per 10 minutes, leaving headroom for human taps. The worker's
+`/kroger/byId` echoes `requested` (how many UPCs it processed after its
+60-cap) so a truncated batch is reported, never silently dropped. One pins
+save + one prices save per run, only when something changed — and when the
+live books moved while the run was in flight (a $? tap, a confirmed pin, a
+receipt), the run's ops replay onto the live books via `reapplyOps`, which
+skips any food+store a human touched: the user's write always wins.
+Auto-picked pins stay `provisional`; the price tile's "N auto-picked ·
+REVIEW" line walks them through the existing confirm sheet, auto-advancing
+to the next on each confirm (the per-row `?` button is retired).
 
 Integration: `app/lib/kroger.js` (pure logic: rankCandidates with the
 category/section/form gates + noise ranking, applyLivePrice write-through,
@@ -806,12 +837,20 @@ before every plan write).
       "buyerId": "mom", // ? GROCERY CLAIM (David 2026-08-03): who volunteered
       //   to BUY this dinner's ingredients ("I'll buy this" on the card, or
       //   the List's claim-all button). Cooking and buying are separate
-      //   jobs. ABSENT = unclaimed: the batch rides NOBODY's shopping list
-      //   — never added automatically, not even the cook's. Set/cleared via
-      //   setTableBuyer (clearing removes the field). Must be an in-house
-      //   profile or the claim is inert at derive time. Survives brigade
-      //   regeneration like a seat's skip. The money ledger's payer is the
-      //   buyer, falling back to the cook for unclaimed tables.
+      //   jobs. Set/cleared via setTableBuyer (clearing removes the field).
+      //   Must be an in-house profile or the claim is inert at derive time.
+      //   Survives brigade regeneration like a seat's skip.
+      //   THE EFFECTIVE BUYER (effectiveBuyerOf, 2026-08-30): an explicit
+      //   in-house buyerId always wins; absent one, a BRIGADE table
+      //   (fromBrigade) is bought by its NAMED cook — t.cookId, seated, not
+      //   skipped, in this household — because a standing arrangement where
+      //   the cook shops their own nights must not need 28 manual claims a
+      //   month. Never a positional/seat-order fallback (reordering seats
+      //   must not move a buy). For every other table ABSENT = unclaimed:
+      //   the batch rides NOBODY's shopping list, never added automatically.
+      //   The money ledger's payer is the buyer, falling back to the cook
+      //   for unclaimed tables. The claim-all button skips fromBrigade
+      //   tables for the same reason.
       "seats": [
         // seat id = profileId — id-keyed so concurrent seat edits merge
         { "id": "david", "servings": 1.5, "rawServings": 1.482 },

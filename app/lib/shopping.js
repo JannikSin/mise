@@ -13,7 +13,7 @@ import {
   toPreferred,
   toGrams,
 } from "./ingredients.js";
-import { matchPrice, parsePackSize } from "./prices.js";
+import { matchPrice, parsePackSize, stem } from "./prices.js";
 
 /**
  * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, checked: boolean, manual: boolean, fromRecipes?: string[] }} ShoppingItem
@@ -52,6 +52,43 @@ export function tripOf(section) {
  */
 export function sectionOf(food) {
   return aisleOf(food);
+}
+
+// Foods the "plenty" suppression must recognize as one thing even though
+// their canonical keys differ (measured offenders, list audit 2026-08-30:
+// the list told David to buy salt, cinnamon and chickpeas his pantry
+// asserted PLENTY of). Applied AFTER canonicalFood, only inside plentyKey —
+// deliberately NOT in NAME_ALIASES, which would silently rekey every list
+// row, tick and price pin in the house.
+const PLENTY_ALIASES = /** @type {Record<string, string>} */ ({
+  "kosher-salt": "salt",
+  "sea-salt": "salt",
+  "table-salt": "salt",
+  "ground-black-pepper": "black-pepper",
+  "cracked-black-pepper": "black-pepper",
+  "freshly-ground-black-pepper": "black-pepper",
+  "ground-cinnamon": "cinnamon",
+  "cayenne-pepper": "cayenne",
+  "canned-garbanzo-beans": "chickpeas",
+  "extra-virgin-olive-oil": "olive-oil",
+});
+
+/**
+ * The key the plenty suppression (and the view's row grouping) matches on:
+ * canonical food, then the plenty alias table, then prices.js's shared
+ * `stem` on the last word so "bananas" and "banana" are one food. The stem
+ * MUST map singular and plural to the same key ("apples" → "apple", not
+ * "appl"), or the pantry's PLENTY of one form fails to suppress the other —
+ * the exact bug this function kills (Tribunal Engineer, 2026-08-30).
+ * @param {string} food
+ * @returns {string}
+ */
+export function plentyKey(food) {
+  const c = canonicalFood(food);
+  const aliased = PLENTY_ALIASES[c] ?? c;
+  const parts = aliased.split("-");
+  parts[parts.length - 1] = stem(parts[parts.length - 1] ?? "");
+  return parts.join("-");
 }
 
 /** @param {string} food */
@@ -124,7 +161,7 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
   const onHandSlugs = new Set(
     pItems
       .filter((it) => it.state === "plenty")
-      .flatMap((it) => [it.id, slug(it.food), canonicalFood(it.food)]),
+      .flatMap((it) => [it.id, slug(it.food), canonicalFood(it.food), plentyKey(it.food)]),
   );
 
   // the weekly buffer snack shops exactly like a planned entry: its batch is
@@ -185,7 +222,13 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
       // was not in the pantry scan"). Ownership is asserted ONLY by the
       // pantry registry (onHand, written by scans and P+), never by a
       // recipe author's guess about what the kitchen keeps.
-      if (!ing.food || onHandSlugs.has(slug(ing.food)) || onHandSlugs.has(canon)) continue;
+      if (
+        !ing.food ||
+        onHandSlugs.has(slug(ing.food)) ||
+        onHandSlugs.has(canon) ||
+        onHandSlugs.has(plentyKey(ing.food))
+      )
+        continue;
       // free from the tap: never a list row (the 2026-08-19 audit found
       // "0.25 cup water" pricing a $7.49 six-pack of bottled alkaline water)
       if (FREE_FOODS.has(canon)) continue;

@@ -41,8 +41,8 @@ const product = (p = {}) => ({
 // ---- pins ------------------------------------------------------------------
 
 test("normalizePins survives null, junk, and partial shapes", () => {
-  assert.deepEqual(normalizePins(null), { redList: [], stores: {}, pins: {} });
-  assert.deepEqual(normalizePins("nope"), { redList: [], stores: {}, pins: {} });
+  assert.deepEqual(normalizePins(null), { redList: [], stores: {}, pins: {}, misses: {} });
+  assert.deepEqual(normalizePins("nope"), { redList: [], stores: {}, pins: {}, misses: {} });
   const kept = normalizePins({ redList: ["badbrand"], stores: { marianos: { locationId: "5" } } });
   assert.deepEqual(kept.redList, ["badbrand"]);
   assert.equal(kept.stores.marianos.locationId, "5");
