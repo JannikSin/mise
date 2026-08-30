@@ -101,7 +101,8 @@ export function recordMiss(pins, food, store, todayIso) {
 
 /**
  * Price a freshly built list: refresh the stale pinned rows by UPC (chunked),
- * then spend the search budget on the most expensive still-unpriced pinless
+ * then spend the search budget on pinless rows: the ones this store knows
+ * NOTHING about first, then the most expensive still-estimated
  * rows. Pure over its inputs — the caller saves the returned books, ONCE
  * each, only when `pinsChanged` / `pricesChanged` say something moved. If
  * the live books moved while the run was in flight (a $? tap, a receipt),
@@ -223,9 +224,9 @@ export async function repriceList({ items, pins, prices, store, avoid = [], toda
     }
   }
 
-  // ---- phase 2: search budget on pinless rows, most expensive first.
-  // "Expensive" = the catalogue's own estimate where one exists (another
-  // store's price, a seeded guess); rows it cannot estimate sort last.
+  // ---- phase 2: search budget on pinless rows — dark rows first, then
+  // most expensive estimate. "Estimate" = this store's own estimate row;
+  // a row with none is dark and jumps the queue (see the sort comment).
   const searchable = rows
     .filter((it) => !pinFor(book, it.food, store) || failedFoods.has(plentyKey(it.food)))
     .filter((it) => !isMissed(book, it.food, store, todayIso))
@@ -235,8 +236,18 @@ export async function repriceList({ items, pins, prices, store, avoid = [], toda
       const sp = /** @type {any} */ (row?.prices?.[store]);
       return !sp || sp.estimate || isStalePrice(sp, todayIso);
     })
-    .map((it) => ({ it, est: itemCost(it, cat, store)?.cost ?? 0 }))
-    .sort((a, b) => b.est - a.est)
+    .map((it) => ({ it, est: itemCost(it, cat, store)?.cost ?? null }))
+    .sort((a, b) => {
+      // DARK ROWS FIRST (David, 2026-08-30: "I know Payless sells
+      // blueberries... why would that not get priced?"). A row this store
+      // has an estimate for already counts toward the total; a row it knows
+      // NOTHING about silently turns the total into a floor. The old
+      // most-expensive-first sort estimated dark rows at $0 and parked
+      // every one of them behind the estimate-refreshes — exactly
+      // backwards. Within each group, most expensive first still holds.
+      if ((a.est == null) !== (b.est == null)) return a.est == null ? -1 : 1;
+      return (b.est ?? 0) - (a.est ?? 0);
+    })
     .slice(0, SEARCH_BUDGET);
   for (const [si, { it }] of searchable.entries()) {
     progress(`finding prices… ${si + 1}/${searchable.length}`);

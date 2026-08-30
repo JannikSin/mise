@@ -9,7 +9,7 @@
 export const TOUR_TABS = /** @type {const} */ ({
   "#/plan": "PLAN",
   "#/list": "LIST",
-  "#/tables": "TODAY",
+  "#/tables": "TABLE",
   "#/system": "SETTINGS",
 });
 

@@ -87,7 +87,13 @@ export function TablesView({
         )
         .map((t) => ({ house, t })),
     )
-    .sort((a, b) => a.t.date.localeCompare(b.t.date) || a.t.slot.localeCompare(b.t.slot));
+    .sort(
+      (a, b) =>
+        a.t.date.localeCompare(b.t.date) ||
+        // meal order within a day (breakfast before smoothie before dinner),
+        // not alphabetical; unknown slots sort last
+        (SLOT_KEYS.indexOf(a.t.slot) + 1 || 99) - (SLOT_KEYS.indexOf(b.t.slot) + 1 || 99),
+    );
   // THE INSTRUMENT (spec §12): how much the engine is actually doing this
   // week, derived LIVE at render (never from frozen pots — pots only exist
   // on solved tables, so a pot census flatters the engine). Aggregate
@@ -418,7 +424,22 @@ export function TablesView({
         plates engine, upcoming: ${synthCounts.tailored} tailored · ${synthCounts.uniform} uniform
       </p>`
     }
-    ${myTables.map(({ house, t }) => {
+    ${myTables.map(({ house, t }, idx) => {
+      // one small day header per date, so a 28-table brigade week reads as
+      // seven days instead of one undifferentiated pile (David, 2026-08-30)
+      const prev = myTables[idx - 1];
+      const dayHead =
+        !prev || prev.t.date !== t.date
+          ? html`<h3 class="block-title">
+              ${t.date === todayIso
+                ? "Today"
+                : parseLocalIso(t.date).toLocaleDateString([], {
+                    weekday: "long",
+                    month: "short",
+                    day: "numeric",
+                  })}
+            </h3>`
+          : "";
       const mySeat = (t.seats ?? []).find((s) => s.id === me);
       const skipped = mySeat?.status === "skipped";
       const conflicted = conflictIds.has(t.id);
@@ -434,6 +455,7 @@ export function TablesView({
       const headId = resolveHead(t, profiles ?? []);
       const planWarn = !t.buyerId && missingPlanWarning ? missingPlanWarning(t) : null;
       return html`
+        ${dayHead}
         <div class="tile tablecard ${skipped ? "skipped" : ""}" key=${t.id}>
           <div class="k">
             🍽 ${t.name} ·
@@ -651,8 +673,16 @@ export function TablesView({
   return html`
     <div class="view">
       <div class="hero">
-        <h1>Today<span>.</span></h1>
-        <div class="sub">what's for dinner, who's cooking</div>
+        <h1>${activeBrigade ? "Table" : "Today"}<span>.</span></h1>
+        <div class="sub">
+          ${
+            // David, 2026-08-30: "it's showing all of the quote-unquote
+            // family dinners for the entire week... that's clearly not
+            // today". Under a brigade this page IS the week's shared meals,
+            // so the page stops calling itself Today.
+            activeBrigade ? "the week's shared meals, who cooks, what to prep" : "what's for dinner, who's cooking"
+          }
+        </div>
       </div>
 
       <div class="actions">
@@ -661,10 +691,13 @@ export function TablesView({
         >
       </div>
 
-      <h2 class="block-title">Family dinners</h2>
+      <h2 class="block-title">${activeBrigade ? `${activeBrigade.name}: the week` : "Family dinners"}</h2>
       <p class="hint">
-        every shared meal coming up, with the cook named. One pot, everyone's own portion; money
-        from finished dinners settles on the List tab.
+        ${
+          activeBrigade
+            ? "every meal the brigade has set, breakfasts through dinners, grouped by day with the cook named. One pot, everyone's own portion; the cook buys, and money settles on the List tab."
+            : "every shared meal coming up, with the cook named. One pot, everyone's own portion; money from finished dinners settles on the List tab."
+        }
       </p>
       ${
         // the week's cook rota at the TOP of the page (David, 2026-08-09:
@@ -693,6 +726,44 @@ export function TablesView({
             return out.join(" · ");
           })()}
         </p>`
+      }
+      ${
+        // BATCH PREP, on the page where David actually looks (2026-08-30:
+        // "I need a place to see where I batch prep all these things...
+        // I'm looking in today and I don't see anything"). The coming
+        // week's make-ahead components, cook-once deduped by recipe; the
+        // day-by-day assembly notes stay on PLAN under the week's days
+        // (CookBlocks), which this tile signposts.
+        activeBrigade &&
+        (() => {
+          const end = new Date(`${todayIso}T12:00:00`);
+          end.setDate(end.getDate() + 7);
+          const endIso = end.toISOString().slice(0, 10);
+          const seen = new Set();
+          const make = [];
+          const fresh = [];
+          for (const { t } of myTables) {
+            if (t.date > endIso) continue;
+            const r = byId.get(t.recipeId);
+            if (!r || seen.has(r.id)) continue;
+            seen.add(r.id);
+            const comp = r.batchPrep?.sundayComponent;
+            if (comp) make.push({ id: r.id, name: r.name, text: comp });
+            else fresh.push(r.name);
+          }
+          if (make.length === 0 && fresh.length === 0) return "";
+          return html`<div class="tile" role="note">
+            <div class="k">🍳 Batch prep: make once, eat all week</div>
+            ${make.map(
+              (m) => html`<div class="d" key=${m.id}><strong>${m.name}</strong>: ${m.text}</div>`,
+            )}
+            ${
+              fresh.length > 0 &&
+              html`<p class="hint">Cooked fresh or grabbed, no make-ahead: ${fresh.join(", ")}.</p>`
+            }
+            <p class="hint">Day-by-day assembly notes live on PLAN, under the week's days.</p>
+          </div>`;
+        })()
       }
       ${dinnerBlock}
       ${

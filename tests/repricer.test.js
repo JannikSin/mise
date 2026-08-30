@@ -158,6 +158,45 @@ test("search budget: at most SEARCH_BUDGET searches, most expensive unpriced row
   assert.equal(foods.filter((f) => !searched.includes(f)).length, 2);
 });
 
+test("DARK rows beat estimated ones for the search budget (the blueberries rule)", async () => {
+  // 12 rows the store already estimates + 3 it knows NOTHING about: the
+  // dark three must all make the cut even though their est is unknowable
+  // (David, 2026-08-30: "I know Payless sells blueberries... why would
+  // that not get priced?")
+  const estimated = Array.from({ length: 12 }, (_, i) => `est-food-${i}`);
+  const dark = ["blueberries", "celery", "basil pesto"];
+  const items = [...estimated, ...dark].map((food) => ({ food, qty: 1, unit: "x" }));
+  const cat = {
+    updated: TODAY,
+    stores: [STORE],
+    items: estimated.map((food, i) => ({
+      id: food,
+      name: food,
+      prices: { [STORE]: { price: 20 - i, size: "1 x", estimate: true } },
+    })),
+  };
+  /** @type {string[]} */
+  const searched = [];
+  await repriceList({
+    items,
+    pins: normalizePins({ stores: { [STORE]: { locationId: "1" } } }),
+    prices: cat,
+    store: STORE,
+    todayIso: TODAY,
+    api: {
+      pricesById: async (upcs) => ({ products: [], failed: [], requested: upcs.length }),
+      search: async (term) => {
+        searched.push(term);
+        return [];
+      },
+    },
+  });
+  assert.equal(searched.length, SEARCH_BUDGET);
+  for (const f of dark) assert.ok(searched.includes(f), `${f} searched`);
+  // the remaining budget still goes to the priciest estimates
+  assert.ok(searched.includes("est-food-0"), "priciest estimate still searched");
+});
+
 test("an empty search records a miss; a missed food is not searched again until expiry", async () => {
   const pins0 = normalizePins({ stores: { [STORE]: { locationId: "1" } } });
   const item = { food: "unicorn milk", qty: 1, unit: "x" };

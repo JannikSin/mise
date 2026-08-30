@@ -394,8 +394,10 @@ catalogue row ids and pantry matching converge on.
 **The build-time repricer (`app/lib/repricer.js`, 2026-08-30).** BUILD prices
 its own list, fire-and-forget after the list saves: stale/unpriced pinned
 rows re-price by UPC (chunks of ≤40, at most 3 calls), then a budget of 12
-live searches goes to the most expensive still-unpriced pinless rows, cheapest
-left for the next build. Budget arithmetic: 3×2 + 12×1 = 18 of the worker's
+live searches goes to pinless rows, DARK rows first (a row the store has no
+price for at all silently turns the total into a floor; an estimated row
+already counts approximately), then the most expensive still-estimated rows,
+the rest left for the next build. Budget arithmetic: 3×2 + 12×1 = 18 of the worker's
 30 rate units per 10 minutes, leaving headroom for human taps. The worker's
 `/kroger/byId` echoes `requested` (how many UPCs it processed after its
 60-cap) so a truncated batch is reported, never silently dropped. One pins

@@ -168,7 +168,11 @@ let checkGen = 0;
 const TABS = [
   { hash: "#/plan", view: "plan", icon: "⬒", label: "Plan" },
   { hash: "#/list", view: "list", icon: "☑", label: "List" },
-  { hash: "#/tables", view: "tables", icon: "◫", label: "Today" },
+  // "Table" not "Today": under a brigade the page lists the whole week's
+  // shared meals, and the app's own vocabulary has always been SET A TABLE
+  // (David, 2026-08-30: "that's clearly not today, that's clearly the
+  // whole week")
+  { hash: "#/tables", view: "tables", icon: "◫", label: "Table" },
   { hash: "#/system", view: "system", icon: "☰", label: "Settings" },
 ];
 
@@ -1218,7 +1222,7 @@ function App() {
   targetsRef.current = targets;
 
   // BUILD prices its own list (repricer.js): stale pinned rows re-priced by
-  // UPC, then the search budget goes to the most expensive unpriced rows.
+  // UPC, then the search budget goes to unpriced rows (dark ones first).
   // One pins save + one prices save per run, and only when something moved.
   const [repriceNote, setRepriceNote] = useState("");
 
@@ -2268,6 +2272,26 @@ function App() {
     [plan, tableDerived],
   );
   const viewPlan = merged.plan;
+
+  // next week's plan WITH the brigade's derived entries merged in. The raw
+  // plans/<week>.json holds only personal entries (David's is 7 dining-hall
+  // swipes), so on a closing Sunday the batch-prep block was prepping for a
+  // week of swipes and showing nothing from the 28 brigade tables — the
+  // exact night batch prep happens (David, 2026-08-30: "where do I batch
+  // prep... I'm looking and I don't see anything").
+  const nextPlanMerged = useMemo(() => {
+    if (!nextPlan) return null;
+    try {
+      return mergeViewPlan(
+        /** @type {import("./lib/plan.js").Plan} */ (nextPlan),
+        tableDerived.entries,
+        datesOfWeek(nextPlan.week),
+        localIsoDate(new Date()),
+      ).plan;
+    } catch {
+      return nextPlan;
+    }
+  }, [nextPlan, tableDerived]);
 
   // the List's brigade posture. When my household runs an active brigade the
   // List stops being a personal surface: the cook buys for the whole kitchen
@@ -3812,7 +3836,7 @@ function App() {
         tableStale=${tableStale}
         tableIssues=${tableDerived.conflicts.length + tableDerived.collisions.length}
         tableConflicts=${tableDerived.conflicts}
-        nextPlan=${nextPlan}
+        nextPlan=${nextPlanMerged}
         daily=${dailyLog}
         pantry=${pantry}
         onPatchDay=${handlePatchDay}
