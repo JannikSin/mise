@@ -2487,7 +2487,23 @@ function App() {
 
   const writeHouseEvents = useCallback(
     (/** @type {string} */ house, /** @type {import("./lib/tables.js").HouseEvents} */ next) => {
-      setHouseEvents((cur) => [...cur.filter((h) => h.house !== house), { house, events: next }]);
+      // CLOBBER GUARD (2026-08-30: mise-data e7e29f1 wrote this file EMPTY —
+      // no brigades, no tables — mid-sync, a stale device write landing over
+      // the live state; the next write happened to restore it). No real flow
+      // on this surface erases a standing brigade AND a populated table set
+      // in one stroke — ending a brigade leaves tables, pruning leaves the
+      // brigade — so a write of that shape is refused as corruption.
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      if (
+        (cur?.brigades?.length ?? 0) > 0 &&
+        (cur?.tables?.length ?? 0) >= 8 &&
+        (next?.brigades?.length ?? 0) === 0 &&
+        (next?.tables?.length ?? 0) === 0
+      ) {
+        console.warn("mise: refused an events write that would empty brigades AND tables", house);
+        return;
+      }
+      setHouseEvents((cur2) => [...cur2.filter((h) => h.house !== house), { house, events: next }]);
       void write(eventsPathFor(house), /** @type {any} */ (next), { raw: true });
     },
     [],

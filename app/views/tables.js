@@ -2,7 +2,7 @@ import { html } from "htm/preact";
 import { tokenBroken } from "../lib/github.js";
 import { useEffect, useState } from "preact/hooks";
 import { datesOfWeek, recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
-import { parseLocalIso } from "../lib/dates.js";
+import { parseLocalIso, isoWeekId } from "../lib/dates.js";
 import { SERVINGS_MIN, SERVINGS_MAX, effectiveBuyerOf, resolveHead } from "../lib/tables.js";
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
@@ -241,12 +241,16 @@ export function TablesView({
     setBrigadeForm(null);
   };
 
-  const runBrigade = async (/** @type {string} */ id, /** @type {boolean} */ regenerate) => {
+  const runBrigade = async (
+    /** @type {string} */ id,
+    /** @type {boolean} */ regenerate,
+    /** @type {string} */ runWeek = weekId,
+  ) => {
     setBrigadeBusy(id);
     setBrigadeNote([]);
     try {
       const { made, thin, report, swept, swiped, assumed, outOfRange, from, until } =
-        /** @type {any} */ (await onRunBrigade(id, weekId, regenerate));
+        /** @type {any} */ (await onRunBrigade(id, runWeek, regenerate));
       const nameOf = (/** @type {string} */ pid) =>
         (profiles ?? []).find((p) => p.id === pid)?.name ?? pid;
       /** @type {string[]} */
@@ -276,7 +280,7 @@ export function TablesView({
         setBrigadeBusy(null);
         return;
       }
-      const range = `${parseLocalIso(datesOfWeek(weekId)[0] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })} – ${parseLocalIso(datesOfWeek(weekId)[6] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })}`;
+      const range = `${parseLocalIso(datesOfWeek(runWeek)[0] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })} – ${parseLocalIso(datesOfWeek(runWeek)[6] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })}`;
       lines.push(`Set ${made} ${made === 1 ? "meal" : "meals"} for ${range}.`);
       // THE DAY REPORT (P1, 2026-08-30): the composer's per-seat verdicts,
       // one line per fact. These are PLANNED numbers from recipe estimates —
@@ -975,9 +979,20 @@ export function TablesView({
             </div>
           `;
         }
-        const weekDates = datesOfWeek(weekId);
+        // THE SUNDAY TRAP, Table-tab edition (David, 2026-08-30: his re-roll
+        // ran on the dying W35 — one upcoming day — burned a salt, and the
+        // 28 visible W36 meals never changed). Same rule the List's BUILD
+        // learned: these buttons target the week holding MORE upcoming
+        // in-span days, viewed week or the next one; ties keep the view.
+        const upcomingIn = (/** @type {string} */ w) =>
+          datesOfWeek(w).filter((d) => d >= b.from && d <= b.until && d >= todayIso).length;
+        const dayAfter = parseLocalIso(/** @type {string} */ (datesOfWeek(weekId)[6] ?? todayIso));
+        dayAfter.setDate(dayAfter.getDate() + 1);
+        const nextWeekId = isoWeekId(dayAfter);
+        const runWeek = upcomingIn(nextWeekId) > upcomingIn(weekId) ? nextWeekId : weekId;
+        const weekDates = datesOfWeek(runWeek);
         // the subtitle must never promise a range the tap cannot set: a
-        // brigade starting next week shows its start date instead of a
+        // brigade starting past next week shows its start date instead of a
         // confident range that would dead-end in outOfRange
         const overlaps = weekDates.some((d) => d >= b.from && d <= b.until);
         const range = overlaps
@@ -1003,7 +1018,7 @@ export function TablesView({
               <button
                 class="primary"
                 disabled=${brigadeBusy === b.id}
-                onClick=${() => runBrigade(b.id, false)}
+                onClick=${() => runBrigade(b.id, false, runWeek)}
               >
                 ${brigadeBusy === b.id ? "SETTING…" : "SET THIS WEEK"}
                 <small>${range} · every plate sized to each person's numbers</small>
@@ -1011,7 +1026,7 @@ export function TablesView({
               <button
                 class="secondary"
                 disabled=${brigadeBusy === b.id}
-                onClick=${() => runBrigade(b.id, true)}
+                onClick=${() => runBrigade(b.id, true, runWeek)}
               >
                 PICK DIFFERENT MEALS
               </button>
