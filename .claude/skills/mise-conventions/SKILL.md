@@ -37,6 +37,19 @@ UI → `app/lib/store.js` (IndexedDB cache + offline queue) → `app/lib/github.
 merge + retry). Views never call fetch directly. Reads render from cache first, then
 revalidate. Writes: cache immediately, queue, flush on reconnect.
 
+## Mirrored files: write BOTH or write NEITHER (incident rule, 2026-08-30)
+
+`profile/targets.json` is canonical; `fitness/targets.json` is its mirror,
+alive only for Anvil. The app reads CANONICAL FIRST, so an edit that touches
+only the mirror does nothing — that is exactly how scorch's 2026-08-29 orders
+(proteinAim 190, fixed-breakfast removal) sat dark for a day while the engine
+kept aiming at 215. Any hand edit to a targets file touches both files of the
+pair IDENTICALLY, byte for byte; in-app writes go through `writeTargetsOf`,
+which mirrors. `tests/targets-divergence.test.js` fails the build on any
+divergence — if it fires, heal the pair before anything else. Second
+occurrence of this bug class (first: "210 g live in 5 places", DOCTRINE
+Article 5); there is no third.
+
 ## Forbidden without David's explicit approval
 
 - New dependencies (runtime OR dev). State the justification, wait for yes.

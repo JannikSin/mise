@@ -2995,7 +2995,13 @@ function App() {
       }
 
       const today = localIsoDate(new Date());
-      const { events, made, thin, report } = planBrigadeWeek(cur, brigade, {
+      // PICK DIFFERENT MEALS must change an input or determinism hands back
+      // the identical week: the salt lives ON the brigade record so every
+      // device's next run agrees with the re-rolled picks
+      const run = regenerate
+        ? { ...brigade, salt: (Number(/** @type {any} */ (brigade).salt) || 0) + 1 }
+        : brigade;
+      const { events, made, thin, report } = planBrigadeWeek(cur, run, {
         dates: datesOfWeek(week),
         today,
         house,
@@ -3005,9 +3011,13 @@ function App() {
         bankById: recipesById(bankRecipesRef.current),
         regenerate,
       });
+      const out =
+        run === brigade
+          ? events
+          : { ...events, brigades: (cur.brigades ?? []).map((b) => (b.id === run.id ? run : b)) };
       // write when anything changed — pruning expired tables counts even
       // when no new meal was made
-      if (made > 0 || events.tables.length !== cur.tables.length) writeHouseEvents(house, events);
+      if (made > 0 || events.tables.length !== cur.tables.length) writeHouseEvents(house, out);
 
       // the RUNNER's dining swipes land in their plan right now, pinned, so
       // the covered credit the composer just counted is visible food on the

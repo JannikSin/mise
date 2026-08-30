@@ -228,6 +228,21 @@ test("smoothie slots hold smoothies and breakfasts hold breakfasts, by construct
   }
 });
 
+test("the re-roll salt reshuffles the picks; same salt, same week", () => {
+  const a = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx()).events;
+  const b = planBrigadeWeek({ tables: [] }, { ...BRIGADE, salt: 1 }, wayneCtx()).events;
+  const c = planBrigadeWeek({ tables: [] }, { ...BRIGADE, salt: 1 }, wayneCtx()).events;
+  const seq = (/** @type {any} */ e) =>
+    e.tables.map((/** @type {any} */ t) => `${t.date}|${t.slot}|${t.recipeId}`).sort().join(",");
+  assert.notEqual(seq(a), seq(b), "a bumped salt produces a different week");
+  assert.equal(seq(b), seq(c), "the same salt is deterministic across devices");
+  assert.deepEqual(
+    a.tables.map((/** @type {any} */ t) => t.id).sort(),
+    b.tables.map((/** @type {any} */ t) => t.id).sort(),
+    "ids never change — the merge stays id-keyed",
+  );
+});
+
 test("ids are deterministic and the run is idempotent", () => {
   const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
   const second = planBrigadeWeek(first.events, BRIGADE, wayneCtx());

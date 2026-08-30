@@ -1025,6 +1025,11 @@ path, and no brigade-specific behaviour anywhere downstream.
       //   those tables until someone RE-ROLLs on current code.
       "from": "2026-07-27",
       "until": "2026-08-02", // REQUIRED, span capped at 28 days
+      "salt": 2, // ? the re-roll counter. PICK DIFFERENT MEALS bumps it and
+      //   stores it HERE so every device reshuffles identically: the week
+      //   engine is deterministic (same inputs, same week), so a re-roll
+      //   must change an input or the button returns the identical seven
+      //   days. Absent = 0.
     },
   ],
 }

@@ -583,7 +583,12 @@ export function planBrigadeWeek(events, brigade, ctx) {
   const report = [];
   let made = 0;
 
-  // pools + walks per slot, once
+  // pools + walks per slot, once. The RE-ROLL SALT (brigade.salt, bumped by
+  // PICK DIFFERENT MEALS and stored ON the brigade so every device agrees)
+  // reshuffles the walk: deterministic means same inputs, same week — so a
+  // re-roll must CHANGE an input, or the button hands back the identical
+  // seven days it promised to replace (David's question, 2026-08-30).
+  const seed = `${brigade.id}${Number(/** @type {any} */ (brigade).salt) > 0 ? `#${Number(/** @type {any} */ (brigade).salt)}` : ""}`;
   /** @type {Record<string, Record<string, any>[]>} */
   const poolsBySlot = {};
   /** @type {Record<string, Record<string, any>[]>} */
@@ -597,7 +602,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
     if (pool.length < dates.length) thin.push({ slot, available: pool.length });
     const walk = [...pool].sort(
       (a, b) =>
-        hash(`${brigade.id}|${slot}|${a.id}`) - hash(`${brigade.id}|${slot}|${b.id}`) ||
+        hash(`${seed}|${slot}|${a.id}`) - hash(`${seed}|${slot}|${b.id}`) ||
         String(a.id).localeCompare(String(b.id)),
     );
     poolsBySlot[slot] = walk; // swap alternates follow the same variety order
@@ -673,7 +678,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
     for (const slot of liveSlots) {
       const walk = /** @type {Record<string, any>[]} */ (walksBySlot[slot]);
       const pick =
-        walk[(((hash(`${brigade.id}|${slot}`) + dayOffset(date)) % walk.length) + walk.length) % walk.length];
+        walk[(((hash(`${seed}|${slot}`) + dayOffset(date)) % walk.length) + walk.length) % walk.length];
       if (pick) startBySlot[slot] = pick;
     }
 
