@@ -844,7 +844,13 @@ export function cycleSlotAway(plan, date, slot, outEst, swipeEst, currencyId) {
  * @returns {number}
  */
 export function currencyUsed(plan, currencyId) {
-  return plan.entries.filter((e) => /** @type {any} */ (e).currency === currencyId).length;
+  // only THIS week's dates count: since weeks open on Sunday (2026-09-05) a
+  // file can hold an old-rule Sunday that now belongs to the next week, and
+  // the straddle read adopts the previous file's Sunday into this one
+  const week = new Set(datesOfWeek(plan.week));
+  return plan.entries.filter(
+    (e) => /** @type {any} */ (e).currency === currencyId && (week.size === 0 || week.has(e.date)),
+  ).length;
 }
 
 /**
@@ -886,8 +892,12 @@ export function toggleSwipeEaten(plan, date, slot, today) {
  * @returns {number}
  */
 export function currencyEaten(plan, currencyId) {
+  const week = new Set(datesOfWeek(plan.week));
   return plan.entries.filter(
-    (e) => /** @type {any} */ (e).currency === currencyId && /** @type {any} */ (e).eatenAt,
+    (e) =>
+      /** @type {any} */ (e).currency === currencyId &&
+      /** @type {any} */ (e).eatenAt &&
+      (week.size === 0 || week.has(e.date)),
   ).length;
 }
 
