@@ -900,6 +900,14 @@ before every plan write).
       //   seats bound). Guests join the cook's pot total and the buy;
       //   BILLING a guest stays parked in Mise-Later, so their cost rides
       //   the cook's ledger. Absent = 0.
+      "leftoverOf": "b-wayne-kitchen-2026-09-06-dinner", // ? A NO-COOK NIGHT
+      //   (David 2026-09-05, P7): this meal is eaten from the named COOK
+      //   table's pot. deriveTables adds this table's seated servings (and
+      //   guest plates) to that table's cook total and buy, pushes NO
+      //   shopping pseudo-entry for this table, and stamps the derived plan
+      //   entry `leftoverOf` so the Plan tab reads "leftovers". Written only
+      //   by planBrigadeWeek under a brigade's `cookDays`. Absent = a night
+      //   that cooks its own pot.
       "cookedAt": "2026-07-24", // ? the serve step's COOKED confirmation
       //   (per-person-plates-design §7.2). Set once by setTableCooked, never
       //   cleared (you cannot un-cook food, same rule as a plan entry's
@@ -1071,6 +1079,27 @@ path, and no brigade-specific behaviour anywhere downstream.
       //   engine is deterministic (same inputs, same week), so a re-roll
       //   must change an input or the button returns the identical seven
       //   days. Absent = 0.
+      "cookDays": [0, 1, 5, 6], // ? COOK NIGHTS (David 2026-09-05, P7): the
+      //   weekdays dinner is COOKED, 0 Sun … 6 Sat. Every other night in the
+      //   run eats LEFTOVERS: the schedule is decided first (dates only),
+      //   round-robin over the run's cook nights up to 4 days earlier, fewest
+      //   nights fed first, oldest pot on a tie — so with Sun/Mon/Fri/Sat
+      //   Sunday's pot feeds Tue and Thu and Monday's feeds Wed. A feeding
+      //   cook night draws only from dishes whose `safeDays` reach its last
+      //   leftover night (batch-tagged dishes first when three or more
+      //   qualify); a no-cook night no safe pot reaches cooks after all and
+      //   is reported (`nights.uncovered`). Absent = cook every night.
+      "slotRecipes": { "breakfast": ["berry-walnut-greek-yogurt-bowl"] }, // ?
+      //   NAMED SLOTS (David 2026-09-05: "breakfast should just be variations
+      //   of greek yogurt bowls"): per slot, the only recipe ids the pot may
+      //   draw from. Every member's screens and the auto-plan fence still
+      //   apply; a list that screens down to nothing falls back to the full
+      //   pool with a note. A narrowed slot is not reported as "thin" —
+      //   repeating by design is the point. Absent = the whole screened pool.
+      //   Both fields are checked by validBrigade (a malformed one drops the
+      //   brigade at the trust boundary, never repairs it) and edited in place
+      //   by updateBrigade, which keeps the id so materialized tables stay
+      //   the brigade's own.
     },
   ],
 }
@@ -1078,7 +1107,18 @@ path, and no brigade-specific behaviour anywhere downstream.
 
 A materialized table carries two extra fields: `fromBrigade` (the brigade's
 id) and `cookId`. Both are normal stored fields, unlike the derived-only
-ones above.
+ones above. A no-cook night's table carries a third, `leftoverOf` (see the
+table schema): the id of the cook table whose pot it eats. Its seats size
+THAT pot's buy and cook total; it is never bought or cooked on its own.
+
+**Guest seats (2026-09-05, canon P8).** A seat whose id is not a brigade
+member but IS a real profile (someone added to one day from the Plan tab, a
+guesthouse profile or a relative from another house) is composed WITH the
+members — their own targets size their plate, the report carries a
+`guest: true` row for them — and is carried through every regeneration
+(members are rebuilt from the rule, non-member seats from the table). A
+guest eats only the slots they are seated at. Written by `addSeat`,
+removed by `removeSeat`.
 
 Rules (binding, from the Tribunal plan gate):
 
@@ -1222,10 +1262,33 @@ even the same slot — merge without losing either entry.
       "cookComment": "burned the first batch", // ? the "overrun was me, not
       //   the plan" note (setCookComment, <=200 chars); P11's review reads it
       //   beside stated-vs-recorded. Absent = no note.
+      "leftoverOf": "2026-09-06", // ? A NO-COOK NIGHT (targets.cookDays, P7,
+      //   2026-09-05): this dinner is eaten from the pot cooked on the named
+      //   DATE (same recipeId). deriveShoppingList sums its servings into that
+      //   pot like any repeat of the recipe; the Plan tab shows "leftovers";
+      //   the swipe-day permutation and the cook-blocks batch list treat it as
+      //   food already cooked. Written by generateWeek. Absent = cooked fresh.
+      "fromTable": "b-wayne-kitchen-2026-09-01-dinner", // ? SETTLED HISTORY
+      //   (David 2026-09-05: "i want to always see what was cooked"). Once a
+      //   shared meal's date is past, main.js copies it into MY plan as a real
+      //   entry (recipeId + servings, cookedAt when the table carried one)
+      //   stamped with the table id, so it outlives the 14-day table
+      //   retention and is searchable like any meal I cooked alone. A table
+      //   my plan has settled derives nothing (deriveTables skips it) and is
+      //   never a collision. Always paired with pinned: true.
     },
   ],
 }
 ```
+
+**WEEKS OPEN ON SUNDAY (David, 2026-09-05).** `plans/<week>.json` is keyed by
+the app's week id (`isoWeekId`, app/lib/dates.js): the ISO 8601 number of the
+week whose Monday falls inside the seven days Sun … Sat, so "2026-W36" is Sun
+Aug 30 … Sat Sep 5 2026 and the number printed on Plan matches every calendar.
+Files written before that date under the Monday-start rule keep their Sunday
+at the END of the earlier file; main.js adopts such entries into the following
+week's view at read time (the straddle read) and the next write of that week
+persists them. Nothing is migrated on disk.
 
 Absent `pinned` = unpinned (default behavior today, unchanged for existing data).
 
@@ -1527,6 +1590,16 @@ Seeded from the FITNESS.md system; edited rarely.
   //   ["breakfast", "lunch", "dinner"] so the generator
   //   doesn't force a 4th proactive meal past the calorie
   //   ceiling.
+  "cookDays": [0, 1, 5, 6],
+  // ? COOK NIGHTS for a SOLO week (P7, David 2026-09-05): the weekdays
+  //   (0 Sun … 6 Sat) dinner is cooked; every other live night eats an
+  //   earlier cook night's pot, scheduled round-robin over the run's cook
+  //   nights up to 4 days back and written with `leftoverOf: <cook date>`.
+  //   A feeding cook night takes the first dish in the rotation whose
+  //   safeDays reach its last leftover night; a night no safe pot reaches
+  //   cooks after all and the manifest's leftovers line says so. The same
+  //   rule lives on a brigade as `brigades[].cookDays`, which governs the
+  //   shared dinners instead. Absent = cook every night.
   "fixedSlots": { "breakfast": "berry-walnut-greek-yogurt-bowl" },
   // ? "this recipe, every day" per slot, DECLARED ON THE PROFILE
   //   (spec 2026-08-25: David eats the same yogurt bowl every

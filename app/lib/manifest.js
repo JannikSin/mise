@@ -154,6 +154,9 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
     ? leftoverLedger(/** @type {any} */ (current), new Map(recipes.map((r) => [r.id, r])))
     : { cooks: [], orphans: [], reCooked: [] };
   subsystems.leftovers = {
+    // the engine's cook-nights facts ride along (weekbuilder, 2026-09-05);
+    // absent on a manifest recomposed from a stored plan
+    ...(engine?.leftovers ?? {}),
     batchCooks: led.cooks.length,
     leftoverSlots: led.cooks.reduce((n, c) => n + Math.max(0, c.eats.length - 1), 0),
     // a CONTAINER is a whole serving nobody eats. Sub-serving remainders are
@@ -493,12 +496,22 @@ function lineFor(key, s) {
       // later slots, and whether anything was left with nobody to eat it or
       // scheduled past the day it stops being safe
       if (!s.readPlan) return "no plan on file yet, so nothing is scheduled as leftovers";
-      return s.batchCooks === 0
-        ? "no batch cooks this week, so nothing is planned as leftovers"
-        : `${s.batchCooks} batch cook${s.batchCooks === 1 ? "" : "s"} feeding ${s.leftoverSlots} later slot${s.leftoverSlots === 1 ? "" : "s"}, ` +
-          `${s.orphanContainers} orphan container${s.orphanContainers === 1 ? "" : "s"}` +
-          (s.orphanServings > 0 ? ` (${s.orphanServings} servings unclaimed)` : "") +
-          `, ${s.pastWindow} slot${s.pastWindow === 1 ? "" : "s"} past the safe window`;
+      return (
+        (s.batchCooks === 0
+          ? "no batch cooks this week, so nothing is planned as leftovers"
+          : `${s.batchCooks} batch cook${s.batchCooks === 1 ? "" : "s"} feeding ${s.leftoverSlots} later slot${s.leftoverSlots === 1 ? "" : "s"}, ` +
+            `${s.orphanContainers} orphan container${s.orphanContainers === 1 ? "" : "s"}` +
+            (s.orphanServings > 0 ? ` (${s.orphanServings} servings unclaimed)` : "") +
+            `, ${s.pastWindow} slot${s.pastWindow === 1 ? "" : "s"} past the safe window`) +
+        // the cook-days schedule (2026-09-05), when the profile declares one
+        (Array.isArray(s.cookDays)
+          ? `; cook nights ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].filter((_, i) => s.cookDays.includes(i)).join("/")}: ` +
+            `${(s.cookNights ?? []).length} cooked, ${(s.leftoverNights ?? []).length} leftover night${(s.leftoverNights ?? []).length === 1 ? "" : "s"}` +
+            ((s.uncoveredNights ?? []).length > 0
+              ? `, ${s.uncoveredNights.length} no-cook night${s.uncoveredNights.length === 1 ? "" : "s"} had no safe pot and cooked anyway`
+              : "")
+          : "")
+      );
     case "swapToFit":
       if (!s.ran) return `budget fit did not run: ${s.reason}`;
       return (

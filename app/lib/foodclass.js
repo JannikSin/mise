@@ -357,6 +357,62 @@ export function proteinSourceOf(food) {
 }
 
 /**
+ * THE PROTEIN CLASS of one food, for rotating a week's dinners (David,
+ * 2026-09-05: "chicken is fine for 1 night a week but mix in ground beef and
+ * ground turkey for the rest and maybe fish... if it is 4 dinners a week it
+ * can be one of each"). Coarser than proteinSourceOf on purpose: the question
+ * is "did we already eat this animal this week", so cod and salmon are one
+ * class and every bean is one class. Null = not a protein anchor.
+ * @param {string} food
+ * @returns {"chicken" | "turkey" | "beef" | "pork" | "fish" | "plant" | "egg" | "dairy" | null}
+ */
+export function proteinClassOf(food) {
+  const f = String(food ?? "").toLowerCase().trim();
+  if (!f) return null;
+  // broths and stocks carry a name, not a protein: "chicken broth" is not
+  // chicken, the same trap partOf() in synth.js debugged the hard way
+  if (/\b(broth|stock|bouillon)\b/.test(f)) return null;
+  if (/turkey/.test(f)) return "turkey";
+  if (/chicken/.test(f)) return "chicken";
+  if (/\b(beef|steak|brisket|chuck|sirloin|ground round)\b/.test(f)) return "beef";
+  if (/\b(pork|bacon|ham|sausage|chorizo|pancetta|guanciale|prosciutto|tenderloin)\b/.test(f))
+    return "pork";
+  if (
+    /\b(salmon|cod|tuna|shrimp|prawn|fish|anchov\w*|tilapia|trout|halibut|sardine\w*|scallop\w*|mussel\w*|clam\w*|mahi)\b/.test(
+      f,
+    )
+  )
+    return "fish";
+  if (/\b(green beans|string beans|snap peas)\b/.test(f)) return null; // a vegetable, not a legume
+  if (/\b(tofu|tempeh|edamame|lentil\w*|chickpea\w*|beans?|seitan)\b/.test(f)) return "plant";
+  if (/\begg\w*\b/.test(f)) return "egg";
+  if (/\b(coconut|almond|oat|soy|rice|cashew) milk\b/.test(f)) return null; // a plant milk anchors nothing
+  if (/\b(yogurt|cottage cheese|cheese|paneer|halloumi|feta|whey|milk)\b/.test(f)) return "dairy";
+  return null;
+}
+
+/**
+ * A recipe's protein class: its ANCHOR protein, meat or fish first (a chicken
+ * and chickpea tagine is a chicken night), then legumes, then egg, then
+ * dairy. Optional rows never decide it. Null when nothing anchors the dish.
+ * @param {Record<string, any> | null | undefined} recipe
+ * @returns {ReturnType<typeof proteinClassOf>}
+ */
+export function recipeProteinClass(recipe) {
+  const rows = (recipe?.ingredients ?? []).filter((/** @type {any} */ i) => i && !i.optional);
+  /** @type {string[]} */
+  const classes = rows
+    .map((/** @type {any} */ i) => /** @type {string | null} */ (proteinClassOf(i.food)))
+    .filter((/** @type {string | null} */ c) => c !== null)
+    .map((/** @type {string | null} */ c) => String(c));
+  for (const tier of [["chicken", "turkey", "beef", "pork", "fish"], ["plant"], ["egg"], ["dairy"]]) {
+    const hit = classes.find((/** @type {string} */ c) => tier.includes(c));
+    if (hit) return /** @type {ReturnType<typeof proteinClassOf>} */ (hit);
+  }
+  return null;
+}
+
+/**
  * A canonical plant name for diversity counting, or null for anything that
  * is not a distinct plant. Species diversity is a WEEK-level idea, which is
  * exactly why it lives as a fact here and a floor in the bundle.

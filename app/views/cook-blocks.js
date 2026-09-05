@@ -20,30 +20,29 @@ import { isDatedItem, pantryItems, perishableStatus } from "../lib/shopping.js";
  *   recipes: Record<string, any>[],
  *   plan: import("../lib/plan.js").Plan,
  *   tableConflicts: { table: import("../lib/tables.js").TableEvent, reasons: string[] }[],
- *   nextPlan: import("../lib/plan.js").Plan | null,
  *   daily: { days?: Record<string, any>[] },
  *   pantry: Record<string, any>,
  *   onPatchDay: (patch: Record<string, any>) => void
  * }} props
  */
-export function CookBlocks({ recipes, plan, tableConflicts, nextPlan, daily, pantry, onPatchDay }) {
+export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPatchDay }) {
   const byId = recipesById(recipes);
   const today = localIsoDate(new Date());
   const weekDates = datesOfWeek(plan.week);
 
-  // batch-prep block, day-aware (docs/day-aware-weeks-design.md). The block
-  // always describes the week you can still batch FOR: the shown week while
-  // its prep Sunday is ahead ("Sunday batch") or while it's underway
-  // ("catch-up": that Sunday already passed), and on the shown week's own
-  // closing Sunday the NEXT week — that evening's cooking preps the week
-  // ahead, not the week ending tonight. A fully past week shows nothing.
+  // batch-prep block, day-aware (docs/day-aware-weeks-design.md). Since the
+  // week opens on SUNDAY (David 2026-09-05) the batch day is the shown week's
+  // own first day, so the block always describes the week you are looking
+  // at: "Sunday batch" while that Sunday is today or ahead, "catch-up" once
+  // it has passed with the week still underway. A fully past week shows
+  // nothing. (The old "closing Sunday preps NEXT week" special case died
+  // with Monday-start weeks: on Sunday the app already shows the new week.)
   // sundayComponent is deduped by recipe (cook it once, regardless of how
   // many days it's stacked on); weekdayAssembly is kept per planned day
   // since the reheat note is about that day, not the dish.
-  const batchForNext = today === weekDates[6];
-  const pastWeek = !batchForNext && today > (weekDates[6] ?? "");
-  const catchUp = !batchForNext && !pastWeek && today >= (weekDates[0] ?? "");
-  const batchEntries = batchForNext ? (nextPlan?.entries ?? []) : plan.entries;
+  const pastWeek = today > (weekDates[6] ?? "");
+  const catchUp = !pastWeek && today > (weekDates[0] ?? "");
+  const batchEntries = plan.entries;
   const seenSunday = new Set();
   const sundayComponents = [];
   const weekdayAssembly = [];
@@ -71,9 +70,8 @@ export function CookBlocks({ recipes, plan, tableConflicts, nextPlan, daily, pan
   }
   weekdayAssembly.sort((a, b) => a.date.localeCompare(b.date));
   const hasBatchPrep = sundayComponents.length > 0 || weekdayAssembly.length > 0;
-  // auto-open when the batching is TODAY: next week's on the closing Sunday,
-  // or the shown future week's on its own prep Sunday
-  const openBatch = batchForNext || today === prepSundayOf(plan.week);
+  // auto-open when the batching is TODAY: the shown week's own Sunday
+  const openBatch = today === prepSundayOf(plan.week);
 
   // weekly buffer snack: recipe, today's tally, and how much of the batch
   // the week has already eaten (sum of every day's counter)
@@ -248,35 +246,18 @@ export function CookBlocks({ recipes, plan, tableConflicts, nextPlan, daily, pan
     }
     ${
       !pastWeek &&
-      (hasBatchPrep || batchForNext) &&
+      hasBatchPrep &&
       html`<details class="batchprep" open=${openBatch}>
         <summary class="block-title">
           Batch prep${" "}
           <span class="hint">
             ${
-              batchForNext
-                ? `for next week · ${sundayComponents.length} to prep`
-                : catchUp
-                  ? `Sunday passed · ${sundayComponents.length} to catch up, tap to open`
-                  : `${sundayComponents.length} to prep, tap to open`
+              catchUp
+                ? `Sunday passed · ${sundayComponents.length} to catch up, tap to open`
+                : `${sundayComponents.length} to prep, tap to open`
             }
           </span>
         </summary>
-        ${
-          // three distinct Sunday states: still fetching next week's plan,
-          // genuinely no plan yet, and a plan whose recipes need no batching
-          batchForNext &&
-          !hasBatchPrep &&
-          html`<div class="batch">
-            ${
-              nextPlan == null
-                ? "loading next week…"
-                : nextPlan.entries.length === 0
-                  ? "No plan for next week yet. Generate it above, then batch from here."
-                  : "Nothing in next week's plan needs batching."
-            }
-          </div>`
-        }
         ${sundayComponents.map(
           (r) =>
             html`<div class="batch" key=${r.id}>

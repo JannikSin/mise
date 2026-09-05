@@ -227,7 +227,7 @@ test("GENERATE hands off completely on an occasion day", () => {
   assert.ok(!report.proteinShortDays.some((d) => d.date === clearDay));
 
   // days OUTSIDE the occasion still get planned normally
-  const free = plan.entries.filter((e) => e.date === "2026-08-16" && !e.occasion);
+  const free = plan.entries.filter((e) => e.date === "2026-08-10" && !e.occasion);
   assert.ok(free.length > 0, "the rest of the week still generates");
 });
 

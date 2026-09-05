@@ -14,6 +14,8 @@ import {
   setTableBuyer,
   setTableGuests,
   clampGuests,
+  addSeat,
+  removeSeat,
   pruneTables,
   stripTableEntries,
   mergeViewPlan,
@@ -583,4 +585,53 @@ test("deriveTables: guest plates join the cook's pot and the buy", () => {
   const d = deriveTables(houses, { profileId: "david", bankById: bank, ownEntries: [], today: "2098-12-30", profilesById: profiles });
   assert.equal(d.allCookExtras.length, 1);
   assert.equal(d.allCookExtras[0].servings, 4, "2 seats + 2 guest plates");
+});
+
+// ---- leftover nights, settled history, guest seats (2026-09-05) -------------
+
+test("a leftoverOf table joins the cook table's pot and buy, and buys nothing itself", () => {
+  const cookT = table({ id: "cook", date: "2026-07-24", cookId: "david", buyerId: "david" });
+  const leftT = table({
+    id: "left",
+    date: "2026-07-26",
+    cookId: "david",
+    leftoverOf: "cook",
+    seats: [{ id: "david", servings: 1 }, { id: "mom", servings: 0.75 }],
+  });
+  const d = deriveTables([{ house: "home", events: { tables: [cookT, leftT] } }], ctx());
+  // one buy, sized for both nights: 1.5 + 1 (cook night) + 1 + 0.75 (leftover night)
+  assert.equal(d.cookExtras.length, 1, "the leftover night is never bought on its own");
+  assert.equal(d.cookExtras[0].servings, 4.25);
+  assert.equal(d.allCookExtras.length, 1);
+  // I still eat both nights on my plan, and the leftover night says what it is
+  const mine = d.entries.filter((e) => e.viewRecipeId === "kebab");
+  assert.equal(mine.length, 2);
+  const left = mine.find((e) => e.date === "2026-07-26");
+  assert.equal(left.leftoverOf, "cook");
+  assert.equal(left.cookTotal, undefined, "no batch to cook on a leftover night");
+  const cook = mine.find((e) => e.date === "2026-07-24");
+  assert.equal(cook.cookTotal, 4.25, "the cook sees the whole pot, leftover plates included");
+});
+
+test("a table my plan has SETTLED derives nothing and is not a collision; cookedAt rides the derived entry", () => {
+  const t = table({ cookedAt: "2026-07-24" });
+  const settled = deriveTables(
+    [{ house: "home", events: { tables: [t] } }],
+    ctx({ ownEntries: [{ id: "x", date: "2026-07-24", slot: "dinner", recipeId: "kebab", servings: 1.5, pinned: true, fromTable: "t1" }] }),
+  );
+  assert.equal(settled.entries.length, 0, "the settled copy is the record");
+  assert.equal(settled.collisions.length, 0, "settling is not a collision");
+  const live = deriveTables([{ house: "home", events: { tables: [t] } }], ctx());
+  assert.equal(live.entries[0].cookedAt, "2026-07-24", "a past day can show the tick");
+});
+
+test("addSeat seats a person once, clamped; removeSeat takes them off", () => {
+  let ev = { tables: [table()] };
+  ev = addSeat(ev, "t1", { id: "laurie", servings: 40 }, TODAY);
+  assert.deepEqual(ev.tables[0].seats.map((s) => s.id), ["david", "mom", "laurie"]);
+  assert.equal(ev.tables[0].seats[2].servings, 10, "clamped to the table bound");
+  ev = addSeat(ev, "t1", { id: "laurie", servings: 1 }, TODAY);
+  assert.equal(ev.tables[0].seats.length, 3, "seated once");
+  ev = removeSeat(ev, "t1", "laurie", TODAY);
+  assert.deepEqual(ev.tables[0].seats.map((s) => s.id), ["david", "mom"]);
 });

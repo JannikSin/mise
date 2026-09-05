@@ -353,7 +353,9 @@ export function softAvoidMatches(recipe, avoid) {
 }
 
 /**
- * Monday..Sunday ISO dates of an ISO week id like "2026-W28".
+ * Sunday..Saturday dates of a week id like "2026-W28" (weeks start on
+ * Sunday since 2026-09-05; the id is the ISO number of the week whose Monday
+ * is day two — see isoWeekId in dates.js).
  * @param {string} weekId
  * @returns {string[]}
  */
@@ -362,11 +364,12 @@ export function datesOfWeek(weekId) {
   if (!m) return [];
   const isoYear = Number(m[1]);
   const week = Number(m[2]);
-  // ISO 8601: week 1 contains Jan 4; weeks start Monday
+  // ISO 8601: week 1 contains Jan 4; the ISO week starts Monday, ours the
+  // day before it
   const jan4 = new Date(isoYear, 0, 4);
   const week1Monday = new Date(isoYear, 0, 4 - ((jan4.getDay() + 6) % 7));
   const out = [];
-  for (let i = 0; i < 7; i++) {
+  for (let i = -1; i < 6; i++) {
     const d = new Date(week1Monday);
     d.setDate(week1Monday.getDate() + (week - 1) * 7 + i);
     out.push(localIsoDate(d));
@@ -375,17 +378,14 @@ export function datesOfWeek(weekId) {
 }
 
 /**
- * The prep Sunday for a week: the day BEFORE its Monday (Sunday-batch
- * routine). Belongs to the previous ISO week by definition.
+ * The prep Sunday for a week: since 2026-09-05 that is the week's OWN first
+ * day (Sunday opens the week), so batch cooking on Sunday preps the week you
+ * are looking at, not the next one.
  * @param {string} weekId
  * @returns {string}
  */
 export function prepSundayOf(weekId) {
-  const monday = datesOfWeek(weekId)[0];
-  if (!monday) return "";
-  const d = parseLocalIso(monday);
-  d.setDate(d.getDate() - 1);
-  return localIsoDate(d);
+  return datesOfWeek(weekId)[0] ?? "";
 }
 
 /**
@@ -396,8 +396,8 @@ export function prepSundayOf(weekId) {
  * @returns {string}
  */
 export function shiftWeek(weekId, delta) {
-  const monday = datesOfWeek(weekId)[0];
-  const d = parseLocalIso(monday ?? "");
+  const first = datesOfWeek(weekId)[0];
+  const d = parseLocalIso(first ?? "");
   d.setDate(d.getDate() + delta * 7);
   return isoWeekId(d);
 }

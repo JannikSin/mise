@@ -15,6 +15,7 @@
 // called out with a plain-English suggestion.
 
 import { canMake } from "./equipment.js";
+import { parseLocalIso } from "./dates.js";
 import {
   addEntry,
   buffetMacroEstimate,
@@ -30,6 +31,12 @@ import {
 import { slug, pantryItems, isDatedItem } from "./shopping.js";
 import { enforcedCeilings, enforcedFloors } from "./targets.js";
 import { seatServingsFor, slotShareFor } from "./tables.js";
+import { recipeProteinClass } from "./foodclass.js";
+
+/** cooked leftovers with no stated window keep this long (USDA FSIS, conservative end; same figure portions.js uses) */
+const FALLBACK_SAFE_DAYS = 3;
+/** the longest a no-cook night may sit from the pot it eats (the bank's longest safeDays) */
+const MAX_LEFTOVER_DAYS = 4;
 
 /** deterministic 32-bit FNV-1a — the builder's only randomness source */
 function hash(/** @type {string} */ s) {
@@ -248,8 +255,12 @@ export const COMMITTEE_WEIGHTS = {
  *   budget?: "tight" | "normal" | "loose",
  *   breakfastStyle?: string,
  *   proteinRatioNeeded?: number,
- *   weights?: Record<string, number>
- * }} [opts]
+ *   weights?: Record<string, number>,
+ *   rotateProtein?: boolean
+ * }} [opts] `rotateProtein` (the dinner committee): every further seat goes
+ *   first to a dish anchored on a protein the committee does not hold yet,
+ *   so the week's dinners spread across chicken, beef, turkey, fish and beans
+ *   instead of clustering on the one protein whose recipes overlap best.
  * @returns {Record<string, any>[]}
  */
 export function pickCommittee(candidates, opts = {}) {
@@ -405,11 +416,29 @@ export function pickCommittee(candidates, opts = {}) {
   const committee = [best];
   const committeeFoods = new Set([...foodSlugsOf(best), ...weekFoodPool]);
 
+  // ROTATE THE PROTEIN (David, 2026-09-05: "switch up the proteins for each
+  // meal, so chicken is fine for 1 night a week but mix in ground beef and
+  // ground turkey for the rest and maybe fish"). Each further seat is
+  // offered FIRST to dishes anchored on a protein the committee does not
+  // hold yet; only when no such dish remains does the seat reopen to every
+  // candidate. A rule with an honest relax, not a weight: a chicken dish
+  // that shares two foods with the seed would out-score any beef dish on
+  // overlap alone, which is exactly how a week became four chicken nights.
+  // A bank with nothing but chicken still fills every night.
+  const rotateProtein = opts.rotateProtein === true;
+  const committeeClasses = new Set([recipeProteinClass(best)].filter(Boolean));
   while (committee.length < size) {
+    const remaining = candidates.filter((c) => !committee.includes(c));
+    const freshProtein = rotateProtein
+      ? remaining.filter((c) => {
+          const cls = recipeProteinClass(c);
+          return cls !== null && !committeeClasses.has(cls);
+        })
+      : [];
+    const field = freshProtein.length > 0 ? freshProtein : remaining;
     let next = null;
     let nextScore = -Infinity;
-    for (const c of candidates) {
-      if (committee.includes(c)) continue;
+    for (const c of field) {
       const score = overlapWith(c, committeeFoods) * overlapWeight + bonus(c);
       if (score > nextScore) {
         nextScore = score;
@@ -419,6 +448,8 @@ export function pickCommittee(candidates, opts = {}) {
     if (!next) break;
     committee.push(next);
     for (const f of foodSlugsOf(next)) committeeFoods.add(f);
+    const cls = recipeProteinClass(next);
+    if (cls) committeeClasses.add(cls);
   }
   return committee;
 }
@@ -905,15 +936,23 @@ export function calorieTrimPass(plan, recipesById, bounds, slotPools = null) {
         });
 
       let applied = false;
-      for (const entry of trimmable) {
-        const servings = Math.max(0.5, entry.servings - 0.5);
-        const candidateEntries = next.entries.map((e) =>
-          e.id === entry.id ? { ...e, servings } : e,
-        );
-        if (breaksFloor(candidateEntries, recipesById, date, bounds, next.entries)) continue;
-        next = { ...next, entries: candidateEntries };
-        applied = true;
-        break;
+      // a half step first, then a QUARTER step (2026-09-05): portions are
+      // quarter-stepped everywhere else in the app, and a day 15 kcal over
+      // its ceiling was left there because the only half-step cut broke the
+      // protein floor while a quarter-step cut landed it cleanly
+      for (const step of [0.5, 0.25]) {
+        for (const entry of trimmable) {
+          const servings = Math.max(0.5, Math.round((entry.servings - step) * 4) / 4);
+          if (servings >= entry.servings) continue;
+          const candidateEntries = next.entries.map((e) =>
+            e.id === entry.id ? { ...e, servings } : e,
+          );
+          if (breaksFloor(candidateEntries, recipesById, date, bounds, next.entries)) continue;
+          next = { ...next, entries: candidateEntries };
+          applied = true;
+          break;
+        }
+        if (applied) break;
       }
 
       // SWAP, the mirror of the lever in proteinTrimPass (2026-08-23) and
@@ -1908,6 +1947,7 @@ export function generateWeek({
         cuisinePrefs: targets?.cuisinePrefs,
         budget: targets?.budget,
         breakfastStyle: meal === "breakfast" ? targets?.breakfastStyle : undefined,
+        rotateProtein: meal === "dinner",
       },
     );
     committees[meal] = committee;
@@ -1988,6 +2028,8 @@ export function generateWeek({
     /** @type {Record<string, any>} */ recipe,
   ) => seatServingsFor(portionTargetsFor(date), slot, recipe);
 
+  /** @type {Map<string, string>} leftover night -> the cook date it eats from (cook-days rule below) */
+  const leftoverOfByDate = new Map();
   const fill = (
     /** @type {string} */ date,
     /** @type {string} */ slot,
@@ -2007,19 +2049,97 @@ export function generateWeek({
     // shopping substitutionPlan) can honour the declaration too — the
     // in-engine protection alone left the fixed breakfast swappable the
     // moment generateWeek returned (reviewer finding 1, 2026-08-25)
+    const leftoverOf = slot === "dinner" ? leftoverOfByDate.get(date) : undefined;
     next = addEntry(
       next,
       date,
       slot,
       isFixed
         ? { recipeId: recipe.id, servings: 1, fixed: true }
-        : { recipeId: recipe.id, servings: portionFor(date, slot, recipe) },
+        : {
+            recipeId: recipe.id,
+            servings: portionFor(date, slot, recipe),
+            // a no-cook night names the pot it eats from; the shopping list
+            // sums its servings into that pot like any repeat of the recipe,
+            // and the plan shows it as leftovers rather than a second cook
+            ...(leftoverOf ? { leftoverOf } : {}),
+          },
     );
   };
 
   const dinnerRotation = hash(`${weekId}|${salt}|dinner`) % Math.max(1, committees.dinner.length);
   const dinnerSequence = twoPassSequence(committees.dinner, dinnerRotation);
   let dinnerCursor = 0;
+
+  // COOK NIGHTS AND LEFTOVER NIGHTS (P7, David 2026-09-05: "i want to only
+  // have to cook maybe 3 dinners a week... make a larger quantity and then
+  // have leftovers cause especially for busy nights that's easier").
+  // `targets.cookDays` names the weekdays (0 Sun … 6 Sat) dinner is cooked;
+  // every other live night eats an earlier cook night's pot. The schedule is
+  // decided first, dates only, ROUND-ROBIN over the run's cook nights up to
+  // MAX_LEFTOVER_DAYS back (fewest nights fed first, oldest pot on a tie), so
+  // two pots each feed two or three nights instead of one pot feeding four,
+  // and the oldest pot is emptied first. A cook night that feeds later
+  // nights then takes the first dish in the rotation whose safeDays reach
+  // its last leftover night; a night no safe pot reaches cooks after all
+  // and is reported. Absent cookDays = every night cooks, exactly as before.
+  const cookDaySet =
+    Array.isArray(targets?.cookDays) && targets.cookDays.length > 0
+      ? new Set(targets.cookDays.map(Number))
+      : null;
+  const isCookNight = (/** @type {string} */ d) =>
+    !cookDaySet || cookDaySet.has(parseLocalIso(d).getDay());
+  const dayGap = (/** @type {string} */ a, /** @type {string} */ b) =>
+    Math.round((parseLocalIso(b).getTime() - parseLocalIso(a).getTime()) / 86400000);
+  const safeDaysOf = (/** @type {Record<string, any> | undefined} */ r) =>
+    Number(r?.safeDays) > 0 ? Number(r?.safeDays) : FALLBACK_SAFE_DAYS;
+  /** @type {Map<string, string | null>} no-cook date -> the cook date whose pot it eats */
+  const leftoverPlan = new Map();
+  /** @type {Map<string, string[]>} cook date -> the nights it feeds */
+  const fedBy = new Map();
+  /** @type {{ cook: string[], leftover: { date: string, from: string }[], uncovered: string[] }} */
+  const dinnerNights = { cook: [], leftover: [], uncovered: [] };
+  if (cookDaySet && mealSlotSet.has("dinner")) {
+    const liveDinnerDates = dates.filter(
+      (d) => !isPast(d) && !isHeld(d) && !isGone(d) && entriesAt(next.entries, d, "dinner").length === 0,
+    );
+    const cookNights = liveDinnerDates.filter(isCookNight);
+    for (const d of liveDinnerDates) {
+      if (isCookNight(d)) continue;
+      const cands = cookNights.filter((c) => c < d && dayGap(c, d) <= MAX_LEFTOVER_DAYS);
+      if (cands.length === 0) {
+        leftoverPlan.set(d, null);
+        continue;
+      }
+      cands.sort(
+        (a, b) => (fedBy.get(a)?.length ?? 0) - (fedBy.get(b)?.length ?? 0) || a.localeCompare(b),
+      );
+      const c = /** @type {string} */ (cands[0]);
+      leftoverPlan.set(d, c);
+      fedBy.set(c, [...(fedBy.get(c) ?? []), d]);
+    }
+  }
+  /** the dish each cook night settled on, so its leftover nights can copy it */
+  /** @type {Map<string, Record<string, any>>} */
+  const cookedDinner = new Map();
+  /** next fresh dinner from the rotation; a feeding night prefers one that keeps long enough */
+  const nextCookedDinner = (/** @type {string} */ date) => {
+    const feeds = fedBy.get(date) ?? [];
+    const need = feeds.length > 0 ? Math.max(...feeds.map((d) => dayGap(date, d))) : 0;
+    for (let k = dinnerCursor; k < dinnerSequence.length; k++) {
+      const cand = dinnerSequence[k];
+      if (cand && (need === 0 || safeDaysOf(cand) >= need)) {
+        // pull it forward and keep the two-pass order for everything else
+        dinnerSequence.splice(k, 1);
+        dinnerSequence.splice(dinnerCursor, 0, cand);
+        break;
+      }
+    }
+    if (dinnerCursor >= dinnerSequence.length) return undefined;
+    const pick = dinnerSequence[dinnerCursor];
+    dinnerCursor++;
+    return pick;
+  };
 
   // Default rotation assignment first (exactly the old behavior), then a
   // PERMUTATION pass (7.11): a day banking away/swipe protein trades its
@@ -2038,6 +2158,7 @@ export function generateWeek({
   const fillDates = dates.filter((date) => !isPast(date) && !isHeld(date) && !isGone(date));
   /** @type {{ breakfast: Map<string, Record<string, any> | undefined>, lunch: Map<string, Record<string, any> | undefined>, dinner: Map<string, Record<string, any> | undefined> }} */
   const assigned = { breakfast: new Map(), lunch: new Map(), dinner: new Map() };
+
   fillDates.forEach((date) => {
     // WEEK-relative rotation index (dates, not fillDates): a mid-week
     // regenerate must hand the remaining days the same picks it did on
@@ -2068,9 +2189,30 @@ export function generateWeek({
       const fixedDinner = fixedBySlot.get("dinner");
       if (fixedDinner) {
         assigned.dinner.set(date, fixedDinner);
-      } else if (dinnerCursor < dinnerSequence.length) {
-        assigned.dinner.set(date, dinnerSequence[dinnerCursor]);
-        dinnerCursor++;
+      } else if (cookDaySet && !isCookNight(date)) {
+        // a no-cook night: the pot the schedule handed it, if that pot is
+        // still safe tonight — otherwise it cooks after all, and says so
+        const src = leftoverPlan.get(date) ?? null;
+        const dish = src ? cookedDinner.get(src) : undefined;
+        if (src && dish && dayGap(src, date) <= safeDaysOf(dish)) {
+          assigned.dinner.set(date, dish);
+          leftoverOfByDate.set(date, src);
+          dinnerNights.leftover.push({ date, from: src });
+        } else {
+          dinnerNights.uncovered.push(date);
+          const pick = nextCookedDinner(date);
+          if (pick) {
+            assigned.dinner.set(date, pick);
+            cookedDinner.set(date, pick);
+          }
+        }
+      } else {
+        const pick = nextCookedDinner(date);
+        if (pick) {
+          assigned.dinner.set(date, pick);
+          cookedDinner.set(date, pick);
+          if (cookDaySet) dinnerNights.cook.push(date);
+        }
       }
     }
   });
@@ -2080,11 +2222,16 @@ export function generateWeek({
     "dinner",
   ])) {
     const m = assigned[meal];
+    // a leftover night's dinner is what was cooked: not a slot to permute
+    const movable = (/** @type {string} */ d) => !(meal === "dinner" && leftoverOfByDate.has(d));
     const awayDates = [...m.keys()]
+      .filter(movable)
       .filter((d) => (awayProteinByDate.get(d) ?? 0) > 0)
       // heaviest credit first gets the leanest available pick
       .sort((a, b) => (awayProteinByDate.get(b) ?? 0) - (awayProteinByDate.get(a) ?? 0));
-    const normalDates = [...m.keys()].filter((d) => !((awayProteinByDate.get(d) ?? 0) > 0));
+    const normalDates = [...m.keys()]
+      .filter(movable)
+      .filter((d) => !((awayProteinByDate.get(d) ?? 0) > 0));
     for (const ad of awayDates) {
       let bestSwap = null;
       for (const nd of normalDates) {
@@ -2496,6 +2643,15 @@ export function generateWeek({
       // profile that declares dinnerAnchor
       dinnerAnchor: targets?.dinnerAnchor === true,
       dinnerAnchorRelaxed,
+    },
+    // COOK NIGHTS (P7, 2026-09-05): what the cook-days rule did this week.
+    // composeManifest merges these with the derived leftover ledger under
+    // the one "leftovers" line, so a declared schedule can never go quiet.
+    leftovers: {
+      cookDays: cookDaySet ? [...cookDaySet].sort() : null,
+      cookNights: dinnerNights.cook,
+      leftoverNights: dinnerNights.leftover,
+      uncoveredNights: dinnerNights.uncovered,
     },
     // 7.11 (P5): the away/swipe credit and the remaining-need density the
     // committees actually aimed at — the arbitrage can never go dark again

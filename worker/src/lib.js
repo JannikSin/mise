@@ -1194,13 +1194,15 @@ const MEAL_HOURS = /** @type {const} */ ([
 ]);
 
 /**
- * ISO week id for a local YYYY-MM-DD (same math as app/lib/dates.js).
+ * The app's week id for a local YYYY-MM-DD (same math as app/lib/dates.js:
+ * weeks start SUNDAY since 2026-09-05, id = ISO number of the Monday inside).
  * @param {string} dateIso
  * @returns {string}
  */
 export function isoWeekIdOf(dateIso) {
   const [y = 0, m = 1, d = 1] = dateIso.split("-").map(Number);
   const t = new Date(y, m - 1, d);
+  if (t.getDay() === 0) t.setDate(t.getDate() + 1);
   t.setDate(t.getDate() + 3 - ((t.getDay() + 6) % 7));
   const isoYear = t.getFullYear();
   const jan4 = new Date(isoYear, 0, 4);

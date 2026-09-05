@@ -118,21 +118,24 @@ test("shiftWeek moves across plain and year-boundary weeks", () => {
   assert.equal(shiftWeek("2026-W53", 1), "2027-W01");
 });
 
-test("datesOfWeek returns Monday-Sunday ISO dates for an ISO week id", () => {
+test("datesOfWeek returns Sunday-Saturday dates: the week opens on Sunday (David 2026-09-05)", () => {
   assert.deepEqual(datesOfWeek("2026-W28"), [
+    "2026-07-05",
     "2026-07-06",
     "2026-07-07",
     "2026-07-08",
     "2026-07-09",
     "2026-07-10",
     "2026-07-11",
-    "2026-07-12",
   ]);
+  // the id is the ISO number of the Monday inside, so every calendar agrees
+  // with the number on the Plan tab
+  assert.equal(datesOfWeek("2026-W28")[1], "2026-07-06", "Mon Jul 6 is ISO week 28");
 });
 
 test("datesOfWeek handles year-boundary weeks", () => {
-  assert.equal(datesOfWeek("2026-W01")[0], "2025-12-29");
-  assert.equal(datesOfWeek("2026-W53")[6], "2027-01-03");
+  assert.equal(datesOfWeek("2026-W01")[0], "2025-12-28");
+  assert.equal(datesOfWeek("2026-W53")[6], "2027-01-02");
 });
 
 test("addEntry appends with a generated unique id and does not mutate", () => {

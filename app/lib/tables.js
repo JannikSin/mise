@@ -11,8 +11,8 @@ import { parsePot, solveSeat } from "./synth.js";
  * @typedef {{ id: string, servings: number, rawServings?: number, status?: "in" | "skipped", auto?: boolean, edited?: boolean }} Seat seat id = profileId; `auto: true` marks a MACHINE-stamped skip (recomputed every run, unlike a human decline which carries); `edited: true` marks a HUMAN servings edit (patchSeat) that binds the composer while the dish is unchanged
  * @typedef {{ portionGrams?: number, plate: string[], estCalories: number, estProtein: number }} TailorSeat scale-first: portionGrams = weighed grams of the finished dish on this plate (absent/0 on pre-scale tailors)
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
- * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, fromWeekRun?: boolean, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string }} TableEvent `fromWeekRun` is LEGACY: written only by the retired AI week run; read solely by planBrigadeWeek's shadow sweep, which clears such tables from a brigade's span
- * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string }} Brigade
+ * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, fromWeekRun?: boolean, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string, leftoverOf?: string }} TableEvent `fromWeekRun` is LEGACY: written only by the retired AI week run; read solely by planBrigadeWeek's shadow sweep, which clears such tables from a brigade's span. `leftoverOf` names the COOK table this meal is eaten from (a no-cook night, David 2026-09-05): its seats size the pot, it is never bought or cooked on its own.
+ * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]> }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool.
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
 
@@ -79,6 +79,21 @@ export function validBrigade(b) {
     return false;
   if (!Array.isArray(b.slots) || b.slots.length === 0) return false;
   if (!b.slots.every((/** @type {any} */ s) => SLOT_KEYS.includes(s))) return false;
+  // the two optional shapes (2026-09-05) are checked, never repaired: a
+  // poisoned cookDays would silently plan leftovers on every night
+  if (b.cookDays !== undefined) {
+    if (!Array.isArray(b.cookDays)) return false;
+    if (!b.cookDays.every((/** @type {any} */ d) => Number.isInteger(d) && d >= 0 && d <= 6))
+      return false;
+  }
+  if (b.slotRecipes !== undefined) {
+    if (!isPlainObject(b.slotRecipes)) return false;
+    for (const [slot, ids] of Object.entries(b.slotRecipes)) {
+      if (!SLOT_KEYS.includes(slot)) return false;
+      if (!Array.isArray(ids) || !ids.every((/** @type {any} */ i) => typeof i === "string"))
+        return false;
+    }
+  }
   return true;
 }
 
@@ -252,6 +267,31 @@ export function deriveTables(houses, ctx) {
   const takenSlots = new Set(
     ctx.ownEntries.filter((e) => e.pinned || e.out).map((e) => `${e.date}|${e.slot}`),
   );
+  // SETTLED HISTORY (David, 2026-09-05: "i want to always see what was
+  // cooked"): once a shared meal is in the past, main.js copies it into my
+  // own plan as a real entry stamped `fromTable: <id>` so it outlives the
+  // 14-day table retention. A table my plan has already settled derives
+  // nothing here — the settled copy IS the record — and is not a collision.
+  const settled = new Set(
+    ctx.ownEntries.map((e) => /** @type {any} */ (e).fromTable).filter(Boolean),
+  );
+  // LEFTOVER NIGHTS (David, 2026-09-05: cook a bigger pot, eat it again on
+  // the busy nights). A table stamped `leftoverOf` is eaten from an earlier
+  // COOK table's pot: its seats join THAT table's cook total and buy, and it
+  // is never bought or cooked on its own. Summed up front because the cook
+  // table sorts before the nights that eat from it.
+  /** @type {Map<string, number>} */
+  const leftoverServings = new Map();
+  for (const { events } of houses) {
+    for (const t of events.tables) {
+      const src = /** @type {any} */ (t)?.leftoverOf;
+      if (typeof src !== "string" || !src || !Array.isArray(t.seats)) continue;
+      const eaten = t.seats
+        .filter((s) => s && s.status !== "skipped" && ctx.profilesById?.has(s.id))
+        .reduce((sum, s) => sum + clampServings(s.servings), 0);
+      leftoverServings.set(src, (leftoverServings.get(src) ?? 0) + eaten + clampGuests(t));
+    }
+  }
   /** slots already filled by an earlier valid table (one pin per slot) */
   const derivedSlots = new Set();
   /** slots I am already shopping as cook — one meal is bought once */
@@ -277,6 +317,8 @@ export function deriveTables(houses, ctx) {
     for (const { house, t } of ordered) {
       if (!validTable(t)) continue;
       if (new Date(`${t.date}T12:00:00`) < horizon) continue; // retention
+      if (settled.has(t.id)) continue; // my plan already holds this meal as history
+      const isLeftover = typeof t.leftoverOf === "string" && t.leftoverOf.length > 0;
       const recipe = ctx.bankById.get(t.recipeId);
       const live = t.seats.filter((s) => s.status !== "skipped");
       // only seats belonging to REAL profiles count for cooking and for the
@@ -299,13 +341,17 @@ export function deriveTables(houses, ctx) {
       // brigade table's named in-house cook, else nobody. Every claim UI
       // reads the same predicate so the nag and the list cannot disagree.
       const buyer = ctx.profilesById ? effectiveBuyerOf(t, house, ctx.profilesById) : null;
-      if (cook && recipe && !cookSlots.has(houseSlotKey)) {
+      // a leftover night buys and cooks nothing of its own: its plates were
+      // added to the cook table's pot above
+      if (cook && recipe && !isLeftover && !cookSlots.has(houseSlotKey)) {
         // A GUEST IS ONE MORE PLATE (canon P8, fix list 7.4): the same pot
         // with extra plates on a sensible default — one recipe serving each.
         // Guests join the cook's pot and the buy; billing them stays parked
         // in Mise-Later, so their cost rides the cook's ledger for now.
         const total =
-          known.reduce((sum, s) => sum + clampServings(s.servings), 0) + clampGuests(t);
+          known.reduce((sum, s) => sum + clampServings(s.servings), 0) +
+          clampGuests(t) +
+          (leftoverServings.get(t.id) ?? 0);
         if (total > 0) {
           // one meal is bought once. Without this guard two tables claiming
           // the same slot (a hand-set dinner over a brigade's, or the same
@@ -424,7 +470,9 @@ export function deriveTables(houses, ctx) {
       // their plates, so the batch the cook is walked through must as well —
       // buying for "us plus two" and cooking for "us" shorts the table
       const knownTotal =
-        known.reduce((sum, s2) => sum + clampServings(s2.servings), 0) + clampGuests(t);
+        known.reduce((sum, s2) => sum + clampServings(s2.servings), 0) +
+        clampGuests(t) +
+        (leftoverServings.get(t.id) ?? 0);
       entries.push({
         id: `table-${t.id}`,
         table: t.id,
@@ -435,7 +483,13 @@ export function deriveTables(houses, ctx) {
         // a real recipeId here would make every guest shop the dish
         viewRecipeId: t.recipeId,
         // the cook needs the BATCH total at cook time, not just their portion
-        ...(cook && cook.id === ctx.profileId ? { cookTotal: knownTotal } : {}),
+        // (a leftover night has no batch: the pot was cooked on its cook night)
+        ...(cook && cook.id === ctx.profileId && !isLeftover ? { cookTotal: knownTotal } : {}),
+        // a no-cook night says so on the plan, and names the pot it eats from
+        ...(isLeftover ? { leftoverOf: t.leftoverOf } : {}),
+        // the table's own COOKED confirmation, so a past day can show the tick
+        // (derived-only, stripped with the rest; dayEaten never reads table rows)
+        ...(t.cookedAt ? { cookedAt: t.cookedAt } : {}),
         // WHO cooks tonight, resolved to a display name here so no view needs
         // the profiles list (Tribunal U1: with rotating cooks nobody could
         // see whose turn it was). Derived-only, stripped like the rest.
@@ -1082,6 +1136,80 @@ export function removeBrigade(events, id, today) {
     ...cleaned,
     brigades: (cleaned.brigades ?? []).filter((b) => b.id !== id),
     tables: cleaned.tables.filter((t) => !(t.fromBrigade === id && t.date >= today)),
+  };
+}
+
+/**
+ * Change a standing brigade IN PLACE, keeping its id, so the tables it
+ * already materialized stay its own and the next SET THIS WEEK reshapes
+ * them (David, 2026-09-05: cook nights and the breakfast rule are settings
+ * on the arrangement, not a reason to end it and start another). The
+ * patched record must still pass validBrigade or nothing changes. Pure.
+ * @param {HouseEvents} events
+ * @param {string} id
+ * @param {Partial<Omit<Brigade, "id">>} patch
+ * @param {string} today
+ * @returns {HouseEvents}
+ */
+export function updateBrigade(events, id, patch, today) {
+  const cleaned = pruneTables(events, today);
+  const cur = (cleaned.brigades ?? []).find((b) => b.id === id);
+  if (!cur) return cleaned;
+  /** @type {Record<string, any>} */
+  const next = { ...cur, ...patch, id };
+  // an explicit undefined in the patch REMOVES the field (absent = default,
+  // per SCHEMAS conventions) rather than writing `undefined` into JSON
+  for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
+  if (!validBrigade(next)) return cleaned;
+  return {
+    ...cleaned,
+    brigades: (cleaned.brigades ?? []).map((b) => (b.id === id ? /** @type {Brigade} */ (next) : b)),
+  };
+}
+
+/**
+ * Seat one more PERSON at a table (a guest with a profile, canon P8, David
+ * 2026-09-05: "add people to certain days... see how much more food we need
+ * for that meal based on their profile"). Id-keyed like every seat edit; a
+ * profile already seated is left alone. A brigade regeneration carries a
+ * non-member seat forward and re-sizes it from that person's own targets.
+ * Pure.
+ * @param {HouseEvents} events
+ * @param {string} tableId
+ * @param {Seat} seat
+ * @param {string} today
+ * @returns {HouseEvents}
+ */
+export function addSeat(events, tableId, seat, today) {
+  const base = pruneTables(events, today);
+  return {
+    ...base,
+    tables: base.tables.map((t) => {
+      if (t.id !== tableId) return t;
+      if ((t.seats ?? []).some((s) => s.id === seat.id)) return t;
+      return {
+        ...t,
+        seats: [...(t.seats ?? []), { ...seat, servings: clampServings(seat.servings) }],
+      };
+    }),
+  };
+}
+
+/**
+ * Take a person off a table. Pure.
+ * @param {HouseEvents} events
+ * @param {string} tableId
+ * @param {string} profileId
+ * @param {string} today
+ * @returns {HouseEvents}
+ */
+export function removeSeat(events, tableId, profileId, today) {
+  const base = pruneTables(events, today);
+  return {
+    ...base,
+    tables: base.tables.map((t) =>
+      t.id === tableId ? { ...t, seats: (t.seats ?? []).filter((s) => s.id !== profileId) } : t,
+    ),
   };
 }
 

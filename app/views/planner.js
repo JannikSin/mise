@@ -68,7 +68,6 @@ function monthDay(isoDate) {
  *   tableStale: boolean,
  *   tableIssues: number,
  *   tableConflicts: { table: import("../lib/tables.js").TableEvent, reasons: string[] }[],
- *   nextPlan: import("../lib/plan.js").Plan | null,
  *   daily: { days?: Record<string, any>[] },
  *   pantry: Record<string, any>,
  *   onPatchDay: (patch: Record<string, any>) => void,
@@ -99,7 +98,6 @@ export function PlannerView({
   tableStale,
   tableIssues,
   tableConflicts,
-  nextPlan,
   daily,
   pantry,
   onPatchDay,
@@ -524,7 +522,16 @@ export function PlannerView({
                   const outEntry = outEntryAt(plan.entries, date, key);
                   const stacked = entriesAt(plan.entries, date, key).filter((e) => !e.out);
                   if (past) {
-                    // read-only: what was eaten, nothing draggable, no controls
+                    // READ-ONLY, BUT NEVER BLANK (David, 2026-09-05: "when a
+                    // day is passed and a meal is passed it just writes wayne
+                    // kitchen and you can no longer see what was cooked"). A
+                    // brigade meal carries its dish as viewRecipeId, not
+                    // recipeId, and this branch used to read only the latter,
+                    // so every past shared meal rendered as the TABLE'S NAME.
+                    // The dish is resolved the same way the live rows do, the
+                    // row stays tappable so the recipe is one tap away on any
+                    // past day (find the one you liked, see what you skipped),
+                    // and only the SWITCH / OUT controls are withheld.
                     return html`
                       <div class="slotrow" key=${key}>
                         <span class="t" aria-label=${full}>${label}</span>
@@ -534,14 +541,31 @@ export function PlannerView({
                           stacked.length > 0 &&
                           html`<div class="stack">
                             ${stacked.map((entry) => {
-                              const recipe = entry.recipeId ? byId.get(entry.recipeId) : null;
+                              const rid = entry.recipeId ?? entry.viewRecipeId;
+                              const recipe = rid ? byId.get(rid) : null;
+                              const name = recipe ? recipe.name : entry.freeText;
                               return html`
                                 <div class="stackline" key=${entry.id}>
-                                  <div class="fill">
+                                  <button
+                                    class="fill mealbtn"
+                                    disabled=${!recipe}
+                                    aria-label=${
+                                      recipe ? `Open ${name}` : /** @type {string} */ (name)
+                                    }
+                                    onClick=${() => recipe && onOpen(entry)}
+                                  >
                                     <span class="chipbody">
-                                      <span class="n"
-                                        >${recipe ? recipe.name : entry.freeText}</span
-                                      >
+                                      <span class="n">
+                                        ${name}${entry.table && html` <span class="usesoon">table</span>`}
+                                        ${
+                                          entry.cookedAt &&
+                                          html` <span class="usesoon cookedchip">✓ cooked</span>`
+                                        }
+                                        ${
+                                          /** @type {any} */ (entry).leftoverOf &&
+                                          html` <span class="usesoon">leftovers</span>`
+                                        }
+                                      </span>
                                       ${
                                         recipe &&
                                         html`<span class="m num"
@@ -550,7 +574,7 @@ export function PlannerView({
                                         >`
                                       }
                                     </span>
-                                  </div>
+                                  </button>
                                 </div>
                               `;
                             })}
@@ -747,7 +771,6 @@ export function PlannerView({
         recipes=${identityRecipes ?? recipes}
         plan=${plan}
         tableConflicts=${tableConflicts}
-        nextPlan=${nextPlan}
         daily=${daily}
         pantry=${pantry}
         onPatchDay=${onPatchDay}

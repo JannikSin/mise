@@ -88,6 +88,8 @@ const ALL = [
 ];
 const TARGETS = { macros: { calories: 3400, protein: 210 } };
 const MONDAY_W29 = "2026-07-13";
+/** the week's FIRST day: weeks open on Sunday (David 2026-09-05) */
+const FIRST_W29 = "2026-07-12";
 
 test("foodSlugsOf excludes staples", () => {
   assert.deepEqual([...foodSlugsOf(CHICKEN_A)].sort(), ["chicken-thigh", "tomato", "yogurt"]);
@@ -227,7 +229,7 @@ test("generateWeek leaves an eating-out slot alone, credits its assumed macros, 
 });
 
 test("generateWeek with today mid-week: past days survive verbatim, only live days are planned", () => {
-  const wednesday = "2026-07-15"; // W29 runs Mon 07-13 .. Sun 07-19
+  const wednesday = "2026-07-15"; // W29 runs Sun 07-12 .. Sat 07-18
   const existing = {
     week: "2026-W29",
     entries: [
@@ -263,7 +265,7 @@ test("generateWeek with today mid-week: past days survive verbatim, only live da
   assert.ok(!plan.entries.some((e) => e.id === "wed-live"));
   assert.ok(plan.entries.some((e) => e.date === wednesday && e.slot === "dinner"));
   // every live day is fully planned
-  for (const date of ["2026-07-15", "2026-07-16", "2026-07-17", "2026-07-18", "2026-07-19"]) {
+  for (const date of ["2026-07-15", "2026-07-16", "2026-07-17", "2026-07-18"]) {
     assert.ok(
       plan.entries.some((e) => e.date === date && e.slot === "dinner"),
       `dinner ${date}`,
@@ -285,11 +287,11 @@ test("generateWeek with today mid-week: past days survive verbatim, only live da
     reportDates.every((d) => d >= wednesday),
     `stale report dates: ${reportDates}`,
   );
-  // buffer batch scales to the 5 live days
-  assert.equal(plan.buffer?.portions, 5);
+  // buffer batch scales to the 4 live days (Wed..Sat)
+  assert.equal(plan.buffer?.portions, 4);
 });
 
-test("generateWeek with today on Monday or absent behaves identically (regression)", () => {
+test("generateWeek with today on the week's first day or absent behaves identically (regression)", () => {
   const args = {
     recipes: ALL,
     targets: TARGETS,
@@ -299,7 +301,7 @@ test("generateWeek with today on Monday or absent behaves identically (regressio
     salt: 0,
   };
   const absent = generateWeek(args);
-  const monday = generateWeek({ ...args, today: MONDAY_W29 });
+  const monday = generateWeek({ ...args, today: FIRST_W29 });
   const key = (/** @type {any} */ e) => `${e.date}|${e.slot}|${e.recipeId}|${e.servings}`;
   assert.deepEqual(monday.plan.entries.map(key).sort(), absent.plan.entries.map(key).sort());
   assert.deepEqual(monday.plan.buffer, absent.plan.buffer);
@@ -1197,7 +1199,7 @@ test("MY cook night seeds overlap; OTHER cooks' dinners push away (David 2026-08
   const tableEntry = (extra) => ({
     id: "table-x",
     table: "x",
-    date: "2026-08-03",
+    date: "2026-08-02", // the week's first day (W32 opens Sun Aug 2)
     slot: "dinner",
     viewRecipeId: "family-chicken-dinner",
     freeText: "🍽 family dinner",
@@ -1215,7 +1217,7 @@ test("MY cook night seeds overlap; OTHER cooks' dinners push away (David 2026-08
     weekId: "2026-W32",
     plan: { week: "2026-W32", entries: [tableEntry({ cookTotal: 4 })] },
   }).plan;
-  const myLunch = mine.entries.find((e) => e.slot === "lunch" && e.date === "2026-08-03");
+  const myLunch = mine.entries.find((e) => e.slot === "lunch" && e.date === "2026-08-02");
   assert.equal(myLunch?.recipeId, "a-chicken-lunch", "cook-night foods pull my lunches in");
   // when someone ELSE cooks: the same dinner pushes my lunches away
   const theirs = generateWeek({
@@ -1225,7 +1227,7 @@ test("MY cook night seeds overlap; OTHER cooks' dinners push away (David 2026-08
     weekId: "2026-W32",
     plan: { week: "2026-W32", entries: [tableEntry({})] },
   }).plan;
-  const theirLunch = theirs.entries.find((e) => e.slot === "lunch" && e.date === "2026-08-03");
+  const theirLunch = theirs.entries.find((e) => e.slot === "lunch" && e.date === "2026-08-02");
   assert.equal(theirLunch?.recipeId, "b-farro-lunch", "other cooks' foods push my meals away");
 });
 
@@ -2090,4 +2092,61 @@ test("a swipe whose freeText names a COMPOSED tray keeps its measured macros", (
   // a measurement beats a self-report: the hall's published numbers survive
   assert.equal(e.estCalories, 1030);
   assert.equal(e.estProtein, 74);
+});
+
+// ---- cook nights and protein rotation (David, 2026-09-05) -------------------
+
+test("pickCommittee with rotateProtein seats a beef and a fish dish over the second and third chicken dish", () => {
+  // no shared food with the chicken cluster, so overlap alone would never seat them
+  const chili = r("chili", "dinner", ["ground beef", "kidney beans", "chili powder"]);
+  const cod = r("cod", "dinner", ["cod fillet", "broccoli", "lemon"]);
+  const committee = pickCommittee([CHICKEN_A, CHICKEN_B, CHICKEN_C, chili, cod], {
+    size: 3,
+    salt: 0,
+    rotateProtein: true,
+  });
+  assert.deepEqual(committee.map((c) => c.id).sort(), ["chili", "cod", "shawarma"]);
+  // without the option the old overlap contract holds unchanged
+  const plain = pickCommittee([CHICKEN_A, CHICKEN_B, CHICKEN_C, chili, cod], { size: 3, salt: 0 });
+  assert.deepEqual(plain.map((c) => c.id).sort(), ["gyros", "harissa", "shawarma"]);
+  // and when the bank is all chicken the rule relaxes instead of leaving seats empty
+  const only = pickCommittee([CHICKEN_A, CHICKEN_B, CHICKEN_C], { size: 3, salt: 0, rotateProtein: true });
+  assert.equal(only.length, 3);
+});
+
+test("generateWeek with targets.cookDays: no-cook nights eat leftovers of a cook night and say so", () => {
+  const keeps = ALL.map((x) => (x.mealType === "dinner" ? { ...x, safeDays: 4 } : x));
+  const { plan, report } = generateWeek({
+    recipes: keeps,
+    // Sun Mon Fri Sat cook; Tue Wed Thu eat leftovers (W37 opens Sun 2026-09-06)
+    targets: { ...TARGETS, cookDays: [0, 1, 5, 6] },
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W37",
+    plan: { week: "2026-W37", entries: [] },
+    salt: 0,
+  });
+  const dinner = (d) => plan.entries.find((e) => e.date === d && e.slot === "dinner");
+  const sun = dinner("2026-09-06");
+  const mon = dinner("2026-09-07");
+  assert.ok(sun && mon && !sun.leftoverOf && !mon.leftoverOf, "cook nights cook");
+  assert.equal(dinner("2026-09-08").leftoverOf, "2026-09-06");
+  assert.equal(dinner("2026-09-08").recipeId, sun.recipeId, "Tuesday eats Sunday's pot");
+  assert.equal(dinner("2026-09-09").leftoverOf, "2026-09-07");
+  assert.equal(dinner("2026-09-09").recipeId, mon.recipeId, "Wednesday eats Monday's pot");
+  assert.equal(dinner("2026-09-10").leftoverOf, "2026-09-06", "Thursday goes back to Sunday's pot (round-robin)");
+  assert.ok(!dinner("2026-09-11").leftoverOf && !dinner("2026-09-12").leftoverOf);
+  assert.deepEqual(report.manifest.leftovers.cookDays, [0, 1, 5, 6]);
+  assert.equal(report.manifest.leftovers.cookNights.length, 4);
+  assert.equal(report.manifest.leftovers.leftoverNights.length, 3);
+  assert.deepEqual(report.manifest.leftovers.uncoveredNights, []);
+  // without cookDays nothing carries the stamp: the old week, byte for byte in shape
+  const plain = generateWeek({
+    recipes: keeps,
+    targets: TARGETS,
+    pantry: { staples: [], perishables: [] },
+    weekId: "2026-W37",
+    plan: { week: "2026-W37", entries: [] },
+    salt: 0,
+  }).plan;
+  assert.ok(plain.entries.every((e) => !e.leftoverOf));
 });

@@ -7,6 +7,7 @@ import {
   brigadeTableId,
   addBrigade,
   removeBrigade,
+  updateBrigade,
   deriveTables,
   cookOf,
 } from "../app/lib/tables.js";
@@ -757,4 +758,30 @@ test("cookedAt and sameForEveryone survive regeneration ONLY while the dish is u
   assert.ok(after && after.recipeId !== t0.recipeId, "the dish actually changed");
   assert.equal(after.cookedAt, undefined, "a swapped dish is NOT already cooked");
   assert.equal(after.sameForEveryone, undefined, "a swapped dish is NOT already opted out");
+});
+
+// ---- cook days, named slots, editing in place (2026-09-05) ------------------
+
+test("validBrigade accepts cookDays and slotRecipes when well-formed and refuses them poisoned", () => {
+  const base = { id: "b", name: "x", memberIds: ["a", "b"], slots: ["dinner"], from: "2026-09-06", until: "2026-09-26" };
+  assert.ok(validBrigade({ ...base, cookDays: [0, 1, 5, 6] }));
+  assert.ok(validBrigade({ ...base, slotRecipes: { breakfast: ["bowl-a"] } }));
+  assert.ok(!validBrigade({ ...base, cookDays: [7] }), "no eighth weekday");
+  assert.ok(!validBrigade({ ...base, cookDays: "weekends" }));
+  assert.ok(!validBrigade({ ...base, slotRecipes: { brunch: ["x"] } }), "unknown slot");
+  assert.ok(!validBrigade({ ...base, slotRecipes: { dinner: [1] } }), "ids are strings");
+});
+
+test("updateBrigade changes the standing rule IN PLACE, keeps the id, and refuses an invalid patch", () => {
+  let ev = addBrigade({ tables: [] }, { name: "K", memberIds: ["a", "b"], slots: ["dinner"], from: "2026-09-06", until: "2026-09-26" }, "2026-09-06");
+  const id = ev.brigades[0].id;
+  ev = updateBrigade(ev, id, { cookDays: [0, 1, 5, 6], slotRecipes: { breakfast: ["bowl"] } }, "2026-09-06");
+  assert.equal(ev.brigades[0].id, id);
+  assert.deepEqual(ev.brigades[0].cookDays, [0, 1, 5, 6]);
+  // an explicit undefined removes the field, so absent stays the default
+  ev = updateBrigade(ev, id, { slotRecipes: undefined }, "2026-09-06");
+  assert.equal("slotRecipes" in ev.brigades[0], false);
+  const before = ev;
+  ev = updateBrigade(ev, id, { cookDays: [9] }, "2026-09-06");
+  assert.deepEqual(ev.brigades, before.brigades, "a bad patch changes nothing");
 });

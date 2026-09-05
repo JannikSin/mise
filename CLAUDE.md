@@ -1,5 +1,11 @@
 # CLAUDE.md — Mise
 
+> **Governing document: [`DOCTRINE.md`](DOCTRINE.md).** It outranks this file where they
+> disagree, and holds what is true regardless of the code: the job, the prohibitions, the
+> settled decisions and their reasons, the armed failure modes, and the kill conditions.
+> It does NOT outrank `Crystal\Lanes\Mise-Core-Purpose.md`, which remains the authority
+> on the twelve promises.
+
 > **READ FIRST, EVERY SESSION: `C:\Users\DATar\Sanity\Obsidian\Crystal\Lanes\Mise-Core-Purpose.md`.**
 > It is the authority on what this app is for. It carries twelve numbered promises in four acts (Plan, Buy,
 > Cook, Adapt) and a done test for each. Numbering changed TWICE on 2026-08-18; the decoder for older notes
@@ -27,6 +33,9 @@
 > Score at the end of 2026-08-19: **10 proven, 2 partial, 0 not built.** The suite prints it on every run.
 > The two open gaps are P9 (a layout decision David owns) and P12's second nutrition philosophy (the
 > pending council's question). Neither is a build.
+
+> as-of: 2026-09-05 (paddington). The live-state facts in this file (the promise ledger score, what is parked, which engine has run on real data) were last written on that date; the Crystal doctor files a ticket when this line is fourteen days old. Move the date when you re-verify them. The rules and the architecture are stable and carry no date. Rule: Crystal `System/Initial-Conditions`.
+> **2026-09-05 (paddington):** weeks now OPEN ON SUNDAY (`isoWeekId`/`datesOfWeek`, straddle read in main.js); the brigade engine and the solo generator both honour COOK NIGHTS (`cookDays`, leftover nights stamped `leftoverOf`, round-robin pots, safe-window enforced), rotate the dinner PROTEIN across cook nights, and a brigade can narrow a slot to named recipes (`slotRecipes`); guest seats (real profiles) are composed and carried; past shared meals settle into each member's own plan (`fromTable`) so history outlives table retention. Every engine change above was run on the live wayne data before shipping (28 tables, every seat in band).
 
 > **Crystal notice:** if this session shipped real work, also append a line to `C:\Users\DATar\Sanity\Obsidian\Crystal\System\Changelog.md` and a narrative + hot-list entry to `C:\Users\DATar\Sanity\Obsidian\Crystal\Accomplishments\Log.md` before ending. Crystal is David's personal assistant and the daily brief it narrates back to him only reflects what gets written there. See Crystal's `System/Lessons-Learned.md` L13.
 

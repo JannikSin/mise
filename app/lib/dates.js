@@ -3,14 +3,28 @@
 const DAYS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
 /**
- * ISO 8601 week id, e.g. "2026-W28". The ISO year can differ from the
+ * The app's week id, e.g. "2026-W28".
+ *
+ * WEEKS START ON SUNDAY (David, 2026-09-05: "most calendars start the week on
+ * Sunday", and his cooking rhythm — batch and cook Fri–Mon, eat leftovers
+ * Tue–Thu — only fits inside one week when Sunday opens it). The id is the
+ * ISO 8601 number of the week whose MONDAY falls inside these seven days, so
+ * "2026-W36" is Sun Aug 30 … Sat Sep 5 and the number printed on the Plan
+ * tab still matches every calendar. The ISO year can differ from the
  * calendar year at boundaries (Jan 1 2027 → 2026-W53).
+ *
+ * Before 2026-09-05 this was plain ISO (Mon–Sun); a Sunday now belongs to
+ * the FOLLOWING id. Plan files written under the old rule keep their Sunday
+ * entries in the earlier file; main.js adopts them at read time (the
+ * straddle read) so no history is lost.
  * @param {Date} d
  * @returns {string}
  */
 export function isoWeekId(d) {
-  // Thursday of this week decides the ISO year (ISO 8601)
+  // step a Sunday forward onto its Monday, then run the ISO arithmetic —
+  // Thursday of that Monday's week decides the ISO year (ISO 8601)
   const t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  if (t.getDay() === 0) t.setDate(t.getDate() + 1);
   t.setDate(t.getDate() + 3 - ((t.getDay() + 6) % 7));
   const isoYear = t.getFullYear();
   const jan4 = new Date(isoYear, 0, 4);

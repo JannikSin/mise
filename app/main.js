@@ -423,8 +423,27 @@ function App() {
   useEffect(() => {
     let alive = true;
     const load = () => {
-      read(`plans/${weekId}.json`).then((p) => {
-        if (alive) setPlan(normalizePlan(p, weekId));
+      // THE STRADDLE READ (weeks open on SUNDAY since 2026-09-05). Plan files
+      // written under the old Monday-start rule keep that week's Sunday at
+      // the END of the earlier file, and that Sunday now belongs to THIS
+      // week. Any previous-file entry dated inside this week's seven days is
+      // adopted into the view, so no eaten day disappears from history; the
+      // next write of this week persists the adoption (ids are unique, so a
+      // second load is a no-op and the old file is never touched).
+      const prevId = shiftWeek(weekId, -1);
+      Promise.all([
+        read(`plans/${weekId}.json`),
+        read(`plans/${prevId}.json`).catch(() => null),
+      ]).then(([p, prev]) => {
+        if (!alive) return;
+        let next = normalizePlan(p, weekId);
+        const mine = new Set(datesOfWeek(weekId));
+        const have = new Set(next.entries.map((e) => e.id));
+        const adopted = normalizePlan(/** @type {any} */ (prev), prevId).entries.filter(
+          (e) => e && mine.has(e.date) && !have.has(e.id),
+        );
+        if (adopted.length > 0) next = { ...next, entries: [...next.entries, ...adopted] };
+        setPlan(next);
       });
     };
     load();
@@ -1956,23 +1975,8 @@ function App() {
   // recipes used in the previous two weeks — generation penalizes them so
   // consecutive weeks ROTATE instead of re-picking the same favorites. Loaded
   // per week from the prior plan files; empty (no penalty) when they're absent.
-  // next week's plan, read-only: the Today view's Sunday batch block preps
-  // for the week AHEAD, so on Sunday it lists next week's components
-  const [nextPlan, setNextPlan] = useState(
-    /** @type {import("./lib/plan.js").Plan | null} */ (null),
-  );
-  useEffect(() => {
-    let alive = true;
-    const nextWeek = shiftWeek(weekId, 1);
-    read(`plans/${nextWeek}.json`)
-      .catch(() => null)
-      .then((p) => {
-        if (alive) setNextPlan(normalizePlan(/** @type {any} */ (p), nextWeek));
-      });
-    return () => {
-      alive = false;
-    };
-  }, [weekId, hasToken]);
+  // (The next-week read that fed the closing-Sunday batch block is gone: the
+  // week opens on Sunday now, so Sunday's batch preps the week being shown.)
 
   // last week's full plan + the household waste ledger feed the P11 review
   // tile (read side of 7.1) — read-only, absent = the tile stays honest-dark
@@ -2273,26 +2277,6 @@ function App() {
     [plan, tableDerived],
   );
   const viewPlan = merged.plan;
-
-  // next week's plan WITH the brigade's derived entries merged in. The raw
-  // plans/<week>.json holds only personal entries (David's is 7 dining-hall
-  // swipes), so on a closing Sunday the batch-prep block was prepping for a
-  // week of swipes and showing nothing from the 28 brigade tables — the
-  // exact night batch prep happens (David, 2026-08-30: "where do I batch
-  // prep... I'm looking and I don't see anything").
-  const nextPlanMerged = useMemo(() => {
-    if (!nextPlan) return null;
-    try {
-      return mergeViewPlan(
-        /** @type {import("./lib/plan.js").Plan} */ (nextPlan),
-        tableDerived.entries,
-        datesOfWeek(nextPlan.week),
-        localIsoDate(new Date()),
-      ).plan;
-    } catch {
-      return nextPlan;
-    }
-  }, [nextPlan, tableDerived]);
 
   // the List's brigade posture. When my household runs an active brigade the
   // List stops being a personal surface: the cook buys for the whole kitchen
@@ -3878,7 +3862,6 @@ function App() {
         tableStale=${tableStale}
         tableIssues=${tableDerived.conflicts.length + tableDerived.collisions.length}
         tableConflicts=${tableDerived.conflicts}
-        nextPlan=${nextPlanMerged}
         daily=${dailyLog}
         pantry=${pantry}
         onPatchDay=${handlePatchDay}

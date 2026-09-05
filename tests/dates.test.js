@@ -6,6 +6,12 @@ test("isoWeekId for a mid-year Monday", () => {
   assert.equal(isoWeekId(new Date(2026, 6, 6)), "2026-W28"); // Mon Jul 6 2026
 });
 
+test("isoWeekId: a Sunday opens the FOLLOWING week id (weeks start Sunday, 2026-09-05)", () => {
+  assert.equal(isoWeekId(new Date(2026, 7, 30)), "2026-W36"); // Sun Aug 30 2026 opens W36
+  assert.equal(isoWeekId(new Date(2026, 8, 5)), "2026-W36"); // Sat Sep 5 2026 closes it
+  assert.equal(isoWeekId(new Date(2026, 8, 6)), "2026-W37"); // Sun Sep 6 2026 opens W37
+});
+
 test("isoWeekId year boundaries", () => {
   assert.equal(isoWeekId(new Date(2026, 0, 1)), "2026-W01"); // Thu Jan 1 2026
   assert.equal(isoWeekId(new Date(2027, 0, 1)), "2026-W53"); // Fri Jan 1 2027 belongs to prior ISO year

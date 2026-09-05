@@ -13,6 +13,7 @@ import {
   planBrigadeWeek,
 } from "../app/lib/compose.js";
 import { brigadeTableId } from "../app/lib/tables.js";
+import { recipeProteinClass } from "../app/lib/foodclass.js";
 
 // ---------------------------------------------------------------------------
 // fixtures: synthetic, David/Elliot/taranowski-SHAPED, never real data files
@@ -589,5 +590,138 @@ test("cost sweep: a cooked table is never re-planned for money", () => {
   for (const t of swept.events.tables.filter((x) => x.slot === "dinner")) {
     const before = first.events.tables.find((x) => x.id === t.id);
     assert.equal(t.recipeId, before.recipeId, `cooked dinner ${t.id} keeps its dish`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// COOK NIGHTS, LEFTOVER NIGHTS, PROTEIN ROTATION, NAMED SLOTS, GUEST SEATS
+// (David, 2026-09-05). A Sunday-opening week: Sun Sep 6 … Sat Sep 12 2026.
+// ---------------------------------------------------------------------------
+
+const SUN_WEEK = ["2026-09-06", "2026-09-07", "2026-09-08", "2026-09-09", "2026-09-10", "2026-09-11", "2026-09-12"];
+/** the same bank, but one dinner keeps four days — the only pot Thursday can eat from Sunday */
+const KEEPS_BANK = new Map(
+  BANK.map((r) => [r.id, r.id === "din-stew" ? { ...r, safeDays: 4, tags: ["batch-friendly"] } : r]),
+);
+const COOK_BRIGADE = {
+  ...BRIGADE,
+  from: "2026-09-06",
+  until: "2026-10-03",
+  cookDays: [0, 1, 5, 6], // Sun Mon Fri Sat: cook Fri–Mon, no-cook Tue–Thu
+};
+const sunCtx = (overrides = {}) => wayneCtx({ dates: SUN_WEEK, today: "2026-09-06", bankById: KEEPS_BANK, ...overrides });
+const dinnerOn = (events, date) =>
+  events.tables.find((t) => t.fromBrigade === "wk" && t.date === date && t.slot === "dinner");
+
+test("COOK NIGHTS: no-cook nights eat leftovers round-robin (Sun feeds Tue+Thu, Mon feeds Wed), every plate still solved", () => {
+  const { events, nights, report } = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx());
+  assert.deepEqual(nights.cook, ["2026-09-06", "2026-09-07", "2026-09-11", "2026-09-12"]);
+  assert.deepEqual(nights.leftover, [
+    { date: "2026-09-08", from: "2026-09-06" },
+    { date: "2026-09-09", from: "2026-09-07" },
+    { date: "2026-09-10", from: "2026-09-06" },
+  ]);
+  assert.deepEqual(nights.uncovered, []);
+  const sun = dinnerOn(events, "2026-09-06");
+  const mon = dinnerOn(events, "2026-09-07");
+  // Sunday's pot must last until Thursday (gap 4): only the 4-day dish qualifies
+  assert.equal(sun.recipeId, "din-stew", "the feeding cook night draws a dish that keeps long enough");
+  for (const [d, src] of [["2026-09-08", sun], ["2026-09-10", sun], ["2026-09-09", mon]]) {
+    const t = dinnerOn(events, d);
+    assert.equal(t.leftoverOf, src.id, `${d} eats from ${src.date}'s pot`);
+    assert.equal(t.recipeId, src.recipeId, `${d} is the same dish as its pot`);
+    for (const s of t.seats) assert.ok(s.servings >= 0.5, `${s.id} still has a solved plate on ${d}`);
+  }
+  for (const d of nights.cook) assert.equal(dinnerOn(events, d).leftoverOf, undefined);
+  // the leftover nights still land: seats are solved against the fixed dish
+  for (const d of ["2026-09-08", "2026-09-09", "2026-09-10"]) {
+    for (const id of ["david", "elliot"]) {
+      const row = report.find((r) => r.date === d && r.seatId === id);
+      assert.ok(row && row.status !== "miss", `${id} ${d} is fed (${row?.status})`);
+    }
+  }
+});
+
+test("a no-cook night no safe pot can reach cooks after all, and is named", () => {
+  const sundayOnly = { ...COOK_BRIGADE, cookDays: [0] };
+  const { events, nights } = planBrigadeWeek({ tables: [] }, sundayOnly, sunCtx({ bankById }));
+  // fixture dinners keep 3 days: Mon (1), Tue (2) and Wed (3) eat Sunday's pot, Thu (4)
+  // cannot, and Fri and Sat have no cook night within reach at all
+  assert.deepEqual(nights.leftover.map((n) => n.date), ["2026-09-07", "2026-09-08", "2026-09-09"]);
+  assert.deepEqual(nights.uncovered, ["2026-09-10", "2026-09-11", "2026-09-12"]);
+  for (const d of nights.uncovered) {
+    const t = dinnerOn(events, d);
+    assert.ok(t && !t.leftoverOf, `${d} was cooked, not left empty`);
+  }
+});
+
+test("re-running the same week keeps the schedule (idempotent), and a regenerate keeps the shape", () => {
+  const first = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx());
+  const again = planBrigadeWeek(first.events, COOK_BRIGADE, sunCtx());
+  assert.equal(again.made, 0, "nothing to remake");
+  const re = planBrigadeWeek(first.events, { ...COOK_BRIGADE, salt: 3 }, sunCtx({ regenerate: true }));
+  assert.deepEqual(
+    re.nights.leftover.map((n) => `${n.date}<${n.from}`),
+    ["2026-09-08<2026-09-06", "2026-09-09<2026-09-07", "2026-09-10<2026-09-06"],
+  );
+});
+
+test("PROTEIN ROTATION: four cook nights, four different proteins when the bank allows it", () => {
+  const anchored = (id, food, kcal = 700, p = 45) => ({
+    ...recipe(id, "dinner", kcal, p),
+    ingredients: [{ qty: 1, unit: "x", food }, { qty: 1, unit: "x", food: "rice" }],
+  });
+  const bank = new Map(
+    [
+      ...BANK.filter((r) => r.mealType !== "dinner"),
+      anchored("chk-1", "chicken thigh"),
+      anchored("chk-2", "chicken breast"),
+      anchored("chk-3", "chicken thigh"),
+      anchored("chk-4", "chicken breast"),
+      anchored("beef-1", "ground beef"),
+      anchored("turk-1", "ground turkey"),
+      anchored("fish-1", "cod fillet"),
+    ].map((r) => [r.id, { ...r, safeDays: 4 }]),
+  );
+  const { events, nights } = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx({ bankById: bank }));
+  const classes = nights.cook.map((d) => recipeProteinClass(bank.get(dinnerOn(events, d).recipeId)));
+  assert.equal(new Set(classes).size, 4, `four cook nights, four proteins: ${classes.join(", ")}`);
+  assert.equal(classes.filter((c) => c === "chicken").length, 1, "chicken once a week");
+});
+
+test("SLOT RECIPES: a narrowed slot draws only from the named recipes, and says so when none pass", () => {
+  const yogurtOnly = { ...COOK_BRIGADE, slotRecipes: { breakfast: ["bf-yogurt", "bf-oats"] } };
+  const { events, thin, notes } = planBrigadeWeek({ tables: [] }, yogurtOnly, sunCtx());
+  const breakfasts = events.tables.filter((t) => t.slot === "breakfast").map((t) => t.recipeId);
+  assert.ok(breakfasts.length === 7 && breakfasts.every((id) => id === "bf-yogurt" || id === "bf-oats"));
+  assert.ok(!thin.some((t) => t.slot === "breakfast"), "a deliberate narrowing is not a thin pool");
+  assert.deepEqual(notes, []);
+  const nonsense = { ...COOK_BRIGADE, slotRecipes: { breakfast: ["no-such-bowl"] } };
+  const out = planBrigadeWeek({ tables: [] }, nonsense, sunCtx());
+  assert.ok(out.notes.some((n) => n.includes("none of the 1 named")), "the fallback is said out loud");
+  assert.ok(out.events.tables.some((t) => t.slot === "breakfast"), "the slot is still planned");
+});
+
+test("GUEST SEATS: a profile seated on one night is sized from their own targets and survives a regenerate", () => {
+  const momTargets = { macros: { calories: 1550, caloriesFloor: 1400, protein: 110 }, mealSlots: ["breakfast", "lunch", "dinner"] };
+  const profiles = new Map([...WAYNE_PROFILES, ["mom", { id: "mom", household: "taranowski" }]]);
+  const targets = new Map([["david", davidTargets], ["elliot", elliotTargets], ["mom", momTargets]]);
+  const base = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx({ profilesById: profiles, targetsById: targets }));
+  const friId = brigadeTableId("wk", "2026-09-11", "dinner");
+  const seeded = {
+    ...base.events,
+    tables: base.events.tables.map((t) =>
+      t.id === friId ? { ...t, seats: [...t.seats, { id: "mom", servings: 1 }] } : t,
+    ),
+  };
+  const re = planBrigadeWeek(seeded, { ...COOK_BRIGADE, salt: 1 }, sunCtx({ profilesById: profiles, targetsById: targets, regenerate: true }));
+  const fri = re.events.tables.find((t) => t.id === friId);
+  const mom = fri.seats.find((s) => s.id === "mom");
+  assert.ok(mom, "the guest is still seated after the regenerate");
+  assert.ok(mom.servings >= 0.5 && mom.servings <= 3, `mom's plate is solved (${mom.servings})`);
+  assert.ok(re.report.some((r) => r.date === "2026-09-11" && r.seatId === "mom" && r.guest), "the guest has her own report row");
+  // she was seated for dinner only: no other Friday table gained her
+  for (const t of re.events.tables.filter((t) => t.date === "2026-09-11" && t.slot !== "dinner")) {
+    assert.ok(!t.seats.some((s) => s.id === "mom"), `${t.slot} stays members-only`);
   }
 });

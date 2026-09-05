@@ -717,6 +717,8 @@ test("specialAvoidHits refuses a special whose ingredients hit any participant's
 
 test("isoWeekIdOf matches the app's ISO week math", () => {
   assert.equal(isoWeekIdOf("2026-07-23"), "2026-W30");
+  assert.equal(isoWeekIdOf("2026-08-30"), "2026-W36", "a Sunday opens the following week id");
+  assert.equal(isoWeekIdOf("2026-09-05"), "2026-W36");
   assert.equal(isoWeekIdOf("2026-01-01"), "2026-W01");
   assert.equal(isoWeekIdOf("2027-01-01"), "2026-W53");
 });
