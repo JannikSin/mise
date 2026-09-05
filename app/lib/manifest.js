@@ -489,7 +489,9 @@ function lineFor(key, s) {
         (s.drainDownIso
           ? `; draining down to ${s.drainDownIso}, ${s.daysAfterDeparture} day${s.daysAfterDeparture === 1 ? "" : "s"} past it left unplanned`
           : "; no departure date, so nothing is pushed to eat its stock") +
-        (s.headId ? `; head ${s.headId}, ${s.members} member${s.members === 1 ? "" : "s"}` : "; no head named")
+        (s.headId
+          ? `; head ${s.headId}, ${s.members} member${s.members === 1 ? "" : "s"}`
+          : "; no head named")
       );
     case "leftovers":
       // both halves of P7's done test, in one line: which pots feed which

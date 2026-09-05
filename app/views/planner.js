@@ -15,6 +15,7 @@ import {
 import { parseLocalIso } from "../lib/dates.js";
 import { manifestDrifted, manifestLines } from "../lib/manifest.js";
 import { CookBlocks } from "./cook-blocks.js";
+import { brigadeRunLines } from "./brigade-lines.js";
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
@@ -76,8 +77,22 @@ function monthDay(isoDate) {
  *   } | null,
  *   coverageGaps?: import("../lib/coverage.js").CoverageGap[],
  *   onRestoreFallback?: (() => void) | undefined,
- *   lastWeekReview?: ReturnType<typeof import("../lib/review.js").composeWeekReview> | null
- * }} props
+ *   lastWeekReview?: ReturnType<typeof import("../lib/review.js").composeWeekReview> | null,
+ *   brigade?: {
+ *     active: import("../lib/tables.js").Brigade,
+ *     tables: import("../lib/tables.js").TableEvent[],
+ *     profiles: Record<string, any>[],
+ *     me: string,
+ *   } | null,
+ *   brigadeRun?: Record<string, any> | null,
+ *   onAddGuest?: (date: string, profileId: string, slots: string[]) => Promise<string | null>,
+ *   onRemoveGuest?: (date: string, profileId: string) => void,
+ *   onNewGuestProfile?: () => void
+ * }} props `brigade` (2026-09-05): my house's standing arrangement and its
+ *   tables for this week, so GENERATE can say it plans the shared meals and
+ *   every day can show who is eating and take one more person. `brigadeRun`:
+ *   what the last GENERATE's brigade run did, in the same lines the Table tab
+ *   prints.
  */
 export function PlannerView({
   recipes,
@@ -105,6 +120,11 @@ export function PlannerView({
   coverageGaps = [],
   onRestoreFallback = undefined,
   lastWeekReview = null,
+  brigade = null,
+  brigadeRun = null,
+  onAddGuest = undefined,
+  onRemoveGuest = undefined,
+  onNewGuestProfile = undefined,
 }) {
   const rootRef = useRef(/** @type {HTMLElement | null} */ (null));
   // scoreboard accordion (David's layout pick, 2026-07-23): which days are
@@ -119,6 +139,22 @@ export function PlannerView({
   // pickable pool; `recipes` stays the pool SWITCH and the tray pick from
   const byId = recipesById(identityRecipes ?? recipes);
   const dates = datesOfWeek(weekId);
+  // WHO'S EATING (canon P8, David 2026-09-05: "add people to certain days...
+  // see how much more food we need for that meal based on their profile").
+  // The add panel is per day: which person, which of the day's shared meals.
+  const [guestPanel, setGuestPanel] = useState(
+    /** @type {null | { date: string, slots: string[], busy: boolean, note: string }} */ (null),
+  );
+  const brigadeDays = new Set((brigade?.tables ?? []).map((t) => t.date));
+  const brigadeCovers =
+    brigade != null &&
+    dates.some(
+      (d) => brigadeDays.has(d) || (d >= brigade.active.from && d <= brigade.active.until),
+    );
+  const nameOf = (/** @type {string} */ id) => {
+    const p = (brigade?.profiles ?? []).find((x) => x.id === id);
+    return p ? `${p.emoji ?? ""} ${p.name ?? id}`.trim() : id;
+  };
   // P3, no invented person. These two lines used to read `?? 3400` and
   // `?? 210`, which are DAVID'S targets from an earlier phase: any profile
   // whose targets file could not be read was silently measured against his
@@ -183,7 +219,6 @@ export function PlannerView({
           </div>
         </div>`
       }
-
       ${
         noTargets &&
         html`<div class="tile lockbanner" role="status">
@@ -215,7 +250,11 @@ export function PlannerView({
           ${currencies.map((/** @type {any} */ c, /** @type {number} */ i) => {
             const used = currencyUsed(plan, c.id);
             const eaten = currencyEaten(plan, c.id);
-            return html`<span key=${c.id}>${i > 0 ? " · " : ""}🎫 ${c.name}: <span class="num">${eaten} eaten · ${used} of ${c.perWeek ?? "?"}</span> planned this week${c.expires === "weekly" && (c.perWeek ?? 0) > used ? html` <span class="hint">(unused ones expire — the 🍴 button on any slot cycles to SWIPE${c.venue === "buffet" ? ", where the buffet eats the protein bill" : ""})</span>` : ""}</span>`;
+            return html`<span key=${c.id}
+              >${i > 0 ? " · " : ""}🎫 ${c.name}:
+              <span class="num">${eaten} eaten · ${used} of ${c.perWeek ?? "?"}</span> planned this
+              week${c.expires === "weekly" && (c.perWeek ?? 0) > used ? html` <span class="hint">(unused ones expire — the 🍴 button on any slot cycles to SWIPE${c.venue === "buffet" ? ", where the buffet eats the protein bill" : ""})</span>` : ""}</span
+            >`;
           })}
         </p>`
       }
@@ -223,7 +262,9 @@ export function PlannerView({
         <button
           class="ask"
           aria-label=${
-            rebuilt ? "Pick different meals for the generated week" : "Generate my week automatically"
+            rebuilt
+              ? "Pick different meals for the generated week"
+              : "Generate my week automatically"
           }
           onClick=${onGenerateWeek}
           disabled=${recipes.length === 0 || firstLive == null || noTargets}
@@ -233,15 +274,34 @@ export function PlannerView({
             ${
               firstLive == null
                 ? "this week is over, nothing left to plan"
-                : midWeek
-                  ? firstLive === dates[6]
-                    ? "plans today only · earlier days already eaten"
-                    : `plans ${parseLocalIso(firstLive).toLocaleDateString([], { weekday: "short" })}–Sun · earlier days already eaten`
-                  : "overlapping ingredients → fewer, bulkier buys"
+                : brigadeCovers
+                  ? `${brigade?.active.name ?? "the brigade"}'s shared meals for everyone first, then your own slots${midWeek ? " · earlier days already eaten" : ""}`
+                  : midWeek
+                    ? firstLive === dates[6]
+                      ? "plans today only · earlier days already eaten"
+                      : `plans ${parseLocalIso(firstLive).toLocaleDateString([], { weekday: "short" })}–Sat · earlier days already eaten`
+                    : "overlapping ingredients → fewer, bulkier buys"
             }
           </small>
         </button>
       </div>
+      ${
+        // THE BRIGADE'S OWN REPORT on the Plan tab (2026-09-05): GENERATE
+        // runs the kitchen's shared meals first, so what that run did is
+        // said here, in the Table tab's exact words
+        brigadeRun &&
+        brigade &&
+        html`
+          <div class="tile buildreport" role="status">
+            <div class="k">🍽 ${brigade.active.name}: the shared meals</div>
+            ${brigadeRunLines(/** @type {any} */ (brigadeRun), {
+              runWeek: weekId,
+              todayIso,
+              nameOf: (id) => brigade.profiles.find((p) => p.id === id)?.name ?? id,
+            }).map((l, i) => html`<div class="d" key=${i}>${l}</div>`)}
+          </div>
+        `
+      }
       ${
         buildReport &&
         html`
@@ -347,7 +407,8 @@ export function PlannerView({
                       : `${day} ${Math.round(s.protein)}`;
                   })
                   .join(" · ")}
-                / ${buildReport.proteinOverDays[0]?.ceiling} g bought-ceiling · every gram over is bought
+                / ${buildReport.proteinOverDays[0]?.ceiling} g bought-ceiling · every gram over is
+                bought
               </div>`
             }
           </div>
@@ -431,8 +492,12 @@ export function PlannerView({
       ${dates.map((date) => {
         const past = isPast(date);
         const totals = dayTotals(/** @type {any} */ (plan.entries), byId, date);
-        const kcalPct = kcalTarget ? Math.min(100, Math.round((totals.calories / kcalTarget) * 100)) : 0;
-        const pPct = proteinTarget ? Math.min(100, Math.round((totals.protein / proteinTarget) * 100)) : 0;
+        const kcalPct = kcalTarget
+          ? Math.min(100, Math.round((totals.calories / kcalTarget) * 100))
+          : 0;
+        const pPct = proteinTarget
+          ? Math.min(100, Math.round((totals.protein / proteinTarget) * 100))
+          : 0;
         // out slots carry an assumed macro credit (dayTotals counts it), so
         // the meters and warn styling stay honest without special-casing
         const dayTable = plan.entries.find((e) => e.date === date && e.table);
@@ -516,6 +581,131 @@ export function PlannerView({
                   }
                   ${" "}· <a href="#/tables">Table tab</a>
                 </p>`
+              }
+              ${
+                // WHO'S EATING, on a live brigade day (canon P8, 2026-09-05):
+                // the members by rule, any guest by name with a ✕, and one
+                // button to seat one more person on this day's shared meals
+                !past &&
+                brigade &&
+                brigadeDays.has(date) &&
+                (() => {
+                  const dayTables = brigade.tables.filter((t) => t.date === date);
+                  const members = new Set(brigade.active.memberIds);
+                  const guests = [
+                    ...new Set(
+                      dayTables.flatMap((t) =>
+                        (t.seats ?? [])
+                          .filter((s) => !members.has(s.id) && s.status !== "skipped")
+                          .map((s) => s.id),
+                      ),
+                    ),
+                  ];
+                  const seated = new Set([...members, ...guests]);
+                  const candidates = brigade.profiles.filter((p) => !seated.has(p.id));
+                  const daySlots = SLOT_KEYS.filter((s) => dayTables.some((t) => t.slot === s));
+                  const panel = guestPanel?.date === date ? guestPanel : null;
+                  const addGuest = onAddGuest;
+                  return html`<div class="whoeats">
+                    <span class="t">WHO</span>
+                    <span class="names">
+                      ${[...members].map((id) => nameOf(id)).join(" · ")}
+                      ${guests.map(
+                        (id) =>
+                          html`<span class="guestchip" key=${id}>
+                            · ${nameOf(id)} <span class="hint">(guest)</span>
+                            ${
+                            onRemoveGuest &&
+                            html`<button
+                              class="linktext"
+                              aria-label=${`Take ${nameOf(id)} off ${monthDay(date)}`}
+                              onClick=${() => onRemoveGuest(date, id)}
+                            >
+                              ✕
+                            </button>`
+                          }
+                          </span>`,
+                      )}
+                    </span>
+                    ${
+                      onAddGuest &&
+                      html`<button
+                        class="linktext"
+                        aria-expanded=${Boolean(panel)}
+                        onClick=${() =>
+                          setGuestPanel(
+                            panel
+                              ? null
+                              : {
+                                  date,
+                                  slots: daySlots.includes("dinner") ? ["dinner"] : daySlots,
+                                  busy: false,
+                                  note: "",
+                                },
+                          )}
+                      >
+                        ${panel ? "close" : "+ add someone"}
+                      </button>`
+                    }
+                    ${
+                      panel &&
+                      html`<div class="guestpanel">
+                        <div class="sub">Which meals</div>
+                        <div class="chips">
+                          ${daySlots.map(
+                            (s) =>
+                              html`<button
+                                key=${s}
+                                class=${panel.slots.includes(s) ? "chip on" : "chip"}
+                                aria-pressed=${panel.slots.includes(s)}
+                                onClick=${() =>
+                                setGuestPanel({
+                                  ...panel,
+                                  slots: panel.slots.includes(s)
+                                    ? panel.slots.filter((x) => x !== s)
+                                    : [...panel.slots, s],
+                                })}
+                              >
+                                ${SLOT_META[s]?.full ?? s}
+                              </button>`,
+                          )}
+                        </div>
+                        <div class="sub">Who</div>
+                        <div class="chips">
+                          ${candidates.map(
+                            (p) =>
+                              html`<button
+                                key=${p.id}
+                                class="chip"
+                                disabled=${panel.busy || panel.slots.length === 0}
+                                onClick=${async () => {
+                                if (!addGuest) return;
+                                setGuestPanel({ ...panel, busy: true, note: "" });
+                                const note = await addGuest(date, p.id, panel.slots);
+                                setGuestPanel({ ...panel, busy: false, note: note ?? "" });
+                              }}
+                              >
+                                ${p.emoji ?? ""}
+                                ${p.name ?? p.id}${p.household === "guesthouse" ? " (guest)" : ""}
+                              </button>`,
+                          )}
+                          ${
+                            onNewGuestProfile &&
+                            html`<button class="chip" onClick=${onNewGuestProfile}>
+                              🛎 new person
+                            </button>`
+                          }
+                        </div>
+                        ${panel.note && html`<p class="hint" role="status">${panel.note}</p>`}
+                        <p class="hint">
+                          A guest's plate is sized from their own profile, joins the cook's pot and
+                          the buy, and stays through PICK DIFFERENT MEALS. New person: they fill in
+                          their own profile on this phone, then come back here.
+                        </p>
+                      </div>`
+                    }
+                  </div>`;
+                })()
               }
               <div class="slotgrid">
                 ${SLOTS.map(({ key, label, full }) => {
@@ -748,7 +938,6 @@ export function PlannerView({
           </details>
         `;
       })}
-
       ${
         // THE WEEK ENDS IN A REVIEW (P11, read side of 7.1): plan against
         // reality on every axis that has data, each axis honest about being

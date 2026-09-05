@@ -4,6 +4,11 @@ import { useEffect, useState } from "preact/hooks";
 import { datesOfWeek, recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { parseLocalIso, isoWeekId } from "../lib/dates.js";
 import { SERVINGS_MIN, SERVINGS_MAX, effectiveBuyerOf, resolveHead } from "../lib/tables.js";
+import { autoPlanEligible } from "../lib/plan.js";
+import { brigadeRunLines, cookDaysLabel } from "./brigade-lines.js";
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
@@ -36,7 +41,8 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onTailorTable: (house: string, tableId: string) => Promise<void>,
  *   scoreboard: { id: string, name: string, emoji: string, score: number, cooked: { done: number, total: number }, shopped: boolean }[],
  *   weekId: string,
- *   onCreateBrigade: (b: { name: string, memberIds: string[], slots: string[], cookId?: string, from: string, until: string }) => void,
+ *   onCreateBrigade: (b: { name: string, memberIds: string[], slots: string[], cookId?: string, from: string, until: string, cookDays?: number[], slotRecipes?: Record<string, string[]> }) => void,
+ *   onUpdateBrigade?: (id: string, patch: Record<string, any>) => void,
  *   onRemoveBrigade: (id: string) => void,
  *   onRunBrigade: (id: string, week: string, regenerate?: boolean) => Promise<{ made: number, thin: { slot: string, available: number }[], report?: { date: string, seatId: string, kcal: number, protein: number, dayKcal: number, dayProtein: number, share?: number, status: string }[], swept?: { swaps: number, saved: number }, swiped?: { date: string, slot: string }[], assumed?: { id: string, slot: string }[] }>,
  *   showScoreboard?: boolean
@@ -66,6 +72,7 @@ export function TablesView({
   scoreboard,
   weekId,
   onCreateBrigade,
+  onUpdateBrigade = undefined,
   onRemoveBrigade,
   onRunBrigade,
   showScoreboard = true,
@@ -181,7 +188,7 @@ export function TablesView({
   const houseMates = (profiles ?? []).filter((p) => (p.household ?? "home") === myHouse);
   const myBrigades = (houseEvents ?? []).find((h) => h.house === myHouse)?.events?.brigades ?? [];
   const [brigadeForm, setBrigadeForm] = useState(
-    /** @type {null | { name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string }} */ (
+    /** @type {null | { editId: string | null, name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string, cookDays: number[], slotRecipes: Record<string, string[]> }} */ (
       null
     ),
   );
@@ -190,11 +197,16 @@ export function TablesView({
   // semicolon-joined sentence was an unreadable wall on a phone (Final Gate)
   const [brigadeNote, setBrigadeNote] = useState(/** @type {string[]} */ ([]));
 
-  /** @param {Partial<import("../lib/tables.js").Brigade>} [seed] renew path: prefill from the ended record */
-  const openBrigadeForm = (seed) => {
+  /**
+   * @param {Partial<import("../lib/tables.js").Brigade>} [seed] renew path: prefill from the ended record
+   * @param {boolean} [editing] EDIT path (2026-09-05): change the standing rule in place — cook
+   *   nights, named breakfasts, who is in it — without ending it and starting another
+   */
+  const openBrigadeForm = (seed, editing = false) => {
     const until = new Date(`${todayIso}T12:00:00`);
     until.setDate(until.getDate() + 27); // the lib caps a brigade at four weeks
     setBrigadeForm({
+      editId: editing && seed?.id ? seed.id : null,
       name: seed?.name ?? "",
       memberIds:
         seed?.memberIds?.filter((id) => houseMates.some((p) => p.id === id)) ??
@@ -202,8 +214,13 @@ export function TablesView({
       slots: seed?.slots ?? ["dinner"],
       cookId: seed?.cookId ?? me,
       rotateCooks: Boolean(seed?.rotateCooks),
-      from: todayIso,
-      until: until.toISOString().slice(0, 10),
+      from: editing && seed?.from ? seed.from : todayIso,
+      until: editing && seed?.until ? seed.until : until.toISOString().slice(0, 10),
+      cookDays:
+        Array.isArray(seed?.cookDays) && seed.cookDays.length > 0
+          ? [...seed.cookDays]
+          : [...ALL_DAYS],
+      slotRecipes: { ...(seed?.slotRecipes ?? {}) },
     });
     setBrigadeNote([]);
   };
@@ -229,7 +246,15 @@ export function TablesView({
     const orderedMembers = houseMates
       .map((p) => p.id)
       .filter((id) => brigadeForm.memberIds.includes(id));
-    onCreateBrigade({
+    // cook nights: all seven means "no rule", stored absent; named recipes:
+    // only slots that are shared AND have a non-empty list are kept
+    const everyNight = ALL_DAYS.every((d) => brigadeForm.cookDays.includes(d));
+    const slotRecipes = Object.fromEntries(
+      Object.entries(brigadeForm.slotRecipes).filter(
+        ([slot, ids]) => brigadeForm.slots.includes(slot) && Array.isArray(ids) && ids.length > 0,
+      ),
+    );
+    const rule = {
       name: brigadeForm.name.trim() || "Brigade",
       memberIds: orderedMembers,
       slots: brigadeForm.slots,
@@ -237,7 +262,23 @@ export function TablesView({
       ...(brigadeForm.rotateCooks ? { rotateCooks: true } : {}),
       from: brigadeForm.from,
       until: brigadeForm.until,
-    });
+      ...(everyNight || !brigadeForm.slots.includes("dinner")
+        ? {}
+        : { cookDays: [...brigadeForm.cookDays].sort() }),
+      ...(Object.keys(slotRecipes).length > 0 ? { slotRecipes } : {}),
+    };
+    if (brigadeForm.editId && onUpdateBrigade) {
+      onUpdateBrigade(brigadeForm.editId, {
+        ...rule,
+        // an unset rule must be REMOVED from the record, not left as it was
+        rotateCooks: brigadeForm.rotateCooks ? true : undefined,
+        cookDays: /** @type {any} */ (rule).cookDays ?? undefined,
+        slotRecipes: /** @type {any} */ (rule).slotRecipes ?? undefined,
+      });
+      setBrigadeNote(["Saved. PICK DIFFERENT MEALS applies the new rule to this week."]);
+    } else {
+      onCreateBrigade(rule);
+    }
     setBrigadeForm(null);
   };
 
@@ -249,100 +290,17 @@ export function TablesView({
     setBrigadeBusy(id);
     setBrigadeNote([]);
     try {
-      const { made, thin, report, swept, swiped, assumed, outOfRange, from, until } =
-        /** @type {any} */ (await onRunBrigade(id, runWeek, regenerate));
-      const nameOf = (/** @type {string} */ pid) =>
-        (profiles ?? []).find((p) => p.id === pid)?.name ?? pid;
-      /** @type {string[]} */
-      const lines = [];
-      if (outOfRange) {
-        lines.push(
-          `This brigade runs ${from} to ${until}, and the Plan tab is on a different week. Flip Plan to a week inside that span, then SET THIS WEEK — nothing was set just now.`,
-        );
-        setBrigadeNote(lines);
-        setBrigadeBusy(null);
-        return;
-      }
-      const short = thin
-        .filter((/** @type {any} */ t) => t.available === 0)
-        .map((/** @type {any} */ t) => t.slot);
-      if (short.length > 0 && made === 0) {
-        lines.push(
-          `No ${short.join(" or ")} works for everyone in this brigade. Nothing was set. Widen the bank or check the avoid lists.`,
-        );
-        setBrigadeNote(lines);
-        setBrigadeBusy(null);
-        return;
-      }
-      if (made === 0) {
-        lines.push("This week is already set. Use PICK DIFFERENT MEALS to change it.");
-        setBrigadeNote(lines);
-        setBrigadeBusy(null);
-        return;
-      }
-      const range = `${parseLocalIso(datesOfWeek(runWeek)[0] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })} – ${parseLocalIso(datesOfWeek(runWeek)[6] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })}`;
-      lines.push(`Set ${made} ${made === 1 ? "meal" : "meals"} for ${range}.`);
-      // THE DAY REPORT (P1, 2026-08-30): the composer's per-seat verdicts,
-      // one line per fact. These are PLANNED numbers from recipe estimates —
-      // arithmetic the app guarantees, never a measurement of what anyone
-      // eats — and a miss names its DIRECTION, because too much and too
-      // little demand opposite reactions.
-      const rows = /** @type {{ date: string, seatId: string, dayKcal: number, dayProtein: number, share?: number, status: string }[]} */ (
-        report ?? []
+      const result = /** @type {any} */ (await onRunBrigade(id, runWeek, regenerate));
+      // ONE wording for both screens (brigade-lines.js): the Plan tab's
+      // GENERATE reports the same run the same way
+      setBrigadeNote(
+        brigadeRunLines(result, {
+          runWeek,
+          todayIso,
+          nameOf: (/** @type {string} */ pid) =>
+            (profiles ?? []).find((p) => p.id === pid)?.name ?? pid,
+        }),
       );
-      const offBand = rows.filter((r) => r.status !== "band");
-      if (rows.length > 0 && offBand.length === 0) {
-        lines.push(
-          "Every planned day lands in everyone's calorie and protein band (planned from recipe estimates).",
-        );
-      }
-      // the cost sweep says what it did (P5; David's yes 2026-08-30) — a
-      // planned-ingredients estimate, never a till number
-      if (swept?.swaps > 0) {
-        lines.push(
-          `💸 Cost sweep: ${swept.swaps} swap${swept.swaps === 1 ? "" : "s"} to cheaper dishes, ~$${swept.saved.toFixed(2)} less to cook this week, every band kept.`,
-        );
-      }
-      const wordFor = (/** @type {string} */ status) =>
-        status === "floor"
-          ? "under target but above their own minimum"
-          : status === "over"
-            ? "over — even the smallest plates exceed their ceiling"
-            : status === "no-targets"
-              ? "no targets on file — seated at standard portions"
-              : "short — the shared menu cannot reach their target";
-      const SHOWN = 6;
-      for (const r of offBand.slice(0, SHOWN)) {
-        const scope = (r.share ?? 1) < 0.95 ? "planned brigade meals" : "planned";
-        lines.push(
-          r.status === "no-targets"
-            ? `${nameOf(r.seatId)}: ${wordFor(r.status)}.`
-            : `${nameOf(r.seatId)} ${r.date.slice(5)}: ~${r.dayKcal} kcal / ${r.dayProtein} g ${scope} (${wordFor(r.status)}).`,
-        );
-      }
-      if (offBand.length > SHOWN) lines.push(`…and ${offBand.length - SHOWN} more like these.`);
-      if ((swiped ?? []).length > 0) {
-        lines.push(
-          `🎫 Your ${swiped.length} swipe ${swiped.length === 1 ? "lunch is" : "lunches are"} on your plan — 🍽 PICK MY TRAY on the Plan tab plans each plate.`,
-        );
-      }
-      for (const a of assumed ?? []) {
-        lines.push(
-          `🎫 Assumes ${nameOf(a.id)}'s daily swipe ${a.slot} — their day lands once they run their own GENERATE, which places the swipes on their plan.`,
-        );
-      }
-      const tight = thin.filter((/** @type {any} */ t) => t.available > 0);
-      if (tight.length > 0) {
-        lines.push(
-          `Only ${tight
-            .map(
-              (/** @type {any} */ t) =>
-                `${t.available} ${t.slot} ${t.available === 1 ? "recipe" : "recipes"}`,
-            )
-            .join(", ")} suit everyone, so the week repeats itself.`,
-        );
-      }
-      setBrigadeNote(lines);
     } catch {
       setBrigadeNote([
         "Could not set the week — something failed while composing it. Try again; if it keeps failing, check SYS for a sync problem.",
@@ -418,9 +376,9 @@ export function TablesView({
       myTables.length === 0 &&
       !tableForm &&
       html`<p class="hint">
-        no upcoming tables. To plan the whole week: SET WHO COOKS creates the standing
-        arrangement, then SET THIS WEEK fills every shared meal to each person's calorie and
-        protein numbers. For one meal, set a table below or talk it out on
+        no upcoming tables. To plan the whole week: SET WHO COOKS creates the standing arrangement,
+        then SET THIS WEEK fills every shared meal to each person's calorie and protein numbers. For
+        one meal, set a table below or talk it out on
         <a href="#/dinner">tonight's dinner</a>.
       </p>`
     }
@@ -442,13 +400,15 @@ export function TablesView({
       const dayHead =
         !prev || prev.t.date !== t.date
           ? html`<h3 class="block-title">
-              ${t.date === todayIso
-                ? "Today"
-                : parseLocalIso(t.date).toLocaleDateString([], {
-                    weekday: "long",
-                    month: "short",
-                    day: "numeric",
-                  })}
+              ${
+                t.date === todayIso
+                  ? "Today"
+                  : parseLocalIso(t.date).toLocaleDateString([], {
+                      weekday: "long",
+                      month: "short",
+                      day: "numeric",
+                    })
+              }
             </h3>`
           : "";
       const mySeat = (t.seats ?? []).find((s) => s.id === me);
@@ -516,7 +476,8 @@ export function TablesView({
             return eb
               ? html`<div class="d">
                   🛒 <strong>${nameOf(eb)}${eb === me ? " (you)" : ""}</strong>
-                  buys the groceries${!t.buyerId ? html`<span class="hint"> · the brigade's cook</span>` : ""}
+                  buys the
+                  groceries${!t.buyerId ? html`<span class="hint"> · the brigade's cook</span>` : ""}
                 </div>`
               : html`<div class="d hint">🛒 nobody has claimed the groceries yet</div>`;
           })()}
@@ -615,20 +576,21 @@ export function TablesView({
               html`<button
                 class="secondary"
                 aria-label="Add a guest plate to ${t.name || "this table"} (currently ${/** @type {any} */ (t).guests ?? 0})"
-                onClick=${() => onSetGuests(house, t.id, (/** @type {any} */ (t).guests ?? 0) + 1)}
+                onClick=${() => onSetGuests(house, t.id, /** @type {any} */ ((t).guests ?? 0) + 1)}
               >
-                ➕ GUEST PLATE${/** @type {any} */ (t).guests ? ` (${/** @type {any} */ (t).guests})` : ""}
+                ➕ GUEST
+                PLATE${/** @type {any} */ (t).guests ? ` (${/** @type {any} */ (t).guests})` : ""}
               </button>`
             }
             ${
               mySeat &&
               house === myHouse &&
               onSetGuests &&
-              (/** @type {any} */ (t).guests ?? 0) > 0 &&
+              /** @type {any} */ ((t).guests ?? 0) > 0 &&
               html`<button
                 class="secondary"
                 aria-label="Remove a guest plate from ${t.name || "this table"}"
-                onClick=${() => onSetGuests(house, t.id, (/** @type {any} */ (t).guests ?? 0) - 1)}
+                onClick=${() => onSetGuests(house, t.id, /** @type {any} */ ((t).guests ?? 0) - 1)}
               >
                 ➖ GUEST
               </button>`
@@ -691,7 +653,9 @@ export function TablesView({
             // family dinners for the entire week... that's clearly not
             // today". Under a brigade this page IS the week's shared meals,
             // so the page stops calling itself Today.
-            activeBrigade ? "the week's shared meals, who cooks, what to prep" : "what's for dinner, who's cooking"
+            activeBrigade
+              ? "the week's shared meals, who cooks, what to prep"
+              : "what's for dinner, who's cooking"
           }
         </div>
       </div>
@@ -702,7 +666,9 @@ export function TablesView({
         >
       </div>
 
-      <h2 class="block-title">${activeBrigade ? `${activeBrigade.name}: the week` : "Family dinners"}</h2>
+      <h2 class="block-title">
+        ${activeBrigade ? `${activeBrigade.name}: the week` : "Family dinners"}
+      </h2>
       <p class="hint">
         ${
           activeBrigade
@@ -864,15 +830,15 @@ export function TablesView({
                       (b.household === "guesthouse" ? 1 : 0),
                   )
                   .map((p) => {
-                const seat = tableForm.seats[p.id] ?? { in: false, servings: 1 };
-                const warns = seatWarnings[p.id] ?? [];
-                return html`
-                  <div class="row" key=${p.id}>
-                    <label class="tickarea">
-                      <input
-                        type="checkbox"
-                        checked=${seat.in}
-                        onInput=${(/** @type {any} */ e) =>
+                    const seat = tableForm.seats[p.id] ?? { in: false, servings: 1 };
+                    const warns = seatWarnings[p.id] ?? [];
+                    return html`
+                      <div class="row" key=${p.id}>
+                        <label class="tickarea">
+                          <input
+                            type="checkbox"
+                            checked=${seat.in}
+                            onInput=${(/** @type {any} */ e) =>
                           setTableForm({
                             ...tableForm,
                             seats: {
@@ -880,19 +846,18 @@ export function TablesView({
                               [p.id]: { ...seat, in: e.currentTarget.checked },
                             },
                           })}
-                      />
-                      ${p.emoji ?? ""} ${p.name ?? p.id}${
-                        p.household === "guesthouse"
-                          ? html` <span class="hint">(guest)</span>`
-                          : ""
+                          />
+                          ${p.emoji ?? ""}
+                          ${p.name ?? p.id}${
+                        p.household === "guesthouse" ? html` <span class="hint">(guest)</span>` : ""
                       }
-                      ${
+                          ${
                         seat.in &&
                         warns.length > 0 &&
                         html`<span class="usesoon">⚠ ${warns.join(", ")}</span>`
                       }
-                    </label>
-                    ${
+                        </label>
+                        ${
                       seat.in &&
                       html`<input
                           class="num seatservings"
@@ -912,9 +877,10 @@ export function TablesView({
                             })}
                         /><span class="hint num">servings</span>`
                     }
-                  </div>
-                `;
-              })}
+                      </div>
+                    `;
+                  })
+              }
               <div class="actions">
                 <button class="secondary" onClick=${() => setTableForm(null)}>CANCEL</button>
                 <button class="primary" onClick=${submitTable}>SET TABLE</button>
@@ -1013,6 +979,21 @@ export function TablesView({
                     : ""
               }
             </div>
+            ${
+              // the standing rules that shape the week (2026-09-05), so a
+              // glance says why Tuesday is leftovers and breakfast repeats
+              (cookDaysLabel(b.cookDays) || Object.keys(b.slotRecipes ?? {}).length > 0) &&
+              html`<div class="sub">
+                ${cookDaysLabel(b.cookDays) && html`🍳 cook dinner ${cookDaysLabel(b.cookDays)} · other nights eat leftovers`}
+                ${Object.entries(b.slotRecipes ?? {}).map(
+                  ([slot, ids]) =>
+                    html`<span key=${slot}>
+                      ${cookDaysLabel(b.cookDays) ? " · " : ""}${SLOT_META[slot]?.full ?? slot}:
+                      only ${" "}${(ids ?? []).map((id) => byId.get(id)?.name ?? id).join(", ")}
+                    </span>`,
+                )}
+              </div>`
+            }
             <div class="sub">${rotation.length > 0 && html`👨‍🍳 ${rotation.join(" · ")}`}</div>
             <div class="actions">
               <button
@@ -1030,6 +1011,12 @@ export function TablesView({
               >
                 PICK DIFFERENT MEALS
               </button>
+              ${
+                onUpdateBrigade &&
+                html`<button class="secondary" onClick=${() => openBrigadeForm(b, true)}>
+                  EDIT
+                </button>`
+              }
               <button class="secondary" onClick=${() => onRemoveBrigade(b.id)}>END</button>
             </div>
           </div>
@@ -1050,7 +1037,9 @@ export function TablesView({
               </button>
             </div>`
           : html`<div class="tile tableform">
-              <div class="k">Set who cooks</div>
+              <div class="k">
+                ${brigadeForm.editId ? "Change the standing rule" : "Set who cooks"}
+              </div>
               <input
                 aria-label="Brigade name"
                 placeholder="e.g. Mom + Laurie"
@@ -1096,6 +1085,85 @@ export function TablesView({
                   `,
                 )}
               </div>
+              ${
+                // COOK NIGHTS (David, 2026-09-05: "i want to only have to cook
+                // maybe 3 dinners a week... busy nights are tuesday wednesday
+                // thursday"). Tap the nights dinner is cooked; every other
+                // night eats leftovers of the nearest pot that is still safe.
+                brigadeForm.slots.includes("dinner") &&
+                html`<div class="sub">Nights you cook dinner</div>
+                  <div class="chips">
+                    ${ALL_DAYS.map(
+                      (d) => html`
+                        <button
+                          key=${d}
+                          class=${brigadeForm.cookDays.includes(d) ? "chip on" : "chip"}
+                          aria-pressed=${brigadeForm.cookDays.includes(d)}
+                          onClick=${() =>
+                            setBrigadeForm({
+                              ...brigadeForm,
+                              cookDays: brigadeForm.cookDays.includes(d)
+                                ? brigadeForm.cookDays.filter((x) => x !== d)
+                                : [...brigadeForm.cookDays, d],
+                            })}
+                        >
+                          ${WEEKDAYS[d]}
+                        </button>
+                      `,
+                    )}
+                  </div>
+                  <p class="hint">
+                    ${
+                      brigadeForm.cookDays.length === 7
+                        ? "Every night cooks fresh. Untap the busy nights and they eat leftovers: the cook night makes a bigger pot, sized for the plates it feeds."
+                        : brigadeForm.cookDays.length === 0
+                          ? "Pick at least one cook night."
+                          : `Cook ${cookDaysLabel([...brigadeForm.cookDays].sort())}. The other nights eat leftovers of the nearest pot still inside its safe window, oldest pot first; a night no pot can reach cooks after all.`
+                    }
+                  </p>`
+              }
+              ${
+                // NAMED RECIPES per shared slot (David, 2026-09-05: "breakfast
+                // should just be variations of greek yogurt bowls"). Optional;
+                // nothing ticked = the whole pool. Every member's screens still
+                // apply.
+                brigadeForm.slots.map((slot) => {
+                  const options = (bankRecipes ?? []).filter(
+                    (r) => r.mealType === slot && autoPlanEligible(r),
+                  );
+                  const chosen = brigadeForm.slotRecipes[slot] ?? [];
+                  if (options.length === 0) return "";
+                  return html`<details class="slotonly" key=${slot} open=${chosen.length > 0}>
+                    <summary class="sub">
+                      Only these ${SLOT_META[slot]?.full?.toLowerCase() ?? slot} recipes
+                      <span class="hint">
+                        ${chosen.length > 0 ? `${chosen.length} named` : "optional · none = the whole pool"}
+                      </span>
+                    </summary>
+                    <div class="chips wrapchips">
+                      ${options.map(
+                        (r) => html`
+                          <button
+                            key=${r.id}
+                            class=${chosen.includes(r.id) ? "chip on" : "chip"}
+                            aria-pressed=${chosen.includes(r.id)}
+                            onClick=${() =>
+                              setBrigadeForm({
+                                ...brigadeForm,
+                                slotRecipes: {
+                                  ...brigadeForm.slotRecipes,
+                                  [slot]: toggleIn(chosen, r.id),
+                                },
+                              })}
+                          >
+                            ${r.name}
+                          </button>
+                        `,
+                      )}
+                    </div>
+                  </details>`;
+                })
+              }
               <div class="sub">Who cooks and shops</div>
               <div class="chips">
                 <button
@@ -1150,7 +1218,13 @@ export function TablesView({
               </p>
               <div class="actions">
                 <button class="secondary" onClick=${() => setBrigadeForm(null)}>CANCEL</button>
-                <button class="primary" onClick=${submitBrigade}>START</button>
+                <button
+                  class="primary"
+                  disabled=${brigadeForm.slots.includes("dinner") && brigadeForm.cookDays.length === 0}
+                  onClick=${submitBrigade}
+                >
+                  ${brigadeForm.editId ? "SAVE" : "START"}
+                </button>
               </div>
             </div>`
       }

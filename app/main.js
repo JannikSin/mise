@@ -20,7 +20,12 @@ import { normalizeEquipment } from "./lib/equipment.js";
 import { formatSyncTime, isoWeekId, localIsoDate, parseLocalIso, statusDate } from "./lib/dates.js";
 import { applyScanItems } from "./lib/scan.js";
 import { dinerFacts } from "./lib/annotate.js";
-import { tailorTable, krogerConsumeRedirect, krogerPricesById, krogerSearch } from "./lib/worker.js";
+import {
+  tailorTable,
+  krogerConsumeRedirect,
+  krogerPricesById,
+  krogerSearch,
+} from "./lib/worker.js";
 import { repriceList, reapplyOps } from "./lib/repricer.js";
 import { ProfileGateView } from "./views/profile-gate.js";
 import { CookbookView } from "./views/cookbook.js";
@@ -97,6 +102,7 @@ import {
   mergeRecipePool,
   recipeConflicts,
   SLOT_KEYS,
+  SLOT_META,
   planSwipes,
   toggleSwipeEaten,
 } from "./lib/plan.js";
@@ -136,6 +142,10 @@ import {
   setTableGuests,
   cookOf,
   seatServingsFor,
+  updateBrigade,
+  addSeat,
+  removeSeat,
+  brigadeTableId,
 } from "./lib/tables.js";
 import {
   applyOccasion,
@@ -209,6 +219,9 @@ function App() {
   // fine to a human and is a temporal dead zone to the engine.
   const planRef = useRef(plan);
   planRef.current = plan;
+  // true once THIS week's file has actually been read: the settle effect
+  // below must never write a plan built on the empty placeholder
+  const planLoadedRef = useRef(false);
   const [targets, setTargets] = useState(/** @type {Record<string, any> | null} */ (null));
 
   // Kroger's consent redirect lands back here with the customer's tokens in
@@ -422,6 +435,7 @@ function App() {
   // this week's plan: cached-first, refreshed on sync activity
   useEffect(() => {
     let alive = true;
+    planLoadedRef.current = false;
     const load = () => {
       // THE STRADDLE READ (weeks open on SUNDAY since 2026-09-05). Plan files
       // written under the old Monday-start rule keep that week's Sunday at
@@ -443,6 +457,7 @@ function App() {
           (e) => e && mine.has(e.date) && !have.has(e.id),
         );
         if (adopted.length > 0) next = { ...next, entries: [...next.entries, ...adopted] };
+        planLoadedRef.current = true;
         setPlan(next);
       });
     };
@@ -460,6 +475,9 @@ function App() {
   const [houseEvents, setHouseEvents] = useState(
     /** @type {{ house: string, events: import("./lib/tables.js").HouseEvents }[]} */ ([]),
   );
+  // declared beside the state it tracks (GENERATE reads it from far above)
+  const houseEventsRef = useRef(houseEvents);
+  houseEventsRef.current = houseEvents;
   const [allProfiles, setAllProfiles] = useState(/** @type {Record<string, any>[]} */ ([]));
   // CAPABILITIES (council 2026-08-02, shaped like targets.tracks): the list
   // of extra surfaces this profile HAS. Absent = everything (David, legacy
@@ -1379,9 +1397,7 @@ function App() {
 
   // set beside the listBrigade memo below; declared here so earlier
   // callbacks can body-reference it without a use-before-define
-  const listBrigadeRef = useRef(
-    /** @type {{ iShop: boolean } | null} */ (null),
-  );
+  const listBrigadeRef = useRef(/** @type {{ iShop: boolean } | null} */ (null));
   const handleJustBought = useCallback(() => {
     // fridgeFirst only when this list IS the rendered trip — a solo profile,
     // or the brigade's shopper, whose list is the whole kitchen's one buy
@@ -1396,8 +1412,7 @@ function App() {
       pantryRef.current,
       localIsoDate(new Date()),
       {
-        fridgeFirst:
-          otherListsRef.current.length === 0 || Boolean(listBrigadeRef.current?.iShop),
+        fridgeFirst: otherListsRef.current.length === 0 || Boolean(listBrigadeRef.current?.iShop),
       },
     );
     updateShopping(result.shopping);
@@ -1694,6 +1709,14 @@ function App() {
   );
   const buildStateRef = useRef({ salt: 0 });
 
+  // the brigade runner, reached from GENERATE below through a ref because it
+  // is declared further down (no-use-before-define is on for a reason here)
+  const runBrigadeRef = useRef(
+    /** @type {null | ((id: string, week: string, regenerate?: boolean) => Promise<any>)} */ (null),
+  );
+  // what the last GENERATE's brigade run did, for the Plan tab's own tile
+  const [brigadeRun, setBrigadeRun] = useState(/** @type {Record<string, any> | null} */ (null));
+
   const handleGenerateWeek = useCallback(async () => {
     // body-level guard, not just the disabled button: this is the single
     // most destructive path (clears every unpinned entry + overwrites the
@@ -1722,6 +1745,68 @@ function App() {
     }
     const bs = buildStateRef.current;
     bs.salt++;
+    // THE BRIGADE FIRST (David, 2026-09-05: "when on the plan tab you click
+    // generate my week it generates the week in the brigade. there is no
+    // reason that it should be necessary to go to the table tab"). When my
+    // house runs a standing brigade that covers this week's live days and I
+    // am in it, the shared meals are set first — and on PICK DIFFERENT MEALS
+    // re-rolled — and my own slots are then planned around them from the
+    // tables as just written, not from the render-stale derivation.
+    /** @type {ReturnType<typeof deriveTables> | null} */
+    let freshDerived = null;
+    {
+      const house = /** @type {string} */ (
+        allProfilesRef.current.find((p) => p.id === me)?.household ?? "home"
+      );
+      const todayIso = localIsoDate(new Date());
+      const weekDates = datesOfWeek(weekRef.current);
+      const active =
+        (houseEventsRef.current.find((h) => h.house === house)?.events?.brigades ?? [])
+          .filter(
+            (b) =>
+              b.memberIds.includes(me) &&
+              (b.until ?? "") >= todayIso &&
+              weekDates.some((d) => d >= b.from && d <= b.until && d >= todayIso),
+          )
+          .sort((a, b) => (b.until ?? "").localeCompare(a.until ?? ""))[0] ?? null;
+      if (active && runBrigadeRef.current) {
+        try {
+          const res = await runBrigadeRef.current(active.id, weekRef.current, bs.salt > 1);
+          setBrigadeRun(res);
+          if (res?.events) {
+            const houses = houseEventsRef.current.map((h) =>
+              h.house === house ? { house, events: res.events } : h,
+            );
+            const t = targetsRef.current;
+            freshDerived = deriveTables(houses, {
+              profileId: me,
+              diet: t?.diet,
+              avoid: t?.avoidIngredients,
+              avoidRecipes: t?.avoidRecipes,
+              bankById: recipesById(bankRecipesRef.current),
+              ownEntries: /** @type {any} */ (planRef.current).entries,
+              today: todayIso,
+              profilesById: new Map(allProfilesRef.current.map((p) => [p.id, p])),
+              myTargets: t,
+            });
+            // the list build below reads this ref; the memo rewrites it with
+            // the identical result on the next render
+            tableDerivedRef.current = freshDerived;
+          }
+        } catch (err) {
+          setBrigadeRun({
+            made: 0,
+            thin: [],
+            report: [],
+            notes: [
+              `the shared meals could not be set: ${err instanceof Error ? err.message : "unknown error"} — your own slots were still planned`,
+            ],
+          });
+        }
+      } else {
+        setBrigadeRun(null);
+      }
+    }
     // P11, the loop: the week being generated reads the week just closed.
     // Composed here rather than passed down from render so GENERATE never
     // depends on which tab happened to be open. Waste events and uncooked
@@ -1755,6 +1840,16 @@ function App() {
     // allowance, never over a past day or a day already eating away.
     /** @type {import("./lib/plan.js").Plan} */
     let seeded = /** @type {any} */ (viewPlanRef.current);
+    if (freshDerived) {
+      // the brigade's tables as just written enter as pins, exactly as the
+      // memo would derive them one render later
+      seeded = mergeViewPlan(
+        /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
+        freshDerived.entries,
+        datesOfWeek(weekRef.current),
+        localIsoDate(new Date()),
+      ).plan;
+    }
     {
       const buffet = (targetsRef.current?.currencies ?? []).find(
         (/** @type {any} */ c) => c.venue === "buffet",
@@ -1970,6 +2065,7 @@ function App() {
     // a new week means a fresh build state and report
     buildStateRef.current = { salt: 0 };
     setBuildReport(null);
+    setBrigadeRun(null);
   }, [weekId]);
 
   // recipes used in the previous two weeks — generation penalizes them so
@@ -2278,6 +2374,68 @@ function App() {
   );
   const viewPlan = merged.plan;
 
+  // SETTLED HISTORY (David, 2026-09-05: "i want to always see what was
+  // cooked... if you skipped a meal or recipe or changed one you can look
+  // back"). A shared meal is a derived row that lives 14 days in the house's
+  // events file and then vanishes. Once its date is past, it is copied into
+  // MY plan as a real entry stamped `fromTable`, so what I ate outlives the
+  // table's retention and reads like any meal I cooked alone. deriveTables
+  // skips a table my plan has settled, so nothing shows twice. Only ever
+  // after THIS week's file has been read, never on the empty placeholder.
+  useEffect(() => {
+    if (!hasToken || !planLoadedRef.current || plan.week !== weekId) return;
+    const today = localIsoDate(new Date());
+    const weekSet = new Set(datesOfWeek(plan.week));
+    const have = new Set(plan.entries.map((e) => /** @type {any} */ (e).fromTable).filter(Boolean));
+    const toSettle = tableDerived.entries.filter(
+      (e) =>
+        e.table && e.date < today && weekSet.has(e.date) && e.viewRecipeId && !have.has(e.table),
+    );
+    if (toSettle.length === 0) return;
+    let next = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+    for (const e of toSettle) {
+      next = addEntry(
+        next,
+        e.date,
+        e.slot,
+        /** @type {any} */ ({
+          recipeId: e.viewRecipeId,
+          servings: e.servings,
+          pinned: true,
+          fromTable: e.table,
+          ...(e.cookedAt ? { cookedAt: e.cookedAt } : {}),
+          .../** @type {any} */ ((e).leftoverOf
+            ? { leftoverOf: /** @type {any} */ (e).leftoverOf }
+            : {}),
+        }),
+      );
+    }
+    updatePlan(next);
+  }, [tableDerived, plan, weekId, hasToken, updatePlan]);
+
+  // the Plan tab's view of my house's standing arrangement (2026-09-05): the
+  // active brigade I am in and its tables for the shown week, so GENERATE can
+  // say what it plans and each day can show who is eating
+  const plannerBrigade = useMemo(() => {
+    const house = allProfiles.find((p) => p.id === me)?.household ?? "home";
+    const todayIso = localIsoDate(new Date());
+    const events = houseEvents.find((h) => h.house === house)?.events;
+    const active =
+      (events?.brigades ?? [])
+        .filter((b) => b.memberIds.includes(me) && (b.until ?? "") >= todayIso)
+        .sort((a, b) => (b.until ?? "").localeCompare(a.until ?? ""))[0] ?? null;
+    if (!active) return null;
+    const weekSet = new Set(datesOfWeek(weekId));
+    return {
+      active,
+      tables: (events?.tables ?? []).filter(
+        (t) => t.fromBrigade === active.id && weekSet.has(t.date),
+      ),
+      profiles: allProfiles,
+      me,
+    };
+  }, [houseEvents, allProfiles, me, weekId]);
+
   // the List's brigade posture. When my household runs an active brigade the
   // List stops being a personal surface: the cook buys for the whole kitchen
   // (effectiveBuyerOf), everyone else has nothing to buy. iShop = at least one
@@ -2456,8 +2614,6 @@ function App() {
   const tableStale = merged.displaced;
   viewPlanRef.current = viewPlan;
   tableDerivedRef.current = tableDerived;
-  const houseEventsRef = useRef(houseEvents);
-  houseEventsRef.current = houseEvents;
 
   /** the cook's shopping pseudo-entries ride the buffer precedent: augment
    *  the plan at list-derivation time only, never in state. Clamped to the
@@ -3225,6 +3381,101 @@ function App() {
     [writeHouseEvents],
   );
 
+  /** EDIT the standing rule in place (2026-09-05): cook nights, named recipes, members */
+  const handleUpdateBrigade = useCallback(
+    (/** @type {string} */ id, /** @type {Record<string, any>} */ patch) => {
+      const house = myHouseOf();
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      if (!cur) return;
+      writeHouseEvents(house, updateBrigade(cur, id, patch, localIsoDate(new Date())));
+    },
+    [writeHouseEvents],
+  );
+
+  /**
+   * ONE MORE PERSON ON ONE DAY (canon P8, David 2026-09-05). Seats a real
+   * profile on this day's shared meals, each plate sized from THEIR targets
+   * (seatServingsFor, the same rule the pot uses), so the cook's total and the
+   * buy grow by exactly those plates. Returns a plain line saying how much
+   * more food that is; the next PICK DIFFERENT MEALS re-solves the day
+   * jointly with them at the table.
+   */
+  const handleAddGuestSeat = useCallback(
+    async (
+      /** @type {string} */ date,
+      /** @type {string} */ profileId,
+      /** @type {string[]} */ slots,
+    ) => {
+      const house = myHouseOf();
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      const active =
+        (cur?.brigades ?? []).find(
+          (b) => b.memberIds.includes(me) && date >= b.from && date <= b.until,
+        ) ?? null;
+      if (!cur || !active) return "No standing brigade covers that day.";
+      const targets = /** @type {any} */ (await readTargetsOf(profileId));
+      const bank = recipesById(bankRecipesRef.current);
+      const today = localIsoDate(new Date());
+      let next = cur;
+      /** @type {{ slot: string, name: string, kcal: number }[]} */
+      const added = [];
+      for (const slot of slots) {
+        const t = cur.tables.find((x) => x.id === brigadeTableId(active.id, date, slot));
+        if (!t) continue;
+        if ((t.seats ?? []).some((s) => s.id === profileId)) continue;
+        const recipe = bank.get(t.recipeId);
+        const servings = seatServingsFor(targets ?? undefined, slot, recipe);
+        next = addSeat(next, t.id, { id: profileId, servings }, today);
+        added.push({
+          slot,
+          name: recipe?.name ?? t.recipeId,
+          kcal: Math.round((recipe?.nutrition?.calories ?? 0) * servings),
+        });
+      }
+      if (added.length === 0)
+        return "No shared meal is set for that day yet — GENERATE MY WEEK first.";
+      writeHouseEvents(house, next);
+      const who = allProfilesRef.current.find((p) => p.id === profileId)?.name ?? profileId;
+      const what = added
+        .map(
+          (a) =>
+            `${SLOT_META[a.slot]?.full ?? a.slot} (${a.name}, about ${a.kcal} kcal more to cook)`,
+        )
+        .join(", ");
+      return `${who} joins ${what}${targets ? "" : " — no profile targets found, so a standard plate"}. The cook's pot and the list grow by those plates; PICK DIFFERENT MEALS re-solves the day with ${who} at the table.`;
+    },
+    [writeHouseEvents, me],
+  );
+
+  const handleRemoveGuestSeat = useCallback(
+    (/** @type {string} */ date, /** @type {string} */ profileId) => {
+      const house = myHouseOf();
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      if (!cur) return;
+      const today = localIsoDate(new Date());
+      let next = cur;
+      for (const t of cur.tables) {
+        if (t.date !== date || !t.fromBrigade) continue;
+        const b = (cur.brigades ?? []).find((x) => x.id === t.fromBrigade);
+        if (b?.memberIds.includes(profileId)) continue; // members leave by SKIP MINE, not here
+        if ((t.seats ?? []).some((s) => s.id === profileId))
+          next = removeSeat(next, t.id, profileId, today);
+      }
+      if (next !== cur) writeHouseEvents(house, next);
+    },
+    [writeHouseEvents],
+  );
+
+  /** a brand-new person: the guest questionnaire, then straight back to Plan */
+  const handleNewGuestProfile = useCallback(() => {
+    try {
+      sessionStorage.setItem("mise.guestBack", "#/plan");
+    } catch {
+      // storage unavailable: the questionnaire still opens, it just lands on Tables after
+    }
+    location.hash = "#/guest";
+  }, []);
+
   /**
    * Run a brigade over a week — THE week engine since 2026-08-30 (monolith):
    * deterministic picks (the FNV walk) sized by the day composer so every
@@ -3254,6 +3505,18 @@ function App() {
         );
         plansById.set(id, raw ? normalizePlan(raw, week) : null);
       }
+      // GUEST SEATS (2026-09-05): anyone seated on this brigade's tables who is
+      // not a member but is a real profile is composed from THEIR targets
+      const knownIds = new Set(allProfilesRef.current.map((p) => p.id));
+      const guestIds = new Set(
+        cur.tables
+          .filter((t) => t.fromBrigade === brigadeId)
+          .flatMap((t) => (t.seats ?? []).map((s) => s.id))
+          .filter((id) => !brigade.memberIds.includes(id) && knownIds.has(id)),
+      );
+      for (const id of guestIds) {
+        if (!targetsById.has(id)) targetsById.set(id, await readTargetsOf(id));
+      }
 
       const today = localIsoDate(new Date());
       // PICK DIFFERENT MEALS must change an input or determinism hands back
@@ -3278,10 +3541,11 @@ function App() {
           if (c.priced > 0) perServing.set(r.id, c.perServing);
         }
         const known = [...perServing.values()].sort((a, b) => a - b);
-        const median = known.length > 0 ? /** @type {number} */ (known[Math.floor(known.length / 2)]) : 0;
+        const median =
+          known.length > 0 ? /** @type {number} */ (known[Math.floor(known.length / 2)]) : 0;
         costOf = (rid) => perServing.get(rid) ?? median;
       }
-      const { events, made, thin, report, swept } = planBrigadeWeek(cur, run, {
+      const { events, made, thin, report, swept, notes, nights } = planBrigadeWeek(cur, run, {
         dates: datesOfWeek(week),
         today,
         house,
@@ -3353,13 +3617,19 @@ function App() {
         swept,
         swiped,
         assumed,
+        notes,
+        nights,
         outOfRange: overlap === 0,
         from: brigade.from,
         until: brigade.until,
+        // the events as written, so GENERATE can derive the fresh tables
+        // without waiting a render
+        events: out,
       };
     },
     [writeHouseEvents, updatePlan],
   );
+  runBrigadeRef.current = handleRunBrigade;
 
   // Tribunal amendment 1a: creation-time diet/avoid screen per prospective
   // seat, reading each profile's own targets (raw paths per SCHEMAS.md)
@@ -3486,8 +3756,7 @@ function App() {
           foodGroups: s.foodGroups,
           audited: null,
           safeDays: slot === "smoothie" ? 1 : 3,
-          equipment:
-            slot === "smoothie" ? ["blender"] : effort === "assembly" ? [] : ["stovetop"],
+          equipment: slot === "smoothie" ? ["blender"] : effort === "assembly" ? [] : ["stovetop"],
         };
         await write(`recipes/${recipeId}.json`, /** @type {any} */ (recipe), { raw: true });
         setBankRecipes([...bankRecipesRef.current.filter((r) => r.id !== recipeId), recipe]);
@@ -3857,6 +4126,11 @@ function App() {
             ),
           )}
         onGenerateWeek=${handleGenerateWeek}
+        brigade=${plannerBrigade}
+        brigadeRun=${brigadeRun}
+        onAddGuest=${handleAddGuestSeat}
+        onRemoveGuest=${handleRemoveGuestSeat}
+        onNewGuestProfile=${handleNewGuestProfile}
         buildReport=${buildReport}
         rebuilt=${buildReport !== null}
         tableStale=${tableStale}
@@ -3989,7 +4263,16 @@ function App() {
       html`<${ProfileGateView}
         guest
         onDone=${() => {
-          location.hash = "#/tables";
+          // back to wherever the questionnaire was opened from (the Plan
+          // tab's "+ add someone", 2026-09-05), Tables by default
+          let back = "#/tables";
+          try {
+            back = sessionStorage.getItem("mise.guestBack") || back;
+            sessionStorage.removeItem("mise.guestBack");
+          } catch {
+            // storage unavailable: Tables is fine
+          }
+          location.hash = back;
           location.reload();
         }}
       />`
@@ -4060,6 +4343,7 @@ function App() {
         scoreboard=${scoreboard}
         weekId=${weekId}
         onCreateBrigade=${handleCreateBrigade}
+        onUpdateBrigade=${handleUpdateBrigade}
         onRemoveBrigade=${handleRemoveBrigade}
         onRunBrigade=${handleRunBrigade}
       />`

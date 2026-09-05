@@ -849,8 +849,11 @@ function breaksFloor(entries, recipesById, date, bounds, before = null) {
   const prior = before ? dayTotals(before, recipesById, date) : null;
   // broken-and-worsened, or newly broken; a floor already missed does not
   // veto a move that leaves its number the same or better
-  const trips = (/** @type {number} */ now, /** @type {number} */ floor, /** @type {number | null} */ was) =>
-    now < floor && (was == null || was >= floor || now < was);
+  const trips = (
+    /** @type {number} */ now,
+    /** @type {number} */ floor,
+    /** @type {number | null} */ was,
+  ) => now < floor && (was == null || was >= floor || now < was);
   if (trips(totals.calories, bounds.calorieFloor, prior ? prior.calories : null)) return true;
   if (trips(totals.protein, bounds.proteinFloor, prior ? prior.protein : null)) return true;
   for (const [group, floor] of Object.entries(bounds.groupFloors ?? {})) {
@@ -984,7 +987,7 @@ export function calorieTrimPass(plan, recipesById, bounds, slotPools = null) {
             // hold PROTEIN still, so only calories move
             const servings = Math.min(
               3,
-              Math.max(0.25, Math.round((outProt / candProt) / 0.25) * 0.25),
+              Math.max(0.25, Math.round(outProt / candProt / 0.25) * 0.25),
             );
             const dCal = outCal - (cand.nutrition?.calories ?? 0) * servings;
             if (dCal <= 0) continue; // must actually reduce calories
@@ -1126,8 +1129,9 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
       // most the ceiling, buy at most what is left of it. Never below the
       // floor: `breaksFloor` still guards every step, and the floor reads
       // dayTotals because a swipe genuinely feeds him.
-      const free = dayTotals(next.entries, recipesById, date).protein
-        - dayBought(next.entries, recipesById, date);
+      const free =
+        dayTotals(next.entries, recipesById, date).protein -
+        dayBought(next.entries, recipesById, date);
       // AIM AT WHAT THE CALLER PASSED, capped at the ceiling. History, so
       // this comment can never contradict the code again (council
       // 2026-08-26): from 08-24 to 08-26 the caller passed the FLOOR (David:
@@ -1218,10 +1222,7 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
             // every candidate, which is exactly what happened before this
             // line existed: 5 of 35 days stayed over on days sitting 1 to
             // 73 kcal above the floor with no legal move.
-            const s0 = Math.min(
-              3,
-              Math.max(0.25, Math.round(outCal / candCal / 0.25) * 0.25),
-            );
+            const s0 = Math.min(3, Math.max(0.25, Math.round(outCal / candCal / 0.25) * 0.25));
             // The 0.25-serving rounding can land a near-equal candidate a few
             // kcal UNDER the floor on a day already trimmed to it, vetoing
             // every legal-looking swap over a 5 kcal float (found 2026-08-25,
@@ -1258,8 +1259,7 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
         // every candidate would break a floor. This break used to be silent;
         // the comment always promised "say so instead" and now it does.
         const finalBought = dayBought(next.entries, recipesById, date);
-        const finalFree =
-          dayTotals(next.entries, recipesById, date).protein - finalBought;
+        const finalFree = dayTotals(next.entries, recipesById, date).protein - finalBought;
         const finalAim = Number.isFinite(Number(bounds.proteinTarget))
           ? Math.min(ceiling, Number(bounds.proteinTarget))
           : ceiling;
@@ -1279,7 +1279,6 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
   if (bounds.report) bounds.report.proteinTrim = { residualDays };
   return next;
 }
-
 
 /**
  * Protein/calorie floor misses, per day, after the top-up has run. Days are
@@ -1575,7 +1574,8 @@ export function generateWeek({
   // off." A day after the kitchen empties is not a day to plan meals for, so
   // it is treated exactly like a day already eaten: left alone, and REPORTED
   // rather than silently dropped.
-  const isGone = (/** @type {string} */ d) => Boolean(drainDownIso) && d > /** @type {string} */ (drainDownIso);
+  const isGone = (/** @type {string} */ d) =>
+    Boolean(drainDownIso) && d > /** @type {string} */ (drainDownIso);
   const liveDates = dates.filter((d) => !isPast(d) && !isHeld(d) && !isGone(d));
   const byId = recipesById(recipes);
   const datedPantry = pantryItems(pantry).filter(isDatedItem);
@@ -1927,29 +1927,29 @@ export function generateWeek({
     const committee = fixed
       ? [fixed]
       : pickCommittee(
-      pool(meal).filter((r) => !pinnedRecipeIds.has(r.id)),
-      {
-        size: COMMITTEE_SIZES[meal],
-        salt,
-        useSoonFoods,
-        onHandFoods,
-        avoidOverlapFoods: otherCookFoods,
-        weekFoodPool,
-        coverageSoFar,
-        dailyDozenTargets: dailyDozenWeekly,
-        dislikeIngredients: targets?.dislikeIngredients,
-        proteinRatioNeeded: remainingNeedRatio,
-        weights: targets?.weights,
-        tiredOf: targets?.tiredOf,
-        reviewTossedFoods,
-        reviewSkippedIds,
-        recentRecipeIds: recentSet,
-        cuisinePrefs: targets?.cuisinePrefs,
-        budget: targets?.budget,
-        breakfastStyle: meal === "breakfast" ? targets?.breakfastStyle : undefined,
-        rotateProtein: meal === "dinner",
-      },
-    );
+          pool(meal).filter((r) => !pinnedRecipeIds.has(r.id)),
+          {
+            size: COMMITTEE_SIZES[meal],
+            salt,
+            useSoonFoods,
+            onHandFoods,
+            avoidOverlapFoods: otherCookFoods,
+            weekFoodPool,
+            coverageSoFar,
+            dailyDozenTargets: dailyDozenWeekly,
+            dislikeIngredients: targets?.dislikeIngredients,
+            proteinRatioNeeded: remainingNeedRatio,
+            weights: targets?.weights,
+            tiredOf: targets?.tiredOf,
+            reviewTossedFoods,
+            reviewSkippedIds,
+            recentRecipeIds: recentSet,
+            cuisinePrefs: targets?.cuisinePrefs,
+            budget: targets?.budget,
+            breakfastStyle: meal === "breakfast" ? targets?.breakfastStyle : undefined,
+            rotateProtein: meal === "dinner",
+          },
+        );
     committees[meal] = committee;
     // accrue coverage at each member's EXPECTED weekly appearances (dinner
     // repeats twice; cycled meals appear 7/committee-size times; a FIXED slot
@@ -2101,7 +2101,8 @@ export function generateWeek({
   const dinnerNights = { cook: [], leftover: [], uncovered: [] };
   if (cookDaySet && mealSlotSet.has("dinner")) {
     const liveDinnerDates = dates.filter(
-      (d) => !isPast(d) && !isHeld(d) && !isGone(d) && entriesAt(next.entries, d, "dinner").length === 0,
+      (d) =>
+        !isPast(d) && !isHeld(d) && !isGone(d) && entriesAt(next.entries, d, "dinner").length === 0,
     );
     const cookNights = liveDinnerDates.filter(isCookNight);
     for (const d of liveDinnerDates) {
@@ -2170,10 +2171,7 @@ export function generateWeek({
     // assignment a discard — and the permutation below would then park the
     // lean pick on the discard and cook the dense one instead (reviewer
     // catch 2026-08-19: the swap must trade real slots only)
-    if (
-      mealSlotSet.has("breakfast") &&
-      entriesAt(next.entries, date, "breakfast").length === 0
-    ) {
+    if (mealSlotSet.has("breakfast") && entriesAt(next.entries, date, "breakfast").length === 0) {
       assigned.breakfast.set(
         date,
         committees.breakfast[i % Math.max(1, committees.breakfast.length)],
@@ -2490,12 +2488,19 @@ export function generateWeek({
     });
     if (stillShort) {
       snackWeeklyRelaxed = true;
-      next = macroTopUp(next, fullSnackPool, byId, floors, targets?.snackAppetite === "meals" ? 1 : 3, {
-        budget: targets?.budget,
-        weekFoodPool,
-        proteinTargetG: proteinTarget,
-        lockedSlots,
-      });
+      next = macroTopUp(
+        next,
+        fullSnackPool,
+        byId,
+        floors,
+        targets?.snackAppetite === "meals" ? 1 : 3,
+        {
+          budget: targets?.budget,
+          weekFoodPool,
+          proteinTargetG: proteinTarget,
+          lockedSlots,
+        },
+      );
     }
   }
   // the tally counts AFTER the relax pass, so the manifest reports every
@@ -2523,9 +2528,7 @@ export function generateWeek({
     const portions = snackWeeklyMode
       ? liveDates.reduce((sum, d) => {
           const planned = next.entries
-            .filter(
-              (e) => e.date === d && e.slot === "snack" && e.recipeId === bufferPick.id,
-            )
+            .filter((e) => e.date === d && e.slot === "snack" && e.recipeId === bufferPick.id)
             .reduce((t, e) => t + (e.servings ?? 0), 0);
           return sum + Math.max(1, Math.ceil(planned));
         }, 0)

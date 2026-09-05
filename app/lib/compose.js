@@ -33,7 +33,14 @@ const LEFTOVER_SLOTS = new Set(["dinner"]);
 /** the longest a no-cook night may sit from the pot it eats (the bank's longest safeDays) */
 const MAX_LEFTOVER_DAYS = 4;
 /** dishes written to be cooked once and eaten again (same tag set portions.js keys its ledger on) */
-const BATCH_TAGS = new Set(["batch-friendly", "freezes-well", "meal-prep", "leftover-remix", "one-pot", "freezer-friendly"]);
+const BATCH_TAGS = new Set([
+  "batch-friendly",
+  "freezes-well",
+  "meal-prep",
+  "leftover-remix",
+  "one-pot",
+  "freezer-friendly",
+]);
 /** a protein class repeated within this many days counts against a cook night's pick */
 const PROTEIN_WINDOW_DAYS = 6;
 /** how a same-class repeat weighs against a same-recipe repeat (1/gap) in the variety tie-break */
@@ -174,8 +181,7 @@ export function solveSeatDay(dishes, bands, sigma, fixed = {}) {
       // over the ceiling or the +100 cap: only ever acceptable as the least
       // violation when NOTHING fits under the caps (a seat so small the
       // tiniest plate overshoots must still be fed, and named)
-      const overScore =
-        Math.max(0, kcal - bands.kcalHi) / 25 + Math.max(0, p - bands.pHi) + score;
+      const overScore = Math.max(0, kcal - bands.kcalHi) / 25 + Math.max(0, p - bands.pHi) + score;
       // an over-miss never displaces an under-miss (too little names itself
       // on the day report; too much silently overfeeds)
       if (!bestMiss || (bestMiss.over && overScore < (bestMiss.overScore ?? Infinity))) {
@@ -210,13 +216,7 @@ export function solveSeatDay(dishes, bands, sigma, fixed = {}) {
     // opposite reactions, and the old single word rendered a 235-kcal-over
     // seat as "short" (Final Gate Engineer, 2026-08-30)
     status:
-      chosen === bestBand
-        ? "band"
-        : chosen === bestFloor
-          ? "floor"
-          : chosen.over
-            ? "over"
-            : "miss",
+      chosen === bestBand ? "band" : chosen === bestFloor ? "floor" : chosen.over ? "over" : "miss",
   };
 }
 
@@ -278,7 +278,10 @@ export function composeDay(day) {
   if (slots.length === 0 || day.seats.length === 0) return null;
   const recent = (/** @type {string} */ slot) => day.recentBySlot?.[slot];
   const recentClass = (/** @type {string} */ slot) => day.recentClassBySlot?.[slot];
-  const classRepeats = (/** @type {string} */ slot, /** @type {Record<string, any> | undefined} */ r) => {
+  const classRepeats = (
+    /** @type {string} */ slot,
+    /** @type {Record<string, any> | undefined} */ r,
+  ) => {
     const set = recentClass(slot);
     if (!set) return false; // this slot does not rotate proteins
     const cls = recipeProteinClass(r);
@@ -437,9 +440,7 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
   const blocked = new Set();
   // trust boundary once, at the top: a plan file is device-written, and every
   // leg below (own entries, the swipe ledger, the occupied set) walks this
-  const entries = (plan?.entries ?? []).filter(
-    (e) => e !== null && typeof e === "object",
-  );
+  const entries = (plan?.entries ?? []).filter((e) => e !== null && typeof e === "object");
   const dateSet = new Set(dates);
 
   for (const e of entries) {
@@ -470,9 +471,16 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
     const ledger = plan ?? { week: "", entries: [] };
     const est = buffetMacroEstimate([], slot, buffet);
     const already = new Set(
-      entries.filter((e) => e.out && /** @type {any} */ (e).currency).map((e) => `${e.date}|${e.slot}`),
+      entries
+        .filter((e) => e.out && /** @type {any} */ (e).currency)
+        .map((e) => `${e.date}|${e.slot}`),
     );
-    for (const pair of weekRunSwipes(meals, /** @type {any} */ (buffet), /** @type {any} */ (ledger), today)) {
+    for (const pair of weekRunSwipes(
+      meals,
+      /** @type {any} */ (buffet),
+      /** @type {any} */ (ledger),
+      today,
+    )) {
       if (already.has(`${pair.date}|${pair.slot}`)) continue; // counted above at its stored estimate
       const cov = coveredByDate[pair.date];
       if (!cov) continue;
@@ -485,12 +493,17 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
 
   // fixed slots: daily, on slots the brigade is NOT planning (a planned slot
   // wins — the convention every surface already keeps), screened first
-  const occupied = new Set(entries.filter((e) => e.pinned || e.out).map((e) => `${e.date}|${e.slot}`));
+  const occupied = new Set(
+    entries.filter((e) => e.pinned || e.out).map((e) => `${e.date}|${e.slot}`),
+  );
   for (const [slot, rid] of Object.entries(targets?.fixedSlots ?? {})) {
     if (brigadeSlots.has(slot)) continue;
     const recipe = bankById.get(String(rid));
     if (!recipe) continue;
-    if (recipeConflicts(recipe, targets?.diet, targets?.avoidIngredients, targets?.avoidRecipes).length > 0)
+    if (
+      recipeConflicts(recipe, targets?.diet, targets?.avoidIngredients, targets?.avoidRecipes)
+        .length > 0
+    )
       continue; // a fixed slot the screens refuse is a miss, never a phantom credit
     for (const d of dates) {
       if (occupied.has(`${d}|${slot}`)) continue;
@@ -641,8 +654,8 @@ export function planBrigadeWeek(events, brigade, ctx) {
     .filter((d) => d >= ctx.today)
     .sort();
 
-  let tables = pruneTables(events, ctx.today).tables
-    // trust boundary, same bar deriveTables holds: a device-poisoned table
+  let tables = pruneTables(events, ctx.today)
+    .tables// trust boundary, same bar deriveTables holds: a device-poisoned table
     // (seats not an array, junk dates) is skipped here rather than throwing
     // three lines into the write loop
     .filter(
@@ -668,13 +681,11 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // seven days actually under the calorie floor. A standing brigade OWNS its
   // span; hand-set tables carry neither marker and survive, still outranking
   // the brigade at derivation exactly as designed.
-  const plannedKeys = new Set(
-    dates.flatMap((d) => brigade.slots.map((s) => `${d}|${s}`)),
-  );
+  const plannedKeys = new Set(dates.flatMap((d) => brigade.slots.map((s) => `${d}|${s}`)));
   tables = tables.filter(
     (t) =>
       !(
-        (/** @type {any} */ (t).fromWeekRun || String(t.name ?? "").startsWith("Family ")) &&
+        /** @type {any} */ ((t).fromWeekRun || String(t.name ?? "").startsWith("Family ")) &&
         !t.fromBrigade &&
         t.date >= ctx.today &&
         plannedKeys.has(`${t.date}|${t.slot}`)
@@ -723,7 +734,8 @@ export function planBrigadeWeek(events, brigade, ctx) {
     }
     // a slot the brigade deliberately narrowed (slotRecipes) repeats by design
     // and is not "thin"
-    const narrowed = Array.isArray(brigade.slotRecipes?.[slot]) && (brigade.slotRecipes?.[slot]?.length ?? 0) > 0;
+    const narrowed =
+      Array.isArray(brigade.slotRecipes?.[slot]) && (brigade.slotRecipes?.[slot]?.length ?? 0) > 0;
     if (pool.length < dates.length && !narrowed) thin.push({ slot, available: pool.length });
     const walk = [...pool].sort(
       (a, b) =>
@@ -906,7 +918,9 @@ export function planBrigadeWeek(events, brigade, ctx) {
         dayPools[slot] = pool;
       }
       const pick =
-        pool[(((hash(`${seed}|${slot}`) + dayOffset(date)) % pool.length) + pool.length) % pool.length];
+        pool[
+          (((hash(`${seed}|${slot}`) + dayOffset(date)) % pool.length) + pool.length) % pool.length
+        ];
       if (pick) startBySlot[slot] = pick;
     }
     // GUESTS for this date: seated on an existing table, not a member, a real
@@ -931,9 +945,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
       // skip stays skipped. A machine-stamped skip (auto: true) is
       // recomputed fresh every run — carrying it would keep a member off the
       // pot forever after they unpin (the resurrect-the-decline bug, inverted)
-      const blockedSlots = new Set(
-        liveSlots.filter((slot) => cov?.blocked.has(`${date}|${slot}`)),
-      );
+      const blockedSlots = new Set(liveSlots.filter((slot) => cov?.blocked.has(`${date}|${slot}`)));
       const exclude = new Set(
         liveSlots.filter((slot) => {
           if (blockedSlots.has(slot)) return true;
@@ -1070,7 +1082,16 @@ export function planBrigadeWeek(events, brigade, ctx) {
       if (lo) nights.leftover.push({ date, from: lo.date });
       else nights.cook.push(date);
     }
-    composedDays.push({ date, existingBySlot, seats, eating, composed, picks, leftoverBySlot, dayPools });
+    composedDays.push({
+      date,
+      existingBySlot,
+      seats,
+      eating,
+      composed,
+      picks,
+      leftoverBySlot,
+      dayPools,
+    });
   }
 
   // THE WEEK-LEVEL COST SWEEP (David's yes, 2026-08-30). Runs AFTER the
@@ -1118,7 +1139,10 @@ export function planBrigadeWeek(events, brigade, ctx) {
     // and composeDay itself only prices repeats as a tie-break — it is "no
     // worse than the blind week": a swap may move a repeat onto a cheaper
     // dish or push it farther apart, never pack the menu tighter.
-    const repeatMetric = (/** @type {string} */ slot, /** @type {Map<string, string>} */ assignments) => {
+    const repeatMetric = (
+      /** @type {string} */ slot,
+      /** @type {Map<string, string>} */ assignments,
+    ) => {
       const w = windowOf(slot);
       const rows = [...assignments];
       let metric = 0;
@@ -1197,7 +1221,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         existing &&
         !ctx.regenerate &&
         existing.recipeId === meal.id &&
-        (/** @type {any} */ (existing).leftoverOf ?? undefined) === wantLeftoverOf
+        /** @type {any} */ ((existing).leftoverOf ?? undefined) === wantLeftoverOf
       ) {
         // untouched existing table on a partially-new day stays untouched
         continue;
@@ -1241,7 +1265,9 @@ export function planBrigadeWeek(events, brigade, ctx) {
           servings: fixedHere
             ? fixedSeat.servings
             : seat?.exclude.has(slot)
-              ? (sameDish ? (old?.servings ?? fallback) : fallback)
+              ? sameDish
+                ? (old?.servings ?? fallback)
+                : fallback
               : (solvedS ?? fallback),
           ...(raw3 !== undefined ? { rawServings: raw3 } : {}),
           ...(old?.status && !(/** @type {any} */ (old).auto) ? { status: old.status } : {}),

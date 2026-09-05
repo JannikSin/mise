@@ -622,9 +622,7 @@ export function patchSeat(events, tableId, profileId, patch, today) {
   // rawServings, which misread 80% of the composer's own output as human
   // and froze regenerations; intent is stamped now, never derived).
   const clean = {
-    ...(patch.servings != null
-      ? { servings: clampServings(patch.servings), edited: true }
-      : {}),
+    ...(patch.servings != null ? { servings: clampServings(patch.servings), edited: true } : {}),
     ...(patch.status != null ? { status: patch.status } : {}),
   };
   const base = today ? pruneTables(events, today) : events;
@@ -1066,15 +1064,18 @@ export function brigadePool(bankById, members, slot) {
     // a recipe any member has banned outright (targets.avoidRecipes) never
     // reaches the shared pot — intersection, same as the diet screens
     if (members.some((m) => (m.avoidRecipes ?? []).includes(recipe.id))) continue;
-    if (noCookBreakfast && recipe.effort !== "assembly" && recipe.effort !== "assemble")
-      continue;
+    if (noCookBreakfast && recipe.effort !== "assembly" && recipe.effort !== "assemble") continue;
     if (anchoredDinner && (recipe.tags ?? []).includes("carb-forward")) continue;
     if (
       slotTerms.length > 0 &&
       (recipe.ingredients ?? []).some(
         (/** @type {any} */ ing) =>
           !ing.optional &&
-          slotTerms.some((t) => String(ing.food ?? "").toLowerCase().includes(t)),
+          slotTerms.some((t) =>
+            String(ing.food ?? "")
+              .toLowerCase()
+              .includes(t),
+          ),
       )
     )
       continue;
@@ -1163,7 +1164,9 @@ export function updateBrigade(events, id, patch, today) {
   if (!validBrigade(next)) return cleaned;
   return {
     ...cleaned,
-    brigades: (cleaned.brigades ?? []).map((b) => (b.id === id ? /** @type {Brigade} */ (next) : b)),
+    brigades: (cleaned.brigades ?? []).map((b) =>
+      b.id === id ? /** @type {Brigade} */ (next) : b,
+    ),
   };
 }
 

@@ -599,9 +599,10 @@ export function buffetMacroEstimate(recipes, slot, currency = /** @type {any} */
   };
   if (Number.isFinite(stated.estProtein) && stated.estProtein > 0) {
     return {
-      estCalories: Number.isFinite(stated.estCalories) && stated.estCalories > 0
-        ? Math.round(stated.estCalories)
-        : slotMacroEstimate(recipes, slot).estCalories,
+      estCalories:
+        Number.isFinite(stated.estCalories) && stated.estCalories > 0
+          ? Math.round(stated.estCalories)
+          : slotMacroEstimate(recipes, slot).estCalories,
       estProtein: Math.round(stated.estProtein),
     };
   }
@@ -783,7 +784,11 @@ export function dailyCovered(targets, bankById, plannedSlots, swipe = null) {
     );
   }
   if (calories <= 0 && protein <= 0) return null;
-  return { calories: Math.round(calories), protein: Math.round(protein), note: parts.join(" and ") };
+  return {
+    calories: Math.round(calories),
+    protein: Math.round(protein),
+    note: parts.join(" and "),
+  };
 }
 
 // The lean-menu screen (2026-08-29) retired 2026-08-30 (session monolith):
@@ -1037,7 +1042,9 @@ export function recordCook(plan, entryId, dateIso, seconds) {
  * @returns {Plan}
  */
 export function setCookComment(plan, entryId, comment) {
-  const text = String(comment ?? "").trim().slice(0, 200);
+  const text = String(comment ?? "")
+    .trim()
+    .slice(0, 200);
   return {
     ...plan,
     entries: plan.entries.map((e) => {
@@ -1070,7 +1077,14 @@ export function setPlanShopped(plan, dateIso, spend) {
     // P11's review have a real number instead of estimates-only. Appended,
     // never replaced: a week can hold several receipts.
     ...(spend
-      ? { spend: [...(Array.isArray(/** @type {any} */ (plan).spend) ? /** @type {any} */ (plan).spend : []), spend] }
+      ? {
+          spend: [
+            ...(Array.isArray(/** @type {any} */ (plan).spend)
+              ? /** @type {any} */ (plan).spend
+              : []),
+            spend,
+          ],
+        }
       : {}),
   };
 }
@@ -1149,9 +1163,7 @@ export function normalizePlan(raw, weekId) {
     ...(raw.locked !== undefined ? { locked: Boolean(raw.locked) } : {}),
     ...(typeof raw.shoppedAt === "string" ? { shoppedAt: raw.shoppedAt } : {}),
     // the shopped-plan snapshot (7.2): survives normalization untouched
-    ...(raw.fallback &&
-    typeof raw.fallback === "object" &&
-    Array.isArray(raw.fallback.entries)
+    ...(raw.fallback && typeof raw.fallback === "object" && Array.isArray(raw.fallback.entries)
       ? { fallback: raw.fallback }
       : {}),
     // the spend leg (PF.3): normalize used to build an explicit shape, which
@@ -1278,7 +1290,9 @@ export function dayBought(entries, recipesById, date) {
  * @returns {Plan}
  */
 export function setReviewNote(plan, text) {
-  const note = String(text ?? "").trim().slice(0, 500);
+  const note = String(text ?? "")
+    .trim()
+    .slice(0, 500);
   if (!note) {
     const rest = { ...plan };
     delete (/** @type {any} */ (rest).reviewNote);

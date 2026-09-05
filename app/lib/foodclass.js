@@ -299,7 +299,9 @@ const KEYWORDS = [
  * @returns {string | null}
  */
 function bestKeyword(food) {
-  const f = String(food ?? "").toLowerCase().trim();
+  const f = String(food ?? "")
+    .toLowerCase()
+    .trim();
   if (!f) return null;
   return KEYWORDS.find((k) => f === k || f.includes(k)) ?? null;
 }
@@ -367,7 +369,9 @@ export function proteinSourceOf(food) {
  * @returns {"chicken" | "turkey" | "beef" | "pork" | "fish" | "plant" | "egg" | "dairy" | null}
  */
 export function proteinClassOf(food) {
-  const f = String(food ?? "").toLowerCase().trim();
+  const f = String(food ?? "")
+    .toLowerCase()
+    .trim();
   if (!f) return null;
   // broths and stocks carry a name, not a protein: "chicken broth" is not
   // chicken, the same trap partOf() in synth.js debugged the hard way
@@ -405,7 +409,12 @@ export function recipeProteinClass(recipe) {
     .map((/** @type {any} */ i) => /** @type {string | null} */ (proteinClassOf(i.food)))
     .filter((/** @type {string | null} */ c) => c !== null)
     .map((/** @type {string | null} */ c) => String(c));
-  for (const tier of [["chicken", "turkey", "beef", "pork", "fish"], ["plant"], ["egg"], ["dairy"]]) {
+  for (const tier of [
+    ["chicken", "turkey", "beef", "pork", "fish"],
+    ["plant"],
+    ["egg"],
+    ["dairy"],
+  ]) {
     const hit = classes.find((/** @type {string} */ c) => tier.includes(c));
     if (hit) return /** @type {ReturnType<typeof proteinClassOf>} */ (hit);
   }
@@ -420,7 +429,9 @@ export function recipeProteinClass(recipe) {
  * @returns {string | null}
  */
 export function plantSpeciesOf(food) {
-  const f = String(food ?? "").toLowerCase().trim();
+  const f = String(food ?? "")
+    .toLowerCase()
+    .trim();
   if (!f) return null;
   if (proteinSourceOf(f) === "animal") return null;
   if (/\b(water|ice|salt|broth|coffee|tea|wine|vinegar)\b/.test(f)) return null;
