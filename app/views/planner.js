@@ -16,6 +16,22 @@ import { parseLocalIso } from "../lib/dates.js";
 import { manifestDrifted, manifestLines } from "../lib/manifest.js";
 import { CookBlocks } from "./cook-blocks.js";
 import { brigadeRunLines } from "./brigade-lines.js";
+import { rotateComponents, rotates } from "../lib/rotate.js";
+
+/**
+ * TODAY'S TOPPINGS on the plan row (David, 2026-09-06: "each day just has
+ * different ingredients"). A rotating recipe (the yogurt bowl) keeps its
+ * spine and picks its trimmings per date; until now the pick was only visible
+ * on the recipe page, so the row said the same bowl every morning.
+ * @param {Record<string, any> | null | undefined} recipe
+ * @param {string} date
+ * @returns {string}
+ */
+function toppingsLine(recipe, date) {
+  if (!rotates(recipe)) return "";
+  const chosen = rotateComponents(/** @type {any} */ (recipe).rotation, date);
+  return chosen.rotated.map((c) => c.food).join(" · ");
+}
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
@@ -615,15 +631,15 @@ export function PlannerView({
                           html`<span class="guestchip" key=${id}>
                             · ${nameOf(id)} <span class="hint">(guest)</span>
                             ${
-                            onRemoveGuest &&
-                            html`<button
-                              class="linktext"
-                              aria-label=${`Take ${nameOf(id)} off ${monthDay(date)}`}
-                              onClick=${() => onRemoveGuest(date, id)}
-                            >
-                              ✕
-                            </button>`
-                          }
+                              onRemoveGuest &&
+                              html`<button
+                                class="linktext"
+                                aria-label=${`Take ${nameOf(id)} off ${monthDay(date)}`}
+                                onClick=${() => onRemoveGuest(date, id)}
+                              >
+                                ✕
+                              </button>`
+                            }
                           </span>`,
                       )}
                     </span>
@@ -659,12 +675,12 @@ export function PlannerView({
                                 class=${panel.slots.includes(s) ? "chip on" : "chip"}
                                 aria-pressed=${panel.slots.includes(s)}
                                 onClick=${() =>
-                                setGuestPanel({
-                                  ...panel,
-                                  slots: panel.slots.includes(s)
-                                    ? panel.slots.filter((x) => x !== s)
-                                    : [...panel.slots, s],
-                                })}
+                                  setGuestPanel({
+                                    ...panel,
+                                    slots: panel.slots.includes(s)
+                                      ? panel.slots.filter((x) => x !== s)
+                                      : [...panel.slots, s],
+                                  })}
                               >
                                 ${SLOT_META[s]?.full ?? s}
                               </button>`,
@@ -679,11 +695,11 @@ export function PlannerView({
                                 class="chip"
                                 disabled=${panel.busy || panel.slots.length === 0}
                                 onClick=${async () => {
-                                if (!addGuest) return;
-                                setGuestPanel({ ...panel, busy: true, note: "" });
-                                const note = await addGuest(date, p.id, panel.slots);
-                                setGuestPanel({ ...panel, busy: false, note: note ?? "" });
-                              }}
+                                  if (!addGuest) return;
+                                  setGuestPanel({ ...panel, busy: true, note: "" });
+                                  const note = await addGuest(date, p.id, panel.slots);
+                                  setGuestPanel({ ...panel, busy: false, note: note ?? "" });
+                                }}
                               >
                                 ${p.emoji ?? ""}
                                 ${p.name ?? p.id}${p.household === "guesthouse" ? " (guest)" : ""}
@@ -754,6 +770,12 @@ export function PlannerView({
                                         ${
                                           /** @type {any} */ (entry).leftoverOf &&
                                           html` <span class="usesoon">leftovers</span>`
+                                        }
+                                        ${
+                                          toppingsLine(recipe, date) &&
+                                          html`<span class="hint plateline"
+                                            >🥣 ${toppingsLine(recipe, date)}</span
+                                          >`
                                         }
                                       </span>
                                       ${
@@ -829,6 +851,12 @@ export function PlannerView({
                                         /** @type {any} */ (entry).plate &&
                                         html`<span class="hint plateline"
                                           >✨ ${/** @type {any} */ (entry).plate.join(" · ")}</span
+                                        >`
+                                      }
+                                      ${
+                                        toppingsLine(recipe, date) &&
+                                        html`<span class="hint plateline"
+                                          >🥣 today: ${toppingsLine(recipe, date)}</span
                                         >`
                                       }
                                     </span>

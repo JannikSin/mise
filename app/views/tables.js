@@ -3,7 +3,13 @@ import { tokenBroken } from "../lib/github.js";
 import { useEffect, useState } from "preact/hooks";
 import { datesOfWeek, recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { parseLocalIso, isoWeekId } from "../lib/dates.js";
-import { SERVINGS_MIN, SERVINGS_MAX, effectiveBuyerOf, resolveHead } from "../lib/tables.js";
+import {
+  SERVINGS_MIN,
+  SERVINGS_MAX,
+  clampGuests,
+  effectiveBuyerOf,
+  resolveHead,
+} from "../lib/tables.js";
 import { autoPlanEligible } from "../lib/plan.js";
 import { brigadeRunLines, cookDaysLabel } from "./brigade-lines.js";
 
@@ -424,6 +430,7 @@ export function TablesView({
           : ((t.seats ?? []).find((s) => s.status !== "skipped")?.id ?? t.cookId ?? "")
       );
       const headId = resolveHead(t, profiles ?? []);
+      const guestCount = clampGuests(t);
       const planWarn = !t.buyerId && missingPlanWarning ? missingPlanWarning(t) : null;
       return html`
         ${dayHead}
@@ -575,22 +582,21 @@ export function TablesView({
               onSetGuests &&
               html`<button
                 class="secondary"
-                aria-label="Add a guest plate to ${t.name || "this table"} (currently ${/** @type {any} */ (t).guests ?? 0})"
-                onClick=${() => onSetGuests(house, t.id, /** @type {any} */ ((t).guests ?? 0) + 1)}
+                aria-label="Add a guest plate to ${t.name || "this table"} (currently ${guestCount})"
+                onClick=${() => onSetGuests(house, t.id, guestCount + 1)}
               >
-                ➕ GUEST
-                PLATE${/** @type {any} */ (t).guests ? ` (${/** @type {any} */ (t).guests})` : ""}
+                ➕ GUEST PLATE${guestCount ? ` (${guestCount})` : ""}
               </button>`
             }
             ${
               mySeat &&
               house === myHouse &&
               onSetGuests &&
-              /** @type {any} */ ((t).guests ?? 0) > 0 &&
+              guestCount > 0 &&
               html`<button
                 class="secondary"
                 aria-label="Remove a guest plate from ${t.name || "this table"}"
-                onClick=${() => onSetGuests(house, t.id, /** @type {any} */ ((t).guests ?? 0) - 1)}
+                onClick=${() => onSetGuests(house, t.id, guestCount - 1)}
               >
                 ➖ GUEST
               </button>`
@@ -839,35 +845,37 @@ export function TablesView({
                             type="checkbox"
                             checked=${seat.in}
                             onInput=${(/** @type {any} */ e) =>
-                          setTableForm({
-                            ...tableForm,
-                            seats: {
-                              ...tableForm.seats,
-                              [p.id]: { ...seat, in: e.currentTarget.checked },
-                            },
-                          })}
+                              setTableForm({
+                                ...tableForm,
+                                seats: {
+                                  ...tableForm.seats,
+                                  [p.id]: { ...seat, in: e.currentTarget.checked },
+                                },
+                              })}
                           />
                           ${p.emoji ?? ""}
                           ${p.name ?? p.id}${
-                        p.household === "guesthouse" ? html` <span class="hint">(guest)</span>` : ""
-                      }
+                            p.household === "guesthouse"
+                              ? html` <span class="hint">(guest)</span>`
+                              : ""
+                          }
                           ${
-                        seat.in &&
-                        warns.length > 0 &&
-                        html`<span class="usesoon">⚠ ${warns.join(", ")}</span>`
-                      }
+                            seat.in &&
+                            warns.length > 0 &&
+                            html`<span class="usesoon">⚠ ${warns.join(", ")}</span>`
+                          }
                         </label>
                         ${
-                      seat.in &&
-                      html`<input
-                          class="num seatservings"
-                          type="number"
-                          min=${SERVINGS_MIN}
-                          max=${SERVINGS_MAX}
-                          step="0.5"
-                          aria-label="Servings for ${p.name ?? p.id}"
-                          value=${seat.servings}
-                          onInput=${(/** @type {any} */ e) =>
+                          seat.in &&
+                          html`<input
+                              class="num seatservings"
+                              type="number"
+                              min=${SERVINGS_MIN}
+                              max=${SERVINGS_MAX}
+                              step="0.5"
+                              aria-label="Servings for ${p.name ?? p.id}"
+                              value=${seat.servings}
+                              onInput=${(/** @type {any} */ e) =>
                             setTableForm({
                               ...tableForm,
                               seats: {
@@ -875,8 +883,8 @@ export function TablesView({
                                 [p.id]: { ...seat, servings: Number(e.currentTarget.value) || 1 },
                               },
                             })}
-                        /><span class="hint num">servings</span>`
-                    }
+                            /><span class="hint num">servings</span>`
+                        }
                       </div>
                     `;
                   })
