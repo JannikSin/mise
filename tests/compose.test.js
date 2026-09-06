@@ -55,15 +55,35 @@ const BANK = [
 const bankById = new Map(BANK.map((r) => [r.id, r]));
 
 const davidTargets = {
-  macros: { calories: 3700, caloriesFloor: 3500, protein: 190, proteinAim: 190, proteinCeiling: 215 },
+  macros: {
+    calories: 3700,
+    caloriesFloor: 3500,
+    protein: 190,
+    proteinAim: 190,
+    proteinCeiling: 215,
+  },
   currencies: [
-    { id: "swipes", venue: "buffet", perWeek: 7, preferredSlot: "lunch", estCalories: 1200, estProtein: 90 },
+    {
+      id: "swipes",
+      venue: "buffet",
+      perWeek: 7,
+      preferredSlot: "lunch",
+      estCalories: 1200,
+      estProtein: 90,
+    },
   ],
 };
 const elliotTargets = {
   macros: { calories: 2850, caloriesFloor: 2650, protein: 145 },
   currencies: [
-    { id: "swipes", venue: "buffet", perWeek: 7, preferredSlot: "lunch", estCalories: 950, estProtein: 70 },
+    {
+      id: "swipes",
+      venue: "buffet",
+      perWeek: 7,
+      preferredSlot: "lunch",
+      estCalories: 950,
+      estProtein: 70,
+    },
   ],
 };
 
@@ -71,7 +91,15 @@ const WAYNE_PROFILES = new Map([
   ["david", { id: "david", household: "wayne" }],
   ["elliot", { id: "elliot", household: "wayne" }],
 ]);
-const DATES = ["2026-08-31", "2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05", "2026-09-06"];
+const DATES = [
+  "2026-08-31",
+  "2026-09-01",
+  "2026-09-02",
+  "2026-09-03",
+  "2026-09-04",
+  "2026-09-05",
+  "2026-09-06",
+];
 const BRIGADE = {
   id: "wk",
   name: "Wayne kitchen",
@@ -151,8 +179,16 @@ test("composeDay swaps a light slot to land every seat jointly", () => {
     dinner: bankById.get("din-soup"),
   };
   const seats = [
-    { id: "david", targets: davidTargets, bands: seatBands(davidTargets, { calories: 1200, protein: 90 }) },
-    { id: "elliot", targets: elliotTargets, bands: seatBands(elliotTargets, { calories: 950, protein: 70 }) },
+    {
+      id: "david",
+      targets: davidTargets,
+      bands: seatBands(davidTargets, { calories: 1200, protein: 90 }),
+    },
+    {
+      id: "elliot",
+      targets: elliotTargets,
+      bands: seatBands(elliotTargets, { calories: 950, protein: 70 }),
+    },
   ];
   const out = composeDay({ slots, poolsBySlot, startBySlot, seats });
   assert.ok(out, "the day composes");
@@ -169,7 +205,11 @@ test("graduated acceptance: an impossible seat degrades with a name, the day sti
   const pools = { dinner: BANK.filter((r) => r.mealType === "dinner") };
   const start = { dinner: bankById.get("din-bulgogi") };
   const seats = [
-    { id: "big", targets: davidTargets, bands: seatBands(davidTargets, { calories: 2100, protein: 120 }) },
+    {
+      id: "big",
+      targets: davidTargets,
+      bands: seatBands(davidTargets, { calories: 2100, protein: 120 }),
+    },
     { id: "small", targets: tiny, bands: seatBands(tiny, { calories: 1050, protein: 45 }) },
   ];
   const out = composeDay({ slots, poolsBySlot: pools, startBySlot: start, seats });
@@ -208,7 +248,11 @@ test("PLAN A BRIGADE WEEK: every wayne day lands BOTH seats in band", () => {
     for (const id of ["david", "elliot"]) {
       const row = report.find((r) => r.date === date && r.seatId === id);
       assert.ok(row, `${id} has a report row on ${date}`);
-      assert.equal(row.status, "band", `${id} ${date} lands strictly (${row.dayKcal} kcal / ${row.dayProtein} g)`);
+      assert.equal(
+        row.status,
+        "band",
+        `${id} ${date} lands strictly (${row.dayKcal} kcal / ${row.dayProtein} g)`,
+      );
     }
     const david = report.find((r) => r.date === date && r.seatId === "david");
     assert.ok(
@@ -234,7 +278,10 @@ test("the re-roll salt reshuffles the picks; same salt, same week", () => {
   const b = planBrigadeWeek({ tables: [] }, { ...BRIGADE, salt: 1 }, wayneCtx()).events;
   const c = planBrigadeWeek({ tables: [] }, { ...BRIGADE, salt: 1 }, wayneCtx()).events;
   const seq = (/** @type {any} */ e) =>
-    e.tables.map((/** @type {any} */ t) => `${t.date}|${t.slot}|${t.recipeId}`).sort().join(",");
+    e.tables
+      .map((/** @type {any} */ t) => `${t.date}|${t.slot}|${t.recipeId}`)
+      .sort()
+      .join(",");
   assert.notEqual(seq(a), seq(b), "a bumped salt produces a different week");
   assert.equal(seq(b), seq(c), "the same salt is deterministic across devices");
   assert.deepEqual(
@@ -271,7 +318,14 @@ test("a member's own pinned entry takes them off that slot's pot for the day", (
   const plan = {
     week: "2026-W36",
     entries: [
-      { id: "x1", date: "2026-09-02", slot: "dinner", recipeId: "din-pasta", servings: 1, pinned: true },
+      {
+        id: "x1",
+        date: "2026-09-02",
+        slot: "dinner",
+        recipeId: "din-pasta",
+        servings: 1,
+        pinned: true,
+      },
     ],
   };
   const ctx = wayneCtx({ plansById: new Map([["elliot", plan]]) });
@@ -311,7 +365,11 @@ test("TARANOWSKI SHAPE: three seats with a 1.9x spread never lose a day (Red Tea
     plansById: new Map(),
     bankById,
   });
-  assert.equal(events.tables.length, DATES.length * 2, "every day materializes — no whole-day refusals");
+  assert.equal(
+    events.tables.length,
+    DATES.length * 2,
+    "every day materializes — no whole-day refusals",
+  );
   for (const row of report) {
     const t = { mom, dad, laurie }[row.seatId];
     assert.ok(
@@ -371,7 +429,10 @@ test("PROPERTY: 12 randomized weeks, every strict seat verdict is arithmetically
           `week ${week} ${seat.id}: an "over" verdict must actually be over`,
         );
       } else {
-        assert.ok(got.protein <= b.pHi, `week ${week} ${seat.id}: ceiling holds (${got.protein} <= ${b.pHi})`);
+        assert.ok(
+          got.protein <= b.pHi,
+          `week ${week} ${seat.id}: ceiling holds (${got.protein} <= ${b.pHi})`,
+        );
         assert.ok(got.kcal <= b.kcalHi, `week ${week} ${seat.id}: +100 cap holds`);
       }
       if (got.status === "band") {
@@ -394,7 +455,10 @@ test("SHADOW SWEEP: stale week-run tables in the brigade's span are cleared, han
       slot: "smoothie",
       recipeId: "smo-mango",
       fromWeekRun: true,
-      seats: [{ id: "david", servings: 1 }, { id: "elliot", servings: 1 }],
+      seats: [
+        { id: "david", servings: 1 },
+        { id: "elliot", servings: 1 },
+      ],
     },
     {
       id: `wk-run-${i}b`,
@@ -402,7 +466,10 @@ test("SHADOW SWEEP: stale week-run tables in the brigade's span are cleared, han
       date,
       slot: "dinner",
       recipeId: "din-soup",
-      seats: [{ id: "david", servings: 1 }, { id: "elliot", servings: 1 }],
+      seats: [
+        { id: "david", servings: 1 },
+        { id: "elliot", servings: 1 },
+      ],
     },
   ]);
   const handSet = {
@@ -411,7 +478,10 @@ test("SHADOW SWEEP: stale week-run tables in the brigade's span are cleared, han
     date: "2026-09-03",
     slot: "dinner",
     recipeId: "din-gyros",
-    seats: [{ id: "david", servings: 1 }, { id: "elliot", servings: 1 }],
+    seats: [
+      { id: "david", servings: 1 },
+      { id: "elliot", servings: 1 },
+    ],
   };
   const { events } = planBrigadeWeek({ tables: [...stale, handSet] }, BRIGADE, wayneCtx());
   assert.ok(
@@ -428,7 +498,14 @@ test("a blocked seat is written SKIPPED with auto, so the cook never buys its pl
   const plan = {
     week: "2026-W36",
     entries: [
-      { id: "x1", date: "2026-09-02", slot: "dinner", recipeId: "din-pasta", servings: 1, pinned: true },
+      {
+        id: "x1",
+        date: "2026-09-02",
+        slot: "dinner",
+        recipeId: "din-pasta",
+        servings: 1,
+        pinned: true,
+      },
     ],
   };
   const { events } = planBrigadeWeek(
@@ -456,9 +533,7 @@ test("an edited: true seat binds the composer while the dish is unchanged, and O
       t.id === target.id
         ? {
             ...t,
-            seats: t.seats.map((s) =>
-              s.id === "david" ? { ...s, servings: 2, edited: true } : s,
-            ),
+            seats: t.seats.map((s) => (s.id === "david" ? { ...s, servings: 2, edited: true } : s)),
           }
         : t,
     ),
@@ -513,11 +588,24 @@ test("a seat with no usable targets gets a NAMED report row, never silence", () 
 // ---------------------------------------------------------------------------
 
 const SWEEP_PRICE = {
-  "bf-oats": 1.2, "bf-yogurt": 2.6, "bf-balls": 1.4, "bf-light": 1.1,
-  "smo-berry": 2.4, "smo-banana": 1.3, "smo-mango": 1.9, "smo-big": 3.1,
-  "snk-mix": 1.8, "snk-cottage": 1.1, "snk-fruitplate": 2.9, "snk-small": 0.9,
-  "din-bulgogi": 6.5, "din-gyros": 0.5, "din-soup": 2.1, "din-stew": 2.4,
-  "din-pasta": 3.2, "din-kofta": 0.6,
+  "bf-oats": 1.2,
+  "bf-yogurt": 2.6,
+  "bf-balls": 1.4,
+  "bf-light": 1.1,
+  "smo-berry": 2.4,
+  "smo-banana": 1.3,
+  "smo-mango": 1.9,
+  "smo-big": 3.1,
+  "snk-mix": 1.8,
+  "snk-cottage": 1.1,
+  "snk-fruitplate": 2.9,
+  "snk-small": 0.9,
+  "din-bulgogi": 6.5,
+  "din-gyros": 0.5,
+  "din-soup": 2.1,
+  "din-stew": 2.4,
+  "din-pasta": 3.2,
+  "din-kofta": 0.6,
 };
 const sweepCostOf = (id) => SWEEP_PRICE[id] ?? 4;
 const sweepWeekCost = (events) =>
@@ -539,9 +627,16 @@ test("cost sweep: never dearer than blind, every day still lands, deterministic,
     `swept week ($${sweepWeekCost(aware.events).toFixed(2)}) must never cost more than blind ($${sweepWeekCost(blind.events).toFixed(2)})`,
   );
   for (const row of aware.report) {
-    assert.equal(row.status, "band", `${row.seatId} ${row.date} still lands (${row.dayKcal} kcal / ${row.dayProtein} g)`);
+    assert.equal(
+      row.status,
+      "band",
+      `${row.seatId} ${row.date} still lands (${row.dayKcal} kcal / ${row.dayProtein} g)`,
+    );
   }
-  assert.ok(aware.swept.swaps > 0, "the fixture's near-free dinners must attract at least one swap");
+  assert.ok(
+    aware.swept.swaps > 0,
+    "the fixture's near-free dinners must attract at least one swap",
+  );
   assert.ok(aware.swept.saved > 0, "a swap that saved nothing should not have been accepted");
   assert.deepEqual(blind.swept, { swaps: 0, saved: 0 }, "no costOf, no sweep");
 });
@@ -562,7 +657,9 @@ test("cost sweep: variety never gets worse than the blind week", () => {
       for (let i = 0; i < tables.length; i++) {
         for (let k = i + 1; k < tables.length; k++) {
           if (tables[i].recipeId !== tables[k].recipeId) continue;
-          const gap = Math.abs((Date.parse(tables[i].date) - Date.parse(tables[k].date)) / 86400000);
+          const gap = Math.abs(
+            (Date.parse(tables[i].date) - Date.parse(tables[k].date)) / 86400000,
+          );
           if (gap > 0 && gap <= w) metric += 1 / gap;
         }
       }
@@ -586,7 +683,11 @@ test("cost sweep: a cooked table is never re-planned for money", () => {
       t.slot === "dinner" ? { ...t, cookedAt: "2026-08-31T18:00:00Z" } : t,
     ),
   };
-  const swept = planBrigadeWeek(cooked, BRIGADE, wayneCtx({ costOf: sweepCostOf, regenerate: true }));
+  const swept = planBrigadeWeek(
+    cooked,
+    BRIGADE,
+    wayneCtx({ costOf: sweepCostOf, regenerate: true }),
+  );
   for (const t of swept.events.tables.filter((x) => x.slot === "dinner")) {
     const before = first.events.tables.find((x) => x.id === t.id);
     assert.equal(t.recipeId, before.recipeId, `cooked dinner ${t.id} keeps its dish`);
@@ -598,10 +699,21 @@ test("cost sweep: a cooked table is never re-planned for money", () => {
 // (David, 2026-09-05). A Sunday-opening week: Sun Sep 6 … Sat Sep 12 2026.
 // ---------------------------------------------------------------------------
 
-const SUN_WEEK = ["2026-09-06", "2026-09-07", "2026-09-08", "2026-09-09", "2026-09-10", "2026-09-11", "2026-09-12"];
+const SUN_WEEK = [
+  "2026-09-06",
+  "2026-09-07",
+  "2026-09-08",
+  "2026-09-09",
+  "2026-09-10",
+  "2026-09-11",
+  "2026-09-12",
+];
 /** the same bank, but one dinner keeps four days — the only pot Thursday can eat from Sunday */
 const KEEPS_BANK = new Map(
-  BANK.map((r) => [r.id, r.id === "din-stew" ? { ...r, safeDays: 4, tags: ["batch-friendly"] } : r]),
+  BANK.map((r) => [
+    r.id,
+    r.id === "din-stew" ? { ...r, safeDays: 4, tags: ["batch-friendly"] } : r,
+  ]),
 );
 const COOK_BRIGADE = {
   ...BRIGADE,
@@ -609,7 +721,8 @@ const COOK_BRIGADE = {
   until: "2026-10-03",
   cookDays: [0, 1, 5, 6], // Sun Mon Fri Sat: cook Fri–Mon, no-cook Tue–Thu
 };
-const sunCtx = (overrides = {}) => wayneCtx({ dates: SUN_WEEK, today: "2026-09-06", bankById: KEEPS_BANK, ...overrides });
+const sunCtx = (overrides = {}) =>
+  wayneCtx({ dates: SUN_WEEK, today: "2026-09-06", bankById: KEEPS_BANK, ...overrides });
 const dinnerOn = (events, date) =>
   events.tables.find((t) => t.fromBrigade === "wk" && t.date === date && t.slot === "dinner");
 
@@ -625,12 +738,21 @@ test("COOK NIGHTS: no-cook nights eat leftovers round-robin (Sun feeds Tue+Thu, 
   const sun = dinnerOn(events, "2026-09-06");
   const mon = dinnerOn(events, "2026-09-07");
   // Sunday's pot must last until Thursday (gap 4): only the 4-day dish qualifies
-  assert.equal(sun.recipeId, "din-stew", "the feeding cook night draws a dish that keeps long enough");
-  for (const [d, src] of [["2026-09-08", sun], ["2026-09-10", sun], ["2026-09-09", mon]]) {
+  assert.equal(
+    sun.recipeId,
+    "din-stew",
+    "the feeding cook night draws a dish that keeps long enough",
+  );
+  for (const [d, src] of [
+    ["2026-09-08", sun],
+    ["2026-09-10", sun],
+    ["2026-09-09", mon],
+  ]) {
     const t = dinnerOn(events, d);
     assert.equal(t.leftoverOf, src.id, `${d} eats from ${src.date}'s pot`);
     assert.equal(t.recipeId, src.recipeId, `${d} is the same dish as its pot`);
-    for (const s of t.seats) assert.ok(s.servings >= 0.5, `${s.id} still has a solved plate on ${d}`);
+    for (const s of t.seats)
+      assert.ok(s.servings >= 0.5, `${s.id} still has a solved plate on ${d}`);
   }
   for (const d of nights.cook) assert.equal(dinnerOn(events, d).leftoverOf, undefined);
   // the leftover nights still land: seats are solved against the fixed dish
@@ -647,7 +769,10 @@ test("a no-cook night no safe pot can reach cooks after all, and is named", () =
   const { events, nights } = planBrigadeWeek({ tables: [] }, sundayOnly, sunCtx({ bankById }));
   // fixture dinners keep 3 days: Mon (1), Tue (2) and Wed (3) eat Sunday's pot, Thu (4)
   // cannot, and Fri and Sat have no cook night within reach at all
-  assert.deepEqual(nights.leftover.map((n) => n.date), ["2026-09-07", "2026-09-08", "2026-09-09"]);
+  assert.deepEqual(
+    nights.leftover.map((n) => n.date),
+    ["2026-09-07", "2026-09-08", "2026-09-09"],
+  );
   assert.deepEqual(nights.uncovered, ["2026-09-10", "2026-09-11", "2026-09-12"]);
   for (const d of nights.uncovered) {
     const t = dinnerOn(events, d);
@@ -659,7 +784,11 @@ test("re-running the same week keeps the schedule (idempotent), and a regenerate
   const first = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx());
   const again = planBrigadeWeek(first.events, COOK_BRIGADE, sunCtx());
   assert.equal(again.made, 0, "nothing to remake");
-  const re = planBrigadeWeek(first.events, { ...COOK_BRIGADE, salt: 3 }, sunCtx({ regenerate: true }));
+  const re = planBrigadeWeek(
+    first.events,
+    { ...COOK_BRIGADE, salt: 3 },
+    sunCtx({ regenerate: true }),
+  );
   assert.deepEqual(
     re.nights.leftover.map((n) => `${n.date}<${n.from}`),
     ["2026-09-08<2026-09-06", "2026-09-09<2026-09-07", "2026-09-10<2026-09-06"],
@@ -669,7 +798,10 @@ test("re-running the same week keeps the schedule (idempotent), and a regenerate
 test("PROTEIN ROTATION: four cook nights, four different proteins when the bank allows it", () => {
   const anchored = (id, food, kcal = 700, p = 45) => ({
     ...recipe(id, "dinner", kcal, p),
-    ingredients: [{ qty: 1, unit: "x", food }, { qty: 1, unit: "x", food: "rice" }],
+    ingredients: [
+      { qty: 1, unit: "x", food },
+      { qty: 1, unit: "x", food: "rice" },
+    ],
   });
   const bank = new Map(
     [
@@ -683,8 +815,14 @@ test("PROTEIN ROTATION: four cook nights, four different proteins when the bank 
       anchored("fish-1", "cod fillet"),
     ].map((r) => [r.id, { ...r, safeDays: 4 }]),
   );
-  const { events, nights } = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx({ bankById: bank }));
-  const classes = nights.cook.map((d) => recipeProteinClass(bank.get(dinnerOn(events, d).recipeId)));
+  const { events, nights } = planBrigadeWeek(
+    { tables: [] },
+    COOK_BRIGADE,
+    sunCtx({ bankById: bank }),
+  );
+  const classes = nights.cook.map((d) =>
+    recipeProteinClass(bank.get(dinnerOn(events, d).recipeId)),
+  );
   assert.equal(new Set(classes).size, 4, `four cook nights, four proteins: ${classes.join(", ")}`);
   assert.equal(classes.filter((c) => c === "chicken").length, 1, "chicken once a week");
 });
@@ -693,20 +831,39 @@ test("SLOT RECIPES: a narrowed slot draws only from the named recipes, and says 
   const yogurtOnly = { ...COOK_BRIGADE, slotRecipes: { breakfast: ["bf-yogurt", "bf-oats"] } };
   const { events, thin, notes } = planBrigadeWeek({ tables: [] }, yogurtOnly, sunCtx());
   const breakfasts = events.tables.filter((t) => t.slot === "breakfast").map((t) => t.recipeId);
-  assert.ok(breakfasts.length === 7 && breakfasts.every((id) => id === "bf-yogurt" || id === "bf-oats"));
+  assert.ok(
+    breakfasts.length === 7 && breakfasts.every((id) => id === "bf-yogurt" || id === "bf-oats"),
+  );
   assert.ok(!thin.some((t) => t.slot === "breakfast"), "a deliberate narrowing is not a thin pool");
   assert.deepEqual(notes, []);
   const nonsense = { ...COOK_BRIGADE, slotRecipes: { breakfast: ["no-such-bowl"] } };
   const out = planBrigadeWeek({ tables: [] }, nonsense, sunCtx());
-  assert.ok(out.notes.some((n) => n.includes("none of the 1 named")), "the fallback is said out loud");
-  assert.ok(out.events.tables.some((t) => t.slot === "breakfast"), "the slot is still planned");
+  assert.ok(
+    out.notes.some((n) => n.includes("none of the 1 named")),
+    "the fallback is said out loud",
+  );
+  assert.ok(
+    out.events.tables.some((t) => t.slot === "breakfast"),
+    "the slot is still planned",
+  );
 });
 
 test("GUEST SEATS: a profile seated on one night is sized from their own targets and survives a regenerate", () => {
-  const momTargets = { macros: { calories: 1550, caloriesFloor: 1400, protein: 110 }, mealSlots: ["breakfast", "lunch", "dinner"] };
+  const momTargets = {
+    macros: { calories: 1550, caloriesFloor: 1400, protein: 110 },
+    mealSlots: ["breakfast", "lunch", "dinner"],
+  };
   const profiles = new Map([...WAYNE_PROFILES, ["mom", { id: "mom", household: "taranowski" }]]);
-  const targets = new Map([["david", davidTargets], ["elliot", elliotTargets], ["mom", momTargets]]);
-  const base = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx({ profilesById: profiles, targetsById: targets }));
+  const targets = new Map([
+    ["david", davidTargets],
+    ["elliot", elliotTargets],
+    ["mom", momTargets],
+  ]);
+  const base = planBrigadeWeek(
+    { tables: [] },
+    COOK_BRIGADE,
+    sunCtx({ profilesById: profiles, targetsById: targets }),
+  );
   const friId = brigadeTableId("wk", "2026-09-11", "dinner");
   const seeded = {
     ...base.events,
@@ -714,14 +871,63 @@ test("GUEST SEATS: a profile seated on one night is sized from their own targets
       t.id === friId ? { ...t, seats: [...t.seats, { id: "mom", servings: 1 }] } : t,
     ),
   };
-  const re = planBrigadeWeek(seeded, { ...COOK_BRIGADE, salt: 1 }, sunCtx({ profilesById: profiles, targetsById: targets, regenerate: true }));
+  const re = planBrigadeWeek(
+    seeded,
+    { ...COOK_BRIGADE, salt: 1 },
+    sunCtx({ profilesById: profiles, targetsById: targets, regenerate: true }),
+  );
   const fri = re.events.tables.find((t) => t.id === friId);
   const mom = fri.seats.find((s) => s.id === "mom");
   assert.ok(mom, "the guest is still seated after the regenerate");
   assert.ok(mom.servings >= 0.5 && mom.servings <= 3, `mom's plate is solved (${mom.servings})`);
-  assert.ok(re.report.some((r) => r.date === "2026-09-11" && r.seatId === "mom" && r.guest), "the guest has her own report row");
+  assert.ok(
+    re.report.some((r) => r.date === "2026-09-11" && r.seatId === "mom" && r.guest),
+    "the guest has her own report row",
+  );
   // she was seated for dinner only: no other Friday table gained her
   for (const t of re.events.tables.filter((t) => t.date === "2026-09-11" && t.slot !== "dinner")) {
     assert.ok(!t.seats.some((s) => s.id === "mom"), `${t.slot} stays members-only`);
+  }
+});
+
+test("A LEFTOVER NIGHT IS ALWAYS ITS POT'S DISH: the cost sweep may not swap a feeding cook night (live drift, 2026-09-06)", () => {
+  // a cost signal varied enough to tempt the sweep everywhere
+  const costOf = (/** @type {string} */ id) => 1 + (id.length % 5);
+  const { events } = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx({ costOf }));
+  const byId = new Map(events.tables.map((t) => [t.id, t]));
+  const leftovers = events.tables.filter((t) => t.leftoverOf);
+  assert.ok(leftovers.length >= 3, "the week has leftover nights");
+  for (const t of leftovers) {
+    const src = byId.get(t.leftoverOf);
+    assert.ok(src, `${t.date} points at a pot that exists`);
+    assert.equal(t.recipeId, src.recipeId, `${t.date} eats exactly what ${src.date} cooked`);
+  }
+});
+
+test("a leftover table that drifted from its pot is REPAIRED by the next plain SET, without touching anything else", () => {
+  const first = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx());
+  const wedId = brigadeTableId("wk", "2026-09-09", "dinner");
+  const monId = brigadeTableId("wk", "2026-09-07", "dinner");
+  const other = KEEPS_BANK.get("din-pasta");
+  const drifted = {
+    ...first.events,
+    tables: first.events.tables.map((t) =>
+      t.id === wedId ? { ...t, recipeId: other.id, cookedAt: "2026-09-09" } : t,
+    ),
+  };
+  const before = new Map(drifted.tables.map((t) => [t.id, t]));
+  const re = planBrigadeWeek(drifted, COOK_BRIGADE, sunCtx());
+  const wed = re.events.tables.find((t) => t.id === wedId);
+  const mon = re.events.tables.find((t) => t.id === monId);
+  assert.equal(re.made, 1, "exactly the drifted table was rewritten");
+  assert.equal(wed.recipeId, mon.recipeId, "Wednesday eats Monday's pot again");
+  assert.equal(wed.cookedAt, undefined, "a cooked stamp does not ride onto a different dish");
+  assert.ok(
+    re.notes.some((n) => n.includes("repaired")),
+    "the repair is said out loud",
+  );
+  for (const t of re.events.tables) {
+    if (t.id === wedId) continue;
+    assert.deepEqual(t, before.get(t.id), `${t.id} untouched`);
   }
 });

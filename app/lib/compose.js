@@ -655,7 +655,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
     .sort();
 
   let tables = pruneTables(events, ctx.today)
-    .tables// trust boundary, same bar deriveTables holds: a device-poisoned table
+    .tables // trust boundary, same bar deriveTables holds: a device-poisoned table
     // (seats not an array, junk dates) is skipped here rather than throwing
     // three lines into the write loop
     .filter(
@@ -685,7 +685,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
   tables = tables.filter(
     (t) =>
       !(
-        /** @type {any} */ ((t).fromWeekRun || String(t.name ?? "").startsWith("Family ")) &&
+        /** @type {any} */ (t.fromWeekRun || String(t.name ?? "").startsWith("Family ")) &&
         !t.fromBrigade &&
         t.date >= ctx.today &&
         plannedKeys.has(`${t.date}|${t.slot}`)
@@ -870,7 +870,47 @@ export function planBrigadeWeek(events, brigade, ctx) {
       existingBySlot[slot] = t;
       if (!t) allExisting = false;
     }
-    if (allExisting && !ctx.regenerate) continue; // idempotent
+    if (allExisting && !ctx.regenerate) {
+      // idempotent — except for THE ONE THING a leftover night must never be:
+      // a different dish from the pot it eats (found live 2026-09-06: a cost
+      // sweep swapped Monday's curry after Wednesday had been fixed to the
+      // earlier pick, so Wednesday said "leftovers of Monday" and named
+      // another dinner). A drifted leftover table is repaired here to its
+      // pot's dish at the portion rule, so one SET puts the week right.
+      for (const slot of liveSlots) {
+        const t = existingBySlot[slot];
+        const srcId = /** @type {any} */ (t)?.leftoverOf;
+        const src = typeof srcId === "string" ? byId.get(srcId) : undefined;
+        if (!t || !src || src.recipeId === t.recipeId) continue;
+        const dish = ctx.bankById.get(src.recipeId);
+        if (!dish) continue;
+        const seatRows = (t.seats ?? []).map((s) => {
+          const rawExact = seatServingsRaw(ctx.targetsById.get(s.id), slot, dish);
+          const raw3 = rawExact === null ? undefined : Math.round(rawExact * 1000) / 1000;
+          const rest = { .../** @type {any} */ (s) };
+          delete rest.edited; // a hand-set portion of the drifted dish means nothing on this one
+          return {
+            ...rest,
+            servings:
+              raw3 === undefined
+                ? 1
+                : Math.min(BRIGADE_SERVINGS_MAX, Math.max(SERVINGS_MIN, Math.round(raw3 * 4) / 4)),
+            ...(raw3 !== undefined ? { rawServings: raw3 } : {}),
+          };
+        });
+        const keep = { .../** @type {any} */ (t) };
+        delete keep.cookedAt; // you cannot have cooked a dish that was never on this night
+        delete keep.tailor;
+        delete keep.pot;
+        byId.set(t.id, { ...keep, recipeId: src.recipeId, seats: seatRows });
+        servedBySlot[slot]?.set(date, src.recipeId);
+        made++;
+        notes.push(
+          `${date} ${slot}: repaired to ${dish.name ?? src.recipeId}, the pot it eats from (it had drifted to another dish)`,
+        );
+      }
+      continue;
+    }
 
     // the stateless START pick per slot: a pure function of (brigade, slot,
     // date). Honest scope of the H2 guarantee (Final Gate Red Team): the
@@ -1164,8 +1204,11 @@ export function planBrigadeWeek(events, brigade, ctx) {
         for (const slot of liveSlots) {
           // never re-plan food that is already cooked
           if (cd.existingBySlot[slot]?.cookedAt) continue;
-          // a leftover night eats what was cooked: nothing to swap
+          // a leftover night eats what was cooked: nothing to swap — and a
+          // COOK night that feeds later nights is a commitment those nights
+          // already hold, so it is not swapped either (the 2026-09-06 drift)
           if (cd.leftoverBySlot?.[slot]) continue;
+          if (LEFTOVER_SLOTS.has(slot) && (fedBy.get(cd.date) ?? []).length > 0) continue;
           // read the day's CURRENT baseline each slot — an accepted swap on
           // an earlier slot of this same day already moved it
           const base = cd.composed;
@@ -1211,17 +1254,25 @@ export function planBrigadeWeek(events, brigade, ctx) {
   for (const cd of composedDays) {
     const { date, existingBySlot, seats, eating, composed, picks, leftoverBySlot } = cd;
     for (const slot of liveSlots) {
-      const meal = picks[slot];
-      if (!meal) continue;
+      if (!picks[slot]) continue;
+      let meal = /** @type {Record<string, any>} */ (picks[slot]);
       const id = brigadeTableId(brigade.id, date, slot);
       const existing = existingBySlot[slot];
       const lo = leftoverBySlot?.[slot];
       const wantLeftoverOf = lo ? brigadeTableId(brigade.id, lo.date, slot) : undefined;
+      // the pot's dish as it stands AFTER every pass: the leftover night's own
+      // pick was captured at compose time, and nothing may let the two differ
+      if (lo) {
+        const srcDay = composedDays.find((d) => d.date === lo.date);
+        const srcRecipeId = srcDay?.picks[slot]?.id ?? byId.get(wantLeftoverOf ?? "")?.recipeId;
+        const finalDish = srcRecipeId ? ctx.bankById.get(srcRecipeId) : undefined;
+        if (finalDish && finalDish.id !== meal.id) meal = finalDish;
+      }
       if (
         existing &&
         !ctx.regenerate &&
         existing.recipeId === meal.id &&
-        /** @type {any} */ ((existing).leftoverOf ?? undefined) === wantLeftoverOf
+        /** @type {any} */ (existing.leftoverOf ?? undefined) === wantLeftoverOf
       ) {
         // untouched existing table on a partially-new day stays untouched
         continue;
