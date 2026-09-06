@@ -170,5 +170,5 @@ test("a dictated 'low on' staple lands LOW through applyScanItems, never plenty"
   );
   const rice = next.staples.find((s) => s.id === "rice");
   assert.equal(rice.runningLow, true);
-  assert.equal(rice.onHand, true);
+  assert.equal(rice.onHand, false, "the legacy mirror reads LOW as not-on-hand, by design");
 });

@@ -38,20 +38,24 @@ import {
 export function parsePantryDictation(text) {
   const raw = String(text ?? "")
     .replace(/\r/g, "")
-    .split(/\n|[,;]|\band\b|\balso\b|\bthen\b|\bplus\b/i)
+    .split(/\n|[,;]|\.\s+|\.$|\band\b|\balso\b|\bthen\b|\bplus\b/i)
     .map((s) => s.trim())
     .filter(Boolean);
   /** @type {ReturnType<typeof parsePantryDictation>} */
   const out = [];
   const seen = new Set();
   for (let piece of raw) {
-    // filler at the front: the way people actually talk into a phone
-    piece = piece
-      .replace(/^(?:um+|uh+|okay|ok|so|yeah|yes|well|oh)\b[\s,]*/i, "")
-      .replace(/^(?:i|we)(?:'ve| have| got|'ve got| also have| still have| do have)\b\s*/i, "")
-      .replace(/^(?:there(?:'s| is| are))\s+/i, "")
-      .replace(/^(?:got|have|having)\s+/i, "")
-      .trim();
+    // filler at the front, peeled until none is left: the way people
+    // actually talk into a phone ("um so I have soy sauce")
+    for (let prev = ""; prev !== piece;) {
+      prev = piece;
+      piece = piece
+        .replace(/^(?:um+|uh+|okay|ok|so|yeah|yes|well|oh|like|basically|anyway)\b[\s,]*/i, "")
+        .replace(/^(?:i|we)(?:'ve| have| got|'ve got| also have| still have| do have)\b\s*/i, "")
+        .replace(/^(?:there(?:'s| is| are))\s+/i, "")
+        .replace(/^(?:got|have|having)\s+/i, "")
+        .trim();
+    }
     if (!piece) continue;
     // nothing to add
     if (/^(?:no|out of|we're out of|i'm out of|zero|none of the|no more)\s+/i.test(piece)) continue;
