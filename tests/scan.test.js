@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyScanItems } from "../app/lib/scan.js";
+import { applyScanItems, parsePantryDictation } from "../app/lib/scan.js";
 
 const PANTRY = {
   staples: [
@@ -117,4 +117,58 @@ test("SHELF-AWARE refresh (Tribunal B3): a fridge scan never rewrites the freeze
   );
   assert.equal(again.perishables.filter((p) => p.food === "chicken thigh").length, 2);
   assert.equal(again.perishables.find((p) => p.location === "fridge").qty, "700 g");
+});
+
+// ---- SAY WHAT YOU HAVE (David, 2026-09-06) ------------------------------------
+
+test("parsePantryDictation reads a spoken run-through into pantry rows", () => {
+  const rows = parsePantryDictation(
+    "um so I have soy sauce, sesame oil and I've got 2 lbs chicken thighs, a dozen eggs, frozen berries. running low on rice, we're out of milk, also some walnuts",
+  );
+  const by = Object.fromEntries(rows.map((r) => [r.name, r]));
+  assert.deepEqual(Object.keys(by).sort(), [
+    "chicken thighs",
+    "eggs",
+    "frozen berries",
+    "rice",
+    "sesame oil",
+    "soy sauce",
+    "walnuts",
+  ]);
+  assert.equal(by["soy sauce"].kind, "staple");
+  assert.equal(by["soy sauce"].state, undefined, "plenty by default");
+  assert.equal(by["chicken thighs"].kind, "fresh");
+  assert.equal(by["chicken thighs"].location, "fridge");
+  assert.equal(by["chicken thighs"].qty, "2 lbs");
+  assert.equal(by["eggs"].qty, "1 dozen");
+  assert.equal(by["frozen berries"].location, "freezer");
+  assert.equal(by["rice"].state, "low", "'running low on' marks it low");
+  assert.ok(!("milk" in by), "'out of' adds nothing");
+  assert.equal(by["walnuts"].kind, "staple");
+});
+
+test("parsePantryDictation: one item per line works too, duplicates collapse, bare articles are not quantities", () => {
+  const rows = parsePantryDictation(
+    "Olive oil\nolive oil\na spinach\n3 cans black beans\nhalf a bag of quinoa",
+  );
+  assert.deepEqual(
+    rows.map((r) => [r.name, r.qty, r.kind]),
+    [
+      ["olive oil", "", "staple"],
+      ["spinach", "", "fresh"],
+      ["black beans", "3 cans", "staple"],
+      ["quinoa", "0.5 bag", "staple"],
+    ],
+  );
+});
+
+test("a dictated 'low on' staple lands LOW through applyScanItems, never plenty", () => {
+  const next = applyScanItems(
+    PANTRY,
+    [{ name: "rice", kind: "staple", qty: "", state: "low" }],
+    "2026-07-06",
+  );
+  const rice = next.staples.find((s) => s.id === "rice");
+  assert.equal(rice.runningLow, true);
+  assert.equal(rice.onHand, true);
 });

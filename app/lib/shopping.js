@@ -956,6 +956,19 @@ const PERISHABLE_SHELF_DAYS = [
 ];
 
 /**
+ * Does this food read as PERISHABLE by the same keyword table the expiry
+ * clock uses? Exported for the dictation parser (2026-09-06): "I have
+ * chicken thighs" lands as a dated fridge row, "I have soy sauce" as a
+ * shelf-stable state, decided by one table rather than two.
+ * @param {string} food
+ * @returns {boolean}
+ */
+export function looksPerishable(food) {
+  const f = String(food ?? "").toLowerCase();
+  return PERISHABLE_SHELF_DAYS.some(([re]) => re.test(f));
+}
+
+/**
  * Where a perishable is kept. `unsorted` is the quarantine for rows that
  * predate locations: a location sweep must never delete something it could
  * not see, and every item in an existing pantry has no location at all.

@@ -1,4 +1,5 @@
 import { html } from "htm/preact";
+import { parsePantryDictation } from "../lib/scan.js";
 import { Fragment } from "preact";
 import { tokenBroken } from "../lib/github.js";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -205,7 +206,7 @@ const FRESH_STEPS = [
  *   onJustBought: () => void,
  *   onToggleLow: (id: string) => void,
  *   onOwnItem: (id: string) => void,
- *   onScanApprove: (items: { name: string, kind: string, qty: string }[], location?: string, mode?: "sweep" | "add") => void,
+ *   onScanApprove: (items: { name: string, kind: string, qty: string, state?: string }[], location?: string, mode?: "sweep" | "add") => void,
  *   onGoingShopping: () => void,
  *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList, plan?: import("../lib/plan.js").Plan | null }[],
  *   ownEmoji: string,
@@ -298,6 +299,14 @@ export function ShoppingView({
   // mis-scanned item should never mean re-shooting the shelf until the
   // camera gets it right). Same applyScanItems path as an approved scan.
   const [pantryTyped, setPantryTyped] = useState("");
+  // SAY WHAT YOU HAVE (David, 2026-09-06): a whole shelf dictated or pasted
+  // in one go, parsed to a preview he can prune, then landed through the
+  // same approve path as a photo scan. `said` is the text, `heard` the
+  // preview (null = not previewed yet).
+  const [said, setSaid] = useState("");
+  const [heard, setHeard] = useState(
+    /** @type {null | ReturnType<typeof parsePantryDictation>} */ (null),
+  );
   // which shelf the next photo is of. Tagging the shot turns an additive scan
   // into a SWEEP: those photos become the whole truth about that location.
   const [scanLocation, setScanLocation] = useState("fridge");
@@ -489,24 +498,28 @@ export function ShoppingView({
   const declKey = `mise.priceStoreDecl.${activeProfile()}`;
   const allStores = prices?.stores ?? [];
   const declaredStore = storeSlug && allStores.includes(storeSlug) ? storeSlug : "";
-  const [pickedStore, setPickedStore] = useState(/** @type {string} */ (
-    (() => {
-      try {
-        return localStorage.getItem(storeKey) || "";
-      } catch {
-        return "";
-      }
-    })()
-  ));
-  const [pickedDecl, setPickedDecl] = useState(/** @type {string} */ (
-    (() => {
-      try {
-        return localStorage.getItem(declKey) || "";
-      } catch {
-        return "";
-      }
-    })()
-  ));
+  const [pickedStore, setPickedStore] = useState(
+    /** @type {string} */ (
+      (() => {
+        try {
+          return localStorage.getItem(storeKey) || "";
+        } catch {
+          return "";
+        }
+      })()
+    ),
+  );
+  const [pickedDecl, setPickedDecl] = useState(
+    /** @type {string} */ (
+      (() => {
+        try {
+          return localStorage.getItem(declKey) || "";
+        } catch {
+          return "";
+        }
+      })()
+    ),
+  );
   const chooseStore = (/** @type {string} */ s) => {
     setPickedStore(s);
     setPickedDecl(declaredStore);
@@ -541,7 +554,8 @@ export function ShoppingView({
   const storeCoverage = useMemo(() => {
     /** @type {Map<string, number>} */
     const cov = new Map();
-    if (prices) for (const s of allStores) cov.set(s, tripTotal(tripItems, prices, s, region).priced);
+    if (prices)
+      for (const s of allStores) cov.set(s, tripTotal(tripItems, prices, s, region).priced);
     return cov;
   }, [prices, tripItems, region, allStores]);
   const todayIso = localIsoDate(new Date());
@@ -1491,11 +1505,11 @@ export function ShoppingView({
     }
     return (
       homeSummary &&
-                tripItems.length > 0 &&
-                html`
-                  <div class="tile">
-                    <div class="chips wrapchips" role="group" aria-label="Which store to price against">
-                      ${allStores.map(
+      tripItems.length > 0 &&
+      html`
+        <div class="tile">
+          <div class="chips wrapchips" role="group" aria-label="Which store to price against">
+            ${allStores.map(
                         // coverage on the chip: switching stores is only an
                         // honest choice when you can SEE that aldi prices 11
                         // of 79 rows before you tap it (storeCoverage is the
@@ -1507,26 +1521,27 @@ export function ShoppingView({
                             aria-pressed=${homeStore === s}
                             onClick=${() => chooseStore(s)}
                           >
-                            ${STORE_NAMES[s] ?? s} · ${storeCoverage.get(s) ?? 0}/${tripItems.length}
+                            ${STORE_NAMES[s] ?? s} ·
+                            ${storeCoverage.get(s) ?? 0}/${tripItems.length}
                           </button>
                         `,
                       )}
-                    </div>
-                    <div class="row">
-                      <span class="k">Est. ${STORE_NAMES[homeStore] ?? homeStore} trip</span>
-                      <span class="status num">$${homeSummary.subtotal.toFixed(2)}</span>
-                    </div>
-                    ${
+          </div>
+          <div class="row">
+            <span class="k">Est. ${STORE_NAMES[homeStore] ?? homeStore} trip</span>
+            <span class="status num">$${homeSummary.subtotal.toFixed(2)}</span>
+          </div>
+          ${
                       homeSummary.tax > 0 &&
                       html`<div class="row">
                         <span class="k">grocery tax ${(taxRateFor(region) * 100).toFixed(1)}%</span>
                         <span class="status num">$${homeSummary.tax.toFixed(2)}</span>
                       </div>`
                     }
-                    <div class="row">
-                      <span class="k">Total</span>
-                      <span class="status num">
-                        ${
+          <div class="row">
+            <span class="k">Total</span>
+            <span class="status num">
+              ${
                           // P5: "Variable-weight items make the estimate a range,
                           // and the app says so. '$48 to $53,' never a
                           // false-precision point." A per-pound row is bought as
@@ -1538,19 +1553,19 @@ export function ShoppingView({
                             ? `$${homeSummary.low.toFixed(2)} to $${homeSummary.high.toFixed(2)}`
                             : `$${homeSummary.total.toFixed(2)}`
                         }
-                      </span>
-                    </div>
-                    ${
+            </span>
+          </div>
+          ${
                       homeSummary.variableRows > 0 &&
                       html`<div class="row">
                         <span class="k hint">
                           ↳ ${homeSummary.variableRows}
-                          row${homeSummary.variableRows === 1 ? " is" : "s are"} sold by weight, so the
-                          pack you get decides the cents
+                          row${homeSummary.variableRows === 1 ? " is" : "s are"} sold by weight, so
+                          the pack you get decides the cents
                         </span>
                       </div>`
                     }
-                    ${
+          ${
                       // P5's stocking rule made visible: whole packages are the
                       // TRIP cost; what this week's meals consume is the number
                       // the weekly budget answers to. The rest becomes pantry
@@ -1560,11 +1575,12 @@ export function ShoppingView({
                       html`<div class="row">
                         <span class="k">↳ eaten this week ≈ $${homeSummary.eaten.toFixed(2)}</span>
                         <span class="status num"
-                          >$${(homeSummary.subtotal - homeSummary.eaten).toFixed(2)} becomes stock</span
+                          >$${(homeSummary.subtotal - homeSummary.eaten).toFixed(2)} becomes
+                          stock</span
                         >
                       </div>`
                     }
-                    ${
+          ${
                       typeof weeklyBudgetUsd === "number" &&
                       weeklyBudgetUsd > 0 &&
                       (() => {
@@ -1575,12 +1591,15 @@ export function ShoppingView({
                         // 2026-08-30). The even split is the honest headline
                         // here; exact who-ate-what money lives in house money.
                         const seats =
-                          brigade?.iShop && (brigade.seats ?? 1) > 1 ? /** @type {number} */ (brigade.seats) : 1;
+                          brigade?.iShop && (brigade.seats ?? 1) > 1
+                            ? /** @type {number} */ (brigade.seats)
+                            : 1;
                         const share = homeSummary.eaten / seats;
                         const label = seats > 1 ? `your ≈1/${seats} eaten share` : "eaten share";
                         return html`<div class="row">
                           <span class="k"
-                            >weekly budget $${weeklyBudgetUsd.toFixed(0)}${seats > 1 ? " (yours)" : ""}</span
+                            >weekly budget
+                            $${weeklyBudgetUsd.toFixed(0)}${seats > 1 ? " (yours)" : ""}</span
                           >
                           <span class="status num ${share > weeklyBudgetUsd ? "warn" : ""}"
                             >${share > weeklyBudgetUsd ? `${label} over by $${(share - weeklyBudgetUsd).toFixed(2)}` : `${label} ≈ $${share.toFixed(2)} fits ✓`}</span
@@ -1588,7 +1607,7 @@ export function ShoppingView({
                         </div>`;
                       })()
                     }
-                    ${
+          ${
                       homeSummary.unpriced > 0 &&
                       html`<div class="row">
                         <span class="k status warn"
@@ -1597,13 +1616,15 @@ export function ShoppingView({
                         <span class="status warn">total is a floor</span>
                       </div>`
                     }
-                    <p class="hint">
-                      ${homeSummary.priced} of ${tripItems.length} rows
-                      priced${
-                        homeSummary.estimates > 0 ? `, ${homeSummary.estimates} are estimates (~)` : ""
+          <p class="hint">
+            ${homeSummary.priced} of ${tripItems.length} rows
+            priced${
+                        homeSummary.estimates > 0
+                          ? `, ${homeSummary.estimates} are estimates (~)`
+                          : ""
                       }.
-                    </p>
-                    ${
+          </p>
+          ${
                       canLive &&
                       html`<div class="row">
                         <span class="k"
@@ -1619,14 +1640,15 @@ export function ShoppingView({
                         </button>
                       </div>`
                     }
-                    ${canLive && refreshNote && html`<p class="hint">${refreshNote}</p>`}
-                    ${canLive && repriceNote && html`<p class="hint">${repriceNote}</p>`}
-                    ${
+          ${canLive && refreshNote && html`<p class="hint">${refreshNote}</p>`}
+          ${canLive && repriceNote && html`<p class="hint">${repriceNote}</p>`}
+          ${
                       canLive &&
                       provisionalRows.length > 0 &&
                       html`<div class="row">
                         <span class="k"
-                          >${provisionalRows.length} price${provisionalRows.length === 1 ? "" : "s"} auto-picked</span
+                          >${provisionalRows.length} price${provisionalRows.length === 1 ? "" : "s"}
+                          auto-picked</span
                         >
                         <button
                           class="linktext"
@@ -1636,8 +1658,8 @@ export function ShoppingView({
                         </button>
                       </div>`
                     }
-                    ${pricePick?.fromTile ? pickSheet() : ""}
-                    ${
+          ${pricePick?.fromTile ? pickSheet() : ""}
+          ${
                       // NO FEATURE SHIPS DARK, and this one did (David,
                       // 2026-08-25: "it said not linked and push failed"). The
                       // Worker was missing KROGER_STATE_SECRET and
@@ -1650,11 +1672,11 @@ export function ShoppingView({
                       canLive &&
                       cartOff &&
                       html`<p class="hint">
-                        ⚠️ Cart push is switched off on the server, so nothing can be sent yet. This is
-                        a configuration gap, not something you did wrong.
+                        ⚠️ Cart push is switched off on the server, so nothing can be sent yet. This
+                        is a configuration gap, not something you did wrong.
                       </p>`
                     }
-                    ${
+          ${
                       canLive &&
                       !cartOff &&
                       html`<div class="row">
@@ -1672,10 +1694,10 @@ export function ShoppingView({
                         </div>
                         <p class="hint">
                           Sends the unticked rows to your Kroger cart for
-                          ${" "}${STORE_NAMES[homeStore] ?? homeStore}. It cannot place the order and
-                          cannot choose a pickup slot — no Kroger API does — so you finish in the app.
-                          ⚠️ Kroger has no store field on a cart write: items land in whichever store
-                          your Kroger ACCOUNT has selected, so set that to
+                          ${" "}${STORE_NAMES[homeStore] ?? homeStore}. It cannot place the order
+                          and cannot choose a pickup slot — no Kroger API does — so you finish in
+                          the app. ⚠️ Kroger has no store field on a cart write: items land in
+                          whichever store your Kroger ACCOUNT has selected, so set that to
                           ${" "}${STORE_NAMES[homeStore] ?? homeStore} first.
                         </p>
                         ${
@@ -1693,14 +1715,14 @@ export function ShoppingView({
                               </button>
                             </div>
                             <p class="hint">
-                              Proves the whole path — sign-in, product match, quantity, which store —
-                              for a few dollars instead of a week of food. Check them in the Kroger app,
-                              then send the real list.
+                              Proves the whole path — sign-in, product match, quantity, which store
+                              — for a few dollars instead of a week of food. Check them in the
+                              Kroger app, then send the real list.
                             </p>`
                         }`
                     }
-                    ${canLive && cartNote && html`<p class="hint">${cartNote}</p>`}
-                    ${
+          ${canLive && cartNote && html`<p class="hint">${cartNote}</p>`}
+          ${
                       // WHAT ACTUALLY HAPPENED (David, 2026-08-25: "I'm logged in
                       // to my account on the Pay Less app, but I see nothing").
                       // Kroger cannot be read back, so this shows what WE sent and
@@ -1717,9 +1739,9 @@ export function ShoppingView({
                         ${
                           !krogerLinked() &&
                           html`<p class="hint">
-                            Signing in to the Pay Less app is <b>not</b> the same as linking Mise. Tap
-                            LINK KROGER above, finish Kroger's sign-in page, and let it bounce you back
-                            here — the link only exists once you land back in Mise.
+                            Signing in to the Pay Less app is <b>not</b> the same as linking Mise.
+                            Tap LINK KROGER above, finish Kroger's sign-in page, and let it bounce
+                            you back here — the link only exists once you land back in Mise.
                           </p>`
                         }
                         ${
@@ -1727,9 +1749,10 @@ export function ShoppingView({
                           html`<p class="hint">
                             link valid until
                             ${krogerLinkExpiry().slice(0, 16).replace("T", " ") || "unknown"}. Items
-                            land in whichever store your Kroger ACCOUNT has selected, and in its PICKUP
-                            basket — check that it says ${" "}${STORE_NAMES[homeStore] ?? homeStore},
-                            and look under Pickup rather than Delivery.
+                            land in whichever store your Kroger ACCOUNT has selected, and in its
+                            PICKUP basket — check that it says
+                            ${" "}${STORE_NAMES[homeStore] ?? homeStore}, and look under Pickup
+                            rather than Delivery.
                           </p>`
                         }
                         ${
@@ -1743,8 +1766,8 @@ export function ShoppingView({
                                   html`<div class="pushrow">
                                     <p class="hint">
                                       <b>${e.ok ? "sent" : "FAILED"}</b>
-                                      ${e.at.slice(0, 16).replace("T", " ")} ${e.test ? " (test)" : ""}
-                                      · ${e.store} · ${e.message}
+                                      ${e.at.slice(0, 16).replace("T", " ")}
+                                      ${e.test ? " (test)" : ""} · ${e.store} · ${e.message}
                                     </p>
                                     <p class="hint mono">
                                       ${e.rows
@@ -1755,12 +1778,12 @@ export function ShoppingView({
                               )
                         }
                         <p class="hint">
-                          Search one of those UPCs in the Kroger app. Found = it arrived and the cart
-                          you are looking at is the wrong one. Not found = it never arrived.
+                          Search one of those UPCs in the Kroger app. Found = it arrived and the
+                          cart you are looking at is the wrong one. Not found = it never arrived.
                         </p>
                       </details>`
                     }
-                    ${
+          ${
                       canLive &&
                       homeSummary.unpriced > 0 &&
                       html`<p class="hint">
@@ -1768,8 +1791,8 @@ export function ShoppingView({
                         $? button — one search, one tap, priced forever.
                       </p>`
                     }
-                  </div>
-                `
+        </div>
+      `
     );
   };
 
@@ -1849,7 +1872,8 @@ export function ShoppingView({
           <div class="k">🍳 ${brigade.name}</div>
           <p class="hint">
             ${brigade.shopperName} shops for ${brigade.name}: nothing here is yours to buy. Your
-            meals are on PLAN.${
+            meals are on
+            PLAN.${
               items.length > 0
                 ? " The rows below are your old personal list from before the brigade. CLEAR LIST removes them."
                 : ""
@@ -2016,9 +2040,8 @@ export function ShoppingView({
             }
           </p>
           <p class="hint">
-            Aggregates the week's plan${
-              brigade?.iShop ? ", the whole brigade's meals in one buy, " : ", "
-            }drops pantry
+            Aggregates the week's
+            plan${brigade?.iShop ? ", the whole brigade's meals in one buy, " : ", "}drops pantry
             staples${
               soloTrip
                 ? " and food already on the kitchen's shelves"
@@ -2384,8 +2407,8 @@ export function ShoppingView({
             }
             One pantry, no exempt class: tap an item's state to cycle it. PLENTY means the list
             skips it, LOW puts it on the next list, OUT means it gets bought whenever a recipe needs
-            it. Food arrives on a shelf when you scan the receipt, tap ADD TO PANTRY, photograph
-            the shelf, or type it in below, and comes off it when you cook the meal.
+            it. Food arrives on a shelf when you scan the receipt, tap ADD TO PANTRY, photograph the
+            shelf, or type it in below, and comes off it when you cook the meal.
           </p>
           <div class="token-form">
             <input
@@ -2400,7 +2423,11 @@ export function ShoppingView({
               aria-label="Add typed item as a shelf-stable staple"
               onClick=${() => {
                 if (!pantryTyped.trim()) return;
-                onScanApprove([{ name: pantryTyped.trim(), kind: "staple", qty: "" }], "unsorted", "add");
+                onScanApprove(
+                  [{ name: pantryTyped.trim(), kind: "staple", qty: "" }],
+                  "unsorted",
+                  "add",
+                );
                 setPantryTyped("");
               }}
             >
@@ -2412,13 +2439,107 @@ export function ShoppingView({
               aria-label="Add typed item to the ${scanLocation}, dated today"
               onClick=${() => {
                 if (!pantryTyped.trim()) return;
-                onScanApprove([{ name: pantryTyped.trim(), kind: "fresh", qty: "" }], scanLocation, "add");
+                onScanApprove(
+                  [{ name: pantryTyped.trim(), kind: "fresh", qty: "" }],
+                  scanLocation,
+                  "add",
+                );
                 setPantryTyped("");
               }}
             >
               + ${scanLocation.toUpperCase()}
             </button>
           </div>
+          <details class="saywhat" open=${Boolean(said || heard)}>
+            <summary class="block-title">
+              🎙 Say what you have
+              <span class="hint">dictate or paste the whole shelf, then add it all</span>
+            </summary>
+            <textarea
+              aria-label="Everything you have, in your own words"
+              rows="4"
+              placeholder="soy sauce, sesame oil, 2 lbs chicken thighs, a dozen eggs, frozen berries, running low on rice…"
+              value=${said}
+              onInput=${(/** @type {any} */ e) => {
+                setSaid(e.currentTarget.value);
+                setHeard(null);
+              }}
+            ></textarea>
+            <div class="actions wrap">
+              <button
+                class="secondary"
+                disabled=${!said.trim()}
+                onClick=${() => setHeard(parsePantryDictation(said))}
+              >
+                READ IT BACK
+              </button>
+              ${
+                heard &&
+                heard.length > 0 &&
+                html`<button
+                  class="primary"
+                  onClick=${() => {
+                    // one approve per shelf, exactly as a photo of that shelf
+                    // would land; shelf-stable rows carry no shelf
+                    const groups = new Map();
+                    for (const it of heard) {
+                      const loc = it.kind === "fresh" ? it.location : "unsorted";
+                      if (!groups.has(loc)) groups.set(loc, []);
+                      groups
+                        .get(loc)
+                        .push({ name: it.name, kind: it.kind, qty: it.qty, state: it.state });
+                    }
+                    for (const [loc, items] of groups) onScanApprove(items, loc, "add");
+                    setSaid("");
+                    setHeard(null);
+                  }}
+                >
+                  ADD ${heard.length} ${heard.length === 1 ? "ITEM" : "ITEMS"}
+                </button>`
+              }
+            </div>
+            ${
+              heard &&
+              heard.length === 0 &&
+              html`<p class="hint">nothing I could read as food in that — try one item per line</p>`
+            }
+            ${
+              heard &&
+              heard.length > 0 &&
+              html`<div class="slots">
+                  ${heard.map(
+                  (it, i) => html`
+                    <div class="checkrow static" key=${`${it.name}-${i}`}>
+                      <span class="food">
+                        ${it.name}${it.qty ? html` <span class="hint num">${it.qty}</span>` : ""}
+                        ${" "}<span class="tag"
+                          >${
+                          it.kind === "fresh"
+                            ? `${it.location} · dated today`
+                            : it.state === "low"
+                              ? "low"
+                              : "plenty"
+                        }</span
+                        >
+                      </span>
+                      <button
+                        class="secondary"
+                        aria-label=${`Drop ${it.name} from the read-back`}
+                        onClick=${() => setHeard(heard.filter((_, j) => j !== i))}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  `,
+                )}
+                </div>
+                <p class="hint">
+                  Chicken, fish, dairy and produce land on the fridge dated today ("frozen …" on the
+                  freezer); everything else is a shelf-stable state. "Low on …" marks it LOW so the
+                  next list buys it. Drop anything misheard, then ADD.
+                </p>`
+            }
+          </details>
           <h2 class="block-title">Shelf-stable</h2>
           ${(() => {
             const stateRows = pantryItems(pantry).filter((it) => !isDatedItem(it));
