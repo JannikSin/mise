@@ -255,10 +255,17 @@ export function TablesView({
     // cook nights: all seven means "no rule", stored absent; named recipes:
     // only slots that are shared AND have a non-empty list are kept
     const everyNight = ALL_DAYS.every((d) => brigadeForm.cookDays.includes(d));
+    // ids the bank no longer holds (a renamed or deleted recipe) are dropped
+    // here rather than carried as a permanent "fails the screen" note
     const slotRecipes = Object.fromEntries(
-      Object.entries(brigadeForm.slotRecipes).filter(
-        ([slot, ids]) => brigadeForm.slots.includes(slot) && Array.isArray(ids) && ids.length > 0,
-      ),
+      Object.entries(brigadeForm.slotRecipes)
+        .map(([slot, ids]) => [slot, (ids ?? []).filter((id) => byId.has(id))])
+        .filter(
+          ([slot, ids]) =>
+            brigadeForm.slots.includes(/** @type {string} */ (slot)) &&
+            Array.isArray(ids) &&
+            ids.length > 0,
+        ),
     );
     const rule = {
       name: brigadeForm.name.trim() || "Brigade",
@@ -876,13 +883,16 @@ export function TablesView({
                               aria-label="Servings for ${p.name ?? p.id}"
                               value=${seat.servings}
                               onInput=${(/** @type {any} */ e) =>
-                            setTableForm({
-                              ...tableForm,
-                              seats: {
-                                ...tableForm.seats,
-                                [p.id]: { ...seat, servings: Number(e.currentTarget.value) || 1 },
-                              },
-                            })}
+                                setTableForm({
+                                  ...tableForm,
+                                  seats: {
+                                    ...tableForm.seats,
+                                    [p.id]: {
+                                      ...seat,
+                                      servings: Number(e.currentTarget.value) || 1,
+                                    },
+                                  },
+                                })}
                             /><span class="hint num">servings</span>`
                         }
                       </div>
