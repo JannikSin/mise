@@ -88,3 +88,13 @@ test("B4: data repo override parses owner/repo, rejects junk, defaults back", as
   assert.equal(setDataRepo(""), true); // blank = back to default
   assert.equal(DATA_REPO.repo, "mise-data");
 });
+
+test("savingDead: a device with NO token is dead the moment it has something to save (2026-09-06)", async () => {
+  const { savingDead } = await import("../app/lib/github.js");
+  assert.equal(savingDead("missing", 0), false, "a fresh install before SYS is not an alarm");
+  assert.equal(savingDead("missing", 3), true, "three taps waiting on a token-less iPad IS the alarm");
+  assert.equal(savingDead("invalid", 0), true);
+  assert.equal(savingDead("norepo", 0), true);
+  assert.equal(savingDead("throttled", 5), false, "throttling fixes itself");
+  assert.equal(savingDead("ok", 5), false);
+});

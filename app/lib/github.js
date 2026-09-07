@@ -144,7 +144,9 @@ export async function checkDataRepo() {
           // a non-JSON error body just means we fall through to "invalid"
         }
         auth =
-          authed.status === 403 && /rate limit|abuse|secondary/i.test(why) ? "throttled" : "invalid";
+          authed.status === 403 && /rate limit|abuse|secondary/i.test(why)
+            ? "throttled"
+            : "invalid";
       }
     } catch {
       auth = "unknown"; // offline
@@ -166,6 +168,22 @@ export function tokenBroken(auth) {
   // "throttled" is deliberately NOT here: nothing is wrong with the token and
   // it fixes itself, so it must not raise a fix-your-credentials alarm.
   return auth === "invalid" || auth === "norepo";
+}
+
+/**
+ * Is anything this device writes going to reach the kitchen? A broken token
+ * is the loud case; a MISSING one was silent (David, 2026-09-06: an evening
+ * of P+ taps on a device that had never been given the token, every row
+ * vanished from the list as if saved, nothing reached the household pantry,
+ * and the header showed only a small "N UNSAVED"). "missing" is the honest
+ * state of a fresh install before SYS, so it only counts once there is
+ * something waiting to leave.
+ * @param {string | undefined} auth
+ * @param {number} pending queued writes on this device
+ * @returns {boolean}
+ */
+export function savingDead(auth, pending) {
+  return tokenBroken(auth) || (auth === "missing" && pending > 0);
 }
 
 /**

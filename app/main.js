@@ -1,6 +1,6 @@
 import { html, render } from "htm/preact";
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { checkDataRepo, getToken, setToken, DATA_REPO, tokenBroken } from "./lib/github.js";
+import { checkDataRepo, getToken, setToken, DATA_REPO, savingDead } from "./lib/github.js";
 import {
   initStore,
   write,
@@ -2404,9 +2404,9 @@ function App() {
           pinned: true,
           fromTable: e.table,
           ...(e.cookedAt ? { cookedAt: e.cookedAt } : {}),
-          .../** @type {any} */ ((e).leftoverOf
-            ? { leftoverOf: /** @type {any} */ (e).leftoverOf }
-            : {}),
+          .../** @type {any} */ (
+            e.leftoverOf ? { leftoverOf: /** @type {any} */ (e).leftoverOf } : {}
+          ),
         }),
       );
     }
@@ -3993,7 +3993,7 @@ function App() {
   // renew it, "norepo" means the token is fine and its repository access is
   // wrong, and telling someone to renew in the norepo case is the instruction
   // that cost David five tokens on 2026-08-16.
-  const syncDead = tokenBroken(repo?.auth);
+  const syncDead = savingDead(repo?.auth, sync.pending);
   // throttling is not a broken token and must not send anyone to regenerate a
   // working one; it says so and gets out of the way
   const syncThrottled = repo?.auth === "throttled";
@@ -4037,15 +4037,19 @@ function App() {
       html`<div class="banner red">
         ⚠ NOTHING IS SAVING.
         ${
-          repo?.auth === "norepo"
-            ? html` Your token is valid, but it cannot see ${DATA_REPO.owner}/${DATA_REPO.repo}. Do
-              NOT create a new one, that is the one thing that cannot help. Fix its repository
-              access: github.com → Settings → Developer settings → Fine-grained tokens → your token
-              → Repository access → Only select repositories → ${DATA_REPO.repo}, and Permissions →
-              Contents: Read and write.`
-            : html` GitHub is rejecting your token. Renew it in SYS: github.com → Settings →
-              Developer settings → Fine-grained tokens → your token → Regenerate, then paste the new
-              string into SYS.`
+          repo?.auth === "missing"
+            ? html` This device has no token, so nothing you tap here reaches the kitchen or your
+              other devices: rows leave the list on this screen only. Paste the same token your
+              phone uses into SYS (localStorage is per device, so every device needs its own paste).`
+            : repo?.auth === "norepo"
+              ? html` Your token is valid, but it cannot see ${DATA_REPO.owner}/${DATA_REPO.repo}.
+                Do NOT create a new one, that is the one thing that cannot help. Fix its repository
+                access: github.com → Settings → Developer settings → Fine-grained tokens → your
+                token → Repository access → Only select repositories → ${DATA_REPO.repo}, and
+                Permissions → Contents: Read and write.`
+              : html` GitHub is rejecting your token. Renew it in SYS: github.com → Settings →
+                Developer settings → Fine-grained tokens → your token → Regenerate, then paste the
+                new string into SYS.`
         }
         Everything you do still works and is kept on this
         device${sync.pending > 0 ? ` (${sync.pending} waiting)` : ""}, and it will push itself once
