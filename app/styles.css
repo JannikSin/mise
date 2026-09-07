@@ -2635,3 +2635,39 @@ details.dayrow summary:focus-visible {
   font: inherit;
   resize: vertical;
 }
+
+/* THE SHELF CHECK card (planner) and the USE WHAT'S LEFT picks (2026-09-07) */
+.shelfcheck .shelfrows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.shelfrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.shelfrow.done {
+  opacity: 0.6;
+}
+.shelfrow .rowbtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.shelfrow .qtyin {
+  min-width: 12ch;
+  font: inherit;
+  padding: 6px 8px;
+}
+.leftoverpicks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 8px;
+  padding-left: 8px;
+  border-left: 2px solid currentColor;
+}

@@ -344,7 +344,8 @@ catalogue row ids and pantry matching converge on.
     "pay-less": { "locationId": "02100824", "name": "Pay Less Super Markets W Lafayette" },
   },
   "pins": {
-    "chicken-breast": { // canonicalFood — THE ledger key
+    "chicken-breast": {
+      // canonicalFood — THE ledger key
       "pay-less": {
         "upc": "0021142100000",
         "description": "Heritage Farm® Boneless Skinless Chicken Breasts",
@@ -693,6 +694,13 @@ window and one more reason the window is short.**
       "said": "1 dozen", // ? the words as dictated, kept when normalizeQty
       // rewrote qty, so the PANTRY tab shows "1 dozen (12 each)". Never read
       // by any engine; display only.
+      "checkedAt": "2026-09-07", // ? THE SHELF CHECK (2026-09-07, David): the last
+      // day a person confirmed this row (STILL HAVE, or a corrected count).
+      // The Plan tab's shelf-check card lists dated rows not confirmed in
+      // SHELF_CHECK_DAYS (7) first; GENERATE never waits for it. A lower
+      // corrected count or GONE writes a waste event (reason "shelf-check" /
+      // "shelf-check-gone"), because food that left without COOKED is waste
+      // or an untapped meal. app/lib/shelfcheck.js.
       "added": "2026-07-04",
       "expires": "2026-07-11", // ? REAL since 2026-08-19 (PF.3): stamped at buy time
       // by applyJustBought (expiryFrom = added + shelfLifeDays for the row's
@@ -758,29 +766,30 @@ existed. That is the only way to add a model to an app people are already using.
 
 ```jsonc
 {
-  "headId": "david",          // who assigns roles. Absent = nobody yet, and the
-                              // first writer becomes it (refusing everybody
-                              // would make the file unreachable)
+  "headId": "david", // who assigns roles. Absent = nobody yet, and the
+  // first writer becomes it (refusing everybody
+  // would make the file unreachable)
   "members": [
     { "id": "david", "roles": ["cook", "shopper"] },
-    { "id": "roommate", "roles": ["eater"] }      // roles: cook | shopper | eater
+    { "id": "roommate", "roles": ["eater"] }, // roles: cook | shopper | eater
   ],
-  "equipment": ["oven", "freezer", "blender"],    // absent = has everything,
-                                                  // same meaning as the
-                                                  // per-profile field
-  "capacityL": {              // LITRES, as the appliance is sold
+  "equipment": ["oven", "freezer", "blender"], // absent = has everything,
+  // same meaning as the
+  // per-profile field
+  "capacityL": {
+    // LITRES, as the appliance is sold
     "fridge": 120,
     "freezer": 40,
-    "pantry": 90
+    "pantry": 90,
   },
   "occupancy": {
     "from": "2026-08-24",
-    "until": "2026-12-19"     // THE DRAIN-DOWN TARGET. Perishables must reach
-                              // zero by this date, so a food's real deadline is
-                              // the earlier of its own date and this one, and
-                              // days past it are not planned. Absent = a
-                              // permanent home, never pushed to eat its stock.
-  }
+    "until": "2026-12-19", // THE DRAIN-DOWN TARGET. Perishables must reach
+    // zero by this date, so a food's real deadline is
+    // the earlier of its own date and this one, and
+    // days past it are not planned. Absent = a
+    // permanent home, never pushed to eat its stock.
+  },
 }
 ```
 
@@ -819,7 +828,9 @@ Written by `appendWaste` (`app/lib/waste.js`) at the auto-expiry site in
       // idempotency key: every device runs the same sweep, one event lands.
       "id": "a1b2c3d4|2026-08-18|expired",
       "date": "2026-08-18", // the day it was written off
-      "reason": "expired", // "expired" today; manual confirms and the review add theirs
+      "reason": "expired", // "expired" (auto sweep), "shelf-check" (a count corrected
+      // down at the Plan tab's shelf check; qty is the difference),
+      // "shelf-check-gone" (a row declared gone there; qty is the whole row)
       "rowId": "a1b2c3d4", // the pantry row's stable id, null for pre-id rows
       "food": "spinach",
       "qty": "1 bag", // ? carried from the row when present
@@ -1001,7 +1012,7 @@ Rules (binding, from the Tribunal gate):
 - THE GUESTHOUSE (2026-08-29 plenum, David's named yes on the spec's two
   gates): a guest profile is an ordinary profiles.json entry with
   `household: "guesthouse"` plus a normal `profiles/<id>/profile/
-  targets.json`, created by the guest themselves on the host's phone at
+targets.json`, created by the guest themselves on the host's phone at
   `#/guest` (the profile gate's questionnaire in guest mode). Guesthouse
   members are seatable at any house's table (labeled, after housemates),
   their targets size their tailored plates, their share hits the list and
@@ -1324,6 +1335,13 @@ person reads as "am I eating two and a half servings?" (David: "what are you
 trying to do, make me fat?"). Every user-facing surface now names WHOSE food it
 is and lets the ingredient amounts carry the quantity. Keep it that way.
 
+**`useItUp` (2026-09-07, David: "one of them really should just be what's left in
+the fridge, and I generate something from there").** A pinned entry the person
+chose from the Plan tab's USE WHAT'S LEFT picks (`useWhatsLeft` in
+app/lib/shelfcheck.js: dishes at least 60% covered by the shelf, expiring rows
+first). Marks the meal as a clear-the-fridge cook so the review can count it;
+nothing else reads it.
+
 **`potFromBank` (shared-table pot lines only; absent = a normal entry).** A
 cook/buyer's derived shopping pseudo-entry carries the BANK recipe's id and the
 whole pot's serving total. `deriveShoppingList` resolves `recipeId` through the
@@ -1453,10 +1471,10 @@ budget. It sat under `fitness/` only because it predates the split.
 
 **Both paths are live, on purpose.**
 
-| | path | who writes it |
-|---|---|---|
-| canonical | `profile/targets.json` | Mise, via `writeTargetsOf` |
-| mirror | `fitness/targets.json` | Mise, same call, same object |
+|           | path                   | who writes it                |
+| --------- | ---------------------- | ---------------------------- |
+| canonical | `profile/targets.json` | Mise, via `writeTargetsOf`   |
+| mirror    | `fitness/targets.json` | Mise, same call, same object |
 
 - **Reads** (`readTargetsOf`) try the canonical path and fall back to the
   legacy one, so a profile that has not been migrated behaves exactly as it
@@ -1718,7 +1736,8 @@ Seeded from the FITNESS.md system; edited rarely.
   //   reason an out-of-band calorie target is deliberate (doctor's guidance,
   //   named protocol). With it, the gate is quiet; without it, an
   //   out-of-band target gets a loud planner advisory. NEVER a hard block.
-  "currencies": [ // ? P5's other balances (7.11, 2026-08-19): value with its
+  "currencies": [
+    // ? P5's other balances (7.11, 2026-08-19): value with its
     //   own rules and clock. Marginal-cost utilization: expiring/prepaid
     //   value spends before cash.
     {
@@ -1743,10 +1762,10 @@ Seeded from the FITNESS.md system; edited rarely.
       //   them here reaches an already-planned week on its next generate —
       //   they froze at plan time before 2026-08-25, which left David's
       //   live week crediting a stale 550/48 against a stated 800/65.
-      "toGo": true // ? redeemable as a takeout container instead of eating
+      "toGo": true, // ? redeemable as a takeout container instead of eating
       //   in (a box of chicken breasts IS pantry stock). v1 records the
       //   field; the swipe→pantry flow is open 7.11 work.
-    }
+    },
   ],
   "shopsPerWeek": 2, // ? integer, ABSENT = 1. 1 = single weekly list
   //   (unchanged). >1 splits the List view into a pantry/bulk trip
@@ -1816,7 +1835,6 @@ gaining; faster reads too-fast). `phase` defaults to `"gain"` when omitted.
 
 > Kept here as the format of record while the file still lives in this repo.
 > Mise reads and writes nothing in it.
-
 
 Under the simplified logging flow (Phase 6), `sets` is written with exactly one
 entry per exercise per session, the array shape is kept for backward

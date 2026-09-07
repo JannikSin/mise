@@ -1039,7 +1039,7 @@ export const PANTRY_LOCATIONS = /** @type {PantryLocation[]} */ ([
 const OTHER_LOCATION_DAYS = [
   [/\b(salmon|tuna|cod|tilapia|shrimp|prawn|scallop|fish|seafood)\b/, { freezer: 90 }],
   [/\b(chicken|turkey|pork|beef|lamb|mince|steak|thigh|breast|ground)\b/, { freezer: 90 }],
-  [/\b(berries|berry)\b/, { freezer: 240 }],
+  [/\b(berries|berry|fruit|mango|pineapple|peach|peaches|cherries)\b/, { freezer: 240 }],
   [/\b(spinach|lettuce|arugula|greens|kale|herb|cilantro|parsley|basil)\b/, { freezer: 180 }],
   [
     /\b(broccoli|cauliflower|pepper|mushroom|zucchini|asparagus|peas|corn|edamame)\b/,

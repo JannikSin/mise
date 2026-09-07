@@ -73,6 +73,13 @@ import {
   slug,
   recipeBought,
 } from "./lib/shopping.js";
+import {
+  confirmShelfRow,
+  editShelfRow,
+  goneShelfRow,
+  shelfCheckRows,
+  useWhatsLeft,
+} from "./lib/shelfcheck.js";
 import { applyReceipt, parsePackSize, storeSlugOf, resolveHomeStore } from "./lib/prices.js";
 import { normalizePins } from "./lib/kroger.js";
 import { perishableCoverage } from "./lib/coverage.js";
@@ -2081,6 +2088,61 @@ function App() {
     /** @type {import("./lib/plan.js").Plan | null} */ (null),
   );
   const [wasteLog, setWasteLog] = useState(/** @type {Record<string, any> | null} */ (null));
+
+  // THE SHELF CHECK (P6/P11, David 2026-09-06): confirm, correct or remove a
+  // counted row before GENERATE reads the shelf. A downward correction and a
+  // GONE are write-offs in the waste ledger (reason "shelf-check"): food that
+  // left without a COOKED tap is waste or an untapped meal, and the review
+  // must see either. Same sibling-file write the expiry sweep uses.
+  const appendShelfWaste = useCallback(
+    async (/** @type {Record<string, any>[]} */ rows, /** @type {string} */ reason) => {
+      const pantryPath = pantryPathRef.current;
+      if (!pantryPath || rows.length === 0) return;
+      const wastePath = pantryPath.replace(/pantry\.json$/, "waste.json");
+      const prior = /** @type {Record<string, any> | null} */ (
+        await read(wastePath, { raw: true }).catch(() => null)
+      );
+      const next = appendWaste(prior, rows, localIsoDate(new Date()), reason);
+      setWasteLog(next);
+      await write(wastePath, next, { raw: true });
+    },
+    [],
+  );
+  const handleShelfConfirm = useCallback(
+    (/** @type {string} */ id) => {
+      updatePantry(confirmShelfRow(pantryRef.current, id, localIsoDate(new Date())));
+    },
+    [updatePantry],
+  );
+  const handleShelfEdit = useCallback(
+    (/** @type {string} */ id, /** @type {string} */ saidQty) => {
+      const r = editShelfRow(pantryRef.current, id, saidQty, localIsoDate(new Date()));
+      updatePantry(r.pantry);
+      if (r.waste) void appendShelfWaste([r.waste], "shelf-check");
+    },
+    [updatePantry, appendShelfWaste],
+  );
+  const handleShelfGone = useCallback(
+    (/** @type {string} */ id) => {
+      const r = goneShelfRow(pantryRef.current, id);
+      updatePantry(r.pantry);
+      if (r.waste) void appendShelfWaste([r.waste], "shelf-check-gone");
+    },
+    [updatePantry, appendShelfWaste],
+  );
+  // USE WHAT'S LEFT (David 2026-09-07): pin the picked dish into MY slot. A
+  // table already there keeps feeding the others; my own pinned entry takes my
+  // seat off it, exactly as any pinned entry does.
+  const handleUseWhatsLeft = useCallback(
+    (/** @type {string} */ date, /** @type {string} */ slot, /** @type {string} */ recipeId) => {
+      let p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      for (const e of entriesAt(p.entries, date, slot)) {
+        if (!(/** @type {any} */ (e).table)) p = removeEntryById(p, e.id);
+      }
+      updatePlan(addEntry(p, date, slot, { recipeId, servings: 1, pinned: true, useItUp: true }));
+    },
+    [updatePlan],
+  );
   // THE HOUSEHOLD MODEL (P6). Absent is a working state: a kitchen that has
   // declared nothing behaves exactly as the app did before the file existed.
   const [household, setHousehold] = useState(normalizeHousehold(null));
@@ -4127,6 +4189,13 @@ function App() {
         onSwitch=${handleSwitchEntry}
         onOpen=${handleOpenEntry}
         onToggleOut=${handleToggleOut}
+        shelfCheck=${shelfCheckRows(pantry, localIsoDate(new Date()))}
+        onShelfConfirm=${handleShelfConfirm}
+        onShelfEdit=${handleShelfEdit}
+        onShelfGone=${handleShelfGone}
+        whatsLeft=${(/** @type {string} */ slot) =>
+          useWhatsLeft(recipes, pantry, localIsoDate(new Date()), { slot })}
+        onUseWhatsLeft=${handleUseWhatsLeft}
         onSwipeEaten=${(/** @type {string} */ date, /** @type {string} */ slot) =>
           updatePlan(
             toggleSwipeEaten(

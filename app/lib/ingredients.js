@@ -214,6 +214,8 @@ const NAME_ALIASES = {
   // the bank says "milk" 13 times and "whole milk" twice; the shelf holds one
   // jug, and the list should buy one jug (David's two gallons, 2026-09-06)
   "whole-milk": "milk",
+  // the shelf says "spinach", the bank says "baby spinach" 27 times: one bag
+  spinach: "baby-spinach",
 };
 
 /**
