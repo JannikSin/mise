@@ -12,6 +12,7 @@ import {
   aisleOf,
   toPreferred,
   toGrams,
+  normalizeQty,
 } from "./ingredients.js";
 import { itemCost, matchPrice, parsePackSize, stem } from "./prices.js";
 
@@ -1011,6 +1012,17 @@ const OTHER_LOCATION_DAYS = [
   [/\b(potato|onion|shallot|garlic|squash)\b/, { pantry: 30 }],
   [/\b(banana|avocado|tomato)\b/, { pantry: 5 }],
   [/\b(apple|citrus|lemon|lime|orange)\b/, { pantry: 10 }],
+  // SHELF-STABLE, LAST so every specific line above wins first (2026-09-06):
+  // a dictated count ("6 cans of coconut milk", "8 cans tuna", "3 cans black
+  // beans") is stored as a dated row on the pantry shelf, and this function
+  // decides when expirePerishables deletes it. Without a pantry figure these
+  // fell back to the FRIDGE number, so the cans would have been written off
+  // as waste in one to two weeks. A year is the guide's floor for canned and
+  // dry goods; the fridge figure still governs the same food in the fridge.
+  [
+    /\b(canned|cans?|tinned|jarred|tuna|beans|chickpeas|lentils|tomatoes|tomato paste|broth|stock|coconut milk|pasta|noodles|rice|oats|flour|sugar|quinoa|couscous|cereal|granola|nuts|seeds|honey|syrup|oil|vinegar|sauce|salsa|paste|powder|crackers|popcorn|chips)\b/,
+    { pantry: 365 },
+  ],
 ];
 
 /**
@@ -1279,15 +1291,31 @@ function healItem(it) {
   const id = typeof it.id === "string" && it.id ? it.id : slug(String(it.food ?? ""));
   const aisle = aisleOf(String(it.food ?? ""));
   const dated = isDatedItem(it);
+  // THE QUANTITY IS READ AS SAID, STORED AS COUNTABLE (David, 2026-09-06:
+  // "it needs to convert 2 gallons into 7.6 liters, it needs to know that 5
+  // lemons is 5 each"). A dated row's qty is dictated in pack language, and
+  // pack language cannot be subtracted, so the shelf said "3 tubs" of yogurt
+  // and the list bought 3 kg more. normalizeQty turns the words into
+  // "<number> <unit>" on every read; the words themselves survive in `said`
+  // so the PANTRY tab still shows what he actually has. Text no table can
+  // read ("a few, in bag") stays as it is: an honest cannot-count.
+  const spokenQty = dated && typeof it.qty === "string" ? it.qty : "";
+  const countable = spokenQty ? normalizeQty(String(it.food ?? ""), spokenQty) : null;
+  const qtyFix = countable && countable !== spokenQty ? countable : null;
   // dated rows carry the aisle as `group` beside their location; undated
   // staples carry it as `section`. Same value, two field names, both legacy.
   const settled =
     it.id === id &&
+    !qtyFix &&
     (dated ? it.group === aisle && typeof it.location === "string" : it.section === aisle);
   if (settled) return it;
   /** @type {Record<string, any>} */
   const out = { ...it, id, ...(dated ? { group: aisle } : { section: aisle }) };
   if (dated && typeof out.location !== "string") out.location = "unsorted";
+  if (qtyFix) {
+    out.qty = qtyFix;
+    if (typeof out.said !== "string" || !out.said) out.said = spokenQty;
+  }
   return out;
 }
 

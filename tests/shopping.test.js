@@ -2172,3 +2172,60 @@ test("isStapleRow: stock-up shelf rows are staples, this week's food is not", ()
     true,
   );
 });
+
+test("the shelf as SAID subtracts from the trip: gallons, tubs, dozens, plurals (David, 2026-09-06)", () => {
+  const pantry = {
+    items: [
+      { id: "m1", food: "milk", qty: "2 gallons", added: "2026-09-06", location: "fridge" },
+      { id: "y1", food: "greek yogurt", qty: "3 tubs", added: "2026-09-06", location: "fridge" },
+      { id: "e1", food: "eggs", qty: "1 dozen", added: "2026-09-06", location: "fridge" },
+      { id: "l1", food: "lemons", qty: "5", added: "2026-09-06", location: "pantry" },
+      { id: "l2", food: "limes", qty: "a few, in bag", added: "2026-09-06", location: "pantry" },
+    ],
+  };
+  // the read heals the words into countable text and keeps the words
+  const healed = pantryItems(pantry);
+  assert.equal(healed.find((i) => i.id === "y1").qty, "2721 g");
+  assert.equal(healed.find((i) => i.id === "y1").said, "3 tubs");
+  assert.equal(healed.find((i) => i.id === "l2").qty, "a few, in bag", "unreadable words stay words");
+  const { toBuy, covered } = subtractPantryFromTrip(
+    [
+      { food: "milk", qty: 6.75, unit: "cup" },
+      { food: "greek yogurt", qty: 3.1, unit: "kg" },
+      { food: "egg", qty: 7, unit: "each" },
+      { food: "lemon", qty: 5, unit: "each" },
+      { food: "lime", qty: 2, unit: "each" },
+    ],
+    pantry,
+  );
+  assert.deepEqual(
+    covered.map((i) => i.food).sort(),
+    ["egg", "lemon", "milk"],
+    "two gallons cover the week's milk, a dozen covers seven eggs, five lemons cover five",
+  );
+  const yogurt = toBuy.find((i) => i.food === "greek yogurt");
+  assert.ok(yogurt && yogurt.kitchenHas, "three tubs cover most of 3.1 kg, the remainder is bought");
+  assert.equal(yogurt.unit, "g", "the remainder reads in the food's own unit");
+  assert.ok(yogurt.qty > 0 && yogurt.qty < 3100 - 2721 + 100, `remainder ${yogurt.qty} g`);
+  assert.ok(toBuy.find((i) => i.food === "lime"), "free-text limes never fake-subtract");
+});
+
+test("a healed pantry is settled on the second read (no write churn)", () => {
+  const once = packPantry([
+    { id: "m1", food: "milk", qty: "2 gallons", added: "2026-09-06", location: "fridge" },
+  ]);
+  const row = once.items[0];
+  assert.equal(row.qty, "2 gal");
+  assert.equal(row.said, "2 gallons");
+  const twice = pantryItems(once);
+  assert.strictEqual(twice[0], row, "already-normal rows pass through by reference");
+});
+
+test("a dictated count of cans keeps a year on the pantry shelf, not the fridge's two weeks", () => {
+  assert.equal(shelfLifeDays("coconut milk", "pantry"), 365);
+  assert.equal(shelfLifeDays("tuna", "pantry"), 365);
+  assert.equal(shelfLifeDays("black beans", "pantry"), 365);
+  assert.ok(shelfLifeDays("coconut milk", "fridge") <= 14, "the fridge figure still governs the fridge");
+  assert.equal(shelfLifeDays("banana", "pantry"), 5, "specific lines still win over the shelf-stable catch-all");
+  assert.equal(shelfLifeDays("lemon", "pantry"), 10);
+});

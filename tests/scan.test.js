@@ -145,6 +145,8 @@ test("parsePantryDictation reads a spoken run-through into pantry rows", () => {
   assert.equal(by["rice"].state, "low", "'running low on' marks it low");
   assert.ok(!("milk" in by), "'out of' adds nothing");
   assert.equal(by["walnuts"].kind, "staple");
+  assert.equal(by["chicken thighs"].kind, "fresh");
+  assert.equal(by["eggs"].location, "fridge");
 });
 
 test("parsePantryDictation: one item per line works too, duplicates collapse, bare articles are not quantities", () => {
@@ -156,8 +158,9 @@ test("parsePantryDictation: one item per line works too, duplicates collapse, ba
     [
       ["olive oil", "", "staple"],
       ["spinach", "", "fresh"],
-      ["black beans", "3 cans", "staple"],
-      ["quinoa", "0.5 bag", "staple"],
+      // a count is inventory since 2026-09-06: counted rows are dated rows
+      ["black beans", "3 cans", "fresh"],
+      ["quinoa", "0.5 bag", "fresh"],
     ],
   );
 });
@@ -171,4 +174,43 @@ test("a dictated 'low on' staple lands LOW through applyScanItems, never plenty"
   const rice = next.staples.find((s) => s.id === "rice");
   assert.equal(rice.runningLow, true);
   assert.equal(rice.onHand, false, "the legacy mirror reads LOW as not-on-hand, by design");
+});
+
+test("parsePantryDictation splits a run-on at the next quantity (David's 2026-09-06 dictation)", () => {
+  const rows = parsePantryDictation(
+    "cottage cheese two bricks of sharp cheddar cheese, milk a huge thing of soy sauce about a container of basil pesto, what I think is kale, we, there’s lots of rice, boy Scout popcorn a huge thing of Chia seeds a huge thing of whey protein powder",
+  );
+  assert.deepEqual(
+    rows.map((r) => [r.name, r.qty]),
+    [
+      ["cottage cheese", ""],
+      ["sharp cheddar cheese", "2 bricks"],
+      ["milk", ""],
+      ["soy sauce", ""],
+      ["basil pesto", "1 container"],
+      ["kale", ""],
+      ["rice", ""],
+      ["boy Scout popcorn", ""],
+      ["chia seeds", ""],
+      ["whey protein powder", ""],
+    ],
+  );
+});
+
+test("a dictated COUNT is inventory: it lands as a countable dated row, cans on the pantry shelf", () => {
+  const rows = parsePantryDictation("5 lemons, 6 cans of coconut milk, 3 tubs of greek yogurt, a dozen eggs, soy sauce");
+  const by = Object.fromEntries(rows.map((r) => [r.name, r]));
+  assert.equal(by["lemons"].kind, "fresh", "a count is never a bare PLENTY");
+  assert.equal(by["lemons"].location, "pantry");
+  assert.equal(by["coconut milk"].location, "pantry", "cans are not fridge food whatever is inside");
+  assert.equal(by["greek yogurt"].location, "fridge");
+  assert.equal(by["soy sauce"].kind, "staple");
+  const next = applyScanItems({ items: [] }, rows, "2026-09-06", "pantry");
+  const row = (/** @type {string} */ f) => next.items.find((it) => it.food === f);
+  assert.equal(row("lemons").qty, "5 each");
+  assert.equal(row("lemons").said, "5");
+  assert.equal(row("greek yogurt").qty, "2721 g");
+  assert.equal(row("greek yogurt").said, "3 tubs");
+  assert.equal(row("eggs").qty, "12 each");
+  assert.equal(row("coconut milk").qty, "6 can");
 });

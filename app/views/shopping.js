@@ -2606,7 +2606,9 @@ export function ShoppingView({
                           // how much is LEFT, now that cooking subtracts —
                           // "good til" alone can't tell you whether there is
                           // enough chicken for Thursday
-                          p.qty ? `${p.qty} · ` : ""
+                          // the words he said stay in front of the count the
+                          // arithmetic uses: "3 tubs (2721 g)"
+                          p.qty ? `${p.said ? `${p.said} (${p.qty})` : p.qty} · ` : ""
                         }${
                           goodUntil
                             ? `good til ${parseLocalIso(goodUntil).toLocaleDateString([], { month: "short", day: "numeric" })} · ${daysLeft}d`

@@ -678,9 +678,21 @@ window and one more reason the window is short.**
       // (FNV over food|added|qty + twin index, so two devices healing the
       // same household pantry agree), persisted next write.
       "food": "half cabbage",
-      "qty": "0.5 head", // ? free string, human-scale. "<number> <unit>" is what
-      // cook-subtraction can do arithmetic on; anything else is
-      // removed whole when the food is cooked.
+      "qty": "0.5 each", // ? "<number> <canonical unit>" wherever the words can be
+      // read as one (2026-09-06, David: "it needs to convert 2 gallons into
+      // 7.6 liters, it needs to know that 5 lemons is 5 each"). healItem runs
+      // normalizeQty (ingredients.js) on EVERY read: unit spellings collapse
+      // ("2 lbs" -> "2 lb"), generic packs convert ("1 dozen" -> "12 each",
+      // "2 gallons" -> "2 gal"), per-food packs convert through PACK_SIZES
+      // ("3 tubs" of greek yogurt -> "2721 g", "5 cartons" of broth ->
+      // "4730 ml", "1 bunch" of bananas -> "6 each"), and a bare number on
+      // a food the bank counts in pieces becomes "each". Cook-subtraction
+      // and subtractPantryFromTrip do arithmetic on that shape and nothing
+      // else; words no table can read ("a few, in bag") stay as they are and
+      // the row is removed whole when the food is cooked.
+      "said": "1 dozen", // ? the words as dictated, kept when normalizeQty
+      // rewrote qty, so the PANTRY tab shows "1 dozen (12 each)". Never read
+      // by any engine; display only.
       "added": "2026-07-04",
       "expires": "2026-07-11", // ? REAL since 2026-08-19 (PF.3): stamped at buy time
       // by applyJustBought (expiryFrom = added + shelfLifeDays for the row's

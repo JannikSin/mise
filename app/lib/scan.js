@@ -36,9 +36,19 @@ import {
  * @returns {{ name: string, kind: "staple" | "fresh", qty: string, state?: "low", location: "fridge" | "freezer" | "pantry" | "unsorted" }[]}
  */
 export function parsePantryDictation(text) {
+  // RUN-ON PHRASES SPLIT AT THE NEXT QUANTITY (David's dictation, 2026-09-06:
+  // "milk a huge thing of soy sauce about a container of basil pesto" landed
+  // as ONE pantry row holding two gallons). A spoken list rarely carries the
+  // commas; what it carries is a new amount in front of each new food, so a
+  // number or article followed by a pack word ("a container of", "two bricks
+  // of", "a huge thing of", "about a tub of") starts a new item.
+  const QTY_START =
+    /(?<!\bhalf )(?<!\bof )\b(?=(?:about\s+|roughly\s+|like\s+)?(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|twelve|a couple of|a few|some|\d+(?:[./]\d+)?)\s+(?:(?:huge|big|large|giant|small|little|whole|new|full|half)\s+)?(?:things?|tubs?|cartons?|bricks?|blocks?|containers?|jars?|bottles?|bags?|box(?:es)?|cans?|packs?|packages?|jugs?|gallons?|quarts?|pints?|dozen|pounds?|lbs?|bunch(?:es)?|heads?|loa(?:f|ves)|sticks?|cups?|liters?|litres?)\b)/i;
   const raw = String(text ?? "")
     .replace(/\r/g, "")
+    .replace(/[’‘]/g, "'")
     .split(/\n|[,;]|\.\s+|\.$|\band\b|\balso\b|\bthen\b|\bplus\b/i)
+    .flatMap((s) => s.split(QTY_START))
     .map((s) => s.trim())
     .filter(Boolean);
   /** @type {ReturnType<typeof parsePantryDictation>} */
@@ -50,10 +60,15 @@ export function parsePantryDictation(text) {
     for (let prev = ""; prev !== piece;) {
       prev = piece;
       piece = piece
-        .replace(/^(?:um+|uh+|okay|ok|so|yeah|yes|well|oh|like|basically|anyway)\b[\s,]*/i, "")
-        .replace(/^(?:i|we)(?:'ve| have| got|'ve got| also have| still have| do have)\b\s*/i, "")
+        .replace(/^(?:um+|uh+|okay|ok|so|yeah|yes|well|oh|like|basically|anyway|about|roughly)\b[\s,]*/i, "")
+        .replace(/^(?:i|we)(?:'ve| have| got|'ve got| also have| still have| do have| know we have| think we have)\b\s*/i, "")
         .replace(/^(?:there(?:'s| is| are))\s+/i, "")
+        .replace(/^(?:what i think is|i think(?: it's| its| it is)?|i know)\s+/i, "")
         .replace(/^(?:got|have|having)\s+/i, "")
+        // "a huge thing of X": an amount nobody can count, so it is X, no qty
+        .replace(/^(?:a|an|one|\d+)\s+(?:(?:huge|big|large|giant|small|little|whole|new|full)\s+)?things?\s+of\s+/i, "")
+        // "a huge tub of X" reads as "a tub of X": the size word is not a unit
+        .replace(/^((?:a|an|one|two|three|four|five|six|\d+)\s+)(?:huge|big|large|giant|small|little|whole|new|full)\s+/i, "$1")
         .trim();
     }
     if (!piece) continue;
@@ -77,7 +92,7 @@ export function parsePantryDictation(text) {
     // a leading amount, kept as the row's qty
     let qty = "";
     const qtyM = piece.match(
-      /^((?:\d+(?:[./]\d+)?|half a|half an|half|a dozen|two dozen|a|an|one|two|three|four|five|six|eight|ten|twelve)\s*(?:lbs?|pounds?|oz|ounces?|kgs?|kilos?|grams?|g|liters?|litres?|l|ml|gallons?|quarts?|pints?|cups?|cans?|jars?|bottles?|bags?|boxes?|packs?|packages?|packets?|tubs?|cartons?|bunch(?:es)?|heads?|loaves|loaf|dozen|sticks?|blocks?|containers?)?)\s+(?:of\s+)?(.+)$/i,
+      /^((?:\d+(?:[./]\d+)?|half a|half an|half|a dozen|two dozen|a|an|one|two|three|four|five|six|eight|ten|twelve)\s*(?:lbs?|pounds?|oz|ounces?|kgs?|kilos?|grams?|g|liters?|litres?|l|ml|gallons?|quarts?|pints?|cups?|cans?|jars?|bottles?|bags?|boxes?|packs?|packages?|packets?|tubs?|cartons?|bunch(?:es)?|heads?|loaves|loaf|dozen|sticks?|blocks?|bricks?|jugs?|containers?)?)\s+(?:of\s+)?(.+)$/i,
     );
     if (qtyM) {
       const amount = /** @type {string} */ (qtyM[1]).trim().toLowerCase();
@@ -105,19 +120,32 @@ export function parsePantryDictation(text) {
       }
     }
     piece = piece.replace(/\s+/g, " ").trim();
-    if (!piece || piece.length > 80) continue;
+    // a two-letter fragment is a mishearing or a stranded pronoun ("we",
+    // "or"), never a food
+    if (!piece || piece.length < 3 || piece.length > 80) continue;
+    // what is left of "I've got" once the amount after it became its own item
+    if (/^(?:got|have|having|some|any|more|also|lots|stuff|things?|there)$/i.test(piece)) continue;
     const name = piece.charAt(0).toLowerCase() + piece.slice(1);
     const key = slug(name);
     if (seen.has(key)) continue;
     seen.add(key);
     const frozen = /\bfrozen\b/i.test(name);
-    const fresh = frozen || looksPerishable(name);
+    // A COUNT IS INVENTORY (David, 2026-09-06: "it should know how many
+    // lemons"). Anything said with an amount becomes a counted, dated row
+    // even when the food is shelf-stable, because a staple row has no
+    // quantity at all and "5 lemons" would have landed as a bare PLENTY.
+    // Cans and jars go to the pantry shelf whatever the food inside sounds
+    // like: "6 cans of coconut milk" is not fridge food.
+    const canned = /\b(?:cans?|jars?|tins?)\b/i.test(qty) || /\bcanned\b/i.test(name);
+    const perishable = !canned && looksPerishable(name);
+    const counted = Boolean(qty);
+    const fresh = frozen || perishable || counted;
     out.push({
       name,
       kind: fresh ? "fresh" : "staple",
       qty,
       ...(state && !fresh ? { state } : {}),
-      location: frozen ? "freezer" : fresh ? "fridge" : "unsorted",
+      location: frozen ? "freezer" : perishable ? "fridge" : fresh ? "pantry" : "unsorted",
     });
   }
   return out;

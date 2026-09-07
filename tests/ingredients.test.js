@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   canonicalFood,
+  normalizeQty,
   canonicalUnit,
   dimensionOf,
   toGrams,
@@ -141,4 +142,40 @@ test("canonicalFood strips parentheticals: packaging is not identity (fix 0.3)",
   assert.equal(canonicalFood("Oats (large container)"), canonicalFood("rolled oats"));
   assert.equal(canonicalFood("black beans (15 oz can)"), canonicalFood("black beans"));
   assert.equal(canonicalFood("baby spinach (5 oz clamshell)"), "baby-spinach");
+});
+
+test("normalizeQty: pack language becomes the one shape the arithmetic reads (David, 2026-09-06)", () => {
+  const cases = [
+    ["milk", "2 gallons", "2 gal"],
+    ["milk", "half a gallon", "0.5 gal"],
+    ["greek yogurt", "3 tubs", "2721 g"],
+    ["cottage cheese", "1 tub", "454 g"],
+    ["eggs", "1 dozen", "12 each"],
+    ["eggs", "a dozen", "12 each"],
+    ["chicken broth", "5 cartons", "4730 ml"],
+    ["sharp cheddar cheese", "2 bricks", "454 g"],
+    ["bananas", "1 bunch", "6 each"],
+    ["lemons", "5", "5 each"],
+    ["chicken thighs", "2 lbs", "2 lb"],
+    ["milk", "7.5 l", "7.5 l"],
+    ["greek yogurt", "2721 g", "2721 g"],
+  ];
+  for (const [food, said, want] of cases) {
+    assert.equal(normalizeQty(food, said), want, `${food}: ${said}`);
+  }
+  // no number, or a pack no table knows: null, and the caller keeps the words
+  assert.equal(normalizeQty("lemons", "a few, in bag"), null);
+  assert.equal(normalizeQty("kiwi", "1 pack"), null);
+  assert.equal(normalizeQty("rice", "3"), null, "a bare number on a food not counted in pieces stays text");
+  assert.equal(normalizeQty("milk", ""), null);
+});
+
+test("plural dictation and singular recipes share one key", () => {
+  assert.equal(canonicalFood("lemons"), canonicalFood("lemon"));
+  assert.equal(canonicalFood("bananas"), canonicalFood("banana"));
+  assert.equal(canonicalFood("sharp cheddar cheese"), canonicalFood("sharp cheddar"));
+  assert.equal(canonicalFood("tuna"), canonicalFood("canned tuna"));
+  assert.equal(canonicalFood("whole milk"), canonicalFood("milk"));
+  // still never merged: juice is a bottle, the fruit is a fruit
+  assert.notEqual(canonicalFood("lemons"), canonicalFood("lemon juice"));
 });

@@ -96,6 +96,17 @@ const UNIT_ALIASES = {
   "fl oz": "fl oz",
   qt: "qt",
   quart: "qt",
+  quarts: "qt",
+  litre: "l",
+  litres: "l",
+  // the pack sizes David actually says (2026-09-06): "2 gallons of milk" is a
+  // volume, and a pantry row that cannot be read as one buys milk again
+  gal: "gal",
+  gallon: "gal",
+  gallons: "gal",
+  pt: "pt",
+  pint: "pt",
+  pints: "pt",
 };
 
 /** Teaspoons in one US cup, exactly, by definition. The volume base unit is
@@ -126,6 +137,8 @@ const UNIT_BASE = {
   cup: { dim: "volume", per: 48 },
   "fl oz": { dim: "volume", per: 6 },
   qt: { dim: "volume", per: 192 },
+  pt: { dim: "volume", per: 96 },
+  gal: { dim: "volume", per: 768 },
   // a pinch is 1/16 tsp by the usual convention. It only ever appears on
   // spices, where it rounds away against the tsp figures it merges into.
   pinch: { dim: "volume", per: 0.0625 },
@@ -182,6 +195,25 @@ const NAME_ALIASES = {
   // split double-charged one bag as two ($14.49 twice on the same list)
   "frozen-mixed-berries": "mixed-berries",
   "sweet-potatoes": "sweet-potato",
+  // the pantry is DICTATED in the plural ("5 lemons", "bananas"), the bank asks
+  // in the singular ("lemon", each). One key or the shelf never subtracts
+  // (David, 2026-09-06: lemons and yogurt he owned were bought again).
+  lemons: "lemon",
+  limes: "lime",
+  bananas: "banana",
+  tomatoes: "tomato",
+  apples: "apple",
+  oranges: "orange",
+  avocados: "avocado",
+  carrots: "carrot",
+  cucumbers: "cucumber",
+  shallots: "shallot",
+  "sharp-cheddar-cheese": "sharp-cheddar",
+  "cheddar-cheese": "sharp-cheddar",
+  tuna: "canned-tuna",
+  // the bank says "milk" 13 times and "whole milk" twice; the shelf holds one
+  // jug, and the list should buy one jug (David's two gallons, 2026-09-06)
+  "whole-milk": "milk",
 };
 
 /**
@@ -216,6 +248,7 @@ const FOOD_UNITS = {
   "feta-cheese": { unit: "g", cup: 150 },
   "kalamata-olives": { unit: "g", cup: 135 },
   "shredded-cheddar-cheese": { unit: "g", cup: 113 },
+  "sharp-cheddar": { unit: "g", cup: 113 },
   "sliced-almonds": { unit: "cup", cup: 92 },
   "peanut-butter": { unit: "tbsp", cup: 258 },
   carrot: { unit: "each", piece: 61 },
@@ -303,7 +336,7 @@ const FOOD_UNITS = {
   water: { unit: "cup", cup: 237 },
   milk: { unit: "cup", cup: 245 },
   "whole-milk": { unit: "cup", cup: 245 },
-  "chicken-broth": { unit: "cup", cup: 240 },
+  "chicken-broth": { unit: "cup", cup: 240, can: 411 },
   "beef-broth": { unit: "cup", cup: 240 },
   "vegetable-broth": { unit: "cup", cup: 240 },
   "low-sodium-vegetable-broth": { unit: "cup", cup: 240 },
@@ -414,6 +447,125 @@ export function canonicalFood(food) {
 export function canonicalUnit(unit) {
   const u = (unit ?? "").toLowerCase().trim();
   return UNIT_ALIASES[u] ?? u;
+}
+
+/** Number words a person says into a phone, and the two pack words that ARE
+ * numbers. "half" alone is 0.5 of whatever pack follows. */
+const WORD_NUMBERS = /** @type {Record<string, number>} */ ({
+  a: 1,
+  an: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  half: 0.5,
+  couple: 2,
+});
+
+/**
+ * Pack words that mean the same amount whatever the food.
+ * @type {Record<string, [number, string]>}
+ */
+const GENERIC_PACKS = {
+  dozen: [12, "each"],
+  "half-gallon": [0.5, "gal"],
+};
+
+/**
+ * What ONE of the thing on the shelf measures, per food, per pack word: the
+ * language David dictates ("3 tubs of greek yogurt", "5 cartons of broth",
+ * "two bricks of cheddar") turned into the unit the arithmetic can subtract.
+ * Ordinary US retail sizes, chosen on the SMALL side on purpose: under-
+ * counting the shelf buys a little extra; over-counting it runs the kitchen
+ * dry mid-week. A pack word absent here leaves the row's text alone, which
+ * is the honest failure (it simply does not subtract).
+ * @type {Record<string, Record<string, [number, string]>>}
+ */
+const PACK_SIZES = {
+  "greek-yogurt": { tub: [907, "g"], container: [907, "g"] },
+  "cottage-cheese": { tub: [454, "g"], container: [454, "g"] },
+  milk: { jug: [1, "gal"], carton: [0.5, "gal"], bottle: [0.5, "gal"] },
+  "whole-milk": { jug: [1, "gal"], carton: [0.5, "gal"], bottle: [0.5, "gal"] },
+  "chicken-broth": { carton: [946, "ml"], box: [946, "ml"] },
+  "vegetable-broth": { carton: [946, "ml"], box: [946, "ml"] },
+  "beef-broth": { carton: [946, "ml"], box: [946, "ml"] },
+  egg: { carton: [12, "each"] },
+  banana: { bunch: [6, "each"] },
+  garlic: { head: [10, "clove"], bulb: [10, "clove"] },
+  "sharp-cheddar": { brick: [227, "g"], block: [227, "g"] },
+  "shredded-cheddar-cheese": { bag: [227, "g"] },
+  "unsalted-butter": { stick: [113, "g"] },
+};
+
+/**
+ * Read a pantry row's quantity the way a person said it and return it as
+ * "<number> <canonical unit>", the one shape the subtraction and the cook
+ * decrement can do arithmetic on. "2 gallons" becomes "7.57 l", "3 tubs" of
+ * greek yogurt "2721 g", "1 dozen" eggs "12 each", a bare "5" on a food the
+ * bank counts in pieces "5 each". Already-normal text returns itself, so the
+ * read-time heal is idempotent. Null when the text has no number, or names a
+ * pack the tables do not know: the caller keeps the words, and the row stays
+ * an honest "cannot count" instead of a made-up figure.
+ * @param {string} food
+ * @param {string} raw
+ * @returns {string | null}
+ */
+export function normalizeQty(food, raw) {
+  const text = String(raw ?? "")
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/\(.*?\)/g, " ")
+    .replace(/half a |half an /g, "half ")
+    .replace(/\bfl\s+oz\b/g, "floz")
+    .trim();
+  const tokens = text.split(/[\s,]+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+  const first = /** @type {string} */ (tokens[0]);
+  const frac = /^(\d+)\/(\d+)$/.exec(first);
+  let n = frac
+    ? Number(frac[1]) / Number(frac[2])
+    : /^\d+(?:\.\d+)?$/.test(first)
+      ? Number(first)
+      : (WORD_NUMBERS[first] ?? NaN);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  // "a half gallon", "half a dozen": a size word after the article multiplies
+  let i = 1;
+  if (tokens[i] === "half" && first !== "half") {
+    n *= 0.5;
+    i += 1;
+  }
+  if (tokens[i] === "a" || tokens[i] === "an") i += 1;
+  const word = tokens[i] ? String(tokens[i]).replace(/\.$/, "") : "";
+  const key = canonicalFood(food);
+  const fmt = (/** @type {number} */ q, /** @type {string} */ u) =>
+    `${Math.round(q * 100) / 100} ${u}`;
+  if (!word || word === "of") {
+    const own = FOOD_UNITS[key];
+    if (own && (canonicalUnit(own.unit) === "each" || own.piece)) return fmt(n, "each");
+    return null;
+  }
+  const unitWord = word === "floz" ? "fl oz" : word;
+  // packs first, singular form so "tubs" and "boxes" both read: a "bunch" of
+  // bananas is six of them, not the one "each" the generic alias would say
+  const pack = unitWord
+    .replace(/ies$/, "y")
+    .replace(/(?:x|ch|sh|s)es$/, (m) => m.slice(0, -2))
+    .replace(/s$/, "");
+  const size = PACK_SIZES[key]?.[pack];
+  if (size) return fmt(n * size[0], size[1]);
+  const generic = GENERIC_PACKS[pack] ?? GENERIC_PACKS[unitWord];
+  if (generic) return fmt(n * generic[0], generic[1]);
+  const canon = canonicalUnit(unitWord);
+  if (UNIT_BASE[canon]) return fmt(n, canon);
+  return null;
 }
 
 /**
