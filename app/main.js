@@ -73,7 +73,7 @@ import {
   slug,
   recipeBought,
 } from "./lib/shopping.js";
-import { setPantryCount, useWhatsLeft, weekNeedsCheck } from "./lib/shelfcheck.js";
+import { setPantryCount, weekNeedsCheck } from "./lib/shelfcheck.js";
 import { applyReceipt, parsePackSize, storeSlugOf, resolveHomeStore } from "./lib/prices.js";
 import { normalizePins } from "./lib/kroger.js";
 import { perishableCoverage } from "./lib/coverage.js";
@@ -2112,19 +2112,6 @@ function App() {
       if (r.waste) void appendShelfWaste([r.waste], "shelf-check");
     },
     [updatePantry, appendShelfWaste],
-  );
-  // USE WHAT'S LEFT (David 2026-09-07): pin the picked dish into MY slot. A
-  // table already there keeps feeding the others; my own pinned entry takes my
-  // seat off it, exactly as any pinned entry does.
-  const handleUseWhatsLeft = useCallback(
-    (/** @type {string} */ date, /** @type {string} */ slot, /** @type {string} */ recipeId) => {
-      let p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
-      for (const e of entriesAt(p.entries, date, slot)) {
-        if (!(/** @type {any} */ (e).table)) p = removeEntryById(p, e.id);
-      }
-      updatePlan(addEntry(p, date, slot, { recipeId, servings: 1, pinned: true, useItUp: true }));
-    },
-    [updatePlan],
   );
   // THE HOUSEHOLD MODEL (P6). Absent is a working state: a kitchen that has
   // declared nothing behaves exactly as the app did before the file existed.
@@ -4184,9 +4171,14 @@ function App() {
         onSwitch=${handleSwitchEntry}
         onOpen=${handleOpenEntry}
         onToggleOut=${handleToggleOut}
-        whatsLeft=${(/** @type {string} */ slot) =>
-          useWhatsLeft(recipes, pantry, localIsoDate(new Date()), { slot })}
-        onUseWhatsLeft=${handleUseWhatsLeft}
+        ${
+          /* USE WHAT'S LEFT is off the slots until it is a pre-planned slot
+             (David, 2026-09-07: "you wouldn't have it next to every single
+             dinner meal... you would pre-plan Saturday dinner or Sunday lunch
+             to be use what's left"). The picker and the handler stay for that
+             build: pass whatsLeft and onUseWhatsLeft to bring the buttons back. */
+          ""
+        }
         onSwipeEaten=${(/** @type {string} */ date, /** @type {string} */ slot) =>
           updatePlan(
             toggleSwipeEaten(
