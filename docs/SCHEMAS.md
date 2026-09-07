@@ -1339,6 +1339,12 @@ person reads as "am I eating two and a half servings?" (David: "what are you
 trying to do, make me fat?"). Every user-facing surface now names WHOSE food it
 is and lets the ingredient amounts carry the quantity. Keep it that way.
 
+**`pinned` on a TABLE (2026-09-07, David: "switch the beef kofta with the lentil
+bolognese").** A dish a person set for that night by hand. The brigade's plain SET
+keeps a pinned table whatever the pantry says about its food (the bought rule
+does not apply), and the cost sweep never trades it away. Set today by data edit;
+a CHANGE DISH control on the Table tab is the owed UI (Tasks).
+
 **`useItUp` (2026-09-07, David: "one of them really should just be what's left in
 the fridge, and I generate something from there").** A pinned entry the person
 chose from the Plan tab's USE WHAT'S LEFT picks (`useWhatsLeft` in

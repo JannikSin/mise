@@ -968,3 +968,20 @@ test("a set meal whose food was never bought is planned again on a plain SET; bo
     cooked.tables.find((x) => x.id === victim.id),
   );
 });
+
+test("a PINNED table is kept through a plain SET whatever the pantry says (David, 2026-09-07)", () => {
+  const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+  const dinners = first.events.tables.filter((t) => t.slot === "dinner");
+  const pin = dinners[dinners.length - 1];
+  const pinnedEvents = {
+    ...first.events,
+    tables: first.events.tables.map((t) => (t.id === pin.id ? { ...t, pinned: true } : t)),
+  };
+  // nothing is bought, so every unpinned table would be re-planned
+  const second = planBrigadeWeek(pinnedEvents, BRIGADE, wayneCtx({ bought: () => false }));
+  assert.deepEqual(
+    second.events.tables.find((x) => x.id === pin.id),
+    pinnedEvents.tables.find((x) => x.id === pin.id),
+    "the pinned dish and its plates are untouched",
+  );
+});

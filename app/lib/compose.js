@@ -869,8 +869,15 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // fresh ingredients are in the kitchen or ticked on the list; an unbought,
   // uncooked table is composed again with the rest of the week, from today's
   // pantry. Absent = the old behaviour, so every existing caller is unchanged.
+  // a PINNED table is a dish a person chose for that night by hand (David,
+  // 2026-09-07: "switch the beef kofta with the lentil bolognese"): kept
+  // through every plain SET whatever the pantry says, and never cost-swept
   const boughtFor = (/** @type {import("./tables.js").TableEvent | undefined} */ t) =>
-    !t || Boolean(/** @type {any} */ (t).cookedAt) || !ctx.bought || ctx.bought(t);
+    !t ||
+    Boolean(/** @type {any} */ (t).cookedAt) ||
+    Boolean(/** @type {any} */ (t).pinned) ||
+    !ctx.bought ||
+    ctx.bought(t);
   let replanned = 0;
   for (const date of dates) {
     /** @type {Record<string, import("./tables.js").TableEvent | undefined>} */
@@ -1224,6 +1231,8 @@ export function planBrigadeWeek(events, brigade, ctx) {
           // already hold, so it is not swapped either (the 2026-09-06 drift)
           if (cd.leftoverBySlot?.[slot]) continue;
           if (LEFTOVER_SLOTS.has(slot) && (fedBy.get(cd.date) ?? []).length > 0) continue;
+          // a hand-pinned dish is not the sweep's to trade away
+          if (/** @type {any} */ (cd.existingBySlot?.[slot])?.pinned) continue;
           // read the day's CURRENT baseline each slot — an accepted swap on
           // an earlier slot of this same day already moved it
           const base = cd.composed;
