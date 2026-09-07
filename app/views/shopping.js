@@ -313,6 +313,10 @@ export function ShoppingView({
     /** @type {{ food: string, text: string } | null} */ (null),
   );
   const [showMinor, setShowMinor] = useState(false);
+  // collapsed by default (David, 2026-09-07: "I already did the pantry update
+  // on Sunday... have me updating it next week"): the card is one line until
+  // opened, and never a gate on BUILD or GENERATE
+  const [needOpen, setNeedOpen] = useState(false);
   const [heard, setHeard] = useState(
     /** @type {null | ReturnType<typeof parsePantryDictation>} */ (null),
   );
@@ -1766,8 +1770,8 @@ export function ShoppingView({
                           </p>
                           <p class="hint mono">
                             ${e.rows
-                                        .map((/** @type {any} */ r) => `${r.upc} ×${r.quantity}`)
-                                        .join("  ")}
+                              .map((/** @type {any} */ r) => `${r.upc} ×${r.quantity}`)
+                              .join("  ")}
                           </p>
                         </div>`,
                     )
@@ -2214,13 +2218,25 @@ export function ShoppingView({
             }
           </div>
           <div class="d">
-            The generated week needs these, and the shelf says it has them. Say how much you
-            actually have (tap the field and dictate: "half a bottle", "3 tubs", "6"); the list then
-            buys only the gap. A word like PLENTY is not a number: four soy-sauce dinners can empty
-            a bottle you called plenty.
+            ${
+              needOpen
+                ? html`The generated week needs these, and the shelf says it has them. Say how much
+                  you actually have (tap the field and dictate: "half a bottle", "3 tubs", "6"); the
+                  list then buys only the gap. A word like PLENTY is not a number: four soy-sauce
+                  dinners can empty a bottle you called plenty.`
+                : html`The pass to do after GENERATE and before you buy, when the shelf has moved
+                  since you last counted it. BUILD never waits for it.`
+            }
           </div>
-          <div class="shelfrows">
-            ${weekNeeds.rows
+          <div class="rowbtns">
+            <button class="secondary" onClick=${() => setNeedOpen(!needOpen)}>
+              ${needOpen ? "HIDE" : "OPEN THE CHECK"}
+            </button>
+          </div>
+          ${
+            needOpen &&
+            html`<div class="shelfrows">
+              ${weekNeeds.rows
               .filter((r) => !r.minor)
               .map((r) => {
                 const editing = countEdit?.food === r.food;
@@ -2244,48 +2260,48 @@ export function ShoppingView({
                     </span>
                   </span>
                   ${
-                  editing
-                    ? html`<span class="rowbtns">
-                        <input
-                          class="qtyin"
-                          type="text"
-                          placeholder="how much? e.g. half a bottle, 3 tubs, 6"
-                          value=${countEdit?.text ?? ""}
-                          onInput=${(/** @type {any} */ e) =>
+                    editing
+                      ? html`<span class="rowbtns">
+                          <input
+                            class="qtyin"
+                            type="text"
+                            placeholder="how much? e.g. half a bottle, 3 tubs, 6"
+                            value=${countEdit?.text ?? ""}
+                            onInput=${(/** @type {any} */ e) =>
                             setCountEdit({ food: r.food, text: String(e.currentTarget.value) })}
-                          onKeyDown=${(/** @type {any} */ e) => {
+                            onKeyDown=${(/** @type {any} */ e) => {
                             if (e.key === "Enter" && countEdit?.text.trim()) {
                               onSetCount(r.food, countEdit.text.trim());
                               setCountEdit(null);
                             }
                             if (e.key === "Escape") setCountEdit(null);
                           }}
-                        />
-                        <button
-                          class="secondary"
-                          disabled=${!countEdit?.text.trim()}
-                          onClick=${() => {
+                          />
+                          <button
+                            class="secondary"
+                            disabled=${!countEdit?.text.trim()}
+                            onClick=${() => {
                             if (countEdit?.text.trim()) onSetCount(r.food, countEdit.text.trim());
                             setCountEdit(null);
                           }}
-                        >
-                          SAVE
-                        </button>
-                        <button class="secondary" onClick=${() => setCountEdit(null)}>✕</button>
-                      </span>`
-                    : html`<span class="rowbtns">
-                        <button
-                          class="ownbtn"
-                          aria-label="Say how much ${r.food} you have"
-                          onClick=${() => setCountEdit({ food: r.food, text: "" })}
-                        >
-                          ${r.status === "enough" ? "CORRECT" : "HOW MUCH?"}
-                        </button>
-                      </span>`
-                }
+                          >
+                            SAVE
+                          </button>
+                          <button class="secondary" onClick=${() => setCountEdit(null)}>✕</button>
+                        </span>`
+                      : html`<span class="rowbtns">
+                          <button
+                            class="ownbtn"
+                            aria-label="Say how much ${r.food} you have"
+                            onClick=${() => setCountEdit({ food: r.food, text: "" })}
+                          >
+                            ${r.status === "enough" ? "CORRECT" : "HOW MUCH?"}
+                          </button>
+                        </span>`
+                  }
                 </div>`;
               })}
-            ${(() => {
+              ${(() => {
               const minor = weekNeeds.rows.filter((r) => r.minor);
               if (minor.length === 0) return "";
               return html`<button class="secondary" onClick=${() => setShowMinor(!showMinor)}>
@@ -2320,7 +2336,8 @@ export function ShoppingView({
                   )
                 }`;
             })()}
-          </div>
+            </div>`
+          }
         </div>`
       }
       ${
