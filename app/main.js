@@ -71,6 +71,7 @@ import {
   isDatedItem,
   sectionOf,
   slug,
+  recipeBought,
 } from "./lib/shopping.js";
 import { applyReceipt, parsePackSize, storeSlugOf, resolveHomeStore } from "./lib/prices.js";
 import { normalizePins } from "./lib/kroger.js";
@@ -3545,6 +3546,11 @@ function App() {
           known.length > 0 ? /** @type {number} */ (known[Math.floor(known.length / 2)]) : 0;
         costOf = (rid) => perServing.get(rid) ?? median;
       }
+      const bankById = recipesById(bankRecipesRef.current);
+      // a set table survives a plain SET only if its fresh food is in the
+      // kitchen or ticked on the list (David, 2026-09-06)
+      const pantryNow = pantryRef.current;
+      const listNow = shoppingRef.current;
       const { events, made, thin, report, swept, notes, nights } = planBrigadeWeek(cur, run, {
         dates: datesOfWeek(week),
         today,
@@ -3552,8 +3558,9 @@ function App() {
         profilesById: new Map(allProfilesRef.current.map((p) => [p.id, p])),
         targetsById,
         plansById,
-        bankById: recipesById(bankRecipesRef.current),
+        bankById,
         regenerate,
+        bought: (t) => recipeBought(bankById.get(t.recipeId), pantryNow, listNow),
         ...(costOf ? { costOf } : {}),
       });
       const out =

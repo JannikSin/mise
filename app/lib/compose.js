@@ -548,6 +548,7 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
  *   plansById: Map<string, import("./plan.js").Plan | null>,
  *   bankById: Map<string, any>,
  *   regenerate?: boolean,
+ *   bought?: (t: import("./tables.js").TableEvent) => boolean,
  *   costOf?: (recipeId: string) => number,
  * }} ctx `costOf` (David's yes, 2026-08-30: "let the composer see cost...
  *   the composer needs to work to reduce it") turns on the WEEK-LEVEL cost
@@ -861,6 +862,16 @@ export function planBrigadeWeek(events, brigade, ctx) {
 
   /** @type {{ date: string, existingBySlot: Record<string, import("./tables.js").TableEvent | undefined>, seats: any[], eating: any[], composed: ReturnType<typeof composeDay>, picks: Record<string, Record<string, any>>, leftoverBySlot: Record<string, { date: string, recipeId: string, recipe: Record<string, any> }>, dayPools: Record<string, Record<string, any>[]> }[]} */
   const composedDays = [];
+  // A SET MEAL IS KEPT ONLY IF ITS FOOD WAS BOUGHT (David, 2026-09-06: "there's
+  // an overlap... I don't even know what we're making Sunday"). The plain SET
+  // used to keep every fully-set day as "already bought", which protected a
+  // Sunday bulgogi nobody had shopped for. `ctx.bought` says whether a table's
+  // fresh ingredients are in the kitchen or ticked on the list; an unbought,
+  // uncooked table is composed again with the rest of the week, from today's
+  // pantry. Absent = the old behaviour, so every existing caller is unchanged.
+  const boughtFor = (/** @type {import("./tables.js").TableEvent | undefined} */ t) =>
+    !t || Boolean(/** @type {any} */ (t).cookedAt) || !ctx.bought || ctx.bought(t);
+  let replanned = 0;
   for (const date of dates) {
     /** @type {Record<string, import("./tables.js").TableEvent | undefined>} */
     const existingBySlot = {};
@@ -870,7 +881,11 @@ export function planBrigadeWeek(events, brigade, ctx) {
       existingBySlot[slot] = t;
       if (!t) allExisting = false;
     }
-    if (allExisting && !ctx.regenerate) {
+    const allBought = liveSlots.every((slot) => boughtFor(existingBySlot[slot]));
+    if (!ctx.regenerate) {
+      replanned += liveSlots.filter((slot) => !boughtFor(existingBySlot[slot])).length;
+    }
+    if (allExisting && !ctx.regenerate && allBought) {
       // idempotent — except for THE ONE THING a leftover night must never be:
       // a different dish from the pot it eats (found live 2026-09-06: a cost
       // sweep swapped Monday's curry after Wednesday had been fixed to the
@@ -1271,6 +1286,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
       if (
         existing &&
         !ctx.regenerate &&
+        boughtFor(existing) &&
         existing.recipeId === meal.id &&
         /** @type {any} */ (existing.leftoverOf ?? undefined) === wantLeftoverOf
       ) {
@@ -1409,6 +1425,11 @@ export function planBrigadeWeek(events, brigade, ctx) {
     }
   }
 
+  if (replanned > 0) {
+    notes.push(
+      `${replanned} set ${replanned === 1 ? "meal was" : "meals were"} planned again because nothing for ${replanned === 1 ? "it" : "them"} had been bought or cooked`,
+    );
+  }
   tables = [...byId.values()];
   return { events: { ...events, tables }, made, thin, report, swept, notes, nights };
 }

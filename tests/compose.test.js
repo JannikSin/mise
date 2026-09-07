@@ -931,3 +931,40 @@ test("a leftover table that drifted from its pot is REPAIRED by the next plain S
     assert.deepEqual(t, before.get(t.id), `${t.id} untouched`);
   }
 });
+
+test("a set meal whose food was never bought is planned again on a plain SET; bought ones are kept (David, 2026-09-06)", () => {
+  const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+  const dinners = first.events.tables.filter((t) => t.slot === "dinner");
+  assert.ok(dinners.length >= 3);
+  const victim = dinners[1];
+  // only that one dinner is unbought; every other table's food is in the kitchen
+  const ctx = wayneCtx({ bought: (t) => t.id !== victim.id });
+  const second = planBrigadeWeek(first.events, BRIGADE, ctx);
+  assert.ok(
+    second.notes.some((n) => /planned again because nothing/.test(n)),
+    "the run says why it touched a set day",
+  );
+  const untouched = first.events.tables.filter((t) => t.date !== victim.date);
+  for (const t of untouched) {
+    assert.deepEqual(
+      second.events.tables.find((x) => x.id === t.id),
+      t,
+      `${t.id} was bought and must not move`,
+    );
+  }
+  // and a plain SET with nothing said about buying is still idempotent
+  const third = planBrigadeWeek(first.events, BRIGADE, wayneCtx());
+  assert.equal(third.made, 0);
+  // a COOKED table is never re-planned, bought or not
+  const cooked = {
+    ...first.events,
+    tables: first.events.tables.map((t) =>
+      t.id === victim.id ? { ...t, cookedAt: "2026-08-31T18:00:00" } : t,
+    ),
+  };
+  const fourth = planBrigadeWeek(cooked, BRIGADE, wayneCtx({ bought: () => false }));
+  assert.deepEqual(
+    fourth.events.tables.find((x) => x.id === victim.id),
+    cooked.tables.find((x) => x.id === victim.id),
+  );
+});

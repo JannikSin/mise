@@ -38,6 +38,7 @@ import {
   expiryFrom,
   cartLines,
   isStapleRow,
+  recipeBought,
 } from "../app/lib/shopping.js";
 
 test("tripOf: perishable sections are the fresh trip, shelf-stable the pantry trip", () => {
@@ -346,11 +347,20 @@ test("staple-flagged ingredients are BOUGHT unless the pantry registry owns them
   // not in the pantry scan." The recipe author's `staple: true` guess no
   // longer suppresses buying; only pantry onHand does.
   const empty = deriveShoppingList(PLAN, RECIPES, { staples: [], perishables: [] });
-  assert.ok(empty.items.find((i) => i.food === "white rice"), "unowned staple-tag is bought");
+  assert.ok(
+    empty.items.find((i) => i.food === "white rice"),
+    "unowned staple-tag is bought",
+  );
   assert.ok(empty.items.find((i) => i.food === "onion"));
   const owned = deriveShoppingList(PLAN, RECIPES, {
     staples: [
-      { id: "white-rice", name: "white rice", section: "dry-goods", onHand: true, runningLow: false },
+      {
+        id: "white-rice",
+        name: "white rice",
+        section: "dry-goods",
+        onHand: true,
+        runningLow: false,
+      },
     ],
     perishables: [],
   });
@@ -1170,7 +1180,12 @@ test("a location sweep replaces ONLY that location, and never staples or unsorte
   // one-pantry model: the staples MIRROR is re-derived on every write, so
   // compare the fields that matter rather than object identity
   assert.deepEqual(
-    out.staples.map((s) => ({ id: s.id, name: s.name, onHand: s.onHand, runningLow: s.runningLow })),
+    out.staples.map((s) => ({
+      id: s.id,
+      name: s.name,
+      onHand: s.onHand,
+      runningLow: s.runningLow,
+    })),
     pantry.staples.map((s) => ({
       id: s.id,
       name: s.name,
@@ -1427,7 +1442,15 @@ test("FAMILY day picks: one member's partial-week derive keeps ticks + manual ro
     items: [
       { id: "tofu-g", food: "tofu", qty: 100, unit: "g", section: "protein", checked: true },
       { id: "cod-g", food: "cod", qty: 200, unit: "g", section: "meat", checked: false },
-      { id: "batteries-x", food: "batteries", qty: 1, unit: "x", section: "other", checked: false, manual: true },
+      {
+        id: "batteries-x",
+        food: "batteries",
+        qty: 1,
+        unit: "x",
+        section: "other",
+        checked: false,
+        manual: true,
+      },
     ],
   };
   const momPartial = deriveShoppingList(
@@ -1447,7 +1470,14 @@ test("FAMILY day picks: one member's partial-week derive keeps ticks + manual ro
   assert.ok(momPartial.items.find((i) => i.food === "batteries"));
 
   const combined = mergeProfileLists([
-    { profileId: "david", list: { items: [{ id: "tofu-g", food: "tofu", qty: 300, unit: "g", section: "protein", checked: false }] } },
+    {
+      profileId: "david",
+      list: {
+        items: [
+          { id: "tofu-g", food: "tofu", qty: 300, unit: "g", section: "protein", checked: false },
+        ],
+      },
+    },
     { profileId: "mom", list: momPartial },
   ]);
   const tofu = combined.find((i) => i.id === "tofu-g");
@@ -1500,7 +1530,14 @@ test("applyJustBought: bought food lands on a real shelf, never unsorted", () =>
 test("applyReceiptStock: receipt lines empty the list and stock the shelves", () => {
   const shopping = {
     items: [
-      { id: "chicken-thigh-g", food: "chicken thigh", qty: 900, unit: "g", section: "meat", checked: false },
+      {
+        id: "chicken-thigh-g",
+        food: "chicken thigh",
+        qty: 900,
+        unit: "g",
+        section: "meat",
+        checked: false,
+      },
       { id: "rice-g", food: "rice", qty: 1000, unit: "g", section: "grains", checked: false },
     ],
   };
@@ -1511,10 +1548,7 @@ test("applyReceiptStock: receipt lines empty the list and stock the shelves", ()
     "2026-07-26",
   );
   assert.deepEqual(out.shopping.items, []);
-  assert.deepEqual(
-    out.pantry.perishables.map((p) => p.food).sort(),
-    ["chicken thigh", "rice"],
-  );
+  assert.deepEqual(out.pantry.perishables.map((p) => p.food).sort(), ["chicken thigh", "rice"]);
 });
 
 test("applyReceiptStock: a row ticked in the aisle but missed by the scan still counts as bought", () => {
@@ -1524,7 +1558,12 @@ test("applyReceiptStock: a row ticked in the aisle but missed by the scan still 
       { id: "oats-g", food: "rolled oats", qty: 500, unit: "g", section: "grains", checked: false },
     ],
   };
-  const out = applyReceiptStock(shopping, { staples: [], perishables: [] }, [{ name: "milk" }], "2026-07-26");
+  const out = applyReceiptStock(
+    shopping,
+    { staples: [], perishables: [] },
+    [{ name: "milk" }],
+    "2026-07-26",
+  );
   assert.deepEqual(
     out.shopping.items.map((i) => i.food),
     ["rolled oats"],
@@ -1566,7 +1605,9 @@ test("consumeForCook: a finished row leaves, and the shortfall carries to the ne
 
 test("consumeForCook: a free-text quantity is removed, never fake-subtracted", () => {
   const pantry = {
-    perishables: [{ id: "c", food: "cabbage", qty: "half a head", added: "2026-07-25", location: "fridge" }],
+    perishables: [
+      { id: "c", food: "cabbage", qty: "half a head", added: "2026-07-25", location: "fridge" },
+    ],
   };
   const out = consumeForCook(pantry, [{ food: "cabbage", qty: 0.5, unit: "head" }]);
   assert.deepEqual(out.pantry.perishables, []);
@@ -1617,7 +1658,9 @@ test("subtractPantryFromTrip: partial cover reduces the buy and flags the row", 
 });
 
 test("subtractPantryFromTrip: free-text pantry quantities never fake-subtract", () => {
-  const pantry = { perishables: [{ food: "chicken thigh", qty: "half a pack", added: "2026-07-30" }] };
+  const pantry = {
+    perishables: [{ food: "chicken thigh", qty: "half a pack", added: "2026-07-30" }],
+  };
   const { toBuy, covered } = subtractPantryFromTrip(
     [tripItem("chicken-thigh", "chicken thigh", 500, "g")],
     pantry,
@@ -1640,15 +1683,15 @@ test("subtractPantryFromTrip: unit-x rows (manual, running-low staples) never re
 test("subtractPantryFromTrip: two rows of one food cannot both claim the same pack", () => {
   const pantry = { perishables: [{ food: "chicken thigh", qty: "500 g", added: "2026-07-30" }] };
   const { toBuy, covered } = subtractPantryFromTrip(
-    [
-      tripItem("a", "chicken thigh", 400, "g"),
-      tripItem("b", "chicken thigh", 300, "g"),
-    ],
+    [tripItem("a", "chicken thigh", 400, "g"), tripItem("b", "chicken thigh", 300, "g")],
     pantry,
   );
   assert.equal(covered.length, 1, "the first row eats 400 of the 500");
   assert.equal(toBuy.length, 1);
-  assert.ok(toBuy[0].qty >= 200 && toBuy[0].qty < 300, `only 100 g remained for row b, got ${toBuy[0].qty}`);
+  assert.ok(
+    toBuy[0].qty >= 200 && toBuy[0].qty < 300,
+    `only 100 g remained for row b, got ${toBuy[0].qty}`,
+  );
 });
 
 test("subtractPantryFromTrip: stored lists are untouched (render-time contract)", () => {
@@ -1680,10 +1723,13 @@ test("applyJustBought banks the pantry-REDUCED qty, never phantom stock", () => 
   // and a row the kitchen fully covered banks NOTHING — the tick meant
   // "have enough", not "bought another"
   const covered = applyJustBought(
-    { generatedFrom: "2026-W32", items: [tripItem("a", "chicken thigh", 150, "g", { checked: true })] },
+    {
+      generatedFrom: "2026-W32",
+      items: [tripItem("a", "chicken thigh", 150, "g", { checked: true })],
+    },
     pantry,
     "2026-08-01",
-  
+
     { fridgeFirst: true },
   );
   assert.equal(covered.pantry.perishables.length, 1, "nothing new banked");
@@ -1720,9 +1766,17 @@ test("packHint: store-pack language for shelf quantities", () => {
   assert.equal(packHint("garlic", 12, "clove"), "≈ 2 heads");
   assert.equal(packHint("greek yogurt", 1.8, "kg"), "≈ 2 32 oz tubs");
   assert.equal(packHint("milk", 1.9, "L"), "≈ 1 half-gallon");
-  assert.equal(packHint("chicken thigh", 900, "g"), "", "meat has no pack language — lb display already covers it");
+  assert.equal(
+    packHint("chicken thigh", 900, "g"),
+    "",
+    "meat has no pack language — lb display already covers it",
+  );
   assert.equal(packHint("tuna", 2, "can"), "", "counted units need no hint");
-  assert.equal(packHint("rice", 20000, "g"), "", "a silly pack count says nothing rather than shouting");
+  assert.equal(
+    packHint("rice", 20000, "g"),
+    "",
+    "a silly pack count says nothing rather than shouting",
+  );
 });
 
 test("HOUSEHOLD REGRESSION (Red Team R1): the merged trip banks exactly what was bought", () => {
@@ -1853,7 +1907,10 @@ test("normalize preserves -famdinners rows: no merge, no qty corruption, rebuild
   const n = normalizeShoppingList(list);
   const ids = (n?.items ?? []).map((i) => i.id).sort();
   assert.equal(ids.length, 2, "two distinct rows survive");
-  assert.ok(ids.some((id) => id.endsWith("-famdinners")), "the discriminator survives re-keying");
+  assert.ok(
+    ids.some((id) => id.endsWith("-famdinners")),
+    "the discriminator survives re-keying",
+  );
   const fam = (n?.items ?? []).find((i) => i.id.endsWith("-famdinners"));
   assert.equal(fam.manual, true);
 });
@@ -1862,8 +1919,24 @@ test("normalize merge keeps the promoted unit (2000 g is 2 kg, never '2 g')", ()
   const list = {
     generatedFrom: "2026-W32",
     items: [
-      { id: "old-key-a", food: "chicken thigh", qty: 800, unit: "g", section: "meat", checked: false, manual: false },
-      { id: "old-key-b", food: "chicken thigh", qty: 1200, unit: "g", section: "meat", checked: false, manual: false },
+      {
+        id: "old-key-a",
+        food: "chicken thigh",
+        qty: 800,
+        unit: "g",
+        section: "meat",
+        checked: false,
+        manual: false,
+      },
+      {
+        id: "old-key-b",
+        food: "chicken thigh",
+        qty: 1200,
+        unit: "g",
+        section: "meat",
+        checked: false,
+        manual: false,
+      },
     ],
   };
   const n = normalizeShoppingList(list);
@@ -1909,7 +1982,15 @@ test("a pot line resolves to the bank recipe even when the shopper owns a varian
       }),
     ],
   };
-  const withBank = deriveShoppingList(potPlan, merged, { staples: [], perishables: [] }, null, undefined, undefined, bank);
+  const withBank = deriveShoppingList(
+    potPlan,
+    merged,
+    { staples: [], perishables: [] },
+    null,
+    undefined,
+    undefined,
+    bank,
+  );
   const beef = withBank.items.find((i) => /beef/.test(i.food));
   // 4 servings of a 2-serving bank recipe = 2x800 g, canonicalized to kg
   const legacy = deriveShoppingList(potPlan, merged, { staples: [], perishables: [] }, null);
@@ -2043,14 +2124,35 @@ test("mirror reconcile: an old device's mirror-only edits are absorbed into item
   const merged = {
     items: [
       { id: "soy-sauce", food: "soy sauce", state: "plenty" },
-      { id: "c1", food: "chicken breast", qty: "600 g", added: "2026-08-17", location: "fridge", group: "meat" },
+      {
+        id: "c1",
+        food: "chicken breast",
+        qty: "600 g",
+        added: "2026-08-17",
+        location: "fridge",
+        group: "meat",
+      },
     ],
     staples: [
       { id: "soy-sauce", name: "soy sauce", section: "condiments", onHand: true, runningLow: true },
     ],
     perishables: [
-      { id: "c1", food: "chicken breast", qty: "250 g", added: "2026-08-17", location: "fridge", group: "meat" },
-      { id: "n1", food: "greek yogurt", qty: "500 g", added: "2026-08-18", location: "fridge", group: "dairy" },
+      {
+        id: "c1",
+        food: "chicken breast",
+        qty: "250 g",
+        added: "2026-08-17",
+        location: "fridge",
+        group: "meat",
+      },
+      {
+        id: "n1",
+        food: "greek yogurt",
+        qty: "500 g",
+        added: "2026-08-18",
+        location: "fridge",
+        group: "dairy",
+      },
     ],
   };
   const out = normalizePantry(merged);
@@ -2065,7 +2167,19 @@ test("mirror reconcile: an old device's mirror-only edits are absorbed into item
 // ---- stamped expiry (PF.3: make `expires` real, 2026-08-19) -----------------
 
 test("applyJustBought stamps `expires` at buy time from shelf life and location", () => {
-  const list = { items: [{ id: "x1", food: "chicken breast", qty: 2, unit: "lb", section: "meat", checked: true, manual: false }] };
+  const list = {
+    items: [
+      {
+        id: "x1",
+        food: "chicken breast",
+        qty: 2,
+        unit: "lb",
+        section: "meat",
+        checked: true,
+        manual: false,
+      },
+    ],
+  };
   const { pantry } = applyJustBought(list, { items: [] }, "2026-08-19");
   const row = pantry.items.find((i) => i.food === "chicken breast");
   assert.equal(row.expires, expiryFrom("2026-08-19", "chicken breast", row.location));
@@ -2075,20 +2189,44 @@ test("applyJustBought stamps `expires` at buy time from shelf life and location"
 test("expirePerishables prefers the stamped expiry over the regex estimate", () => {
   // regex says cheese keeps 28 days, but the stamped date (hand-corrected or
   // stamped at buy) says it died yesterday — the stamp wins
-  const pantry = { items: [
-    { id: "a", food: "cheddar cheese", qty: "1 block", added: "2026-08-18", expires: "2026-08-18", location: "fridge" },
-    { id: "b", food: "cheddar cheese", qty: "1 block", added: "2026-08-18", location: "fridge" },
-  ] };
+  const pantry = {
+    items: [
+      {
+        id: "a",
+        food: "cheddar cheese",
+        qty: "1 block",
+        added: "2026-08-18",
+        expires: "2026-08-18",
+        location: "fridge",
+      },
+      { id: "b", food: "cheddar cheese", qty: "1 block", added: "2026-08-18", location: "fridge" },
+    ],
+  };
   const { pantry: next, expired } = expirePerishables(pantry, "2026-08-19");
   assert.deepEqual(expired, ["cheddar cheese"], "only the stamped row expired");
-  assert.deepEqual(next.items.map((i) => i.id), ["b"]);
+  assert.deepEqual(
+    next.items.map((i) => i.id),
+    ["b"],
+  );
 });
 
 test("perishableStatus reads the stamped expiry when present", () => {
-  const stamped = { food: "spinach", added: "2026-08-10", expires: "2026-08-21", location: "fridge" };
-  assert.deepEqual(perishableStatus(stamped, "2026-08-19"), { goodUntil: "2026-08-21", daysLeft: 2 });
+  const stamped = {
+    food: "spinach",
+    added: "2026-08-10",
+    expires: "2026-08-21",
+    location: "fridge",
+  };
+  assert.deepEqual(perishableStatus(stamped, "2026-08-19"), {
+    goodUntil: "2026-08-21",
+    daysLeft: 2,
+  });
   const legacy = { food: "spinach", added: "2026-08-16", location: "fridge" };
-  assert.equal(perishableStatus(legacy, "2026-08-19").goodUntil, "2026-08-22", "regex fallback unchanged");
+  assert.equal(
+    perishableStatus(legacy, "2026-08-19").goodUntil,
+    "2026-08-22",
+    "regex fallback unchanged",
+  );
 });
 
 // THE SEVEN BROCCOLIS (David, 2026-08-24: "last time I ended up with like
@@ -2099,19 +2237,31 @@ test("rows sharing ONE product become ONE cart line, not seven", () => {
     { food: "broccoli florets", qty: 340, unit: "g" },
     { food: "frozen broccoli", qty: 340, unit: "g" },
   ];
-  const lines = cartLines(items, () => "0001111041700", () => 1);
+  const lines = cartLines(
+    items,
+    () => "0001111041700",
+    () => 1,
+  );
   assert.equal(lines.length, 1, "three rows on one UPC must send one line");
   assert.equal(lines[0].quantity, 3, "and carry the summed count, not three lines of 1");
 });
 
 test("quantity is the REAL pack count, never a hard-coded 1", () => {
   // 900 g of broccoli against a 12 oz bag is three bags, not one
-  const lines = cartLines([{ food: "broccoli", qty: 900, unit: "g" }], () => "u1", () => 3);
+  const lines = cartLines(
+    [{ food: "broccoli", qty: 900, unit: "g" }],
+    () => "u1",
+    () => 3,
+  );
   assert.equal(lines[0].quantity, 3);
 });
 
 test("an unpriced row still orders one package rather than vanishing", () => {
-  const lines = cartLines([{ food: "saffron", qty: 2, unit: "g" }], () => "u1", () => null);
+  const lines = cartLines(
+    [{ food: "saffron", qty: 2, unit: "g" }],
+    () => "u1",
+    () => null,
+  );
   assert.equal(lines.length, 1);
   assert.equal(lines[0].quantity, 1);
 });
@@ -2129,7 +2279,11 @@ test("checked and unpinned rows never reach the cart", () => {
 });
 
 test("a line is clamped to what Kroger will accept", () => {
-  const lines = cartLines([{ food: "x", qty: 1, unit: "each" }], () => "u1", () => 500);
+  const lines = cartLines(
+    [{ food: "x", qty: 1, unit: "each" }],
+    () => "u1",
+    () => 500,
+  );
   assert.equal(lines[0].quantity, 99);
 });
 
@@ -2153,7 +2307,11 @@ test("isStapleRow: stock-up shelf rows are staples, this week's food is not", ()
   );
   // six cans cooked into this week's pots: this week's food, same aisle or not
   assert.equal(
-    isStapleRow({ food: "crushed tomatoes", qty: 6, unit: "can", section: "canned" }, cat, "pay-less"),
+    isStapleRow(
+      { food: "crushed tomatoes", qty: 6, unit: "can", section: "canned" },
+      cat,
+      "pay-less",
+    ),
     false,
   );
   // fresh aisles are never staples, whatever the fraction
@@ -2163,12 +2321,20 @@ test("isStapleRow: stock-up shelf rows are staples, this week's food is not", ()
   );
   // frozen cannot ride a bulk order either
   assert.equal(
-    isStapleRow({ food: "frozen blueberries", qty: 1, unit: "cup", section: "frozen" }, cat, "pay-less"),
+    isStapleRow(
+      { food: "frozen blueberries", qty: 1, unit: "cup", section: "frozen" },
+      cat,
+      "pay-less",
+    ),
     false,
   );
   // an unpriced shelf-stable row (creatine, matcha) is exactly the bulk-order kind
   assert.equal(
-    isStapleRow({ food: "creatine monohydrate", qty: 35, unit: "g", section: "pantry" }, cat, "pay-less"),
+    isStapleRow(
+      { food: "creatine monohydrate", qty: 35, unit: "g", section: "pantry" },
+      cat,
+      "pay-less",
+    ),
     true,
   );
 });
@@ -2187,7 +2353,11 @@ test("the shelf as SAID subtracts from the trip: gallons, tubs, dozens, plurals 
   const healed = pantryItems(pantry);
   assert.equal(healed.find((i) => i.id === "y1").qty, "2721 g");
   assert.equal(healed.find((i) => i.id === "y1").said, "3 tubs");
-  assert.equal(healed.find((i) => i.id === "l2").qty, "a few, in bag", "unreadable words stay words");
+  assert.equal(
+    healed.find((i) => i.id === "l2").qty,
+    "a few, in bag",
+    "unreadable words stay words",
+  );
   const { toBuy, covered } = subtractPantryFromTrip(
     [
       { food: "milk", qty: 6.75, unit: "cup" },
@@ -2204,10 +2374,16 @@ test("the shelf as SAID subtracts from the trip: gallons, tubs, dozens, plurals 
     "two gallons cover the week's milk, a dozen covers seven eggs, five lemons cover five",
   );
   const yogurt = toBuy.find((i) => i.food === "greek yogurt");
-  assert.ok(yogurt && yogurt.kitchenHas, "three tubs cover most of 3.1 kg, the remainder is bought");
+  assert.ok(
+    yogurt && yogurt.kitchenHas,
+    "three tubs cover most of 3.1 kg, the remainder is bought",
+  );
   assert.equal(yogurt.unit, "g", "the remainder reads in the food's own unit");
   assert.ok(yogurt.qty > 0 && yogurt.qty < 3100 - 2721 + 100, `remainder ${yogurt.qty} g`);
-  assert.ok(toBuy.find((i) => i.food === "lime"), "free-text limes never fake-subtract");
+  assert.ok(
+    toBuy.find((i) => i.food === "lime"),
+    "free-text limes never fake-subtract",
+  );
 });
 
 test("a healed pantry is settled on the second read (no write churn)", () => {
@@ -2225,7 +2401,68 @@ test("a dictated count of cans keeps a year on the pantry shelf, not the fridge'
   assert.equal(shelfLifeDays("coconut milk", "pantry"), 365);
   assert.equal(shelfLifeDays("tuna", "pantry"), 365);
   assert.equal(shelfLifeDays("black beans", "pantry"), 365);
-  assert.ok(shelfLifeDays("coconut milk", "fridge") <= 14, "the fridge figure still governs the fridge");
-  assert.equal(shelfLifeDays("banana", "pantry"), 5, "specific lines still win over the shelf-stable catch-all");
+  assert.ok(
+    shelfLifeDays("coconut milk", "fridge") <= 14,
+    "the fridge figure still governs the fridge",
+  );
+  assert.equal(
+    shelfLifeDays("banana", "pantry"),
+    5,
+    "specific lines still win over the shelf-stable catch-all",
+  );
   assert.equal(shelfLifeDays("lemon", "pantry"), 10);
+});
+
+test("recipeBought: a dish is bought when its fresh ingredients are on the shelf or ticked (David, 2026-09-06)", () => {
+  const bulgogi = {
+    id: "chicken-bulgogi-rice-bowl",
+    ingredients: [
+      { food: "chicken breast", qty: 400, unit: "g" },
+      { food: "onion", qty: 1, unit: "each" },
+      { food: "brown rice", qty: 1, unit: "cup" },
+      { food: "soy sauce", qty: 2, unit: "tbsp", staple: true },
+    ],
+  };
+  const shelf = (/** @type {any[]} */ items) => ({ items });
+  assert.equal(
+    recipeBought(bulgogi, shelf([]), { items: [] }),
+    false,
+    "nothing bought, nothing on the shelf",
+  );
+  assert.equal(
+    recipeBought(
+      bulgogi,
+      shelf([{ id: "onions", food: "onions", section: "produce", state: "plenty" }]),
+      { items: [] },
+    ),
+    false,
+    "the chicken is the fresh ingredient that decides it",
+  );
+  assert.equal(
+    recipeBought(
+      bulgogi,
+      shelf([
+        { id: "onions", food: "onions", section: "produce", state: "plenty" },
+        { id: "c1", food: "chicken breast", qty: "500 g", added: "2026-09-05", location: "fridge" },
+      ]),
+      { items: [] },
+    ),
+    true,
+  );
+  assert.equal(
+    recipeBought(bulgogi, shelf([]), {
+      items: [
+        { id: "chicken-breast", food: "chicken breast", checked: true },
+        { id: "onion", food: "onion", checked: true },
+      ],
+    }),
+    true,
+    "ticked on the list counts as bought",
+  );
+  assert.equal(
+    recipeBought({ id: "x", ingredients: [] }, shelf([]), null),
+    true,
+    "nothing to judge is kept",
+  );
+  assert.equal(recipeBought(undefined, shelf([]), null), true);
 });

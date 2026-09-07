@@ -957,6 +957,45 @@ const PERISHABLE_SHELF_DAYS = [
 ];
 
 /**
+ * Has the kitchen got the food for this dish? The brigade's plain SET keeps a
+ * table only when this says yes (David, 2026-09-06: a Sunday bulgogi nobody
+ * had shopped for was kept as "already bought"). The rule is about the FRESH
+ * ingredients, the ones that decide whether the dish is possible tonight:
+ * every perishable non-staple ingredient must be on the shelf (a dated row or
+ * a PLENTY assertion) or ticked on the list. A dish with no perishable
+ * ingredient at all needs most of its non-staple ingredients instead. An
+ * unknown dish, or one with no ingredients, is judged bought, so nothing the
+ * app cannot see is ever thrown out of a week.
+ * @param {Record<string, any> | undefined | null} recipe
+ * @param {Record<string, any> | null | undefined} pantry
+ * @param {{ items?: { food: string, checked?: boolean }[] } | null | undefined} shopping
+ * @returns {boolean}
+ */
+export function recipeBought(recipe, pantry, shopping) {
+  const ings = (Array.isArray(recipe?.ingredients) ? recipe.ingredients : []).filter(
+    (/** @type {any} */ i) => i && i.food && !i.staple,
+  );
+  if (ings.length === 0) return true;
+  /** @type {Set<string>} */
+  const have = new Set();
+  for (const it of pantryItems(pantry)) {
+    if (!(isDatedItem(it) || it.state === "plenty")) continue;
+    have.add(canonicalFood(String(it.food)));
+    have.add(plentyKey(String(it.food)));
+  }
+  for (const i of shopping?.items ?? []) {
+    if (!i?.checked || !i.food) continue;
+    have.add(canonicalFood(String(i.food)));
+    have.add(plentyKey(String(i.food)));
+  }
+  const got = (/** @type {any} */ i) =>
+    have.has(canonicalFood(String(i.food))) || have.has(plentyKey(String(i.food)));
+  const fresh = ings.filter((/** @type {any} */ i) => looksPerishable(String(i.food)));
+  if (fresh.length > 0) return fresh.every(got);
+  return ings.filter(got).length >= Math.ceil(ings.length * 0.6);
+}
+
+/**
  * Does this food read as PERISHABLE by the same keyword table the expiry
  * clock uses? Exported for the dictation parser (2026-09-06): "I have
  * chicken thighs" lands as a dated fridge row, "I have soy sauce" as a
