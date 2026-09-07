@@ -183,6 +183,30 @@ test("weekNeedsCheck: the week's need against the shelf, in the list's own arith
     ["plenty-uncounted", "uncounted", "short", "enough"],
     "the ones that need a number come first",
   );
+  // a teaspoon of salt is not a question anyone answers
+  const tiny = weekNeedsCheck(
+    [
+      { food: "salt", qty: 2, unit: "tsp" },
+      { food: "onion", qty: 1, unit: "each" },
+      { food: "soy sauce", qty: 8, unit: "tbsp" },
+    ],
+    {
+      items: [
+        { id: "salt", food: "salt", section: "spices", state: "plenty" },
+        { id: "onions", food: "onions", section: "produce", state: "plenty" },
+        { id: "soy-sauce", food: "soy sauce", section: "condiments", state: "plenty" },
+      ],
+    },
+  );
+  assert.deepEqual(
+    tiny.rows.map((x) => [x.food, x.minor]),
+    [
+      ["soy sauce", false],
+      ["onion", true],
+      ["salt", true],
+    ],
+  );
+  assert.equal(tiny.unverified, 1, "only the bottle is a real question");
 });
 
 test("setPantryCount: a number replaces a word, corrects a counted row, or makes one", () => {

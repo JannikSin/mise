@@ -20,7 +20,7 @@
 // of a dish the shelf already covers, expiring rows first, so the odds and
 // ends become a planned meal instead of next week's write-off.
 
-import { aisleOf, canonicalFood, normalizeQty } from "./ingredients.js";
+import { aisleOf, canonicalFood, convertUnit, dimensionOf, normalizeQty } from "./ingredients.js";
 import {
   isDatedItem,
   looksPerishable,
@@ -275,9 +275,12 @@ export function useWhatsLeft(recipes, pantry, todayIso, opts = {}) {
  * @param {{ food: string, qty: number, unit: string, section?: string }[]} demand
  * @param {Record<string, any> | null | undefined} pantry
  * @returns {{
- *   rows: { food: string, need: { qty: number, unit: string }, have: string | null, status: "enough" | "short" | "plenty-uncounted" | "uncounted", short: { qty: number, unit: string } | null }[],
+ *   rows: { food: string, need: { qty: number, unit: string }, have: string | null, status: "enough" | "short" | "plenty-uncounted" | "uncounted", short: { qty: number, unit: string } | null, minor: boolean }[],
  *   unverified: number
- * }}
+ * }} `minor` = the week barely touches it (a teaspoon of salt, one onion):
+ *   still listed, never counted as unverified, shown collapsed. Salt and pepper
+ *   were 2 of 37 "uncounted" rows on the live run of 2026-09-07, and nobody
+ *   counts teaspoons.
  */
 export function weekNeedsCheck(demand, pantry) {
   const items = pantryItems(pantry);
@@ -291,8 +294,25 @@ export function weekNeedsCheck(demand, pantry) {
       byKey.set(k, arr);
     }
   }
-  /** @type {{ food: string, need: { qty: number, unit: string }, have: string | null, status: "enough" | "short" | "plenty-uncounted" | "uncounted", short: { qty: number, unit: string } | null }[]} */
+  /** @type {{ food: string, need: { qty: number, unit: string }, have: string | null, status: "enough" | "short" | "plenty-uncounted" | "uncounted", short: { qty: number, unit: string } | null, minor: boolean }[]} */
   const rows = [];
+  // an amount worth a count: 50 g of mass, 4 tbsp of volume (3 tbsp for the
+  // spice aisle), 2 of a counted thing. Below that the week barely touches
+  // the food and asking for a count would be theatre.
+  const minorNeed = (
+    /** @type {string} */ food,
+    /** @type {number} */ qty,
+    /** @type {string} */ unit,
+  ) => {
+    const dim = dimensionOf(unit);
+    if (dim === "mass") return (convertUnit(qty, unit, "g") ?? 0) < 50;
+    if (dim === "volume") {
+      const tbsp = convertUnit(qty, unit, "tbsp") ?? 0;
+      return tbsp < (aisleOf(food) === "spices" ? 3 : 4);
+    }
+    if (dim === "count") return qty < 2;
+    return false;
+  };
   const seen = new Set();
   for (const d of demand) {
     if (!d?.food || !(Number(d.qty) > 0) || !d.unit || d.unit === "x") continue;
@@ -323,11 +343,26 @@ export function weekNeedsCheck(demand, pantry) {
       short = { qty: Number(toBuy[0].qty), unit: String(toBuy[0].unit) };
     } else if (plenty && dated.length === 0) status = "plenty-uncounted";
     else status = "uncounted";
-    rows.push({ food: d.food, need: { qty: Number(d.qty), unit: d.unit }, have, status, short });
+    rows.push({
+      food: d.food,
+      need: { qty: Number(d.qty), unit: d.unit },
+      have,
+      status,
+      short,
+      minor: status !== "short" && minorNeed(d.food, Number(d.qty), d.unit),
+    });
   }
   const order = { "plenty-uncounted": 0, uncounted: 1, short: 2, enough: 3 };
-  rows.sort((a, b) => order[a.status] - order[b.status] || a.food.localeCompare(b.food));
-  return { rows, unverified: rows.filter((r) => r.status !== "enough").length };
+  rows.sort(
+    (a, b) =>
+      Number(a.minor) - Number(b.minor) ||
+      order[a.status] - order[b.status] ||
+      a.food.localeCompare(b.food),
+  );
+  return {
+    rows,
+    unverified: rows.filter((r) => r.status !== "enough" && !r.minor).length,
+  };
 }
 
 /**

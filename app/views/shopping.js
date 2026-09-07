@@ -312,6 +312,7 @@ export function ShoppingView({
   const [countEdit, setCountEdit] = useState(
     /** @type {{ food: string, text: string } | null} */ (null),
   );
+  const [showMinor, setShowMinor] = useState(false);
   const [heard, setHeard] = useState(
     /** @type {null | ReturnType<typeof parsePantryDictation>} */ (null),
   );
@@ -1698,25 +1699,23 @@ export function ShoppingView({
                 has selected, so set that to ${" "}${STORE_NAMES[homeStore] ?? homeStore} first.
               </p>
               ${
-                          testRows.length > 0 &&
-                          html`<div class="row">
-                              <span class="k"
-                                >test it first · ${testRows.length} cheap rows, 1 each</span
-                              >
-                              <button
-                                class="linktext"
-                                disabled=${cartNote === "sending…"}
-                                onClick=${() => sendToKrogerCart({ test: true })}
-                              >
-                                SEND 3 TEST ITEMS
-                              </button>
-                            </div>
-                            <p class="hint">
-                              Proves the whole path — sign-in, product match, quantity, which store
-                              — for a few dollars instead of a week of food. Check them in the
-                              Kroger app, then send the real list.
-                            </p>`
-                        }`
+                testRows.length > 0 &&
+                html`<div class="row">
+                    <span class="k">test it first · ${testRows.length} cheap rows, 1 each</span>
+                    <button
+                      class="linktext"
+                      disabled=${cartNote === "sending…"}
+                      onClick=${() => sendToKrogerCart({ test: true })}
+                    >
+                      SEND 3 TEST ITEMS
+                    </button>
+                  </div>
+                  <p class="hint">
+                    Proves the whole path — sign-in, product match, quantity, which store — for a
+                    few dollars instead of a week of food. Check them in the Kroger app, then send
+                    the real list.
+                  </p>`
+              }`
           }
           ${canLive && cartNote && html`<p class="hint">${cartNote}</p>`}
           ${
@@ -1734,46 +1733,45 @@ export function ShoppingView({
                 ${krogerLinked() ? "linked" : "NOT LINKED — that is why nothing arrives"}
               </summary>
               ${
-                          !krogerLinked() &&
-                          html`<p class="hint">
-                            Signing in to the Pay Less app is <b>not</b> the same as linking Mise.
-                            Tap LINK KROGER above, finish Kroger's sign-in page, and let it bounce
-                            you back here — the link only exists once you land back in Mise.
-                          </p>`
-                        }
+                !krogerLinked() &&
+                html`<p class="hint">
+                  Signing in to the Pay Less app is <b>not</b> the same as linking Mise. Tap LINK
+                  KROGER above, finish Kroger's sign-in page, and let it bounce you back here — the
+                  link only exists once you land back in Mise.
+                </p>`
+              }
               ${
-                          krogerLinked() &&
-                          html`<p class="hint">
-                            link valid until
-                            ${krogerLinkExpiry().slice(0, 16).replace("T", " ") || "unknown"}. Items
-                            land in whichever store your Kroger ACCOUNT has selected, and in its
-                            PICKUP basket — check that it says
-                            ${" "}${STORE_NAMES[homeStore] ?? homeStore}, and look under Pickup
-                            rather than Delivery.
-                          </p>`
-                        }
+                krogerLinked() &&
+                html`<p class="hint">
+                  link valid until
+                  ${krogerLinkExpiry().slice(0, 16).replace("T", " ") || "unknown"}. Items land in
+                  whichever store your Kroger ACCOUNT has selected, and in its PICKUP basket — check
+                  that it says ${" "}${STORE_NAMES[homeStore] ?? homeStore}, and look under Pickup
+                  rather than Delivery.
+                </p>`
+              }
               ${
-                          pushLog.length === 0
-                            ? html`<p class="hint">
-                                No push has ever been made from this phone. If you tapped and saw
-                                nothing, the tap did not reach Kroger.
-                              </p>`
-                            : pushLog.map(
-                                (/** @type {any} */ e) =>
-                                  html`<div class="pushrow">
-                                    <p class="hint">
-                                      <b>${e.ok ? "sent" : "FAILED"}</b>
-                                      ${e.at.slice(0, 16).replace("T", " ")}
-                                      ${e.test ? " (test)" : ""} · ${e.store} · ${e.message}
-                                    </p>
-                                    <p class="hint mono">
-                                      ${e.rows
+                pushLog.length === 0
+                  ? html`<p class="hint">
+                      No push has ever been made from this phone. If you tapped and saw nothing, the
+                      tap did not reach Kroger.
+                    </p>`
+                  : pushLog.map(
+                      (/** @type {any} */ e) =>
+                        html`<div class="pushrow">
+                          <p class="hint">
+                            <b>${e.ok ? "sent" : "FAILED"}</b>
+                            ${e.at.slice(0, 16).replace("T", " ")} ${e.test ? " (test)" : ""} ·
+                            ${e.store} · ${e.message}
+                          </p>
+                          <p class="hint mono">
+                            ${e.rows
                                         .map((/** @type {any} */ r) => `${r.upc} ×${r.quantity}`)
                                         .join("  ")}
-                                    </p>
-                                  </div>`,
-                              )
-                        }
+                          </p>
+                        </div>`,
+                    )
+              }
               <p class="hint">
                 Search one of those UPCs in the Kroger app. Found = it arrived and the cart you are
                 looking at is the wrong one. Not found = it never arrived.
@@ -2222,28 +2220,30 @@ export function ShoppingView({
             a bottle you called plenty.
           </div>
           <div class="shelfrows">
-            ${weekNeeds.rows.map((r) => {
-              const editing = countEdit?.food === r.food;
-              const verdict =
-                r.status === "enough"
-                  ? "✓ enough"
-                  : r.status === "short"
-                    ? `short by ${formatStoreQty(r.short?.qty ?? 0, r.short?.unit ?? "")}`
-                    : r.status === "plenty-uncounted"
-                      ? "plenty, uncounted"
-                      : "uncounted";
-              return html`<div
-                class="checkrow shelfrow ${r.status === "enough" ? "done" : ""}"
-                key=${r.food}
-              >
-                <span class="food">
-                  ${r.food}
-                  <span class="q num">
-                    week needs ${formatStoreQty(r.need.qty, r.need.unit)} · have ${r.have ?? "?"} ·
-                    ${verdict}
+            ${weekNeeds.rows
+              .filter((r) => !r.minor)
+              .map((r) => {
+                const editing = countEdit?.food === r.food;
+                const verdict =
+                  r.status === "enough"
+                    ? "✓ enough"
+                    : r.status === "short"
+                      ? `short by ${formatStoreQty(r.short?.qty ?? 0, r.short?.unit ?? "")}`
+                      : r.status === "plenty-uncounted"
+                        ? "plenty, uncounted"
+                        : "uncounted";
+                return html`<div
+                  class="checkrow shelfrow ${r.status === "enough" ? "done" : ""}"
+                  key=${r.food}
+                >
+                  <span class="food">
+                    ${r.food}
+                    <span class="q num">
+                      week needs ${formatStoreQty(r.need.qty, r.need.unit)} · have ${r.have ?? "?"}
+                      · ${verdict}
+                    </span>
                   </span>
-                </span>
-                ${
+                  ${
                   editing
                     ? html`<span class="rowbtns">
                         <input
@@ -2283,8 +2283,43 @@ export function ShoppingView({
                         </button>
                       </span>`
                 }
-              </div>`;
-            })}
+                </div>`;
+              })}
+            ${(() => {
+              const minor = weekNeeds.rows.filter((r) => r.minor);
+              if (minor.length === 0) return "";
+              return html`<button class="secondary" onClick=${() => setShowMinor(!showMinor)}>
+                  ${showMinor ? "HIDE" : "SHOW"} ${minor.length} small amounts the week barely
+                  touches
+                  (${minor
+                    .slice(0, 4)
+                    .map((r) => r.food)
+                    .join(", ")}${minor.length > 4 ? "…" : ""})
+                </button>
+                ${
+                  showMinor &&
+                  minor.map(
+                    (r) =>
+                      html`<div class="checkrow shelfrow done" key=${r.food}>
+                        <span class="food">
+                          ${r.food}
+                          <span class="q num">
+                            week needs ${formatStoreQty(r.need.qty, r.need.unit)} · have
+                            ${r.have ?? "plenty"}
+                          </span>
+                        </span>
+                        <span class="rowbtns">
+                          <button
+                            class="ownbtn"
+                            onClick=${() => setCountEdit({ food: r.food, text: "" })}
+                          >
+                            HOW MUCH?
+                          </button>
+                        </span>
+                      </div>`,
+                  )
+                }`;
+            })()}
           </div>
         </div>`
       }
@@ -2600,12 +2635,12 @@ export function ShoppingView({
                           ${it.name}${it.qty ? html` <span class="hint num">${it.qty}</span>` : ""}
                           ${" "}<span class="tag"
                             >${
-                            it.kind === "fresh"
-                              ? `${it.location} · dated today`
-                              : it.state === "low"
-                                ? "low"
-                                : "plenty"
-                          }</span
+                              it.kind === "fresh"
+                                ? `${it.location} · dated today`
+                                : it.state === "low"
+                                  ? "low"
+                                  : "plenty"
+                            }</span
                           >
                         </span>
                         <button
