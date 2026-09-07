@@ -6,6 +6,8 @@ import {
   editShelfRow,
   goneShelfRow,
   useWhatsLeft,
+  weekNeedsCheck,
+  setPantryCount,
   SHELF_CHECK_DAYS,
 } from "../app/lib/shelfcheck.js";
 import { pantryItems } from "../app/lib/shopping.js";
@@ -131,4 +133,84 @@ test("useWhatsLeft ranks dishes the shelf mostly covers, expiring food first, an
   assert.deepEqual(picks[0].expiring, ["kale"], "week-old kale is inside its last days");
   const bf = useWhatsLeft(bank, PANTRY, "2026-09-07", { slot: "breakfast" });
   assert.equal(bf.length, 0, "half a bowl (no banana) is under the 60% line");
+});
+
+test("weekNeedsCheck: the week's need against the shelf, in the list's own arithmetic (David, 2026-09-07)", () => {
+  const pantry = {
+    items: [
+      { id: "soy-sauce", food: "soy sauce", section: "condiments", state: "plenty" },
+      {
+        id: "y1",
+        food: "greek yogurt",
+        qty: "907 g",
+        said: "1 tub",
+        added: "2026-09-06",
+        location: "fridge",
+      },
+      {
+        id: "e1",
+        food: "eggs",
+        qty: "12 each",
+        said: "1 dozen",
+        added: "2026-09-06",
+        location: "fridge",
+      },
+      { id: "l1", food: "lemons", qty: "a few, in bag", added: "2026-09-06", location: "pantry" },
+    ],
+  };
+  const demand = [
+    { food: "soy sauce", qty: 8, unit: "tbsp" },
+    { food: "greek yogurt", qty: 2000, unit: "g" },
+    { food: "egg", qty: 7, unit: "each" },
+    { food: "lemon", qty: 3, unit: "each" },
+    { food: "chicken breast", qty: 500, unit: "g" },
+  ];
+  const r = weekNeedsCheck(demand, pantry);
+  const by = Object.fromEntries(r.rows.map((x) => [x.food, x]));
+  assert.ok(!("chicken breast" in by), "a pure buy is the list's business, not the shelf's");
+  assert.equal(by["soy sauce"].status, "plenty-uncounted", "a word is not a number");
+  assert.equal(by["greek yogurt"].status, "short");
+  const shortG =
+    by["greek yogurt"].short?.unit === "kg"
+      ? by["greek yogurt"].short.qty * 1000
+      : by["greek yogurt"].short?.qty;
+  assert.ok(shortG > 1000 && shortG <= 1100, `short by ${shortG} g, rounded to a pack`);
+  assert.equal(by["egg"].status, "enough");
+  assert.equal(by["lemon"].status, "uncounted");
+  assert.equal(r.unverified, 3);
+  assert.deepEqual(
+    r.rows.map((x) => x.status),
+    ["plenty-uncounted", "uncounted", "short", "enough"],
+    "the ones that need a number come first",
+  );
+});
+
+test("setPantryCount: a number replaces a word, corrects a counted row, or makes one", () => {
+  const pantry = {
+    items: [
+      { id: "soy-sauce", food: "soy sauce", section: "condiments", state: "plenty" },
+      {
+        id: "y1",
+        food: "greek yogurt",
+        qty: "907 g",
+        said: "1 tub",
+        added: "2026-09-06",
+        location: "fridge",
+      },
+    ],
+  };
+  const a = setPantryCount(pantry, "soy sauce", "half a bottle", "2026-09-07");
+  const rows = pantryItems(a.pantry).filter((i) => i.food === "soy sauce");
+  assert.equal(rows.length, 1, "the plenty assertion is retired, one row remains");
+  assert.ok(rows[0].added, "and it is a counted row now");
+  assert.equal(a.direction, "new");
+
+  const b = setPantryCount(pantry, "greek yogurt", "3 tubs", "2026-09-07");
+  assert.equal(pantryItems(b.pantry).find((i) => i.id === "y1").qty, "2721 g");
+  assert.equal(b.direction, "up");
+
+  const c = setPantryCount(pantry, "kale", "1 bag", "2026-09-07");
+  const kale = pantryItems(c.pantry).find((i) => i.food === "kale");
+  assert.equal(kale.location, "fridge", "a perishable lands in the fridge");
+  assert.equal(kale.checkedAt, "2026-09-07");
 });

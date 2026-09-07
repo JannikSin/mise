@@ -695,12 +695,16 @@ window and one more reason the window is short.**
       // rewrote qty, so the PANTRY tab shows "1 dozen (12 each)". Never read
       // by any engine; display only.
       "checkedAt": "2026-09-07", // ? THE SHELF CHECK (2026-09-07, David): the last
-      // day a person confirmed this row (STILL HAVE, or a corrected count).
-      // The Plan tab's shelf-check card lists dated rows not confirmed in
-      // SHELF_CHECK_DAYS (7) first; GENERATE never waits for it. A lower
-      // corrected count or GONE writes a waste event (reason "shelf-check" /
-      // "shelf-check-gone"), because food that left without COOKED is waste
-      // or an untapped meal. app/lib/shelfcheck.js.
+      // day a person confirmed or corrected this row's count. Set by the
+      // List tab's PANTRY card "ENOUGH FOR THE WEEK?" (weekNeedsCheck /
+      // setPantryCount, app/lib/shelfcheck.js): after GENERATE and before the
+      // list is bought, every food the week needs that the shelf claims to
+      // hold is shown with the week's need against the count, and the
+      // person answers with a number (a bare PLENTY is "uncounted", because
+      // four soy-sauce dinners can empty a bottle called plenty). A lower
+      // corrected count writes a waste event (reason "shelf-check"); a number
+      // retires any PLENTY assertion for that food. P+ on a counted food
+      // confirms the count instead of adding PLENTY over it.
       "added": "2026-07-04",
       "expires": "2026-07-11", // ? REAL since 2026-08-19 (PF.3): stamped at buy time
       // by applyJustBought (expiryFrom = added + shelfLifeDays for the row's

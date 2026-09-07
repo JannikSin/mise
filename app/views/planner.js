@@ -104,10 +104,6 @@ function monthDay(isoDate) {
  *   onAddGuest?: (date: string, profileId: string, slots: string[]) => Promise<string | null>,
  *   onRemoveGuest?: (date: string, profileId: string) => void,
  *   onNewGuestProfile?: () => void,
- *   shelfCheck?: ReturnType<typeof import("../lib/shelfcheck.js").shelfCheckRows> | null,
- *   onShelfConfirm?: (id: string) => void,
- *   onShelfEdit?: (id: string, saidQty: string) => void,
- *   onShelfGone?: (id: string) => void,
  *   whatsLeft?: (slot: string) => ReturnType<typeof import("../lib/shelfcheck.js").useWhatsLeft>,
  *   onUseWhatsLeft?: (date: string, slot: string, recipeId: string) => void
  * }} props `brigade` (2026-09-05): my house's standing arrangement and its
@@ -147,10 +143,6 @@ export function PlannerView({
   onAddGuest = undefined,
   onRemoveGuest = undefined,
   onNewGuestProfile = undefined,
-  shelfCheck = null,
-  onShelfConfirm = undefined,
-  onShelfEdit = undefined,
-  onShelfGone = undefined,
   whatsLeft = undefined,
   onUseWhatsLeft = undefined,
 }) {
@@ -159,12 +151,6 @@ export function PlannerView({
   // expanded. Absent = default (today open, everything else collapsed);
   // native <details> does the rest, this map only remembers user toggles
   const [openDays, setOpenDays] = useState(/** @type {Record<string, boolean>} */ ({}));
-  // THE SHELF CHECK (P6/P11, David 2026-09-06): open by itself when rows are
-  // stale, closable, and the count edit is one inline field per row
-  const [shelfOpen, setShelfOpen] = useState(/** @type {boolean | null} */ (null));
-  const [shelfEdit, setShelfEdit] = useState(
-    /** @type {{ id: string, text: string } | null} */ (null),
-  );
   // USE WHAT'S LEFT (David 2026-09-07): which slot is showing its picks
   const [leftoverPick, setLeftoverPick] = useState(
     /** @type {{ date: string, slot: string } | null} */ (null),
@@ -295,115 +281,6 @@ export function PlannerView({
             >`;
           })}
         </p>`
-      }
-      ${
-        shelfCheck &&
-        shelfCheck.rows.length > 0 &&
-        (() => {
-          const open = shelfOpen ?? shelfCheck.stale > 0;
-          const fmtDay = (/** @type {string | null} */ iso) =>
-            iso
-              ? parseLocalIso(iso).toLocaleDateString([], { month: "short", day: "numeric" })
-              : "never";
-          return html`<div class="tile shelfcheck" role="region" aria-label="Shelf check">
-            <div class="k">
-              🧺 SHELF CHECK ·
-              ${
-                shelfCheck.stale > 0
-                  ? html`<span class="num">${shelfCheck.stale} of ${shelfCheck.rows.length}</span>
-                      rows not confirmed in the last week`
-                  : html`all <span class="num">${shelfCheck.rows.length}</span> rows confirmed ·
-                      last ${fmtDay(shelfCheck.lastChecked)}`
-              }
-            </div>
-            <div class="d">
-              Before you plan: is this still what you have? Cooking only subtracts when you tap
-              COOKED, so the shelf drifts by every meal nobody tapped. STILL HAVE keeps a row, a new
-              count corrects it (a lower count is written off), GONE removes it. GENERATE reads the
-              shelf as you leave it here.
-            </div>
-            <div class="rowbtns">
-              <button class="secondary" onClick=${() => setShelfOpen(!open)}>
-                ${open ? "HIDE" : shelfCheck.stale > 0 ? "CHECK NOW" : "SHOW"}
-              </button>
-            </div>
-            ${
-              open &&
-              html`<div class="shelfrows">
-                ${shelfCheck.rows.map((r) => {
-                  const editing = shelfEdit?.id === r.id;
-                  return html`<div class="checkrow shelfrow ${r.stale ? "" : "done"}" key=${r.id}>
-                    <span class="food">
-                      ${r.food}
-                      <span class="q num">
-                        ${r.said ? `${r.said} (${r.qty})` : r.qty || "uncounted"} ·
-                        ${r.location}${
-                          r.daysLeft != null ? ` · ${r.daysLeft}d` : ""
-                        }${r.checkedAt ? ` · ✓ ${fmtDay(r.checkedAt)}` : ""}
-                      </span>
-                    </span>
-                    ${
-                      editing
-                        ? html`<span class="rowbtns">
-                            <input
-                              class="qtyin"
-                              type="text"
-                              inputmode="text"
-                              placeholder="how much? 1 tub, 3 each, 500 g"
-                              value=${shelfEdit?.text ?? ""}
-                              onInput=${(/** @type {any} */ e) =>
-                                setShelfEdit({ id: r.id, text: String(e.currentTarget.value) })}
-                              onKeyDown=${(/** @type {any} */ e) => {
-                                if (e.key === "Enter" && shelfEdit?.text.trim()) {
-                                  onShelfEdit?.(r.id, shelfEdit.text.trim());
-                                  setShelfEdit(null);
-                                }
-                                if (e.key === "Escape") setShelfEdit(null);
-                              }}
-                            />
-                            <button
-                              class="secondary"
-                              disabled=${!shelfEdit?.text.trim()}
-                              onClick=${() => {
-                                if (shelfEdit?.text.trim())
-                                  onShelfEdit?.(r.id, shelfEdit.text.trim());
-                                setShelfEdit(null);
-                              }}
-                            >
-                              SAVE
-                            </button>
-                            <button class="secondary" onClick=${() => setShelfEdit(null)}>✕</button>
-                          </span>`
-                        : html`<span class="rowbtns">
-                            <button
-                              class="ownbtn"
-                              aria-label="Still have ${r.food}"
-                              onClick=${() => onShelfConfirm?.(r.id)}
-                            >
-                              ✓ STILL HAVE
-                            </button>
-                            <button
-                              class="ownbtn"
-                              aria-label="Correct the count of ${r.food}"
-                              onClick=${() => setShelfEdit({ id: r.id, text: "" })}
-                            >
-                              EDIT
-                            </button>
-                            <button
-                              class="ownbtn"
-                              aria-label="${r.food} is gone"
-                              onClick=${() => onShelfGone?.(r.id)}
-                            >
-                              GONE
-                            </button>
-                          </span>`
-                    }
-                  </div>`;
-                })}
-              </div>`
-            }
-          </div>`;
-        })()
       }
       <div class="actions">
         <button
@@ -1100,9 +977,9 @@ export function PlannerView({
                                         class="fill mealbtn"
                                         key=${p.recipe.id}
                                         onClick=${() => {
-                                        onUseWhatsLeft(date, key, p.recipe.id);
-                                        setLeftoverPick(null);
-                                      }}
+                                          onUseWhatsLeft(date, key, p.recipe.id);
+                                          setLeftoverPick(null);
+                                        }}
                                       >
                                         <span class="chipbody">
                                           <span class="n">
@@ -1110,10 +987,10 @@ export function PlannerView({
                                             <span class="hint plateline">
                                               ${Math.round(p.coverage * 100)}% on the shelf · uses
                                               ${p.covered.slice(0, 5).join(", ")}${
-                                              p.expiring.length > 0
-                                                ? ` · use soon: ${p.expiring.join(", ")}`
-                                                : ""
-                                            }${p.missing.length > 0 ? ` · still needs: ${p.missing.join(", ")}` : " · needs nothing"}
+                                                p.expiring.length > 0
+                                                  ? ` · use soon: ${p.expiring.join(", ")}`
+                                                  : ""
+                                              }${p.missing.length > 0 ? ` · still needs: ${p.missing.join(", ")}` : " · needs nothing"}
                                             </span>
                                           </span>
                                           <span class="m num"

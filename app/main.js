@@ -73,13 +73,7 @@ import {
   slug,
   recipeBought,
 } from "./lib/shopping.js";
-import {
-  confirmShelfRow,
-  editShelfRow,
-  goneShelfRow,
-  shelfCheckRows,
-  useWhatsLeft,
-} from "./lib/shelfcheck.js";
+import { setPantryCount, useWhatsLeft, weekNeedsCheck } from "./lib/shelfcheck.js";
 import { applyReceipt, parsePackSize, storeSlugOf, resolveHomeStore } from "./lib/prices.js";
 import { normalizePins } from "./lib/kroger.js";
 import { perishableCoverage } from "./lib/coverage.js";
@@ -113,6 +107,7 @@ import {
   SLOT_META,
   planSwipes,
   toggleSwipeEaten,
+  settledEntryId,
 } from "./lib/plan.js";
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
 import { planBrigadeWeek } from "./lib/compose.js";
@@ -2108,25 +2103,13 @@ function App() {
     },
     [],
   );
-  const handleShelfConfirm = useCallback(
-    (/** @type {string} */ id) => {
-      updatePantry(confirmShelfRow(pantryRef.current, id, localIsoDate(new Date())));
-    },
-    [updatePantry],
-  );
-  const handleShelfEdit = useCallback(
-    (/** @type {string} */ id, /** @type {string} */ saidQty) => {
-      const r = editShelfRow(pantryRef.current, id, saidQty, localIsoDate(new Date()));
+  // ENOUGH FOR THE WEEK? (David, 2026-09-07): the person states a count for a
+  // food the generated week needs; a lower count than believed is a write-off.
+  const handleSetCount = useCallback(
+    (/** @type {string} */ food, /** @type {string} */ saidQty) => {
+      const r = setPantryCount(pantryRef.current, food, saidQty, localIsoDate(new Date()));
       updatePantry(r.pantry);
       if (r.waste) void appendShelfWaste([r.waste], "shelf-check");
-    },
-    [updatePantry, appendShelfWaste],
-  );
-  const handleShelfGone = useCallback(
-    (/** @type {string} */ id) => {
-      const r = goneShelfRow(pantryRef.current, id);
-      updatePantry(r.pantry);
-      if (r.waste) void appendShelfWaste([r.waste], "shelf-check-gone");
     },
     [updatePantry, appendShelfWaste],
   );
@@ -2449,7 +2432,11 @@ function App() {
     if (!hasToken || !planLoadedRef.current || plan.week !== weekId) return;
     const today = localIsoDate(new Date());
     const weekSet = new Set(datesOfWeek(plan.week));
-    const have = new Set(plan.entries.map((e) => /** @type {any} */ (e).fromTable).filter(Boolean));
+    const have = new Set(
+      /** @type {any} */ (planRef.current).entries
+        .map((/** @type {any} */ e) => e.fromTable)
+        .filter(Boolean),
+    );
     const toSettle = tableDerived.entries.filter(
       (e) =>
         e.table && e.date < today && weekSet.has(e.date) && e.viewRecipeId && !have.has(e.table),
@@ -2457,21 +2444,29 @@ function App() {
     if (toSettle.length === 0) return;
     let next = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
     for (const e of toSettle) {
-      next = addEntry(
-        next,
-        e.date,
-        e.slot,
-        /** @type {any} */ ({
-          recipeId: e.viewRecipeId,
-          servings: e.servings,
-          pinned: true,
-          fromTable: e.table,
-          ...(e.cookedAt ? { cookedAt: e.cookedAt } : {}),
-          .../** @type {any} */ (
-            e.leftoverOf ? { leftoverOf: /** @type {any} */ (e).leftoverOf } : {}
-          ),
-        }),
-      );
+      // one id per table, so two devices settling the same meal collapse
+      // to one row in the keyed merge instead of showing it twice
+      const id = settledEntryId(String(e.table));
+      if (next.entries.some((x) => x.id === id)) continue;
+      next = {
+        ...next,
+        entries: [
+          ...next.entries,
+          /** @type {any} */ ({
+            id,
+            date: e.date,
+            slot: e.slot,
+            recipeId: e.viewRecipeId,
+            servings: e.servings,
+            pinned: true,
+            fromTable: e.table,
+            ...(e.cookedAt ? { cookedAt: e.cookedAt } : {}),
+            .../** @type {any} */ (
+              e.leftoverOf ? { leftoverOf: /** @type {any} */ (e).leftoverOf } : {}
+            ),
+          }),
+        ],
+      };
     }
     updatePlan(next);
   }, [tableDerived, plan, weekId, hasToken, updatePlan]);
@@ -4189,10 +4184,6 @@ function App() {
         onSwitch=${handleSwitchEntry}
         onOpen=${handleOpenEntry}
         onToggleOut=${handleToggleOut}
-        shelfCheck=${shelfCheckRows(pantry, localIsoDate(new Date()))}
-        onShelfConfirm=${handleShelfConfirm}
-        onShelfEdit=${handleShelfEdit}
-        onShelfGone=${handleShelfGone}
         whatsLeft=${(/** @type {string} */ slot) =>
           useWhatsLeft(recipes, pantry, localIsoDate(new Date()), { slot })}
         onUseWhatsLeft=${handleUseWhatsLeft}
@@ -4331,6 +4322,27 @@ function App() {
         onClearList=${handleClearList}
         onEmptyPantry=${handleEmptyPantry}
         pantryLocations=${PANTRY_LOCATIONS}
+        weekNeeds=${weekNeedsCheck(
+          deriveShoppingList(
+            /** @type {any} */ ({
+              ...plan,
+              entries: [
+                ...plan.entries,
+                ...tableDerived.cookExtras.filter((/** @type {any} */ x) =>
+                  new Set(datesOfWeek(weekId)).has(x.date),
+                ),
+              ],
+            }),
+            recipesById(allRecipes),
+            { items: [] },
+            null,
+            todayIfCurrentWeek(weekId),
+            undefined,
+            recipesById(bankRecipes),
+          ).items,
+          pantry,
+        )}
+        onSetCount=${handleSetCount}
         onRemovePantry=${handleRemovePantry}
       />`
     }

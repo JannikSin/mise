@@ -198,11 +198,17 @@ test("parsePantryDictation splits a run-on at the next quantity (David's 2026-09
 });
 
 test("a dictated COUNT is inventory: it lands as a countable dated row, cans on the pantry shelf", () => {
-  const rows = parsePantryDictation("5 lemons, 6 cans of coconut milk, 3 tubs of greek yogurt, a dozen eggs, soy sauce");
+  const rows = parsePantryDictation(
+    "5 lemons, 6 cans of coconut milk, 3 tubs of greek yogurt, a dozen eggs, soy sauce",
+  );
   const by = Object.fromEntries(rows.map((r) => [r.name, r]));
   assert.equal(by["lemons"].kind, "fresh", "a count is never a bare PLENTY");
   assert.equal(by["lemons"].location, "pantry");
-  assert.equal(by["coconut milk"].location, "pantry", "cans are not fridge food whatever is inside");
+  assert.equal(
+    by["coconut milk"].location,
+    "pantry",
+    "cans are not fridge food whatever is inside",
+  );
   assert.equal(by["greek yogurt"].location, "fridge");
   assert.equal(by["soy sauce"].kind, "staple");
   const next = applyScanItems({ items: [] }, rows, "2026-09-06", "pantry");
@@ -213,4 +219,12 @@ test("a dictated COUNT is inventory: it lands as a countable dated row, cans on 
   assert.equal(row("greek yogurt").said, "3 tubs");
   assert.equal(row("eggs").qty, "12 each");
   assert.equal(row("coconut milk").qty, "6 can");
+});
+
+test("a dictated COUNT retires the bare PLENTY assertion for the same food (David, 2026-09-07)", () => {
+  const before = { items: [{ id: "eggs", food: "eggs", section: "dairy", state: "plenty" }] };
+  const next = applyScanItems(before, parsePantryDictation("a dozen eggs"), "2026-09-07", "fridge");
+  const eggs = next.items.filter((i) => i.food === "eggs");
+  assert.equal(eggs.length, 1);
+  assert.equal(eggs[0].qty, "12 each");
 });

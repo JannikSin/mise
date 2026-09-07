@@ -11,6 +11,7 @@ import {
   isDatedItem,
   looksPerishable,
 } from "./shopping.js";
+import { canonicalFood } from "./ingredients.js";
 
 /**
  * SAY WHAT YOU HAVE (David, 2026-09-06: "I can just voice type in what I
@@ -60,15 +61,27 @@ export function parsePantryDictation(text) {
     for (let prev = ""; prev !== piece;) {
       prev = piece;
       piece = piece
-        .replace(/^(?:um+|uh+|okay|ok|so|yeah|yes|well|oh|like|basically|anyway|about|roughly)\b[\s,]*/i, "")
-        .replace(/^(?:i|we)(?:'ve| have| got|'ve got| also have| still have| do have| know we have| think we have)\b\s*/i, "")
+        .replace(
+          /^(?:um+|uh+|okay|ok|so|yeah|yes|well|oh|like|basically|anyway|about|roughly)\b[\s,]*/i,
+          "",
+        )
+        .replace(
+          /^(?:i|we)(?:'ve| have| got|'ve got| also have| still have| do have| know we have| think we have)\b\s*/i,
+          "",
+        )
         .replace(/^(?:there(?:'s| is| are))\s+/i, "")
         .replace(/^(?:what i think is|i think(?: it's| its| it is)?|i know)\s+/i, "")
         .replace(/^(?:got|have|having)\s+/i, "")
         // "a huge thing of X": an amount nobody can count, so it is X, no qty
-        .replace(/^(?:a|an|one|\d+)\s+(?:(?:huge|big|large|giant|small|little|whole|new|full)\s+)?things?\s+of\s+/i, "")
+        .replace(
+          /^(?:a|an|one|\d+)\s+(?:(?:huge|big|large|giant|small|little|whole|new|full)\s+)?things?\s+of\s+/i,
+          "",
+        )
         // "a huge tub of X" reads as "a tub of X": the size word is not a unit
-        .replace(/^((?:a|an|one|two|three|four|five|six|\d+)\s+)(?:huge|big|large|giant|small|little|whole|new|full)\s+/i, "$1")
+        .replace(
+          /^((?:a|an|one|two|three|four|five|six|\d+)\s+)(?:huge|big|large|giant|small|little|whole|new|full)\s+/i,
+          "$1",
+        )
         .trim();
     }
     if (!piece) continue;
@@ -189,6 +202,18 @@ export function applyScanItems(pantry, items, todayIso, location) {
       // between shelves and reset its age. Same food on another shelf gets
       // its own new row.
       const key = slug(name);
+      // A NUMBER REPLACES A WORD (David, 2026-09-07): a counted row of a food
+      // retires its bare PLENTY assertion, or the list would keep skipping
+      // the food on the strength of the word while the count said otherwise.
+      if (item.qty) {
+        const canon = canonicalFood(name);
+        for (let i = next.length - 1; i >= 0; i--) {
+          const it = /** @type {any} */ (next[i]);
+          if (!isDatedItem(it) && (it.id === key || canonicalFood(String(it.food)) === canon)) {
+            next.splice(i, 1);
+          }
+        }
+      }
       const dup = next.findIndex(
         (it) =>
           isDatedItem(it) &&

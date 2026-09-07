@@ -1588,12 +1588,26 @@ export function ownItemToPantry(shopping, pantry, itemId) {
   const foodSlug = slug(item.food);
   const canon = canonicalFood(item.food);
   const items = [...pantryItems(pantry)];
+  // a food the shelf already COUNTS is not asserted PLENTY on top (David,
+  // 2026-09-07: seventeen P+ taps laid bare "plenty" rows over counted eggs,
+  // yogurt and milk, and the list would have skipped them whatever the count
+  // said). The counted rows are confirmed instead.
+  /** @type {number[]} */
+  const countedAt = [];
+  items.forEach((it, i) => {
+    if (isDatedItem(it) && (slug(it.food) === foodSlug || canonicalFood(it.food) === canon)) {
+      countedAt.push(i);
+    }
+  });
   const existing = items.findIndex(
     (it) =>
       !isDatedItem(it) &&
       (it.id === foodSlug || slug(it.food) === foodSlug || canonicalFood(it.food) === canon),
   );
-  if (existing >= 0) {
+  if (countedAt.length > 0) {
+    const today = new Date().toISOString().slice(0, 10);
+    for (const i of countedAt) items[i] = { ...items[i], checkedAt: today };
+  } else if (existing >= 0) {
     items[existing] = { ...items[existing], state: "plenty" };
   } else {
     items.push({

@@ -2466,3 +2466,18 @@ test("recipeBought: a dish is bought when its fresh ingredients are on the shelf
   );
   assert.equal(recipeBought(undefined, shelf([]), null), true);
 });
+
+test("P+ on a food the shelf already counts confirms the count instead of laying PLENTY over it", () => {
+  const shopping = {
+    items: [{ id: "eggs", food: "eggs", qty: 7, unit: "each", section: "dairy" }],
+  };
+  const pantry = {
+    items: [{ id: "e1", food: "eggs", qty: "12 each", added: "2026-09-06", location: "fridge" }],
+  };
+  const r = ownItemToPantry(shopping, pantry, "eggs");
+  const rows = pantryItems(r.pantry).filter((i) => i.food === "eggs");
+  assert.equal(rows.length, 1, "no second row");
+  assert.equal(rows[0].qty, "12 each");
+  assert.ok(rows[0].checkedAt, "the counted row is confirmed");
+  assert.equal(r.shopping.items.length, 0, "and the list row still leaves");
+});

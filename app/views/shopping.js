@@ -240,7 +240,9 @@ const FRESH_STEPS = [
  *   profiles?: Record<string, any>[],
  *   onSettle?: (other: string) => void,
  *   substitutions?: { entryId: string, date: string, slot: string, fromId: string, fromName: string, toId: string, toName: string, drops: string[] }[],
- *   onSubstitute?: (swaps: { entryId: string, toId: string }[]) => void
+ *   onSubstitute?: (swaps: { entryId: string, toId: string }[]) => void,
+ *   weekNeeds?: ReturnType<typeof import("../lib/shelfcheck.js").weekNeedsCheck> | null,
+ *   onSetCount?: (food: string, saidQty: string) => void
  * }} props
  */
 export function ShoppingView({
@@ -292,6 +294,8 @@ export function ShoppingView({
   onSettle = undefined,
   substitutions = [],
   onSubstitute = undefined,
+  weekNeeds = null,
+  onSetCount = undefined,
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry" | "combined"} */ ("list"));
   const [manual, setManual] = useState("");
@@ -304,6 +308,10 @@ export function ShoppingView({
   // same approve path as a photo scan. `said` is the text, `heard` the
   // preview (null = not previewed yet).
   const [said, setSaid] = useState("");
+  // ENOUGH FOR THE WEEK? one inline count field per row (voice-type into it)
+  const [countEdit, setCountEdit] = useState(
+    /** @type {{ food: string, text: string } | null} */ (null),
+  );
   const [heard, setHeard] = useState(
     /** @type {null | ReturnType<typeof parsePantryDictation>} */ (null),
   );
@@ -1510,197 +1518,186 @@ export function ShoppingView({
         <div class="tile">
           <div class="chips wrapchips" role="group" aria-label="Which store to price against">
             ${allStores.map(
-                        // coverage on the chip: switching stores is only an
-                        // honest choice when you can SEE that aldi prices 11
-                        // of 79 rows before you tap it (storeCoverage is the
-                        // memo — never recompute here)
-                        (s) => html`
-                          <button
-                            class="chip ${homeStore === s ? "on" : ""}"
-                            key=${s}
-                            aria-pressed=${homeStore === s}
-                            onClick=${() => chooseStore(s)}
-                          >
-                            ${STORE_NAMES[s] ?? s} ·
-                            ${storeCoverage.get(s) ?? 0}/${tripItems.length}
-                          </button>
-                        `,
-                      )}
+              // coverage on the chip: switching stores is only an
+              // honest choice when you can SEE that aldi prices 11
+              // of 79 rows before you tap it (storeCoverage is the
+              // memo — never recompute here)
+              (s) => html`
+                <button
+                  class="chip ${homeStore === s ? "on" : ""}"
+                  key=${s}
+                  aria-pressed=${homeStore === s}
+                  onClick=${() => chooseStore(s)}
+                >
+                  ${STORE_NAMES[s] ?? s} · ${storeCoverage.get(s) ?? 0}/${tripItems.length}
+                </button>
+              `,
+            )}
           </div>
           <div class="row">
             <span class="k">Est. ${STORE_NAMES[homeStore] ?? homeStore} trip</span>
             <span class="status num">$${homeSummary.subtotal.toFixed(2)}</span>
           </div>
           ${
-                      homeSummary.tax > 0 &&
-                      html`<div class="row">
-                        <span class="k">grocery tax ${(taxRateFor(region) * 100).toFixed(1)}%</span>
-                        <span class="status num">$${homeSummary.tax.toFixed(2)}</span>
-                      </div>`
-                    }
+            homeSummary.tax > 0 &&
+            html`<div class="row">
+              <span class="k">grocery tax ${(taxRateFor(region) * 100).toFixed(1)}%</span>
+              <span class="status num">$${homeSummary.tax.toFixed(2)}</span>
+            </div>`
+          }
           <div class="row">
             <span class="k">Total</span>
             <span class="status num">
               ${
-                          // P5: "Variable-weight items make the estimate a range,
-                          // and the app says so. '$48 to $53,' never a
-                          // false-precision point." A per-pound row is bought as
-                          // whatever the tray weighs, so quoting one number to the
-                          // cent was a lie told with a straight face. Only the
-                          // variable rows widen it, so a trolley of packaged goods
-                          // still quotes exactly.
-                          homeSummary.variableRows > 0
-                            ? `$${homeSummary.low.toFixed(2)} to $${homeSummary.high.toFixed(2)}`
-                            : `$${homeSummary.total.toFixed(2)}`
-                        }
+                // P5: "Variable-weight items make the estimate a range,
+                // and the app says so. '$48 to $53,' never a
+                // false-precision point." A per-pound row is bought as
+                // whatever the tray weighs, so quoting one number to the
+                // cent was a lie told with a straight face. Only the
+                // variable rows widen it, so a trolley of packaged goods
+                // still quotes exactly.
+                homeSummary.variableRows > 0
+                  ? `$${homeSummary.low.toFixed(2)} to $${homeSummary.high.toFixed(2)}`
+                  : `$${homeSummary.total.toFixed(2)}`
+              }
             </span>
           </div>
           ${
-                      homeSummary.variableRows > 0 &&
-                      html`<div class="row">
-                        <span class="k hint">
-                          ↳ ${homeSummary.variableRows}
-                          row${homeSummary.variableRows === 1 ? " is" : "s are"} sold by weight, so
-                          the pack you get decides the cents
-                        </span>
-                      </div>`
-                    }
+            homeSummary.variableRows > 0 &&
+            html`<div class="row">
+              <span class="k hint">
+                ↳ ${homeSummary.variableRows} row${homeSummary.variableRows === 1 ? " is" : "s are"}
+                sold by weight, so the pack you get decides the cents
+              </span>
+            </div>`
+          }
           ${
-                      // P5's stocking rule made visible: whole packages are the
-                      // TRIP cost; what this week's meals consume is the number
-                      // the weekly budget answers to. The rest becomes pantry
-                      // stock that later weeks eat for free.
-                      homeSummary.eaten > 0 &&
-                      homeSummary.eaten < homeSummary.subtotal - 0.5 &&
-                      html`<div class="row">
-                        <span class="k">↳ eaten this week ≈ $${homeSummary.eaten.toFixed(2)}</span>
-                        <span class="status num"
-                          >$${(homeSummary.subtotal - homeSummary.eaten).toFixed(2)} becomes
-                          stock</span
-                        >
-                      </div>`
-                    }
+            // P5's stocking rule made visible: whole packages are the
+            // TRIP cost; what this week's meals consume is the number
+            // the weekly budget answers to. The rest becomes pantry
+            // stock that later weeks eat for free.
+            homeSummary.eaten > 0 &&
+            homeSummary.eaten < homeSummary.subtotal - 0.5 &&
+            html`<div class="row">
+              <span class="k">↳ eaten this week ≈ $${homeSummary.eaten.toFixed(2)}</span>
+              <span class="status num"
+                >$${(homeSummary.subtotal - homeSummary.eaten).toFixed(2)} becomes stock</span
+              >
+            </div>`
+          }
           ${
-                      typeof weeklyBudgetUsd === "number" &&
-                      weeklyBudgetUsd > 0 &&
-                      (() => {
-                        // a brigade trip feeds every seat, but weeklyBudgetUsd
-                        // is MY number — judging the whole kitchen's eaten
-                        // total against one person's budget read "over by $35"
-                        // on a two-person week that was fine (David,
-                        // 2026-08-30). The even split is the honest headline
-                        // here; exact who-ate-what money lives in house money.
-                        const seats =
-                          brigade?.iShop && (brigade.seats ?? 1) > 1
-                            ? /** @type {number} */ (brigade.seats)
-                            : 1;
-                        const share = homeSummary.eaten / seats;
-                        const label = seats > 1 ? `your ≈1/${seats} eaten share` : "eaten share";
-                        return html`<div class="row">
-                          <span class="k"
-                            >weekly budget
-                            $${weeklyBudgetUsd.toFixed(0)}${seats > 1 ? " (yours)" : ""}</span
-                          >
-                          <span class="status num ${share > weeklyBudgetUsd ? "warn" : ""}"
-                            >${share > weeklyBudgetUsd ? `${label} over by $${(share - weeklyBudgetUsd).toFixed(2)}` : `${label} ≈ $${share.toFixed(2)} fits ✓`}</span
-                          >
-                        </div>`;
-                      })()
-                    }
+            typeof weeklyBudgetUsd === "number" &&
+            weeklyBudgetUsd > 0 &&
+            (() => {
+              // a brigade trip feeds every seat, but weeklyBudgetUsd
+              // is MY number — judging the whole kitchen's eaten
+              // total against one person's budget read "over by $35"
+              // on a two-person week that was fine (David,
+              // 2026-08-30). The even split is the honest headline
+              // here; exact who-ate-what money lives in house money.
+              const seats =
+                brigade?.iShop && (brigade.seats ?? 1) > 1
+                  ? /** @type {number} */ (brigade.seats)
+                  : 1;
+              const share = homeSummary.eaten / seats;
+              const label = seats > 1 ? `your ≈1/${seats} eaten share` : "eaten share";
+              return html`<div class="row">
+                <span class="k"
+                  >weekly budget $${weeklyBudgetUsd.toFixed(0)}${seats > 1 ? " (yours)" : ""}</span
+                >
+                <span class="status num ${share > weeklyBudgetUsd ? "warn" : ""}"
+                  >${share > weeklyBudgetUsd ? `${label} over by $${(share - weeklyBudgetUsd).toFixed(2)}` : `${label} ≈ $${share.toFixed(2)} fits ✓`}</span
+                >
+              </div>`;
+            })()
+          }
           ${
-                      homeSummary.unpriced > 0 &&
-                      html`<div class="row">
-                        <span class="k status warn"
-                          >⚠ ${homeSummary.unpriced} of ${tripItems.length} rows UNPRICED</span
-                        >
-                        <span class="status warn">total is a floor</span>
-                      </div>`
-                    }
+            homeSummary.unpriced > 0 &&
+            html`<div class="row">
+              <span class="k status warn"
+                >⚠ ${homeSummary.unpriced} of ${tripItems.length} rows UNPRICED</span
+              >
+              <span class="status warn">total is a floor</span>
+            </div>`
+          }
           <p class="hint">
             ${homeSummary.priced} of ${tripItems.length} rows
             priced${
-                        homeSummary.estimates > 0
-                          ? `, ${homeSummary.estimates} are estimates (~)`
-                          : ""
-                      }.
+              homeSummary.estimates > 0 ? `, ${homeSummary.estimates} are estimates (~)` : ""
+            }.
           </p>
           ${
-                      canLive &&
-                      html`<div class="row">
-                        <span class="k"
-                          >live prices · ${pinnedForStore.length}
-                          pinned${staleCount > 0 ? `, ${staleCount} stale (†)` : ""}</span
-                        >
-                        <button
-                          class="linktext"
-                          disabled=${pinnedForStore.length === 0 || refreshNote === "refreshing…"}
-                          onClick=${refreshLivePrices}
-                        >
-                          REFRESH
-                        </button>
-                      </div>`
-                    }
+            canLive &&
+            html`<div class="row">
+              <span class="k"
+                >live prices · ${pinnedForStore.length}
+                pinned${staleCount > 0 ? `, ${staleCount} stale (†)` : ""}</span
+              >
+              <button
+                class="linktext"
+                disabled=${pinnedForStore.length === 0 || refreshNote === "refreshing…"}
+                onClick=${refreshLivePrices}
+              >
+                REFRESH
+              </button>
+            </div>`
+          }
           ${canLive && refreshNote && html`<p class="hint">${refreshNote}</p>`}
           ${canLive && repriceNote && html`<p class="hint">${repriceNote}</p>`}
           ${
-                      canLive &&
-                      provisionalRows.length > 0 &&
-                      html`<div class="row">
-                        <span class="k"
-                          >${provisionalRows.length} price${provisionalRows.length === 1 ? "" : "s"}
-                          auto-picked</span
-                        >
-                        <button
-                          class="linktext"
-                          onClick=${() => openPinConfirm(provisionalRows[0], true)}
-                        >
-                          REVIEW
-                        </button>
-                      </div>`
-                    }
+            canLive &&
+            provisionalRows.length > 0 &&
+            html`<div class="row">
+              <span class="k"
+                >${provisionalRows.length} price${provisionalRows.length === 1 ? "" : "s"}
+                auto-picked</span
+              >
+              <button class="linktext" onClick=${() => openPinConfirm(provisionalRows[0], true)}>
+                REVIEW
+              </button>
+            </div>`
+          }
           ${pricePick?.fromTile ? pickSheet() : ""}
           ${
-                      // NO FEATURE SHIPS DARK, and this one did (David,
-                      // 2026-08-25: "it said not linked and push failed"). The
-                      // Worker was missing KROGER_STATE_SECRET and
-                      // KROGER_REDIRECT_URI, so /kroger/cart/link answered 503
-                      // every time and no link could ever be made. The app's
-                      // response to that 503 was to HIDE the whole cart block,
-                      // which turned a server misconfiguration into a blank space
-                      // — the worst possible way to report it, and why he was left
-                      // guessing. Say it out loud instead.
-                      canLive &&
-                      cartOff &&
-                      html`<p class="hint">
-                        ⚠️ Cart push is switched off on the server, so nothing can be sent yet. This
-                        is a configuration gap, not something you did wrong.
-                      </p>`
-                    }
+            // NO FEATURE SHIPS DARK, and this one did (David,
+            // 2026-08-25: "it said not linked and push failed"). The
+            // Worker was missing KROGER_STATE_SECRET and
+            // KROGER_REDIRECT_URI, so /kroger/cart/link answered 503
+            // every time and no link could ever be made. The app's
+            // response to that 503 was to HIDE the whole cart block,
+            // which turned a server misconfiguration into a blank space
+            // — the worst possible way to report it, and why he was left
+            // guessing. Say it out loud instead.
+            canLive &&
+            cartOff &&
+            html`<p class="hint">
+              ⚠️ Cart push is switched off on the server, so nothing can be sent yet. This is a
+              configuration gap, not something you did wrong.
+            </p>`
+          }
           ${
-                      canLive &&
-                      !cartOff &&
-                      html`<div class="row">
-                          <span class="k"
-                            >kroger cart · ${cartRows.length} of ${tripItems.length} rows have a
-                            UPC</span
-                          >
-                          <button
-                            class="linktext"
-                            disabled=${cartRows.length === 0 || cartNote === "sending…"}
-                            onClick=${() => sendToKrogerCart()}
-                          >
-                            ${krogerLinked() ? "SEND TO CART" : "LINK KROGER"}
-                          </button>
-                        </div>
-                        <p class="hint">
-                          Sends the unticked rows to your Kroger cart for
-                          ${" "}${STORE_NAMES[homeStore] ?? homeStore}. It cannot place the order
-                          and cannot choose a pickup slot — no Kroger API does — so you finish in
-                          the app. ⚠️ Kroger has no store field on a cart write: items land in
-                          whichever store your Kroger ACCOUNT has selected, so set that to
-                          ${" "}${STORE_NAMES[homeStore] ?? homeStore} first.
-                        </p>
-                        ${
+            canLive &&
+            !cartOff &&
+            html`<div class="row">
+                <span class="k"
+                  >kroger cart · ${cartRows.length} of ${tripItems.length} rows have a UPC</span
+                >
+                <button
+                  class="linktext"
+                  disabled=${cartRows.length === 0 || cartNote === "sending…"}
+                  onClick=${() => sendToKrogerCart()}
+                >
+                  ${krogerLinked() ? "SEND TO CART" : "LINK KROGER"}
+                </button>
+              </div>
+              <p class="hint">
+                Sends the unticked rows to your Kroger cart for
+                ${" "}${STORE_NAMES[homeStore] ?? homeStore}. It cannot place the order and cannot
+                choose a pickup slot — no Kroger API does — so you finish in the app. ⚠️ Kroger has
+                no store field on a cart write: items land in whichever store your Kroger ACCOUNT
+                has selected, so set that to ${" "}${STORE_NAMES[homeStore] ?? homeStore} first.
+              </p>
+              ${
                           testRows.length > 0 &&
                           html`<div class="row">
                               <span class="k"
@@ -1720,23 +1717,23 @@ export function ShoppingView({
                               Kroger app, then send the real list.
                             </p>`
                         }`
-                    }
+          }
           ${canLive && cartNote && html`<p class="hint">${cartNote}</p>`}
           ${
-                      // WHAT ACTUALLY HAPPENED (David, 2026-08-25: "I'm logged in
-                      // to my account on the Pay Less app, but I see nothing").
-                      // Kroger cannot be read back, so this shows what WE sent and
-                      // what Kroger said about it, durably. The UPCs are printed
-                      // because searching one in the Kroger app is the only way to
-                      // tell "never arrived" from "arrived, looking in the wrong
-                      // place".
-                      canLive &&
-                      html`<details class="pushlog">
-                        <summary>
-                          kroger status ·
-                          ${krogerLinked() ? "linked" : "NOT LINKED — that is why nothing arrives"}
-                        </summary>
-                        ${
+            // WHAT ACTUALLY HAPPENED (David, 2026-08-25: "I'm logged in
+            // to my account on the Pay Less app, but I see nothing").
+            // Kroger cannot be read back, so this shows what WE sent and
+            // what Kroger said about it, durably. The UPCs are printed
+            // because searching one in the Kroger app is the only way to
+            // tell "never arrived" from "arrived, looking in the wrong
+            // place".
+            canLive &&
+            html`<details class="pushlog">
+              <summary>
+                kroger status ·
+                ${krogerLinked() ? "linked" : "NOT LINKED — that is why nothing arrives"}
+              </summary>
+              ${
                           !krogerLinked() &&
                           html`<p class="hint">
                             Signing in to the Pay Less app is <b>not</b> the same as linking Mise.
@@ -1744,7 +1741,7 @@ export function ShoppingView({
                             you back here — the link only exists once you land back in Mise.
                           </p>`
                         }
-                        ${
+              ${
                           krogerLinked() &&
                           html`<p class="hint">
                             link valid until
@@ -1755,7 +1752,7 @@ export function ShoppingView({
                             rather than Delivery.
                           </p>`
                         }
-                        ${
+              ${
                           pushLog.length === 0
                             ? html`<p class="hint">
                                 No push has ever been made from this phone. If you tapped and saw
@@ -1777,20 +1774,20 @@ export function ShoppingView({
                                   </div>`,
                               )
                         }
-                        <p class="hint">
-                          Search one of those UPCs in the Kroger app. Found = it arrived and the
-                          cart you are looking at is the wrong one. Not found = it never arrived.
-                        </p>
-                      </details>`
-                    }
+              <p class="hint">
+                Search one of those UPCs in the Kroger app. Found = it arrived and the cart you are
+                looking at is the wrong one. Not found = it never arrived.
+              </p>
+            </details>`
+          }
           ${
-                      canLive &&
-                      homeSummary.unpriced > 0 &&
-                      html`<p class="hint">
-                        BUILD already searched the priciest rows; anything still unpriced carries a
-                        $? button — one search, one tap, priced forever.
-                      </p>`
-                    }
+            canLive &&
+            homeSummary.unpriced > 0 &&
+            html`<p class="hint">
+              BUILD already searched the priciest rows; anything still unpriced carries a $? button
+              — one search, one tap, priced forever.
+            </p>`
+          }
         </div>
       `
     );
@@ -2204,6 +2201,95 @@ export function ShoppingView({
       }
       ${
         tab === "pantry" &&
+        weekNeeds &&
+        weekNeeds.rows.length > 0 &&
+        onSetCount &&
+        html`<div class="tile needcheck" role="region" aria-label="Enough for the week">
+          <div class="k">
+            🧮 ENOUGH FOR THE WEEK? ·
+            ${
+              weekNeeds.unverified > 0
+                ? html`<span class="num">${weekNeeds.unverified} of ${weekNeeds.rows.length}</span>
+                    foods the week needs are on your word, not a count`
+                : html`all <span class="num">${weekNeeds.rows.length}</span> foods the week needs
+                    are counted and covered`
+            }
+          </div>
+          <div class="d">
+            The generated week needs these, and the shelf says it has them. Say how much you
+            actually have (tap the field and dictate: "half a bottle", "3 tubs", "6"); the list then
+            buys only the gap. A word like PLENTY is not a number: four soy-sauce dinners can empty
+            a bottle you called plenty.
+          </div>
+          <div class="shelfrows">
+            ${weekNeeds.rows.map((r) => {
+              const editing = countEdit?.food === r.food;
+              const verdict =
+                r.status === "enough"
+                  ? "✓ enough"
+                  : r.status === "short"
+                    ? `short by ${formatStoreQty(r.short?.qty ?? 0, r.short?.unit ?? "")}`
+                    : r.status === "plenty-uncounted"
+                      ? "plenty, uncounted"
+                      : "uncounted";
+              return html`<div
+                class="checkrow shelfrow ${r.status === "enough" ? "done" : ""}"
+                key=${r.food}
+              >
+                <span class="food">
+                  ${r.food}
+                  <span class="q num">
+                    week needs ${formatStoreQty(r.need.qty, r.need.unit)} · have ${r.have ?? "?"} ·
+                    ${verdict}
+                  </span>
+                </span>
+                ${
+                  editing
+                    ? html`<span class="rowbtns">
+                        <input
+                          class="qtyin"
+                          type="text"
+                          placeholder="how much? e.g. half a bottle, 3 tubs, 6"
+                          value=${countEdit?.text ?? ""}
+                          onInput=${(/** @type {any} */ e) =>
+                            setCountEdit({ food: r.food, text: String(e.currentTarget.value) })}
+                          onKeyDown=${(/** @type {any} */ e) => {
+                            if (e.key === "Enter" && countEdit?.text.trim()) {
+                              onSetCount(r.food, countEdit.text.trim());
+                              setCountEdit(null);
+                            }
+                            if (e.key === "Escape") setCountEdit(null);
+                          }}
+                        />
+                        <button
+                          class="secondary"
+                          disabled=${!countEdit?.text.trim()}
+                          onClick=${() => {
+                            if (countEdit?.text.trim()) onSetCount(r.food, countEdit.text.trim());
+                            setCountEdit(null);
+                          }}
+                        >
+                          SAVE
+                        </button>
+                        <button class="secondary" onClick=${() => setCountEdit(null)}>✕</button>
+                      </span>`
+                    : html`<span class="rowbtns">
+                        <button
+                          class="ownbtn"
+                          aria-label="Say how much ${r.food} you have"
+                          onClick=${() => setCountEdit({ food: r.food, text: "" })}
+                        >
+                          ${r.status === "enough" ? "CORRECT" : "HOW MUCH?"}
+                        </button>
+                      </span>`
+                }
+              </div>`;
+            })}
+          </div>
+        </div>`
+      }
+      ${
+        tab === "pantry" &&
         html`
           ${
             fresh == null
@@ -2508,30 +2594,30 @@ export function ShoppingView({
               heard.length > 0 &&
               html`<div class="slots">
                   ${heard.map(
-                  (it, i) => html`
-                    <div class="checkrow static" key=${`${it.name}-${i}`}>
-                      <span class="food">
-                        ${it.name}${it.qty ? html` <span class="hint num">${it.qty}</span>` : ""}
-                        ${" "}<span class="tag"
-                          >${
-                          it.kind === "fresh"
-                            ? `${it.location} · dated today`
-                            : it.state === "low"
-                              ? "low"
-                              : "plenty"
-                        }</span
+                    (it, i) => html`
+                      <div class="checkrow static" key=${`${it.name}-${i}`}>
+                        <span class="food">
+                          ${it.name}${it.qty ? html` <span class="hint num">${it.qty}</span>` : ""}
+                          ${" "}<span class="tag"
+                            >${
+                            it.kind === "fresh"
+                              ? `${it.location} · dated today`
+                              : it.state === "low"
+                                ? "low"
+                                : "plenty"
+                          }</span
+                          >
+                        </span>
+                        <button
+                          class="secondary"
+                          aria-label=${`Drop ${it.name} from the read-back`}
+                          onClick=${() => setHeard(heard.filter((_, j) => j !== i))}
                         >
-                      </span>
-                      <button
-                        class="secondary"
-                        aria-label=${`Drop ${it.name} from the read-back`}
-                        onClick=${() => setHeard(heard.filter((_, j) => j !== i))}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  `,
-                )}
+                          ✕
+                        </button>
+                      </div>
+                    `,
+                  )}
                 </div>
                 <p class="hint">
                   Chicken, fish, dairy and produce land on the fridge dated today ("frozen …" on the

@@ -21,7 +21,15 @@
 // ends become a planned meal instead of next week's write-off.
 
 import { aisleOf, canonicalFood, normalizeQty } from "./ingredients.js";
-import { isDatedItem, packPantry, pantryItems, perishableStatus, plentyKey } from "./shopping.js";
+import {
+  isDatedItem,
+  looksPerishable,
+  packPantry,
+  pantryItems,
+  perishableStatus,
+  plentyKey,
+  subtractPantryFromTrip,
+} from "./shopping.js";
 import { generatorEligible } from "./weekbuilder.js";
 
 /** A confirmation older than this is stale again: a week is one shop cycle. */
@@ -248,4 +256,113 @@ export function useWhatsLeft(recipes, pantry, todayIso, opts = {}) {
       String(a.recipe.name).localeCompare(String(b.recipe.name)),
   );
   return out.slice(0, limit);
+}
+
+/**
+ * ENOUGH FOR THE WEEK? (David, 2026-09-07: "I don't want to just say yeah
+ * plenty soy sauce because I think I have enough for a dish, but what if the
+ * generator has four soy sauce dishes? Then it is not enough. So it has to
+ * happen after the week is generated and before the list is bought.")
+ *
+ * `demand` is the generated week's raw shopping need, derived with NO pantry
+ * (no PLENTY suppression, no subtraction). Every demand row the shelf claims
+ * to hold comes back with a verdict from the same accountant the list uses:
+ * ENOUGH (counted rows cover it), SHORT (counted rows cover part, the rest
+ * buys), PLENTY-UNCOUNTED (a bare assertion: the list would skip it on the
+ * strength of a word), or UNCOUNTED (words no arithmetic can read). The
+ * person answers with a number, in their own words, and the row becomes a
+ * counted row; the list then buys exactly the gap.
+ * @param {{ food: string, qty: number, unit: string, section?: string }[]} demand
+ * @param {Record<string, any> | null | undefined} pantry
+ * @returns {{
+ *   rows: { food: string, need: { qty: number, unit: string }, have: string | null, status: "enough" | "short" | "plenty-uncounted" | "uncounted", short: { qty: number, unit: string } | null }[],
+ *   unverified: number
+ * }}
+ */
+export function weekNeedsCheck(demand, pantry) {
+  const items = pantryItems(pantry);
+  const keysOf = (/** @type {string} */ food) => [canonicalFood(food), plentyKey(food)];
+  /** @type {Map<string, Record<string, any>[]>} */
+  const byKey = new Map();
+  for (const it of items) {
+    for (const k of keysOf(String(it.food ?? ""))) {
+      const arr = byKey.get(k) ?? [];
+      arr.push(it);
+      byKey.set(k, arr);
+    }
+  }
+  /** @type {{ food: string, need: { qty: number, unit: string }, have: string | null, status: "enough" | "short" | "plenty-uncounted" | "uncounted", short: { qty: number, unit: string } | null }[]} */
+  const rows = [];
+  const seen = new Set();
+  for (const d of demand) {
+    if (!d?.food || !(Number(d.qty) > 0) || !d.unit || d.unit === "x") continue;
+    const canon = canonicalFood(d.food);
+    if (seen.has(canon)) continue;
+    const held = [...new Set(keysOf(d.food).flatMap((k) => byKey.get(k) ?? []))];
+    if (held.length === 0) continue; // a pure buy: the list already has it
+    seen.add(canon);
+    const dated = held.filter(isDatedItem);
+    const plenty = held.some((it) => !isDatedItem(it) && it.state === "plenty");
+    const have =
+      dated.length > 0
+        ? dated
+            .map((it) => (it.said ? `${it.said} (${it.qty})` : it.qty || "uncounted"))
+            .join(" + ")
+        : null;
+    const { toBuy, covered } = subtractPantryFromTrip(
+      [{ food: d.food, qty: Number(d.qty), unit: d.unit }],
+      pantry ?? { items: [] },
+    );
+    /** @type {"enough" | "short" | "plenty-uncounted" | "uncounted"} */
+    let status;
+    /** @type {{ qty: number, unit: string } | null} */
+    let short = null;
+    if (covered.length > 0) status = "enough";
+    else if (toBuy[0] && /** @type {any} */ (toBuy[0]).kitchenHas) {
+      status = "short";
+      short = { qty: Number(toBuy[0].qty), unit: String(toBuy[0].unit) };
+    } else if (plenty && dated.length === 0) status = "plenty-uncounted";
+    else status = "uncounted";
+    rows.push({ food: d.food, need: { qty: Number(d.qty), unit: d.unit }, have, status, short });
+  }
+  const order = { "plenty-uncounted": 0, uncounted: 1, short: 2, enough: 3 };
+  rows.sort((a, b) => order[a.status] - order[b.status] || a.food.localeCompare(b.food));
+  return { rows, unverified: rows.filter((r) => r.status !== "enough").length };
+}
+
+/**
+ * The person says how much of a food the kitchen holds. A counted row of
+ * that food is corrected (editShelfRow); with none, a new counted row is made
+ * and any bare PLENTY assertion for the food is retired, because a number
+ * replaces a word. Unreadable words are kept as words, honestly uncounted.
+ * @param {Record<string, any>} pantry
+ * @param {string} food
+ * @param {string} saidQty
+ * @param {string} todayIso
+ * @returns {{ pantry: Record<string, any>, waste: Record<string, any> | null, direction: "down" | "up" | "same" | "unknown" | "new" }}
+ */
+export function setPantryCount(pantry, food, saidQty, todayIso) {
+  const said = String(saidQty ?? "").trim();
+  if (!food || !said) return { pantry, waste: null, direction: "unknown" };
+  const keys = new Set([canonicalFood(food), plentyKey(food)]);
+  const sameFood = (/** @type {Record<string, any>} */ it) =>
+    keys.has(canonicalFood(String(it.food ?? ""))) || keys.has(plentyKey(String(it.food ?? "")));
+  const items = pantryItems(pantry);
+  const dated = items.filter((it) => isDatedItem(it) && sameFood(it));
+  if (dated.length > 0) {
+    return editShelfRow(pantry, String(/** @type {any} */ (dated[0]).id), said, todayIso);
+  }
+  const kept = items.filter((it) => !(!isDatedItem(it) && sameFood(it)));
+  const normalized = normalizeQty(food, said);
+  const row = {
+    id: `c${Math.random().toString(16).slice(2, 10)}`,
+    food,
+    qty: normalized ?? said,
+    ...(normalized ? { said } : {}),
+    added: todayIso,
+    useSoon: false,
+    location: looksPerishable(food) ? "fridge" : "pantry",
+    checkedAt: todayIso,
+  };
+  return { pantry: packPantry([...kept, row]), waste: null, direction: "new" };
 }

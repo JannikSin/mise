@@ -1158,6 +1158,40 @@ export function toggleEntryCooked(plan, entryId, dateIso) {
 }
 
 /**
+ * The one entry id a settled table may have, so two devices settling the same
+ * past table write the same row and the keyed merge collapses them (David's
+ * Sunday showed every shared meal twice, 2026-09-07).
+ * @param {string} tableId
+ * @returns {string}
+ */
+export function settledEntryId(tableId) {
+  let h = 0x811c9dc5;
+  const s = String(tableId);
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `s${h.toString(16).padStart(8, "0")}`;
+}
+
+/**
+ * One settled row per table: a duplicate written before this id existed is
+ * dropped on read, first one kept.
+ * @param {PlanEntry[]} entries
+ * @returns {PlanEntry[]}
+ */
+export function dedupeSettled(entries) {
+  const seen = new Set();
+  return entries.filter((e) => {
+    const t = /** @type {any} */ (e).fromTable;
+    if (!t) return true;
+    if (seen.has(t)) return false;
+    seen.add(t);
+    return true;
+  });
+}
+
+/**
  * Shape a freshly-read (or absent) plan file: guarantees week + entries and
  * self-heals pre-id legacy entries by assigning ids (persisted on next write).
  * @param {Record<string, any> | null} raw
@@ -1190,13 +1224,15 @@ export function normalizePlan(raw, weekId) {
     ...(raw.manifest && typeof raw.manifest === "object" && !Array.isArray(raw.manifest)
       ? { manifest: raw.manifest }
       : {}),
-    entries: raw.entries.map((/** @type {any} */ e) => {
-      if (typeof e.id === "string") return e;
-      const contentKey = `${e.date}|${e.slot}|${e.recipeId ?? ""}|${e.freeText ?? ""}|${e.servings}`;
-      const twinIndex = twinCounts.get(contentKey) ?? 0;
-      twinCounts.set(contentKey, twinIndex + 1);
-      return { ...e, id: legacyId(e, twinIndex) };
-    }),
+    entries: dedupeSettled(
+      raw.entries.map((/** @type {any} */ e) => {
+        if (typeof e.id === "string") return e;
+        const contentKey = `${e.date}|${e.slot}|${e.recipeId ?? ""}|${e.freeText ?? ""}|${e.servings}`;
+        const twinIndex = twinCounts.get(contentKey) ?? 0;
+        twinCounts.set(contentKey, twinIndex + 1);
+        return { ...e, id: legacyId(e, twinIndex) };
+      }),
+    ),
   };
 }
 
