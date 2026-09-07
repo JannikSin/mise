@@ -1316,6 +1316,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         continue;
       }
       const sameDish = existing?.recipeId === meal.id;
+      const pinnedHere = Boolean(/** @type {any} */ (existing)?.pinned);
       // guests ride along: every seated non-member who is still a real profile
       const guestRows = (existing?.seats ?? []).filter(
         (s) => s && !memberIdSet.has(s.id) && ctx.profilesById.has(s.id),
@@ -1398,7 +1399,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         ...(existing?.headId ? { headId: existing.headId } : {}),
         ...(sameDish && existing?.cookedAt ? { cookedAt: existing.cookedAt } : {}),
         ...(sameDish && existing?.sameForEveryone ? { sameForEveryone: true } : {}),
-        .../** @type {any} */ (existing?.pinned ? { pinned: true } : {}),
+        ...(pinnedHere ? { pinned: true } : {}),
         ...(sameDish && /** @type {any} */ (existing)?.pot
           ? { pot: /** @type {any} */ (existing).pot }
           : {}),
