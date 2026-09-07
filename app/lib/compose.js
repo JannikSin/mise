@@ -956,6 +956,18 @@ export function planBrigadeWeek(events, brigade, ctx) {
     /** @type {Record<string, Record<string, any>[]>} */
     const dayPools = { ...poolsBySlot };
     for (const slot of liveSlots) {
+      // A PINNED DISH IS THE SLOT'S ONLY CANDIDATE (David, 2026-09-07): the
+      // day composes and sizes every plate around it. Without this the keep
+      // rule compared the committee's pick to the pinned dish, found them
+      // different, and overwrote Friday's kofta with a minestrone.
+      const pinnedDish = /** @type {any} */ (existingBySlot[slot])?.pinned
+        ? ctx.bankById.get(String(existingBySlot[slot]?.recipeId))
+        : undefined;
+      if (pinnedDish) {
+        startBySlot[slot] = pinnedDish;
+        dayPools[slot] = [pinnedDish];
+        continue;
+      }
       if (LEFTOVER_SLOTS.has(slot) && !isCookDay(date)) {
         const srcDate = leftoverPlan.get(date) ?? null;
         const srcId = srcDate ? cookedBySlot[slot]?.get(srcDate) : undefined;
@@ -1295,6 +1307,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
       if (
         existing &&
         !ctx.regenerate &&
+        !(/** @type {any} */ (existing).pinned) &&
         boughtFor(existing) &&
         existing.recipeId === meal.id &&
         /** @type {any} */ (existing.leftoverOf ?? undefined) === wantLeftoverOf
@@ -1385,6 +1398,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         ...(existing?.headId ? { headId: existing.headId } : {}),
         ...(sameDish && existing?.cookedAt ? { cookedAt: existing.cookedAt } : {}),
         ...(sameDish && existing?.sameForEveryone ? { sameForEveryone: true } : {}),
+        .../** @type {any} */ (existing?.pinned ? { pinned: true } : {}),
         ...(sameDish && /** @type {any} */ (existing)?.pot
           ? { pot: /** @type {any} */ (existing).pot }
           : {}),

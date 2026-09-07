@@ -979,9 +979,24 @@ test("a PINNED table is kept through a plain SET whatever the pantry says (David
   };
   // nothing is bought, so every unpinned table would be re-planned
   const second = planBrigadeWeek(pinnedEvents, BRIGADE, wayneCtx({ bought: () => false }));
-  assert.deepEqual(
-    second.events.tables.find((x) => x.id === pin.id),
-    pinnedEvents.tables.find((x) => x.id === pin.id),
-    "the pinned dish and its plates are untouched",
+  const kept = second.events.tables.find((x) => x.id === pin.id);
+  assert.equal(kept.recipeId, pin.recipeId, "the pinned dish stays");
+  assert.equal(kept.pinned, true, "and stays pinned");
+  // a pinned dish the committee would NOT pick still stays, and its plates
+  // are solved for THAT dish (Friday's kofta became a minestrone, 2026-09-07)
+  const other = BANK.find((r) => r.mealType === "dinner" && r.id !== pin.recipeId);
+  const swapped = {
+    ...first.events,
+    tables: first.events.tables.map((t) =>
+      t.id === pin.id ? { ...t, recipeId: other.id, pinned: true } : t,
+    ),
+  };
+  const third = planBrigadeWeek(swapped, BRIGADE, wayneCtx({ bought: () => false }));
+  const held = third.events.tables.find((x) => x.id === pin.id);
+  assert.equal(held.recipeId, other.id, "a hand-chosen dish is not overwritten by the committee");
+  assert.equal(held.pinned, true);
+  assert.ok(
+    held.seats.every((s) => s.servings > 0),
+    "plates are solved for the pinned dish",
   );
 });
