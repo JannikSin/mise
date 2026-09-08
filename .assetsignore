@@ -1,0 +1,31 @@
+# Fence for any Workers-assets deploy from the repo root (wrangler.jsonc assets.directory = ".").
+# The Pages sandbox deploy does NOT read this file; it ships an explicit allowlist (tools/sandbox-deploy.ps1).
+# Never ship anything but the app shell.
+.git/
+.claude/
+.playwright-mcp/
+.wrangler/
+node_modules/
+seed-data/
+claude-config/
+spike/
+docs/
+tests/
+tools/
+training/
+mockups/
+fixtures/
+worker/
+*.md
+*.env
+.env*
+.dev.vars*
+*.pem
+*.key
+package.json
+package-lock.json
+wrangler.jsonc
+jsconfig.json
+eslint.config.mjs
+.mcp.json
+.assetsignore
