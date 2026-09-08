@@ -46,22 +46,28 @@ New-Item -ItemType Directory -Path $archive | Out-Null
 git fetch -q origin $Ref
 $sha = (git rev-parse "origin/$Ref").Trim()
 Write-Host "staging origin/$Ref ($sha) from git archive"
-git archive "origin/$Ref" | tar -x -C $archive
+# a zip on disk, not a pipe: PowerShell pipes are text and corrupt a tar stream
+$zip = Join-Path $stage "archive.zip"
+git archive --format=zip -o $zip "origin/$Ref"
 if ($LASTEXITCODE -ne 0) { throw "git archive failed" }
+Expand-Archive -Path $zip -DestinationPath $archive -Force
 
 if (-not $SkipGates) {
-  Push-Location $archive
-  try {
-    Write-Host "gates: npm ci, lint, check, test"
-    npm ci --silent | Out-Null
-    npm run lint --silent
-    if ($LASTEXITCODE -ne 0) { throw "lint failed" }
-    npm run check --silent
-    if ($LASTEXITCODE -ne 0) { throw "typecheck failed" }
-    npm test --silent 2>&1 | Select-String "fail (\d+)" | ForEach-Object {
-      if ($_.Matches[0].Groups[1].Value -ne "0") { throw "tests failed: $_" }
-    }
-  } finally { Pop-Location }
+  # Gates run in the WORKING TREE, not the archive: the live-bank tests read
+  # seed-data/, which is gitignored and so absent from any archive. What was
+  # tested must be what ships, so the working tree has to sit at origin/$Ref
+  # with no uncommitted change to a shipped file.
+  $head = (git rev-parse HEAD).Trim()
+  if ($head -ne $sha) { throw "working tree is at ${head}, origin/${Ref} is at ${sha}. Check out and pull ${Ref} first" }
+  $dirtyShell = git status --porcelain -- index.html manifest.webmanifest sw.js suggest.js suggest.css app vendor icons
+  if ($dirtyShell) { throw "uncommitted shell changes in the working tree; commit or stash them:`n$dirtyShell" }
+  Write-Host "gates: lint, check, test (working tree @ $($sha.Substring(0,7)))"
+  npm run lint --silent
+  if ($LASTEXITCODE -ne 0) { throw "lint failed" }
+  npm run check --silent
+  if ($LASTEXITCODE -ne 0) { throw "typecheck failed" }
+  $testOut = npm test --silent 2>&1 | Out-String
+  if ($testOut -notmatch "fail 0") { throw "tests failed:`n$($testOut.Substring([Math]::Max(0, $testOut.Length - 1500)))" }
 }
 
 # 1. copy the ALLOWLIST only
@@ -107,9 +113,19 @@ foreach ($icon in @("icon-192.png", "icon-512.png", "apple-touch-icon.png")) {
 # 4. deploy, explicitly
 $ver = (Select-String -Path (Join-Path $deploy "sw.js") -Pattern 'mise-shell-v(\d+)').Matches[0].Groups[1].Value
 Write-Host "deploying shell v$ver to $Project (branch $Ref)"
-$out = npx wrangler pages deploy $deploy --project-name $Project --branch $Ref --commit-hash $sha --commit-dirty=false 2>&1 | Out-String
-Write-Host $out
-if ($LASTEXITCODE -ne 0) { throw "wrangler pages deploy failed" }
+# run FROM the deploy copy so wrangler sees no wrangler.jsonc (the root one is
+# the assets-Worker config and must never steer this), and do not redirect
+# stderr: PowerShell 5.1 turns a wrangler WARNING on stderr into a terminating
+# error under $ErrorActionPreference = Stop
+Push-Location $deploy
+try {
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  npx wrangler pages deploy . --project-name $Project --branch $Ref --commit-hash $sha --commit-dirty=false
+  $code = $LASTEXITCODE
+  $ErrorActionPreference = $prevEap
+} finally { Pop-Location }
+if ($code -ne 0) { throw "wrangler pages deploy failed (exit $code)" }
 
 # 5. verify the LIVE sandbox bytes and the fence
 Start-Sleep -Seconds 8

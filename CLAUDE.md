@@ -140,3 +140,23 @@ For architecture-level decisions (new phase, schema redesign, dependency additio
 - When he asks "A or B?", give a direct call with one-sentence reasoning, then nuance if needed.
 - He's a non-developer with strong product instincts — explain in outcomes, not jargon.
 - Ask one focused question at a time, not question dumps.
+
+## The release train (2026-09-07, Tribunal-gated; the plan is docs/RELEASE_TRAIN.md)
+
+Two branches, two origins, one data repo with two branches. **`main` is the LIVE app** on
+janniksin.github.io and is written only by the Sunday release or a named hotfix (a live bug
+that blocks the week David bought for: smallest diff, own test, then `main` merged INTO
+`next`, never cherry-picked). **`next` is the SANDBOX** on https://mise-next.pages.dev
+(Cloudflare Pages, production branch `next`), deployed by `tools/sandbox-deploy.ps1`, which
+stages `git archive next`, copies ONLY the app shell, refuses any personal or secret path,
+rewrites the copy into "Mise NEXT" (name, colour, badged icons, the data-branch meta), and
+verifies the served bytes. `wrangler pages deploy .` is never run: it does not read
+.gitignore. The sandbox reads and writes the `sandbox` branch of mise-data, re-seeded from
+`main` by `tools/seed-sandbox-data.ps1`; the branch is decided by ORIGIN in
+`app/lib/github.js` (`dataBranch()`), never by a setting, and any other origin (a local
+server included) refuses writes. Schema changes are read-time heals: a new optional field
+plus a tolerant reader; never a rename in place. Weekday sessions work on `next`, run the
+gates in the working tree, deploy the sandbox once per session, and verify the sandbox
+host; `main` and the live host are touched on Sunday morning by `tools/release.ps1`
+(built Saturday, week one by hand and watched) against the `ship/YYYY-MM-DD` tag David's
+yes produced. "Never force-push" has exactly one exception: `release.ps1 --rollback`.
