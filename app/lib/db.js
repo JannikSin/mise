@@ -18,7 +18,7 @@ const DB_VERSION = 1;
  *   dirty: boolean,
  *   queuedAt: number | null,
  *   rev: number
- * }} FileRecord
+ * , branch?: string | null }} FileRecord
  */
 
 /** @type {Promise<IDBDatabase> | null} */
@@ -66,6 +66,18 @@ export async function dbGet(path) {
 export async function dbGetAll() {
   const db = await open();
   return promisify(db.transaction("files").objectStore("files").getAll());
+}
+
+/**
+ * Delete a cached record whatever its state. Used only by the release train's
+ * DISCARD of a write queued under another data branch, on the person's word.
+ * @param {string} path
+ * @returns {Promise<void>}
+ */
+export async function dbDelete(path) {
+  const db = await open();
+  const store = db.transaction("files", "readwrite").objectStore("files");
+  await promisify(store.delete(path));
 }
 
 /**

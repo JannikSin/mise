@@ -17,7 +17,11 @@ const touchesApp = staged.some(
     f.startsWith("vendor/") ||
     f.startsWith("icons/") ||
     f === "index.html" ||
-    f === "manifest.webmanifest",
+    f === "manifest.webmanifest" ||
+    // precached at the root and loaded by index.html, but never bumped before
+    // (Engineer finding 6, 2026-09-07): offline phones kept the stale copy
+    f === "suggest.js" ||
+    f === "suggest.css",
 );
 if (!touchesApp) process.exit(0);
 

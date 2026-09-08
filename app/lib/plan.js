@@ -1191,6 +1191,18 @@ export function dedupeSettled(entries) {
   });
 }
 
+const KNOWN_PLAN_KEYS = new Set([
+  "week",
+  "locked",
+  "shoppedAt",
+  "fallback",
+  "spend",
+  "unlocked",
+  "buffer",
+  "manifest",
+  "entries",
+]);
+
 /**
  * Shape a freshly-read (or absent) plan file: guarantees week + entries and
  * self-heals pre-id legacy entries by assigning ids (persisted on next write).
@@ -1202,7 +1214,21 @@ export function normalizePlan(raw, weekId) {
   if (!raw || !Array.isArray(raw.entries)) return { week: weekId, entries: [] };
   /** @type {Map<string, number>} */
   const twinCounts = new Map();
+  // UNKNOWN TOP-LEVEL KEYS SURVIVE (release train, Engineer finding 4,
+  // 2026-09-07). This function used to rebuild the plan from an allowlist and
+  // DROP everything else on the next write, which is how recorded receipt
+  // totals were lost once. A read-time heal is only a migration mechanism if
+  // an older shell carries fields it does not know, so a rollback or an
+  // un-updated phone never deletes a newer field.
+  /** @type {Record<string, unknown>} */
+  const carry = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (KNOWN_PLAN_KEYS.has(k) || k === "__proto__" || k === "constructor" || k === "prototype")
+      continue;
+    carry[k] = v;
+  }
   return {
+    ...carry,
     week: typeof raw.week === "string" ? raw.week : weekId,
     ...(raw.locked !== undefined ? { locked: Boolean(raw.locked) } : {}),
     ...(typeof raw.shoppedAt === "string" ? { shoppedAt: raw.shoppedAt } : {}),

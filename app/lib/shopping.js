@@ -1467,7 +1467,16 @@ export function normalizePantry(pantry) {
         typeof it.id === "string" &&
         (!isDatedItem(it) || (typeof it.location === "string" && typeof it.group === "string")),
     );
-  if (!shapeOk) return packPantry(pantryItems(pantry));
+  // unknown top-level keys survive a repack (release train): a newer shell's
+  // field is never deleted by an older one reading the same file
+  /** @type {Record<string, any>} */
+  const carry = {};
+  for (const [k, v] of Object.entries(pantry ?? {})) {
+    if (k === "items" || k === "staples" || k === "perishables") continue;
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+    carry[k] = v;
+  }
+  if (!shapeOk) return { ...carry, ...packPantry(pantryItems(pantry)) };
 
   const items = [...pantryItems(pantry)];
   const derived = packPantry(items);
@@ -1555,7 +1564,7 @@ export function normalizePantry(pantry) {
       aislesAgree;
     if (same) return pantry;
   }
-  return packPantry(items);
+  return { ...carry, ...packPantry(items) };
 }
 
 /**

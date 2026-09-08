@@ -1,6 +1,14 @@
 import { html, render } from "htm/preact";
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { checkDataRepo, getToken, setToken, DATA_REPO, savingDead } from "./lib/github.js";
+import {
+  checkDataRepo,
+  getToken,
+  setToken,
+  DATA_REPO,
+  savingDead,
+  dataBranch,
+  branchProbe,
+} from "./lib/github.js";
 import {
   initStore,
   write,
@@ -209,6 +217,63 @@ function App() {
   /** @type {["installing" | "ready" | "failed", (s: "installing" | "ready" | "failed") => void]} */
   const [sw, setSw] = useState(/** @type {"installing" | "ready" | "failed"} */ ("installing"));
   const [sync, setSync] = useState(getSyncStatus());
+  // THE RELEASE TRAIN'S SANDBOX (docs/RELEASE_TRAIN.md). Which data branch this
+  // origin writes, whether the sandbox branch exists, and the re-seed heal: the
+  // seed script stamps `sandbox-seed.json`; when its `seededAt` differs from
+  // what this install last saw, the local cache is disposable and is cleared,
+  // but never silently over unsaved writes.
+  const branch = dataBranch();
+  const [branchState, setBranchState] = useState(
+    /** @type {"ok" | "missing" | "unknown" | "n/a"} */ ("n/a"),
+  );
+  useEffect(() => {
+    if (!hasToken || branch !== "sandbox") return;
+    let alive = true;
+    void (async () => {
+      const probe = await branchProbe();
+      if (!alive) return;
+      setBranchState(probe);
+      if (probe !== "ok") return;
+      const seed = /** @type {any} */ (
+        await read("sandbox-seed.json", { raw: true }).catch(() => null)
+      );
+      const seededAt = typeof seed?.seededAt === "string" ? seed.seededAt : null;
+      if (!seededAt) return;
+      let seen = null;
+      try {
+        seen = localStorage.getItem("mise.sandboxSeed");
+      } catch {
+        // storage blocked: treat as first sight
+      }
+      if (seen === seededAt) return;
+      if (seen === null) {
+        // first load after install: adopt the stamp, nothing to clear
+        try {
+          localStorage.setItem("mise.sandboxSeed", seededAt);
+        } catch {
+          // fine
+        }
+        return;
+      }
+      const pending = getSyncStatus().pending;
+      if (pending > 0) {
+        const ok = window.confirm(
+          `The sandbox was re-seeded from the live kitchen. ${pending} unsaved change${pending === 1 ? "" : "s"} made here since will be discarded. Continue?`,
+        );
+        if (!ok) return;
+      }
+      try {
+        localStorage.setItem("mise.sandboxSeed", seededAt);
+        indexedDB.deleteDatabase("mise");
+      } catch {
+        // reload re-opens fresh either way
+      }
+      location.reload();
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [hasToken, branch]);
   const [recipes, setRecipes] = useState(/** @type {Record<string, any>[]} */ ([]));
   // bank+own with no screens — identity lookups only (see the mergeRecipePool effect)
   const [allRecipes, setAllRecipes] = useState(/** @type {Record<string, any>[]} */ ([]));
@@ -4118,13 +4183,35 @@ function App() {
       </div>`
     }
     ${
+      branch === null &&
+      html`<div class="banner red">
+        ⚠ THIS ORIGIN HAS NO DATA BRANCH. The live app writes the kitchen's main branch and the
+        sandbox writes its own; this address is neither, so reads work and nothing saves from here.
+        Use the live app or the sandbox icon.
+      </div>`
+    }
+    ${
+      branch === "sandbox" &&
+      branchState === "missing" &&
+      html`<div class="banner red">
+        ⚠ THE SANDBOX DATA BRANCH DOES NOT EXIST. This is not an empty kitchen: nothing has been
+        seeded yet. Run tools/seed-sandbox-data.ps1 on the laptop, then reload.
+      </div>`
+    }
+    ${
       publicAlarm &&
       html`<div class="banner red">
         ⚠ DATA REPO IS PUBLIC — ${DATA_REPO.owner}/${DATA_REPO.repo} is visible to anyone. Make it
         private on GitHub now: Settings → Danger Zone → Change visibility.
       </div>`
     }
-
+    ${
+      branch === "sandbox" &&
+      html`<div class="banner sandbox">
+        🧪 SANDBOX · Mise NEXT · writes mise-data @ sandbox · re-seeded from the live kitchen on
+        release mornings; what you do here is for trying things, not for the week you bought.
+      </div>`
+    }
     <div class="statusline">
       <span>${statusDate(now)} · WK-${isoWeekId(now).split("-W")[1]}</span>
       <span

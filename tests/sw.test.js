@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -33,4 +35,19 @@ test("sw.js SHELL precache matches the real app files exactly", () => {
 
 test("sw.js has the auto-bumped CACHE_VERSION marker the pre-commit hook rewrites", () => {
   assert.match(sw, /const CACHE_VERSION = "mise-shell-v\d+"/);
+});
+
+// Release train (Engineer finding 6, 2026-09-07): a SHELL entry that does not
+// exist makes cache.addAll reject the whole install, and every phone stays on
+// the old shell while the HTML looks deployed. Pin every entry, not just app/.
+test("every sw.js SHELL entry exists on disk (vendor, icons and the root files included)", () => {
+  const shellMatch = sw.match(/const SHELL = \[([\s\S]*?)\];/);
+  assert.ok(shellMatch);
+  const { existsSync } = require("node:fs");
+  const entries = [...shellMatch[1].matchAll(/"\.\/([^"]*)"/g)].map((m) => m[1]);
+  const missing = entries.filter((e) => e !== "" && !existsSync(root + e));
+  assert.deepEqual(missing, [], "SHELL lists files that do not exist");
+  for (const must of ["index.html", "manifest.webmanifest", "suggest.js", "suggest.css"]) {
+    assert.ok(entries.includes(must), `${must} must be precached`);
+  }
 });

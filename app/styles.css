@@ -2671,3 +2671,10 @@ details.dayrow summary:focus-visible {
   padding-left: 8px;
   border-left: 2px solid currentColor;
 }
+
+/* the release train's sandbox strip: on every screen of the Mise NEXT build */
+.banner.sandbox {
+  background: #ff9500;
+  color: #0c0f11;
+  font-weight: 600;
+}

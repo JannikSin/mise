@@ -26,7 +26,7 @@ export class ConflictError extends Error {
  *   dirty: boolean,
  *   queuedAt: number | null,
  *   rev: number
- * }} StoredRecord
+ * , branch?: string | null }} StoredRecord
  */
 
 /**
@@ -51,6 +51,10 @@ export function afterPushRecord(current, pushed, flushedRev) {
     dirty: false,
     queuedAt: null,
     rev: flushedRev,
+    // the branch stamp rides through every rebuild of the record (release
+    // train): a stamp that evaporated here made the flush refuse every later
+    // write on the sandbox
+    ...(current && "branch" in current ? { branch: current.branch } : {}),
   };
 }
 

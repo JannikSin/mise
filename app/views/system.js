@@ -6,6 +6,7 @@ import {
   TOKEN_WARN_AGE_DAYS,
   setDataRepo,
   dataRepoOverridden,
+  dataBranch,
 } from "../lib/github.js";
 import { formatSyncTime } from "../lib/dates.js";
 import {
@@ -15,6 +16,8 @@ import {
   read,
   write,
   onSyncChange,
+  getSyncStatus,
+  discardMismatched,
 } from "../lib/store.js";
 import {
   canAssignRoles,
@@ -934,6 +937,34 @@ export function SystemView({
             ${DATA_REPO.owner}/${DATA_REPO.repo}
           </span>
         </div>
+        <div class="row">
+          <span class="k">Data branch</span>
+          <span class="status ${dataBranch() === "main" ? "dim" : "warn"} num">
+            ${
+              // read-only by design: the branch is decided by the origin and the
+              // build (docs/RELEASE_TRAIN.md), never typed
+              dataBranch() ?? "none on this origin (writes refused)"
+            }
+          </span>
+        </div>
+        ${
+          getSyncStatus().mismatched > 0 &&
+          html`<div class="row">
+            <span class="k">Queued for another branch</span>
+            <span class="status warn num">${getSyncStatus().mismatched}</span>
+            <button
+              class="secondary"
+              onClick=${async () => {
+                const n = await discardMismatched();
+                setProfileErr(
+                  `${n} queued write${n === 1 ? "" : "s"} for another data branch discarded`,
+                );
+              }}
+            >
+              DISCARD
+            </button>
+          </div>`
+        }
         <div class="token-form">
           <input
             aria-label="Data repo override (owner/repo)"

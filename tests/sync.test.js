@@ -161,3 +161,23 @@ test("network failure propagates so the write stays queued", async () => {
     TypeError,
   );
 });
+
+test("afterPushRecord keeps the branch stamp on both paths (release train)", async () => {
+  const { afterPushRecord } = await import("../app/lib/sync.js");
+  const cur = {
+    path: "p",
+    data: { a: 1 },
+    base: null,
+    sha: null,
+    dirty: true,
+    queuedAt: 1,
+    rev: 3,
+    branch: "sandbox",
+  };
+  const landed = afterPushRecord(cur, { data: { a: 1 }, sha: "s1" }, 3);
+  assert.equal(landed.branch, "sandbox", "non-raced path keeps the stamp");
+  assert.equal(landed.dirty, false);
+  const raced = afterPushRecord({ ...cur, rev: 4 }, { data: { a: 1 }, sha: "s1" }, 3);
+  assert.equal(raced.branch, "sandbox", "raced path keeps the stamp");
+  assert.equal(raced.dirty, true);
+});

@@ -4,7 +4,7 @@
 // If WORKER_URL's origin changes, the CSP connect-src in index.html must
 // change with it.
 
-import { getToken, DATA_REPO, dataRepoOverridden } from "./github.js";
+import { getToken, DATA_REPO, dataRepoOverridden, dataBranch } from "./github.js";
 
 const WORKER_URL = "https://mise-worker.janniksin.workers.dev";
 
@@ -64,9 +64,7 @@ async function post(path, body) {
         // only on the path that needs it means the default install is
         // byte-identical to before, and the override path needs the new
         // Worker anyway.
-        ...(dataRepoOverridden()
-          ? { "x-mise-repo": `${DATA_REPO.owner}/${DATA_REPO.repo}` }
-          : {}),
+        ...(dataRepoOverridden() ? { "x-mise-repo": `${DATA_REPO.owner}/${DATA_REPO.repo}` } : {}),
       },
       body: JSON.stringify(body),
       // explicit ceiling: iOS Safari gives up around 60s of silence and
@@ -277,6 +275,14 @@ export async function annotateRecipe({ url, file, objective, diners, context }) 
  * @returns {Promise<{ recipe: Record<string, any> }>}
  */
 export async function saveAnnotation(payload) {
+  // The Worker writes the cookbook server-side and, until it learns the data
+  // branch from the request origin, writes the LIVE one. A sandbox scan must
+  // not land in the cookbook the live app cooks from (Tribunal BLOCK,
+  // 2026-09-07). Remove this guard only in the commit that ships the Worker's
+  // branch threading.
+  if (dataBranch() !== "main") {
+    throw new Error("the sandbox can scan but not save to the cookbook yet");
+  }
   const data = await post("/annotate-save", payload);
   if (!data.recipe || typeof data.recipe !== "object") throw new Error("save came back empty");
   return { recipe: data.recipe };

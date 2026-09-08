@@ -7,8 +7,8 @@
 //          pushes queued files in order — with sha, merging on conflict —
 //          whenever we're online. Offline writes simply stay queued.
 
-import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate } from "./db.js";
-import { listDir, readFile, writeFile } from "./github.js";
+import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
+import { listDir, readFile, writeFile, dataBranch } from "./github.js";
 import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 
 const io = { read: readFile, write: writeFile };
@@ -308,11 +308,12 @@ export async function patchProfiles(
 /** @type {Set<() => void>} */
 const listeners = new Set();
 
-/** @type {{ loading: boolean, pending: number, conflicts: number, lastSyncAt: string | null, flushing: boolean, lastError: string | null }} */
+/** @type {{ loading: boolean, pending: number, conflicts: number, mismatched: number, lastSyncAt: string | null, flushing: boolean, lastError: string | null }} */
 const status = {
   loading: true,
   pending: 0,
   conflicts: 0,
+  mismatched: 0,
   lastSyncAt: null,
   flushing: false,
   // A5: why the last flush stopped, in words a user can act on. null = the
@@ -426,7 +427,16 @@ function cacheRemote(path, data, sha) {
   return dbUpdate(path, (cur) =>
     cur?.dirty
       ? null
-      : { path, data, base: data, sha, dirty: false, queuedAt: null, rev: cur?.rev ?? 0 },
+      : {
+          path,
+          data,
+          base: data,
+          sha,
+          dirty: false,
+          queuedAt: null,
+          rev: cur?.rev ?? 0,
+          branch: dataBranch(),
+        },
   );
 }
 
@@ -512,6 +522,9 @@ export async function write(path, data, opts) {
     dirty: true,
     queuedAt: cur?.dirty && cur.queuedAt ? cur.queuedAt : Date.now(),
     rev: (cur?.rev ?? 0) + 1,
+    // stamped with the branch it was written under (release train): a queued
+    // sandbox edit must never be pushed to main, and vice versa
+    branch: cur?.dirty && cur.branch !== undefined ? cur.branch : dataBranch(),
   }));
   await recount();
   void flush();
@@ -530,6 +543,14 @@ export async function write(path, data, opts) {
  * @returns {string}
  */
 export function writeErrorMessage(msg) {
+  if (/unknown data branch for this origin/.test(msg)) {
+    return "this origin has no data branch, so nothing saves from here (the live app and the sandbox each have theirs)";
+  }
+  if (/HTTP 404/.test(msg) && dataBranch() === "sandbox") {
+    // a missing sandbox branch answers 404 to a PUT; sending someone to audit
+    // token scopes over it is the wrong instruction (Red Team, 2026-09-07)
+    return "the sandbox data branch is gone: re-seed it (tools/seed-sandbox-data.ps1)";
+  }
   if (/HTTP 404/.test(msg)) {
     return "this token can't see the data repo — check the token's repository access, and the data repo in SYS (do NOT create a new token)";
   }
@@ -595,7 +616,22 @@ async function flush() {
     const queued = (await dbGetAll())
       .filter((r) => r.dirty)
       .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
+    const here = dataBranch();
+    status.mismatched = 0;
     for (const rec of queued) {
+      // BRANCH GUARD (release train). A record with no stamp predates the
+      // train: it was written on this install, so it belongs to this install's
+      // branch, and is stamped on the way past (a read-time heal, never a
+      // refusal, or every write queued before the release would be stranded).
+      // A record stamped with ANOTHER branch is refused and counted; SYS
+      // offers to discard it. Nothing crosses branches on its own.
+      if (rec.branch === undefined) {
+        rec.branch = here;
+        await dbUpdate(rec.path, (cur) => (cur ? { ...cur, branch: here } : null));
+      } else if (rec.branch !== here) {
+        status.mismatched++;
+        continue;
+      }
       try {
         const pushed = await pushFile(io, {
           path: rec.path,
@@ -633,4 +669,25 @@ async function flush() {
     status.flushing = false;
     await recount();
   }
+}
+
+/**
+ * Drop every queued write stamped with a data branch other than this
+ * install's (release train). Only ever called from SYS on the person's word,
+ * after the count has been shown; the records are disposable by definition
+ * (a sandbox edit on the live install, or the reverse).
+ * @returns {Promise<number>} how many were dropped
+ */
+export async function discardMismatched() {
+  const here = dataBranch();
+  const all = await dbGetAll();
+  let n = 0;
+  for (const rec of all) {
+    if (!rec.dirty || rec.branch === undefined || rec.branch === here) continue;
+    await dbDelete(rec.path);
+    n++;
+  }
+  status.mismatched = 0;
+  await recount();
+  return n;
 }

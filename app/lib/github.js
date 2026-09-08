@@ -51,6 +51,65 @@ export function setDataRepo(v) {
 }
 const TOKEN_KEY = "mise.pat";
 
+// THE DATA BRANCH IS A FUNCTION OF ORIGIN (the release train, docs/RELEASE_TRAIN.md,
+// Tribunal plan gate 2026-09-07). The live app on janniksin.github.io reads and
+// writes the data repo's default branch exactly as it always has. The SANDBOX
+// build on mise-next.pages.dev reads and writes the `sandbox` branch, and only
+// when its index.html carries the committed meta with that value (the deploy
+// swaps the value; a stale or hand-copied shell without it gets NO branch).
+// Any other browser origin gets NO branch and every write is refused, so a
+// session running the app on 127.0.0.1 cannot touch live data by forgetting a
+// setting. There is deliberately no localStorage setting for this: a typed
+// value is how the live install would end up pointed at the sandbox. Outside a
+// browser (node tests, scripts) there is no origin and the default branch is
+// assumed, which is what every existing caller expects.
+const LIVE_ORIGIN = "https://janniksin.github.io";
+const SANDBOX_ORIGIN = "https://mise-next.pages.dev";
+const SANDBOX_BRANCH = "sandbox";
+
+/**
+ * The data-repo branch this install reads and writes: "main" on the live
+ * origin (and outside a browser), "sandbox" on the sandbox origin when its
+ * shell says so, null on every other origin (writes refused).
+ * @returns {"main" | "sandbox" | null}
+ */
+export function dataBranch() {
+  const loc = /** @type {any} */ (globalThis).location;
+  const origin = loc && typeof loc.origin === "string" ? loc.origin : "";
+  if (!origin || origin === "null") return "main";
+  if (origin === LIVE_ORIGIN) return "main";
+  if (origin === SANDBOX_ORIGIN) {
+    const doc = /** @type {any} */ (globalThis).document;
+    const meta =
+      doc && typeof doc.querySelector === "function"
+        ? (doc.querySelector('meta[name="mise-data-branch"]')?.getAttribute("content") ?? "").trim()
+        : "";
+    return meta === SANDBOX_BRANCH ? SANDBOX_BRANCH : null;
+  }
+  return null;
+}
+
+/**
+ * Does the sandbox branch exist on the data repo? Only asked on the sandbox
+ * build: a missing branch answers 404 to every read, which the cache-first
+ * store would otherwise render as an empty kitchen and then write into.
+ * @returns {Promise<"ok" | "missing" | "unknown" | "n/a">}
+ */
+export async function branchProbe() {
+  const branch = dataBranch();
+  if (branch !== SANDBOX_BRANCH) return "n/a";
+  try {
+    const res = await fetch(
+      `${API}/repos/${DATA_REPO.owner}/${DATA_REPO.repo}/branches/${branch}`,
+      { headers: authedHeaders() },
+    );
+    if (res.status === 404) return "missing";
+    return res.ok ? "ok" : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 /** @returns {string | null} */
 export function getToken() {
   const token = localStorage.getItem(TOKEN_KEY);
@@ -214,6 +273,11 @@ export async function readFile(path) {
  * @returns {Promise<{ sha: string }>}
  */
 export async function writeFile(path, data, sha) {
+  const branch = dataBranch();
+  if (branch === null) {
+    // an origin the train does not know: reads may work, writes never do
+    throw new Error(`write ${path}: unknown data branch for this origin, writes are refused`);
+  }
   const res = await fetch(contentsUrl(path), {
     method: "PUT",
     headers: authedHeaders(),
@@ -221,6 +285,9 @@ export async function writeFile(path, data, sha) {
       message: `mise: update ${path}`,
       content: toBase64(JSON.stringify(data, null, 2) + "\n"),
       ...(sha ? { sha } : {}),
+      // the live build sends no branch at all (byte-identical to before the
+      // train); only the sandbox names its branch
+      ...(branch === SANDBOX_BRANCH ? { branch } : {}),
     }),
   });
   // 409 = sha stale/branch moved → merge and retry. 422 is a conflict ONLY
@@ -260,9 +327,14 @@ export async function listDir(dir) {
     .map((e) => ({ name: e.name, path: e.path, sha: e.sha }));
 }
 
-/** @param {string} path */
-function contentsUrl(path) {
-  return `${API}/repos/${DATA_REPO.owner}/${DATA_REPO.repo}/contents/${path}`;
+/**
+ * The one builder of a Contents-API URL. The sandbox appends `?ref=sandbox`;
+ * the live build's URL is byte-identical to before the train.
+ * @param {string} path
+ */
+export function contentsUrl(path) {
+  const base = `${API}/repos/${DATA_REPO.owner}/${DATA_REPO.repo}/contents/${path}`;
+  return dataBranch() === SANDBOX_BRANCH ? `${base}?ref=${SANDBOX_BRANCH}` : base;
 }
 
 /** @returns {Record<string, string>} */

@@ -2,7 +2,15 @@
 // The Worker returns raw item/protocol data; the APP owns section
 // classification (sectionOf) and pantry merging, keeping this thin.
 
-const ALLOWED_ORIGINS = ["https://janniksin.github.io", "http://127.0.0.1:8378"];
+// EXACT STRINGS ONLY, never a suffix or pattern test: *.pages.dev is a public
+// suffix anyone can register under, and this gate is what stands between the
+// Anthropic key's spend and the internet (Red Team, 2026-09-07). The third
+// literal is the release train's sandbox origin (docs/RELEASE_TRAIN.md).
+const ALLOWED_ORIGINS = [
+  "https://janniksin.github.io",
+  "http://127.0.0.1:8378",
+  "https://mise-next.pages.dev",
+];
 
 /**
  * CORS headers for an allowed origin, null for anything else.
@@ -14,7 +22,7 @@ export function corsFor(origin) {
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "content-type, x-mise-auth, x-mise-repo",
+    "Access-Control-Allow-Headers": "content-type, x-mise-auth, x-mise-repo, x-mise-branch",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };
@@ -969,8 +977,7 @@ const SPECIAL_SCHEMA = {
 
 const PLATES_SCHEMA = {
   type: "array",
-  description:
-    "per-person plate spec for the chosen dinner: who eats what and how much, by weight",
+  description: "per-person plate spec for the chosen dinner: who eats what and how much, by weight",
   items: {
     type: "object",
     properties: {
@@ -1828,10 +1835,7 @@ export function normalize(text) {
   t = t.normalize("NFKC");
   // typographic punctuation to ASCII so containment checks and range
   // detection cannot be defeated by a curly quote or an en dash
-  t = t
-    .replace(/[‘’‛]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[‐-―]/g, "-");
+  t = t.replace(/[‘’‛]/g, "'").replace(/[“”]/g, '"').replace(/[‐-―]/g, "-");
   // spelled temperature units to symbols so one regex reads them all
   t = t
     .replace(/\bdeg(?:rees?)?\.?\s*(?:°\s*)?(c\b|celsius\b|centigrade\b)/gi, "°C")
@@ -2060,7 +2064,8 @@ const ANNOTATE_TOOL = {
       },
       refusalReason: {
         type: "string",
-        description: "refusal mode only: which pathogen control was recognised and why it is not moved",
+        description:
+          "refusal mode only: which pathogen control was recognised and why it is not moved",
       },
       objective: { type: "string", enum: OBJECTIVES },
       buckets: {
@@ -2108,10 +2113,14 @@ const ANNOTATE_TOOL = {
           type: "object",
           properties: {
             food: { type: "string" },
-            grams: { type: "number", description: "weight in grams (King Arthur conversion basis)" },
+            grams: {
+              type: "number",
+              description: "weight in grams (King Arthur conversion basis)",
+            },
             wasOriginal: {
               type: "string",
-              description: "the source's original measure when this line converts or corrects it, else ''",
+              description:
+                "the source's original measure when this line converts or corrects it, else ''",
             },
             note: { type: "string", description: "margin note for this line, else ''" },
             optional: { type: "boolean" },
@@ -2160,7 +2169,8 @@ const ANNOTATE_TOOL = {
       },
       foodGroups: {
         type: "object",
-        description: "Daily Dozen servings per recipe serving; keys among: " + FOOD_GROUP_KEYS.join(", "),
+        description:
+          "Daily Dozen servings per recipe serving; keys among: " + FOOD_GROUP_KEYS.join(", "),
       },
       summary: {
         type: "array",
@@ -2440,7 +2450,9 @@ export function validateAnnotation(input, ctx) {
       // tier-1 floors, own unit (fromSource included: forced onto the table)
       const floor1 = /** @type {Record<string, { C: number, F: number }>} */ (TIER1_FLOOR)[label];
       if (floor1 && belowFloor(/** @type {any} */ (probe), floor1)) {
-        bad(`step ${n}: ${label} at ${value} ${unit} is under the tier-1 floor ${floor1[unit]} ${unit}`);
+        bad(
+          `step ${n}: ${label} at ${value} ${unit} is under the tier-1 floor ${floor1[unit]} ${unit}`,
+        );
         continue;
       }
       // any DONENESS label under the 71 C line, at ANY value: tier-2 labels
@@ -2451,12 +2463,16 @@ export function validateAnnotation(input, ctx) {
           continue;
         }
         if (belowFloor(/** @type {any} */ (probe), TIER2_BOTTOM)) {
-          bad(`step ${n}: ${label} at ${value} ${unit} is below any legitimate doneness; that is storage, not cooking`);
+          bad(
+            `step ${n}: ${label} at ${value} ${unit} is below any legitimate doneness; that is storage, not cooking`,
+          );
           continue;
         }
         tier2Present = true;
         if (!riskGroups) {
-          bad(`step ${n}: ${label} at ${value} ${unit} is a reduced-margin figure and needs the risk-group flag`);
+          bad(
+            `step ${n}: ${label} at ${value} ${unit} is a reduced-margin figure and needs the risk-group flag`,
+          );
           continue;
         }
       }
@@ -2464,12 +2480,16 @@ export function validateAnnotation(input, ctx) {
       // "hold" is the danger zone, a 45 C "fridge" is not refrigeration
       const pFloor = PROCESS_FLOOR[label];
       if (pFloor && belowFloor(/** @type {any} */ (probe), pFloor)) {
-        bad(`step ${n}: ${label} at ${value} ${unit} is under the ${pFloor[unit]} ${unit} hot-holding line`);
+        bad(
+          `step ${n}: ${label} at ${value} ${unit} is under the ${pFloor[unit]} ${unit} hot-holding line`,
+        );
         continue;
       }
       const pCeil = PROCESS_CEIL[label];
       if (pCeil && probe.value > pCeil[/** @type {"C" | "F"} */ (unit)]) {
-        bad(`step ${n}: ${label} at ${value} ${unit} is above the ${pCeil[unit]} ${unit} cold line`);
+        bad(
+          `step ${n}: ${label} at ${value} ${unit} is above the ${pCeil[unit]} ${unit} cold line`,
+        );
         continue;
       }
       // independent protein-term override (A2): the step's own words beat
@@ -2510,7 +2530,9 @@ export function validateAnnotation(input, ctx) {
   if (steps.length === 0) bad("no steps");
   if (mode === "annotated" || mode === "refusal") {
     if (steps.length !== sourceSteps) {
-      bad(`${mode} mode: ${steps.length} steps against sourceSteps ${sourceSteps}; order and count are preserved exactly`);
+      bad(
+        `${mode} mode: ${steps.length} steps against sourceSteps ${sourceSteps}; order and count are preserved exactly`,
+      );
     }
     steps.forEach((s, i) => {
       if (s.n !== i + 1) bad(`${mode} mode: step at position ${i + 1} is numbered ${s.n}`);
@@ -2560,7 +2582,9 @@ export function validateAnnotation(input, ctx) {
     for (const t of extractTemps(respText)) {
       if (!inBand(t)) continue;
       if (!findTemp(declared, t)) {
-        bad(`unlabelled temperature ${t.value} ${t.unit} in the response; every in-band figure declares a label`);
+        bad(
+          `unlabelled temperature ${t.value} ${t.unit} in the response; every in-band figure declares a label`,
+        );
       }
     }
     // a spelled-out figure ("one hundred forty °F") is invisible to the
@@ -2584,7 +2608,10 @@ export function validateAnnotation(input, ctx) {
   if (!sourceQuote) bad("no sourceQuote");
   else if (ctx.path === "url") {
     const normQuote = normalize(sourceQuote);
-    if (normQuote.length < 10 || !ctx.extractedNorm.toLowerCase().includes(normQuote.toLowerCase())) {
+    if (
+      normQuote.length < 10 ||
+      !ctx.extractedNorm.toLowerCase().includes(normQuote.toLowerCase())
+    ) {
       bad("sourceQuote is not contained in the extracted source buffer");
     }
   }
@@ -2598,7 +2625,8 @@ export function validateAnnotation(input, ctx) {
   if (totalTime < 5 || totalTime > 1440) bad(`totalTime ${totalTime} out of range`);
   const mealType = HBP_MEAL_TYPES.includes(input.mealType) ? input.mealType : "";
   if (!mealType) bad("no mealType; an unset mealType is brigade-eligible for every slot");
-  const nRaw = typeof input.nutrition === "object" && input.nutrition !== null ? input.nutrition : {};
+  const nRaw =
+    typeof input.nutrition === "object" && input.nutrition !== null ? input.nutrition : {};
   const clampN = (/** @type {any} */ v, /** @type {number} */ max) => {
     const n = num(v);
     return n === null || n < 0 ? null : Math.min(max, Math.round(n));
@@ -2612,7 +2640,8 @@ export function validateAnnotation(input, ctx) {
   if (Object.values(nutrition).some((v) => v === null)) bad("nutrition incomplete");
   /** @type {Record<string, number>} */
   const foodGroups = {};
-  const fgRaw = typeof input.foodGroups === "object" && input.foodGroups !== null ? input.foodGroups : {};
+  const fgRaw =
+    typeof input.foodGroups === "object" && input.foodGroups !== null ? input.foodGroups : {};
   for (const key of FOOD_GROUP_KEYS) {
     const v = num(fgRaw[key]);
     if (v !== null && v > 0) foodGroups[key] = Math.min(4, v);
@@ -2673,7 +2702,10 @@ export function saveEligible(result, path) {
   if (path !== "url")
     return { ok: false, reason: "photo scans can not be saved yet, only URL scans can" };
   if (result.mode === "refusal")
-    return { ok: false, reason: "this recipe carries food-safety controls, so it is shown but never saved" };
+    return {
+      ok: false,
+      reason: "this recipe carries food-safety controls, so it is shown but never saved",
+    };
   if (result.mode === "abandon")
     return { ok: false, reason: "a rebuild-by-hand verdict saves nothing" };
   if (result.riskGroups || result.tier2Present)
@@ -2838,7 +2870,11 @@ export function extractRecipeFromHtml(html) {
     } catch {
       continue;
     }
-    const nodes = Array.isArray(data) ? data : Array.isArray(data?.["@graph"]) ? data["@graph"] : [data];
+    const nodes = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.["@graph"])
+        ? data["@graph"]
+        : [data];
     for (const node of nodes) {
       const type = node?.["@type"];
       const isRecipe = Array.isArray(type) ? type.includes("Recipe") : type === "Recipe";

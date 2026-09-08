@@ -40,6 +40,14 @@ test("corsFor allows only the app origins", () => {
   assert.equal(dev && dev["Access-Control-Allow-Origin"], "http://127.0.0.1:8378");
   assert.equal(corsFor("https://evil.example"), null);
   assert.equal(corsFor(null), null);
+  // the release train's sandbox origin, and ONLY that literal: *.pages.dev is a
+  // public suffix, so a neighbour must never pass (Red Team, 2026-09-07)
+  const sb = corsFor("https://mise-next.pages.dev");
+  assert.equal(sb && sb["Access-Control-Allow-Origin"], "https://mise-next.pages.dev");
+  assert.equal(corsFor("https://evil-mise-next.pages.dev"), null);
+  assert.equal(corsFor("https://mise-next.pages.dev.evil.example"), null);
+  assert.equal(corsFor("https://something.mise-next.pages.dev"), null);
+  assert.match(sb["Access-Control-Allow-Headers"], /x-mise-branch/);
 });
 
 test("buildScanRequest forces the record_items tool with the image attached", () => {

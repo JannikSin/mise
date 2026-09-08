@@ -32,11 +32,12 @@ import {
   unlockRecipe,
   switchCandidate,
   setEntryRecipe,
- planSwipes,
+  planSwipes,
   weekRunSwipes,
   dailyCovered,
   toggleSwipeEaten,
-  currencyEaten } from "../app/lib/plan.js";
+  currencyEaten,
+} from "../app/lib/plan.js";
 
 test("prepSundayOf is the day before the week's Monday", () => {
   assert.equal(prepSundayOf("2026-W30"), "2026-07-19");
@@ -637,10 +638,18 @@ test("mergeRecipePool: avoidRecipes bans by id, own recipes included", () => {
 // ---- the spend leg (PF.3, 2026-08-19) ---------------------------------------
 
 test("setPlanShopped records the receipt trip total, appending across receipts", () => {
-  const p1 = setPlanShopped({ week: "2026-W34", entries: [] }, "2026-08-19", { store: "pay-less", date: "2026-08-19", total: 73.81 });
+  const p1 = setPlanShopped({ week: "2026-W34", entries: [] }, "2026-08-19", {
+    store: "pay-less",
+    date: "2026-08-19",
+    total: 73.81,
+  });
   assert.equal(p1.shoppedAt, "2026-08-19");
   assert.deepEqual(p1.spend, [{ store: "pay-less", date: "2026-08-19", total: 73.81 }]);
-  const p2 = setPlanShopped(p1, "2026-08-21", { store: "marianos", date: "2026-08-21", total: 12.5 });
+  const p2 = setPlanShopped(p1, "2026-08-21", {
+    store: "marianos",
+    date: "2026-08-21",
+    total: 12.5,
+  });
   assert.equal(p2.spend.length, 2, "a week can hold several receipts");
   const p3 = setPlanShopped(p1, "2026-08-21", null);
   assert.deepEqual(p3.spend, p1.spend, "no spend arg leaves the record alone");
@@ -649,7 +658,13 @@ test("setPlanShopped records the receipt trip total, appending across receipts",
 // ---- the cook timer (7.10, 2026-08-19) --------------------------------------
 
 test("recordCook marks cooked once, stores the span, never un-cooks", () => {
-  const plan = { week: "2026-W34", entries: [{ id: "e1", date: "2026-08-19", slot: "dinner", recipeId: "x" }, { id: "e2", date: "2026-08-19", slot: "lunch", recipeId: "y" }] };
+  const plan = {
+    week: "2026-W34",
+    entries: [
+      { id: "e1", date: "2026-08-19", slot: "dinner", recipeId: "x" },
+      { id: "e2", date: "2026-08-19", slot: "lunch", recipeId: "y" },
+    ],
+  };
   const p1 = recordCook(plan, "e1", "2026-08-19", 1740);
   assert.equal(p1.entries[0].cookedAt, "2026-08-19");
   assert.equal(p1.entries[0].cookSeconds, 1740);
@@ -675,19 +690,37 @@ test("setCookComment sets, trims, caps, and clears", () => {
 // ---- the fluid week (7.2, 2026-08-19) ---------------------------------------
 
 test("saveFallback snapshots the entries; restoreFallback puts them back, cooked stays cooked", () => {
-  const plan = { week: "2026-W34", entries: [
-    { id: "a", date: "2026-08-20", slot: "dinner", recipeId: "x", servings: 1 },
-    { id: "b", date: "2026-08-21", slot: "dinner", recipeId: "y", servings: 1 },
-  ] };
+  const plan = {
+    week: "2026-W34",
+    entries: [
+      { id: "a", date: "2026-08-20", slot: "dinner", recipeId: "x", servings: 1 },
+      { id: "b", date: "2026-08-21", slot: "dinner", recipeId: "y", servings: 1 },
+    ],
+  };
   const saved = saveFallback(plan, "2026-08-19");
   assert.equal(saved.fallback.savedAt, "2026-08-19");
   assert.equal(saved.fallback.entries.length, 2);
   // reshape: b swapped to z and cooked, a deleted
-  const reshaped = { ...saved, entries: [{ id: "b", date: "2026-08-21", slot: "dinner", recipeId: "z", servings: 1, cookedAt: "2026-08-21" }] };
+  const reshaped = {
+    ...saved,
+    entries: [
+      {
+        id: "b",
+        date: "2026-08-21",
+        slot: "dinner",
+        recipeId: "z",
+        servings: 1,
+        cookedAt: "2026-08-21",
+      },
+    ],
+  };
   const back = restoreFallback(reshaped);
   const bEntry = back.entries.find((e) => e.id === "b");
   assert.equal(bEntry.recipeId, "z", "the cooked meal stays what was actually cooked");
-  assert.ok(back.entries.some((e) => e.id === "a"), "the shopped meal returns");
+  assert.ok(
+    back.entries.some((e) => e.id === "a"),
+    "the shopped meal returns",
+  );
   assert.equal(back.entries.length, 2, "no duplicate for the cooked slot");
   assert.equal(restoreFallback(plan), plan, "no fallback = no-op");
 });
@@ -696,21 +729,32 @@ test("restoreFallback excludes by ID: a cooked snack's stacked siblings still co
   // the top-up stacks up to three DISTINCT snacks in one date+slot; a
   // slot-keyed exclusion dropped the cooked one's uncooked siblings (diff
   // review 2026-08-19)
-  const plan = { week: "2026-W34", entries: [
-    { id: "s1", date: "2026-08-20", slot: "snack", recipeId: "bites", servings: 1 },
-    { id: "s2", date: "2026-08-20", slot: "snack", recipeId: "smoothie", servings: 1 },
-    { id: "s3", date: "2026-08-20", slot: "snack", recipeId: "yogurt", servings: 1 },
-  ] };
+  const plan = {
+    week: "2026-W34",
+    entries: [
+      { id: "s1", date: "2026-08-20", slot: "snack", recipeId: "bites", servings: 1 },
+      { id: "s2", date: "2026-08-20", slot: "snack", recipeId: "smoothie", servings: 1 },
+      { id: "s3", date: "2026-08-20", slot: "snack", recipeId: "yogurt", servings: 1 },
+    ],
+  };
   const saved = saveFallback(plan, "2026-08-19");
   const reshaped = { ...saved, entries: [{ ...plan.entries[0], cookedAt: "2026-08-20" }] };
   const back = restoreFallback(reshaped);
   assert.equal(back.entries.length, 3, "all three snacks survive the restore");
   assert.equal(back.entries.find((e) => e.id === "s1").cookedAt, "2026-08-20");
-  assert.ok(back.entries.some((e) => e.id === "s2") && back.entries.some((e) => e.id === "s3"), "the uncooked siblings return");
+  assert.ok(
+    back.entries.some((e) => e.id === "s2") && back.entries.some((e) => e.id === "s3"),
+    "the uncooked siblings return",
+  );
 });
 
 test("normalizePlan passes fallback AND spend through instead of stripping them", () => {
-  const raw = { week: "2026-W34", entries: [], fallback: { savedAt: "2026-08-19", entries: [] }, spend: [{ store: "pay-less", date: "2026-08-19", total: 70.12 }] };
+  const raw = {
+    week: "2026-W34",
+    entries: [],
+    fallback: { savedAt: "2026-08-19", entries: [] },
+    spend: [{ store: "pay-less", date: "2026-08-19", total: 70.12 }],
+  };
   const n = normalizePlan(raw, "2026-W34");
   assert.deepEqual(n.fallback, raw.fallback);
   assert.deepEqual(n.spend, raw.spend, "recorded receipt totals must survive a load");
@@ -755,11 +799,30 @@ test("buffetMacroEstimate overshoots protein against the pool average; currencyU
   const est = buffetMacroEstimate(recipes, "lunch");
   assert.equal(est.estProtein, 60, "40 avg x 1.5");
   assert.equal(est.estCalories, 980, "850 avg x 1.15, rounded to 5");
-  const plan = { week: "2026-W34", entries: [
-    { id: "1", date: "2026-08-20", slot: "lunch", freeText: SWIPE_TEXT, servings: 1, out: true, currency: "swipes" },
-    { id: "2", date: "2026-08-21", slot: "lunch", freeText: SWIPE_TEXT, servings: 1, out: true, currency: "swipes" },
-    { id: "3", date: "2026-08-21", slot: "dinner", freeText: OUT_TEXT, servings: 1, out: true },
-  ] };
+  const plan = {
+    week: "2026-W34",
+    entries: [
+      {
+        id: "1",
+        date: "2026-08-20",
+        slot: "lunch",
+        freeText: SWIPE_TEXT,
+        servings: 1,
+        out: true,
+        currency: "swipes",
+      },
+      {
+        id: "2",
+        date: "2026-08-21",
+        slot: "lunch",
+        freeText: SWIPE_TEXT,
+        servings: 1,
+        out: true,
+        currency: "swipes",
+      },
+      { id: "3", date: "2026-08-21", slot: "dinner", freeText: OUT_TEXT, servings: 1, out: true },
+    ],
+  };
   assert.equal(currencyUsed(plan, "swipes"), 2, "plain eating-out is not a swipe");
 });
 
@@ -770,8 +833,13 @@ test("buffetMacroEstimate overshoots protein against the pool average; currencyU
 // seven slots before pressing GENERATE.
 
 const WEEK_DATES = [
-  "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27",
-  "2026-08-28", "2026-08-29", "2026-08-30",
+  "2026-08-24",
+  "2026-08-25",
+  "2026-08-26",
+  "2026-08-27",
+  "2026-08-28",
+  "2026-08-29",
+  "2026-08-30",
 ];
 const SWIPE_OPTS = {
   perWeek: 7,
@@ -827,7 +895,14 @@ test("a PINNED meal in the preferred slot is respected, and never cleared", () =
   const seeded = {
     week: "2026-W35",
     entries: [
-      { id: "m", date: "2026-08-25", slot: "lunch", recipeId: "chana-masala", servings: 1, pinned: true },
+      {
+        id: "m",
+        date: "2026-08-25",
+        slot: "lunch",
+        recipeId: "chana-masala",
+        servings: 1,
+        pinned: true,
+      },
     ],
   };
   const out = planSwipes(seeded, WEEK_DATES, SWIPE_OPTS);
@@ -949,7 +1024,10 @@ test("dailyCovered: unplanned fixed slots + the swipe sum to the off-plan day", 
 
 test("dailyCovered: nothing off-plan is null, and a missing recipe never counts", () => {
   assert.equal(dailyCovered({ fixedSlots: {} }, BANK, new Set(["dinner"]), null), null);
-  assert.equal(dailyCovered({ fixedSlots: { smoothie: "gone" } }, BANK, new Set(["dinner"]), null), null);
+  assert.equal(
+    dailyCovered({ fixedSlots: { smoothie: "gone" } }, BANK, new Set(["dinner"]), null),
+    null,
+  );
 });
 
 test("the placeholder carries everything dayTotals and the generator read", () => {
@@ -994,4 +1072,15 @@ test("toggleSwipeEaten never touches a plain OUT entry (no currency)", () => {
   };
   const out = toggleSwipeEaten(plan, "2026-09-01", "dinner", "2026-09-01");
   assert.equal(out.entries[0].eatenAt, undefined);
+});
+
+test("normalizePlan carries unknown top-level keys through (release train: read-time heals need a tolerant reader)", async () => {
+  const { normalizePlan } = await import("../app/lib/plan.js");
+  const out = normalizePlan(
+    { week: "2026-W37", entries: [], futureField: { x: 1 }, shoppedAt: "2026-09-06" },
+    "2026-W37",
+  );
+  assert.deepEqual(out.futureField, { x: 1 }, "an older shell must not delete a newer field");
+  assert.equal(out.shoppedAt, "2026-09-06");
+  assert.equal(out.week, "2026-W37");
 });
