@@ -99,3 +99,79 @@ test("cooking MORE than the recipe makes scales every ingredient UP (family batc
   // exact yield unchanged: still mode full, unscaled
   assert.equal(cookPlan(recipe, 2).mode, "full");
 });
+
+// ---- assembled per bowl (David 2026-09-07, the yogurt bowl's 1 cup vs 1.5 cup) --
+
+import { readFileSync } from "node:fs";
+import { isPerBowl } from "../app/lib/portions.js";
+
+const BOWL = {
+  id: "bowl",
+  servings: 1,
+  effort: "assembly",
+  cookTime: 0,
+  tags: ["no-cook"],
+  ingredients: [
+    { qty: 1, unit: "cup", food: "greek yogurt" },
+    { qty: 0.5, unit: "each", food: "banana" },
+    { qty: 1, unit: "tbsp", food: "honey" },
+  ],
+};
+
+test("isPerBowl: written for one, nothing through heat, not a batch", () => {
+  assert.equal(isPerBowl(BOWL), true);
+  assert.equal(isPerBowl({ ...BOWL, effort: "assemble" }), true);
+  // a rotating recipe is per bowl outright: its target and tolerance are per serving
+  assert.equal(
+    isPerBowl({
+      servings: 1,
+      effort: "cook",
+      rotation: { perDay: 2, pool: [{ food: "a" }, { food: "b" }, { food: "c" }] },
+    }),
+    true,
+  );
+  // a 2-serving fried rice tagged "assembly" still comes out of one pan
+  assert.equal(isPerBowl({ ...BOWL, servings: 2 }), false);
+  // heat means a pan, and a pan is shared
+  assert.equal(isPerBowl({ ...BOWL, cookTime: 6 }), false);
+  // a batch of energy bites is made as a batch
+  assert.equal(isPerBowl({ ...BOWL, tags: ["meal-prep"] }), false);
+  assert.equal(isPerBowl({ ...BOWL, effort: "cook" }), false);
+  assert.equal(isPerBowl(undefined), false);
+});
+
+test("cookPlan bowl mode: ONE bowl at this eater's portion, and it says so", () => {
+  // opened from the cookbook: the recipe as written, still labelled a bowl
+  const asWritten = cookPlan(BOWL);
+  assert.equal(asWritten.mode, "bowl");
+  assert.equal(asWritten.ingredients[0].qty, 1);
+  assert.match(asWritten.note, /ONE portion/);
+  assert.match(asWritten.note, /their own/);
+  assert.ok(!/serving/i.test(asWritten.note), asWritten.note);
+  // a 0.75 seat gets a 0.75 bowl, not a pot
+  const seat = cookPlan(BOWL, 0.75);
+  assert.equal(seat.mode, "bowl");
+  assert.equal(seat.eatServings, 0.75);
+  assert.equal(seat.ingredients[0].qty, 0.75, "yogurt scales to the seat");
+  assert.equal(seat.ingredients[1].qty, 0.5, "half a banana stays half a banana");
+  // a two-seat table total must NOT become "the whole pot" for a bowl: the
+  // caller never passes cookTotal for a per-bowl dish, and even if it did
+  // the mode stays bowl and the note never says pot
+  const pooled = cookPlan(BOWL, 1.5);
+  assert.equal(pooled.mode, "bowl");
+  assert.ok(!/WHOLE POT/.test(pooled.note), pooled.note);
+});
+
+test("THE LIVE YOGURT BOWL is per bowl, and its list scales with the seat", () => {
+  const live = JSON.parse(
+    readFileSync(
+      new URL("../../mise-data/recipes/berry-walnut-greek-yogurt-bowl.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(isPerBowl(live), true);
+  const plan = cookPlan(live, 0.75);
+  assert.equal(plan.mode, "bowl");
+  const yogurt = plan.ingredients.find((i) => /greek yogurt/i.test(i.food));
+  assert.equal(yogurt.qty, 0.75);
+});

@@ -88,7 +88,7 @@ import { perishableCoverage } from "./lib/coverage.js";
 import { composeWeekReview } from "./lib/review.js";
 import { appendWaste } from "./lib/waste.js";
 import { canonicalFood, toGrams } from "./lib/ingredients.js";
-import { cookPlan } from "./lib/portions.js";
+import { cookPlan, isPerBowl } from "./lib/portions.js";
 import {
   addEntry,
   removeEntryById,
@@ -205,7 +205,7 @@ function App() {
   // for anyone whose household list was non-empty (2026-07-26).
   const me = activeProfile() ?? "david";
   const [route, setRoute] = useState(
-    /** @type {{ view: string, id?: string, from?: string, servings?: number, entry?: string, table?: string }} */ ({
+    /** @type {{ view: string, id?: string, from?: string, servings?: number, entry?: string, table?: string, date?: string }} */ ({
       view: "home",
     }),
   );
@@ -1627,16 +1627,23 @@ function App() {
 
   // tapping a planned meal opens it as a card over the plan
   const [peek, setPeek] = useState(
-    /** @type {{ recipeId: string, servings?: number, entryId?: string, tableId?: string } | null} */ (
+    /** @type {{ recipeId: string, servings?: number, date?: string, entryId?: string, tableId?: string } | null} */ (
       null
     ),
   );
   const handleOpenEntry = useCallback((/** @type {Record<string, any>} */ entry) => {
     const rid = entry.recipeId ?? entry.viewRecipeId;
     if (!rid) return;
+    // the cook's device carries the table's pooled total (cookTotal) so a
+    // shared POT is cooked at the right size. A per-bowl dish has no pot:
+    // the yogurt bowl opened as "1.5 cup greek yogurt" for a two-seat table
+    // (David 2026-09-07) when each seat builds its own bowl. Own seat only.
+    const recipe = allRecipesRef.current.find((r) => r.id === rid);
+    const perBowl = isPerBowl(recipe);
     setPeek({
       recipeId: rid,
-      servings: entry.cookTotal ?? entry.servings ?? 1,
+      servings: (perBowl ? undefined : entry.cookTotal) ?? entry.servings ?? 1,
+      date: typeof entry.date === "string" ? entry.date : undefined,
       entryId: entry.table ? undefined : entry.id,
       // a table meal carries its table id instead, so Cook Mode can end on
       // the serve step and confirm the TABLE cooked (spec §7.2)
@@ -4322,6 +4329,7 @@ function App() {
         loading=${loading}
         from=${route.from}
         servings=${route.servings}
+        date=${route.date}
         tableId=${routeTable?.id}
         tableUnresolved=${Boolean(route.table && !routeTable)}
         potRows=${(() => {
@@ -4605,6 +4613,7 @@ function App() {
       html`<${RecipePeek}
         recipe=${recipeById(peek.recipeId) ?? null}
         servings=${peek.servings}
+        date=${peek.date}
         entryId=${peek.entryId}
         tableId=${peek.tableId}
         unshopped=${!(/** @type {any} */ (plan)?.shoppedAt || houseShopped)}

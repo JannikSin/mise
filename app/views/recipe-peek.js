@@ -1,7 +1,9 @@
 import { html } from "htm/preact";
 import { useEffect } from "preact/hooks";
-import { cookPlan } from "../lib/portions.js";
+import { cookPlan, scaleQty } from "../lib/portions.js";
 import { formatRecipeQty } from "../lib/shopping.js";
+import { rotateComponents, rotates, rotationNoun } from "../lib/rotate.js";
+import { localIsoDate } from "../lib/dates.js";
 
 /**
  * The recipe a planned meal opens into (David, 2026-07-27: with dragging gone,
@@ -23,13 +25,22 @@ import { formatRecipeQty } from "../lib/shopping.js";
  * @param {{
  *   recipe: Record<string, any> | null,
  *   servings?: number,
+ *   date?: string,
  *   entryId?: string,
  *   tableId?: string,
  *   unshopped?: boolean,
  *   onClose: () => void
  * }} props
  */
-export function RecipePeek({ recipe, servings, entryId, tableId, unshopped = false, onClose }) {
+export function RecipePeek({
+  recipe,
+  servings,
+  date = undefined,
+  entryId,
+  tableId,
+  unshopped = false,
+  onClose,
+}) {
   useEffect(() => {
     const onKey = (/** @type {KeyboardEvent} */ e) => {
       if (e.key === "Escape") onClose();
@@ -48,7 +59,28 @@ export function RecipePeek({ recipe, servings, entryId, tableId, unshopped = fal
     servings && servings > 0 ? servings : (recipe.servings ?? 1)
   }${entryId ? `&entry=${encodeURIComponent(entryId)}` : ""}${
     tableId ? `&table=${encodeURIComponent(tableId)}` : ""
-  }`;
+  }${date ? `&date=${encodeURIComponent(date)}` : ""}`;
+  // TODAY'S BOWL, ONE LIST (David 2026-09-07): a rotating recipe used to open
+  // as its whole pool at the table's pooled total ("all 12 ingredients", 1.5
+  // cup), then the recipe page said 7 of 12 at 1 cup. The card now shows the
+  // same thing the page does: this day's picks, scaled to this eater's bowl.
+  const rotating = rotates(recipe);
+  const noun = rotationNoun(recipe);
+  const rotationDate = date ?? localIsoDate(new Date());
+  const chosen = rotating ? rotateComponents(recipe.rotation, rotationDate) : null;
+  const ratio = plan.eatServings / Math.max(1, Number(recipe.servings) || 1);
+  const rows = chosen
+    ? chosen.picks.map((/** @type {any} */ c) => ({
+        ...c,
+        qty: scaleQty(Number(c.qty) || 0, c.unit, ratio),
+      }))
+    : plan.ingredients;
+  const picked = new Set((chosen?.picks ?? []).map((/** @type {any} */ c) => c.food));
+  const offShelf = chosen
+    ? (recipe.rotation.pool ?? [])
+        .filter((/** @type {any} */ c) => !picked.has(c.food))
+        .map((/** @type {any} */ c) => c.food)
+    : [];
 
   return html`
     <div
@@ -68,7 +100,13 @@ export function RecipePeek({ recipe, servings, entryId, tableId, unshopped = fal
         <div class="d num peekmacros">
           ${recipe.nutrition?.calories} kcal · ${recipe.nutrition?.protein}P ·
           ${recipe.nutrition?.carbs}C · ${recipe.nutrition?.fat}F
-          ${plan.eatServings ? html` · ${plan.eatServings} serving${plan.eatServings === 1 ? "" : "s"}` : ""}
+          ${
+            // a bowl is one bowl; "0.75 servings" beside "ONE bowl: yours" is
+            // the app talking to itself (the 2026-08-10 no-serving-counts rule)
+            plan.eatServings && plan.mode !== "bowl"
+              ? html` · ${plan.eatServings} serving${plan.eatServings === 1 ? "" : "s"}`
+              : ""
+          }
         </div>
         ${plan.note && html`<p class="hint">${plan.note}</p>`}
         ${
@@ -78,9 +116,15 @@ export function RecipePeek({ recipe, servings, entryId, tableId, unshopped = fal
             anyway if you already have the food. <a href="#/list">scan the receipt →</a>
           </p>`
         }
-        <h3 class="block-title">Ingredients</h3>
+        <h3 class="block-title">${rotating ? `Ingredients · today's ${noun}` : "Ingredients"}</h3>
+        ${
+          chosen &&
+          html`<p class="hint">
+            ${`${chosen.rotated.length} of ${recipe.rotation.pool.length} toppings, chosen for ${rotationDate}. Same day, same ${noun}.`}
+          </p>`
+        }
         <div class="slots">
-          ${plan.ingredients.map(
+          ${rows.map(
             (/** @type {any} */ ing, /** @type {number} */ i) => html`
               <div class="checkrow static" key=${`${ing.food}-${i}`}>
                 <span class="food"
@@ -90,13 +134,15 @@ export function RecipePeek({ recipe, servings, entryId, tableId, unshopped = fal
               </div>
             `,
           )}
-          ${
-            (plan.ingredients ?? []).length === 0 &&
-            html`<div class="empty">no ingredients recorded</div>`
-          }
+          ${(rows ?? []).length === 0 && html`<div class="empty">no ingredients recorded</div>`}
         </div>
+        ${
+          offShelf.length > 0 &&
+          html`<p class="hint">${`Not in today's ${noun}: ${offShelf.join(" · ")}`}</p>`
+        }
         <div class="actions wrap peekactions">
-          <a class="ask linkbtn" href=${cookHref} onClick=${onClose}>👩‍🍳 COOK IT
+          <a class="ask linkbtn" href=${cookHref} onClick=${onClose}
+            >👩‍🍳 COOK IT
             <small>full recipe · timer · steps</small>
           </a>
         </div>

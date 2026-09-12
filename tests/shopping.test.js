@@ -23,6 +23,7 @@ import {
   swapCandidates,
   toStoreUnits,
   formatStoreQty,
+  formatRecipeQty,
   tripOf,
   emptyPantry,
   applySweep,
@@ -923,7 +924,22 @@ test("toStoreUnits converts faithfully — never re-stepped, imperial always agr
 test("formatStoreQty shows imperial first with the authoritative metric in parens", () => {
   assert.equal(formatStoreQty(900, "g"), "1.98 lb (900 g)");
   assert.equal(formatStoreQty(75, "g"), "2.6 oz (75 g)");
-  assert.equal(formatStoreQty(3, "cup"), "3 cup");
+  assert.equal(formatStoreQty(3, "cup"), "3 cups");
+});
+
+test("count-noun units pluralise above one, abbreviations never (David 2026-09-07)", () => {
+  // "if it's greater than one, it should say cups, not cup"
+  assert.equal(formatStoreQty(1, "cup"), "1 cup");
+  assert.equal(formatStoreQty(0.75, "cup"), "0.75 cup");
+  assert.equal(formatStoreQty(1.5, "cup"), "1.5 cups");
+  assert.equal(formatRecipeQty(1.5, "cup"), "1.5 cups");
+  assert.equal(formatRecipeQty(2, "scoop"), "2 scoops");
+  assert.equal(formatRecipeQty(2, "tbsp"), "2 tbsp");
+  assert.equal(formatRecipeQty(3, "tsp"), "3 tsp");
+  // an already-plural unit in the bank is left alone
+  assert.equal(formatRecipeQty(2, "cups"), "2 cups");
+  // count units keep the bare-number recipe rendering
+  assert.equal(formatRecipeQty(3, "each"), "3");
 });
 
 test("householdOthers merges only same-household profiles, absent household = home", () => {
@@ -1890,7 +1906,7 @@ test("count units display as ×N — never 'each' (David 2026-08-02)", () => {
   // total. ×7 leaves nothing to interpret.
   assert.equal(formatStoreQty(7, "each"), "×7");
   assert.equal(formatStoreQty(1, "x"), "×1");
-  assert.equal(formatStoreQty(2, "can"), "2 can", "real container words stay");
+  assert.equal(formatStoreQty(2, "can"), "2 cans", "real container words stay (plural above one)");
 });
 
 test("normalize preserves -famdinners rows: no merge, no qty corruption, rebuild-proof", () => {

@@ -120,7 +120,14 @@ export function rotateComponents(rotation, dateIso, salt = 0) {
     const rotated = orderFor(pool, `${dateIso}|${salt}|${attempt}`).slice(0, perDay);
     const picks = [...keep, ...rotated];
     const macros = macrosOf(picks);
-    const result = { picks, kept: keep, rotated, macros, withinTolerance: true, attempts: attempt + 1 };
+    const result = {
+      picks,
+      kept: keep,
+      rotated,
+      macros,
+      withinTolerance: true,
+      attempts: attempt + 1,
+    };
     if (ok(macros)) return result;
     // remember the closest miss so a too-tight tolerance still returns a bowl
     const miss =
@@ -149,6 +156,19 @@ export function rotateComponents(rotation, dateIso, salt = 0) {
 export function rotates(recipe) {
   const r = recipe?.rotation;
   return Boolean(r && Array.isArray(r.pool) && r.pool.length > 0 && Number(r.perDay) > 0);
+}
+
+/**
+ * What to call one of these on the page: the yogurt bowl is a bowl, the
+ * protein smoothie is a smoothie, anything else is today's pick.
+ * @param {Record<string, any> | null | undefined} recipe
+ * @returns {string}
+ */
+export function rotationNoun(recipe) {
+  const name = String(recipe?.name ?? "");
+  if (/bowl/i.test(name)) return "bowl";
+  if (/smoothie|shake/i.test(name)) return "smoothie";
+  return "pick";
 }
 
 /**

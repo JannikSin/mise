@@ -512,9 +512,69 @@ export function formatRecipeQty(qty, unit) {
 }
 
 /**
+ * Count-noun units that take an -s above one ("1.5 cups", "2 scoops"). David,
+ * 2026-09-07: "if it's greater than one, it should say cups, not cup."
+ * Abbreviations (tbsp, tsp, g, oz, lb, ml) never change.
+ */
+const PLURAL_UNITS = new Set([
+  "cup",
+  "scoop",
+  "slice",
+  "clove",
+  "can",
+  "pita",
+  "egg",
+  "bunch",
+  "head",
+  "stick",
+  "piece",
+  "jar",
+  "bag",
+  "bottle",
+  "packet",
+  "pouch",
+  "bar",
+  "stalk",
+  "sprig",
+  "wedge",
+  "fillet",
+  "breast",
+  "thigh",
+  "link",
+  "sheet",
+  "cube",
+  "handful",
+  "glass",
+  "mug",
+  "tortilla",
+  "wrap",
+  "bun",
+  "roll",
+  "patty",
+  "square",
+  "ball",
+  "cracker",
+  "date",
+]);
+
+/**
+ * The unit word for a quantity: plural above one for count nouns, untouched
+ * otherwise. "1 cup", "0.75 cup", "1.5 cups".
+ * @param {number} qty
+ * @param {string} unit
+ * @returns {string}
+ */
+export function unitLabel(qty, unit) {
+  const raw = String(unit ?? "");
+  const u = raw.toLowerCase().trim();
+  if (!(qty > 1) || !PLURAL_UNITS.has(u)) return raw;
+  return `${raw}s`;
+}
+
+/**
  * Store-shelf display string for a list row: imperial first, metric kept
  * in parentheses as the authority ("1.76 lb (800 g)"); native-US units
- * pass through untouched ("3 cup").
+ * pass through, pluralised above one ("3 cups").
  * @param {number} qty
  * @param {string} unit
  * @returns {string}
@@ -528,7 +588,7 @@ export function formatStoreQty(qty, unit) {
   const u = String(unit ?? "").toLowerCase();
   if (u === "each" || u === "x") return `×${qty}`;
   const conv = toStoreUnits(qty, unit);
-  if (!conv) return `${qty} ${unit}`;
+  if (!conv) return `${qty} ${unitLabel(qty, unit)}`;
   return `${conv.qty} ${conv.unit} (${qty} ${unit})`;
 }
 

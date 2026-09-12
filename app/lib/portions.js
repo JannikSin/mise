@@ -4,6 +4,8 @@
 // When those differ, either scale the cook down to the meal (everyday recipes)
 // or cook the batch and bank the rest (soups/chili that are meant to repeat).
 
+import { rotates } from "./rotate.js";
+
 /** Tags (or effort) that mark a recipe as a deliberate make-ahead batch. */
 const BATCH_TAGS = new Set(["batch-friendly", "freezes-well", "meal-prep", "leftover-remix"]);
 
@@ -16,6 +18,29 @@ const BATCH_TAGS = new Set(["batch-friendly", "freezes-well", "meal-prep", "left
 export function isBatchRecipe(recipe) {
   if (recipe?.effort === "project") return true;
   return (recipe?.tags ?? []).some((/** @type {string} */ t) => BATCH_TAGS.has(t));
+}
+
+/**
+ * ASSEMBLED PER BOWL (David, 2026-09-07, from the recipe page: "a Greek yogurt
+ * bowl is not really something you cook together, it's something you assemble
+ * separately... so it makes sense just to give you the one portion, but make
+ * sure that's known"). A dish written for ONE eater with nothing going through
+ * heat is never one pot shared out: each person builds their own from the same
+ * list. So its ingredient list is always ONE BOWL, never a table's total, and
+ * the page says so. Rotating recipes (the bowl, the smoothies) qualify
+ * outright: their rotation target and tolerance are per-serving facts. A batch
+ * (energy bites, a jar of overnight oats for three) is not a bowl, and a
+ * 2-serving fried rice tagged "assembly" still comes out of one pan.
+ * @param {Record<string, any> | null | undefined} recipe
+ * @returns {boolean}
+ */
+export function isPerBowl(recipe) {
+  if (!recipe) return false;
+  if (rotates(recipe)) return true;
+  const assembled = recipe.effort === "assembly" || recipe.effort === "assemble";
+  const noHeat = (Number(recipe.cookTime) || 0) === 0;
+  const one = (Number(recipe.servings) || 1) === 1;
+  return assembled && noHeat && one && !isBatchRecipe(recipe);
 }
 
 /**
@@ -61,10 +86,13 @@ export function scaleQty(qty, unit, ratio) {
  *    eat `planned`, save the rest (the plan schedules the leftover days).
  *  - "single": an everyday recipe eaten below its yield → scale the
  *    ingredients DOWN to exactly the meal, so there is nothing extra to overeat.
+ *  - "bowl": an assembled-per-person dish (isPerBowl): the list is always ONE
+ *    bowl at this eater's portion, whoever else is eating it, and never a
+ *    table's pooled total (the 1 cup vs 1.5 cup confusion, 2026-09-07).
  * @param {Record<string, any>} recipe
  * @param {number} [plannedServings] portions eaten at this slot; omit = cook full
  * @returns {{
- *   mode: "full" | "batch" | "single" | "scaled",
+ *   mode: "full" | "batch" | "single" | "scaled" | "bowl",
  *   cookServings: number,
  *   eatServings: number,
  *   extraServings: number,
@@ -76,6 +104,26 @@ export function cookPlan(recipe, plannedServings) {
   const makes = Math.max(1, Number(recipe?.servings) || 1);
   const eat = plannedServings && plannedServings > 0 ? plannedServings : makes;
   const ingredients = recipe?.ingredients ?? [];
+
+  if (isPerBowl(recipe)) {
+    const ratio = eat / makes;
+    return {
+      mode: "bowl",
+      cookServings: eat,
+      eatServings: eat,
+      extraServings: 0,
+      ingredients:
+        ratio === 1
+          ? ingredients
+          : ingredients.map((/** @type {Record<string, any>} */ i) => ({
+              ...i,
+              qty: scaleQty(Number(i.qty) || 0, i.unit, ratio),
+            })),
+      note:
+        "Amounts are for ONE portion: yours. Nothing here comes out of a shared pot, " +
+        "so everyone eating this makes their own from the same list.",
+    };
+  }
 
   // cooking MORE than the recipe makes (a family-dinner batch: 5.75 servings
   // of a 2-serving recipe): scale every ingredient UP so the cook reads real
@@ -229,13 +277,20 @@ export function leftoverLedger(plan, recipesById) {
     }
   }
 
-  cooks.sort((a, b) => (a.date === b.date ? a.recipeId.localeCompare(b.recipeId) : a.date < b.date ? -1 : 1));
+  cooks.sort((a, b) =>
+    a.date === b.date ? a.recipeId.localeCompare(b.recipeId) : a.date < b.date ? -1 : 1,
+  );
   const orphans = [];
   for (const c of cooks) {
     c.orphanServings = Math.round(c.remaining * 100) / 100;
     delete c.remaining;
     if (c.orphanServings > 0) {
-      orphans.push({ recipeId: c.recipeId, name: c.name, date: c.date, servings: c.orphanServings });
+      orphans.push({
+        recipeId: c.recipeId,
+        name: c.name,
+        date: c.date,
+        servings: c.orphanServings,
+      });
     }
   }
   return { cooks, orphans, reCooked };

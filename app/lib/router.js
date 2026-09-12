@@ -2,7 +2,7 @@
 
 /**
  * @param {string} hash
- * @returns {{ view: string, id?: string, from?: string, servings?: number, entry?: string, table?: string }}
+ * @returns {{ view: string, id?: string, from?: string, servings?: number, entry?: string, table?: string, date?: string }}
  */
 export function parseRoute(hash) {
   // optional ?from=<origin> query (e.g. #/recipe/x?from=today) tells the
@@ -55,7 +55,7 @@ export function parseRoute(hash) {
       } catch {
         return { view: "plan" }; // malformed percent-sequence in the hash
       }
-      /** @type {{ view: string, id: string, from?: string, servings?: number, entry?: string, table?: string }} */
+      /** @type {{ view: string, id: string, from?: string, servings?: number, entry?: string, table?: string, date?: string }} */
       // Cook Mode is GONE (David 2026-08-17 "get rid of that entirely",
       // executed 2026-08-19 with the serve step rehomed to the recipe page):
       // old /cook URLs land on the recipe, params intact
@@ -73,6 +73,12 @@ export function parseRoute(hash) {
       // serve tile carries who-gets-what and COOKED confirms the TABLE
       const table = params.get("table");
       if (table) route.table = table;
+      // ?date=YYYY-MM-DD names the day this meal is planned for, so a rotating
+      // recipe (the yogurt bowl) shows THAT day's toppings, not the device's
+      // today. Table meals carry no plan entry, so before this a Tuesday bowl
+      // opened on Monday night showed Monday's bowl.
+      const d = params.get("date");
+      if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) route.date = d;
       return route;
     }
     default:
@@ -82,7 +88,7 @@ export function parseRoute(hash) {
 
 /**
  * Subscribe to route changes; fires immediately with the current route.
- * @param {(route: { view: string, id?: string, from?: string, servings?: number, entry?: string }) => void} onChange
+ * @param {(route: { view: string, id?: string, from?: string, servings?: number, entry?: string, table?: string, date?: string }) => void} onChange
  */
 export function initRouter(onChange) {
   const fire = () => onChange(parseRoute(location.hash));

@@ -1,8 +1,8 @@
 import { html } from "htm/preact";
-import { rotateComponents, rotates } from "../lib/rotate.js";
+import { rotateComponents, rotates, rotationNoun } from "../lib/rotate.js";
 import { localIsoDate } from "../lib/dates.js";
 import { useEffect, useState } from "preact/hooks";
-import { cookPlan } from "../lib/portions.js";
+import { cookPlan, scaleQty } from "../lib/portions.js";
 import { formatRecipeQty } from "../lib/shopping.js";
 import { keepAwake } from "../lib/awake.js";
 import { untrustedForAutoPlan } from "../lib/plan.js";
@@ -148,13 +148,14 @@ function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
 }
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, date?: string, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void }} props
  */
 export function RecipeView({
   recipe,
   loading,
   from,
   servings,
+  date = undefined,
   tableId,
   tableUnresolved = false,
   potRows,
@@ -204,6 +205,10 @@ export function RecipeView({
   // save-the-extra note: the leftovers instruction is safety-relevant.
   const plan = (() => {
     const ings = basePlan.ingredients ?? [];
+    // a per-bowl dish has no pot: the table's pooled rows must never replace
+    // this eater's one bowl (David 2026-09-07: "are two people sharing 1.5
+    // cups? Is that what it is?")
+    if (basePlan.mode === "bowl") return basePlan;
     if (!potRows || potRows.length !== ings.length) return basePlan;
     const merged = ings.map((ing, i) => {
       const p = potRows[i];
@@ -231,11 +236,13 @@ export function RecipeView({
           // wrong reading ("am I eating three servings?"). The amounts listed
           // below are already scaled to whoever is cooking, so say WHOSE food
           // this is and let the ingredient list carry the quantity.
-          plan.mode === "single"
-            ? html`your plate`
-            : plan.mode === "scaled"
-              ? html`the whole pot`
-              : html`makes extra on purpose`
+          plan.mode === "bowl"
+            ? html`one portion, yours`
+            : plan.mode === "single"
+              ? html`your plate`
+              : plan.mode === "scaled"
+                ? html`the whole pot`
+                : html`makes extra on purpose`
         }
         · ${recipe.effort}
         ${(recipe.purpose ?? []).map((/** @type {string} */ p) => html`<span class="tag ${p}">${p === "pre-activity" ? "pre-act" : p}</span>`)}
@@ -363,11 +370,13 @@ export function RecipeView({
             ${
               plan.mode === "batch"
                 ? "🍲 batch — save the extra"
-                : plan.mode === "single"
-                  ? "🍽️ cooking your portion"
-                  : plan.mode === "scaled"
-                    ? "👨‍🍳 family batch — amounts scaled up"
-                    : "portion"
+                : plan.mode === "bowl"
+                  ? "🥣 one portion — yours"
+                  : plan.mode === "single"
+                    ? "🍽️ cooking your portion"
+                    : plan.mode === "scaled"
+                      ? "👨‍🍳 family batch — amounts scaled up"
+                      : "portion"
             }
           </div>
           <div class="d">${plan.note}</div>
@@ -461,36 +470,50 @@ export function RecipeView({
         // person gets bored. The spine is fixed and the trimmings rotate,
         // deterministically per date so a re-render never reshuffles
         // breakfast, and only within a stated macro tolerance.
+        // ONE LIST (David 2026-09-07, from this very page): this card used to
+        // sit ABOVE a second "Ingredients" list of the whole pool, the card at
+        // the recipe's per-serving amounts and the list at the table's pooled
+        // total, so the same yogurt read 1 cup here and 1.5 cup there. Now the
+        // card IS the ingredient list for a rotating recipe: scaled to this
+        // bowl, today's picks only, and the rest of the pool named as "not
+        // today" so nobody wonders whether to add them.
         rotates(recipe) &&
         (() => {
-          const chosen = rotateComponents(recipe.rotation, entry?.date ?? localIsoDate(new Date()));
+          const rotationDate = entry?.date ?? date ?? localIsoDate(new Date());
+          const noun = rotationNoun(recipe);
+          const chosen = rotateComponents(recipe.rotation, rotationDate);
+          const ratio = plan.eatServings / Math.max(1, Number(recipe.servings) || 1);
+          const q = (/** @type {any} */ c) =>
+            formatRecipeQty(scaleQty(Number(c.qty) || 0, c.unit, ratio), c.unit);
+          const picked = new Set(chosen.picks.map((/** @type {any} */ c) => c.food));
+          const offShelf = (recipe.rotation.pool ?? [])
+            .filter((/** @type {any} */ c) => !picked.has(c.food))
+            .map((/** @type {any} */ c) => c.food);
           return html`<div class="card rotation">
-            <h2 class="block-title">Today's bowl</h2>
+            <h2 class="block-title">Ingredients · today's ${noun}</h2>
             <p class="hint">
-              ${recipe.rotation.perDay} of ${recipe.rotation.pool.length}, chosen for
-              ${entry?.date ?? "today"}. Same day, same bowl.
+              ${`${chosen.rotated.length} of ${recipe.rotation.pool.length} toppings, chosen for ${rotationDate}. Same day, same ${noun}. Put in exactly these, at these amounts.`}
             </p>
             <div>
               ${chosen.kept.map(
                 (/** @type {any} */ c) =>
                   html`<div class="ing staple" key=${c.food}>
                     <span>${c.food} <span class="pantry-mark">every day</span></span>
-                    <span class="q">${formatRecipeQty(c.qty, c.unit)}</span>
+                    <span class="q">${q(c)}</span>
                   </div>`,
               )}
               ${chosen.rotated.map(
                 (/** @type {any} */ c) =>
                   html`<div class="ing" key=${c.food}>
                     <span>${c.food}</span>
-                    <span class="q">${formatRecipeQty(c.qty, c.unit)}</span>
+                    <span class="q">${q(c)}</span>
                   </div>`,
               )}
             </div>
             <div class="row">
-              <span class="k">Today comes to</span>
+              <span class="k">This ${noun} comes to</span>
               <span class="status num"
-                >${Math.round(chosen.macros.calories)} kcal · ${Math.round(chosen.macros.protein)}
-                g</span
+                >${`${Math.round(chosen.macros.calories * ratio)} kcal · ${Math.round(chosen.macros.protein * ratio)} g`}</span
               >
             </div>
             ${
@@ -501,28 +524,32 @@ export function RecipeView({
                     pool or the tolerance needs a look.
                   </p>`
             }
-            <p class="hint">
-              The full list below is the recipe as written; this is what to actually put in it
-              today.
-            </p>
+            ${
+              offShelf.length > 0 &&
+              html`<p class="hint offshelf">
+                ${`Not in today's ${noun}, keep them on the shelf for other days: ${offShelf.join(" · ")}`}
+              </p>`
+            }
           </div>`;
         })()
       }
-
-      <h2 class="block-title">Ingredients</h2>
-      <div>
-        ${plan.ingredients.map(
-          (/** @type {Record<string, any>} */ i) => html`
-            <div class="ing ${i.staple ? "staple" : ""}">
-              <span>
-                ${i.food}${i.note ? html` <span class="note">— ${i.note}</span>` : ""}
-                ${i.staple ? html` <span class="pantry-mark">pantry</span>` : ""}
-              </span>
-              <span class="q">${formatRecipeQty(i.qty, i.unit)}</span>
-            </div>
-          `,
-        )}
-      </div>
+      ${
+        !rotates(recipe) &&
+        html`<h2 class="block-title">Ingredients</h2>
+          <div>
+            ${plan.ingredients.map(
+              (/** @type {Record<string, any>} */ i) => html`
+                <div class="ing ${i.staple ? "staple" : ""}">
+                  <span>
+                    ${i.food}${i.note ? html` <span class="note">— ${i.note}</span>` : ""}
+                    ${i.staple ? html` <span class="pantry-mark">pantry</span>` : ""}
+                  </span>
+                  <span class="q">${formatRecipeQty(i.qty, i.unit)}</span>
+                </div>
+              `,
+            )}
+          </div>`
+      }
 
       <h2 class="block-title">Steps</h2>
       ${

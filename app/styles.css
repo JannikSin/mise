@@ -2080,6 +2080,12 @@ a.ask.linkbtn {
 .tile.portion.single {
   border-left: 3px solid var(--accent, #6fcf7f);
 }
+.tile.portion.bowl {
+  border-left: 3px solid var(--accent, #6fcf7f);
+}
+.rotation .offshelf {
+  margin-top: 8px;
+}
 /* List/pantry additions */
 .q.num.nopr {
   opacity: 0.4;

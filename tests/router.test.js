@@ -83,3 +83,12 @@ test("unknown routes fall back to plan", () => {
   assert.deepEqual(parseRoute("#/nope"), { view: "plan" });
   assert.deepEqual(parseRoute("#/recipe"), { view: "plan" });
 });
+
+test("?date= rides on a recipe URL so a rotating recipe shows THAT day's bowl", () => {
+  const r = parseRoute("#/recipe/bowl?from=plan&servings=0.75&table=t1&date=2026-09-08");
+  assert.equal(r.date, "2026-09-08");
+  assert.equal(r.table, "t1");
+  assert.equal(r.servings, 0.75);
+  // a malformed date is dropped, never passed through
+  assert.equal(parseRoute("#/recipe/bowl?date=tomorrow").date, undefined);
+});
