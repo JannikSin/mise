@@ -31,7 +31,12 @@ Set-Location $DataRepo
 # rejected as "stale info" (hit 2026-09-13, chauncey, on the first laptop re-seed)
 git fetch -q origin "+refs/heads/main:refs/remotes/origin/main" "+refs/heads/sandbox:refs/remotes/origin/sandbox"
 $mainSha = (git rev-parse origin/main).Trim()
+# the lease is pinned to the sandbox tip we can SEE right now; an implicit lease reads the
+# remote-tracking ref, which git rejects as "stale info" whenever that ref was just fetched
+$sandboxSha = ((git ls-remote origin "refs/heads/$Dest") -split "\s+")[0]
+if (-not $sandboxSha) { $sandboxSha = "" }
 Write-Host "mise-data main = $mainSha"
+Write-Host "mise-data $Dest = $(if ($sandboxSha) { $sandboxSha } else { "(absent)" })"
 if (-not $Confirm) {
   Write-Host "DRY RUN. Would force-push origin/main -> origin/$Dest and stamp sandbox-seed.json. Re-run with -Confirm."
   exit 0
@@ -47,7 +52,7 @@ try {
   git -c user.name="mise release train" -c user.email="mise-train@local" commit -q -m "sandbox re-seeded from main $($mainSha.Substring(0,7))"
   $seedSha = (git rev-parse HEAD).Trim()
   if ($Dest -ne "sandbox") { throw "destination ref changed: refusing" }
-  git push --force-with-lease "origin" "${seedSha}:refs/heads/$Dest"
+  git push "--force-with-lease=refs/heads/${Dest}:${sandboxSha}" "origin" "${seedSha}:refs/heads/$Dest"
   if ($LASTEXITCODE -ne 0) { throw "push failed" }
   Write-Host "origin/$Dest <- $seedSha (main $($mainSha.Substring(0,7)) + seed stamp)"
   Write-Host $stamp
