@@ -331,7 +331,21 @@ function App() {
     const fixed = fixedIn
       ? Object.fromEntries(Object.entries(fixedIn).filter(([s]) => keep.includes(s)))
       : null;
-    await writeTargetsOf(me, { ...cur, mealSlots: keep, ...(fixed ? { fixedSlots: fixed } : {}) });
+    // skipSlots is the EXPLICIT opt-out the brigade honours: a meal switched
+    // off here is skipped for this person on a shared table too; switched
+    // back on, it leaves the list. Slots never listed (a brigade's snack) are
+    // not touched, so a shared meal is never dropped by omission.
+    const was = Array.isArray(cur.mealSlots) ? cur.mealSlots : [];
+    const prevSkip = Array.isArray(cur.skipSlots) ? cur.skipSlots : [];
+    const skipSlots = SLOT_KEYS.filter(
+      (s) => !keep.includes(s) && (was.includes(s) || prevSkip.includes(s)),
+    );
+    await writeTargetsOf(me, {
+      ...cur,
+      mealSlots: keep,
+      skipSlots,
+      ...(fixed ? { fixedSlots: fixed } : {}),
+    });
     setTargets(/** @type {any} */ (await readTargetsOf(me)));
   }, []);
 

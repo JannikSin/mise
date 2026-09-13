@@ -1002,8 +1002,14 @@ test("a PINNED table is kept through a plain SET whatever the pantry says (David
   );
 });
 
-test("a brigade slot the member's own profile does not eat is SKIPPED auto for that member only (David 2026-09-13: no smoothie for him, Elliot keeps his)", () => {
-  const noSmoothie = { ...davidTargets, mealSlots: ["breakfast", "lunch", "dinner", "snack"] };
+test("a brigade slot a member turned OFF (targets.skipSlots) is SKIPPED auto for that member only; slots merely unlisted are still eaten", () => {
+  // explicit opt-out only: David's profile never listed "snack" and he eats
+  // the brigade's bake; the first cut keyed on mealSlots and dropped him
+  const noSmoothie = {
+    ...davidTargets,
+    mealSlots: ["breakfast", "lunch", "dinner"],
+    skipSlots: ["smoothie"],
+  };
   const ctx = sunCtx({
     targetsById: new Map([
       ["david", noSmoothie],

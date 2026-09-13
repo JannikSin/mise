@@ -653,7 +653,9 @@ export function SystemView({
         <h3>Your meals</h3>
         <p class="hint">
           The meals Mise plans for you each day. Turn one off and the week stops planning it (a
-          fixed daily dish in that slot goes with it); turn it on and the next week fills it.
+          fixed daily dish in that slot goes with it, and a shared kitchen skips you on it); turn it
+          on and the next week fills it. A meal your kitchen's brigade adds (a shared snack) is
+          planned for you even if it is not ticked here.
         </p>
         <div class="chips">
           ${SLOT_KEYS.map(

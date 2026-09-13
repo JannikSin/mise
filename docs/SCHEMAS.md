@@ -1619,6 +1619,12 @@ Seeded from the FITNESS.md system; edited rarely.
   //   (gate survey 2026-07-21). Absent = rarely (0). Read by the assistant
   //   and future OUT-slot expectations; no generator behavior yet.
   "mealSlots": ["breakfast", "lunch", "dinner", "smoothie"],
+  "skipSlots": ["smoothie"],
+  // ? OPTIONAL (2026-09-13): the explicit opt-outs the SYS "Your meals" card
+  //   writes when a meal is switched off. A shared brigade skips this member
+  //   (SKIPPED, auto) on any table in one of these slots. A slot merely absent
+  //   from mealSlots is NOT an opt-out: a brigade's snack is still eaten.
+  //   Read-time heal: absent = [].
   // ? ordered list of meal slots app/lib/weekbuilder.js's
   //   generateWeek proactively fills/committee-picks per day.
   //   Valid values: breakfast | lunch | dinner | smoothie.

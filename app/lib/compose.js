@@ -1038,23 +1038,17 @@ export function planBrigadeWeek(events, brigade, ctx) {
       // skip stays skipped. A machine-stamped skip (auto: true) is
       // recomputed fresh every run — carrying it would keep a member off the
       // pot forever after they unpin (the resurrect-the-decline bug, inverted)
-      // A SLOT THE MEMBER'S OWN PROFILE DOES NOT EAT (David, 2026-09-13: "get
-      // rid of smoothie" is HIS ruling, and the brigade is shared, so Elliot
-      // keeps his). A slot missing from the member's declared mealSlots is
-      // treated like a blocked slot: written SKIPPED with auto, recomputed
-      // every run, so turning the meal back on in SYS seats him again. A
-      // profile that declares no mealSlots at all eats every brigade slot,
-      // exactly as before.
-      const declaredSlots =
-        Array.isArray(targets?.mealSlots) && targets.mealSlots.length > 0
-          ? targets.mealSlots
-          : null;
+      // A SLOT THE MEMBER TURNED OFF (`targets.skipSlots`, written by the SYS
+      // "Your meals" card when a meal is switched off): treated like a blocked
+      // slot, SKIPPED with auto, recomputed every run, so switching it back on
+      // seats them again. Explicit opt-out ONLY: the first cut keyed on the
+      // profile's mealSlots list, and David's profile had never listed
+      // "snack" (the brigade added that slot on 08-28), so he was silently
+      // off the bake for one build. A brigade slot nobody opted out of is
+      // eaten by everyone, as before.
+      const skipSlots = Array.isArray(targets?.skipSlots) ? targets.skipSlots : [];
       const blockedSlots = new Set(
-        liveSlots.filter(
-          (slot) =>
-            cov?.blocked.has(`${date}|${slot}`) ||
-            (declaredSlots !== null && !declaredSlots.includes(slot)),
-        ),
+        liveSlots.filter((slot) => cov?.blocked.has(`${date}|${slot}`) || skipSlots.includes(slot)),
       );
       const exclude = new Set(
         liveSlots.filter((slot) => {
