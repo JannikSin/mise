@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, estCalories?: number, estProtein?: number, cookedAt?: string, eatenAt?: string, cookSeconds?: number, cookComment?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean, useItUp?: boolean }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, leftoverOf?: string, leftoverDate?: string, cookId?: string, cookName?: string, estCalories?: number, estProtein?: number, cookedAt?: string, eatenAt?: string, cookSeconds?: number, cookComment?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean, useItUp?: boolean }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any>, fallback?: { savedAt: string, entries: PlanEntry[] }, spend?: { store: string, date: string, total: number }[], reviewNote?: string }} Plan
  */
@@ -42,6 +42,39 @@ import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /** The valid slot keys, in display order (docs/SCHEMAS.md plan section). */
 export const SLOT_KEYS = ["breakfast", "lunch", "dinner", "smoothie", "snack"];
+
+/**
+ * WHO COOKS THIS, on the plan row (David, 2026-09-13: "should be more clear
+ * about who cooks each meal"). One short chip per shared or leftover meal:
+ * the cook by name ("you cook" on the cook's own device), a leftover night
+ * names the day of the pot it eats and who cooked it, and a dish everyone
+ * assembles for themselves says so. A plain solo meal gets nothing: the whole
+ * plan is yours.
+ * @param {Record<string, any>} entry a plan entry (derived table rows carry cookId, cookName, leftoverOf, leftoverDate)
+ * @param {string} me the profile looking at the plan
+ * @param {(iso: string) => string} dayName renders "2026-09-08" as "Tue"
+ * @param {boolean} [perBowl] the dish is assembled per person (portions.isPerBowl)
+ * @returns {string}
+ */
+export function cookLine(entry, me, dayName, perBowl = false) {
+  const e = entry ?? {};
+  const who = e.cookId ? (e.cookId === me ? "you" : String(e.cookName ?? e.cookId)) : "";
+  if (e.leftoverOf) {
+    const src =
+      typeof e.leftoverDate === "string"
+        ? e.leftoverDate
+        : typeof e.leftoverOf === "string" && /^\d{4}-\d{2}-\d{2}$/.test(e.leftoverOf)
+          ? e.leftoverOf
+          : "";
+    const day = src ? dayName(src) : "";
+    const cooked = who ? (who === "you" ? ", you cooked it" : `, ${who} cooked it`) : "";
+    return `♻ leftovers${day ? ` of ${day}` : ""}${cooked}`;
+  }
+  if (e.table && perBowl) return "🥣 each makes their own";
+  if (who) return who === "you" ? "🍳 you cook" : `🍳 ${who} cooks`;
+  if (e.cookTotal) return "🍳 you cook";
+  return "";
+}
 
 /** Console display names per slot — single source for every view.
  * @type {Record<string, { label: string, full: string }>} */

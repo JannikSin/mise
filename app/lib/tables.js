@@ -312,6 +312,8 @@ export function deriveTables(houses, ctx) {
       (a.t.fromBrigade ? 1 : 0) - (b.t.fromBrigade ? 1 : 0) ||
       String(a.t.id).localeCompare(String(b.t.id)),
   );
+  /** every table by id, so a leftover night can name the date of the pot it eats */
+  const tableById = new Map(ordered.map(({ t }) => [String(t.id), t]));
 
   {
     for (const { house, t } of ordered) {
@@ -486,7 +488,15 @@ export function deriveTables(houses, ctx) {
         // (a leftover night has no batch: the pot was cooked on its cook night)
         ...(cook && cook.id === ctx.profileId && !isLeftover ? { cookTotal: knownTotal } : {}),
         // a no-cook night says so on the plan, and names the pot it eats from
-        ...(isLeftover ? { leftoverOf: t.leftoverOf } : {}),
+        ...(isLeftover
+          ? {
+              leftoverOf: t.leftoverOf,
+              // the pot's own date, for the row ("leftovers of Tue")
+              ...(tableById.get(String(t.leftoverOf))?.date
+                ? { leftoverDate: tableById.get(String(t.leftoverOf))?.date }
+                : {}),
+            }
+          : {}),
         // the table's own COOKED confirmation, so a past day can show the tick
         // (derived-only, stripped with the rest; dayEaten never reads table rows)
         ...(t.cookedAt ? { cookedAt: t.cookedAt } : {}),

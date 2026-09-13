@@ -16,7 +16,7 @@ import {
   generateWeek,
   generatorEligible,
 } from "../app/lib/weekbuilder.js";
-import { dayTotals, datesOfWeek, recipesById , buffetMacroEstimate } from "../app/lib/plan.js";
+import { dayTotals, datesOfWeek, recipesById, buffetMacroEstimate } from "../app/lib/plan.js";
 
 const EMPTY_FOOD_GROUPS = {
   beans: 0,
@@ -1079,7 +1079,17 @@ test("poolAdequacy flags thin slots and unreachable calorie targets honestly", (
 test("generatorEligible: unpromoted ai-specials are fenced out, promoted ones pass", () => {
   const normal = r("lentil-bolognese", "dinner", ["lentils"]);
   const special = { ...r("special-x", "dinner", ["chickpeas"]), tags: ["ai-special"] };
-  const promoted = { ...r("special-y", "dinner", ["tofu"]), tags: ["ai-special"], promoted: true, audited: { standard: "greger", on: "2026-08-19", by: "test fixture", evidence: "promotion requires an audit (P12)" } };
+  const promoted = {
+    ...r("special-y", "dinner", ["tofu"]),
+    tags: ["ai-special"],
+    promoted: true,
+    audited: {
+      standard: "greger",
+      on: "2026-08-19",
+      by: "test fixture",
+      evidence: "promotion requires an audit (P12)",
+    },
+  };
   assert.deepEqual(
     generatorEligible([normal, special, promoted]).map((x) => x.id),
     ["lentil-bolognese", "special-y"],
@@ -1088,7 +1098,17 @@ test("generatorEligible: unpromoted ai-specials are fenced out, promoted ones pa
 
 test("generatorEligible: unpromoted hbp-annotated scans are fenced like ai-specials", () => {
   const scan = { ...r("hbp-duck", "dinner", ["duck"]), tags: ["hbp-annotated"] };
-  const audited = { ...r("hbp-chili", "dinner", ["beans"]), tags: ["hbp-annotated"], promoted: true, audited: { standard: "greger", on: "2026-08-19", by: "test fixture", evidence: "promotion requires an audit (P12)" } };
+  const audited = {
+    ...r("hbp-chili", "dinner", ["beans"]),
+    tags: ["hbp-annotated"],
+    promoted: true,
+    audited: {
+      standard: "greger",
+      on: "2026-08-19",
+      by: "test fixture",
+      evidence: "promotion requires an audit (P12)",
+    },
+  };
   assert.deepEqual(
     generatorEligible([scan, audited]).map((x) => x.id),
     ["hbp-chili"],
@@ -1194,7 +1214,11 @@ test("MY cook night seeds overlap; OTHER cooks' dinners push away (David 2026-08
     nutrition: { calories: 700, protein: 50 },
     ingredients: [{ qty: 800, unit: "g", food: "chicken thigh" }],
   };
-  const recipes = [lunch("a-chicken-lunch", "chicken thigh"), lunch("b-farro-lunch", "farro"), dinner];
+  const recipes = [
+    lunch("a-chicken-lunch", "chicken thigh"),
+    lunch("b-farro-lunch", "farro"),
+    dinner,
+  ];
   const targets = { macros: { calories: 1800, protein: 120 }, mealSlots: ["lunch"] };
   const tableEntry = (extra) => ({
     id: "table-x",
@@ -1327,7 +1351,12 @@ test("a small profile gets smaller plates from the same shared recipes", () => {
     generateWeek({
       recipes: pool,
       targets: {
-        macros: { calories, caloriesFloor: Math.round(calories * 0.9), protein: 100, proteinFloor: 60 },
+        macros: {
+          calories,
+          caloriesFloor: Math.round(calories * 0.9),
+          protein: 100,
+          proteinFloor: 60,
+        },
         mealSlots: ["breakfast", "lunch", "dinner"],
       },
       pantry: { staples: [], perishables: [] },
@@ -1340,7 +1369,11 @@ test("a small profile gets smaller plates from the same shared recipes", () => {
   const small = run(1550);
   const large = run(3400);
   const dayOf = (/** @type {any} */ p) =>
-    dayTotals(p.entries, byId, [...new Set(p.entries.map((/** @type {any} */ e) => e.date))].sort()[0]);
+    dayTotals(
+      p.entries,
+      byId,
+      [...new Set(p.entries.map((/** @type {any} */ e) => e.date))].sort()[0],
+    );
 
   assert.ok(
     dayOf(small).calories < dayOf(large).calories,
@@ -1425,9 +1458,7 @@ test("macroTopUp tight restricts the snack pool to overlap/cheap, and reports it
 
   const plan = {
     week: "2026-W40",
-    entries: [
-      { id: "d1", date: "2026-09-28", slot: "dinner", recipeId: "dinner-r", servings: 1 },
-    ],
+    entries: [{ id: "d1", date: "2026-09-28", slot: "dinner", recipeId: "dinner-r", servings: 1 }],
   };
   const floors = { calories: 2000, protein: 100 };
   const weekFoodPool = new Set(["chicken-breast", "black-beans"]);
@@ -1826,7 +1857,10 @@ test("a stated tray size beats the derived one, because he knows what he can eat
 // ---- spec 2026-08-25: remedy fence, fixedSlots, snackPortable --------------
 
 test("remedy-tagged recipes never enter a generated week (spec 1)", () => {
-  const brat = { ...r("brat-plate", "lunch", ["white rice", "applesauce"]), tags: ["remedy", "gentle"] };
+  const brat = {
+    ...r("brat-plate", "lunch", ["white rice", "applesauce"]),
+    tags: ["remedy", "gentle"],
+  };
   assert.ok(!generatorEligible([brat, CHICKEN_A]).some((x) => x.id === "brat-plate"));
   // 20 salts, belt and braces: the plate must appear in none of them
   for (let salt = 0; salt < 20; salt++) {
@@ -1846,7 +1880,10 @@ test("remedy-tagged recipes never enter a generated week (spec 1)", () => {
 });
 
 test("fixedSlots places the named recipe on all seven days of its slot (spec 2)", () => {
-  const otherBreakfast = r("oatmeal", "breakfast", ["oats", "milk"], { protein: 30, calories: 600 });
+  const otherBreakfast = r("oatmeal", "breakfast", ["oats", "milk"], {
+    protein: 30,
+    calories: 600,
+  });
   const { plan, report } = generateWeek({
     recipes: [...ALL, otherBreakfast],
     targets: { ...TARGETS, fixedSlots: { breakfast: "eggs" } },
@@ -1900,7 +1937,10 @@ test("a profile without fixedSlots generates exactly as before", () => {
 });
 
 test("snackPortable restricts every auto-planned snack to portable recipes (spec 5)", () => {
-  const portableSnack = { ...r("jerky", "snack", ["beef jerky"], { protein: 20, calories: 125 }), portable: true };
+  const portableSnack = {
+    ...r("jerky", "snack", ["beef jerky"], { protein: 20, calories: 125 }),
+    portable: true,
+  };
   const fridgeSnack = r("yogurt-cup", "snack", ["yogurt"], { protein: 25, calories: 205 });
   const recipes = [CHICKEN_A, CHICKEN_B, BREAKFAST, SMOOTHIE, LUNCH, fridgeSnack, portableSnack];
   const { plan, report } = generateWeek({
@@ -1950,9 +1990,7 @@ test("a currency swipe placeholder is re-stamped from the CURRENT stated tray on
   };
   const targets = {
     ...TARGETS,
-    currencies: [
-      { id: "swipes", venue: "buffet", perWeek: 7, estCalories: 1200, estProtein: 90 },
-    ],
+    currencies: [{ id: "swipes", venue: "buffet", perWeek: 7, estCalories: 1200, estProtein: 90 }],
   };
   const { plan } = generateWeek({
     recipes: POOL,
@@ -1994,7 +2032,10 @@ test("an out entry with NO currency keeps its estimate (a restaurant guess is no
 });
 
 test("snackStyle weekly: every planned snack IS the buffer recipe, batch covers the week", () => {
-  const snackA = { ...r("balls", "snack", ["oats", "peanut butter"], { protein: 16, calories: 255 }), batchPrep: { sundayComponent: "roll the batch" } };
+  const snackA = {
+    ...r("balls", "snack", ["oats", "peanut butter"], { protein: 16, calories: 255 }),
+    batchPrep: { sundayComponent: "roll the batch" },
+  };
   const snackB = r("mix", "snack", ["almonds", "raisins"], { protein: 10, calories: 345 });
   const recipes = [CHICKEN_A, CHICKEN_B, BREAKFAST, SMOOTHIE, LUNCH, snackA, snackB];
   const { plan, report } = generateWeek({
@@ -2033,12 +2074,19 @@ test("a profile without snackStyle keeps per-day variety and a 7-portion buffer"
 });
 
 test("snackStyle weekly: next week's snack differs (last week's pick is penalised)", () => {
-  const snackA = { ...r("balls", "snack", ["oats", "peanut butter"], { protein: 16, calories: 255 }), batchPrep: { sundayComponent: "roll" } };
-  const snackB = { ...r("mix", "snack", ["almonds", "raisins"], { protein: 10, calories: 345 }), batchPrep: { sundayComponent: "jar" } };
+  const snackA = {
+    ...r("balls", "snack", ["oats", "peanut butter"], { protein: 16, calories: 255 }),
+    batchPrep: { sundayComponent: "roll" },
+  };
+  const snackB = {
+    ...r("mix", "snack", ["almonds", "raisins"], { protein: 10, calories: 345 }),
+    batchPrep: { sundayComponent: "jar" },
+  };
   const recipes = [CHICKEN_A, CHICKEN_B, BREAKFAST, SMOOTHIE, LUNCH, snackA, snackB];
   const targets = { ...TARGETS, snackStyle: "weekly" };
   const w1 = generateWeek({
-    recipes, targets,
+    recipes,
+    targets,
     pantry: { staples: [], perishables: [] },
     weekId: "2026-W29",
     plan: { week: "2026-W29", entries: [] },
@@ -2046,7 +2094,8 @@ test("snackStyle weekly: next week's snack differs (last week's pick is penalise
   });
   const w1ids = [...new Set(w1.plan.entries.map((e) => e.recipeId).filter(Boolean))];
   const w2 = generateWeek({
-    recipes, targets,
+    recipes,
+    targets,
     pantry: { staples: [], perishables: [] },
     weekId: "2026-W30",
     plan: { week: "2026-W30", entries: [] },
@@ -2076,9 +2125,7 @@ test("a swipe whose freeText names a COMPOSED tray keeps its measured macros", (
   };
   const targets = {
     ...TARGETS,
-    currencies: [
-      { id: "swipes", venue: "buffet", perWeek: 7, estCalories: 1200, estProtein: 90 },
-    ],
+    currencies: [{ id: "swipes", venue: "buffet", perWeek: 7, estCalories: 1200, estProtein: 90 }],
   };
   const { plan } = generateWeek({
     recipes: POOL,
@@ -2110,7 +2157,11 @@ test("pickCommittee with rotateProtein seats a beef and a fish dish over the sec
   const plain = pickCommittee([CHICKEN_A, CHICKEN_B, CHICKEN_C, chili, cod], { size: 3, salt: 0 });
   assert.deepEqual(plain.map((c) => c.id).sort(), ["gyros", "harissa", "shawarma"]);
   // and when the bank is all chicken the rule relaxes instead of leaving seats empty
-  const only = pickCommittee([CHICKEN_A, CHICKEN_B, CHICKEN_C], { size: 3, salt: 0, rotateProtein: true });
+  const only = pickCommittee([CHICKEN_A, CHICKEN_B, CHICKEN_C], {
+    size: 3,
+    salt: 0,
+    rotateProtein: true,
+  });
   assert.equal(only.length, 3);
 });
 
@@ -2129,11 +2180,18 @@ test("generateWeek with targets.cookDays: no-cook nights eat leftovers of a cook
   const sun = dinner("2026-09-06");
   const mon = dinner("2026-09-07");
   assert.ok(sun && mon && !sun.leftoverOf && !mon.leftoverOf, "cook nights cook");
-  assert.equal(dinner("2026-09-08").leftoverOf, "2026-09-06");
-  assert.equal(dinner("2026-09-08").recipeId, sun.recipeId, "Tuesday eats Sunday's pot");
+  // the MOST RECENT pot, on consecutive days (David 2026-09-13): Monday's pot
+  // is Tuesday, Wednesday and Thursday; Sunday's is Sunday's alone
+  assert.equal(dinner("2026-09-08").leftoverOf, "2026-09-07");
+  assert.equal(dinner("2026-09-08").recipeId, mon.recipeId, "Tuesday eats Monday's pot");
   assert.equal(dinner("2026-09-09").leftoverOf, "2026-09-07");
   assert.equal(dinner("2026-09-09").recipeId, mon.recipeId, "Wednesday eats Monday's pot");
-  assert.equal(dinner("2026-09-10").leftoverOf, "2026-09-06", "Thursday goes back to Sunday's pot (round-robin)");
+  assert.equal(
+    dinner("2026-09-10").leftoverOf,
+    "2026-09-07",
+    "Thursday still eats Monday's pot, never a jump back over it",
+  );
+  assert.notEqual(sun.recipeId, undefined);
   assert.ok(!dinner("2026-09-11").leftoverOf && !dinner("2026-09-12").leftoverOf);
   assert.deepEqual(report.manifest.leftovers.cookDays, [0, 1, 5, 6]);
   assert.equal(report.manifest.leftovers.cookNights.length, 4);

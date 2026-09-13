@@ -27,6 +27,7 @@ import {
 } from "../lib/household.js";
 import { TOUR_STEPS, TOUR_TABS } from "../lib/tour.js";
 import { EQUIPMENT, canMake, unlockCounts } from "../lib/equipment.js";
+import { SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { notifyTest } from "../lib/worker.js";
 
 /**
@@ -46,7 +47,8 @@ import { notifyTest } from "../lib/worker.js";
  *   tourState: import("../lib/tour.js").TourState | null,
  *   targets?: Record<string, any> | null,
  *   bankRecipes?: Record<string, any>[],
- *   onSaveEquipment?: (owned: string[]) => Promise<void>
+ *   onSaveEquipment?: (owned: string[]) => Promise<void>,
+ *   onSaveMealSlots?: (slots: string[]) => Promise<void>
  * }} props
  */
 export function SystemView({
@@ -64,6 +66,7 @@ export function SystemView({
   targets,
   bankRecipes,
   onSaveEquipment,
+  onSaveMealSlots = undefined,
 }) {
   const ageDays = tokenAgeDays();
   const renewSoon = hasToken && ageDays != null && ageDays >= TOKEN_WARN_AGE_DAYS;
@@ -108,6 +111,35 @@ export function SystemView({
       setGearNote(e instanceof Error ? e.message : "could not save");
     } finally {
       setGearBusy(false);
+    }
+  };
+
+  // ---- WHICH MEALS YOU PLAN (P2) -----------------------------------------
+  // Until 2026-09-13 the meal slots were set once at onboarding and could only
+  // be changed by editing targets.json: David dropped the daily smoothie by
+  // telling a session, which is the standing-rule failure. Same shape as the
+  // kitchen above: a draft, one SAVE, the next GENERATE MY WEEK honours it.
+  const declaredSlots = Array.isArray(targets?.mealSlots) ? targets.mealSlots : null;
+  const [slotDraft, setSlotDraft] = useState(/** @type {string[] | null} */ (null));
+  const [slotBusy, setSlotBusy] = useState(false);
+  const [slotNote, setSlotNote] = useState("");
+  const mealSlots = slotDraft ?? declaredSlots ?? ["breakfast", "lunch", "dinner"];
+  const toggleSlot = (/** @type {string} */ id) =>
+    setSlotDraft(
+      SLOT_KEYS.filter((k) => (k === id ? !mealSlots.includes(id) : mealSlots.includes(k))),
+    );
+  const saveSlots = async () => {
+    if (!onSaveMealSlots || slotDraft === null) return;
+    setSlotBusy(true);
+    setSlotNote("");
+    try {
+      await onSaveMealSlots(slotDraft);
+      setSlotDraft(null);
+      setSlotNote("saved. The next GENERATE MY WEEK plans these meals and no others.");
+    } catch (e) {
+      setSlotNote(e instanceof Error ? e.message : "could not save");
+    } finally {
+      setSlotBusy(false);
     }
   };
 
@@ -618,6 +650,36 @@ export function SystemView({
           </button>
         </div>
         ${houseNote && html`<p class="hint" role="status">${houseNote}</p>`}
+        <h3>Your meals</h3>
+        <p class="hint">
+          The meals Mise plans for you each day. Turn one off and the week stops planning it (a
+          fixed daily dish in that slot goes with it); turn it on and the next week fills it.
+        </p>
+        <div class="chips">
+          ${SLOT_KEYS.map(
+            (k) =>
+              html`<button
+                key=${k}
+                class="chip ${mealSlots.includes(k) ? "on" : ""}"
+                aria-pressed=${mealSlots.includes(k)}
+                disabled=${!onSaveMealSlots}
+                onClick=${() => toggleSlot(k)}
+              >
+                ${SLOT_META[k]?.full ?? k}
+              </button>`,
+          )}
+        </div>
+        <div class="actions">
+          <button
+            class="secondary"
+            onClick=${saveSlots}
+            disabled=${slotDraft === null || slotBusy || mealSlots.length === 0}
+          >
+            ${slotBusy ? "SAVING…" : "SAVE MEALS"}
+          </button>
+        </div>
+        ${slotNote ? html`<p class="hint" role="status">${slotNote}</p>` : null}
+
         <h3>Your kitchen</h3>
         <p class="hint">
           Tick what you actually own. Mise will stop offering food you cannot cook, and adding a

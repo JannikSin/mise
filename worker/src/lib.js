@@ -752,7 +752,7 @@ const TAILOR_TOOL = {
               type: "array",
               items: { type: "string" },
               description:
-                "1-4 concrete plating actions for THIS person, EVERY line with an exact amount: grams for anything scoopable ('add 150 g cooked rice', 'add 100 g steamed broccoli'), counts for whole items ('1 fried egg on top'), and explicit omissions with the cook step that makes them possible ('no onions: this plate is portioned out before the onions go in')",
+                "1-4 concrete plating actions for THIS person, EVERY line with an exact amount: grams for anything scoopable ('add 150 g cooked rice', 'add 100 g steamed broccoli'), counts for whole items ('1 extra pita'), and explicit omissions with the cook step that makes them possible ('no onions: this plate is portioned out before the onions go in'). Only foods that are IN the dish's ingredient list (plus water, salt, pepper, cooking oil): never a powder, supplement, shake, bar, or any food the pot does not hold",
             },
             estCalories: { type: "number", description: "this seat's plate after adjustments" },
             estProtein: { type: "number", description: "grams protein after adjustments" },
@@ -784,10 +784,16 @@ const TAILOR_SYSTEM =
   "lifter, more vegetables and lighter starch for someone losing, " +
   "respecting diets and never-serve lists absolutely. An omission ('no " +
   "onions') must come with the cook step that makes it real, e.g. portion " +
-  "that plate out BEFORE the onions go in. Adjustments must be achievable " +
-  "from the dish's own components plus ordinary pantry staples. Cook notes " +
-  "are sequenced, in cooking order, so one pot still serves every plate. " +
-  "Honest macro estimates per adjusted plate. No em dashes.";
+  "that plate out BEFORE the onions go in. HARD RULE: every adjustment uses " +
+  "only foods that are in the dish's ingredient list, plus water, salt, " +
+  "pepper and cooking oil. Never add protein powder, whey, creatine, " +
+  "supplements, shakes, bars, or any food the pot does not hold, even when " +
+  "a person's targets are far off; if a plate cannot reach its person's " +
+  "share from the pot, say so in ONE cook note and stop. The ingredient list " +
+  "you are given is the WHOLE POT for the table at its real total, so scale " +
+  "each plate from it. Cook notes are sequenced, in cooking order, so one " +
+  "pot still serves every plate. Honest macro estimates per adjusted plate. " +
+  "No em dashes.";
 
 /**
  * Anthropic Messages request to tailor a table dish per seat.

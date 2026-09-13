@@ -768,16 +768,17 @@ export function planBrigadeWeek(events, brigade, ctx) {
   }
   // THE DINNER SCHEDULE, decided before any dish is (phase 1). Every no-cook
   // night in the run is handed to one cook night: the candidates are the
-  // run's cook nights up to MAX_LEFTOVER_DAYS earlier, and the pick goes
-  // ROUND-ROBIN, fewest nights already fed first, oldest pot on a tie. That
-  // is David's own sketch (2026-09-05: "cook sunday dinner and that is for
-  // sunday and tuesday, cook monday dinner and that is monday and wednesday,
-  // maybe sunday dinner is also thursday"): two pots each eaten two or three
-  // times instead of one pot eaten four nights running, and the oldest pot is
-  // emptied first. A night already stamped leftoverOf an existing SAFE pot
-  // keeps it on a mid-week run (idempotence); a night with no candidate
-  // cooks after all. The cook night then draws only from dishes whose
-  // safeDays reach its LAST leftover night (phase 2, in the day loop).
+  // run's cook nights up to MAX_LEFTOVER_DAYS earlier, and the pick is the
+  // MOST RECENT pot. David, 2026-09-13: "have leftovers be on consecutive
+  // days, so if I make Tuesday, the same meal will be leftover on Wednesday."
+  // The 2026-09-05 round-robin (Sunday's pot on Tuesday and Thursday,
+  // Monday's on Wednesday) put a different dinner between a pot and its own
+  // leftovers, which is exactly what he did not want. Newest pot first means
+  // a cook night feeds the nights right after it; how far it stretches is
+  // bounded by the dish's safeDays (phase 2 picks a dish that keeps that
+  // long), and a night no safe pot reaches cooks after all. A night already
+  // stamped leftoverOf an existing SAFE pot keeps it on a mid-week run
+  // (idempotence).
   /** @type {Map<string, string | null>} no-cook date -> cook date (null = nothing to eat from) */
   const leftoverPlan = new Map();
   /** @type {Map<string, string[]>} cook date -> the no-cook dates it feeds */
@@ -806,9 +807,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         leftoverPlan.set(d, null);
         continue;
       }
-      cands.sort(
-        (a, b) => (fedBy.get(a)?.length ?? 0) - (fedBy.get(b)?.length ?? 0) || a.localeCompare(b),
-      );
+      cands.sort((a, b) => b.localeCompare(a)); // newest pot first
       const c = /** @type {string} */ (cands[0]);
       leftoverPlan.set(d, c);
       fedBy.set(c, [...(fedBy.get(c) ?? []), d]);

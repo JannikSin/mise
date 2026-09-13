@@ -1002,7 +1002,7 @@ export function TablesView({
               // glance says why Tuesday is leftovers and breakfast repeats
               (cookDaysLabel(b.cookDays) || Object.keys(b.slotRecipes ?? {}).length > 0) &&
               html`<div class="sub">
-                ${cookDaysLabel(b.cookDays) && html`🍳 cook dinner ${cookDaysLabel(b.cookDays)} · other nights eat leftovers`}
+                ${cookDaysLabel(b.cookDays) && html`🍳 cook dinner ${cookDaysLabel(b.cookDays)} · the nights after eat that pot`}
                 ${Object.entries(b.slotRecipes ?? {}).map(
                   ([slot, ids]) =>
                     html`<span key=${slot}>
@@ -1136,7 +1136,7 @@ export function TablesView({
                         ? "Every night cooks fresh. Untap the busy nights and they eat leftovers: the cook night makes a bigger pot, sized for the plates it feeds."
                         : brigadeForm.cookDays.length === 0
                           ? "Pick at least one cook night."
-                          : `Cook ${cookDaysLabel([...brigadeForm.cookDays].sort())}. The other nights eat leftovers of the nearest pot still inside its safe window, oldest pot first; a night no pot can reach cooks after all.`
+                          : `Cook ${cookDaysLabel([...brigadeForm.cookDays].sort())}. Each other night eats the most recent pot, so a Tuesday cook is Wednesday's dinner; a pot stretches only as far as its dish keeps, and a night no pot can reach cooks after all.`
                     }
                   </p>`
               }

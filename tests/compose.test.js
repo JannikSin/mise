@@ -726,27 +726,28 @@ const sunCtx = (overrides = {}) =>
 const dinnerOn = (events, date) =>
   events.tables.find((t) => t.fromBrigade === "wk" && t.date === date && t.slot === "dinner");
 
-test("COOK NIGHTS: no-cook nights eat leftovers round-robin (Sun feeds Tue+Thu, Mon feeds Wed), every plate still solved", () => {
+test("COOK NIGHTS: no-cook nights eat the MOST RECENT pot on consecutive days (Mon feeds Tue, Wed, Thu), every plate still solved", () => {
+  // David, 2026-09-13: "if I make Tuesday, the same meal will be leftover on
+  // Wednesday". The round-robin this replaced put Monday's dinner between
+  // Sunday's pot and Sunday's own leftovers.
   const { events, nights, report } = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx());
   assert.deepEqual(nights.cook, ["2026-09-06", "2026-09-07", "2026-09-11", "2026-09-12"]);
   assert.deepEqual(nights.leftover, [
-    { date: "2026-09-08", from: "2026-09-06" },
+    { date: "2026-09-08", from: "2026-09-07" },
     { date: "2026-09-09", from: "2026-09-07" },
-    { date: "2026-09-10", from: "2026-09-06" },
+    { date: "2026-09-10", from: "2026-09-07" },
   ]);
   assert.deepEqual(nights.uncovered, []);
   const sun = dinnerOn(events, "2026-09-06");
   const mon = dinnerOn(events, "2026-09-07");
-  // Sunday's pot must last until Thursday (gap 4): only the 4-day dish qualifies
-  assert.equal(
-    sun.recipeId,
-    "din-stew",
-    "the feeding cook night draws a dish that keeps long enough",
-  );
+  assert.ok(sun && !sun.leftoverOf, "Sunday cooks for Sunday alone");
+  // Monday's pot must last until Thursday (gap 3): its dish has to keep 3 days
+  const monDish = KEEPS_BANK.get(mon.recipeId);
+  assert.ok((Number(monDish?.safeDays) || 3) >= 3, `${mon.recipeId} keeps ${monDish?.safeDays}`);
   for (const [d, src] of [
-    ["2026-09-08", sun],
-    ["2026-09-10", sun],
+    ["2026-09-08", mon],
     ["2026-09-09", mon],
+    ["2026-09-10", mon],
   ]) {
     const t = dinnerOn(events, d);
     assert.equal(t.leftoverOf, src.id, `${d} eats from ${src.date}'s pot`);
@@ -791,7 +792,7 @@ test("re-running the same week keeps the schedule (idempotent), and a regenerate
   );
   assert.deepEqual(
     re.nights.leftover.map((n) => `${n.date}<${n.from}`),
-    ["2026-09-08<2026-09-06", "2026-09-09<2026-09-07", "2026-09-10<2026-09-06"],
+    ["2026-09-08<2026-09-07", "2026-09-09<2026-09-07", "2026-09-10<2026-09-07"],
   );
 });
 

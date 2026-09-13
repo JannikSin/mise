@@ -2,6 +2,7 @@ import { html } from "htm/preact";
 import { useRef, useState } from "preact/hooks";
 import { targetsSanity } from "../lib/targets.js";
 import {
+  cookLine,
   currencyUsed,
   currencyEaten,
   datesOfWeek,
@@ -13,6 +14,7 @@ import {
   SLOT_META,
 } from "../lib/plan.js";
 import { parseLocalIso } from "../lib/dates.js";
+import { isPerBowl } from "../lib/portions.js";
 import { manifestDrifted, manifestLines } from "../lib/manifest.js";
 import { CookBlocks } from "./cook-blocks.js";
 import { brigadeRunLines } from "./brigade-lines.js";
@@ -32,6 +34,10 @@ function toppingsLine(recipe, date) {
   const chosen = rotateComponents(/** @type {any} */ (recipe).rotation, date);
   return chosen.rotated.map((c) => c.food).join(" · ");
 }
+
+/** "2026-09-08" as "Tue", for the who-cooks chip */
+const weekdayShort = (/** @type {string} */ iso) =>
+  parseLocalIso(iso).toLocaleDateString([], { weekday: "short" });
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
@@ -105,7 +111,8 @@ function monthDay(isoDate) {
  *   onRemoveGuest?: (date: string, profileId: string) => void,
  *   onNewGuestProfile?: () => void,
  *   whatsLeft?: (slot: string) => ReturnType<typeof import("../lib/shelfcheck.js").useWhatsLeft>,
- *   onUseWhatsLeft?: (date: string, slot: string, recipeId: string) => void
+ *   onUseWhatsLeft?: (date: string, slot: string, recipeId: string) => void,
+ *   profileId?: string
  * }} props `brigade` (2026-09-05): my house's standing arrangement and its
  *   tables for this week, so GENERATE can say it plans the shared meals and
  *   every day can show who is eating and take one more person. `brigadeRun`:
@@ -140,6 +147,7 @@ export function PlannerView({
   lastWeekReview = null,
   brigade = null,
   brigadeRun = null,
+  profileId = "",
   onAddGuest = undefined,
   onRemoveGuest = undefined,
   onNewGuestProfile = undefined,
@@ -776,8 +784,15 @@ export function PlannerView({
                                           html` <span class="usesoon cookedchip">✓ cooked</span>`
                                         }
                                         ${
-                                          /** @type {any} */ (entry).leftoverOf &&
-                                          html` <span class="usesoon">leftovers</span>`
+                                          cookLine(
+                                            entry,
+                                            profileId,
+                                            weekdayShort,
+                                            isPerBowl(recipe),
+                                          ) &&
+                                          html` <span class="usesoon"
+                                            >${cookLine(entry, profileId, weekdayShort, isPerBowl(recipe))}</span
+                                          >`
                                         }
                                         ${
                                           toppingsLine(recipe, date) &&
@@ -853,7 +868,17 @@ export function PlannerView({
                                   <span class="chipbody">
                                     <span class="n">
                                       ${name}${entry.table && html` <span class="usesoon">table</span>`}
-                                      ${entry.cookTotal && html` <span class="usesoon">you cook</span>`}
+                                      ${
+                                        cookLine(
+                                          entry,
+                                          profileId,
+                                          weekdayShort,
+                                          isPerBowl(recipe),
+                                        ) &&
+                                        html` <span class="usesoon"
+                                          >${cookLine(entry, profileId, weekdayShort, isPerBowl(recipe))}</span
+                                        >`
+                                      }
                                       ${entry.cookedAt && html` <span class="usesoon cookedchip">✓ cooked</span>`}
                                       ${
                                         /** @type {any} */ (entry).plate &&

@@ -373,6 +373,28 @@ test("buildTailorRequest carries the dish, macros and seat ids", () => {
   assert.match(text, /\[mom\]/);
 });
 
+test("the tailor prompt forbids powders, supplements and foods the pot does not hold (David 2026-09-13)", () => {
+  const req = buildTailorRequest({
+    recipe: {
+      name: "x",
+      servings: 1,
+      calories: 1,
+      protein: 1,
+      carbs: 1,
+      fat: 1,
+      ingredients: ["rice"],
+    },
+    seats: sanitizePeople([{ id: "d", name: "D" }]),
+    model: "m",
+  });
+  assert.match(req.system, /Never add protein powder, whey, creatine, supplements/);
+  assert.match(req.system, /WHOLE POT/);
+  assert.match(
+    req.tools[0].input_schema.properties.seats.items.properties.plate.description,
+    /IN the dish's ingredient list/,
+  );
+});
+
 test("validateTailor keeps only allowed seat ids and drops empty plates", () => {
   const out = validateTailor(
     {

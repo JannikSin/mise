@@ -2076,13 +2076,14 @@ export function generateWeek({
   // have leftovers cause especially for busy nights that's easier").
   // `targets.cookDays` names the weekdays (0 Sun … 6 Sat) dinner is cooked;
   // every other live night eats an earlier cook night's pot. The schedule is
-  // decided first, dates only, ROUND-ROBIN over the run's cook nights up to
-  // MAX_LEFTOVER_DAYS back (fewest nights fed first, oldest pot on a tie), so
-  // two pots each feed two or three nights instead of one pot feeding four,
-  // and the oldest pot is emptied first. A cook night that feeds later
-  // nights then takes the first dish in the rotation whose safeDays reach
-  // its last leftover night; a night no safe pot reaches cooks after all
-  // and is reported. Absent cookDays = every night cooks, exactly as before.
+  // decided first, dates only: each no-cook night eats the MOST RECENT pot
+  // within MAX_LEFTOVER_DAYS (David, 2026-09-13: "if I make Tuesday, the
+  // same meal will be leftover on Wednesday"; the earlier round-robin put
+  // another dinner between a pot and its own leftovers). A cook night that
+  // feeds later nights then takes the first dish in the rotation whose
+  // safeDays reach its last leftover night; a night no safe pot reaches
+  // cooks after all and is reported. Absent cookDays = every night cooks,
+  // exactly as before.
   const cookDaySet =
     Array.isArray(targets?.cookDays) && targets.cookDays.length > 0
       ? new Set(targets.cookDays.map(Number))
@@ -2112,9 +2113,7 @@ export function generateWeek({
         leftoverPlan.set(d, null);
         continue;
       }
-      cands.sort(
-        (a, b) => (fedBy.get(a)?.length ?? 0) - (fedBy.get(b)?.length ?? 0) || a.localeCompare(b),
-      );
+      cands.sort((a, b) => b.localeCompare(a)); // newest pot first
       const c = /** @type {string} */ (cands[0]);
       leftoverPlan.set(d, c);
       fedBy.set(c, [...(fedBy.get(c) ?? []), d]);

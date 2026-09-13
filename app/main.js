@@ -89,6 +89,7 @@ import { composeWeekReview } from "./lib/review.js";
 import { appendWaste } from "./lib/waste.js";
 import { canonicalFood, toGrams } from "./lib/ingredients.js";
 import { cookPlan, isPerBowl } from "./lib/portions.js";
+import { bowlTailor, dishContext, screenTailorToDish, seatSay } from "./lib/tailor.js";
 import {
   addEntry,
   removeEntryById,
@@ -313,6 +314,24 @@ function App() {
     const me = activeProfile();
     const cur = /** @type {any} */ (await readTargetsOf(me)) ?? {};
     await writeTargetsOf(me, { ...cur, equipment: normalizeEquipment(owned) });
+    setTargets(/** @type {any} */ (await readTargetsOf(me)));
+  }, []);
+
+  // WHICH MEALS YOU PLAN (P2). David, 2026-09-13: "get rid of smoothie". The
+  // slot list was written once at onboarding and nothing in the app could
+  // change it; this is the button. A fixed dish in a dropped slot goes with
+  // it, or the generator would keep a "smoothie every day" rule for a slot
+  // that no longer exists. Takes effect at the next GENERATE MY WEEK.
+  const handleSaveMealSlots = useCallback(async (/** @type {string[]} */ slots) => {
+    const me = activeProfile();
+    const cur = /** @type {any} */ (await readTargetsOf(me)) ?? {};
+    const keep = SLOT_KEYS.filter((s) => slots.includes(s));
+    if (keep.length === 0) throw new Error("keep at least one meal");
+    const fixedIn = cur.fixedSlots && typeof cur.fixedSlots === "object" ? cur.fixedSlots : null;
+    const fixed = fixedIn
+      ? Object.fromEntries(Object.entries(fixedIn).filter(([s]) => keep.includes(s)))
+      : null;
+    await writeTargetsOf(me, { ...cur, mealSlots: keep, ...(fixed ? { fixedSlots: fixed } : {}) });
     setTargets(/** @type {any} */ (await readTargetsOf(me)));
   }, []);
 
@@ -3795,31 +3814,38 @@ function App() {
       const live = (t.seats ?? []).filter((s) => s.status !== "skipped");
       if (live.length === 0) throw new Error("everyone skipped this table — nothing to tailor");
       const facts = await handleDinerFacts(live.map((s) => s.id));
-      const n = recipe.nutrition ?? {};
-      const result = await tailorTable(
-        {
-          name: recipe.name,
-          servings: recipe.servings ?? 1,
-          calories: n.calories ?? 0,
-          protein: n.protein ?? 0,
-          carbs: n.carbs ?? 0,
-          fat: n.fat ?? 0,
-          // measured, not just named: gram-level plate math needs the real
-          // amounts ("300 g chicken thigh"), so the model can weigh honestly
-          ingredients: (recipe.ingredients ?? []).map((/** @type {any} */ i) =>
-            i.qty ? `${i.qty} ${i.unit ?? "x"} ${i.food}` : String(i.food ?? ""),
-          ),
-        },
-        /** @type {any} */ (
-          facts.map((f) => ({
-            ...f,
-            say: `eats ${live.find((s) => s.id === f.id)?.servings ?? 1} serving(s) of this dish`,
-          }))
-        ),
-      );
+      const today = localIsoDate(new Date());
+      // A PER-PORTION DISH IS ARITHMETIC, NOT AI (David, 2026-09-13: "ai
+      // tailoring needs to be fixed"). The 09-07 bowl came back telling him to
+      // add a scoop of protein powder (out of the bowl since 08-29) and to
+      // build the base from every topping "as cooked", because the model was
+      // handed the whole pool as one pot. Each seat of a bowl is its own
+      // portion of today's list; no model is asked.
+      const result = isPerBowl(recipe)
+        ? bowlTailor(recipe, live, t.date ?? today)
+        : // a cooked dish: the model sees the WHOLE POT at the table's real
+          // total and each seat's share of it, and every line it returns is
+          // screened against the dish's own ingredients afterwards (code,
+          // never an AI judgment): no powders, no supplements, no food the
+          // pot does not hold.
+          screenTailorToDish(
+            await tailorTable(
+              dishContext(recipe, live),
+              /** @type {any} */ (
+                facts.map((f) => ({
+                  ...f,
+                  say: seatSay(
+                    recipe,
+                    live.find((s) => s.id === f.id),
+                    live,
+                  ),
+                }))
+              ),
+            ),
+            recipe,
+          );
       if (Object.keys(result.seats).length === 0)
         throw new Error("no tailoring came back — try again");
-      const today = localIsoDate(new Date());
       writeHouseEvents(house, setTableTailor(cur, tableId, { at: today, ...result }, today));
     },
     [writeHouseEvents, handleDinerFacts],
@@ -4261,6 +4287,7 @@ function App() {
         poolReport=${recipes.length > 0 ? poolAdequacy(recipes, targets) : null}
         weekId=${weekId}
         todayIso=${localIsoDate(new Date())}
+        profileId=${me}
         onWeek=${handleWeekNav}
         onSwitch=${handleSwitchEntry}
         onOpen=${handleOpenEntry}
@@ -4574,6 +4601,7 @@ function App() {
         targets=${targets}
         bankRecipes=${bankRecipes}
         onSaveEquipment=${handleSaveEquipment}
+        onSaveMealSlots=${handleSaveMealSlots}
       />`
     }
 
