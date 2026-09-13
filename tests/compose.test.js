@@ -1001,3 +1001,43 @@ test("a PINNED table is kept through a plain SET whatever the pantry says (David
     "plates are solved for the pinned dish",
   );
 });
+
+test("a brigade slot the member's own profile does not eat is SKIPPED auto for that member only (David 2026-09-13: no smoothie for him, Elliot keeps his)", () => {
+  const noSmoothie = { ...davidTargets, mealSlots: ["breakfast", "lunch", "dinner", "snack"] };
+  const ctx = sunCtx({
+    targetsById: new Map([
+      ["david", noSmoothie],
+      ["elliot", elliotTargets],
+    ]),
+  });
+  const { events } = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, ctx);
+  const smoothies = events.tables.filter((t) => t.fromBrigade === "wk" && t.slot === "smoothie");
+  assert.ok(smoothies.length > 0, "the shared brigade still plans the smoothie slot");
+  for (const t of smoothies) {
+    const d = t.seats.find((s) => s.id === "david");
+    const e = t.seats.find((s) => s.id === "elliot");
+    assert.equal(d?.status, "skipped", `${t.date}: David is off the smoothie`);
+    assert.equal(/** @type {any} */ (d)?.auto, true, "machine-stamped, so SYS can seat him again");
+    assert.notEqual(e?.status, "skipped", `${t.date}: Elliot still gets his smoothie`);
+  }
+  const breakfasts = events.tables.filter((t) => t.fromBrigade === "wk" && t.slot === "breakfast");
+  assert.ok(breakfasts.every((t) => t.seats.find((s) => s.id === "david")?.status !== "skipped"));
+  // a profile with NO declared mealSlots eats every brigade slot, as before
+  const legacy = { ...davidTargets };
+  delete legacy.mealSlots;
+  const { events: ev2 } = planBrigadeWeek(
+    { tables: [] },
+    COOK_BRIGADE,
+    sunCtx({
+      targetsById: new Map([
+        ["david", legacy],
+        ["elliot", elliotTargets],
+      ]),
+    }),
+  );
+  assert.ok(
+    ev2.tables
+      .filter((t) => t.slot === "smoothie")
+      .every((t) => t.seats.find((s) => s.id === "david")?.status !== "skipped"),
+  );
+});

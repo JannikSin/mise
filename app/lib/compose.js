@@ -50,10 +50,21 @@ const PROTEIN_REPEAT_COST = 0.5;
 const MEAL_STEPS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 const LIGHT_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const LIGHT_SLOTS = new Set(["smoothie", "snack"]);
-// Portion sanity is enforced by the GRIDS themselves: meals 0.75-2.0×, light
-// slots 0.5-2.0× — the worst reachable spread is a half-portion snack beside
-// a double dinner, which is a normal day. (An explicit spread cap shipped
-// here briefly and was dead code: the grids already bound it. One less name.)
+// WHERE THE SMOOTHIE'S CALORIES GO (David, 2026-09-13, after dropping the
+// smoothie slot: "reportion the amount that was going to smoothie to the rest
+// of the things, probably other snack, so like baked goods, muffin thing, or
+// to the dinner... don't know if need to add more to breakfast cause I don't
+// have a ton of time to eat breakfast"). Per-slot grids say exactly that:
+//  - breakfast tops out at 1.25: the live week had the composer doubling his
+//    yogurt bowl (2 cups of yogurt, fourteen toppings) to fill the gap, which
+//    is the one place he said the food cannot go;
+//  - snack reaches 3 (three servings of a bake is a real afternoon plus an
+//    evening plate); dinner reaches 2.5.
+// Portion sanity is still the grids themselves. (An explicit spread cap
+// shipped here briefly and was dead code: the grids already bound it.)
+const BREAKFAST_STEPS = [0.75, 1, 1.25];
+const SNACK_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3];
+const DINNER_STEPS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5];
 /** how many alternates a single-slot swap tries, and how many each side of a
  * two-slot swap tries (Red Team: single-slot solves 94% of real days, one
  * two-slot pass takes it to 100%) */
@@ -113,7 +124,16 @@ export function seatBands(targets, covered, share = 1) {
 }
 
 /** @param {string} slot @returns {number[]} */
-const stepsFor = (slot) => (LIGHT_SLOTS.has(slot) ? LIGHT_STEPS : MEAL_STEPS);
+const stepsFor = (slot) =>
+  slot === "breakfast"
+    ? BREAKFAST_STEPS
+    : slot === "snack"
+      ? SNACK_STEPS
+      : slot === "dinner"
+        ? DINNER_STEPS
+        : LIGHT_SLOTS.has(slot)
+          ? LIGHT_STEPS
+          : MEAL_STEPS;
 
 /**
  * Solve ONE seat's servings for a fixed recipe tuple. Exhaustive over the
@@ -1018,7 +1038,24 @@ export function planBrigadeWeek(events, brigade, ctx) {
       // skip stays skipped. A machine-stamped skip (auto: true) is
       // recomputed fresh every run — carrying it would keep a member off the
       // pot forever after they unpin (the resurrect-the-decline bug, inverted)
-      const blockedSlots = new Set(liveSlots.filter((slot) => cov?.blocked.has(`${date}|${slot}`)));
+      // A SLOT THE MEMBER'S OWN PROFILE DOES NOT EAT (David, 2026-09-13: "get
+      // rid of smoothie" is HIS ruling, and the brigade is shared, so Elliot
+      // keeps his). A slot missing from the member's declared mealSlots is
+      // treated like a blocked slot: written SKIPPED with auto, recomputed
+      // every run, so turning the meal back on in SYS seats him again. A
+      // profile that declares no mealSlots at all eats every brigade slot,
+      // exactly as before.
+      const declaredSlots =
+        Array.isArray(targets?.mealSlots) && targets.mealSlots.length > 0
+          ? targets.mealSlots
+          : null;
+      const blockedSlots = new Set(
+        liveSlots.filter(
+          (slot) =>
+            cov?.blocked.has(`${date}|${slot}`) ||
+            (declaredSlots !== null && !declaredSlots.includes(slot)),
+        ),
+      );
       const exclude = new Set(
         liveSlots.filter((slot) => {
           if (blockedSlots.has(slot)) return true;
