@@ -26,7 +26,10 @@ $ErrorActionPreference = "Stop"
 $Dest = "sandbox"
 if ($Dest -ne "sandbox") { throw "destination ref is not sandbox: refusing" }
 Set-Location $DataRepo
-git fetch -q origin
+# fetch BOTH refs explicitly: a clone whose fetch refspec covers only main has no
+# refs/remotes/origin/sandbox, and --force-with-lease with no local lease info is
+# rejected as "stale info" (hit 2026-09-13, chauncey, on the first laptop re-seed)
+git fetch -q origin "+refs/heads/main:refs/remotes/origin/main" "+refs/heads/sandbox:refs/remotes/origin/sandbox"
 $mainSha = (git rev-parse origin/main).Trim()
 Write-Host "mise-data main = $mainSha"
 if (-not $Confirm) {
