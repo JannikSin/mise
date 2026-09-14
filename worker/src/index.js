@@ -704,7 +704,11 @@ export default {
               rows: rows.map((r) => ({
                 ...r,
                 dish:
-                  names[r.dish] ?? r.dish.replace(/-/g, " ").replace(/\w/g, (c) => c.toUpperCase()),
+                  names[r.dish] ??
+                  r.dish
+                    .split("-")
+                    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+                    .join(" "),
               })),
             },
             cors,
