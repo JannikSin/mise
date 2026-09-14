@@ -30,12 +30,14 @@ import { applyScanItems } from "./lib/scan.js";
 import { dinerFacts } from "./lib/annotate.js";
 import {
   tailorTable,
+  newInvite,
   krogerConsumeRedirect,
   krogerPricesById,
   krogerSearch,
 } from "./lib/worker.js";
 import { repriceList, reapplyOps } from "./lib/repricer.js";
 import { ProfileGateView } from "./views/profile-gate.js";
+import { JoinView, StatusView } from "./views/join.js";
 import { CookbookView } from "./views/cookbook.js";
 import { RecipeView } from "./views/recipe.js";
 import { RecipePeek } from "./views/recipe-peek.js";
@@ -3617,6 +3619,17 @@ function App() {
   );
 
   /** a brand-new person: the guest questionnaire, then straight back to Plan */
+  // JOIN BY LINK (guesthouse spec §8, 2026-09-14): mint a single-use code
+  // with THIS device's token and hand back the link to send. The invitee's
+  // phone never gets a token; the Worker writes their profile for them.
+  const handleInviteLink = useCallback(async (/** @type {"member" | "guest"} */ kind) => {
+    const me = activeProfile();
+    const hostHouse = allProfilesRef.current.find((p) => p.id === me)?.household ?? "home";
+    const { code } = await newInvite(kind, hostHouse, me);
+    const base = `${location.origin}${location.pathname}`;
+    return `${base}#/join?code=${encodeURIComponent(code)}`;
+  }, []);
+
   const handleNewGuestProfile = useCallback(() => {
     try {
       sessionStorage.setItem("mise.guestBack", "#/plan");
@@ -4302,6 +4315,7 @@ function App() {
         weekId=${weekId}
         todayIso=${localIsoDate(new Date())}
         profileId=${me}
+        onInviteLink=${handleInviteLink}
         onWeek=${handleWeekNav}
         onSwitch=${handleSwitchEntry}
         onOpen=${handleOpenEntry}
@@ -4497,6 +4511,8 @@ function App() {
         }}
       />`
     }
+    ${route.view === "join" && html`<${JoinView} code=${/** @type {any} */ (route).code ?? ""} />`}
+    ${route.view === "status" && html`<${StatusView} code=${/** @type {any} */ (route).code ?? ""} />`}
     ${
       route.view === "hall" &&
       html`<${HallView}

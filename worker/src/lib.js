@@ -2936,3 +2936,256 @@ export function parseAskResponse(resp) {
     .trim();
   return { reply: text || "no answer came back — try asking again" };
 }
+
+// ---- invites: join by link (guesthouse spec §8, 2026-09-14) -----------------
+// Three routes. /invite/new is AUTHENTICATED (the host's PAT, like every
+// other route) and mints a single-use code. /invite/claim and /invite/status
+// are the two unauthenticated routes this Worker has besides the Kroger
+// callback: both are gated by the code alone, so the code is 100 bits of
+// randomness, single use, and dies after seven days; both are rate-limited
+// per client address; and the only writes a claim can make are CREATING one
+// new profile (never touching an existing one) and marking its own invite
+// used. Everything else is refused in code, never left to judgment.
+
+export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const INVITE_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567"; // base32, lowercase
+export const INVITE_CODE_RE = /^[a-z2-7]{20}$/;
+
+/**
+ * Which data branch an origin may write. The sandbox app writes the sandbox
+ * branch, the live app writes main, anything else may not write at all: this
+ * is the release train's item 3 applied to the new routes (docs/RELEASE_TRAIN.md).
+ * @param {string | null} origin
+ * @returns {"main" | "sandbox" | null}
+ */
+export function branchForOrigin(origin) {
+  if (origin === "https://janniksin.github.io") return "main";
+  if (origin === "https://mise-next.pages.dev") return "sandbox";
+  return null;
+}
+
+/**
+ * A 20-character base32 code from 20 random bytes (100 bits).
+ * @param {Uint8Array} bytes
+ */
+export function mintInviteCode(bytes) {
+  let out = "";
+  for (let i = 0; i < 20; i++) out += INVITE_ALPHABET[(bytes[i] ?? 0) % 32];
+  return out;
+}
+
+/**
+ * @param {any} v
+ * @returns {string} a lowercase kebab slug, possibly empty
+ */
+export function slugOf(v) {
+  return String(v ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
+
+/**
+ * The profile row a claim may create: name, emoji, optional family. The
+ * household is NEVER taken from the body; the invite decides it.
+ * @param {any} input
+ * @returns {{ name: string, emoji: string, family?: string } | null}
+ */
+export function sanitizeInviteEntry(input) {
+  if (typeof input !== "object" || input === null) return null;
+  const name = typeof input.name === "string" ? input.name.trim().slice(0, 40) : "";
+  const emoji = typeof input.emoji === "string" ? input.emoji.trim().slice(0, 8) : "";
+  // eslint-disable-next-line no-control-regex
+  if (!name || /[\u0000-\u001f<>]/.test(name)) return null;
+  // eslint-disable-next-line no-control-regex
+  if (!emoji || /[\u0000-\u001f<>]/.test(emoji)) return null;
+  const family = slugOf(input.family);
+  return { name, emoji, ...(family ? { family } : {}) };
+}
+
+/** JS builtin names a cleaned object may never carry as own keys */
+const BUILTIN_KEYS = new Set([
+  "constructor",
+  "prototype",
+  "toString",
+  "valueOf",
+  "hasOwnProperty",
+  "isPrototypeOf",
+  "propertyIsEnumerable",
+  "toLocaleString",
+]);
+
+/** every key targetsFromQuestionnaire can write (app/lib/targets.js) */
+const TARGET_KEYS = new Set([
+  "macros",
+  "adjustmentRule",
+  "phase",
+  "phaseSince",
+  "goalWeightLb",
+  "diet",
+  "allergens",
+  "avoidIngredients",
+  "snackAppetite",
+  "maxWeeknightMinutes",
+  "dislikeIngredients",
+  "cuisinePrefs",
+  "maxDifficulty",
+  "equipment",
+  "breakfastStyle",
+  "budget",
+  "stores",
+  "shopsPerWeek",
+  "tiredOf",
+  "region",
+  "leftoverTolerance",
+  "packsLunch",
+  "lunchMicrowave",
+  "mealsOutPerWeek",
+  "mealSlots",
+  "tracks",
+  "dailyDozen",
+  "sleepHoursTarget",
+  "priorityStack",
+  "nonNegotiables",
+  "supplementPlan",
+]);
+
+/**
+ * Deep-clean a JSON value: strings capped, arrays capped, plain objects
+ * only, depth-limited. Anything else becomes undefined (dropped).
+ * @param {any} v
+ * @param {number} depth
+ * @returns {any}
+ */
+function cleanValue(v, depth) {
+  if (depth > 4) return undefined;
+  if (typeof v === "string") return v.slice(0, 200);
+  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
+  if (typeof v === "boolean") return v;
+  if (Array.isArray(v)) {
+    return v
+      .slice(0, 40)
+      .map((x) => cleanValue(x, depth + 1))
+      .filter((x) => x !== undefined);
+  }
+  if (typeof v === "object" && v !== null) {
+    /** @type {Record<string, any>} */
+    const out = {};
+    for (const [k, x] of Object.entries(v).slice(0, 40)) {
+      if (!/^[A-Za-z][A-Za-z0-9_]{0,40}$/.test(k) || BUILTIN_KEYS.has(k)) continue;
+      const c = cleanValue(x, depth + 1);
+      if (c !== undefined) out[k] = c;
+    }
+    return out;
+  }
+  return undefined;
+}
+
+/**
+ * The targets file a claim may write: whitelisted keys, cleaned values,
+ * sane macros, under 24 KB. null = refuse the claim.
+ * @param {any} input
+ * @returns {Record<string, any> | null}
+ */
+export function sanitizeInviteTargets(input) {
+  if (typeof input !== "object" || input === null) return null;
+  /** @type {Record<string, any>} */
+  const out = {};
+  for (const [k, v] of Object.entries(input)) {
+    if (!TARGET_KEYS.has(k)) continue;
+    const c = cleanValue(v, 0);
+    if (c !== undefined) out[k] = c;
+  }
+  const m = out.macros;
+  const cal = Number(m?.calories);
+  const pro = Number(m?.protein);
+  if (!m || !(cal >= 1000 && cal <= 8000) || !(pro >= 30 && pro <= 400)) return null;
+  if (!["loss", "maintain", "gain", "recomp"].includes(out.phase)) out.phase = "maintain";
+  if (JSON.stringify(out).length > 24000) return null;
+  return out;
+}
+
+/**
+ * A profile id from a name that does not collide with any existing id.
+ * @param {string} name
+ * @param {Set<string>} taken
+ */
+export function slugForName(name, taken) {
+  const base = slugOf(name) || "guest";
+  if (!taken.has(base)) return base;
+  for (let n = 2; n < 100; n++) {
+    const cand = `${base}-${n}`;
+    if (!taken.has(cand)) return cand;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+/**
+ * @typedef {{ code: string, house: string, hostHouse: string, createdBy: string, createdAt: string, expiresAt: string, usedAt?: string, profileId?: string }} Invite
+ */
+
+/**
+ * @param {{ invites?: Invite[] } | null} file
+ * @param {string} code
+ * @returns {Invite | null}
+ */
+export function findInvite(file, code) {
+  if (!INVITE_CODE_RE.test(code)) return null;
+  return (file?.invites ?? []).find((i) => i && i.code === code) ?? null;
+}
+
+/**
+ * Is this invite still claimable at `nowIso`? Returns the reason it is not.
+ * @param {Invite | null} inv
+ * @param {string} nowIso
+ * @returns {"ok" | "unknown" | "used" | "expired"}
+ */
+export function inviteState(inv, nowIso) {
+  if (!inv) return "unknown";
+  if (inv.usedAt) return "used";
+  if (typeof inv.expiresAt === "string" && inv.expiresAt < nowIso) return "expired";
+  return "ok";
+}
+
+/**
+ * The status page's rows: the tables in the next `days` days where this
+ * profile is seated and not skipped, newest first is wrong, so date order.
+ * Plate lines come from the table's tailor block when it has them.
+ * @param {Record<string, any>[]} tables
+ * @param {string} profileId
+ * @param {(id: string) => string} dishName
+ * @param {(id: string) => string} personName
+ * @param {string} todayIso
+ * @param {number} [days]
+ */
+export function inviteStatusRows(tables, profileId, dishName, personName, todayIso, days = 14) {
+  const end = new Date(`${todayIso}T12:00:00Z`);
+  end.setUTCDate(end.getUTCDate() + days);
+  const endIso = end.toISOString().slice(0, 10);
+  return (Array.isArray(tables) ? tables : [])
+    .filter(
+      (t) =>
+        t &&
+        typeof t.date === "string" &&
+        t.date >= todayIso &&
+        t.date <= endIso &&
+        Array.isArray(t.seats) &&
+        t.seats.some((s) => s && s.id === profileId && s.status !== "skipped"),
+    )
+    .sort((a, b) => a.date.localeCompare(b.date) || String(a.slot).localeCompare(String(b.slot)))
+    .slice(0, 40)
+    .map((t) => {
+      const seat = t.seats.find((/** @type {any} */ s) => s.id === profileId);
+      const plate = t.tailor?.seats?.[profileId]?.plate;
+      return {
+        date: t.date,
+        slot: String(t.slot ?? ""),
+        dish: dishName(String(t.recipeId ?? "")),
+        servings: Number(seat?.servings) || 1,
+        plate: Array.isArray(plate) ? plate.map((l) => String(l).slice(0, 160)).slice(0, 4) : [],
+        cook: t.cookId ? personName(String(t.cookId)) : "",
+      };
+    });
+}

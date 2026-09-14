@@ -23,6 +23,17 @@ import {
   validateHallPlate,
   buildTailorRequest,
   buildDinnerRequest,
+  branchForOrigin,
+  mintInviteCode,
+  INVITE_TTL_MS,
+  INVITE_CODE_RE,
+  slugOf,
+  sanitizeInviteEntry,
+  sanitizeInviteTargets,
+  slugForName,
+  findInvite,
+  inviteState,
+  inviteStatusRows,
   parseToolUse,
   parseOnboardResponse,
   parseDinnerResponse,
@@ -108,7 +119,6 @@ export function repoForRequest(req, env) {
   return allowedRepos(env).includes(asked) ? asked : DATA_REPO;
 }
 
-
 const DEFAULT_MODEL = "claude-sonnet-5";
 const AUTH_TTL_MS = 10 * 60 * 1000;
 const MAX_BODY_BYTES = 16 * 1024 * 1024; // ~12MB of image after base64
@@ -139,8 +149,7 @@ function sanitizeCandidates(input) {
     .map((/** @type {any} */ c) => ({
       id: String(c.id).slice(0, 80),
       name: typeof c.name === "string" ? c.name.trim().slice(0, 80) : "",
-      calories:
-        typeof c.calories === "number" && isFinite(c.calories) ? Math.round(c.calories) : 0,
+      calories: typeof c.calories === "number" && isFinite(c.calories) ? Math.round(c.calories) : 0,
       protein: typeof c.protein === "number" && isFinite(c.protein) ? Math.round(c.protein) : 0,
       cuisine: typeof c.cuisine === "string" ? c.cuisine.trim().slice(0, 30) : "",
     }))
@@ -232,6 +241,62 @@ async function ghReadJson(path, token) {
   return res.json().catch(() => null);
 }
 
+/**
+ * ghReadJson on a named branch (the invite routes read the branch their
+ * origin owns). 404 → null.
+ * @param {string} path
+ * @param {string} token
+ * @param {string} branch
+ * @returns {Promise<Record<string, any> | null>}
+ */
+async function ghReadJsonRef(path, token, branch) {
+  const res = await fetch(
+    `https://api.github.com/repos/${DATA_REPO}/contents/${path}?ref=${encodeURIComponent(branch)}`,
+    {
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: "application/vnd.github.raw+json",
+        "user-agent": "mise-worker",
+      },
+    },
+  );
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
+}
+
+/** the open invite routes read at most this much (H3): a claim is a few KB of profile */
+const INVITE_MAX_BODY_BYTES = 64 * 1024;
+/** how long a claimed code keeps opening the status page (M1) */
+const INVITE_STATUS_TTL_MS = 60 * 24 * 60 * 60 * 1000;
+
+/**
+ * A recipe read through the Cache API when the platform has one (an hour),
+ * so the status page cannot turn one code into a GitHub read storm (H4).
+ * @param {string} id
+ * @param {string} token
+ * @param {string} branch
+ * @returns {Promise<Record<string, any> | null>}
+ */
+async function cachedRecipe(id, token, branch) {
+  const key = `https://mise-worker.internal/recipe-name/${branch}/${id}`;
+  const store = /** @type {any} */ (globalThis).caches?.default;
+  if (store) {
+    const hit = await store.match(key).catch(() => null);
+    if (hit) return hit.json().catch(() => null);
+  }
+  const r = await ghReadJsonRef(`recipes/${id}.json`, token, branch);
+  const slim = r?.name ? { name: String(r.name) } : null;
+  if (store && slim) {
+    await store
+      .put(
+        key,
+        new Response(JSON.stringify(slim), { headers: { "cache-control": "max-age=3600" } }),
+      )
+      .catch(() => {});
+  }
+  return slim;
+}
+
 /** local wall clock in David's timezone */
 function chicagoNow() {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -320,14 +385,18 @@ async function runNotifications(token, topic, now, send) {
  * @param {string | undefined} sha
  * @param {string} token
  * @param {string} message
+ * @param {string} [branch] write this branch instead of the repo default
  */
-async function ghWriteJson(path, data, sha, token, message) {
+async function ghWriteJson(path, data, sha, token, message, branch = undefined) {
   /** @type {Record<string, string>} */
   const body = {
     message,
     content: btoa(unescape(encodeURIComponent(JSON.stringify(data, null, 2)))),
   };
   if (sha) body.sha = sha;
+  // the invite routes write the branch their ORIGIN owns (sandbox or main);
+  // every older caller passes nothing and keeps the repo default
+  if (branch) body.branch = branch;
   return fetch(`https://api.github.com/repos/${DATA_REPO}/contents/${path}`, {
     method: "PUT",
     headers: {
@@ -344,10 +413,12 @@ async function ghWriteJson(path, data, sha, token, message) {
  * Read a file WITH its sha (ghReadJson deliberately returns raw content only).
  * @param {string} path
  * @param {string} token
+ * @param {string} [branch] read this branch instead of the repo default
  * @returns {Promise<{ data: Record<string, any> | null, sha: string | undefined }>}
  */
-async function ghReadWithSha(path, token) {
-  const res = await fetch(`https://api.github.com/repos/${DATA_REPO}/contents/${path}`, {
+async function ghReadWithSha(path, token, branch = undefined) {
+  const ref = branch ? `?ref=${encodeURIComponent(branch)}` : "";
+  const res = await fetch(`https://api.github.com/repos/${DATA_REPO}/contents/${path}${ref}`, {
     headers: {
       authorization: `Bearer ${token}`,
       accept: "application/vnd.github+json",
@@ -446,7 +517,6 @@ async function fetchRecipeUrl(rawUrl) {
   throw new Error("too many redirects");
 }
 
-
 export default {
   /**
    * Hourly cron (wrangler.toml): compute this hour's notifications and post
@@ -468,7 +538,7 @@ export default {
 
   /**
    * @param {Request} request
-   * @param {{ ANTHROPIC_API_KEY?: string, SCAN_MODEL?: string, REMEDY_MODEL?: string, MISE_DATA_TOKEN?: string, NTFY_TOPIC?: string }} env
+   * @param {{ ANTHROPIC_API_KEY?: string, SCAN_MODEL?: string, REMEDY_MODEL?: string, MISE_DATA_TOKEN?: string, MISE_INVITE_TOKEN?: string, NTFY_TOPIC?: string }} env
    */
   async fetch(request, env) {
     const cors = corsFor(request.headers.get("origin"));
@@ -509,6 +579,9 @@ export default {
         "/ask",
         "/annotate",
         "/annotate-save",
+        "/invite/new",
+        "/invite/claim",
+        "/invite/status",
         "/notify-test",
         "/hall/day",
         "/hall/items",
@@ -518,12 +591,261 @@ export default {
       return json(404, { error: "not found" }, cors);
     }
 
+    // JOIN BY LINK, the open half (guesthouse spec §8; security review
+    // 2026-09-14 applied). Two routes with no PAT: the invitee's phone never
+    // holds one. What stands between them and the data:
+    //  - the code: 100 random bits, minted under a real PAT, SINGLE USE. The
+    //    stamp that spends it is the FIRST write of a claim and carries the
+    //    file's sha, so two racing claims cannot both win (a 409 is "already
+    //    used"). Nothing is created until the stamp has landed.
+    //  - the branch: recorded in the invite ROW at mint time. The Origin
+    //    header only picks which invites.json to look in; it is not
+    //    authorization, and a row whose branch disagrees is refused.
+    //  - a dedicated write credential, MISE_INVITE_TOKEN (contents:write on
+    //    mise-data only). The cron's read-only token is never used to write.
+    //  - a bounded request: 64 KB read as text before any parse, the code
+    //    validated before any other field is looked at, a per-address rate
+    //    limit (per isolate, so a soft limit; the code is the hard one).
+    //  - a status grant that expires (60 days after the claim), reads only
+    //    the invitee's own seats, and never reports internal detail.
+    if (url.pathname === "/invite/claim" || url.pathname === "/invite/status") {
+      const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+      const weight = url.pathname === "/invite/status" ? 6 : 3;
+      if (!allowRequest(rateState, `open:${ip}`, Date.now(), weight)) {
+        return json(429, { error: "slow down — try again in a few minutes" }, cors);
+      }
+      const originBranch = branchForOrigin(request.headers.get("origin"));
+      if (!originBranch)
+        return json(403, { error: "invites are not available from this origin" }, cors);
+      const writeToken = env.MISE_INVITE_TOKEN;
+      if (!writeToken) {
+        return json(503, { error: "invites are not switched on yet" }, cors);
+      }
+      /** @type {any} */
+      let body;
+      try {
+        const raw = await request.text();
+        if (raw.length > INVITE_MAX_BODY_BYTES) return json(413, { error: "too large" }, cors);
+        body = JSON.parse(raw);
+      } catch {
+        return json(400, { error: "bad json" }, cors);
+      }
+      const code = typeof body?.code === "string" ? body.code.trim().toLowerCase() : "";
+      if (!INVITE_CODE_RE.test(code))
+        return json(404, { error: "that invite does not exist" }, cors);
+      const fail = (/** @type {unknown} */ e) => {
+        console.log(
+          "invite route failed",
+          url.pathname,
+          e instanceof Error ? e.message : String(e),
+        );
+        return json(
+          502,
+          { error: "could not reach the kitchen's records, try again in a minute" },
+          cors,
+        );
+      };
+      try {
+        const inv = await ghReadWithSha("invites.json", writeToken, originBranch);
+        const invite = findInvite(/** @type {any} */ (inv.data), code);
+        if (!invite) return json(404, { error: "that invite does not exist" }, cors);
+        // H2: the row's branch was written under the host's PAT; the Origin
+        // header only got us here. They must agree.
+        const branch = /** @type {any} */ (invite).branch;
+        if (branch !== originBranch)
+          return json(404, { error: "that invite does not exist" }, cors);
+        const nowMs = Date.now();
+        const nowIso = new Date(nowMs).toISOString();
+
+        if (url.pathname === "/invite/status") {
+          if (!invite.usedAt || !invite.profileId) {
+            return inviteState(invite, nowIso) === "expired"
+              ? json(410, { error: "this invite has expired, ask for a new one" }, cors)
+              : json(200, { state: "unclaimed" }, cors);
+          }
+          const until = /** @type {any} */ (invite).statusUntil;
+          if (typeof until === "string" && until < nowIso) {
+            return json(410, { error: "this link has expired, ask for a new one" }, cors);
+          }
+          const profs = await ghReadJsonRef("profiles.json", writeToken, branch);
+          const people = new Map(
+            (profs?.profiles ?? []).map((/** @type {any} */ p) => [
+              String(p.id),
+              String(p.name ?? p.id),
+            ]),
+          );
+          const house = slugOf(invite.hostHouse) || "home";
+          const events = await ghReadJsonRef(`households/${house}/events.json`, writeToken, branch);
+          const tables = Array.isArray(events?.tables) ? events.tables : [];
+          const todayIso = chicagoNow().dateIso;
+          const rows = inviteStatusRows(
+            tables,
+            invite.profileId,
+            (id) => id,
+            (id) => people.get(id) ?? id,
+            todayIso,
+          );
+          // H4: at most four dish-name reads, each cached for an hour
+          /** @type {Record<string, string>} */
+          const names = {};
+          const ids = [
+            ...new Set(rows.map((r) => r.dish).filter((id) => /^[a-z0-9-]+$/.test(id))),
+          ].slice(0, 4);
+          for (const id of ids) {
+            const r = await cachedRecipe(id, writeToken, branch);
+            if (r?.name) names[id] = String(r.name);
+          }
+          return json(
+            200,
+            {
+              state: "claimed",
+              name: people.get(invite.profileId) ?? invite.profileId,
+              house,
+              rows: rows.map((r) => ({
+                ...r,
+                dish:
+                  names[r.dish] ?? r.dish.replace(/-/g, " ").replace(/\w/g, (c) => c.toUpperCase()),
+              })),
+            },
+            cors,
+          );
+        }
+
+        // /invite/claim
+        const state = inviteState(invite, nowIso);
+        if (state === "used") return json(410, { error: "this invite was already used" }, cors);
+        if (state === "expired")
+          return json(410, { error: "this invite has expired, ask for a new one" }, cors);
+        const entry = sanitizeInviteEntry(body.entry);
+        const targets = sanitizeInviteTargets(body.targets);
+        if (!entry) return json(400, { error: "a name and an emoji are required" }, cors);
+        if (!targets) return json(400, { error: "the profile numbers did not make sense" }, cors);
+        const house = slugOf(/** @type {any} */ (invite).house) || "guesthouse";
+
+        // 1. a free id: absent from profiles.json AND with no files under
+        //    profiles/<id>/ (H5: a recycled id would inherit a stranger's targets)
+        const profs = await ghReadWithSha("profiles.json", writeToken, branch);
+        const list = Array.isArray(profs.data?.profiles) ? profs.data.profiles : [];
+        const taken = new Set(list.map((/** @type {any} */ p) => String(p.id)));
+        let id = "";
+        for (let tries = 0; tries < 5; tries++) {
+          const cand = slugForName(entry.name, taken);
+          // both files of the mirrored pair must be absent: a recycled id
+          // with one file left behind would leave the pair divergent
+          const pair = await Promise.all(
+            [`profiles/${cand}/profile/targets.json`, `profiles/${cand}/fitness/targets.json`].map(
+              (path) => ghReadWithSha(path, writeToken, branch),
+            ),
+          );
+          if (pair.every((f) => f.sha === undefined)) {
+            id = cand;
+            break;
+          }
+          taken.add(cand);
+        }
+        if (!id)
+          return json(409, { error: "could not find a free name, try a different one" }, cors);
+
+        // 2. SPEND THE CODE FIRST, with the sha: the one write that decides the race
+        const stamped = {
+          ...(inv.data ?? {}),
+          invites: (inv.data?.invites ?? []).map((/** @type {any} */ i) =>
+            i?.code === code
+              ? {
+                  ...i,
+                  usedAt: nowIso,
+                  profileId: id,
+                  statusUntil: new Date(nowMs + INVITE_STATUS_TTL_MS).toISOString(),
+                }
+              : i,
+          ),
+        };
+        const stampRes = await ghWriteJson(
+          "invites.json",
+          stamped,
+          inv.sha,
+          writeToken,
+          `invite claimed: ${id} joins ${house}`,
+          branch,
+        );
+        if (stampRes.status === 409)
+          return json(410, { error: "this invite was already used" }, cors);
+        if (stampRes.status === 401 || stampRes.status === 403) {
+          return json(503, { error: "invites are not switched on yet" }, cors);
+        }
+        if (!stampRes.ok) return fail(new Error(`stamp ${stampRes.status}`));
+        // from here the code is SPENT: a later failure must not invite a retry
+        // that can only answer 410. Diagnosable server side, honest client side.
+        const spentFail = (/** @type {unknown} */ e) => {
+          console.log(
+            "invite claim failed after the stamp",
+            e instanceof Error ? e.message : String(e),
+          );
+          return json(
+            502,
+            { error: "something went wrong saving your profile; ask for a new link" },
+            cors,
+          );
+        };
+
+        // 3. the targets, both mirrored files; every write checked
+        for (const path of [
+          `profiles/${id}/profile/targets.json`,
+          `profiles/${id}/fitness/targets.json`,
+        ]) {
+          const res = await ghWriteJson(
+            path,
+            targets,
+            undefined,
+            writeToken,
+            `invite: targets for ${id}`,
+            branch,
+          );
+          if (!res.ok) return spentFail(new Error(`targets ${res.status}`));
+        }
+
+        // 4. the profile row, against the REAL list (409 = someone else wrote; one retry)
+        const row = {
+          id,
+          name: entry.name,
+          emoji: entry.emoji,
+          phase: targets.phase,
+          capabilities: [],
+          household: house,
+          ...(entry.family ? { family: entry.family } : {}),
+        };
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const cur =
+            attempt === 0 ? profs : await ghReadWithSha("profiles.json", writeToken, branch);
+          const curList = Array.isArray(cur.data?.profiles) ? cur.data.profiles : [];
+          if (curList.some((/** @type {any} */ p) => p?.id === id)) break;
+          const res = await ghWriteJson(
+            "profiles.json",
+            { ...(cur.data ?? {}), profiles: [...curList, row] },
+            cur.sha,
+            writeToken,
+            `invite claimed: ${id} joins ${house}`,
+            branch,
+          );
+          if (res.ok) break;
+          if (res.status !== 409 || attempt === 1)
+            return spentFail(new Error(`profiles ${res.status}`));
+        }
+        return json(200, { ok: true, id, name: entry.name, house }, cors);
+      } catch (e) {
+        return fail(e);
+      }
+    }
+
     const token = request.headers.get("x-mise-auth");
     const auth = await isAuthorized(token, repoForRequest(request, env));
     if (auth === "retry") {
       return json(
         503,
-        { error: "GitHub is rate-limiting right now (a burst of edits can do this) — wait two minutes and try again. Your token is fine." },
+        {
+          error:
+            "GitHub is rate-limiting right now (a burst of edits can do this) — wait two minutes and try again. Your token is fine.",
+        },
         cors,
       );
     }
@@ -539,9 +861,7 @@ export default {
         // attempts (Tribunal M1); /kroger/byId fans out one upstream call
         // per UPC. (/dinnerweek and its weight-6 branch retired 2026-08-30:
         // the brigade week is composed deterministically on-device.)
-        url.pathname === "/annotate" ? 4
-          : url.pathname === "/kroger/byId" ? 2
-          : 1,
+        url.pathname === "/annotate" ? 4 : url.pathname === "/kroger/byId" ? 2 : 1,
       )
     ) {
       return json(429, { error: "slow down — try again in a few minutes" }, cors);
@@ -583,10 +903,67 @@ export default {
       }
     }
 
+    // /invite/new: the host mints a single-use code with THEIR token, on the
+    // data branch their origin owns. Nothing is created until someone claims it.
+    if (url.pathname === "/invite/new") {
+      const branch = branchForOrigin(request.headers.get("origin"));
+      if (!branch) return json(403, { error: "invites are not available from this origin" }, cors);
+      /** @type {any} */
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        body = {};
+      }
+      const hostHouse = slugOf(body?.hostHouse) || "home";
+      // where the new person LIVES: the host's own kitchen (a roommate) or the
+      // guesthouse (a dinner guest). Nothing else is accepted.
+      const house = body?.house === "member" ? hostHouse : "guesthouse";
+      const createdBy = slugOf(body?.by) || "unknown";
+      const bytes = new Uint8Array(20);
+      crypto.getRandomValues(bytes);
+      const code = mintInviteCode(bytes);
+      const now = Date.now();
+      try {
+        const cur = await ghReadWithSha("invites.json", /** @type {string} */ (token), branch);
+        const invites = Array.isArray(cur.data?.invites) ? cur.data.invites : [];
+        // housekeeping: drop invites spent or expired more than 30 days ago
+        const keepAfter = new Date(now - 30 * 24 * 3600 * 1000).toISOString();
+        const kept = invites.filter(
+          (/** @type {any} */ i) =>
+            !(i?.usedAt && i.usedAt < keepAfter) && !(i?.expiresAt && i.expiresAt < keepAfter),
+        );
+        const row = {
+          code,
+          house,
+          hostHouse,
+          // the branch this code lives on, decided here under the host's PAT;
+          // the open routes require it to match the origin they are called from
+          branch,
+          createdBy,
+          createdAt: new Date(now).toISOString(),
+          expiresAt: new Date(now + INVITE_TTL_MS).toISOString(),
+        };
+        const res = await ghWriteJson(
+          "invites.json",
+          { invites: [...kept, row] },
+          cur.sha,
+          /** @type {string} */ (token),
+          `invite minted by ${createdBy} for ${house}`,
+          branch,
+        );
+        if (!res.ok) return json(502, { error: `could not save the invite (${res.status})` }, cors);
+        return json(200, { code, house, expiresAt: row.expiresAt }, cors);
+      } catch (e) {
+        return json(502, { error: e instanceof Error ? e.message : "invite failed" }, cors);
+      }
+    }
+
     // /annotate-save is a pure revalidate-then-write and /kroger/* talks to
     // Kroger, not Anthropic: neither needs the AI key
     if (
       url.pathname !== "/annotate-save" &&
+      url.pathname !== "/invite/new" &&
       !url.pathname.startsWith("/kroger/") &&
       !url.pathname.startsWith("/hall/") &&
       !providerConfigured(env)
@@ -840,13 +1217,20 @@ export default {
           try {
             page = await fetchRecipeUrl(body.url.trim());
           } catch (e) {
-            return json(422, { error: e instanceof Error ? e.message : "could not fetch that page" }, cors);
+            return json(
+              422,
+              { error: e instanceof Error ? e.message : "could not fetch that page" },
+              cors,
+            );
           }
           extracted = extractRecipeFromHtml(page);
           if (normalize(extracted).length < 80) {
             return json(
               422,
-              { error: "no readable recipe on that page; photograph it instead (photo scans render but do not save yet)" },
+              {
+                error:
+                  "no readable recipe on that page; photograph it instead (photo scans render but do not save yet)",
+              },
               cors,
             );
           }
@@ -855,7 +1239,8 @@ export default {
           mediaType = ["image/jpeg", "image/png", "image/webp"].includes(body.mediaType)
             ? body.mediaType
             : "";
-          if (!image || !mediaType) return json(400, { error: "url or image + mediaType required" }, cors);
+          if (!image || !mediaType)
+            return json(400, { error: "url or image + mediaType required" }, cors);
           path = "photo";
         }
 
@@ -878,7 +1263,14 @@ export default {
         );
         const transcription = validateTranscription(parseToolUse(t, "record_transcription"));
         if (!transcription) {
-          return json(422, { error: "could not transcribe a recipe from that; try a flatter, brighter shot or a different page" }, cors);
+          return json(
+            422,
+            {
+              error:
+                "could not transcribe a recipe from that; try a flatter, brighter shot or a different page",
+            },
+            cors,
+          );
         }
         const transcriptNorm = normalize(transcription);
         const extractedNorm = path === "url" ? normalize(extracted) : "";
@@ -924,8 +1316,17 @@ export default {
           });
         }
         if (!v.ok) {
-          console.log(JSON.stringify({ hbp: "reject", path, objective, errors: v.errors.slice(0, 6) }));
-          return json(422, { error: "the scan could not be verified as safe to show. Try again.", details: v.errors.slice(0, 6) }, cors);
+          console.log(
+            JSON.stringify({ hbp: "reject", path, objective, errors: v.errors.slice(0, 6) }),
+          );
+          return json(
+            422,
+            {
+              error: "the scan could not be verified as safe to show. Try again.",
+              details: v.errors.slice(0, 6),
+            },
+            cors,
+          );
         }
         const save = saveEligible(v.result, path);
         // the ledger line (H1): operability metadata only, never source text
@@ -963,7 +1364,8 @@ export default {
         const path = body.path === "url" ? "url" : "photo";
         const transcription = typeof body.transcription === "string" ? body.transcription : "";
         const extracted = typeof body.extracted === "string" ? body.extracted : "";
-        const sourceUrl = typeof body.sourceUrl === "string" ? body.sourceUrl.trim().slice(0, 300) : "";
+        const sourceUrl =
+          typeof body.sourceUrl === "string" ? body.sourceUrl.trim().slice(0, 300) : "";
         const input = typeof body.result === "object" && body.result !== null ? body.result : null;
         const objective = OBJECTIVES.includes(input?.objective) ? input.objective : "fit-the-plan";
         const v = validateAnnotation(input, {
@@ -976,7 +1378,12 @@ export default {
           refusalForced:
             refusalHits(`${normalize(transcription)} ${normalize(extracted)}`).length > 0,
         });
-        if (!v.ok) return json(422, { error: "revalidation failed, nothing written", details: v.errors.slice(0, 6) }, cors);
+        if (!v.ok)
+          return json(
+            422,
+            { error: "revalidation failed, nothing written", details: v.errors.slice(0, 6) },
+            cors,
+          );
         const save = saveEligible(v.result, path);
         if (!save.ok) return json(422, { error: save.reason }, cors);
         if (!sourceUrl) return json(400, { error: "sourceUrl required" }, cors);
@@ -986,14 +1393,27 @@ export default {
           .slice(0, 80);
         const dateIso = chicagoNow().dateIso;
         const id = `hbp-${hbpSlug(v.result.title)}-${dateIso}`;
-        const recipe = annotationToRecipe(v.result, { id, sourceUrl, transcription, pantryStaples });
+        const recipe = annotationToRecipe(v.result, {
+          id,
+          sourceUrl,
+          transcription,
+          pantryStaples,
+        });
         const ghPath = `recipes/${id}.json`;
         const writeToken = /** @type {string} */ (token);
         for (let attempt = 0; attempt < 2; attempt++) {
           const { sha } = await ghReadWithSha(ghPath, writeToken).catch(() => ({ sha: undefined }));
-          const res = await ghWriteJson(ghPath, recipe, sha, writeToken, `hbp scan: ${v.result.title}`);
+          const res = await ghWriteJson(
+            ghPath,
+            recipe,
+            sha,
+            writeToken,
+            `hbp scan: ${v.result.title}`,
+          );
           if (res.ok) {
-            console.log(JSON.stringify({ hbp: "save", id, mode: v.result.mode, score: v.result.score }));
+            console.log(
+              JSON.stringify({ hbp: "save", id, mode: v.result.mode, score: v.result.score }),
+            );
             return json(200, { recipe }, cors);
           }
           if (res.status !== 409 && res.status !== 422) {

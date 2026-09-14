@@ -9,6 +9,9 @@ preview_urls = false
 # Secrets (set via dashboard or `npx wrangler secret put`, NEVER here):
 #   ANTHROPIC_API_KEY
 #   MISE_DATA_TOKEN  (read-only fine-grained PAT on mise-data — cron reads)
+#   MISE_INVITE_TOKEN (SEPARATE fine-grained PAT, mise-data only, contents read+write:
+#                     the join-by-link claim creates one profile with it; without it the
+#                     open invite routes answer 503 and nothing is written)
 #   NTFY_TOPIC       (unguessable ntfy.sh topic David's phone subscribes to)
 #   KROGER_CLIENT_ID / KROGER_CLIENT_SECRET  (Kroger Developer API, /kroger/*)
 #   KROGER_STATE_SECRET  (any long random string; HMACs the OAuth state, which

@@ -325,6 +325,36 @@ excluded nothing, forever. A working filter over data nobody wrote.
   microwave only 35/126 with **0 dinners**, a realistic dorm 104/126, adding an
   oven +9.
 
+## Invites — `invites.json` (data-repo ROOT, written by the Worker only)
+
+```jsonc
+{
+  "invites": [
+    {
+      "code": "k3m7pq2xv9a4bcdefgh2", // 20 chars of base32, 100 bits, single use
+      "house": "guesthouse", // where the new person LIVES: "guesthouse" or the host's household slug
+      "hostHouse": "wayne", // whose calendar the status page reads
+      "createdBy": "david",
+      "createdAt": "2026-09-14T21:30:00.000Z",
+      "expiresAt": "2026-09-21T21:30:00.000Z", // seven days
+      "usedAt": "2026-09-15T02:10:00.000Z", // absent until claimed
+      "profileId": "priya", // the profile the claim created
+    },
+  ],
+}
+```
+
+- Written by the Worker's `/invite/new` (host's PAT) and `/invite/claim` (the
+  Worker's own data token), on the data branch the ORIGIN owns (sandbox app
+  writes `sandbox`, live app writes `main`). The app never reads or writes
+  this file directly.
+- A claim creates exactly one new `profiles.json` row (household = `house`)
+  plus the mirrored `profiles/<id>/profile/targets.json` and
+  `profiles/<id>/fitness/targets.json`, then stamps `usedAt`/`profileId`.
+  It never modifies an existing profile.
+- Spent or expired rows older than 30 days are dropped the next time a code
+  is minted. The file is created on first mint.
+
 ## Pins — `pins.json` (data-repo ROOT, shared reference, read raw)
 
 The ledger's identity file (fix list 3.2 promoted by PF.3): a confirmed

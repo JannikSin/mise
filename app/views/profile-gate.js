@@ -59,14 +59,20 @@ function splitList(/** @type {string} */ s) {
 }
 
 /**
- * @param {{ guest?: boolean, onDone?: (id: string) => void }} [props] guest
+ * @param {{ guest?: boolean, onDone?: (id: string) => void, invite?: { code: string, house: string }, busy?: boolean, onInviteSubmit?: (entry: Record<string, any>, targets: Record<string, any>) => Promise<void> }} [props] guest
  * mode (guesthouse spec §8, David's yes 2026-08-29 plenum): the SAME
  * questionnaire, but the profile lands in the `guesthouse` household, the
  * device stays signed in as its owner, and onDone fires instead of a
  * profile switch. A guesthouse profile is never a sign-in identity (§5),
  * so the picker below also refuses to offer one.
  */
-export function ProfileGateView({ guest = false, onDone = undefined } = {}) {
+export function ProfileGateView({
+  guest = false,
+  onDone = undefined,
+  invite = undefined,
+  busy = false,
+  onInviteSubmit = undefined,
+} = {}) {
   const [profiles, setProfiles] = useState(/** @type {Record<string, any>[]} */ ([]));
   const [loading, setLoading] = useState(true);
   const [fallback, setFallback] = useState(false);
@@ -141,6 +147,11 @@ export function ProfileGateView({ guest = false, onDone = undefined } = {}) {
 
   useEffect(() => {
     let alive = true;
+    // an invitee's phone has no token: do not even ask for the list
+    if (invite) {
+      setLoading(false);
+      return;
+    }
     readProfiles().then((p) => {
       if (!alive) return;
       setProfiles(p.profiles);
@@ -181,13 +192,15 @@ export function ProfileGateView({ guest = false, onDone = undefined } = {}) {
     numeric.weightLb <= 500;
 
   const addProfile = async () => {
-    if (!formValid || saving) return;
+    if (!formValid || saving || busy) return;
     const trimmedName = name.trim();
     const id = trimmedName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "");
-    if (!id || profiles.some((p) => p.id === id)) return;
+    // JOIN BY LINK: the Worker picks a free id and writes the files; this
+    // device has no token and no profile list to collide against
+    if (!id || (!invite && profiles.some((p) => p.id === id))) return;
     setSaving(true);
     setSaveErr("");
     const loved = Object.keys(cuisinePrefs).filter((c) => cuisinePrefs[c] === "loved");
@@ -259,6 +272,14 @@ export function ProfileGateView({ guest = false, onDone = undefined } = {}) {
           : {}),
       ...(family.trim() ? { family: slugify(family) } : {}),
     };
+    if (invite && onInviteSubmit) {
+      setSaving(false);
+      await onInviteSubmit(
+        { name: trimmedName, emoji: emoji.trim(), ...(family.trim() ? { family: slugify(family) } : {}) },
+        targets,
+      );
+      return;
+    }
     // await the cache writes (not the network flush, which queues and
     // survives fine) so the reload below never races the local records.
     // Both paths are raw: the gate runs BEFORE a profile is chosen, so
@@ -330,15 +351,20 @@ export function ProfileGateView({ guest = false, onDone = undefined } = {}) {
       <div class="hero">
         <h1>Mise<span>.</span></h1>
         <div class="sub">
-          ${guest
-            ? "guest profile — fill this in and the table sets your plate to your own numbers"
-            : "who's checking in?"}
+          ${invite
+            ? invite.house === "guesthouse"
+              ? "you've been invited to a table. Fill this in once, on your own phone, and every plate they serve you is sized to your numbers and your allergies."
+              : `you've been invited to join the ${invite.house} kitchen. Fill this in once, on your own phone.`
+            : guest
+              ? "guest profile — fill this in and the table sets your plate to your own numbers"
+              : "who's checking in?"}
         </div>
       </div>
       ${loading && html`<p class="hint">loading profiles…</p>`}
       ${
         fallback &&
         !loading &&
+        !invite &&
         html`<p class="hint">
           ⚠ couldn't load the profile list (offline or token not set), so this is the built-in
           default. Any other profiles still exist and are safe; they'll appear once this device
@@ -367,7 +393,7 @@ export function ProfileGateView({ guest = false, onDone = undefined } = {}) {
               )}
             </div>
           `;
-          if (guest) return "";
+          if (guest || invite) return "";
           if (!showHeaders) return block(offerable);
           return fams
             .sort((a, b) => (a || "zz").localeCompare(b || "zz"))
@@ -381,11 +407,11 @@ export function ProfileGateView({ guest = false, onDone = undefined } = {}) {
             );
         })()
       }
-      <button class="secondary linkbtn" hidden=${guest} onClick=${() => setChatMode(true)}>
+      <button class="secondary linkbtn" hidden=${guest || Boolean(invite)} onClick=${() => setChatMode(true)}>
         prefer to chat? set up by conversation →
       </button>
-      <details open=${guest}>
-        <summary class="block-title">${guest ? "your profile" : "+ add profile"}</summary>
+      <details open=${guest || Boolean(invite)}>
+        <summary class="block-title">${guest || invite ? "your profile" : "+ add profile"}</summary>
         <div class="tile">
           <p class="hint">
             fill what you like here, or tap "set up by conversation" above and answer a few

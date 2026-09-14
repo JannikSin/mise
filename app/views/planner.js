@@ -112,7 +112,8 @@ function monthDay(isoDate) {
  *   onNewGuestProfile?: () => void,
  *   whatsLeft?: (slot: string) => ReturnType<typeof import("../lib/shelfcheck.js").useWhatsLeft>,
  *   onUseWhatsLeft?: (date: string, slot: string, recipeId: string) => void,
- *   profileId?: string
+ *   profileId?: string,
+ *   onInviteLink?: (kind: "member" | "guest") => Promise<string>
  * }} props `brigade` (2026-09-05): my house's standing arrangement and its
  *   tables for this week, so GENERATE can say it plans the shared meals and
  *   every day can show who is eating and take one more person. `brigadeRun`:
@@ -148,6 +149,7 @@ export function PlannerView({
   brigade = null,
   brigadeRun = null,
   profileId = "",
+  onInviteLink = undefined,
   onAddGuest = undefined,
   onRemoveGuest = undefined,
   onNewGuestProfile = undefined,
@@ -175,7 +177,9 @@ export function PlannerView({
   // see how much more food we need for that meal based on their profile").
   // The add panel is per day: which person, which of the day's shared meals.
   const [guestPanel, setGuestPanel] = useState(
-    /** @type {null | { date: string, slots: string[], busy: boolean, note: string }} */ (null),
+    /** @type {null | { date: string, slots: string[], busy: boolean, note: string, inviteUrl?: string }} */ (
+      null
+    ),
   );
   const brigadeDays = new Set((brigade?.tables ?? []).map((t) => t.date));
   const brigadeCovers =
@@ -727,7 +731,76 @@ export function PlannerView({
                               🛎 new person
                             </button>`
                           }
+                          ${
+                            // JOIN BY LINK (guesthouse spec §8): they fill the
+                            // form on THEIR phone; nothing of ours leaves this one
+                            onInviteLink &&
+                            html`<button
+                              class="chip"
+                              disabled=${panel.busy}
+                              onClick=${async () => {
+                                setGuestPanel({ ...panel, busy: true, note: "" });
+                                try {
+                                  const url = await onInviteLink("guest");
+                                  setGuestPanel({
+                                    ...panel,
+                                    busy: false,
+                                    note: "",
+                                    inviteUrl: url,
+                                  });
+                                } catch (e) {
+                                  setGuestPanel({
+                                    ...panel,
+                                    busy: false,
+                                    note: e instanceof Error ? e.message : "could not make a link",
+                                  });
+                                }
+                              }}
+                            >
+                              🔗 invite by link
+                            </button>`
+                          }
                         </div>
+                        ${
+                          /** @type {any} */ (panel).inviteUrl &&
+                          html`<div class="token-form">
+                            <input
+                              aria-label="Invite link"
+                              readonly
+                              value=${/** @type {any} */ (panel).inviteUrl}
+                              onFocus=${(/** @type {any} */ e) => e.currentTarget.select()}
+                            />
+                            <button
+                              class="primary"
+                              onClick=${async () => {
+                                const url = /** @type {any} */ (panel).inviteUrl;
+                                const nav = /** @type {any} */ (navigator);
+                                try {
+                                  if (typeof nav.share === "function")
+                                    await nav.share({ title: "Join my Mise table", url });
+                                  else await nav.clipboard.writeText(url);
+                                  setGuestPanel({ ...panel, note: "link ready to send" });
+                                } catch {
+                                  setGuestPanel({ ...panel, note: "copy the link above" });
+                                }
+                              }}
+                            >
+                              ${
+                                typeof /** @type {any} */ (navigator).share === "function"
+                                  ? "SHARE"
+                                  : "COPY"
+                              }
+                            </button>
+                          </div>`
+                        }
+                        ${
+                          /** @type {any} */ (panel).inviteUrl &&
+                          html`<p class="hint">
+                            One person, one link, good for seven days. They fill in their own
+                            profile on their phone and then appear in this list; nothing of yours
+                            leaves this phone.
+                          </p>`
+                        }
                         ${panel.note && html`<p class="hint" role="status">${panel.note}</p>`}
                         <p class="hint">
                           A guest's plate is sized from their own profile, joins the cook's pot and

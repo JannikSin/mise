@@ -37,6 +37,20 @@ export function parseRoute(hash) {
       return { view: head };
     // the hall screen is opened FROM a swipe slot, which already knows the
     // date and the meal; carrying them in the hash means it never asks twice
+    // JOIN BY LINK (guesthouse spec §8): #/join?code=… is the invitee's
+    // questionnaire, #/status?code=… their read-only upcoming meals. Both
+    // work with no token on the device, which is the whole point.
+    case "join":
+    case "status": {
+      const params = new URLSearchParams(query);
+      const code = String(params.get("code") ?? "")
+        .trim()
+        .toLowerCase();
+      /** @type {{ view: string, code?: string }} */
+      const route = { view: head };
+      if (/^[a-z2-7]{20}$/.test(code)) route.code = code;
+      return route;
+    }
     case "hall": {
       const params = new URLSearchParams(query);
       /** @type {{ view: string, date?: string, meal?: string }} */

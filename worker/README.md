@@ -91,6 +91,9 @@ no-ops silently until BOTH secrets exist:
 ```
 npx wrangler secret put NTFY_TOPIC        # unguessable topic, subscribe in the ntfy app
 npx wrangler secret put MISE_DATA_TOKEN   # fine-grained PAT, mise-data, contents READ-ONLY
+npx wrangler secret put MISE_INVITE_TOKEN # a SEPARATE fine-grained PAT, mise-data ONLY, contents READ+WRITE:
+                                          # the join-by-link claim writes one new profile with it. Never
+                                          # widen MISE_DATA_TOKEN instead; the cron stays read-only.
 ```
 
 The topic name IS the auth on ntfy.sh: generate it (`openssl rand -hex 24`

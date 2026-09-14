@@ -92,3 +92,16 @@ test("?date= rides on a recipe URL so a rotating recipe shows THAT day's bowl", 
   // a malformed date is dropped, never passed through
   assert.equal(parseRoute("#/recipe/bowl?date=tomorrow").date, undefined);
 });
+
+test("#/join and #/status carry a 20-char base32 code, and drop anything else", () => {
+  assert.deepEqual(parseRoute("#/join?code=k3m7pq2xvta4bcdefgh2"), {
+    view: "join",
+    code: "k3m7pq2xvta4bcdefgh2",
+  });
+  assert.deepEqual(parseRoute("#/status?code=K3M7PQ2XVTA4BCDEFGH2"), {
+    view: "status",
+    code: "k3m7pq2xvta4bcdefgh2",
+  });
+  assert.deepEqual(parseRoute("#/join?code=../etc"), { view: "join" });
+  assert.deepEqual(parseRoute("#/join"), { view: "join" });
+});

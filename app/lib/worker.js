@@ -195,6 +195,74 @@ export async function scanHallPlate(file, items) {
   };
 }
 
+// ---- join by link (guesthouse spec §8, 2026-09-14) -------------------------
+
+/**
+ * POST with NO token: the two open invite routes. The invitee's phone holds
+ * no PAT and must never be asked for one.
+ * @param {string} path
+ * @param {Record<string, any>} body
+ */
+async function postOpen(path, body) {
+  if (!navigator.onLine) throw new Error("no signal — try again when you are online");
+  let res;
+  try {
+    res = await fetch(WORKER_URL + path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(60000),
+    });
+  } catch (err) {
+    throw new Error("no connection — try again when you have signal", { cause: err });
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok)
+    throw new Error(typeof data.error === "string" ? data.error : `request failed (${res.status})`);
+  return data;
+}
+
+/**
+ * The host mints an invite (their token, their data branch).
+ * @param {"member" | "guest"} kind a roommate joins the host's kitchen; a guest lives in the guesthouse
+ * @param {string} hostHouse the host's household slug
+ * @param {string} by the host's profile id
+ * @returns {Promise<{ code: string, house: string, expiresAt: string }>}
+ */
+export async function newInvite(kind, hostHouse, by) {
+  const data = await post("/invite/new", { house: kind, hostHouse, by });
+  return {
+    code: String(data.code ?? ""),
+    house: String(data.house ?? ""),
+    expiresAt: String(data.expiresAt ?? ""),
+  };
+}
+
+/**
+ * The invitee claims: the Worker writes their profile for them.
+ * @param {string} code
+ * @param {Record<string, any>} entry
+ * @param {Record<string, any>} targets
+ * @returns {Promise<{ id: string, name: string, house: string }>}
+ */
+export async function claimInvite(code, entry, targets) {
+  const data = await postOpen("/invite/claim", { code, entry, targets });
+  return {
+    id: String(data.id ?? ""),
+    name: String(data.name ?? ""),
+    house: String(data.house ?? ""),
+  };
+}
+
+/**
+ * The invitee's read-only status: their upcoming seats and plates.
+ * @param {string} code
+ * @returns {Promise<{ state: string, name?: string, house?: string, rows?: { date: string, slot: string, dish: string, servings: number, plate: string[], cook: string }[] }>}
+ */
+export async function inviteStatus(code) {
+  return /** @type {any} */ (await postOpen("/invite/status", { code }));
+}
+
 /**
  * One shared table dish → per-seat plate specs (scale-first: weighed base
  * portion + measured adjustments) + sequenced cook notes. The caller
