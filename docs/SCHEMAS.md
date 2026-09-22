@@ -5,7 +5,7 @@ The single source of truth for every JSON file in the private `mise-data` repo.
 The post-edit hook flags data files using fields not named here; the `schema-guard`
 agent runs the full check before commits.
 
-Derived from MISE_BLUEPRINT.md §5 (Mealie/Tandoor/KitchenOwl research: structured
+Derived from MISE_BLUEPRINT.md §5 (local-only, gitignored) (Mealie/Tandoor/KitchenOwl research: structured
 ingredients, staple flags, slot-typed plans, derived shopping list; no stock ledgers).
 
 ## Conventions

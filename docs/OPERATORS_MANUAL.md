@@ -2,7 +2,7 @@
 
 Written by Claude Fable 5 (July 2026), the model that built the Phase 1 backbone, for whichever model runs this machine next — Opus or whoever follows. Read this before touching anything. It covers what the machine is, how to operate it without breaking it, the working method that made the build succeed, and how the next four phases bolt on.
 
-Companion documents: `CLAUDE.md` (the rules — binding), `MISE_BLUEPRINT.md` (the product vision and council verdict), `docs/BUILD_PLAN.md` (Phase 1 task ledger), `docs/SCHEMAS.md` (every data file's shape — keep it true), `worker/README.md` (Worker contract).
+Companion documents: `CLAUDE.md` (the rules — binding), `DOCTRINE.md` (the job, tenets, invariants), `docs/decisions/` (settled decisions with status), `docs/incidents.md` (what has gone wrong and the armour), `docs/RELEASE_TRAIN.md` (how code reaches the live app), `docs/SCHEMAS.md` (every data file's shape — keep it true), `worker/README.md` (Worker contract). The July planning set (`MISE_BLUEPRINT.md`, `docs/BUILD_PLAN.md` and the rest) is local-only and gitignored; see section 8.
 
 ---
 
@@ -64,9 +64,9 @@ Push to `main` → GitHub Pages builds. Don't trust timing: nudge with `gh api r
 
 `cd worker; npx wrangler deploy` — but only David can authorize it (his `!` prompt or explicit "deploy"). Config in `worker/wrangler.toml` (account id committed, that's fine; secrets never). New env vars: secrets via dashboard or `wrangler secret put`; models via plain vars `SCAN_MODEL`/`REMEDY_MODEL`. After deploy, probe security from outside: no auth → 401, wrong origin → 403, OPTIONS → 204 with correct ACAO, unknown path → 404.
 
-### 3.6 The weekly scheduled task
+### 3.6 The weekly scheduled task (retired 2026-09-21)
 
-David runs a weekly Cowork scheduled task (claude.ai, GitHub connector authorized to both repos) that drafts next week's plan into `mise-data/plans/<week>.json`, adds 2–3 researched recipes, and flags low staples. The paste-ready prompt lives in `docs/WEEKLY_TASK_PROMPT.md`. If schemas change, update that prompt in the same commit — it encodes them.
+GENERATE MY WEEK plans the week inside the app, so the Cowork drafting task is gone. Its prompt is kept for history at `docs/archive/WEEKLY_TASK_PROMPT.md`. The one scheduled job that still touches Mise data is the Crystal recipe foundry (`crystal-assistant/mise_foundry.py`, Saturdays), which writes only to `mise-data/recipes-staging/`, where no engine reads.
 
 ## 4. The working method (what made this succeed)
 
@@ -119,8 +119,10 @@ asked for the tag only.
 
 **Thinking further out** (the 30-steps-ahead view): every phase adds (a) a data file + schema, (b) at most one tab, (c) at most one Worker endpoint, (d) optionally one scheduled-task prompt. If a proposed feature doesn't decompose into those four pieces, it's fighting the architecture — redesign the feature, not the architecture. The things that must never change without a council run: the two-repo split, the PAT-only data path, offline-first, zero-build, and the small-files rule.
 
-## 8. State of the build (July 2026)
+## 8. State of the build (2026-09-21)
 
-Phase 1 complete and live at https://janniksin.github.io/mise/ — cookbook, quiz, drag-drop planner with ingredient-overlap week builder + protein red flags, pantry + camera scan, shopping list, remedies (rules + live), full fitness tracker, PWA offline shell. Worker deployed. 111 node tests green.
+Live at https://janniksin.github.io/mise/ on shell v208, released by the first run of `tools/release.ps1` (the release train, `docs/RELEASE_TRAIN.md`; sandbox at https://mise-next.pages.dev/). 971 node tests green; the promise ledger reads 11 proven, 1 partial (P9, a layout decision David owns). The Worker is deployed with the invite routes; they answer 503 until `MISE_INVITE_TOKEN` is set.
 
-Outstanding, David-side: set `ANTHROPIC_API_KEY` in the Worker (console.anthropic.com key → CF dashboard → Workers & Pages → mise-worker → Settings → Variables → Secret) — scan and live remedies return 503 until then; schedule the weekly task (`docs/WEEKLY_TASK_PROMPT.md`); then the Task 14 verification week — two weeks of daily use before Phase 2 talk.
+Outstanding, David-side: `MISE_INVITE_TOKEN`; the Kroger cart push needs its redirect URI registered on his Kroger developer app (the code side is done, the cart has been dark since it shipped); the local model (`LOCAL_BASE_URL`) is still unset, so food data goes to Anthropic against the 2026-07-20 council.
+
+The July planning set (`START_HERE`, `FIRST_SESSION_PROMPT`, `INSTALL_GUIDE`, `HANDOFF_CONTEXT`, `MISE_BLUEPRINT`, `docs/BUILD_PLAN`) is local-only and gitignored, since it carries personal data; the mockups, the training set and the weekly Cowork prompt are under `docs/archive/`. All of it is history, not instruction. Sections 1, 2, 6 and 7 of this manual describe the July architecture and are kept for orientation; where they disagree with `CLAUDE.md`, `DOCTRINE.md` or `docs/SCHEMAS.md`, those win.

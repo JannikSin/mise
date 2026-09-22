@@ -3302,6 +3302,18 @@ function App() {
     [writeHouseEvents],
   );
 
+  // the Plan row's one-tap COOKED (parts audit, 2026-09-21: two confirmations
+  // in ten weeks with the button two screens deep). A table entry confirms the
+  // TABLE, exactly as the serve step does; a personal entry confirms itself.
+  // Valid after the fact, never asks first (doctrine: one tap, retroactive).
+  const handleCookedEntry = useCallback(
+    (/** @type {Record<string, any>} */ entry) => {
+      if (entry.table) void handleMarkTableCooked(entry.table);
+      else if (typeof entry.id === "string") handleMarkCooked(entry.id);
+    },
+    [handleMarkCooked, handleMarkTableCooked],
+  );
+
   // MY running (or imminent) occasion, for the Plan tab banner. The screen
   // lives in Settings and is invisible the other 360 days of the year, so on
   // the days it matters it has to announce itself where the food is.
@@ -4319,6 +4331,7 @@ function App() {
         onWeek=${handleWeekNav}
         onSwitch=${handleSwitchEntry}
         onOpen=${handleOpenEntry}
+        onCooked=${handleCookedEntry}
         onToggleOut=${handleToggleOut}
         ${
           /* USE WHAT'S LEFT is off the slots until it is a pre-planned slot

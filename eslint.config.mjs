@@ -59,7 +59,7 @@ export default [
     ignores: [
       "node_modules/",
       "vendor/",
-      "mockups/",
+      "docs/archive/",
       "spike/",
       ".claude/",
       "claude-config/",

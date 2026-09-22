@@ -34,7 +34,8 @@
 > The two open gaps are P9 (a layout decision David owns) and P12's second nutrition philosophy (the
 > pending council's question). Neither is a build.
 
-> as-of: 2026-09-05 (paddington). The live-state facts in this file (the promise ledger score, what is parked, which engine has run on real data) were last written on that date; the Crystal doctor files a ticket when this line is fourteen days old. Move the date when you re-verify them. The rules and the architecture are stable and carry no date. Rule: Crystal `System/Initial-Conditions`.
+> as-of: 2026-09-21 (tahiti). The live-state facts in this file (the promise ledger score, what is parked, which engine has run on real data) were last written on that date; the Crystal doctor files a ticket when this line is fourteen days old. Move the date when you re-verify them. The rules and the architecture are stable and carry no date. Rule: Crystal `System/Initial-Conditions`.
+> **2026-09-21 (tahiti):** the first release train run shipped `next` to live (shell v202 to v208, tag `release/2026-09-21`); ledger 11 proven, 1 partial (P9); 971 tests. The parts audit (Crystal `Lanes/Mise-Parts-Audit`) found two cooked confirmations across every plan file, so the one-tap cooked mark now sits on the Plan rows themselves; the July documents and one-off tools are archived.
 > **2026-09-05 (paddington):** weeks now OPEN ON SUNDAY (`isoWeekId`/`datesOfWeek`, straddle read in main.js); the brigade engine and the solo generator both honour COOK NIGHTS (`cookDays`, leftover nights stamped `leftoverOf`, round-robin pots, safe-window enforced), rotate the dinner PROTEIN across cook nights, and a brigade can narrow a slot to named recipes (`slotRecipes`); guest seats (real profiles) are composed and carried; past shared meals settle into each member's own plan (`fromTable`) so history outlives table retention. Every engine change above was run on the live wayne data before shipping (28 tables, every seat in band).
 
 > **Crystal notice:** if this session shipped real work, also append a line to `C:\Users\DATar\Sanity\Obsidian\Crystal\System\Changelog.md` and a narrative + hot-list entry to `C:\Users\DATar\Sanity\Obsidian\Crystal\Accomplishments\Log.md` before ending. Crystal is David's personal assistant and the daily brief it narrates back to him only reflects what gets written there. See Crystal's `System/Lessons-Learned.md` L13.
@@ -46,7 +47,7 @@
 > (2) pickup shoppers select RIPE produce — bananas arrive all-yellow, so a pickup order's
 > produce should bias small quantities bought often, never a week of bananas at once.
 
-Project rules for every Claude session working on Mise. Read HANDOFF_CONTEXT.md and MISE_BLUEPRINT.md before your first change. **docs/OPERATORS_MANUAL.md is the full operator's guide** — architecture, procedures, environment gotchas, working method, and the Phase 2–5 extension map. Read it before your first non-trivial task.
+Project rules for every Claude session working on Mise. **The reading set is five documents:** this file, `DOCTRINE.md`, `docs/RELEASE_TRAIN.md`, `docs/SCHEMAS.md`, and the Core Purpose note in Crystal. `docs/OPERATORS_MANUAL.md` sections 3 (procedures, environment gotchas) and 8 (state of the build) are current; its other sections describe July and are orientation only. The July planning set (`HANDOFF_CONTEXT`, `MISE_BLUEPRINT`, `START_HERE`, `FIRST_SESSION_PROMPT`, `INSTALL_GUIDE`, `docs/BUILD_PLAN`) is local-only and gitignored because it carries personal data; it is history, not instruction, and no session needs to open it (parts audit, 2026-09-21). The tracked July leftovers (mockups, the training set, the weekly Cowork prompt) are under `docs/archive/`.
 
 ## Part 1 — Coding Principles (Karpathy-derived)
 

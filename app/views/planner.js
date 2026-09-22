@@ -83,6 +83,7 @@ function monthDay(isoDate) {
  *   onWeek: (delta: number) => void,
  *   onSwitch: (id: string) => void,
  *   onOpen: (entry: Record<string, any>) => void,
+ *   onCooked?: (entry: Record<string, any>) => void,
  *   onToggleOut: (date: string, slot: string) => void,
  *   onSwipeEaten?: (date: string, slot: string) => void,
  *   onGenerateWeek: () => void,
@@ -131,6 +132,7 @@ export function PlannerView({
   onWeek,
   onSwitch,
   onOpen,
+  onCooked = undefined,
   onToggleOut,
   onSwipeEaten = undefined,
   onGenerateWeek,
@@ -786,7 +788,7 @@ export function PlannerView({
                               }}
                             >
                               ${
-                                typeof /** @type {any} */ (navigator).share === "function"
+                                typeof (/** @type {any} */ (navigator).share) === "function"
                                   ? "SHARE"
                                   : "COPY"
                               }
@@ -883,6 +885,22 @@ export function PlannerView({
                                       }
                                     </span>
                                   </button>
+                                  ${
+                                    // one tap, after the fact: a past day's meal
+                                    // is confirmed cooked right here, never by
+                                    // opening the recipe and finding COOKED IT
+                                    // (two confirmations in ten weeks, 2026-09-21)
+                                    onCooked &&
+                                    recipe &&
+                                    !entry.cookedAt &&
+                                    html`<button
+                                      class="cooktap"
+                                      aria-label="Cooked ${name}: mark it eaten"
+                                      onClick=${() => onCooked(entry)}
+                                    >
+                                      ✓
+                                    </button>`
+                                  }
                                 </div>
                               `;
                             })}
@@ -982,6 +1000,23 @@ export function PlannerView({
                                     }
                                   </span>
                                 </button>
+                                ${
+                                  // COOKED, one tap on today's row (a future
+                                  // day has nothing to confirm yet; past days
+                                  // render above). Same handler as the serve
+                                  // step, so a table entry confirms the table.
+                                  onCooked &&
+                                  recipe &&
+                                  !entry.cookedAt &&
+                                  date <= todayIso &&
+                                  html`<button
+                                    class="cooktap"
+                                    aria-label="Cooked ${name}: mark it eaten"
+                                    onClick=${() => onCooked(entry)}
+                                  >
+                                    ✓
+                                  </button>`
+                                }
                                 ${
                                   // SWITCH replaces the meal with another
                                   // eligible recipe for this slot instead of

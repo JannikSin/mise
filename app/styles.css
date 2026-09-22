@@ -876,6 +876,28 @@ summary.block-title {
   outline-offset: 2px;
 }
 
+/* COOKED: one tap on the plan row, valid after the fact, for today and any
+   past day. The recipe page's COOKED IT sat two screens deep and was pressed
+   twice in ten weeks (parts audit, 2026-09-21); the confirmation has to live
+   where the plan is read. Once tapped the row shows the cooked chip instead. */
+.slotrow .cooktap {
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+  border: 1px solid var(--dim);
+  background: none;
+  color: var(--dim);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 10px;
+}
+
+.slotrow .cooktap:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: 2px;
+}
+
 .slotrow .emptyslot {
   flex: 1;
   color: var(--dim);

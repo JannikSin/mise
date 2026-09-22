@@ -12,8 +12,6 @@ spike/
 docs/
 tests/
 tools/
-training/
-mockups/
 fixtures/
 worker/
 *.md

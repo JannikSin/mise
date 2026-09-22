@@ -1,0 +1,22 @@
+# Incidents
+
+What has actually gone wrong in Mise, and what now prevents it. Local by default; an
+incident is promoted to Crystal `System/Lessons-Learned` only once it has happened in a
+second app or is about how a session works rather than about this code. Newest first.
+Split out of `DOCTRINE.md` Article 5 on 2026-09-21 (Crystal `System/App-Doctrine`, v2).
+
+| Date | Failure | What happened | The armour |
+|---|---|---|---|
+| 2026-09-14 | A stray Worker published from the wrong config | `wrangler deploy` run bare from `worker/` was redirected by wrangler to the repo root's assets config and published the app shell as a Worker named `mise`; deleted within the hour | Worker deploys pass `--config` explicitly; the root `.assetsignore` fences any assets deploy; the root `deploy` script is gone |
+| 2026-09-07 | Seven shells in one evening while he cooked | Seven service-worker versions shipped to the live app in one evening; one buried the Plan tab under a card, one re-planned his dinners, a data write raced his phone, then GitHub throttled writes on the token | The release train: `main` is written only by `tools/release.ps1` against a `ship/` tag or by a named hotfix; work rides `next` and the sandbox |
+| 2026-09-06 | P+ taps that never saved | An iPad with no token showed rows leaving the list while a small grey `N UNSAVED` sat in the corner; the red banner fired only for an INVALID token, never a MISSING one | Any device with no token and writes waiting gets the red NOTHING IS SAVING banner with the one-line fix |
+| 2026-09-06 | A leftover night named the wrong pot | The cost sweep swapped Monday's pot after Wednesday had been stamped as its leftovers | A feeding cook night is never swapped; a leftover night always writes its pot's final dish; a drifted table is repaired by the next SET |
+| 2026-09-06 | Tailoring overwrote a brigade edit | After GENERATE the app wrote `events.json` once per table from a stale in-memory copy (37 writes over about 2.5 minutes); an EDIT then SAVE in that window was reverted while the form said Saved | Open: coalesce to one write or re-read and merge (Crystal Tasks, owner Claude) |
+| 2026-08-19 | A feature merged dark | `app/lib/synth.js`, 804 tested lines gated on a recipe tag nothing carried, inert from the day it merged; its first real run found three bugs, one dividing every plate by the serving count | No feature ships dark: a date and an owner in the same commit; `tests/promises.test.js` prints every gap with its owner |
+| 2026-08-18 | Sibling caches evicted for 22 days | `sw.js` deleted every cache on the shared origin, so Tally, Finesse, Bonmot, Grandstand and aimap lost their shells on every Mise deploy | The eviction filter keeps only `mise-` prefixed caches; decision 0006 |
+| 2026-08-18 | A retired number still live in five places | 210 g protein sat in five places five days after 190 g was wired | A promise's status line and its code change in the same commit; the retired tokens are named in decision 0004 |
+| 2026-08-16 | A private-repo token that silently 404ed | The fine-grained PAT page defaults to "Public repositories", which 404s on a private repo without saying why | Every token runbook names the trap: switch to "Only select repositories" before setting any permission |
+| 2026-08 | A stale estimate presented as live | A live week credited 550 kcal and 48 g per dining swipe because placeholders kept their plan-time estimate | Re-derive; never freeze an estimate at plan time and show it later as current |
+| 2026-07-26 | An overlay with no escape | The tour's END button lived inside a card that only rendered once a step's target was measured; the tour stranded the whole app | `tests/overlays.test.js`: every full-screen layer that takes pointer events registers a control that always renders |
+| 2026-07-25 | Paint mistaken for function | Receipt ticks toggled state correctly for weeks while drawing an invisible tick on an unfilled box, so every tap looked like a no-op | Press the thing; a screenshot proves paint, not that a user can act (CLAUDE.md Part 3) |
+| 2026-07 to 2026-09 | A confirmation nobody gave | 0 of 228 cooked confirmations in eight plan files, then 2 across 27 plan files by 2026-09-21, because the button sat behind a stopwatch and then two screens deep | The COOKED tap sits on the Plan row itself, one tap, valid after the fact (2026-09-21); the doctrine's kill condition watches the count |
