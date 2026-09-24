@@ -35,3 +35,34 @@ test("a per-portion shared dish says everyone makes their own; a plain solo meal
   // the old cook-device-only signal still reads as "you cook" when nothing better is known
   assert.equal(cookLine({ table: "t4", cookTotal: 2 }, "david", day), "🍳 you cook");
 });
+
+test("the Sunday batch reads on every row it touches", () => {
+  const dn = (iso) => ({ "2026-09-27": "Sun", "2026-09-29": "Tue" })[iso] ?? iso;
+  assert.equal(
+    cookLine({ table: "t", cookId: "david", preparedOn: "2026-09-27" }, "david", dn),
+    "🥘 Sun batch, reheat, you cooked it",
+  );
+  assert.equal(
+    cookLine(
+      {
+        table: "t",
+        cookId: "david",
+        cookName: "David",
+        leftoverOf: "x",
+        leftoverDate: "2026-09-29",
+        leftoverPrepared: "2026-09-27",
+      },
+      "elliot",
+      dn,
+    ),
+    "🥘 Sun batch, reheat, David cooked it",
+  );
+  assert.equal(
+    cookLine(
+      { table: "t", cookId: "david", batchAlongside: { name: "Chili", date: "2026-09-29" } },
+      "david",
+      dn,
+    ),
+    "🍳 you cook · plus the batch for Tue: Chili",
+  );
+});

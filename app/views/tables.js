@@ -194,7 +194,7 @@ export function TablesView({
   const houseMates = (profiles ?? []).filter((p) => (p.household ?? "home") === myHouse);
   const myBrigades = (houseEvents ?? []).find((h) => h.house === myHouse)?.events?.brigades ?? [];
   const [brigadeForm, setBrigadeForm] = useState(
-    /** @type {null | { editId: string | null, name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string, cookDays: number[], slotRecipes: Record<string, string[]> }} */ (
+    /** @type {null | { editId: string | null, name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string, cookDays: number[], slotRecipes: Record<string, string[]>, batchFeeds: number[] }} */ (
       null
     ),
   );
@@ -227,6 +227,7 @@ export function TablesView({
           ? [...seed.cookDays]
           : [...ALL_DAYS],
       slotRecipes: { ...(seed?.slotRecipes ?? {}) },
+      batchFeeds: [...(seed?.batches?.find((b) => b.cookDay === 0)?.feeds ?? [])],
     });
     setBrigadeNote([]);
   };
@@ -267,6 +268,10 @@ export function TablesView({
             ids.length > 0,
         ),
     );
+    const batchFeeds =
+      brigadeForm.slots.includes("dinner") && brigadeForm.cookDays.includes(0) && !everyNight
+        ? [...brigadeForm.batchFeeds].filter((d) => !brigadeForm.cookDays.includes(d)).sort()
+        : [];
     const rule = {
       name: brigadeForm.name.trim() || "Brigade",
       memberIds: orderedMembers,
@@ -279,6 +284,8 @@ export function TablesView({
         ? {}
         : { cookDays: [...brigadeForm.cookDays].sort() }),
       ...(Object.keys(slotRecipes).length > 0 ? { slotRecipes } : {}),
+      // the Sunday batch: only nights that are NOT cook nights can eat it
+      ...(batchFeeds.length > 0 ? { batches: [{ cookDay: 0, feeds: batchFeeds }] } : {}),
     };
     if (brigadeForm.editId && onUpdateBrigade) {
       onUpdateBrigade(brigadeForm.editId, {
@@ -287,6 +294,7 @@ export function TablesView({
         rotateCooks: brigadeForm.rotateCooks ? true : undefined,
         cookDays: /** @type {any} */ (rule).cookDays ?? undefined,
         slotRecipes: /** @type {any} */ (rule).slotRecipes ?? undefined,
+        batches: /** @type {any} */ (rule).batches ?? undefined,
       });
       setBrigadeNote(["Saved. PICK DIFFERENT MEALS applies the new rule to this week."]);
     } else {
@@ -1003,6 +1011,12 @@ export function TablesView({
               (cookDaysLabel(b.cookDays) || Object.keys(b.slotRecipes ?? {}).length > 0) &&
               html`<div class="sub">
                 ${cookDaysLabel(b.cookDays) && html`🍳 cook dinner ${cookDaysLabel(b.cookDays)} · the nights after eat that pot`}
+                ${(b.batches ?? []).map(
+                  (x, i) =>
+                    html`<span key=${`batch${i}`}>
+                      · 🥘 ${WEEKDAYS[x.cookDay]} batch for ${cookDaysLabel(x.feeds)}</span
+                    >`,
+                )}
                 ${Object.entries(b.slotRecipes ?? {}).map(
                   ([slot, ids]) =>
                     html`<span key=${slot}>
@@ -1138,7 +1152,42 @@ export function TablesView({
                           ? "Pick at least one cook night."
                           : `Cook ${cookDaysLabel([...brigadeForm.cookDays].sort())}. Each other night eats the most recent pot, so a Tuesday cook is Wednesday's dinner; a pot stretches only as far as its dish keeps, and a night no pot can reach cooks after all.`
                     }
-                  </p>`
+                  </p>
+                  ${
+                    // THE SUNDAY BATCH (David, 2026-09-24): a second pot cooked
+                    // Sunday for named no-cook nights, so Mon eats Sunday's
+                    // dinner and Tue + Wed eat the batch
+                    brigadeForm.cookDays.includes(0) &&
+                    brigadeForm.cookDays.length < 7 &&
+                    html`<div class="sub">Sunday also cooks a batch for</div>
+                      <div class="chips">
+                        ${ALL_DAYS.filter((d) => !brigadeForm.cookDays.includes(d)).map(
+                          (d) => html`
+                            <button
+                              key=${d}
+                              class=${brigadeForm.batchFeeds.includes(d) ? "chip on" : "chip"}
+                              aria-pressed=${brigadeForm.batchFeeds.includes(d)}
+                              onClick=${() =>
+                                setBrigadeForm({
+                                  ...brigadeForm,
+                                  batchFeeds: brigadeForm.batchFeeds.includes(d)
+                                    ? brigadeForm.batchFeeds.filter((x) => x !== d)
+                                    : [...brigadeForm.batchFeeds, d],
+                                })}
+                            >
+                              ${WEEKDAYS[d]}
+                            </button>
+                          `,
+                        )}
+                      </div>
+                      <p class="hint">
+                        ${
+                          brigadeForm.batchFeeds.length === 0
+                            ? "Optional. Tap the nights that should eat a second Sunday pot instead of Sunday's dinner."
+                            : `Sunday cooks two dishes: dinner, and a batch for ${cookDaysLabel([...brigadeForm.batchFeeds].sort())} that keeps in the fridge until then.`
+                        }
+                      </p>`
+                  }`
               }
               ${
                 // NAMED RECIPES per shared slot (David, 2026-09-05: "breakfast

@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, leftoverOf?: string, leftoverDate?: string, cookId?: string, cookName?: string, estCalories?: number, estProtein?: number, cookedAt?: string, eatenAt?: string, cookSeconds?: number, cookComment?: string, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean, useItUp?: boolean }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, leftoverOf?: string, leftoverDate?: string, cookId?: string, cookName?: string, estCalories?: number, estProtein?: number, cookedAt?: string, eatenAt?: string, cookSeconds?: number, cookComment?: string, preparedOn?: string, leftoverPrepared?: string, batchAlongside?: { name: string, date: string }, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean, useItUp?: boolean }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any>, fallback?: { savedAt: string, entries: PlanEntry[] }, spend?: { store: string, date: string, total: number }[], reviewNote?: string }} Plan
  */
@@ -59,6 +59,15 @@ export const SLOT_KEYS = ["breakfast", "lunch", "dinner", "smoothie", "snack"];
 export function cookLine(entry, me, dayName, perBowl = false) {
   const e = entry ?? {};
   const who = e.cookId ? (e.cookId === me ? "you" : String(e.cookName ?? e.cookId)) : "";
+  const cooked = who ? (who === "you" ? ", you cooked it" : `, ${who} cooked it`) : "";
+  // THE SUNDAY BATCH (2026-09-24): the batch nights say where the food is
+  if (typeof e.preparedOn === "string") return `🥘 ${dayName(e.preparedOn)} batch, reheat${cooked}`;
+  if (e.leftoverOf && typeof e.leftoverPrepared === "string")
+    return `🥘 ${dayName(e.leftoverPrepared)} batch, reheat${cooked}`;
+  if (e.batchAlongside && who) {
+    const lead = who === "you" ? "🍳 you cook" : `🍳 ${who} cooks`;
+    return `${lead} · plus the batch for ${dayName(e.batchAlongside.date)}: ${e.batchAlongside.name}`;
+  }
   if (e.leftoverOf) {
     const src =
       typeof e.leftoverDate === "string"
@@ -67,7 +76,6 @@ export function cookLine(entry, me, dayName, perBowl = false) {
           ? e.leftoverOf
           : "";
     const day = src ? dayName(src) : "";
-    const cooked = who ? (who === "you" ? ", you cooked it" : `, ${who} cooked it`) : "";
     return `♻ leftovers${day ? ` of ${day}` : ""}${cooked}`;
   }
   if (e.table && perBowl) return "🥣 each makes their own";

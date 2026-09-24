@@ -965,6 +965,11 @@ before every plan write).
       //   entry `leftoverOf` so the Plan tab reads "leftovers". Written only
       //   by planBrigadeWeek under a brigade's `cookDays`. Absent = a night
       //   that cooks its own pot.
+      "preparedOn": "2026-09-27", // ? A BATCH POT (brigade `batches`, David
+      //   2026-09-24, P7): this night's dish is cooked on that earlier date
+      //   (the Sunday batch) and kept in the fridge; its later nights carry
+      //   `leftoverOf` this table. Its safe window runs from `preparedOn`. A
+      //   past prep date counts only if the pot was cooked or bought.
       "cookedAt": "2026-07-24", // ? the serve step's COOKED confirmation
       //   (per-person-plates-design §7.2). Set once by setTableCooked, never
       //   cleared (you cannot un-cook food, same rule as a plan entry's
@@ -1146,6 +1151,12 @@ path, and no brigade-specific behaviour anywhere downstream.
       //   leftover night (batch-tagged dishes first when three or more
       //   qualify); a no-cook night no safe pot reaches cooks after all and
       //   is reported (`nights.uncovered`). Absent = cook every night.
+      "batches": [{ "cookDay": 0, "feeds": [2, 3] }], // ? THE SUNDAY BATCH
+      //   (David 2026-09-24, P7): a second pot cooked on `cookDay` for the
+      //   no-cook weekdays in `feeds` (Mon still eats Sunday's dinner by the
+      //   most-recent-pot rule; Tue + Wed eat the batch). The pot is the
+      //   first fed night's table, stamped `preparedOn`; batch-style dishes
+      //   only, never fish, never the prep day's own dinner. Absent = none.
       "slotRecipes": { "breakfast": ["berry-walnut-greek-yogurt-bowl"] }, // ?
       //   NAMED SLOTS (David 2026-09-05: "breakfast should just be variations
       //   of greek yogurt bowls"): per slot, the only recipe ids the pot may

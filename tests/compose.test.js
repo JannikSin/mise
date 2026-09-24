@@ -824,6 +824,52 @@ test("a mid-week SET never keeps a no-cook night on a PAST pot that was never co
   }
 });
 
+test("THE SUNDAY BATCH: Mon eats Sunday's dinner, Tue + Wed eat a second Sunday pot that keeps from Sunday", () => {
+  // David, 2026-09-24: cook Thu Fri Sat Sun fresh; Mon = Sunday's leftovers;
+  // Tue + Wed = one separate dish batch-cooked on Sunday
+  const b = { ...COOK_BRIGADE, cookDays: [0, 4, 5, 6], batches: [{ cookDay: 0, feeds: [2, 3] }] };
+  const { events, nights } = planBrigadeWeek({ tables: [] }, b, sunCtx());
+  const sun = dinnerOn(events, "2026-09-06");
+  const mon = dinnerOn(events, "2026-09-07");
+  const tue = dinnerOn(events, "2026-09-08");
+  const wed = dinnerOn(events, "2026-09-09");
+  assert.equal(mon.leftoverOf, sun.id, "Monday eats Sunday's dinner");
+  assert.equal(tue.preparedOn, "2026-09-06", "Tuesday's dish is cooked on Sunday");
+  assert.ok(!tue.leftoverOf, "the batch is its own pot, not Sunday's dinner");
+  assert.notEqual(tue.recipeId, sun.recipeId, "two different dishes on Sunday");
+  assert.equal(wed.leftoverOf, tue.id, "Wednesday eats the batch");
+  assert.equal(wed.recipeId, tue.recipeId);
+  // the batch must keep from Sunday to Wednesday: 3 days
+  assert.ok((Number(KEEPS_BANK.get(tue.recipeId)?.safeDays) || 3) >= 3);
+  for (const d of ["2026-09-10", "2026-09-11", "2026-09-12"])
+    assert.ok(!dinnerOn(events, d).leftoverOf, `${d} cooks fresh`);
+  assert.deepEqual(nights.uncovered, []);
+});
+
+test("THE SUNDAY BATCH: a past Sunday whose batch was never cooked or bought leaves Tue and Wed to be planned honestly", () => {
+  const b = { ...COOK_BRIGADE, cookDays: [0, 4, 5, 6], batches: [{ cookDay: 0, feeds: [2, 3] }] };
+  const first = planBrigadeWeek({ tables: [] }, b, sunCtx());
+  const mon = "2026-09-07";
+  const later = planBrigadeWeek(first.events, b, sunCtx({ today: mon, bought: () => false }));
+  const tue = dinnerOn(later.events, "2026-09-08");
+  assert.ok(!tue.preparedOn, "no batch claims to be in the fridge");
+  // a cooked batch survives the same mid-week run
+  const cooked = {
+    ...first.events,
+    tables: first.events.tables.map((t) =>
+      t.id === dinnerOn(first.events, "2026-09-08").id
+        ? { ...t, cookedAt: "2026-09-06T18:00:00" }
+        : t,
+    ),
+  };
+  const kept = planBrigadeWeek(cooked, b, sunCtx({ today: mon, bought: () => false }));
+  assert.equal(dinnerOn(kept.events, "2026-09-08").preparedOn, "2026-09-06");
+  assert.equal(
+    dinnerOn(kept.events, "2026-09-09").leftoverOf,
+    dinnerOn(kept.events, "2026-09-08").id,
+  );
+});
+
 test("PROTEIN ROTATION: four cook nights, four different proteins when the bank allows it", () => {
   const anchored = (id, food, kcal = 700, p = 45) => ({
     ...recipe(id, "dinner", kcal, p),

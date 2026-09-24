@@ -658,6 +658,11 @@ export function planBrigadeWeek(events, brigade, ctx) {
       : null;
   const weekdayOf = (/** @type {string} */ date) => new Date(`${date}T12:00:00`).getDay();
   const isCookDay = (/** @type {string} */ date) => !cookDaySet || cookDaySet.has(weekdayOf(date));
+  const shiftDate = (/** @type {string} */ iso, /** @type {number} */ n) => {
+    const t = new Date(`${iso}T12:00:00`);
+    t.setDate(t.getDate() + n);
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+  };
   const safeDaysOf = (/** @type {Record<string, any> | undefined} */ r) =>
     Number(r?.safeDays) > 0 ? Number(r?.safeDays) : FALLBACK_SAFE_DAYS;
 
@@ -803,10 +808,56 @@ export function planBrigadeWeek(events, brigade, ctx) {
   const leftoverPlan = new Map();
   /** @type {Map<string, string[]>} cook date -> the no-cook dates it feeds */
   const fedBy = new Map();
+  // THE SUNDAY BATCH (David, 2026-09-24: "Tue + Wed: ONE separate meal,
+  // batch-cooked on SUNDAY"). `brigade.batches` names weekdays eaten from a
+  // second pot cooked on `cookDay`. The first such night in the run is the
+  // batch's own table, stamped `preparedOn` its cook date; the later ones are
+  // its leftovers. The pot's safe window runs from the prep day. A prep day
+  // already past counts only if that pot was cooked or bought, the same rule
+  // as any past pot; otherwise the nights are planned like any other.
+  /** @type {Map<string, string>} batch head date -> prep date */
+  const preparedOnMap = new Map();
+  /** @type {Set<string>} */
+  const batchNights = new Set();
+  if (liveSlots.some((s) => LEFTOVER_SLOTS.has(s)) && cookDaySet) {
+    const batches = (Array.isArray(brigade.batches) ? brigade.batches : []).filter(
+      (b) =>
+        b && Number.isInteger(Number(b.cookDay)) && Array.isArray(b.feeds) && b.feeds.length > 0,
+    );
+    for (const b of batches) {
+      const feeds = new Set(b.feeds.map(Number));
+      /** @type {Map<string, string[]>} prep date -> the fed dates in this run */
+      const groups = new Map();
+      for (const d of dates) {
+        if (isCookDay(d) || !feeds.has(weekdayOf(d))) continue;
+        let back = 1;
+        while (back <= 6 && weekdayOf(shiftDate(d, -back)) !== Number(b.cookDay)) back++;
+        if (back > 6) continue;
+        const prep = shiftDate(d, -back);
+        groups.set(prep, [...(groups.get(prep) ?? []), d]);
+      }
+      for (const [prep, fed] of groups) {
+        const head = /** @type {string} */ (fed[0]);
+        const ex = byId.get(brigadeTableId(brigade.id, head, "dinner"));
+        const real =
+          prep >= ctx.today ||
+          (ex &&
+            /** @type {any} */ (ex).preparedOn === prep &&
+            (Boolean(/** @type {any} */ (ex).cookedAt) || !ctx.bought || ctx.bought(ex)));
+        if (!real) continue;
+        preparedOnMap.set(head, prep);
+        for (const d of fed) batchNights.add(d);
+        for (const d of fed.slice(1)) {
+          leftoverPlan.set(d, head);
+          fedBy.set(head, [...(fedBy.get(head) ?? []), d]);
+        }
+      }
+    }
+  }
   if (liveSlots.some((s) => LEFTOVER_SLOTS.has(s)) && cookDaySet) {
     const cookNights = dates.filter(isCookDay);
     for (const d of dates) {
-      if (isCookDay(d)) continue;
+      if (isCookDay(d) || batchNights.has(d)) continue;
       const ex = byId.get(brigadeTableId(brigade.id, d, "dinner"));
       const exSrcId = /** @type {any} */ (ex)?.leftoverOf;
       const exSrc = typeof exSrcId === "string" ? byId.get(exSrcId) : undefined;
@@ -997,11 +1048,13 @@ export function planBrigadeWeek(events, brigade, ctx) {
         dayPools[slot] = [pinnedDish];
         continue;
       }
-      if (LEFTOVER_SLOTS.has(slot) && !isCookDay(date)) {
+      if (LEFTOVER_SLOTS.has(slot) && !isCookDay(date) && !preparedOnMap.has(date)) {
         const srcDate = leftoverPlan.get(date) ?? null;
         const srcId = srcDate ? cookedBySlot[slot]?.get(srcDate) : undefined;
         const recipe = srcId ? ctx.bankById.get(srcId) : undefined;
-        const gap = srcDate ? dayOffset(date) - dayOffset(srcDate) : Infinity;
+        const gap = srcDate
+          ? dayOffset(date) - dayOffset(preparedOnMap.get(srcDate) ?? srcDate)
+          : Infinity;
         if (srcDate && recipe && gap > 0 && gap <= safeDaysOf(recipe)) {
           leftoverBySlot[slot] = { date: srcDate, recipeId: String(srcId), recipe };
           startBySlot[slot] = recipe;
@@ -1012,12 +1065,39 @@ export function planBrigadeWeek(events, brigade, ctx) {
       }
       let pool = /** @type {Record<string, any>[]} */ (walksBySlot[slot]);
       const feeds = LEFTOVER_SLOTS.has(slot) ? (fedBy.get(date) ?? []) : [];
-      if (feeds.length > 0) {
-        const need = Math.max(...feeds.map((d) => dayOffset(d) - dayOffset(date)));
+      const prepDay = LEFTOVER_SLOTS.has(slot) ? preparedOnMap.get(date) : undefined;
+      if (feeds.length > 0 || prepDay) {
+        const from = prepDay ?? date;
+        const need = Math.max(...[date, ...feeds].map((d) => dayOffset(d) - dayOffset(from)));
         const safe = pool.filter((r) => safeDaysOf(r) >= need);
         if (safe.length > 0) pool = safe;
         const batch = pool.filter(isBatchDish);
         if (batch.length >= 3) pool = batch;
+        // a Sunday BATCH sits in the fridge for days before it is eaten: it
+        // must reheat well (David, 2026-09-24: "not fish, not crispy things,
+        // nothing that turns mushy"), so batch-style dishes only, never fish,
+        // and a dish that keeps a day past the need when there is one
+        if (prepDay) {
+          const keeps = pool.filter(
+            (r) =>
+              isBatchDish(r) &&
+              recipeProteinClass(r) !== "fish" &&
+              !/crisp|salad/i.test(String(r.name ?? "")),
+          );
+          if (keeps.length > 0) pool = keeps;
+          const roomy = pool.filter((r) => safeDaysOf(r) > need);
+          if (roomy.length > 0) pool = roomy;
+          // two pots on the prep day are two DIFFERENT dishes
+          const sameDay = cookedBySlot[slot]?.get(prepDay);
+          const other = pool.filter((r) => r.id !== sameDay);
+          if (other.length > 0) pool = other;
+          else {
+            const anyOther = /** @type {Record<string, any>[]} */ (walksBySlot[slot]).filter(
+              (r) => r.id !== sameDay && safeDaysOf(r) >= need,
+            );
+            if (anyOther.length > 0) pool = anyOther;
+          }
+        }
         dayPools[slot] = pool;
       }
       const pick =
@@ -1435,6 +1515,9 @@ export function planBrigadeWeek(events, brigade, ctx) {
         // a no-cook night names the pot it eats from; its seats size that
         // pot's buy and nothing is bought or cooked twice
         ...(wantLeftoverOf ? { leftoverOf: wantLeftoverOf } : {}),
+        ...(LEFTOVER_SLOTS.has(slot) && preparedOnMap.has(date)
+          ? { preparedOn: preparedOnMap.get(date) }
+          : {}),
         ...(existing?.buyerId ? { buyerId: existing.buyerId } : {}),
         ...(existing?.headId ? { headId: existing.headId } : {}),
         ...(sameDish && existing?.cookedAt ? { cookedAt: existing.cookedAt } : {}),

@@ -11,8 +11,8 @@ import { parsePot, solveSeat } from "./synth.js";
  * @typedef {{ id: string, servings: number, rawServings?: number, status?: "in" | "skipped", auto?: boolean, edited?: boolean }} Seat seat id = profileId; `auto: true` marks a MACHINE-stamped skip (recomputed every run, unlike a human decline which carries); `edited: true` marks a HUMAN servings edit (patchSeat) that binds the composer while the dish is unchanged
  * @typedef {{ portionGrams?: number, plate: string[], estCalories: number, estProtein: number }} TailorSeat scale-first: portionGrams = weighed grams of the finished dish on this plate (absent/0 on pre-scale tailors)
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
- * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, fromWeekRun?: boolean, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string, leftoverOf?: string }} TableEvent `fromWeekRun` is LEGACY: written only by the retired AI week run; read solely by planBrigadeWeek's shadow sweep, which clears such tables from a brigade's span. `leftoverOf` names the COOK table this meal is eaten from (a no-cook night, David 2026-09-05): its seats size the pot, it is never bought or cooked on its own.
- * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]> }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool.
+ * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, fromWeekRun?: boolean, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string, leftoverOf?: string, preparedOn?: string }} TableEvent `fromWeekRun` is LEGACY: written only by the retired AI week run; read solely by planBrigadeWeek's shadow sweep, which clears such tables from a brigade's span. `leftoverOf` names the COOK table this meal is eaten from (a no-cook night, David 2026-09-05): its seats size the pot, it is never bought or cooked on its own. `preparedOn` (2026-09-24) marks a BATCH pot: this night's dish is cooked on that earlier date (the Sunday batch) and its later nights eat it as leftovers; its safe window runs from that date.
+ * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]>, batches?: { cookDay: number, feeds: number[] }[] }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool. `batches` (David, 2026-09-24) = a second pot cooked on `cookDay` and eaten on the weekdays in `feeds` (the Sunday batch for Tue + Wed); absent = no batch.
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
 
@@ -85,6 +85,18 @@ export function validBrigade(b) {
     if (!Array.isArray(b.cookDays)) return false;
     if (!b.cookDays.every((/** @type {any} */ d) => Number.isInteger(d) && d >= 0 && d <= 6))
       return false;
+  }
+  if (b.batches !== undefined) {
+    if (!Array.isArray(b.batches)) return false;
+    for (const x of b.batches) {
+      if (!isPlainObject(x) || !Number.isInteger(x.cookDay) || x.cookDay < 0 || x.cookDay > 6)
+        return false;
+      if (
+        !Array.isArray(x.feeds) ||
+        !x.feeds.every((/** @type {any} */ d) => Number.isInteger(d) && d >= 0 && d <= 6)
+      )
+        return false;
+    }
   }
   if (b.slotRecipes !== undefined) {
     if (!isPlainObject(b.slotRecipes)) return false;
@@ -497,6 +509,35 @@ export function deriveTables(houses, ctx) {
                 : {}),
             }
           : {}),
+        // THE SUNDAY BATCH (2026-09-24): a batch pot says the day it is made,
+        // its leftover nights say they eat that batch, and the prep day's own
+        // dinner row names the batch cooked alongside it
+        .../** @type {any} */ ((t).preparedOn
+          ? { preparedOn: /** @type {any} */ (t).preparedOn }
+          : {}),
+        ...(isLeftover && /** @type {any} */ (tableById.get(String(t.leftoverOf)))?.preparedOn
+          ? {
+              leftoverPrepared: /** @type {any} */ (tableById.get(String(t.leftoverOf))).preparedOn,
+            }
+          : {}),
+        ...(() => {
+          const alongside = [...tableById.values()].find(
+            (x) =>
+              /** @type {any} */ (x).preparedOn === t.date &&
+              x.slot === t.slot &&
+              x.fromBrigade === t.fromBrigade &&
+              x.id !== t.id,
+          );
+          const dish = alongside ? ctx.bankById?.get(alongside.recipeId) : undefined;
+          return alongside
+            ? {
+                batchAlongside: {
+                  name: String(dish?.name ?? alongside.recipeId),
+                  date: alongside.date,
+                },
+              }
+            : {};
+        })(),
         // the table's own COOKED confirmation, so a past day can show the tick
         // (derived-only, stripped with the rest; dayEaten never reads table rows)
         ...(t.cookedAt ? { cookedAt: t.cookedAt } : {}),
