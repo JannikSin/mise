@@ -1144,3 +1144,48 @@ test("SNACKS ARE BATCHES: one bake feeds three days in a row, so a week has at m
     });
   for (const [k, ids] of byBatch) assert.equal(new Set(ids).size, 1, `batch ${k} is one bake`);
 });
+
+test("THE TRIP: a food the week already buys is counted once (overlap), the trip never gets dearer, and the budget cap speaks only when over", () => {
+  // David, 2026-09-24: "the planner NEEDS to have pantry, ingredient overlap
+  // and budget". Every dinner needs the same $30 package: the week buys it once.
+  const shared = (id) => (String(id).startsWith("din-") ? [{ key: "shared-pack", cost: 30 }] : []);
+  const one = planBrigadeWeek(
+    { tables: [] },
+    BRIGADE,
+    wayneCtx({ tripItems: shared, budgetUsd: 1000 }),
+  );
+  assert.equal(one.budget?.trip, 30, "one package for seven dinners");
+  assert.ok(!one.notes.some((n) => n.startsWith("over budget")), "no note when inside the budget");
+
+  // each dinner its own package, one of them free: the swept week's trip is
+  // never above the blind composition's
+  const own = (id) =>
+    String(id).startsWith("din-") ? [{ key: String(id), cost: id === "din-kofta" ? 0 : 25 }] : [];
+  const blindTrip = (() => {
+    const b = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+    const keys = new Set(b.events.tables.filter((t) => t.slot === "dinner").map((t) => t.recipeId));
+    return [...keys].reduce((a, id) => a + (id === "din-kofta" ? 0 : 25), 0);
+  })();
+  const aware = planBrigadeWeek(
+    { tables: [] },
+    BRIGADE,
+    wayneCtx({ tripItems: own, budgetUsd: 1000 }),
+  );
+  assert.ok(
+    aware.budget.trip <= blindTrip,
+    `trip $${aware.budget.trip} must not exceed blind $${blindTrip}`,
+  );
+  for (const row of aware.report)
+    assert.notEqual(row.status, "miss", `${row.seatId} ${row.date} still fed`);
+
+  // a budget no week can meet is said in words, never silently ignored
+  const tight = planBrigadeWeek(
+    { tables: [] },
+    BRIGADE,
+    wayneCtx({ tripItems: own, budgetUsd: 1 }),
+  );
+  assert.ok(
+    tight.notes.some((n) => n.startsWith("over budget")),
+    tight.notes.join(" | "),
+  );
+});

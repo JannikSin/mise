@@ -8,6 +8,7 @@
 // Costing honesty mirrors the shopping list: ingredient prices come from
 // prices.json (receipt-refreshed when the scanner runs); rows the catalogue
 // cannot price make the total a FLOOR and mark the entry `estimate`.
+import { canonicalFood } from "./ingredients.js";
 import { itemCost } from "./prices.js";
 import { parsePot } from "./synth.js";
 
@@ -60,6 +61,35 @@ export function recipeEatenCost(recipe, catalogue, store) {
   }
   const servings = Number(recipe.servings) || 1;
   return { perServing: Math.round((eaten / servings) * 100) / 100, priced, of };
+}
+
+/**
+ * The packages a recipe puts on THIS trip, one row per food the kitchen does
+ * not already hold, keyed by canonical food so two recipes needing the same
+ * thing share one package (David, 2026-09-24: "the planner NEEDS to have
+ * pantry, ingredient overlap and budget"). The composer sums these over the
+ * week's picks: a food already bought for another meal costs nothing more.
+ * @param {Record<string, any>} recipe
+ * @param {any} catalogue
+ * @param {string} store
+ * @param {(food: string) => boolean} has what the kitchen already holds
+ * @returns {{ key: string, cost: number }[]}
+ */
+export function recipeTripItems(recipe, catalogue, store, has) {
+  /** @type {Map<string, number>} */
+  const byKey = new Map();
+  for (const ing of recipe.ingredients ?? []) {
+    if (!ing?.food || ing.staple || has(String(ing.food))) continue;
+    const c = itemCost(
+      { food: String(ing.food), qty: Number(ing.qty) || 1, unit: String(ing.unit ?? "x") },
+      catalogue,
+      store,
+    );
+    if (!c) continue;
+    const key = canonicalFood(String(ing.food));
+    byKey.set(key, Math.max(byKey.get(key) ?? 0, c.cost));
+  }
+  return [...byKey].map(([key, cost]) => ({ key, cost }));
 }
 
 /**

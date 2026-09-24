@@ -186,6 +186,7 @@ import {
   balancesFor,
   settleBetween,
   recipeTripCost,
+  recipeTripItems,
 } from "./lib/money.js";
 
 export const APP = { name: "Mise", version: "0.3.0" };
@@ -3734,6 +3735,8 @@ function App() {
       const store = myPriceStore();
       /** @type {((recipeId: string) => number) | undefined} */
       let costOf;
+      /** @type {((recipeId: string) => { key: string, cost: number }[]) | undefined} */
+      let tripItems;
       if (cat && store) {
         // TRIP cost, not eaten cost (David, 2026-09-24: "how can 3 days of
         // food be $121"): what each recipe adds to THIS trip, whole packages
@@ -3749,7 +3752,20 @@ function App() {
         const median =
           known.length > 0 ? /** @type {number} */ (known[Math.floor(known.length / 2)]) : 0;
         costOf = (rid) => perServing.get(rid) ?? median;
+        // the week-level trip: packages per recipe, shared across the week's
+        // picks inside the composer (overlap), nothing for the pantry
+        /** @type {Map<string, { key: string, cost: number }[]>} */
+        const items = new Map();
+        for (const r of bankRecipesRef.current)
+          items.set(r.id, recipeTripItems(r, cat, store, has));
+        tripItems = (rid) => items.get(rid) ?? [];
       }
+      // the kitchen's per-person weekly budget: the members who set one
+      const budgets = brigade.memberIds
+        .map((id) => Number(targetsById.get(id)?.weeklyBudgetUsd))
+        .filter((n) => n > 0);
+      const budgetUsd =
+        budgets.length > 0 ? budgets.reduce((a, b) => a + b, 0) / budgets.length : undefined;
       const bankById = recipesById(bankRecipesRef.current);
       // a set table survives a plain SET only if its fresh food is in the
       // kitchen or ticked on the list (David, 2026-09-06)
@@ -3766,6 +3782,8 @@ function App() {
         regenerate,
         bought: (t) => recipeBought(bankById.get(t.recipeId), pantryNow, listNow),
         ...(costOf ? { costOf } : {}),
+        ...(tripItems ? { tripItems } : {}),
+        ...(budgetUsd ? { budgetUsd } : {}),
       });
       const out =
         run === brigade

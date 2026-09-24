@@ -572,6 +572,8 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
  *   regenerate?: boolean,
  *   bought?: (t: import("./tables.js").TableEvent) => boolean,
  *   costOf?: (recipeId: string) => number,
+ *   tripItems?: (recipeId: string) => { key: string, cost: number }[],
+ *   budgetUsd?: number,
  * }} ctx `costOf` (David's yes, 2026-08-30: "let the composer see cost...
  *   the composer needs to work to reduce it") turns on the WEEK-LEVEL cost
  *   sweep: the week composes exactly as without it, then slot-by-slot swaps
@@ -593,6 +595,7 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
  *   swept: { swaps: number, saved: number },
  *   notes: string[],
  *   nights: { cook: string[], leftover: { date: string, from: string }[], uncovered: string[] },
+ *   budget?: { trip: number, perPerson: number, cap: number } | null,
  * }} swept: what the cost sweep did — 0/0 when no costOf was given, or when
  *   no swap could beat the blind week. `notes`: honest one-liners about
  *   settings that could not be fully honoured (a named breakfast that fails a
@@ -1127,18 +1130,36 @@ export function planBrigadeWeek(events, brigade, ctx) {
           // with prices known, the bake that costs least THIS TRIP (whole
           // packages, minus the pantry), never the previous batch's twice;
           // without prices, the seeded rotation as before
-          const ranked = ctx.costOf
-            ? [...pool].sort(
-                (a, b) =>
-                  /** @type {(id: string) => number} */ (ctx.costOf)(String(a.id)) -
-                    /** @type {(id: string) => number} */ (ctx.costOf)(String(b.id)) ||
-                  String(a.id).localeCompare(String(b.id)),
-              )
-            : [...pool].sort(
-                (a, b) =>
-                  ((hash(`${seed}|${slot}|${batchNo}|${a.id}`) >>> 0) % 997) -
-                  ((hash(`${seed}|${slot}|${batchNo}|${b.id}`) >>> 0) % 997),
-              );
+          // the bake that adds least to THIS trip: whole packages the kitchen
+          // lacks, nothing for what the pantry or the week's other picks buy
+          /** @type {Set<string>} */
+          const weekFoods = new Set();
+          if (ctx.tripItems) {
+            for (const d of composedDays)
+              for (const r of Object.values(d.picks ?? {}))
+                for (const it of ctx.tripItems(String(/** @type {any} */ (r).id)))
+                  weekFoods.add(it.key);
+          }
+          const tripOf = (/** @type {Record<string, any>} */ r) =>
+            ctx.tripItems
+              ? ctx
+                  .tripItems(String(r.id))
+                  .reduce((a, it) => a + (weekFoods.has(it.key) ? 0 : it.cost), 0)
+              : ctx.costOf
+                ? ctx.costOf(String(r.id))
+                : null;
+          const ranked =
+            tripOf(pool[0] ?? {}) !== null
+              ? [...pool].sort(
+                  (a, b) =>
+                    /** @type {number} */ (tripOf(a)) - /** @type {number} */ (tripOf(b)) ||
+                    String(a.id).localeCompare(String(b.id)),
+                )
+              : [...pool].sort(
+                  (a, b) =>
+                    ((hash(`${seed}|${slot}|${batchNo}|${a.id}`) >>> 0) % 997) -
+                    ((hash(`${seed}|${slot}|${batchNo}|${b.id}`) >>> 0) % 997),
+                );
           bake = ranked.find((r) => r.id !== prev?.id) ?? ranked[0];
           if (bake) snackBakes.set(batchNo, bake);
         }
@@ -1343,8 +1364,10 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // in its slot's window on BOTH sides. Monotone by construction — the
   // swept week is never dearer than the blind one it starts from.
   const swept = { swaps: 0, saved: 0 };
-  if (ctx.costOf) {
-    const costOf = ctx.costOf;
+  /** @type {{ trip: number, perPerson: number, cap: number } | null} */
+  let budgetCheck = null;
+  if (ctx.costOf || ctx.tripItems) {
+    const costOf = ctx.costOf ?? (() => 0);
     const rank = (/** @type {string} */ st) => (st === "band" ? 3 : st === "floor" ? 2 : 1);
     const dayCost = (/** @type {any} */ cd) => {
       let sum = 0;
@@ -1399,58 +1422,119 @@ export function planBrigadeWeek(events, brigade, ctx) {
       }
       return metric;
     };
-    for (let pass = 0; pass < 6; pass++) {
-      let changed = false;
-      for (const cd of composedDays) {
-        if (!cd.composed) continue;
-        for (const slot of liveSlots) {
-          // never re-plan food that is already cooked
-          if (cd.existingBySlot[slot]?.cookedAt) continue;
-          // a leftover night eats what was cooked: nothing to swap — and a
-          // COOK night that feeds later nights is a commitment those nights
-          // already hold, so it is not swapped either (the 2026-09-06 drift)
-          if (cd.leftoverBySlot?.[slot]) continue;
-          if (LEFTOVER_SLOTS.has(slot) && (fedBy.get(cd.date) ?? []).length > 0) continue;
-          // a hand-pinned dish is not the sweep's to trade away
-          if (/** @type {any} */ (cd.existingBySlot?.[slot])?.pinned) continue;
-          // read the day's CURRENT baseline each slot — an accepted swap on
-          // an earlier slot of this same day already moved it
-          const base = cd.composed;
-          if (!base) continue;
-          const cur = cd.picks[slot];
-          if (!cur) continue;
-          const curDayCost = dayCost(cd);
-          const cheaper = (cd.dayPools?.[slot] ?? poolsBySlot[slot] ?? [])
-            .filter((r) => r.id !== cur.id && costOf(String(r.id)) < costOf(String(cur.id)) - 0.05)
-            .sort((a, b) => costOf(String(a.id)) - costOf(String(b.id)))
-            .slice(0, 6);
-          for (const alt of cheaper) {
-            const served = servedBySlot[slot] ?? new Map();
-            const nextServed = new Map(served);
-            nextServed.set(cd.date, String(alt.id));
-            if (repeatMetric(slot, nextServed) > repeatMetric(slot, served) + 1e-9) continue;
-            const nextPicks = { ...cd.picks, [slot]: alt };
-            const re = resolve(cd, nextPicks);
-            if (!re) continue;
-            const ok = cd.eating.every(
-              (/** @type {any} */ s) =>
-                rank(re.seats[s.id]?.status ?? "") >= rank(base.seats[s.id]?.status ?? ""),
-            );
-            if (!ok) continue;
-            const nextCd = { ...cd, picks: nextPicks, composed: re };
-            const nextCost = dayCost(nextCd);
-            if (nextCost >= curDayCost - 0.25) continue;
-            swept.swaps += 1;
-            swept.saved += curDayCost - nextCost;
-            cd.picks = nextPicks;
-            cd.composed = re;
-            servedBySlot[slot]?.set(cd.date, String(alt.id));
-            changed = true;
-            break;
-          }
+    // THE TRIP, NOT THE PLATE (David, 2026-09-24: "the planner NEEDS to have
+    // pantry, ingredient overlap and budget, that is like the whole point").
+    // With tripItems, a swap is scored by what it adds to THIS trip: every
+    // food the kitchen lacks costs its whole package, once for the whole
+    // week, so a food another meal already buys costs nothing (overlap) and
+    // one on the shelf costs nothing (pantry). Without it, the eaten-cost
+    // sweep runs exactly as before.
+    const itemsOf = (/** @type {string} */ id) => (ctx.tripItems ? ctx.tripItems(id) : []);
+    const weekKeys = (/** @type {any} */ skipCd, /** @type {string | null} */ skipSlot) => {
+      /** @type {Map<string, number>} */
+      const m = new Map();
+      for (const d of composedDays) {
+        for (const sl of liveSlots) {
+          if (d === skipCd && sl === skipSlot) continue;
+          if (d.leftoverBySlot?.[sl]) continue;
+          const r = d.picks?.[sl];
+          if (!r) continue;
+          for (const it of itemsOf(String(r.id)))
+            m.set(it.key, Math.max(m.get(it.key) ?? 0, it.cost));
         }
       }
-      if (!changed) break;
+      return m;
+    };
+    const marginal = (/** @type {string} */ id, /** @type {Map<string, number>} */ keys) =>
+      itemsOf(id).reduce((sum, it) => sum + (keys.has(it.key) ? 0 : it.cost), 0);
+    const runPasses = (/** @type {boolean} */ relaxVariety) => {
+      for (let pass = 0; pass < 6; pass++) {
+        let changed = false;
+        for (const cd of composedDays) {
+          if (!cd.composed) continue;
+          for (const slot of liveSlots) {
+            if (cd.existingBySlot[slot]?.cookedAt) continue;
+            if (cd.leftoverBySlot?.[slot]) continue;
+            if (LEFTOVER_SLOTS.has(slot) && (fedBy.get(cd.date) ?? []).length > 0) continue;
+            if (/** @type {any} */ (cd.existingBySlot?.[slot])?.pinned) continue;
+            const base = cd.composed;
+            if (!base) continue;
+            const cur = cd.picks[slot];
+            if (!cur) continue;
+            const pool = cd.dayPools?.[slot] ?? poolsBySlot[slot] ?? [];
+            const keys = ctx.tripItems ? weekKeys(cd, slot) : null;
+            const curM = keys ? marginal(String(cur.id), keys) : 0;
+            const curDayCost = dayCost(cd);
+            const cheaper = keys
+              ? pool
+                  .filter((r) => r.id !== cur.id && marginal(String(r.id), keys) < curM - 0.25)
+                  .sort((a, b) => marginal(String(a.id), keys) - marginal(String(b.id), keys))
+                  .slice(0, 6)
+              : pool
+                  .filter(
+                    (r) => r.id !== cur.id && costOf(String(r.id)) < costOf(String(cur.id)) - 0.05,
+                  )
+                  .sort((a, b) => costOf(String(a.id)) - costOf(String(b.id)))
+                  .slice(0, 6);
+            for (const alt of cheaper) {
+              const served = servedBySlot[slot] ?? new Map();
+              const nextServed = new Map(served);
+              nextServed.set(cd.date, String(alt.id));
+              if (
+                !relaxVariety &&
+                repeatMetric(slot, nextServed) > repeatMetric(slot, served) + 1e-9
+              )
+                continue;
+              const nextPicks = { ...cd.picks, [slot]: alt };
+              const re = resolve(cd, nextPicks);
+              if (!re) continue;
+              const ok = cd.eating.every(
+                (/** @type {any} */ s) =>
+                  rank(re.seats[s.id]?.status ?? "") >= rank(base.seats[s.id]?.status ?? ""),
+              );
+              if (!ok) continue;
+              let saved;
+              if (keys) {
+                saved = curM - marginal(String(alt.id), keys);
+              } else {
+                const nextCost = dayCost({ ...cd, picks: nextPicks, composed: re });
+                if (nextCost >= curDayCost - 0.25) continue;
+                saved = curDayCost - nextCost;
+              }
+              swept.swaps += 1;
+              swept.saved += saved;
+              cd.picks = nextPicks;
+              cd.composed = re;
+              servedBySlot[slot]?.set(cd.date, String(alt.id));
+              changed = true;
+              break;
+            }
+          }
+        }
+        if (!changed) break;
+      }
+    };
+    runPasses(false);
+    // THE BUDGET, as a cap (same ruling): the kitchen's trip for this run,
+    // split per person, against each person's weekly budget scaled to the
+    // run's days. Over it, one more sweep may repeat dishes (variety gives
+    // way; the bands never do). Still over, it says so in words.
+    if (ctx.tripItems && Number(ctx.budgetUsd) > 0) {
+      const tripNow = () => [...weekKeys(null, null).values()].reduce((a, b) => a + b, 0);
+      const perPerson = () => tripNow() / Math.max(1, members.length);
+      const cap = (Number(ctx.budgetUsd) * dates.length) / 7;
+      if (perPerson() > cap + 0.5) runPasses(true);
+      const share = Math.round(perPerson() * 100) / 100;
+      budgetCheck = {
+        trip: Math.round(tripNow() * 100) / 100,
+        perPerson: share,
+        cap: Math.round(cap * 100) / 100,
+      };
+      if (share > cap + 0.5) {
+        notes.push(
+          `over budget: about $${share.toFixed(0)} a person for these ${dates.length} days against $${cap.toFixed(0)} (your $${Number(ctx.budgetUsd).toFixed(0)} a week). The cheapest week the bands allow is still over; the rest is packages the pantry does not hold`,
+        );
+      }
     }
     swept.saved = Math.round(swept.saved * 100) / 100;
   }
@@ -1626,7 +1710,16 @@ export function planBrigadeWeek(events, brigade, ctx) {
     );
   }
   tables = [...byId.values()];
-  return { events: { ...events, tables }, made, thin, report, swept, notes, nights };
+  return {
+    events: { ...events, tables },
+    made,
+    thin,
+    report,
+    swept,
+    notes,
+    nights,
+    budget: budgetCheck,
+  };
 }
 
 /** FNV-1a, the same deterministic shuffle key tables.js uses. */
