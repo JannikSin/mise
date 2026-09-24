@@ -32,6 +32,8 @@ const FALLBACK_SAFE_DAYS = 3;
 const LEFTOVER_SLOTS = new Set(["dinner"]);
 /** the longest a no-cook night may sit from the pot it eats (the bank's longest safeDays) */
 const MAX_LEFTOVER_DAYS = 4;
+/** one snack bake feeds this many days in a row (David, 2026-09-24) */
+const SNACK_BATCH_DAYS = 3;
 /** dishes written to be cooked once and eaten again (same tag set portions.js keys its ledger on) */
 const BATCH_TAGS = new Set([
   "batch-friendly",
@@ -942,6 +944,8 @@ export function planBrigadeWeek(events, brigade, ctx) {
 
   /** @type {{ date: string, existingBySlot: Record<string, import("./tables.js").TableEvent | undefined>, seats: any[], eating: any[], composed: ReturnType<typeof composeDay>, picks: Record<string, Record<string, any>>, leftoverBySlot: Record<string, { date: string, recipeId: string, recipe: Record<string, any> }>, dayPools: Record<string, Record<string, any>[]> }[]} */
   const composedDays = [];
+  /** @type {Map<number, Record<string, any>>} the bake each snack batch of this run uses */
+  const snackBakes = new Map();
   // A SET MEAL IS KEPT ONLY IF ITS FOOD WAS BOUGHT (David, 2026-09-06: "there's
   // an overlap... I don't even know what we're making Sunday"). The plain SET
   // used to keep every fully-set day as "already bought", which protected a
@@ -1040,9 +1044,14 @@ export function planBrigadeWeek(events, brigade, ctx) {
       // day composes and sizes every plate around it. Without this the keep
       // rule compared the committee's pick to the pinned dish, found them
       // different, and overwrote Friday's kofta with a minestrone.
-      const pinnedDish = /** @type {any} */ (existingBySlot[slot])?.pinned
-        ? ctx.bankById.get(String(existingBySlot[slot]?.recipeId))
-        : undefined;
+      // ...and so is a dish already COOKED: a re-roll may never re-plan food
+      // that exists (it held only by coincidence of the seeded walk until the
+      // 2026-09-24 snack batches changed the day around it)
+      const pinnedDish =
+        /** @type {any} */ (existingBySlot[slot])?.pinned ||
+        /** @type {any} */ (existingBySlot[slot])?.cookedAt
+          ? ctx.bankById.get(String(existingBySlot[slot]?.recipeId))
+          : undefined;
       if (pinnedDish) {
         startBySlot[slot] = pinnedDish;
         dayPools[slot] = [pinnedDish];
@@ -1099,6 +1108,45 @@ export function planBrigadeWeek(events, brigade, ctx) {
           }
         }
         dayPools[slot] = pool;
+      }
+      // SNACKS ARE BATCHES (David, 2026-09-24: "a batch of muffins lasts
+      // about 3 to 4 days"). One bake feeds SNACK_BATCH_DAYS days in a row;
+      // the pool collapses to that bake so the day only sizes portions. A new
+      // bake every day bought a jar of syrup, two bags of chips and a bag of
+      // cranberries for three days of snacks.
+      if (slot === "snack") {
+        const keeps = pool.filter((r) => safeDaysOf(r) >= SNACK_BATCH_DAYS - 1);
+        if (keeps.length > 0) pool = keeps;
+        // batches count from the run's first day, so a three-day run is one bake
+        const batchNo = Math.floor(
+          (dayOffset(date) - dayOffset(dates[0] ?? date)) / SNACK_BATCH_DAYS,
+        );
+        let bake = snackBakes.get(batchNo);
+        if (!bake) {
+          const prev = snackBakes.get(batchNo - 1);
+          // with prices known, the bake that costs least THIS TRIP (whole
+          // packages, minus the pantry), never the previous batch's twice;
+          // without prices, the seeded rotation as before
+          const ranked = ctx.costOf
+            ? [...pool].sort(
+                (a, b) =>
+                  /** @type {(id: string) => number} */ (ctx.costOf)(String(a.id)) -
+                    /** @type {(id: string) => number} */ (ctx.costOf)(String(b.id)) ||
+                  String(a.id).localeCompare(String(b.id)),
+              )
+            : [...pool].sort(
+                (a, b) =>
+                  ((hash(`${seed}|${slot}|${batchNo}|${a.id}`) >>> 0) % 997) -
+                  ((hash(`${seed}|${slot}|${batchNo}|${b.id}`) >>> 0) % 997),
+              );
+          bake = ranked.find((r) => r.id !== prev?.id) ?? ranked[0];
+          if (bake) snackBakes.set(batchNo, bake);
+        }
+        if (bake) {
+          startBySlot[slot] = bake;
+          dayPools[slot] = [bake];
+        }
+        continue;
       }
       const pick =
         pool[

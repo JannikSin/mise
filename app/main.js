@@ -89,6 +89,7 @@ import {
   sectionOf,
   slug,
   recipeBought,
+  kitchenHas,
 } from "./lib/shopping.js";
 import { setPantryCount, weekNeedsCheck } from "./lib/shelfcheck.js";
 import { applyReceipt, parsePackSize, storeSlugOf, resolveHomeStore } from "./lib/prices.js";
@@ -184,7 +185,7 @@ import {
   recordEntries,
   balancesFor,
   settleBetween,
-  recipeEatenCost,
+  recipeTripCost,
 } from "./lib/money.js";
 
 export const APP = { name: "Mise", version: "0.3.0" };
@@ -3734,10 +3735,14 @@ function App() {
       /** @type {((recipeId: string) => number) | undefined} */
       let costOf;
       if (cat && store) {
+        // TRIP cost, not eaten cost (David, 2026-09-24: "how can 3 days of
+        // food be $121"): what each recipe adds to THIS trip, whole packages
+        // for what the kitchen lacks, nothing for what it holds
+        const has = kitchenHas(pantryRef.current, shoppingRef.current);
         /** @type {Map<string, number>} */
         const perServing = new Map();
         for (const r of bankRecipesRef.current) {
-          const c = recipeEatenCost(r, cat, store);
+          const c = recipeTripCost(r, cat, store, has);
           if (c.priced > 0) perServing.set(r.id, c.perServing);
         }
         const known = [...perServing.values()].sort((a, b) => a - b);

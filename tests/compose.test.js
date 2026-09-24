@@ -633,11 +633,14 @@ test("cost sweep: never dearer than blind, every day still lands, deterministic,
       `${row.seatId} ${row.date} still lands (${row.dayKcal} kcal / ${row.dayProtein} g)`,
     );
   }
-  assert.ok(
-    aware.swept.swaps > 0,
-    "the fixture's near-free dinners must attract at least one swap",
-  );
-  assert.ok(aware.swept.saved > 0, "a swap that saved nothing should not have been accepted");
+  // the sweep must not be dead code: a dinner priced far above the rest
+  // must be traded away wherever a cheaper one keeps every seat's status.
+  // (Snacks are fixed per 3-day batch since 2026-09-24, which on this
+  // fixture leaves the mild price gaps above too small to beat the gate.)
+  const dear = (/** @type {string} */ id) => (id === "din-stew" ? 40 : sweepCostOf(id));
+  const live = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx({ costOf: dear }));
+  assert.ok(live.swept.swaps > 0, "a dinner priced far above the rest must attract a swap");
+  assert.ok(live.swept.saved > 0, "a swap that saved nothing should not have been accepted");
   assert.deepEqual(blind.swept, { swaps: 0, saved: 0 }, "no costOf, no sweep");
 });
 
@@ -1120,4 +1123,24 @@ test("a brigade slot a member turned OFF (targets.skipSlots) is SKIPPED auto for
       .filter((t) => t.slot === "smoothie")
       .every((t) => t.seats.find((s) => s.id === "david")?.status !== "skipped"),
   );
+});
+
+test("SNACKS ARE BATCHES: one bake feeds three days in a row, so a week has at most three bakes", () => {
+  // David, 2026-09-24: "a batch of muffins lasts about 3 to 4 days"; a bake a
+  // day bought syrup, two bags of chips and cranberries for three days
+  const { events } = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+  const snacks = events.tables
+    .filter((t) => t.slot === "snack")
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((t) => t.recipeId);
+  assert.equal(snacks.length, 7);
+  assert.ok(new Set(snacks).size <= 3, `at most three bakes in a week (${snacks.join(", ")})`);
+  const byBatch = new Map();
+  events.tables
+    .filter((t) => t.slot === "snack")
+    .forEach((t) => {
+      const k = Math.floor((Date.parse(t.date) - Date.parse(BRIGADE.from)) / 86400000 / 3);
+      byBatch.set(k, [...(byBatch.get(k) ?? []), t.recipeId]);
+    });
+  for (const [k, ids] of byBatch) assert.equal(new Set(ids).size, 1, `batch ${k} is one bake`);
 });

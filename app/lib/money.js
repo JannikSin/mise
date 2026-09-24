@@ -63,6 +63,44 @@ export function recipeEatenCost(recipe, catalogue, store) {
 }
 
 /**
+ * What a recipe costs THIS TRIP, per serving (David, 2026-09-24: "how can 3
+ * days of food be $121"). recipeEatenCost prices the fraction eaten, so a
+ * $12 bottle bought for two tablespoons scored $0.98 and the planner picked
+ * it happily. Here every ingredient the kitchen does not already hold costs
+ * its WHOLE package, and one it holds costs nothing, so the planner prefers
+ * food that uses what is on the shelf and avoids a jar for a pinch.
+ * Unpriced ingredients count 0 (neither free nor banned is knowable).
+ * @param {Record<string, any>} recipe
+ * @param {any} catalogue
+ * @param {string} store
+ * @param {(food: string) => boolean} has what the kitchen already holds
+ * @returns {{ perServing: number, priced: number, of: number }}
+ */
+export function recipeTripCost(recipe, catalogue, store, has) {
+  let trip = 0;
+  let priced = 0;
+  let of = 0;
+  for (const ing of recipe.ingredients ?? []) {
+    if (!ing?.food || ing.staple) continue;
+    of += 1;
+    if (has(String(ing.food))) {
+      priced += 1;
+      continue;
+    }
+    const c = itemCost(
+      { food: String(ing.food), qty: Number(ing.qty) || 1, unit: String(ing.unit ?? "x") },
+      catalogue,
+      store,
+    );
+    if (!c) continue;
+    priced += 1;
+    trip += c.cost;
+  }
+  const servings = Number(recipe.servings) || 1;
+  return { perServing: Math.round((trip / servings) * 100) / 100, priced, of };
+}
+
+/**
  * What one cooked serving of a recipe costs at a store, floor-priced like
  * the shopping list (unpriceable ingredients count 0 and flag the result).
  * @param {Record<string, any>} recipe

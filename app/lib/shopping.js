@@ -1036,6 +1036,23 @@ export function recipeBought(recipe, pantry, shopping) {
     (/** @type {any} */ i) => i && i.food && !i.staple,
   );
   if (ings.length === 0) return true;
+  const has = kitchenHas(pantry, shopping);
+  const got = (/** @type {any} */ i) => has(String(i.food));
+  const fresh = ings.filter((/** @type {any} */ i) => looksPerishable(String(i.food)));
+  if (fresh.length > 0) return fresh.every(got);
+  return ings.filter(got).length >= Math.ceil(ings.length * 0.6);
+}
+
+/**
+ * What the kitchen already holds: a dated pantry row, a PLENTY staple, or a
+ * row ticked on the list. One predicate, shared by recipeBought and the
+ * trip-cost the planner selects on (2026-09-24), so "owned" means the same
+ * thing when the week is planned and when it is bought.
+ * @param {any} pantry
+ * @param {{ items?: any[] } | null | undefined} [shopping]
+ * @returns {(food: string) => boolean}
+ */
+export function kitchenHas(pantry, shopping) {
   /** @type {Set<string>} */
   const have = new Set();
   for (const it of pantryItems(pantry)) {
@@ -1048,11 +1065,7 @@ export function recipeBought(recipe, pantry, shopping) {
     have.add(canonicalFood(String(i.food)));
     have.add(plentyKey(String(i.food)));
   }
-  const got = (/** @type {any} */ i) =>
-    have.has(canonicalFood(String(i.food))) || have.has(plentyKey(String(i.food)));
-  const fresh = ings.filter((/** @type {any} */ i) => looksPerishable(String(i.food)));
-  if (fresh.length > 0) return fresh.every(got);
-  return ings.filter(got).length >= Math.ceil(ings.length * 0.6);
+  return (food) => have.has(canonicalFood(String(food))) || have.has(plentyKey(String(food)));
 }
 
 /**
