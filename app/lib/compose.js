@@ -810,8 +810,18 @@ export function planBrigadeWeek(events, brigade, ctx) {
       const ex = byId.get(brigadeTableId(brigade.id, d, "dinner"));
       const exSrcId = /** @type {any} */ (ex)?.leftoverOf;
       const exSrc = typeof exSrcId === "string" ? byId.get(exSrcId) : undefined;
+      // a PAST pot counts only if it was cooked or its food was bought: a
+      // Tuesday nobody shopped for is not Thursday's dinner (found live
+      // 2026-09-24, a week whose shopping never happened)
+      const potReal =
+        exSrc &&
+        (exSrc.date >= ctx.today ||
+          Boolean(/** @type {any} */ (exSrc).cookedAt) ||
+          !ctx.bought ||
+          ctx.bought(exSrc));
       if (
         exSrc &&
+        potReal &&
         !ctx.regenerate &&
         exSrc.date < d &&
         !cookNights.includes(exSrc.date) &&

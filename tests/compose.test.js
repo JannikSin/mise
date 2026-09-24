@@ -796,6 +796,34 @@ test("re-running the same week keeps the schedule (idempotent), and a regenerate
   );
 });
 
+test("a mid-week SET never keeps a no-cook night on a PAST pot that was never cooked or bought; a cooked one it keeps", () => {
+  // Found live 2026-09-24 (gopher): Tue's pot was never shopped for, and a
+  // plain GENERATE on Thursday kept Thursday as "leftovers of Tue", a dinner
+  // that does not exist, with its buy on a date the list no longer covers.
+  const first = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx());
+  const wed = "2026-09-09";
+  const midweek = (/** @type {any} */ events) =>
+    planBrigadeWeek(events, COOK_BRIGADE, sunCtx({ today: wed, bought: () => false }));
+  const unbought = midweek(first.events);
+  for (const d of [wed, "2026-09-10"]) {
+    const t = dinnerOn(unbought.events, d);
+    assert.ok(t && !t.leftoverOf, `${d} cooks, it does not eat a pot nobody made`);
+  }
+  assert.deepEqual(unbought.nights.uncovered, [wed, "2026-09-10"]);
+
+  const mon = dinnerOn(first.events, "2026-09-07");
+  const cooked = {
+    ...first.events,
+    tables: first.events.tables.map((t) =>
+      t.id === mon.id ? { ...t, cookedAt: "2026-09-07T19:00:00" } : t,
+    ),
+  };
+  const kept = midweek(cooked);
+  for (const d of [wed, "2026-09-10"]) {
+    assert.equal(dinnerOn(kept.events, d).leftoverOf, mon.id, `${d} still eats Monday's real pot`);
+  }
+});
+
 test("PROTEIN ROTATION: four cook nights, four different proteins when the bank allows it", () => {
   const anchored = (id, food, kcal = 700, p = 45) => ({
     ...recipe(id, "dinner", kcal, p),
