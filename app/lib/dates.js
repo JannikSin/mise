@@ -45,6 +45,24 @@ export function localIsoDate(d) {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
+/** 7:30 pm: after this, today's meals are over for planning and buying */
+export const DINNER_CUTOFF_MINUTES = 19 * 60 + 30;
+
+/**
+ * The first day a GENERATE plans and a BUILD buys for (David, 2026-09-24:
+ * "a generate must start from today, or tomorrow if dinner is past"). Before
+ * the cutoff that is today; after it, tomorrow, so a late-night run never
+ * plans or buys a dinner that already did not happen.
+ * @param {Date} now
+ * @param {number} [cutoffMinutes]
+ * @returns {string}
+ */
+export function planStartIso(now, cutoffMinutes = DINNER_CUTOFF_MINUTES) {
+  if (now.getHours() * 60 + now.getMinutes() < cutoffMinutes) return localIsoDate(now);
+  const t = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 12);
+  return localIsoDate(t);
+}
+
 /**
  * Parse a YYYY-MM-DD string to a local Date anchored at noon — the anchor
  * keeps day arithmetic safe across DST shifts and midnight rollovers.

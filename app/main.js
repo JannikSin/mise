@@ -25,7 +25,14 @@ import {
 } from "./lib/store.js";
 import { initRouter } from "./lib/router.js";
 import { normalizeEquipment } from "./lib/equipment.js";
-import { formatSyncTime, isoWeekId, localIsoDate, parseLocalIso, statusDate } from "./lib/dates.js";
+import {
+  formatSyncTime,
+  isoWeekId,
+  localIsoDate,
+  parseLocalIso,
+  planStartIso,
+  statusDate,
+} from "./lib/dates.js";
 import { applyScanItems } from "./lib/scan.js";
 import { dinerFacts } from "./lib/annotate.js";
 import {
@@ -1356,8 +1363,9 @@ function App() {
    * @param {string} week
    * @returns {string | undefined}
    */
+  // after the dinner cutoff the trip starts tomorrow: tonight is not bought
   const todayIfCurrentWeek = (week) =>
-    week === isoWeekId(new Date()) ? localIsoDate(new Date()) : undefined;
+    week === isoWeekId(new Date()) ? planStartIso(new Date()) : undefined;
 
   const targetsRef = useRef(targets);
   targetsRef.current = targets;
@@ -1827,349 +1835,356 @@ function App() {
   // what the last GENERATE's brigade run did, for the Plan tab's own tile
   const [brigadeRun, setBrigadeRun] = useState(/** @type {Record<string, any> | null} */ (null));
 
-  const handleGenerateWeek = useCallback(async () => {
-    // body-level guard, not just the disabled button: this is the single
-    // most destructive path (clears every unpinned entry + overwrites the
-    // shopping list) and the one that caused the shopped-week wipe incident.
-    // The fluid week (7.2) replaced the flat refusal: a SHOPPED week asks
-    // first and snapshots itself as the fallback before being reshaped, so
-    // the shape you bought for can never be wiped, only stepped away from.
-    // The snapshot is CARRIED onto the generated plan rather than written
-    // first: generateWeek reads viewPlanRef (stale until the next render)
-    // and the final updatePlan(built) is a full replace, so an interim
-    // write would be clobbered a moment later (diff review 2026-08-19).
-    /** @type {import("./lib/plan.js").Plan["fallback"]} */
-    let carriedFallback;
-    {
-      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
-      carriedFallback = p.fallback;
-      if (p.shoppedAt || p.fallback) {
-        const ok = await askConfirm(
-          "You've shopped for this week. Regenerating reshapes it — the bought food stays in your pantry, the shopped plan stays saved as your fallback, and the coverage check watches every perishable. Regenerate?",
-        );
-        if (!ok) return;
-        if (!carriedFallback) {
-          carriedFallback = saveFallback(p, localIsoDate(new Date())).fallback;
+  // TWO BUTTONS, one meaning each (David, 2026-09-24: the label that flipped
+  // from GENERATE to PICK DIFFERENT MEALS after one tap hid which one a tap
+  // was). SET (reroll false) fills what is missing and keeps anything bought
+  // or cooked; PICK DIFFERENT MEALS (reroll true) re-rolls the rest.
+  const handleGenerateWeek = useCallback(
+    async (reroll = false) => {
+      // body-level guard, not just the disabled button: this is the single
+      // most destructive path (clears every unpinned entry + overwrites the
+      // shopping list) and the one that caused the shopped-week wipe incident.
+      // The fluid week (7.2) replaced the flat refusal: a SHOPPED week asks
+      // first and snapshots itself as the fallback before being reshaped, so
+      // the shape you bought for can never be wiped, only stepped away from.
+      // The snapshot is CARRIED onto the generated plan rather than written
+      // first: generateWeek reads viewPlanRef (stale until the next render)
+      // and the final updatePlan(built) is a full replace, so an interim
+      // write would be clobbered a moment later (diff review 2026-08-19).
+      /** @type {import("./lib/plan.js").Plan["fallback"]} */
+      let carriedFallback;
+      {
+        const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+        carriedFallback = p.fallback;
+        if (p.shoppedAt || p.fallback) {
+          const ok = await askConfirm(
+            "You've shopped for this week. Regenerating reshapes it — the bought food stays in your pantry, the shopped plan stays saved as your fallback, and the coverage check watches every perishable. Regenerate?",
+          );
+          if (!ok) return;
+          if (!carriedFallback) {
+            carriedFallback = saveFallback(p, localIsoDate(new Date())).fallback;
+          }
         }
       }
-    }
-    const bs = buildStateRef.current;
-    bs.salt++;
-    // THE BRIGADE FIRST (David, 2026-09-05: "when on the plan tab you click
-    // generate my week it generates the week in the brigade. there is no
-    // reason that it should be necessary to go to the table tab"). When my
-    // house runs a standing brigade that covers this week's live days and I
-    // am in it, the shared meals are set first — and on PICK DIFFERENT MEALS
-    // re-rolled — and my own slots are then planned around them from the
-    // tables as just written, not from the render-stale derivation.
-    /** @type {ReturnType<typeof deriveTables> | null} */
-    let freshDerived = null;
-    {
-      const house = /** @type {string} */ (
-        allProfilesRef.current.find((p) => p.id === me)?.household ?? "home"
-      );
-      const todayIso = localIsoDate(new Date());
-      const weekDates = datesOfWeek(weekRef.current);
-      const active =
-        (houseEventsRef.current.find((h) => h.house === house)?.events?.brigades ?? [])
-          .filter(
-            (b) =>
-              b.memberIds.includes(me) &&
-              (b.until ?? "") >= todayIso &&
-              weekDates.some((d) => d >= b.from && d <= b.until && d >= todayIso),
-          )
-          .sort((a, b) => (b.until ?? "").localeCompare(a.until ?? ""))[0] ?? null;
-      if (active && runBrigadeRef.current) {
-        try {
-          const res = await runBrigadeRef.current(active.id, weekRef.current, bs.salt > 1);
-          setBrigadeRun(res);
-          if (res?.events) {
-            const houses = houseEventsRef.current.map((h) =>
-              h.house === house ? { house, events: res.events } : h,
-            );
-            const t = targetsRef.current;
-            freshDerived = deriveTables(houses, {
-              profileId: me,
-              diet: t?.diet,
-              avoid: t?.avoidIngredients,
-              avoidRecipes: t?.avoidRecipes,
-              bankById: recipesById(bankRecipesRef.current),
-              ownEntries: /** @type {any} */ (planRef.current).entries,
-              today: todayIso,
-              profilesById: new Map(allProfilesRef.current.map((p) => [p.id, p])),
-              myTargets: t,
+      const bs = buildStateRef.current;
+      if (reroll || bs.salt === 0) bs.salt++;
+      // THE BRIGADE FIRST (David, 2026-09-05: "when on the plan tab you click
+      // generate my week it generates the week in the brigade. there is no
+      // reason that it should be necessary to go to the table tab"). When my
+      // house runs a standing brigade that covers this week's live days and I
+      // am in it, the shared meals are set first — and on PICK DIFFERENT MEALS
+      // re-rolled — and my own slots are then planned around them from the
+      // tables as just written, not from the render-stale derivation.
+      /** @type {ReturnType<typeof deriveTables> | null} */
+      let freshDerived = null;
+      {
+        const house = /** @type {string} */ (
+          allProfilesRef.current.find((p) => p.id === me)?.household ?? "home"
+        );
+        const todayIso = localIsoDate(new Date());
+        const weekDates = datesOfWeek(weekRef.current);
+        const active =
+          (houseEventsRef.current.find((h) => h.house === house)?.events?.brigades ?? [])
+            .filter(
+              (b) =>
+                b.memberIds.includes(me) &&
+                (b.until ?? "") >= todayIso &&
+                weekDates.some((d) => d >= b.from && d <= b.until && d >= todayIso),
+            )
+            .sort((a, b) => (b.until ?? "").localeCompare(a.until ?? ""))[0] ?? null;
+        if (active && runBrigadeRef.current) {
+          try {
+            const res = await runBrigadeRef.current(active.id, weekRef.current, reroll);
+            setBrigadeRun(res);
+            if (res?.events) {
+              const houses = houseEventsRef.current.map((h) =>
+                h.house === house ? { house, events: res.events } : h,
+              );
+              const t = targetsRef.current;
+              freshDerived = deriveTables(houses, {
+                profileId: me,
+                diet: t?.diet,
+                avoid: t?.avoidIngredients,
+                avoidRecipes: t?.avoidRecipes,
+                bankById: recipesById(bankRecipesRef.current),
+                ownEntries: /** @type {any} */ (planRef.current).entries,
+                today: todayIso,
+                profilesById: new Map(allProfilesRef.current.map((p) => [p.id, p])),
+                myTargets: t,
+              });
+              // the list build below reads this ref; the memo rewrites it with
+              // the identical result on the next render
+              tableDerivedRef.current = freshDerived;
+            }
+          } catch (err) {
+            setBrigadeRun({
+              made: 0,
+              thin: [],
+              report: [],
+              notes: [
+                `the shared meals could not be set: ${err instanceof Error ? err.message : "unknown error"} — your own slots were still planned`,
+              ],
             });
-            // the list build below reads this ref; the memo rewrites it with
-            // the identical result on the next render
-            tableDerivedRef.current = freshDerived;
           }
-        } catch (err) {
-          setBrigadeRun({
-            made: 0,
-            thin: [],
-            report: [],
-            notes: [
-              `the shared meals could not be set: ${err instanceof Error ? err.message : "unknown error"} — your own slots were still planned`,
-            ],
+        } else {
+          setBrigadeRun(null);
+        }
+      }
+      // P11, the loop: the week being generated reads the week just closed.
+      // Composed here rather than passed down from render so GENERATE never
+      // depends on which tab happened to be open. Waste events and uncooked
+      // planned meals are the only signals, both measured, never stated.
+      /** @type {any} */
+      let lastReview = null;
+      try {
+        const prevId = shiftWeek(weekRef.current, -1);
+        const prev = /** @type {any} */ (await read(`plans/${prevId}.json`));
+        if (prev) {
+          lastReview = composeWeekReview({
+            plan: prev,
+            waste: /** @type {any} */ (manifestInputs.current.waste),
+            daily: /** @type {any} */ (dailyRef.current),
+            targets: targetsRef.current,
+            weekDates: datesOfWeek(prevId),
+            recipesById: recipesById(recipesRef.current),
+            pantry: pantryRef.current,
           });
         }
-      } else {
-        setBrigadeRun(null);
+      } catch {
+        // no readable prior week is a working state, not a failure: a skipped
+        // review never blocks the next week (canon P11)
       }
-    }
-    // P11, the loop: the week being generated reads the week just closed.
-    // Composed here rather than passed down from render so GENERATE never
-    // depends on which tab happened to be open. Waste events and uncooked
-    // planned meals are the only signals, both measured, never stated.
-    /** @type {any} */
-    let lastReview = null;
-    try {
-      const prevId = shiftWeek(weekRef.current, -1);
-      const prev = /** @type {any} */ (await read(`plans/${prevId}.json`));
-      if (prev) {
-        lastReview = composeWeekReview({
-          plan: prev,
-          waste: /** @type {any} */ (manifestInputs.current.waste),
-          daily: /** @type {any} */ (dailyRef.current),
-          targets: targetsRef.current,
-          weekDates: datesOfWeek(prevId),
-          recipesById: recipesById(recipesRef.current),
-          pantry: pantryRef.current,
-        });
+      // BUDGET THE SWIPES BEFORE GENERATING (P5, P10, David 2026-08-24).
+      // The arbitrage only pays off on swipes that are IN the plan when the
+      // committees run, and nothing ever put one there: a seven-swipe meal
+      // plan only worked if he remembered to tap seven slots first, and if he
+      // forgot, the week bought protein he had already paid for.
+      // One a day, on the currency's preferred slot, up to its weekly
+      // allowance, never over a past day or a day already eating away.
+      /** @type {import("./lib/plan.js").Plan} */
+      let seeded = /** @type {any} */ (viewPlanRef.current);
+      if (freshDerived) {
+        // the brigade's tables as just written enter as pins, exactly as the
+        // memo would derive them one render later
+        seeded = mergeViewPlan(
+          /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
+          freshDerived.entries,
+          datesOfWeek(weekRef.current),
+          localIsoDate(new Date()),
+        ).plan;
       }
-    } catch {
-      // no readable prior week is a working state, not a failure: a skipped
-      // review never blocks the next week (canon P11)
-    }
-    // BUDGET THE SWIPES BEFORE GENERATING (P5, P10, David 2026-08-24).
-    // The arbitrage only pays off on swipes that are IN the plan when the
-    // committees run, and nothing ever put one there: a seven-swipe meal
-    // plan only worked if he remembered to tap seven slots first, and if he
-    // forgot, the week bought protein he had already paid for.
-    // One a day, on the currency's preferred slot, up to its weekly
-    // allowance, never over a past day or a day already eating away.
-    /** @type {import("./lib/plan.js").Plan} */
-    let seeded = /** @type {any} */ (viewPlanRef.current);
-    if (freshDerived) {
-      // the brigade's tables as just written enter as pins, exactly as the
-      // memo would derive them one render later
-      seeded = mergeViewPlan(
-        /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
-        freshDerived.entries,
-        datesOfWeek(weekRef.current),
-        localIsoDate(new Date()),
-      ).plan;
-    }
-    {
-      const buffet = (targetsRef.current?.currencies ?? []).find(
-        (/** @type {any} */ c) => c.venue === "buffet",
-      );
-      if (buffet?.perWeek > 0) {
-        const slot = String(buffet.preferredSlot || "lunch");
-        seeded = planSwipes(seeded, datesOfWeek(weekRef.current), {
-          perWeek: buffet.perWeek,
-          currencyId: buffet.id,
-          slot,
-          estimate: buffetMacroEstimate(recipesRef.current, slot, buffet),
-          today: localIsoDate(new Date()),
-        });
+      {
+        const buffet = (targetsRef.current?.currencies ?? []).find(
+          (/** @type {any} */ c) => c.venue === "buffet",
+        );
+        if (buffet?.perWeek > 0) {
+          const slot = String(buffet.preferredSlot || "lunch");
+          seeded = planSwipes(seeded, datesOfWeek(weekRef.current), {
+            perWeek: buffet.perWeek,
+            currencyId: buffet.id,
+            slot,
+            estimate: buffetMacroEstimate(recipesRef.current, slot, buffet),
+            today: planStartIso(new Date()),
+          });
+        }
       }
-    }
-    const result = generateWeek({
-      recipes: recipesRef.current,
-      targets: targetsRef.current,
-      review: lastReview,
-      drainDownIso: drainDownDate(manifestInputs.current.household ?? normalizeHousehold(null)),
-      // expiring-soon perishables are auto-flagged useSoon so the committees
-      // favor recipes that cook them before they leave on their own
-      pantry: withAutoUseSoon(pantryRef.current, localIsoDate(new Date())),
-      weekId: weekRef.current,
-      // viewPlan: derived table entries enter as pins so the generator
-      // plans each member's day around the shared meal
-      plan: seeded,
-      salt: bs.salt,
-      recentRecipeIds: recentRecipeIdsRef.current,
-      // day-aware: past days of the current week survive and are not
-      // re-planned; a future week is untouched by this (all its dates are
-      // ahead of today)
-      today: localIsoDate(new Date()),
-    });
-    let built = result.plan;
-    // AUTO-APPLY substitutions (David, 2026-08-02: "there is no point in
-    // saying these are potential swaps if you don't do them"). Still MY week
-    // ONLY — the Tribunal veto on writing other people's plans stands;
-    // house-wide convergence happens because every phone's own generate does
-    // this same pass against the same house lists. One pass, no loop: swaps
-    // are computed from the freshly built week, applied, done. Swap targets
-    // come from the screened pickable pool, so nothing unsafe can land.
-    if (otherListsRef.current.length > 0) {
+      const result = generateWeek({
+        recipes: recipesRef.current,
+        targets: targetsRef.current,
+        review: lastReview,
+        drainDownIso: drainDownDate(manifestInputs.current.household ?? normalizeHousehold(null)),
+        // expiring-soon perishables are auto-flagged useSoon so the committees
+        // favor recipes that cook them before they leave on their own
+        pantry: withAutoUseSoon(pantryRef.current, localIsoDate(new Date())),
+        weekId: weekRef.current,
+        // viewPlan: derived table entries enter as pins so the generator
+        // plans each member's day around the shared meal
+        plan: seeded,
+        salt: bs.salt,
+        recentRecipeIds: recentRecipeIdsRef.current,
+        // day-aware: past days of the current week survive and are not
+        // re-planned; a future week is untouched by this (all its dates are
+        // ahead of today). After the dinner cutoff, planning starts tomorrow.
+        today: planStartIso(new Date()),
+      });
+      let built = result.plan;
+      // AUTO-APPLY substitutions (David, 2026-08-02: "there is no point in
+      // saying these are potential swaps if you don't do them"). Still MY week
+      // ONLY — the Tribunal veto on writing other people's plans stands;
+      // house-wide convergence happens because every phone's own generate does
+      // this same pass against the same house lists. One pass, no loop: swaps
+      // are computed from the freshly built week, applied, done. Swap targets
+      // come from the screened pickable pool, so nothing unsafe can land.
+      if (otherListsRef.current.length > 0) {
+        try {
+          const idById = recipesById(allRecipesRef.current);
+          const myList = deriveShoppingList(
+            withCookExtras(built),
+            idById,
+            pantryRef.current,
+            null,
+            todayIfCurrentWeek(built.week),
+            undefined,
+            recipesById(bankRecipesRef.current),
+          );
+          const combined = mergeProfileLists([
+            { profileId: me, list: myList },
+            ...otherListsRef.current.map((o) => ({ profileId: o.profileId, list: o.list })),
+          ]);
+          // generatorEligible: an unpromoted ai-special may propose and
+          // display, never auto-land in the plan (council 2026-07-23) — the
+          // taste-screened pool alone does not enforce that
+          const swaps = substitutionPlan(
+            combined,
+            me,
+            built.entries,
+            generatorEligible(recipesRef.current),
+            recipesById(recipesRef.current),
+            { today: localIsoDate(new Date()) },
+          );
+          if (swaps.length > 0) {
+            built = {
+              ...built,
+              entries: built.entries.map((e) => {
+                const s = swaps.find((x) => x.entryId === e.id);
+                return s ? { ...e, recipeId: s.toId } : e;
+              }),
+            };
+          }
+        } catch {
+          // a swap pass that fails leaves the honestly generated week intact
+        }
+      }
+      // SWAP TO FIT (P5, 2026-08-19). The budget is a CONSTRAINT on generation,
+      // not a readout: "You review a week that already meets the number." So the
+      // week is priced here, against the real store, and changed until it fits
+      // or until it can say plainly that it cannot and by how much. Runs LAST,
+      // after the house swap pass, so it prices the week David will actually
+      // see. Measured on his real bank: about $93/week, and then it stops and
+      // says how far short it is rather than pretending.
+      /** @type {Record<string, any> | undefined} */
+      let fitReport;
       try {
-        const idById = recipesById(allRecipesRef.current);
-        const myList = deriveShoppingList(
-          withCookExtras(built),
-          idById,
-          pantryRef.current,
-          null,
-          todayIfCurrentWeek(built.week),
-          undefined,
-          recipesById(bankRecipesRef.current),
-        );
-        const combined = mergeProfileLists([
-          { profileId: me, list: myList },
-          ...otherListsRef.current.map((o) => ({ profileId: o.profileId, list: o.list })),
-        ]);
-        // generatorEligible: an unpromoted ai-special may propose and
-        // display, never auto-land in the plan (council 2026-07-23) — the
-        // taste-screened pool alone does not enforce that
-        const swaps = substitutionPlan(
-          combined,
-          me,
-          built.entries,
-          generatorEligible(recipesRef.current),
-          recipesById(recipesRef.current),
-          { today: localIsoDate(new Date()) },
-        );
-        if (swaps.length > 0) {
-          built = {
-            ...built,
-            entries: built.entries.map((e) => {
-              const s = swaps.find((x) => x.entryId === e.id);
-              return s ? { ...e, recipeId: s.toId } : e;
-            }),
+        const cat = manifestInputs.current.catalogue;
+        const store = targetsRef.current?.stores?.[0] ?? "";
+        const budgetUsd = Number(targetsRef.current?.weeklyBudgetUsd) || 0;
+        if (cat && store && budgetUsd > 0) {
+          const fit = swapToFit({
+            plan: built,
+            recipes: generatorEligible(recipesRef.current),
+            recipesById: recipesById(recipesRef.current),
+            pantry: pantryRef.current,
+            catalogue: cat,
+            store,
+            region: targetsRef.current?.region,
+            budgetUsd,
+            targets: targetsRef.current,
+            fromDate: todayIfCurrentWeek(built.week),
+            today: localIsoDate(new Date()),
+            bankById: recipesById(bankRecipesRef.current),
+          });
+          built = /** @type {any} */ (fit.plan);
+          fitReport = {
+            ran: fit.ran,
+            fits: fit.fits,
+            budget: fit.budget,
+            startedAt: fit.startedAt,
+            eaten: fit.eaten,
+            over: fit.over,
+            swaps: fit.swaps.length,
+            reason: fit.reason,
+            store,
+          };
+        } else {
+          fitReport = {
+            ran: false,
+            fits: true,
+            swaps: 0,
+            reason: !cat
+              ? "no price catalogue on this device yet, so the week could not be priced"
+              : !store
+                ? "no store chosen on this profile, so there is no price to fit to"
+                : "no weekly budget set on this profile, so nothing to fit",
           };
         }
       } catch {
-        // a swap pass that fails leaves the honestly generated week intact
+        // a fit pass that throws leaves the honestly generated week intact, and
+        // says so rather than reporting a fit that never happened
+        fitReport = { ran: false, fits: false, swaps: 0, reason: "the fit pass failed to run" };
       }
-    }
-    // SWAP TO FIT (P5, 2026-08-19). The budget is a CONSTRAINT on generation,
-    // not a readout: "You review a week that already meets the number." So the
-    // week is priced here, against the real store, and changed until it fits
-    // or until it can say plainly that it cannot and by how much. Runs LAST,
-    // after the house swap pass, so it prices the week David will actually
-    // see. Measured on his real bank: about $93/week, and then it stops and
-    // says how far short it is rather than pretending.
-    /** @type {Record<string, any> | undefined} */
-    let fitReport;
-    try {
-      const cat = manifestInputs.current.catalogue;
-      const store = targetsRef.current?.stores?.[0] ?? "";
-      const budgetUsd = Number(targetsRef.current?.weeklyBudgetUsd) || 0;
-      if (cat && store && budgetUsd > 0) {
-        const fit = swapToFit({
-          plan: built,
-          recipes: generatorEligible(recipesRef.current),
-          recipesById: recipesById(recipesRef.current),
-          pantry: pantryRef.current,
-          catalogue: cat,
-          store,
-          region: targetsRef.current?.region,
-          budgetUsd,
-          targets: targetsRef.current,
-          fromDate: todayIfCurrentWeek(built.week),
-          today: localIsoDate(new Date()),
-          bankById: recipesById(bankRecipesRef.current),
-        });
-        built = /** @type {any} */ (fit.plan);
-        fitReport = {
-          ran: fit.ran,
-          fits: fit.fits,
-          budget: fit.budget,
-          startedAt: fit.startedAt,
-          eaten: fit.eaten,
-          over: fit.over,
-          swaps: fit.swaps.length,
-          reason: fit.reason,
-          store,
+      // THE GENERATION MANIFEST (fix list 2.5, council 2026-08-18): compose
+      // the full subsystem report and persist it ON the plan, so every device
+      // sees what every engine did — the structural answer to four engines
+      // that shipped dark. Prior weeks load from cache for cooked-over-planned.
+      try {
+        const today = localIsoDate(new Date());
+        const priorIds = [-1, -2, -3].map((d) => shiftWeek(built.week, d));
+        const priorPlans = await Promise.all(
+          priorIds.map(async (w) => ({
+            weekId: w,
+            plan: /** @type {Record<string, any> | null} */ (await read(`plans/${w}.json`)),
+          })),
+        );
+        built = {
+          ...built,
+          manifest: composeManifest({
+            engine: {
+              ...(result.report.manifest ?? {}),
+              swapToFit: fitReport,
+              // P6: does the week physically fit the kitchen it will live in?
+              // Reports, never refuses: a person whose fridge is genuinely too
+              // small needs to know before they shop, not to be told their week
+              // is illegal.
+              household: (() => {
+                const hh = manifestInputs.current.household ?? normalizeHousehold(null);
+                const cap = capacityCheck(
+                  hh,
+                  coldLoad(pantryItems(pantryRef.current), (food, qty, unit) =>
+                    toGrams(qty, unit, canonicalFood(food)),
+                  ),
+                );
+                return {
+                  ...(result.report.manifest?.household ?? {}),
+                  capacityChecked: cap.checked,
+                  fits: cap.fits,
+                  over: cap.over,
+                  headId: hh.headId,
+                  members: hh.members.length,
+                };
+              })(),
+            },
+            targets: targetsRef.current,
+            recipes: recipesRef.current,
+            dailyDays: dailyRef.current?.days ?? [],
+            recentPlans: [{ weekId: built.week, plan: built }, ...priorPlans],
+            todayIso: today,
+          }),
         };
-      } else {
-        fitReport = {
-          ran: false,
-          fits: true,
-          swaps: 0,
-          reason: !cat
-            ? "no price catalogue on this device yet, so the week could not be priced"
-            : !store
-              ? "no store chosen on this profile, so there is no price to fit to"
-              : "no weekly budget set on this profile, so nothing to fit",
-        };
+      } catch {
+        // a manifest that fails to compose must never block the week itself;
+        // the planner renders its absence as the failure it is
       }
-    } catch {
-      // a fit pass that throws leaves the honestly generated week intact, and
-      // says so rather than reporting a fit that never happened
-      fitReport = { ran: false, fits: false, swaps: 0, reason: "the fit pass failed to run" };
-    }
-    // THE GENERATION MANIFEST (fix list 2.5, council 2026-08-18): compose
-    // the full subsystem report and persist it ON the plan, so every device
-    // sees what every engine did — the structural answer to four engines
-    // that shipped dark. Prior weeks load from cache for cooked-over-planned.
-    try {
-      const today = localIsoDate(new Date());
-      const priorIds = [-1, -2, -3].map((d) => shiftWeek(built.week, d));
-      const priorPlans = await Promise.all(
-        priorIds.map(async (w) => ({
-          weekId: w,
-          plan: /** @type {Record<string, any> | null} */ (await read(`plans/${w}.json`)),
-        })),
+      // the shopped-plan snapshot rides the SAME write as the generated week —
+      // one updatePlan, no interim state for a full-replace to clobber
+      if (carriedFallback) built = { ...built, fallback: carriedFallback };
+      updatePlan(built); // updatePlan strips derived table entries itself
+      setBuildReport(result.report);
+      // 7a: auto-populate the shopping list from the freshly generated plan,
+      // not the stale planRef, so List is correct the instant Plan finishes
+      updateShopping(
+        deriveShoppingList(
+          withCookExtras(built),
+          recipesById(allRecipesRef.current),
+          pantryRef.current,
+          shoppingRef.current,
+          todayIfCurrentWeek(built.week),
+          undefined,
+          recipesById(bankRecipesRef.current),
+        ),
       );
-      built = {
-        ...built,
-        manifest: composeManifest({
-          engine: {
-            ...(result.report.manifest ?? {}),
-            swapToFit: fitReport,
-            // P6: does the week physically fit the kitchen it will live in?
-            // Reports, never refuses: a person whose fridge is genuinely too
-            // small needs to know before they shop, not to be told their week
-            // is illegal.
-            household: (() => {
-              const hh = manifestInputs.current.household ?? normalizeHousehold(null);
-              const cap = capacityCheck(
-                hh,
-                coldLoad(pantryItems(pantryRef.current), (food, qty, unit) =>
-                  toGrams(qty, unit, canonicalFood(food)),
-                ),
-              );
-              return {
-                ...(result.report.manifest?.household ?? {}),
-                capacityChecked: cap.checked,
-                fits: cap.fits,
-                over: cap.over,
-                headId: hh.headId,
-                members: hh.members.length,
-              };
-            })(),
-          },
-          targets: targetsRef.current,
-          recipes: recipesRef.current,
-          dailyDays: dailyRef.current?.days ?? [],
-          recentPlans: [{ weekId: built.week, plan: built }, ...priorPlans],
-          todayIso: today,
-        }),
-      };
-    } catch {
-      // a manifest that fails to compose must never block the week itself;
-      // the planner renders its absence as the failure it is
-    }
-    // the shopped-plan snapshot rides the SAME write as the generated week —
-    // one updatePlan, no interim state for a full-replace to clobber
-    if (carriedFallback) built = { ...built, fallback: carriedFallback };
-    updatePlan(built); // updatePlan strips derived table entries itself
-    setBuildReport(result.report);
-    // 7a: auto-populate the shopping list from the freshly generated plan,
-    // not the stale planRef, so List is correct the instant Plan finishes
-    updateShopping(
-      deriveShoppingList(
-        withCookExtras(built),
-        recipesById(allRecipesRef.current),
-        pantryRef.current,
-        shoppingRef.current,
-        todayIfCurrentWeek(built.week),
-        undefined,
-        recipesById(bankRecipesRef.current),
-      ),
-    );
-  }, [updatePlan, updateShopping, me, askConfirm]);
+    },
+    [updatePlan, updateShopping, me, askConfirm],
+  );
 
   useEffect(() => {
     // a new week means a fresh build state and report
@@ -3693,7 +3708,8 @@ function App() {
         if (!targetsById.has(id)) targetsById.set(id, await readTargetsOf(id));
       }
 
-      const today = localIsoDate(new Date());
+      // after the dinner cutoff the shared meals are planned from tomorrow
+      const today = planStartIso(new Date());
       // PICK DIFFERENT MEALS must change an input or determinism hands back
       // the identical week: the salt lives ON the brigade record so every
       // device's next run agrees with the re-rolled picks
@@ -4357,7 +4373,6 @@ function App() {
         onRemoveGuest=${handleRemoveGuestSeat}
         onNewGuestProfile=${handleNewGuestProfile}
         buildReport=${buildReport}
-        rebuilt=${buildReport !== null}
         tableStale=${tableStale}
         tableIssues=${tableDerived.conflicts.length + tableDerived.collisions.length}
         tableConflicts=${tableDerived.conflicts}

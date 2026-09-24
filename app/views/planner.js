@@ -86,9 +86,8 @@ function monthDay(isoDate) {
  *   onCooked?: (entry: Record<string, any>) => void,
  *   onToggleOut: (date: string, slot: string) => void,
  *   onSwipeEaten?: (date: string, slot: string) => void,
- *   onGenerateWeek: () => void,
+ *   onGenerateWeek: (reroll?: boolean) => void,
  *   buildReport: import("../lib/weekbuilder.js").WeekReport | null,
- *   rebuilt: boolean,
  *   tableStale: boolean,
  *   tableIssues: number,
  *   tableConflicts: { table: import("../lib/tables.js").TableEvent, reasons: string[] }[],
@@ -137,7 +136,6 @@ export function PlannerView({
   onSwipeEaten = undefined,
   onGenerateWeek,
   buildReport,
-  rebuilt,
   tableStale,
   tableIssues,
   tableConflicts,
@@ -299,21 +297,17 @@ export function PlannerView({
       <div class="actions">
         <button
           class="ask"
-          aria-label=${
-            rebuilt
-              ? "Pick different meals for the generated week"
-              : "Generate my week automatically"
-          }
-          onClick=${onGenerateWeek}
+          aria-label="Set my week: fill what is missing, keep anything bought or cooked"
+          onClick=${() => onGenerateWeek(false)}
           disabled=${recipes.length === 0 || firstLive == null || noTargets}
         >
-          ${rebuilt ? "PICK DIFFERENT MEALS" : "✦ GENERATE MY WEEK"}
+          ✦ SET MY WEEK
           <small>
             ${
               firstLive == null
                 ? "this week is over, nothing left to plan"
                 : brigadeCovers
-                  ? `${brigade?.active.name ?? "the brigade"}'s shared meals for everyone first, then your own slots${midWeek ? " · earlier days already eaten" : ""}`
+                  ? `${brigade?.active.name ?? "the brigade"}'s shared meals for everyone first, then your own slots · keeps anything bought or cooked${midWeek ? " · earlier days already eaten" : ""}`
                   : midWeek
                     ? firstLive === dates[6]
                       ? "plans today only · earlier days already eaten"
@@ -321,6 +315,15 @@ export function PlannerView({
                     : "overlapping ingredients → fewer, bulkier buys"
             }
           </small>
+        </button>
+        <button
+          class="secondary"
+          aria-label="Pick different meals for everything not bought or cooked"
+          onClick=${() => onGenerateWeek(true)}
+          disabled=${recipes.length === 0 || firstLive == null || noTargets}
+        >
+          PICK DIFFERENT MEALS
+          <small>re-rolls anything not bought or cooked</small>
         </button>
       </div>
       ${

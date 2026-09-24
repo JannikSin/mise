@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isoWeekId, localIsoDate, statusDate } from "../app/lib/dates.js";
+import { isoWeekId, localIsoDate, planStartIso, statusDate } from "../app/lib/dates.js";
 
 test("isoWeekId for a mid-year Monday", () => {
   assert.equal(isoWeekId(new Date(2026, 6, 6)), "2026-W28"); // Mon Jul 6 2026
@@ -24,4 +24,15 @@ test("statusDate renders console format", () => {
 test("localIsoDate is the LOCAL day with zero padding", () => {
   assert.equal(localIsoDate(new Date(2026, 6, 6)), "2026-07-06");
   assert.equal(localIsoDate(new Date(2026, 0, 1, 23, 59)), "2026-01-01"); // late evening stays today
+});
+
+test("planStartIso: today before 7:30 pm, tomorrow after, across a month and a week end", () => {
+  // David, 2026-09-24: a Thursday 11 pm generate must not plan or buy Thursday
+  assert.equal(planStartIso(new Date(2026, 8, 24, 16, 45)), "2026-09-24");
+  assert.equal(planStartIso(new Date(2026, 8, 24, 19, 29)), "2026-09-24");
+  assert.equal(planStartIso(new Date(2026, 8, 24, 19, 30)), "2026-09-25");
+  assert.equal(planStartIso(new Date(2026, 8, 24, 23, 0)), "2026-09-25");
+  assert.equal(planStartIso(new Date(2026, 8, 30, 22, 0)), "2026-10-01");
+  // Saturday night rolls into next week's Sunday, so nothing of this week is bought
+  assert.equal(planStartIso(new Date(2026, 8, 26, 21, 0)), "2026-09-27");
 });
