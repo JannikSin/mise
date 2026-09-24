@@ -35,6 +35,9 @@ export const EQUIPMENT = [
   { id: "dutch-oven", label: "Dutch oven", note: "unlocks braises; also counts as a pot" },
   { id: "sheet-pan", label: "Sheet pan" },
   { id: "baking-dish", label: "Baking dish" },
+  { id: "muffin-tin", label: "Muffin tin", note: "12-cup; the protein muffins bake in it" },
+  { id: "loaf-pan", label: "Loaf pan", note: "unlocks the loaf form of the bakes" },
+  { id: "freezer", label: "Freezer space", note: "for batch dinners and baked-snack stock" },
   { id: "wok", label: "Wok", note: "counts as a skillet" },
   { id: "blender", label: "Blender", note: "smoothies need this" },
   { id: "food-processor", label: "Food processor" },
@@ -42,7 +45,11 @@ export const EQUIPMENT = [
   { id: "air-fryer", label: "Air fryer", note: "many halls ban these, check first" },
   { id: "slow-cooker", label: "Slow cooker" },
   { id: "pressure-cooker", label: "Pressure cooker or Instant Pot", note: "also counts as a pot" },
-  { id: "toaster-oven", label: "Toaster oven", note: "counts as an oven, but a full sheet pan may not fit" },
+  {
+    id: "toaster-oven",
+    label: "Toaster oven",
+    note: "counts as an oven, but a full sheet pan may not fit",
+  },
   { id: "grill", label: "Grill or grill pan" },
   { id: "steamer", label: "Steamer basket" },
 ];
@@ -147,5 +154,7 @@ export function unlockCounts(owned, recipes) {
  */
 export function normalizeEquipment(raw) {
   if (!Array.isArray(raw)) return [];
-  return [...new Set(raw.map((x) => String(x ?? "").trim()).filter((x) => EQUIPMENT_IDS.has(x)))].sort();
+  return [
+    ...new Set(raw.map((x) => String(x ?? "").trim()).filter((x) => EQUIPMENT_IDS.has(x))),
+  ].sort();
 }

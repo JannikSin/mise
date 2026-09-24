@@ -48,7 +48,8 @@ import { notifyTest } from "../lib/worker.js";
  *   targets?: Record<string, any> | null,
  *   bankRecipes?: Record<string, any>[],
  *   onSaveEquipment?: (owned: string[]) => Promise<void>,
- *   onSaveMealSlots?: (slots: string[]) => Promise<void>
+ *   onSaveMealSlots?: (slots: string[]) => Promise<void>,
+ *   onSaveBudget?: (usd: number) => Promise<void>
  * }} props
  */
 export function SystemView({
@@ -67,6 +68,7 @@ export function SystemView({
   bankRecipes,
   onSaveEquipment,
   onSaveMealSlots = undefined,
+  onSaveBudget = undefined,
 }) {
   const ageDays = tokenAgeDays();
   const renewSoon = hasToken && ageDays != null && ageDays >= TOKEN_WARN_AGE_DAYS;
@@ -140,6 +142,33 @@ export function SystemView({
       setSlotNote(e instanceof Error ? e.message : "could not save");
     } finally {
       setSlotBusy(false);
+    }
+  };
+
+  // YOUR WEEKLY FOOD BUDGET (P5). David, 2026-09-24: "under $50 per person,
+  // target about $40 ... this was said many times before". It was set once
+  // at onboarding and nothing in the app could change it, so every session
+  // asked again. The List's budget tile judges your share against it and the
+  // solo planner's swap-to-fit aims under it.
+  const savedBudget =
+    Number(targets?.weeklyBudgetUsd) > 0 ? Number(targets?.weeklyBudgetUsd) : null;
+  const [budgetDraft, setBudgetDraft] = useState(/** @type {string | null} */ (null));
+  const [budgetNote, setBudgetNote] = useState("");
+  const budgetValue = budgetDraft ?? (savedBudget != null ? String(savedBudget) : "");
+  const saveBudget = async () => {
+    const n = Math.round(Number(budgetDraft));
+    if (!onSaveBudget || !(n > 0 && n <= 1000)) {
+      setBudgetNote("a dollar amount per week, like 40");
+      return;
+    }
+    try {
+      await onSaveBudget(n);
+      setBudgetDraft(null);
+      setBudgetNote(
+        `saved: $${n} a week for your share. The List and the planner use it from now on.`,
+      );
+    } catch (e) {
+      setBudgetNote(e instanceof Error ? e.message : "could not save");
     }
   };
 
@@ -681,6 +710,34 @@ export function SystemView({
           </button>
         </div>
         ${slotNote ? html`<p class="hint" role="status">${slotNote}</p>` : null}
+
+        <h3>Your weekly food budget</h3>
+        <p class="hint">
+          Your share of the groceries per week, in dollars. The List's budget tile checks your share
+          against it, and the planner aims under it.
+        </p>
+        <div class="field">
+          <input
+            type="number"
+            inputmode="numeric"
+            min="1"
+            max="1000"
+            aria-label="Weekly food budget in dollars"
+            value=${budgetValue}
+            disabled=${!onSaveBudget}
+            onInput=${(/** @type {any} */ e) => setBudgetDraft(e.currentTarget.value)}
+          />
+        </div>
+        <div class="actions">
+          <button
+            class="secondary"
+            onClick=${saveBudget}
+            disabled=${budgetDraft === null || !onSaveBudget}
+          >
+            SAVE BUDGET
+          </button>
+        </div>
+        ${budgetNote ? html`<p class="hint" role="status">${budgetNote}</p>` : null}
 
         <h3>Your kitchen</h3>
         <p class="hint">

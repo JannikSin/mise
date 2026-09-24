@@ -326,6 +326,15 @@ function App() {
     setTargets(/** @type {any} */ (await readTargetsOf(me)));
   }, []);
 
+  // YOUR WEEKLY FOOD BUDGET (P5, David 2026-09-24): a field, not a session.
+  // Through writeTargetsOf, so the canonical and legacy targets stay mirrored.
+  const handleSaveBudget = useCallback(async (/** @type {number} */ usd) => {
+    const me = activeProfile();
+    const cur = /** @type {any} */ (await readTargetsOf(me)) ?? {};
+    await writeTargetsOf(me, { ...cur, weeklyBudgetUsd: usd });
+    setTargets(/** @type {any} */ (await readTargetsOf(me)));
+  }, []);
+
   // WHICH MEALS YOU PLAN (P2). David, 2026-09-13: "get rid of smoothie". The
   // slot list was written once at onboarding and nothing in the app could
   // change it; this is the button. A fixed dish in a dropped slot goes with
@@ -4660,6 +4669,7 @@ function App() {
         bankRecipes=${bankRecipes}
         onSaveEquipment=${handleSaveEquipment}
         onSaveMealSlots=${handleSaveMealSlots}
+        onSaveBudget=${handleSaveBudget}
       />`
     }
 
