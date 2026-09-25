@@ -360,6 +360,14 @@ const FOOD_UNITS = {
   raisins: { unit: "cup", cup: 145 },
   "dark-chocolate-chips": { unit: "cup", cup: 170 },
   "frozen-mango": { unit: "cup", cup: 165 },
+  // 2026-09-25: no weight for these three meant a cup or a tablespoon against
+  // a pack sold by weight or by the piece was "unknowable" and charged the
+  // WHOLE package as eaten: 1/3 cup of granola read $6.79 and 1 tbsp of chia
+  // $4.39, so the yogurt bowl scored $17.46 a serving (really about $6).
+  // USDA: granola 122 g a cup, chia 12 g a tbsp, a mango 336 g of flesh.
+  granola: { unit: "cup", cup: 122 },
+  "chia-seeds": { unit: "tbsp", cup: 195 },
+  mango: { unit: "cup", cup: 165, piece: 336 },
   "frozen-pineapple-chunks": { unit: "cup", cup: 165 },
   "fresh-basil": { unit: "cup", cup: 24 },
   "tomato-paste": { unit: "tbsp", cup: 262 },

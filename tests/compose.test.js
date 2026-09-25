@@ -1241,3 +1241,35 @@ test("THE POT, NOT THE RECIPE: with priceNeed the trip sums every food at the si
     tight.notes.join(" | "),
   );
 });
+
+test("the budget may repeat a breakfast or a snack, never a dinner (David, 2026-09-25)", () => {
+  // over budget, the relaxed pass trades variety for cost; on the live week it
+  // put the same dinner on Friday and Saturday. Dinners repeat no more than
+  // the same week planned with no budget at all.
+  const own = (id) =>
+    String(id).startsWith("din-") ? [{ key: String(id), cost: id === "din-kofta" ? 0 : 25 }] : [];
+  const repeats = (/** @type {any} */ out) => {
+    const cooked = out.events.tables.filter(
+      (t) => t.slot === "dinner" && !t.leftoverOf && !t.preparedOn,
+    );
+    return cooked.length - new Set(cooked.map((t) => t.recipeId)).size;
+  };
+  const free = planBrigadeWeek(
+    { tables: [] },
+    BRIGADE,
+    wayneCtx({ tripItems: own, budgetUsd: 1000 }),
+  );
+  const tight = planBrigadeWeek(
+    { tables: [] },
+    BRIGADE,
+    wayneCtx({ tripItems: own, budgetUsd: 1 }),
+  );
+  assert.ok(
+    tight.notes.some((n) => n.startsWith("over budget")),
+    "the relaxed pass ran",
+  );
+  assert.ok(
+    repeats(tight) <= repeats(free),
+    `dinner repeats ${repeats(tight)} vs ${repeats(free)}`,
+  );
+});

@@ -1572,8 +1572,11 @@ export function planBrigadeWeek(events, brigade, ctx) {
               const served = servedBySlot[slot] ?? new Map();
               const nextServed = new Map(served);
               nextServed.set(cd.date, String(alt.id));
+              // the budget may repeat a breakfast or a snack, never a dinner
+              // (David, 2026-09-25: "Fri and Sat are two separate meals ... no
+              // dinner repeats across the week except the batch")
               if (
-                !relaxVariety &&
+                (!relaxVariety || slot === "dinner") &&
                 repeatMetric(slot, nextServed) > repeatMetric(slot, served) + 1e-9
               )
                 continue;

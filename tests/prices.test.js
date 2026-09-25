@@ -394,3 +394,25 @@ test("itemCost: garlic cloves buy heads, never a head per clove", () => {
   const one = itemCost({ food: "garlic", qty: 3, unit: "cloves" }, { items }, "pay-less");
   assert.equal(one.cost, 0.75, "3 cloves = 1 head");
 });
+
+test("a cup or a tablespoon against a pack sold by weight prices the share, never the whole bag (granola, chia, mango)", () => {
+  // 2026-09-25: with no cup weight, 1/3 cup of granola was "unknowable" and
+  // counted the whole $6.79 bag as eaten; the yogurt bowl read $17.46 a
+  // serving when it costs about $6
+  const cat = {
+    items: [
+      { name: "granola", prices: { s: { price: 6.79, size: "22 oz" } } },
+      { name: "chia seeds", prices: { s: { price: 4.39, size: "12 oz" } } },
+      { name: "mango", prices: { s: { price: 1.29, size: "1 ct" } } },
+    ],
+  };
+  const granola = itemCost({ food: "granola", qty: 0.33, unit: "cup" }, cat, "s");
+  const chia = itemCost({ food: "chia seeds", qty: 1, unit: "tbsp" }, cat, "s");
+  const mango = itemCost({ food: "mango", qty: 0.5, unit: "cup" }, cat, "s");
+  assert.ok(granola && granola.eaten < 1, `granola eaten $${granola?.eaten}`);
+  assert.ok(chia && chia.eaten < 0.5, `chia eaten $${chia?.eaten}`);
+  assert.ok(mango && mango.eaten < 0.5, `half a cup of mango $${mango?.eaten}`);
+  // the trip still buys a whole package of each
+  assert.equal(granola?.cost, 6.79);
+  assert.equal(chia?.cost, 4.39);
+});
