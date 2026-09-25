@@ -1189,3 +1189,55 @@ test("THE TRIP: a food the week already buys is counted once (overlap), the trip
     tight.notes.join(" | "),
   );
 });
+
+test("THE POT, NOT THE RECIPE: with priceNeed the trip sums every food at the size each pot is cooked, leftover nights included", () => {
+  // 2026-09-25: the live week's cap read $59 for a ~$165 list, because each
+  // recipe was priced at its written size and seven mornings of one dish
+  // counted as one. Every dinner needs 1 cup of rice per written recipe, $3 a
+  // cup, bought exactly (linear), so the trip must equal 3 x the cups the
+  // week's pots actually eat.
+  const need = (id) =>
+    String(id).startsWith("din-")
+      ? [{ key: "rice", cost: 3, need: [{ food: "rice", qty: 1, unit: "cup" }] }]
+      : [];
+  // every night cooked, and the live rule: cook Sun Thu Fri Sat, Monday eats
+  // Sunday's pot, Tuesday and Wednesday eat the Sunday batch
+  const live = {
+    ...COOK_BRIGADE,
+    cookDays: [0, 4, 5, 6],
+    batches: [{ cookDay: 0, feeds: [2, 3] }],
+  };
+  const priced = { tripItems: need, priceNeed: (_f, qty) => qty * 3, budgetUsd: 1000 };
+  for (const [brigade, ctx] of [
+    [BRIGADE, wayneCtx(priced)],
+    [live, sunCtx(priced)],
+  ]) {
+    const out = planBrigadeWeek({ tables: [] }, brigade, ctx);
+    let cups = 0;
+    const dinners = out.events.tables.filter((x) => x.slot === "dinner");
+    for (const t of dinners) {
+      const per = Math.max(1, Number(ctx.bankById.get(t.recipeId)?.servings) || 1);
+      for (const s of t.seats) cups += (Number(s.servings) || 0) / per;
+    }
+    if (brigade.cookDays)
+      assert.ok(
+        dinners.some((t) => t.leftoverOf),
+        "leftover nights exist",
+      );
+    assert.ok(cups > 1, `the week eats more than one recipe's rice (${cups})`);
+    assert.ok(
+      Math.abs((out.budget?.trip ?? 0) - 3 * cups) < 0.05,
+      `trip $${out.budget?.trip} vs pots $${(3 * cups).toFixed(2)}`,
+    );
+  }
+  // and a budget below that pot-sized trip is said in words
+  const tight = planBrigadeWeek(
+    { tables: [] },
+    BRIGADE,
+    wayneCtx({ tripItems: need, priceNeed: (_f, qty) => qty * 3, budgetUsd: 1 }),
+  );
+  assert.ok(
+    tight.notes.some((n) => n.startsWith("over budget")),
+    tight.notes.join(" | "),
+  );
+});

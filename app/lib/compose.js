@@ -572,7 +572,8 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
  *   regenerate?: boolean,
  *   bought?: (t: import("./tables.js").TableEvent) => boolean,
  *   costOf?: (recipeId: string) => number,
- *   tripItems?: (recipeId: string) => { key: string, cost: number }[],
+ *   tripItems?: (recipeId: string) => { key: string, cost: number, need?: { food: string, qty: number, unit: string }[] }[],
+ *   priceNeed?: (food: string, qty: number, unit: string) => number,
  *   budgetUsd?: number,
  * }} ctx `costOf` (David's yes, 2026-08-30: "let the composer see cost...
  *   the composer needs to work to reduce it") turns on the WEEK-LEVEL cost
@@ -1430,9 +1431,69 @@ export function planBrigadeWeek(events, brigade, ctx) {
     // one on the shelf costs nothing (pantry). Without it, the eaten-cost
     // sweep runs exactly as before.
     const itemsOf = (/** @type {string} */ id) => (ctx.tripItems ? ctx.tripItems(id) : []);
+    // THE POT, NOT THE WRITTEN RECIPE (2026-09-25, the $200 week the cap
+    // read as $59): with `priceNeed`, every food is summed over the week at
+    // the size each pot is actually cooked (its own night plus the leftover
+    // nights it feeds) and priced once, in whole packages. Seven mornings of
+    // yogurt are seven mornings of yogurt, not one recipe's worth. Without
+    // `priceNeed` the package-per-food view below runs as before.
+    const priceNeed = ctx.priceNeed;
+    const potServings = (/** @type {any} */ cd, /** @type {string} */ slot) => {
+      let total = 0;
+      for (const d of composedDays) {
+        if (d !== cd && d.leftoverBySlot?.[slot]?.date !== cd.date) continue;
+        for (const s of d.eating ?? []) {
+          const sv = d.composed?.seats?.[s.id]?.servings?.[slot];
+          if (typeof sv === "number") total += sv;
+        }
+      }
+      return total;
+    };
+    /** @typedef {Map<string, Map<string, { food: string, qty: number }>>} Needs */
+    const addNeeds = (
+      /** @type {Needs} */ m,
+      /** @type {string} */ id,
+      /** @type {number} */ servings,
+    ) => {
+      const per = Math.max(1, Number(ctx.bankById.get(id)?.servings) || 1);
+      for (const it of itemsOf(id)) {
+        for (const n of it.need ?? []) {
+          const byUnit = m.get(it.key) ?? new Map();
+          const cur = byUnit.get(n.unit);
+          byUnit.set(n.unit, {
+            food: n.food,
+            qty: (cur?.qty ?? 0) + (n.qty * servings) / per,
+          });
+          m.set(it.key, byUnit);
+        }
+      }
+    };
+    const keyCost = (
+      /** @type {Map<string, { food: string, qty: number }> | undefined} */ byUnit,
+    ) =>
+      priceNeed && byUnit
+        ? [...byUnit].reduce((sum, [unit, n]) => sum + priceNeed(n.food, n.qty, unit), 0)
+        : 0;
+    const weekNeeds = (/** @type {any} */ skipCd, /** @type {string | null} */ skipSlot) => {
+      /** @type {Needs} */
+      const m = new Map();
+      for (const d of composedDays) {
+        for (const sl of liveSlots) {
+          if (d === skipCd && sl === skipSlot) continue;
+          if (d.leftoverBySlot?.[sl]) continue;
+          const r = d.picks?.[sl];
+          if (r) addNeeds(m, String(r.id), potServings(d, sl));
+        }
+      }
+      return m;
+    };
     const weekKeys = (/** @type {any} */ skipCd, /** @type {string | null} */ skipSlot) => {
       /** @type {Map<string, number>} */
       const m = new Map();
+      if (priceNeed) {
+        for (const [key, byUnit] of weekNeeds(skipCd, skipSlot)) m.set(key, keyCost(byUnit));
+        return m;
+      }
       for (const d of composedDays) {
         for (const sl of liveSlots) {
           if (d === skipCd && sl === skipSlot) continue;
@@ -1447,6 +1508,30 @@ export function planBrigadeWeek(events, brigade, ctx) {
     };
     const marginal = (/** @type {string} */ id, /** @type {Map<string, number>} */ keys) =>
       itemsOf(id).reduce((sum, it) => sum + (keys.has(it.key) ? 0 : it.cost), 0);
+    /** what recipe `id` adds to the rest of the week's trip, cooked for `cd`'s pot */
+    const marginalAt = (
+      /** @type {string} */ id,
+      /** @type {Map<string, number>} */ keys,
+      /** @type {any} */ cd,
+      /** @type {string} */ slot,
+    ) => {
+      if (!priceNeed) return marginal(id, keys);
+      const rest = weekNeeds(cd, slot);
+      /** @type {Needs} */
+      const mine = new Map();
+      addNeeds(mine, id, potServings(cd, slot));
+      let add = 0;
+      for (const [key, byUnit] of mine) {
+        const before = rest.get(key);
+        const merged = new Map(before ?? []);
+        for (const [unit, n] of byUnit) {
+          const b = merged.get(unit);
+          merged.set(unit, { food: n.food, qty: (b?.qty ?? 0) + n.qty });
+        }
+        add += keyCost(merged) - keyCost(before);
+      }
+      return add;
+    };
     const runPasses = (/** @type {boolean} */ relaxVariety) => {
       for (let pass = 0; pass < 6; pass++) {
         let changed = false;
@@ -1463,12 +1548,19 @@ export function planBrigadeWeek(events, brigade, ctx) {
             if (!cur) continue;
             const pool = cd.dayPools?.[slot] ?? poolsBySlot[slot] ?? [];
             const keys = ctx.tripItems ? weekKeys(cd, slot) : null;
-            const curM = keys ? marginal(String(cur.id), keys) : 0;
+            const curM = keys ? marginalAt(String(cur.id), keys, cd, slot) : 0;
             const curDayCost = dayCost(cd);
             const cheaper = keys
               ? pool
-                  .filter((r) => r.id !== cur.id && marginal(String(r.id), keys) < curM - 0.25)
-                  .sort((a, b) => marginal(String(a.id), keys) - marginal(String(b.id), keys))
+                  .filter(
+                    (r) =>
+                      r.id !== cur.id && marginalAt(String(r.id), keys, cd, slot) < curM - 0.25,
+                  )
+                  .sort(
+                    (a, b) =>
+                      marginalAt(String(a.id), keys, cd, slot) -
+                      marginalAt(String(b.id), keys, cd, slot),
+                  )
                   .slice(0, 6)
               : pool
                   .filter(
@@ -1495,7 +1587,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
               if (!ok) continue;
               let saved;
               if (keys) {
-                saved = curM - marginal(String(alt.id), keys);
+                saved = curM - marginalAt(String(alt.id), keys, cd, slot);
               } else {
                 const nextCost = dayCost({ ...cd, picks: nextPicks, composed: re });
                 if (nextCost >= curDayCost - 0.25) continue;
@@ -1531,8 +1623,18 @@ export function planBrigadeWeek(events, brigade, ctx) {
         cap: Math.round(cap * 100) / 100,
       };
       if (share > cap + 0.5) {
+        // a slot narrowed to named recipes can only swap among those: say so,
+        // or "the cheapest week the bands allow" blames the bands for a rule
+        // the kitchen set (2026-09-25: breakfast locked to a $17 yogurt bowl)
+        const locked = liveSlots.filter(
+          (sl) => /** @type {any} */ (brigade.slotRecipes?.[sl] ?? []).length > 0,
+        );
         notes.push(
-          `over budget: about $${share.toFixed(0)} a person for these ${dates.length} days against $${cap.toFixed(0)} (your $${Number(ctx.budgetUsd).toFixed(0)} a week). The cheapest week the bands allow is still over; the rest is packages the pantry does not hold`,
+          `over budget: about $${share.toFixed(0)} a person for these ${dates.length} days against $${cap.toFixed(0)} (your $${Number(ctx.budgetUsd).toFixed(0)} a week). ${
+            locked.length > 0
+              ? `${locked.join(" and ").replace(/^./, (c) => c.toUpperCase())} ${locked.length === 1 ? "is" : "are"} limited to named recipes, so the planner can only swap among those; Tables > EDIT can add cheaper ones`
+              : "The cheapest week the bands allow is still over; the rest is packages the pantry does not hold"
+          }`,
         );
       }
     }

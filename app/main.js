@@ -94,7 +94,13 @@ import {
   kitchenHas,
 } from "./lib/shopping.js";
 import { setPantryCount, weekNeedsCheck } from "./lib/shelfcheck.js";
-import { applyReceipt, parsePackSize, storeSlugOf, resolveHomeStore } from "./lib/prices.js";
+import {
+  applyReceipt,
+  itemCost,
+  parsePackSize,
+  storeSlugOf,
+  resolveHomeStore,
+} from "./lib/prices.js";
 import { normalizePins } from "./lib/kroger.js";
 import { perishableCoverage } from "./lib/coverage.js";
 import { composeWeekReview } from "./lib/review.js";
@@ -3719,8 +3725,10 @@ function App() {
       const store = myPriceStore();
       /** @type {((recipeId: string) => number) | undefined} */
       let costOf;
-      /** @type {((recipeId: string) => { key: string, cost: number }[]) | undefined} */
+      /** @type {((recipeId: string) => ReturnType<typeof recipeTripItems>) | undefined} */
       let tripItems;
+      /** @type {((food: string, qty: number, unit: string) => number) | undefined} */
+      let priceNeed;
       if (cat && store) {
         // TRIP cost, not eaten cost (David, 2026-09-24: "how can 3 days of
         // food be $121"): what each recipe adds to THIS trip, whole packages
@@ -3738,11 +3746,14 @@ function App() {
         costOf = (rid) => perServing.get(rid) ?? median;
         // the week-level trip: packages per recipe, shared across the week's
         // picks inside the composer (overlap), nothing for the pantry
-        /** @type {Map<string, { key: string, cost: number }[]>} */
+        /** @type {Map<string, ReturnType<typeof recipeTripItems>>} */
         const items = new Map();
         for (const r of bankRecipesRef.current)
           items.set(r.id, recipeTripItems(r, cat, store, has));
         tripItems = (rid) => items.get(rid) ?? [];
+        // the week's summed need for one food, in whole packages (the cap
+        // reads the pot-sized trip, not the written recipes: 2026-09-25)
+        priceNeed = (food, qty, unit) => itemCost({ food, qty, unit }, cat, store)?.cost ?? 0;
       }
       // the kitchen's per-person weekly budget: the members who set one
       const budgets = brigade.memberIds
@@ -3767,6 +3778,7 @@ function App() {
         bought: (t) => recipeBought(bankById.get(t.recipeId), pantryNow, listNow),
         ...(costOf ? { costOf } : {}),
         ...(tripItems ? { tripItems } : {}),
+        ...(priceNeed ? { priceNeed } : {}),
         ...(budgetUsd ? { budgetUsd } : {}),
       });
       const out =

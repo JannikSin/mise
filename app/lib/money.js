@@ -73,23 +73,30 @@ export function recipeEatenCost(recipe, catalogue, store) {
  * @param {any} catalogue
  * @param {string} store
  * @param {(food: string) => boolean} has what the kitchen already holds
- * @returns {{ key: string, cost: number }[]}
+ * @returns {{ key: string, cost: number, need: { food: string, qty: number, unit: string }[] }[]}
  */
 export function recipeTripItems(recipe, catalogue, store, has) {
-  /** @type {Map<string, number>} */
+  /** @type {Map<string, { cost: number, need: { food: string, qty: number, unit: string }[] }>} */
   const byKey = new Map();
   for (const ing of recipe.ingredients ?? []) {
     if (!ing?.food || ing.staple || has(String(ing.food))) continue;
-    const c = itemCost(
-      { food: String(ing.food), qty: Number(ing.qty) || 1, unit: String(ing.unit ?? "x") },
-      catalogue,
-      store,
-    );
+    const need = {
+      food: String(ing.food),
+      qty: Number(ing.qty) || 1,
+      unit: String(ing.unit ?? "x"),
+    };
+    const c = itemCost(need, catalogue, store);
     if (!c) continue;
     const key = canonicalFood(String(ing.food));
-    byKey.set(key, Math.max(byKey.get(key) ?? 0, c.cost));
+    const cur = byKey.get(key);
+    byKey.set(key, {
+      cost: Math.max(cur?.cost ?? 0, c.cost),
+      need: [...(cur?.need ?? []), need],
+    });
   }
-  return [...byKey].map(([key, cost]) => ({ key, cost }));
+  // `need` is the written recipe's own amounts: the composer scales them to
+  // the pot and prices the week's sum once (priceNeed, 2026-09-25)
+  return [...byKey].map(([key, v]) => ({ key, cost: v.cost, need: v.need }));
 }
 
 /**
