@@ -9,6 +9,7 @@ import {
   applyReceipt,
   storeSlugFromReceipt,
   parsePackSize,
+  saneFreshRate,
 } from "../app/lib/prices.js";
 
 const CATALOGUE = {
@@ -303,7 +304,13 @@ test("parsePackSize reads the live catalogue's shapes", () => {
 test("applyReceipt stamps `at` on every price it writes", () => {
   const cat = {
     stores: ["marianos"],
-    items: [{ id: "rolled-oats", name: "rolled oats", prices: { marianos: { price: 3.49, size: "42 oz", estimate: true } } }],
+    items: [
+      {
+        id: "rolled-oats",
+        name: "rolled oats",
+        prices: { marianos: { price: 3.49, size: "42 oz", estimate: true } },
+      },
+    ],
   };
   const lines = [
     { name: "rolled oats", price: 3.79, size: "" },
@@ -321,12 +328,21 @@ test("applyReceipt resolves identity through the ledger key BEFORE fuzzy matchin
   // the alias rolled-oats — the pin/live-price row id. PF.3: one identity.
   const cat = {
     stores: ["pay-less"],
-    items: [{ id: "rolled-oats", name: "rolled oats", prices: { "pay-less": { price: 3.49, size: "42 oz" } } }],
+    items: [
+      {
+        id: "rolled-oats",
+        name: "rolled oats",
+        prices: { "pay-less": { price: 3.49, size: "42 oz" } },
+      },
+    ],
   };
   const lines = [{ name: "Oats (large container)", price: 4.19, size: "" }];
   const { catalogue, applied, added } = applyReceipt(cat, "pay-less", lines, "2026-08-19");
   assert.equal(catalogue.items.length, 1, "no duplicate row invented");
-  assert.deepEqual(applied.map((a) => a.matchedId), ["rolled-oats"]);
+  assert.deepEqual(
+    applied.map((a) => a.matchedId),
+    ["rolled-oats"],
+  );
   assert.deepEqual(added, []);
   assert.equal(catalogue.items[0].prices["pay-less"].price, 4.19);
 });
@@ -368,7 +384,11 @@ test("itemCost: a tiny need against a whole bottle eats its fraction, not the bo
   // fallback, and counted the whole $12.49 bottle as eaten this week —
   // $129.00 of the W36 "eaten" figure was this class of row
   const items = [
-    { id: "maple-syrup", name: "maple syrup", prices: { "pay-less": { price: 12.49, size: "16 fl oz" } } },
+    {
+      id: "maple-syrup",
+      name: "maple syrup",
+      prices: { "pay-less": { price: 12.49, size: "16 fl oz" } },
+    },
   ];
   const c = itemCost({ food: "maple syrup", qty: 50, unit: "g" }, { items }, "pay-less");
   assert.equal(c.cost, 12.49, "still buys the whole bottle");
@@ -376,7 +396,11 @@ test("itemCost: a tiny need against a whole bottle eats its fraction, not the bo
   assert.equal(c.estimate, false, "a real price with real math is not an estimate");
   // a spice-jar tsp need converts too now
   const jar = [
-    { id: "ground-ginger", name: "ground ginger", prices: { "pay-less": { price: 8.29, size: "1.9 oz" } } },
+    {
+      id: "ground-ginger",
+      name: "ground ginger",
+      prices: { "pay-less": { price: 8.29, size: "1.9 oz" } },
+    },
   ];
   const g = itemCost({ food: "ground ginger", qty: 1, unit: "tsp" }, { items: jar }, "pay-less");
   assert.equal(g.cost, 8.29);
@@ -415,4 +439,43 @@ test("a cup or a tablespoon against a pack sold by weight prices the share, neve
   // the trip still buys a whole package of each
   assert.equal(granola?.cost, 6.79);
   assert.equal(chia?.cost, 4.39);
+});
+
+test("PRICE SANITY: a fresh row 3x off the other stores by weight is the wrong product, priced per lb at their rate and flagged", () => {
+  // 2026-09-25: Pay Less "beef" was a 2.85 oz pack at $3.99 (so 200 g bought
+  // three packs, $11.97) and "mushroom" a 1 oz pack at $2.69 (80 g, $8.07)
+  const cat = {
+    items: [
+      {
+        name: "beef",
+        prices: { pl: { price: 3.99, size: "2.85 oz" }, mm: { price: 5.49, size: "1 lb" } },
+      },
+      {
+        name: "mushroom",
+        prices: { pl: { price: 2.69, size: "1 oz" }, mm: { price: 2.79, size: "8 oz" } },
+      },
+      // a shelf food: a small jar vs a bulk bag is a real 3x, never touched
+      {
+        name: "turmeric",
+        prices: { pl: { price: 7.49, size: "11 oz" }, mm: { price: 4.19, size: "1.67 oz" } },
+      },
+      // cheaper than the others: may be a real sale, never touched
+      {
+        name: "chicken thigh",
+        prices: { pl: { price: 0.99, size: "per lb" }, mm: { price: 3.49, size: "per lb" } },
+      },
+      // one store only: nothing to check against
+      { name: "ground turkey", prices: { pl: { price: 10, size: "3 lb" } } },
+    ],
+  };
+  const beef = itemCost({ food: "beef", qty: 200, unit: "g" }, cat, "pl");
+  const mush = itemCost({ food: "mushroom", qty: 80, unit: "g" }, cat, "pl");
+  assert.ok(beef && beef.cost < 3 && beef.estimate, `beef $${beef?.cost}`);
+  assert.ok(mush && mush.cost < 1.5 && mush.estimate, `mushroom $${mush?.cost}`);
+  assert.equal(saneFreshRate(cat.items[2], "pl"), null, "shelf aisle");
+  assert.equal(saneFreshRate(cat.items[3], "pl"), null, "a cheap row is never raised");
+  assert.equal(saneFreshRate(cat.items[4], "pl"), null, "one store");
+  // the other store's own sane row is left alone
+  assert.equal(saneFreshRate(cat.items[0], "mm"), null);
+  assert.equal(itemCost({ food: "turmeric", qty: 1, unit: "tsp" }, cat, "pl")?.cost, 7.49);
 });

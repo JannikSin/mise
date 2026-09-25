@@ -2,7 +2,14 @@
 // shared prices.json catalogue (data-repo root), per-store trip totals, and
 // grocery sales tax by US state. All display-only — never blocks shopping.
 
-import { canonicalFood, canonicalUnit, convertUnit, dimensionOf, toGrams } from "./ingredients.js";
+import {
+  aisleOf,
+  canonicalFood,
+  canonicalUnit,
+  convertUnit,
+  dimensionOf,
+  toGrams,
+} from "./ingredients.js";
 
 /** @typedef {{ price: number, size?: string, estimate?: boolean, at?: string }} StorePrice */
 /** @typedef {{ id: string, name: string, prices: Record<string, StorePrice> }} PriceItem */
@@ -92,7 +99,9 @@ export function matchPrice(food, items) {
   // and billed 6 cans at $26.91 (2026-08-30). A row that IS this food by
   // name or slug is never outranked by a cousin. applyLivePrice already
   // writes id-first, so this makes read and write agree.
-  const lc = String(food ?? "").trim().toLowerCase();
+  const lc = String(food ?? "")
+    .trim()
+    .toLowerCase();
   const slug = lc.replace(/\s+/g, "-");
   const exact = items.find((p) => p.name === lc || p.id === slug);
   if (exact) return exact;
@@ -184,8 +193,16 @@ const PER_LB_MIN_G = {
  */
 export function itemCost(item, catalogue, store) {
   const entry = catalogue?.items ? matchPrice(item.food, catalogue.items) : null;
-  const sp = entry?.prices?.[store];
-  if (!sp) return null;
+  const home = entry?.prices?.[store];
+  if (!home) return null;
+  // a fresh row whose weight price is wildly off the other stores' is the
+  // WRONG PRODUCT (2026-09-25: Pay Less "beef" was a 2.85 oz pack at $3.99,
+  // "mushroom" a 1 oz pack), so price it per pound at the others' rate and
+  // flag it an estimate until the shopper re-picks the product
+  const sane = entry ? saneFreshRate(entry, store) : null;
+  const sp = sane
+    ? { price: Math.round(sane * 453.59237 * 100) / 100, size: "per lb", estimate: true }
+    : home;
   const round = (/** @type {number} */ n) => Math.round(n * 100) / 100;
   const u = canonicalUnit(item.unit);
   const pack = parsePackSize(sp.size);
@@ -282,7 +299,13 @@ export function itemCost(item, catalogue, store) {
         variable: true,
       };
     }
-    return { cost: round(sp.price), eaten: round(sp.price), estimate: true, size: sp.size, variable: true };
+    return {
+      cost: round(sp.price),
+      eaten: round(sp.price),
+      estimate: true,
+      size: sp.size,
+      variable: true,
+    };
   }
 
   // packaged rows: how many packages cover the need
@@ -320,6 +343,57 @@ export function itemCost(item, catalogue, store) {
   return { cost: round(sp.price), eaten: round(sp.price), estimate: true, size: sp.size };
 }
 
+/** the fresh aisles, where one food's price per pound does not swing 3x by pack */
+const FRESH_AISLES = new Set(["meat", "produce", "dairy", "seafood"]);
+
+/**
+ * A store row's price per gram, or null when its size is not a weight.
+ * @param {string} food
+ * @param {{ price: number, size?: string }} sp
+ * @returns {number | null}
+ */
+function perGram(food, sp) {
+  if (!(Number(sp?.price) > 0)) return null;
+  if (
+    String(sp.size ?? "")
+      .toLowerCase()
+      .includes("per lb")
+  )
+    return sp.price / 453.59237;
+  const pack = parsePackSize(sp.size);
+  if (!pack || dimensionOf(canonicalUnit(pack.unit)) === "count") return null;
+  const g = toGrams(pack.qty, pack.unit, canonicalFood(food));
+  return g && g > 0 ? sp.price / g : null;
+}
+
+/**
+ * PRICE SANITY (David, 2026-09-25: "fix pricing errors"). For a fresh-aisle
+ * food, the store's row is suspect when its price per gram is more than 3x
+ * the median of the other stores' rows for the same item: that is a wrong
+ * product form (dried mushrooms, a jerky-size beef pack), not a pricier
+ * store. Returns the others' median per-gram rate to price at, or null when
+ * the row is fine or cannot be checked (one store, count-sized, shelf aisle,
+ * where a spice jar and a bulk bag legitimately differ 3x). A row CHEAPER
+ * than the others is never touched: it may be a real sale.
+ * @param {{ name?: string, food?: string, prices?: Record<string, any> }} entry
+ * @param {string} store
+ * @returns {number | null}
+ */
+export function saneFreshRate(entry, store) {
+  const food = String(entry.name ?? entry.food ?? "");
+  if (!FRESH_AISLES.has(aisleOf(food))) return null;
+  const mine = perGram(food, entry.prices?.[store]);
+  if (mine == null) return null;
+  const others = Object.entries(entry.prices ?? {})
+    .filter(([s]) => s !== store)
+    .map(([, sp]) => perGram(food, sp))
+    .filter((v) => v != null)
+    .sort((a, b) => /** @type {number} */ (a) - /** @type {number} */ (b));
+  if (others.length === 0) return null;
+  const med = /** @type {number} */ (others[Math.floor(others.length / 2)]);
+  return mine > 3 * med ? med : null;
+}
+
 /** @param {{ food: string, qty: number, unit: string }} item */
 function gramsFor(item) {
   return toGrams(item.qty, item.unit, canonicalFood(item.food)) ?? NaN;
@@ -334,7 +408,6 @@ function gramsFor(item) {
  * disagrees with it should move it.
  */
 export const VARIABLE_WEIGHT_BAND = 0.1;
-
 
 /**
  * Trip summary for one store: subtotal over priced items, grocery tax from
@@ -374,7 +447,8 @@ export function tripTotal(items, catalogue, store, region) {
   // number to the cent is a lie the app was telling with a straight face. The
   // band applies ONLY to the variable rows, so a trolley of packaged goods
   // still quotes exactly, which is the honest asymmetry.
-  const band = Math.round(variableCost * VARIABLE_WEIGHT_BAND * (1 + taxRateFor(region)) * 100) / 100;
+  const band =
+    Math.round(variableCost * VARIABLE_WEIGHT_BAND * (1 + taxRateFor(region)) * 100) / 100;
   return {
     subtotal,
     eaten: Math.round(eaten * 100) / 100,
@@ -509,8 +583,21 @@ export function applyReceipt(catalogue, store, lines, updatedIso) {
 
 /** Words a till prints that are never food. */
 const TILL_JUNK = new Set([
-  "subtotal", "total", "tax", "change", "cash", "debit", "credit", "visa",
-  "mastercard", "balance", "savings", "tender", "amex", "discover", "cashback",
+  "subtotal",
+  "total",
+  "tax",
+  "change",
+  "cash",
+  "debit",
+  "credit",
+  "visa",
+  "mastercard",
+  "balance",
+  "savings",
+  "tender",
+  "amex",
+  "discover",
+  "cashback",
 ]);
 
 /**
@@ -522,7 +609,11 @@ function isFoodName(s) {
   const t = String(s ?? "").trim();
   if (t.length < 3) return false;
   if (!/[a-z]/i.test(t)) return false;
-  const first = t.toLowerCase().split(/[^a-z]+/).filter(Boolean)[0] || "";
+  const first =
+    t
+      .toLowerCase()
+      .split(/[^a-z]+/)
+      .filter(Boolean)[0] || "";
   if (TILL_JUNK.has(first)) return false;
   return true;
 }
@@ -561,7 +652,13 @@ export function storeSlugOf(name) {
  *   `declared` is already a slug (storeSlugOf the profile's stores[0]).
  * @returns {string}
  */
-export function resolveHomeStore({ picked = "", pickedDecl = "", declared = "", stores, fallback = "" }) {
+export function resolveHomeStore({
+  picked = "",
+  pickedDecl = "",
+  declared = "",
+  stores,
+  fallback = "",
+}) {
   const livePick = !declared || pickedDecl === declared ? picked : "";
   return (
     [livePick, declared].find((s) => s && stores.includes(s)) ??
