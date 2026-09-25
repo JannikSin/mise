@@ -194,7 +194,7 @@ export function TablesView({
   const houseMates = (profiles ?? []).filter((p) => (p.household ?? "home") === myHouse);
   const myBrigades = (houseEvents ?? []).find((h) => h.house === myHouse)?.events?.brigades ?? [];
   const [brigadeForm, setBrigadeForm] = useState(
-    /** @type {null | { editId: string | null, name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string, cookDays: number[], slotRecipes: Record<string, string[]>, batchFeeds: number[] }} */ (
+    /** @type {null | { editId: string | null, name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string, cookDays: number[], slotRecipes: Record<string, string[]>, batchFeeds: number[], dinnerMeat: boolean }} */ (
       null
     ),
   );
@@ -228,6 +228,7 @@ export function TablesView({
           : [...ALL_DAYS],
       slotRecipes: { ...(seed?.slotRecipes ?? {}) },
       batchFeeds: [...(seed?.batches?.find((b) => b.cookDay === 0)?.feeds ?? [])],
+      dinnerMeat: seed?.dinnerMeat === true,
     });
     setBrigadeNote([]);
   };
@@ -286,6 +287,9 @@ export function TablesView({
       ...(Object.keys(slotRecipes).length > 0 ? { slotRecipes } : {}),
       // the Sunday batch: only nights that are NOT cook nights can eat it
       ...(batchFeeds.length > 0 ? { batches: [{ cookDay: 0, feeds: batchFeeds }] } : {}),
+      ...(brigadeForm.dinnerMeat && brigadeForm.slots.includes("dinner")
+        ? { dinnerMeat: true }
+        : {}),
     };
     if (brigadeForm.editId && onUpdateBrigade) {
       onUpdateBrigade(brigadeForm.editId, {
@@ -295,6 +299,7 @@ export function TablesView({
         cookDays: /** @type {any} */ (rule).cookDays ?? undefined,
         slotRecipes: /** @type {any} */ (rule).slotRecipes ?? undefined,
         batches: /** @type {any} */ (rule).batches ?? undefined,
+        dinnerMeat: /** @type {any} */ (rule).dinnerMeat ?? undefined,
       });
       setBrigadeNote(["Saved. PICK DIFFERENT MEALS applies the new rule to this week."]);
     } else {
@@ -1187,7 +1192,24 @@ export function TablesView({
                             : `Sunday cooks two dishes: dinner, and a batch for ${cookDaysLabel([...brigadeForm.batchFeeds].sort())} that keeps in the fridge until then.`
                         }
                       </p>`
-                  }`
+                  }
+                  <div class="chips">
+                    <button
+                      class=${brigadeForm.dinnerMeat ? "chip on" : "chip"}
+                      aria-pressed=${brigadeForm.dinnerMeat}
+                      onClick=${() =>
+                        setBrigadeForm({ ...brigadeForm, dinnerMeat: !brigadeForm.dinnerMeat })}
+                    >
+                      Every dinner has meat
+                    </button>
+                  </div>
+                  <p class="hint">
+                    ${
+                      brigadeForm.dinnerMeat
+                        ? "Every dinner is built on chicken, turkey, beef or pork. Fish and bean dinners sit out."
+                        : "Optional. Tap it and bean-only, fish and vegetable dinners sit out."
+                    }
+                  </p>`
               }
               ${
                 // NAMED RECIPES per shared slot (David, 2026-09-05: "breakfast

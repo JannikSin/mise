@@ -26,6 +26,9 @@ import {
 import { buffetMacroEstimate, recipeConflicts, weekRunSwipes } from "./plan.js";
 import { recipeProteinClass } from "./foodclass.js";
 
+/** the anchor proteins that count as MEAT for `brigade.dinnerMeat` (fish does not) */
+const MEAT_CLASSES = new Set(["chicken", "turkey", "beef", "pork"]);
+
 /** cooked leftovers with no stated window keep this long (USDA FSIS 3-4 days, conservative end; same figure portions.js uses) */
 const FALLBACK_SAFE_DAYS = 3;
 /** slots the cook-days rule governs: a no-cook night eats an earlier pot's leftovers */
@@ -759,6 +762,19 @@ export function planBrigadeWeek(events, brigade, ctx) {
           `${slot}: none of the ${keep.size} named recipes passes every member's screen, so the full pool is used`,
         );
       }
+    }
+    // EVERY DINNER HAS MEAT (David, 2026-09-25: "each dinner has a meat
+    // protein. that will be a dealbreaker with elliot so cauliflower is not a
+    // meal"): the dinner pool keeps only dishes anchored on chicken, turkey,
+    // beef or pork. Nothing qualifying = say so and keep the pool, never an
+    // empty dinner.
+    if (slot === "dinner" && /** @type {any} */ (brigade).dinnerMeat === true) {
+      const meaty = pool.filter((r) => MEAT_CLASSES.has(String(recipeProteinClass(r))));
+      if (meaty.length > 0) pool = meaty;
+      else
+        notes.push(
+          "dinner: no dish with meat passes every member's screen, so the full pool is used",
+        );
     }
     if (pool.length === 0) {
       thin.push({ slot, available: 0 });

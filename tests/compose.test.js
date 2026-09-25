@@ -12,7 +12,7 @@ import {
   memberCoverage,
   planBrigadeWeek,
 } from "../app/lib/compose.js";
-import { brigadeTableId } from "../app/lib/tables.js";
+import { brigadeTableId, validBrigade } from "../app/lib/tables.js";
 import { recipeProteinClass } from "../app/lib/foodclass.js";
 
 // ---------------------------------------------------------------------------
@@ -1272,4 +1272,54 @@ test("the budget may repeat a breakfast or a snack, never a dinner (David, 2026-
     repeats(tight) <= repeats(free),
     `dinner repeats ${repeats(tight)} vs ${repeats(free)}`,
   );
+});
+
+test("EVERY DINNER HAS MEAT: with dinnerMeat on, every dinner is anchored on chicken, turkey, beef or pork (David, 2026-09-25)", () => {
+  // "each dinner has a meat protein. that will be a dealbreaker with elliot so
+  // cauliflower is not a meal"
+  const anchor = {
+    "din-bulgogi": "beef sirloin",
+    "din-gyros": "chicken thigh",
+    "din-kofta": "ground turkey",
+    "din-pasta": "italian sausage",
+    "din-soup": "red lentils",
+    "din-stew": "chickpeas",
+  };
+  const bank = new Map(
+    [...KEEPS_BANK].map(([id, r]) => [
+      id,
+      anchor[id]
+        ? {
+            ...r,
+            ingredients: [{ qty: 1, unit: "lb", food: anchor[id] }],
+            // a meat dish that keeps and reheats, so the Sunday batch has one
+            ...(id === "din-kofta" ? { safeDays: 4, tags: ["batch-friendly"] } : {}),
+          }
+        : r,
+    ]),
+  );
+  const meat = new Set(["chicken", "turkey", "beef", "pork"]);
+  const classOf = (/** @type {any} */ t) => recipeProteinClass(bank.get(t.recipeId));
+  const live = {
+    ...COOK_BRIGADE,
+    cookDays: [0, 4, 5, 6],
+    batches: [{ cookDay: 0, feeds: [2, 3] }],
+  };
+  const off = planBrigadeWeek({ tables: [] }, live, sunCtx({ bankById: bank }));
+  assert.ok(
+    off.events.tables.some((t) => t.slot === "dinner" && !meat.has(String(classOf(t)))),
+    "with the rule off this bank plans a meatless dinner",
+  );
+  for (const [brigade, ctx] of [
+    [{ ...BRIGADE, dinnerMeat: true }, wayneCtx({ bankById: bank })],
+    [{ ...live, dinnerMeat: true }, sunCtx({ bankById: bank })],
+  ]) {
+    const on = planBrigadeWeek({ tables: [] }, brigade, ctx);
+    const dinners = on.events.tables.filter((t) => t.slot === "dinner");
+    assert.equal(dinners.length, 7, "every night has a dinner");
+    for (const t of dinners)
+      assert.ok(meat.has(String(classOf(t))), `${t.date} ${t.recipeId} is ${classOf(t)}`);
+  }
+  assert.equal(validBrigade({ ...BRIGADE, dinnerMeat: "yes" }), false);
+  assert.equal(validBrigade({ ...BRIGADE, dinnerMeat: true }), true);
 });

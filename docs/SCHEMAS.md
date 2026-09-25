@@ -1157,6 +1157,12 @@ path, and no brigade-specific behaviour anywhere downstream.
       //   most-recent-pot rule; Tue + Wed eat the batch). The pot is the
       //   first fed night's table, stamped `preparedOn`; batch-style dishes
       //   only, never fish, never the prep day's own dinner. Absent = none.
+      "dinnerMeat": true, // ? EVERY DINNER HAS MEAT (David 2026-09-25: "a
+      //   dealbreaker with elliot so cauliflower is not a meal"): the dinner
+      //   pool keeps only dishes whose anchor protein (foodclass.js
+      //   recipeProteinClass) is chicken, turkey, beef or pork; fish and
+      //   legumes sit out. Nothing qualifying = the full pool with a note.
+      //   Absent or false = any protein. Tables EDIT "Every dinner has meat".
       "slotRecipes": { "breakfast": ["berry-walnut-greek-yogurt-bowl"] }, // ?
       //   NAMED SLOTS (David 2026-09-05: "breakfast should just be variations
       //   of greek yogurt bowls"): per slot, the only recipe ids the pot may
