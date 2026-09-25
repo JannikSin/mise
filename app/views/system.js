@@ -8,7 +8,7 @@ import {
   dataRepoOverridden,
   dataBranch,
 } from "../lib/github.js";
-import { formatSyncTime } from "../lib/dates.js";
+import { buyDayOf, formatSyncTime } from "../lib/dates.js";
 import {
   activeProfile,
   readProfiles,
@@ -30,6 +30,16 @@ import { EQUIPMENT, canMake, unlockCounts } from "../lib/equipment.js";
 import { SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { notifyTest } from "../lib/worker.js";
 
+const BUY_DAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
 /**
  * System status view: app health, sync queue, data-repo checks, token entry.
  * All state lives in the app shell; this view just renders and forwards events.
@@ -49,7 +59,8 @@ import { notifyTest } from "../lib/worker.js";
  *   bankRecipes?: Record<string, any>[],
  *   onSaveEquipment?: (owned: string[]) => Promise<void>,
  *   onSaveMealSlots?: (slots: string[]) => Promise<void>,
- *   onSaveBudget?: (usd: number) => Promise<void>
+ *   onSaveBudget?: (usd: number) => Promise<void>,
+ *   onSaveBuyDay?: (day: number) => Promise<void>
  * }} props
  */
 export function SystemView({
@@ -69,6 +80,7 @@ export function SystemView({
   onSaveEquipment,
   onSaveMealSlots = undefined,
   onSaveBudget = undefined,
+  onSaveBuyDay = undefined,
 }) {
   const ageDays = tokenAgeDays();
   const renewSoon = hasToken && ageDays != null && ageDays >= TOKEN_WARN_AGE_DAYS;
@@ -169,6 +181,23 @@ export function SystemView({
       );
     } catch (e) {
       setBudgetNote(e instanceof Error ? e.message : "could not save");
+    }
+  };
+
+  // YOUR BUY DAY (P4, P7). David, 2026-09-25: Sunday was a bad day to buy
+  // (meetings), so the shop moved to Friday. One tap saves; BUILD on the List
+  // then shops the seven days that open on this day.
+  const buyDay = buyDayOf(targets);
+  const [buyDayNote, setBuyDayNote] = useState("");
+  const saveBuyDay = async (/** @type {number} */ day) => {
+    if (!onSaveBuyDay || day === buyDay) return;
+    try {
+      await onSaveBuyDay(day);
+      setBuyDayNote(
+        `saved: you buy on ${BUY_DAY_NAMES[day]}. BUILD shops ${BUY_DAY_NAMES[day]} through ${BUY_DAY_NAMES[(day + 6) % 7]}.`,
+      );
+    } catch (e) {
+      setBuyDayNote(e instanceof Error ? e.message : "could not save");
     }
   };
 
@@ -738,6 +767,26 @@ export function SystemView({
           </button>
         </div>
         ${budgetNote ? html`<p class="hint" role="status">${budgetNote}</p>` : null}
+
+        <h3>Your buy day</h3>
+        <p class="hint">
+          The day you buy the week's food. BUILD on the List shops the seven days that start on it.
+        </p>
+        <div class="chips wrapchips" role="group" aria-label="Buy day">
+          ${BUY_DAY_NAMES.map(
+            (name, i) =>
+              html`<button
+                key=${name}
+                class=${i === buyDay ? "chip on" : "chip"}
+                aria-pressed=${i === buyDay}
+                disabled=${!onSaveBuyDay}
+                onClick=${() => saveBuyDay(i)}
+              >
+                ${name.slice(0, 3)}
+              </button>`,
+          )}
+        </div>
+        ${buyDayNote ? html`<p class="hint" role="status">${buyDayNote}</p>` : null}
 
         <h3>Your kitchen</h3>
         <p class="hint">

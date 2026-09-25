@@ -1492,7 +1492,8 @@ verbatim.
 
 ```jsonc
 {
-  "generatedFrom": "2026-W28", // ? week the list was derived from
+  "generatedFrom": "2026-W28", // ? week the list was derived from (a trip
+  //   spanning two weeks names the week holding most of its days)
   "items": [
     {
       "id": "chicken-thigh",
@@ -1785,6 +1786,12 @@ Seeded from the FITNESS.md system; edited rarely.
   //   share is what the budget answers to), and over/under of eaten vs this.
   //   Absent = no budget line. Swap-to-fit generation is still Tier 7.11
   //   work; per David's 2026-08-18 ruling budget is a PROFILE option.
+  "buyDay": 5, // ? 0 Sun … 6 Sat, the day this shopper buys the week's food
+  //   (David, 2026-09-25: Sunday was busy with meetings, the shop moved to
+  //   Friday). ABSENT or invalid = 5 (Friday, dates.js DEFAULT_BUY_DAY). BUILD
+  //   shops THE TRIP: the seven days opening on this day (tripDates/tripFor),
+  //   reading both Sunday-to-Saturday plan files the trip spans. Plans and
+  //   weeks still open on Sunday; only the buying moved. Set in SYS.
   "body": { "sex": "m", "age": 20, "heightIn": 73, "weightLb": 196, "activity": 3 },
   //   ? the stats the 7.12 soft sanity gate computes maintenance from
   //   (Mifflin-St Jeor × activity 1-5). Absent = the gate reports

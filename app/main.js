@@ -26,6 +26,7 @@ import {
 import { initRouter } from "./lib/router.js";
 import { normalizeEquipment } from "./lib/equipment.js";
 import {
+  buyDayOf,
   formatSyncTime,
   isoWeekId,
   localIsoDate,
@@ -65,6 +66,7 @@ import { ConfirmModal } from "./views/confirm-modal.js";
 import { upsertDay } from "./lib/targets.js";
 import {
   deriveShoppingList,
+  tripPlan,
   applyJustBought,
   householdOthers,
   householdOf,
@@ -127,6 +129,7 @@ import {
   planSwipes,
   toggleSwipeEaten,
   settledEntryId,
+  tripFor,
 } from "./lib/plan.js";
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
 import { planBrigadeWeek } from "./lib/compose.js";
@@ -334,6 +337,16 @@ function App() {
     const me = activeProfile();
     const cur = /** @type {any} */ (await readTargetsOf(me)) ?? {};
     await writeTargetsOf(me, { ...cur, weeklyBudgetUsd: usd });
+    setTargets(/** @type {any} */ (await readTargetsOf(me)));
+  }, []);
+
+  // YOUR BUY DAY (P4, P7, David 2026-09-25: "sunday was not a good day to
+  // buy... lets switch the buy day to friday"). BUILD shops the seven days
+  // that open on it. Same path as the budget, so both targets stay mirrored.
+  const handleSaveBuyDay = useCallback(async (/** @type {number} */ day) => {
+    const me = activeProfile();
+    const cur = /** @type {any} */ (await readTargetsOf(me)) ?? {};
+    await writeTargetsOf(me, { ...cur, buyDay: day });
     setTargets(/** @type {any} */ (await readTargetsOf(me)));
   }, []);
 
@@ -837,21 +850,27 @@ function App() {
     [],
   );
 
-  const withCookExtras = useCallback((/** @type {import("./lib/plan.js").Plan} */ p) => {
-    const weekSet = new Set(datesOfWeek(p.week));
-    const extras = tableDerivedRef.current.cookExtras.filter((/** @type {any} */ x) =>
-      weekSet.has(x.date),
-    );
-    return extras.length > 0
-      ? {
-          ...p,
-          entries: [
-            ...p.entries,
-            .../** @type {any[]} */ (extras.map((/** @type {any} */ x) => ({ ...x }))),
-          ],
-        }
-      : p;
-  }, []);
+  const withCookExtras = useCallback(
+    (
+      /** @type {import("./lib/plan.js").Plan} */ p,
+      /** @type {string[]} */ dates = datesOfWeek(p.week),
+    ) => {
+      const weekSet = new Set(dates);
+      const extras = tableDerivedRef.current.cookExtras.filter((/** @type {any} */ x) =>
+        weekSet.has(x.date),
+      );
+      return extras.length > 0
+        ? {
+            ...p,
+            entries: [
+              ...p.entries,
+              .../** @type {any[]} */ (extras.map((/** @type {any} */ x) => ({ ...x }))),
+            ],
+          }
+        : p;
+    },
+    [],
+  );
 
   const updateShopping = useCallback(
     (/** @type {import("./lib/shopping.js").ShoppingList} */ next) => {
@@ -1469,15 +1488,56 @@ function App() {
     [myPriceStore, handleSavePins, handleSavePrices],
   );
 
+  // what BUILD said about the trip it just made (days with nothing planned)
+  const [buildNote, setBuildNote] = useState("");
   const handleBuildList = useCallback(
-    (/** @type {{ dates?: string[], slots?: string[] } | undefined} */ only) => {
+    async (/** @type {{ dates?: string[], slots?: string[] } | undefined} */ only) => {
       const byId = recipesById(allRecipesRef.current);
+      const cur = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      const now = new Date();
+      const start = planStartIso(now);
+      // THE BUY DAY (David, 2026-09-25): BUILD shops the seven days that open
+      // on the buy day, Friday by default, reading both week plans the trip
+      // spans. A past week (browsing back) keeps its whole-week derive.
+      const trip = tripFor(cur.week, localIsoDate(now), start, buyDayOf(targetsRef.current));
+      let source = withCookExtras(cur);
+      let fromDate = todayIfCurrentWeek(cur.week);
+      if (trip) {
+        const weeks = [...new Set(trip.map((d) => isoWeekId(parseLocalIso(d))))];
+        const plans = await Promise.all(
+          weeks.map(async (w) =>
+            w === cur.week
+              ? cur
+              : normalizePlan(
+                  /** @type {any} */ (await read(`plans/${w}.json`).catch(() => null)),
+                  w,
+                ),
+          ),
+        );
+        source = withCookExtras(tripPlan(plans, trip), trip);
+        fromDate = start;
+        const fmt = (/** @type {string} */ iso) =>
+          parseLocalIso(iso).toLocaleDateString("en-US", {
+            weekday: "short",
+            month: "numeric",
+            day: "numeric",
+          });
+        const planned = new Set(source.entries.map((e) => e.date));
+        const empty = trip.filter((d) => d >= start && !planned.has(d));
+        setBuildNote(
+          empty.length > 0
+            ? `Nothing is planned yet for ${empty.map(fmt).join(", ")}, so this list skips ${empty.length === 1 ? "that day" : "those days"}. Plan that week (Plan tab, next week, SET MY WEEK), then BUILD again.`
+            : "",
+        );
+      } else {
+        setBuildNote("");
+      }
       const built = deriveShoppingList(
-        withCookExtras(/** @type {import("./lib/plan.js").Plan} */ (planRef.current)),
+        source,
         byId,
         pantryRef.current,
         shoppingRef.current,
-        todayIfCurrentWeek(/** @type {any} */ (planRef.current).week),
+        fromDate,
         only,
         recipesById(bankRecipesRef.current),
       );
@@ -2617,9 +2677,8 @@ function App() {
   // the List's brigade posture. When my household runs an active brigade the
   // List stops being a personal surface: the cook buys for the whole kitchen
   // (effectiveBuyerOf), everyone else has nothing to buy. iShop = at least one
-  // upcoming table's buy lands on me. weekNote catches the Sunday trap: the
-  // viewed week (often the ending one) holds none of my buy dates, so BUILD
-  // would produce leftover rows instead of the brigade week.
+  // upcoming table's buy lands on me. Which DAYS the build covers is the
+  // trip's business (tripFor), not the brigade's (2026-09-25).
   const listBrigade = useMemo(() => {
     const profilesById = new Map(allProfiles.map((p) => [p.id, p]));
     const house = profilesById.get(me)?.household ?? "home";
@@ -2635,36 +2694,6 @@ function App() {
       .sort();
     const iShop = myBuys.length > 0;
     const cookName = profilesById.get(active.cookId)?.name ?? "The cook";
-    let buildWeek = /** @type {string | null} */ (null);
-    let rangeLabel = "";
-    let weekNote = /** @type {string | null} */ (null);
-    if (iShop) {
-      const fmt = (/** @type {string} */ iso) =>
-        parseLocalIso(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-      // the target week holds the MOST upcoming buy dates, not the first
-      // one: on a Sunday evening tonight's dinner is still last week, and
-      // "week of the first buy" would rebuild the dying week — the exact
-      // trap this button exists to kill (verified on real data 2026-08-30:
-      // 1 buy in W35, 7 in W36)
-      /** @type {Map<string, number>} */
-      const perWeek = new Map();
-      for (const d of myBuys) {
-        const w = isoWeekId(parseLocalIso(d));
-        perWeek.set(w, (perWeek.get(w) ?? 0) + 1);
-      }
-      buildWeek =
-        [...perWeek.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ??
-        null;
-      const inWeek = buildWeek
-        ? myBuys.filter((d) => isoWeekId(parseLocalIso(d)) === buildWeek)
-        : myBuys;
-      const first = /** @type {string} */ (inWeek[0]);
-      const last = /** @type {string} */ (inWeek[inWeek.length - 1]);
-      rangeLabel = `${fmt(first)} – ${fmt(last)}`;
-      if (buildWeek !== weekId) {
-        weekNote = `Your brigade week is ${rangeLabel}. Tap BUILD below to build the whole kitchen's list for that week.`;
-      }
-    }
     return {
       id: active.id,
       name: active.name ?? "Brigade",
@@ -2675,62 +2704,17 @@ function App() {
       // against my personal weeklyBudgetUsd (David, 2026-08-30)
       seats: Math.max(1, (active.memberIds ?? []).length),
       shopperName: cookName,
-      buildWeek,
-      rangeLabel,
-      weekNote,
     };
-  }, [houseEvents, allProfiles, me, tableDerived, weekId]);
+  }, [houseEvents, allProfiles, me, tableDerived]);
   listBrigadeRef.current = listBrigade;
 
-  // one-tap brigade build: flip the viewed week to the brigade's, then build
-  // once that week's plan has actually loaded. CAUTION (Red Team + Engineer,
-  // 2026-08-30): read() is cache-first — on a cache miss it returns null
-  // instantly and normalizePlan makes an EMPTY skeleton whose week already
-  // matches, so "plan.week === pending" alone would build a list missing
-  // every personal entry. An empty arrival therefore waits for the
-  // background revalidation (which emits a sync change and reloads the
-  // plan); a short timer builds anyway when nothing lands (offline, or the
-  // week genuinely has no file). The 30s expiry kills the other trap: a
-  // pending marker surviving a manual week change and firing a surprise
-  // rebuild much later.
-  const pendingBuildWeekRef = useRef(
-    /** @type {{ week: string, at: number, waitedForData?: boolean } | null} */ (null),
-  );
-  useEffect(() => {
-    const p = pendingBuildWeekRef.current;
-    if (!p) return;
-    if (Date.now() - p.at > 30000) {
-      pendingBuildWeekRef.current = null;
-      return;
-    }
-    if (plan.week !== p.week) return;
-    if (plan.entries.length === 0 && !p.waitedForData) {
-      p.waitedForData = true;
-      setTimeout(() => {
-        const q = pendingBuildWeekRef.current;
-        // the loaded plan must STILL be the pending week when the timer
-        // fires — a manual week change inside the wait would otherwise
-        // build whichever week is now on screen (Loyalist, 2026-08-30)
-        if (q && q.week === p.week && planRef.current.week === p.week) {
-          pendingBuildWeekRef.current = null;
-          handleBuildList(undefined);
-        }
-      }, 4000);
-      return;
-    }
-    pendingBuildWeekRef.current = null;
-    handleBuildList(undefined);
-  }, [plan, handleBuildList]);
-  const handleBuildWeek = useCallback(
-    (/** @type {string} */ week) => {
-      if (week === weekRef.current) {
-        handleBuildList(undefined);
-        return;
-      }
-      pendingBuildWeekRef.current = { week, at: Date.now() };
-      setWeekId(week);
-    },
-    [handleBuildList],
+  // the trip BUILD will shop from the viewed week, for the button's label and
+  // the JUST SOME DAYS chips (null on a past week: that builds the week)
+  const listTrip = tripFor(
+    weekId,
+    localIsoDate(new Date()),
+    planStartIso(new Date()),
+    buyDayOf(targets),
   );
 
   // compact live snapshot for the ASK chat: enough to ground an answer,
@@ -4506,7 +4490,8 @@ function App() {
         onCombinedToggle=${handleCombinedToggle}
         onClaimAllDinners=${handleClaimAllDinners}
         brigade=${listBrigade}
-        onBuildWeek=${handleBuildWeek}
+        trip=${listTrip}
+        buildNote=${buildNote}
         repriceNote=${repriceNote}
         dinnerClaims=${dinnerClaims}
         onRemoveDinnerRows=${handleRemoveDinnerRows}
@@ -4693,6 +4678,7 @@ function App() {
         onSaveEquipment=${handleSaveEquipment}
         onSaveMealSlots=${handleSaveMealSlots}
         onSaveBudget=${handleSaveBudget}
+        onSaveBuyDay=${handleSaveBuyDay}
       />`
     }
 

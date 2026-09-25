@@ -1,7 +1,7 @@
 // Weekly plan operations (plans/<week>.json). Entries carry a unique id —
 // the key mergeFieldWise prefers — so multiple entries may STACK in the same
 // date+slot and two devices editing the same week merge cleanly.
-import { isoWeekId, localIsoDate, parseLocalIso } from "./dates.js";
+import { isoWeekId, localIsoDate, parseLocalIso, tripDates } from "./dates.js";
 
 /**
  * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, leftoverOf?: string, leftoverDate?: string, cookId?: string, cookName?: string, estCalories?: number, estProtein?: number, cookedAt?: string, eatenAt?: string, cookSeconds?: number, cookComment?: string, preparedOn?: string, leftoverPrepared?: string, batchAlongside?: { name: string, date: string }, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean, useItUp?: boolean }} PlanEntry
@@ -427,6 +427,29 @@ export function datesOfWeek(weekId) {
  */
 export function prepSundayOf(weekId) {
   return datesOfWeek(weekId)[0] ?? "";
+}
+
+/**
+ * The trip BUILD shops while `viewWeek` is on screen (the buy day, David
+ * 2026-09-25). On the current week: the trip holding the first day still
+ * to plan (`startIso`, planStartIso: after 7:30 pm that is tomorrow, so a
+ * Thursday-night build already buys the next Friday's trip). On a future
+ * week: the trip holding that week's Sunday, which is the next shop that
+ * week needs. A PAST week has no trip (null): browsing back never shops.
+ * (Saturday after 7:30 pm the current week is still on screen but its days
+ * are done; its trip is then the one holding Sunday, never nothing.)
+ * @param {string} viewWeek
+ * @param {string} todayIso YYYY-MM-DD, the calendar day
+ * @param {string} startIso YYYY-MM-DD, the first day still to plan
+ * @param {number} buyDay 0 Sun … 6 Sat
+ * @returns {string[] | null}
+ */
+export function tripFor(viewWeek, todayIso, startIso, buyDay) {
+  const first = datesOfWeek(viewWeek)[0];
+  if (!first) return null;
+  const last = /** @type {string} */ (datesOfWeek(viewWeek)[6]);
+  if (last < todayIso) return null;
+  return tripDates(first > startIso ? first : startIso, buyDay);
 }
 
 /**

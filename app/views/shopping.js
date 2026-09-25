@@ -182,6 +182,22 @@ function aisleOrderFor(prices, store, pins = null) {
  * spice cabinet reuses the "pantry" shelf — its items classify as staples
  * and land in the staples registry, not on a shelf row.
  */
+/**
+ * "FRI 9/25 – THU 10/1": the trip BUILD shops, named on its button.
+ * @param {string[]} dates
+ * @returns {string}
+ */
+function tripLabel(dates) {
+  const fmt = (/** @type {string | undefined} */ iso) =>
+    iso
+      ? parseLocalIso(iso)
+          .toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric" })
+          .replace(",", "")
+          .toUpperCase()
+      : "";
+  return `${fmt(dates[0])} – ${fmt(dates[dates.length - 1])}`;
+}
+
 const FRESH_STEPS = [
   { loc: "fridge", label: "the fridge" },
   { loc: "freezer", label: "the freezer" },
@@ -228,8 +244,9 @@ const FRESH_STEPS = [
  *   weeklyBudgetUsd?: number,
  *   region?: { country?: string, state?: string },
  *   storeSlug?: string,
- *   brigade?: { id: string, name: string, iShop: boolean, nights: number, seats: number, shopperName: string, buildWeek: string | null, rangeLabel: string, weekNote: string | null } | null,
- *   onBuildWeek?: (week: string) => void,
+ *   brigade?: { id: string, name: string, iShop: boolean, nights: number, seats: number, shopperName: string } | null,
+ *   trip?: string[] | null,
+ *   buildNote?: string,
  *   repriceNote?: string,
  *   onReceiptApprove?: (store: string, lines: { name: string, price: number, size: string }[]) => void,
  *   onClearList?: () => void,
@@ -282,7 +299,8 @@ export function ShoppingView({
   region = undefined,
   storeSlug = "",
   brigade = null,
-  onBuildWeek = undefined,
+  trip = null,
+  buildNote = "",
   repriceNote = "",
   onReceiptApprove = undefined,
   onClearList = undefined,
@@ -1851,15 +1869,6 @@ export function ShoppingView({
         </div>`
       }
       ${
-        tab === "list" &&
-        brigade &&
-        brigade.weekNote &&
-        html`<div class="tile" role="note">
-          <div class="k">🗓 ${brigade.name}</div>
-          <p class="hint">${brigade.weekNote}</p>
-        </div>`
-      }
-      ${
         // the non-shopper's standing answer, ALWAYS shown — the old
         // empty-state-only message was dead code for any housemate whose
         // list still held rows, which is exactly the state real housemates
@@ -1923,37 +1932,27 @@ export function ShoppingView({
               html`<button
                   class="primary"
                   onClick=${() => {
-                    if (buyDays.length > 0 || buySlots.length > 0) {
-                      onBuild({ dates: buyDays, slots: buySlots });
-                    } else if (brigade?.iShop && brigade.buildWeek && onBuildWeek) {
-                      // one tap builds the BRIGADE week even when the view
-                      // still shows the ending one (the Sunday trap: BUILD
-                      // FROM W35 made 24 leftover rows instead of the
-                      // brigade's 79)
-                      onBuildWeek(brigade.buildWeek);
-                    } else {
-                      onBuild(undefined);
-                    }
+                    // the trip (the seven days from the buy day) is main.js's
+                    // business: BUILD always shops it, whichever week the view
+                    // sits on, so the old Sunday trap has nothing to catch
+                    onBuild(
+                      buyDays.length > 0 || buySlots.length > 0
+                        ? { dates: buyDays, slots: buySlots }
+                        : undefined,
+                    );
                   }}
                 >
                   ${
                     buyDays.length > 0 || buySlots.length > 0
                       ? `BUILD FOR ${buyDays.length || 7} ${(buyDays.length || 7) === 1 ? "DAY" : "DAYS"}`
-                      : brigade?.iShop && brigade.buildWeek
-                        ? `BUILD ${brigade.rangeLabel.toUpperCase()}`
+                      : trip
+                        ? `BUILD ${tripLabel(trip)}`
                         : `BUILD FROM W${weekId.split("-W")[1]}`
                   }
                 </button>
-                ${
-                  // JUST SOME DAYS renders the VIEWED week's day chips —
-                  // before the one-tap flip those are the dying week's days
-                  // (the Sunday trap again), so hide it until the view sits
-                  // on the brigade week
-                  !(brigade?.iShop && brigade.buildWeek && brigade.buildWeek !== weekId) &&
-                  html`<button class="secondary" onClick=${() => setShowPartial(!showPartial)}>
-                    ${showPartial ? "WHOLE WEEK" : "JUST SOME DAYS"}
-                  </button>`
-                }`
+                <button class="secondary" onClick=${() => setShowPartial(!showPartial)}>
+                  ${showPartial ? "WHOLE TRIP" : "JUST SOME DAYS"}
+                </button>`
             }
             ${
               checkedCount > 0 &&
@@ -1993,7 +1992,7 @@ export function ShoppingView({
                 is already full but you still want to eat to plan.
               </p>
               <div class="chips wrapchips" role="group" aria-label="Days to buy for">
-                ${datesOfWeek(weekId).map((d) => {
+                ${(trip ?? datesOfWeek(weekId)).map((d) => {
                   const on = buyDays.includes(d);
                   return html`<button
                     key=${d}
@@ -2021,12 +2020,13 @@ export function ShoppingView({
                 })}
               </div>
               <p class="hint">
-                Nothing picked = the whole week. Days alone buys every meal on those days; adding
+                Nothing picked = the whole trip. Days alone buys every meal on those days; adding
                 meals narrows it further. The weekly buffer snack sits out a partial shop, since it
                 is a week-long batch.
               </p>
             </div>`
           }
+          ${buildNote && html`<p class="hint" role="status">${buildNote}</p>`}
           <p class="hint lockhint">
             ${
               /** @type {any} */ (plan)?.fallback
@@ -2172,8 +2172,8 @@ export function ShoppingView({
                         ? "the house has shopped this week ✓ — the receipt cleared this list and the food is on the PANTRY shelves. BUILD only if you add new meals."
                         : brigade && !brigade.iShop
                           ? "nothing to buy ✓"
-                          : brigade?.iShop && brigade.rangeLabel
-                            ? `no list yet — BUILD makes the brigade's ${brigade.rangeLabel} list`
+                          : trip
+                            ? `no list yet — BUILD makes the list for ${tripLabel(trip).toLowerCase()}`
                             : "no list yet — build it from this week's plan"
               }
             </div>`
@@ -2237,29 +2237,29 @@ export function ShoppingView({
             needOpen &&
             html`<div class="shelfrows">
               ${weekNeeds.rows
-              .filter((r) => !r.minor)
-              .map((r) => {
-                const editing = countEdit?.food === r.food;
-                const verdict =
-                  r.status === "enough"
-                    ? "✓ enough"
-                    : r.status === "short"
-                      ? `short by ${formatStoreQty(r.short?.qty ?? 0, r.short?.unit ?? "")}`
-                      : r.status === "plenty-uncounted"
-                        ? "plenty, uncounted"
-                        : "uncounted";
-                return html`<div
-                  class="checkrow shelfrow ${r.status === "enough" ? "done" : ""}"
-                  key=${r.food}
-                >
-                  <span class="food">
-                    ${r.food}
-                    <span class="q num">
-                      week needs ${formatStoreQty(r.need.qty, r.need.unit)} · have ${r.have ?? "?"}
-                      · ${verdict}
+                .filter((r) => !r.minor)
+                .map((r) => {
+                  const editing = countEdit?.food === r.food;
+                  const verdict =
+                    r.status === "enough"
+                      ? "✓ enough"
+                      : r.status === "short"
+                        ? `short by ${formatStoreQty(r.short?.qty ?? 0, r.short?.unit ?? "")}`
+                        : r.status === "plenty-uncounted"
+                          ? "plenty, uncounted"
+                          : "uncounted";
+                  return html`<div
+                    class="checkrow shelfrow ${r.status === "enough" ? "done" : ""}"
+                    key=${r.food}
+                  >
+                    <span class="food">
+                      ${r.food}
+                      <span class="q num">
+                        week needs ${formatStoreQty(r.need.qty, r.need.unit)} · have
+                        ${r.have ?? "?"} · ${verdict}
+                      </span>
                     </span>
-                  </span>
-                  ${
+                    ${
                     editing
                       ? html`<span class="rowbtns">
                           <input
@@ -2268,22 +2268,22 @@ export function ShoppingView({
                             placeholder="how much? e.g. half a bottle, 3 tubs, 6"
                             value=${countEdit?.text ?? ""}
                             onInput=${(/** @type {any} */ e) =>
-                            setCountEdit({ food: r.food, text: String(e.currentTarget.value) })}
+                              setCountEdit({ food: r.food, text: String(e.currentTarget.value) })}
                             onKeyDown=${(/** @type {any} */ e) => {
-                            if (e.key === "Enter" && countEdit?.text.trim()) {
-                              onSetCount(r.food, countEdit.text.trim());
-                              setCountEdit(null);
-                            }
-                            if (e.key === "Escape") setCountEdit(null);
-                          }}
+                              if (e.key === "Enter" && countEdit?.text.trim()) {
+                                onSetCount(r.food, countEdit.text.trim());
+                                setCountEdit(null);
+                              }
+                              if (e.key === "Escape") setCountEdit(null);
+                            }}
                           />
                           <button
                             class="secondary"
                             disabled=${!countEdit?.text.trim()}
                             onClick=${() => {
-                            if (countEdit?.text.trim()) onSetCount(r.food, countEdit.text.trim());
-                            setCountEdit(null);
-                          }}
+                              if (countEdit?.text.trim()) onSetCount(r.food, countEdit.text.trim());
+                              setCountEdit(null);
+                            }}
                           >
                             SAVE
                           </button>
@@ -2299,20 +2299,20 @@ export function ShoppingView({
                           </button>
                         </span>`
                   }
-                </div>`;
-              })}
+                  </div>`;
+                })}
               ${(() => {
-              const minor = weekNeeds.rows.filter((r) => r.minor);
-              if (minor.length === 0) return "";
-              return html`<button class="secondary" onClick=${() => setShowMinor(!showMinor)}>
-                  ${showMinor ? "HIDE" : "SHOW"} ${minor.length} small amounts the week barely
-                  touches
-                  (${minor
+                const minor = weekNeeds.rows.filter((r) => r.minor);
+                if (minor.length === 0) return "";
+                return html`<button class="secondary" onClick=${() => setShowMinor(!showMinor)}>
+                    ${showMinor ? "HIDE" : "SHOW"} ${minor.length} small amounts the week barely
+                    touches
+                    (${minor
                     .slice(0, 4)
                     .map((r) => r.food)
                     .join(", ")}${minor.length > 4 ? "…" : ""})
-                </button>
-                ${
+                  </button>
+                  ${
                   showMinor &&
                   minor.map(
                     (r) =>
@@ -2335,7 +2335,7 @@ export function ShoppingView({
                       </div>`,
                   )
                 }`;
-            })()}
+              })()}
             </div>`
           }
         </div>`

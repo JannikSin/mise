@@ -345,6 +345,31 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
 }
 
 /**
+ * THE TRIP AS ONE PLAN (David, 2026-09-25: the buy day moved to Friday).
+ * Plans stay Sunday-to-Saturday weeks, so a Friday-to-Thursday shop reads
+ * two plan files: this merges their entries dated inside the trip into one
+ * plan deriveShoppingList can take. The week-long buffer snack rides with the
+ * plan that holds the most trip days (the week the trip mostly eats), and
+ * that week names the list. A plan with no trip days adds nothing.
+ * @param {import("./plan.js").Plan[]} plans
+ * @param {string[]} dates the trip's days
+ * @returns {import("./plan.js").Plan}
+ */
+export function tripPlan(plans, dates) {
+  const inTrip = new Set(dates);
+  const days = (/** @type {import("./plan.js").Plan} */ p) =>
+    new Set(p.entries.map((e) => e.date).filter((d) => inTrip.has(d))).size;
+  const main = [...plans].sort((a, b) => days(b) - days(a))[0];
+  /** @type {any} */
+  const out = {
+    week: main?.week ?? "",
+    entries: plans.flatMap((p) => p.entries.filter((e) => inTrip.has(e.date))),
+  };
+  if (main?.buffer && days(main) > 0) out.buffer = main.buffer;
+  return out;
+}
+
+/**
  * Self-heal a shopping list read from disk onto the canonical id scheme.
  *
  * This is the load-bearing half of the canonical-ingredient change, and it
