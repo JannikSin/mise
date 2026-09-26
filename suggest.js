@@ -17,6 +17,12 @@
 // The mic is here on purpose: most of these notes are spoken while walking, so
 // every app gets the recorder, not just the ones that grew one.
 //
+// Every note carries WHO sent it (David, 2026-09-26: "want each note to know
+// who sent it"). The panel has a "Your name" box, filled once and remembered on
+// that phone. All the apps share one origin, so one entry covers every app;
+// David's own phone (Crystal key present) starts out as "David". Send and the
+// mic both wait for a name, so no note arrives anonymous.
+//
 // Retire it for one app by deleting the script tag. Silence it everywhere for
 // a session with localStorage.setItem("suggest.off", "1").
 (function () {
@@ -43,6 +49,16 @@
   // Optional. Present on David's own phone because Crystal shares this origin;
   // absent everywhere else and that is fine. Never gate on it.
   function keyOf() { return localStorage.getItem("crystal.key") || ""; }
+
+  // The sender's name, one line, typed once. Never throws.
+  var NAME_KEY = "suggest.name";
+  function nameGet() {
+    try { return localStorage.getItem(NAME_KEY) || (keyOf() ? "David" : ""); }
+    catch (e) { return ""; }
+  }
+  function nameSet(v) {
+    try { localStorage.setItem(NAME_KEY, v); } catch (e) { /* still sent this time */ }
+  }
   function authHeaders(base) {
     var k = keyOf();
     if (k) base["x-brief-key"] = k;
@@ -97,7 +113,8 @@
       aSending = true;
       var item = all[0];
       fetch(WORKER + "/deskaudio?app=" + encodeURIComponent(item.app)
-          + "&route=" + encodeURIComponent(item.route), {
+          + "&route=" + encodeURIComponent(item.route)
+          + "&from=" + encodeURIComponent(item.from || ""), {
         method: "POST",
         headers: authHeaders({ "content-type": item.type || "audio/mp4" }),
         body: item.blob,
@@ -111,6 +128,12 @@
       }).catch(function () { aSending = false; });
     });
   }
+
+  // Recording ceiling, derived rather than chosen (same math as Crystal's
+  // bubble, app.js): 64 kbps = 8,000 bytes/s, 14 MB budget = about 30 minutes,
+  // leaving headroom under the Worker's 20 MB /deskaudio cap.
+  var REC_BPS = 64000;
+  var REC_MAX_MS = Math.floor((14 * 1024 * 1024) / (REC_BPS / 8)) * 1000;
 
   // ---------- the pipe ----------
   var sending = false;
@@ -182,6 +205,32 @@
     where.className = "sg-where";
     where.textContent = APP + " · " + routeNow();
 
+    var nameIn = document.createElement("input");
+    nameIn.type = "text";
+    nameIn.className = "sg-name";
+    nameIn.placeholder = "your name";
+    nameIn.setAttribute("aria-label", "Your name");
+    nameIn.autocomplete = "name";
+    nameIn.maxLength = 40;
+    nameIn.value = nameGet();
+    nameIn.style.marginBottom = "8px";   // CSSOM, allowed under style-src 'self'
+    // the name box is a control he sets once; editing it re-remembers it
+    nameIn.addEventListener("change", function () {
+      var v = nameIn.value.trim();
+      if (v) nameSet(v);
+    });
+    // a name is required; returns it, or asks for it and returns ""
+    function needName() {
+      var v = nameIn.value.trim();
+      if (!v) {
+        stat.textContent = "add your name first";
+        nameIn.focus();
+        return "";
+      }
+      nameSet(v);
+      return v;
+    }
+
     var ta = document.createElement("textarea");
     ta.rows = 4;
     ta.placeholder = "what you want different here...";
@@ -207,6 +256,8 @@
     mic.addEventListener("click", function () {
       if (rec && rec.state === "recording") { rec.stop(); return; }
       if (acquiring) return;
+      var who = needName();
+      if (!who) return;
       if (!navigator.mediaDevices || !window.MediaRecorder) {
         stat.textContent = "this browser cannot record; type it";
         return;
@@ -215,7 +266,7 @@
       navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
         acquiring = false;
         var mime = MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "audio/webm";
-        rec = new MediaRecorder(stream, { mimeType: mime });
+        rec = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: REC_BPS });
         chunks = [];
         rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
         rec.onstop = function () {
@@ -225,7 +276,7 @@
           var blob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || mime });
           // queue first, send second: a train tunnel between stop and send
           // must not eat the take
-          aAdd({ app: APP, route: routeNow(), type: blob.type, blob: blob, at: new Date().toISOString() })
+          aAdd({ app: APP, route: routeNow(), from: who, type: blob.type, blob: blob, at: new Date().toISOString() })
             .then(function () {
               paintCount();
               stat.textContent = navigator.onLine
@@ -238,7 +289,10 @@
             });
         };
         rec.start(5000);
-        setTimeout(function () { if (rec && rec.state === "recording") rec.stop(); }, 180000);
+        // No short cutoff (David, 2026-09-26: "dont cap a long voice note").
+        // The only stop is the Worker's 20 MB audio ceiling, derived the same
+        // way as Crystal's bubble: 14 MB at 64 kbps is about 30 minutes.
+        setTimeout(function () { if (rec && rec.state === "recording") rec.stop(); }, REC_MAX_MS);
         mic.textContent = "⏹";
         stat.textContent = "recording... tap to stop";
       }).catch(function () {
@@ -259,6 +313,7 @@
 
     panel.appendChild(h);
     panel.appendChild(where);
+    panel.appendChild(nameIn);
     panel.appendChild(ta);
     row.appendChild(mic);
     row.appendChild(send);
@@ -283,10 +338,13 @@
     send.addEventListener("click", function () {
       var text = ta.value.trim();
       if (!text) { stat.textContent = "say something first"; return; }
+      var who = needName();
+      if (!who) return;
       var q = qGet();
       q.push({
         app: APP,
         route: routeNow(),
+        from: who,
         text: text,
         at: new Date().toISOString(),
       });
@@ -299,7 +357,7 @@
     });
 
     document.body.appendChild(wrap);
-    ta.focus();
+    (nameIn.value ? ta : nameIn).focus();
   }
 
   btn.addEventListener("click", openPanel);
