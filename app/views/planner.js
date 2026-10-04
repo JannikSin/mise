@@ -107,6 +107,7 @@ function monthDay(isoDate) {
  *     me: string,
  *   } | null,
  *   brigadeRun?: Record<string, any> | null,
+ *   endedBrigade?: import("../lib/tables.js").Brigade | null,
  *   onAddGuest?: (date: string, profileId: string, slots: string[]) => Promise<string | null>,
  *   onRemoveGuest?: (date: string, profileId: string) => void,
  *   onNewGuestProfile?: () => void,
@@ -148,6 +149,7 @@ export function PlannerView({
   lastWeekReview = null,
   brigade = null,
   brigadeRun = null,
+  endedBrigade = null,
   profileId = "",
   onInviteLink = undefined,
   onAddGuest = undefined,
@@ -293,6 +295,21 @@ export function PlannerView({
             >`;
           })}
         </p>`
+      }
+      ${
+        // an ENDED shared arrangement, said where the week is set (P2): left
+        // unsaid, SET MY WEEK plans only you and the house's shared meals vanish
+        endedBrigade &&
+        html`
+          <div class="tile buildreport endedbrigade" role="status">
+            <div class="k">🍽 ${endedBrigade.name} ended ${parseLocalIso(endedBrigade.until).toLocaleDateString([], { month: "short", day: "numeric" })}</div>
+            <div class="d">
+              SET MY WEEK will plan only you. To plan the shared meals again, renew it on the Table
+              tab, then SET THIS WEEK there.
+            </div>
+            <a class="ask scanbtn" href="#/tables">RENEW ON THE TABLE TAB →</a>
+          </div>
+        `
       }
       <div class="actions">
         <button
