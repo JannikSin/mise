@@ -2680,6 +2680,20 @@ function App() {
     };
   }, [houseEvents, allProfiles, me, weekId]);
 
+  // the arrangement I was in that has ENDED, when none is active (pierogi,
+  // 2026-10-04): Wayne kitchen ran out on Oct 2, the Plan tab said nothing,
+  // and SET MY WEEK would quietly plan only me. Said on the Plan tab now (P2).
+  const endedBrigade = useMemo(() => {
+    if (plannerBrigade) return null;
+    const house = allProfiles.find((p) => p.id === me)?.household ?? "home";
+    const events = houseEvents.find((h) => h.house === house)?.events;
+    return (
+      (events?.brigades ?? [])
+        .filter((b) => b.memberIds.includes(me) && b.until)
+        .sort((a, b) => (b.until ?? "").localeCompare(a.until ?? ""))[0] ?? null
+    );
+  }, [plannerBrigade, houseEvents, allProfiles, me]);
+
   // the List's brigade posture. When my household runs an active brigade the
   // List stops being a personal surface: the cook buys for the whole kitchen
   // (effectiveBuyerOf), everyone else has nothing to buy. iShop = at least one
@@ -4396,6 +4410,7 @@ function App() {
           )}
         onGenerateWeek=${handleGenerateWeek}
         brigade=${plannerBrigade}
+        endedBrigade=${endedBrigade}
         brigadeRun=${brigadeRun}
         onAddGuest=${handleAddGuestSeat}
         onRemoveGuest=${handleRemoveGuestSeat}
