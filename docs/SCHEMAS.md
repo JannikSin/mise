@@ -1231,7 +1231,7 @@ Rules (binding, from the Tribunal plan gate):
 Who-owes-who from shared Tables (roadmap M1). The table's COOK's device
 records each FINISHED table once (idempotent by table id; entries are
 id-keyed so concurrent recorders merge to one). Costing mirrors the
-shopping list's honesty: prices.json floor-prices the recipe per serving,
+shopping list's honesty: prices.json floor-prices what each serving EATS (never whole packages),
 anything unpriceable flags the entry `estimate` (shown with `~`). Shares
 follow seat servings (2 servings owes twice 1). Mise never moves money:
 balances settle in the real world, then SETTLED flips the flag.
@@ -1247,6 +1247,9 @@ balances settle in the real world, then SETTLED flips the flag.
       "estimate": false,
       "shares": { "david": 9, "mom": 4.5 }, // payer's own share = their own dinner, not a debt
       "settled": false,
+      "basis": "eaten", // ? 2026-10-04: billed at each ingredient's EATEN share (itemCost().eaten).
+      // Absent = the old whole-package billing (a jar of honey per bowl); an UNSETTLED
+      // entry without it is re-costed once by recordEntries. Settled entries never change.
     },
   ],
 }

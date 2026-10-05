@@ -176,3 +176,34 @@ test("parsePot: a perSeat that does not sum to the row qty dies (money conservat
   assert.ok(e, "falls back to servings-proportional");
   assert.ok(Math.abs(e.shares.david - 2 * e.shares.mom) < 0.02, "hand-edited pot cannot move the bill");
 });
+
+test("ledgerEntryFor bills the EATEN share, never a whole jar per meal (pierogi 2026-10-04)", () => {
+  // a tablespoon from a 16 oz jar of honey: the live bug billed the whole
+  // $8 jar to every bowl, so one shared breakfast for two read $107.32
+  const catalogue = {
+    items: [{ id: "honey", name: "honey", prices: { tj: { price: 8, size: "16 oz" } } }],
+  };
+  const recipe = {
+    id: "bowl",
+    name: "Bowl",
+    servings: 1,
+    ingredients: [{ qty: 1, unit: "tbsp", food: "honey" }],
+  };
+  const e = ledgerEntryFor({ ...TABLE, recipeId: "bowl" }, "david", recipe, catalogue, "tj", PROFILES);
+  assert.ok(e, "a priced recipe records");
+  assert.equal(e.basis, "eaten");
+  assert.ok(e.total < 3, `three servings of a tablespoon of honey cost cents, not jars (got ${e.total})`);
+});
+
+test("recordEntries re-costs an UNSETTLED whole-pack entry once and never touches a settled one", () => {
+  const old = { id: "t1", date: "2026-09-20", payerId: "david", total: 107.32, estimate: true, shares: { david: 53.66, mom: 53.66 }, settled: false };
+  const paid = { ...old, id: "t2", settled: true };
+  const fresh1 = { ...old, total: 4, shares: { david: 2, mom: 2 }, basis: /** @type {"eaten"} */ ("eaten") };
+  const fresh2 = { ...paid, total: 4, shares: { david: 2, mom: 2 }, settled: false, basis: /** @type {"eaten"} */ ("eaten") };
+  const { ledger, added } = recordEntries({ entries: [old, paid] }, [fresh1, fresh2]);
+  assert.equal(added, 1, "only the unsettled entry is healed");
+  assert.equal(ledger.entries.find((e) => e.id === "t1")?.total, 4);
+  assert.deepEqual(ledger.entries.find((e) => e.id === "t2"), paid, "a settled entry is history");
+  const again = recordEntries(ledger, [fresh1, fresh2]);
+  assert.equal(again.added, 0, "a healed entry is not healed twice");
+});

@@ -13,8 +13,10 @@ import { itemCost } from "./prices.js";
 import { parsePot } from "./synth.js";
 
 /**
- * @typedef {{ id: string, date: string, payerId: string, total: number, estimate: boolean, shares: Record<string, number>, settled?: boolean }} LedgerEntry
- *   id = the table's id (idempotency + id-keyed merge)
+ * @typedef {{ id: string, date: string, payerId: string, total: number, estimate: boolean, shares: Record<string, number>, settled?: boolean, basis?: "eaten" }} LedgerEntry
+ *   id = the table's id (idempotency + id-keyed merge). `basis: "eaten"` =
+ *   billed at the eaten share of each ingredient; absent = the old
+ *   whole-package billing, which recordEntries re-costs while unsettled
  * @typedef {{ entries: LedgerEntry[] }} Ledger
  */
 
@@ -42,9 +44,10 @@ export function normalizeLedger(raw) {
  * @param {Record<string, any>} recipe
  * @param {import("./prices.js").PriceCatalogue | null} catalogue
  * @param {string} store
- * @returns {{ perServing: number, priced: number, of: number }}
+ * @returns {{ perServing: number, priced: number, of: number, estimate: boolean }}
  */
 export function recipeEatenCost(recipe, catalogue, store) {
+  let anyEstimate = false;
   let eaten = 0;
   let priced = 0;
   let of = 0;
@@ -58,9 +61,15 @@ export function recipeEatenCost(recipe, catalogue, store) {
     if (!c) continue;
     priced += 1;
     eaten += c.eaten;
+    if (c.estimate) anyEstimate = true;
   }
   const servings = Number(recipe.servings) || 1;
-  return { perServing: Math.round((eaten / servings) * 100) / 100, priced, of };
+  return {
+    perServing: Math.round((eaten / servings) * 100) / 100,
+    priced,
+    of,
+    estimate: anyEstimate || priced < of,
+  };
 }
 
 /**
@@ -229,7 +238,7 @@ export function ledgerEntryFor(t, cookId, recipe, catalogue, store, profilesById
           est = true; // a departed seat's share is dropped, and the total says so
           continue;
         }
-        const share = (rowCost.cost * Number(q)) / rowQty;
+        const share = (rowCost.eaten * Number(q)) / rowQty;
         shares[seatId] = (shares[seatId] ?? 0) + share;
       }
     }
@@ -248,11 +257,12 @@ export function ledgerEntryFor(t, cookId, recipe, catalogue, store, profilesById
         estimate: est,
         shares,
         settled: false,
+        basis: "eaten",
       };
     }
   }
 
-  const { perServing, estimate } = recipeServingCost(recipe, catalogue, store);
+  const { perServing, estimate } = recipeEatenCost(recipe, catalogue, store);
   if (perServing <= 0) return null; // nothing priceable: no honest debt to record
   // a PLATED table that reaches recording without a valid pot (merge race,
   // never claimed, corrupt string) bills by this path WITH the estimate
@@ -276,6 +286,7 @@ export function ledgerEntryFor(t, cookId, recipe, catalogue, store, profilesById
     estimate: estimate || lostPot,
     shares,
     settled: false,
+    basis: "eaten",
   };
 }
 
@@ -287,11 +298,25 @@ export function ledgerEntryFor(t, cookId, recipe, catalogue, store, profilesById
  * @returns {{ ledger: Ledger, added: number }}
  */
 export function recordEntries(ledger, candidates) {
+  // THE WHOLE-PACK HEAL (pierogi, 2026-10-04): entries recorded before the
+  // eaten basis billed every ingredient's whole package to every meal (one
+  // shared yogurt bowl at $107.32; "Elliot owes ~$1,772"). An UNSETTLED
+  // entry without a basis is replaced by its re-costed candidate; settled
+  // ones are history and stay exactly as they were paid.
+  const byId = new Map(candidates.map((e) => [e.id, e]));
+  let healed = 0;
+  const entries = ledger.entries.map((e) => {
+    const c = byId.get(e.id);
+    if (!c || e.settled || e.basis === "eaten") return e;
+    healed += 1;
+    return c;
+  });
   const have = new Set(ledger.entries.map((e) => e.id));
   const fresh = candidates.filter((e) => !have.has(e.id));
-  return fresh.length === 0
+  const added = fresh.length + healed;
+  return added === 0
     ? { ledger, added: 0 }
-    : { ledger: { ...ledger, entries: [...ledger.entries, ...fresh] }, added: fresh.length };
+    : { ledger: { ...ledger, entries: [...entries, ...fresh] }, added };
 }
 
 /**
