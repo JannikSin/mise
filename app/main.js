@@ -4156,8 +4156,16 @@ function App() {
   const [ledger, setLedger] = useState(normalizeLedger(null));
   const ledgerRef = useRef(ledger);
   ledgerRef.current = ledger;
+  // THE RECORDER WAITS FOR THE READ (pierogi, 2026-10-04): the recorder used
+  // to run against the EMPTY initial ledger whenever the house events loaded
+  // first, so it wrote only the entries it could rebuild (tables still within
+  // retention) and the merge read every older entry as a deletion. Live:
+  // 62 unsettled entries became 33 on one page load. No ledger write until
+  // the house ledger file has been read at least once.
+  const [ledgerLoaded, setLedgerLoaded] = useState(false);
   useEffect(() => {
     let alive = true;
+    setLedgerLoaded(false);
     const load = () => {
       void (async () => {
         const prof = await readProfiles();
@@ -4167,7 +4175,10 @@ function App() {
         const raw = /** @type {any} */ (
           await read(ledgerPathFor(house), { raw: true }).catch(() => null)
         );
-        if (alive) setLedger(normalizeLedger(raw));
+        if (alive) {
+          setLedger(normalizeLedger(raw));
+          setLedgerLoaded(true);
+        }
       })();
     };
     load();
@@ -4180,6 +4191,7 @@ function App() {
 
   // record finished tables I cooked into the house ledger
   useEffect(() => {
+    if (!ledgerLoaded) return;
     try {
       const today = localIsoDate(new Date());
       const profilesById = new Map(allProfiles.map((p) => [p.id, p]));
@@ -4215,7 +4227,7 @@ function App() {
     } catch {
       // costing must never break the app; the ledger just waits
     }
-  }, [houseEvents, allProfiles, bankRecipes, priceCatalogue, me]);
+  }, [houseEvents, allProfiles, bankRecipes, priceCatalogue, me, ledgerLoaded]);
 
   const handleSettle = useCallback(
     (/** @type {string} */ other) => {
