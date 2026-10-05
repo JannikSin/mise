@@ -60,7 +60,8 @@ const BUY_DAY_NAMES = [
  *   onSaveEquipment?: (owned: string[]) => Promise<void>,
  *   onSaveMealSlots?: (slots: string[]) => Promise<void>,
  *   onSaveBudget?: (usd: number) => Promise<void>,
- *   onSaveBuyDay?: (day: number) => Promise<void>
+ *   onSaveBuyDay?: (day: number) => Promise<void>,
+ *   onInviteLink?: (kind: "member" | "guest") => Promise<string>
  * }} props
  */
 export function SystemView({
@@ -81,6 +82,7 @@ export function SystemView({
   onSaveMealSlots = undefined,
   onSaveBudget = undefined,
   onSaveBuyDay = undefined,
+  onInviteLink = undefined,
 }) {
   const ageDays = tokenAgeDays();
   const renewSoon = hasToken && ageDays != null && ageDays >= TOKEN_WARN_AGE_DAYS;
@@ -360,6 +362,9 @@ export function SystemView({
   const [houseNote, setHouseNote] = useState("");
   const [renameDraft, setRenameDraft] = useState("");
   const [addPick, setAddPick] = useState("");
+  const [invite, setInvite] = useState(
+    /** @type {{ busy: boolean, url: string, note: string }} */ ({ busy: false, url: "", note: "" }),
+  );
 
   // Rename the house for EVERYONE in it: carry the shared files to the new
   // slug, then re-point every member profile. The old files are left in
@@ -688,6 +693,75 @@ export function SystemView({
               ADD TO THIS HOUSE
             </button>
           </div>`
+        }
+        ${
+          // INVITE BY LINK (David, 2026-10-05: "invite through a link, so I can
+          // send it through iMessage or Gmail"; each person makes their own
+          // profile). The machinery is the 2026-09-14 join-by-link: one person,
+          // one single-use code, seven days; the Worker writes their profile,
+          // no token ever leaves this phone. Until now its only door was a
+          // guest chip on one day's WHO row; this is the general one.
+          onInviteLink &&
+          html`<div class="row">
+              <span class="k">Invite by link</span>
+              <span class="status dim">they make their own profile on their phone</span>
+            </div>
+            <div class="actions wrap">
+              ${(/** @type {const} */ (["member", "guest"])).map(
+                (kind) =>
+                  html`<button
+                    key=${kind}
+                    class="secondary"
+                    disabled=${invite.busy}
+                    onClick=${async () => {
+                      setInvite({ busy: true, url: "", note: "" });
+                      try {
+                        const url = await onInviteLink(kind);
+                        setInvite({ busy: false, url, note: "" });
+                      } catch (e) {
+                        setInvite({
+                          busy: false,
+                          url: "",
+                          note: e instanceof Error ? e.message : "could not make a link",
+                        });
+                      }
+                    }}
+                  >
+                    ${kind === "member" ? "INVITE A HOUSEMATE" : "INVITE A GUEST"}
+                  </button>`,
+              )}
+            </div>
+            ${invite.url &&
+            html`<div class="token-form">
+              <input
+                aria-label="Invite link"
+                readonly
+                value=${invite.url}
+                onFocus=${(/** @type {any} */ e) => e.currentTarget.select()}
+              />
+              <button
+                class="primary"
+                onClick=${async () => {
+                  const nav = /** @type {any} */ (navigator);
+                  try {
+                    if (typeof nav.share === "function")
+                      await nav.share({ title: "Join my Mise kitchen", url: invite.url });
+                    else await nav.clipboard.writeText(invite.url);
+                    setInvite({ ...invite, note: "link ready to send" });
+                  } catch {
+                    setInvite({ ...invite, note: "copy the link above" });
+                  }
+                }}
+              >
+                ${typeof (/** @type {any} */ (navigator).share) === "function" ? "SHARE" : "COPY"}
+              </button>
+            </div>`}
+            ${invite.note && html`<p class="hint" role="status">${invite.note}</p>`}
+            <p class="hint">
+              A housemate joins ${household}: shared tables, the list, house money. A guest gets their
+              own plate at your table and a page of the meals they're seated at. One person, one link,
+              good for seven days; paste it into iMessage or Gmail.
+            </p>`
         }
         <div class="row">
           <span class="k">Rename house</span>

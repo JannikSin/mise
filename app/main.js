@@ -4831,6 +4831,7 @@ function App() {
         onSaveMealSlots=${handleSaveMealSlots}
         onSaveBudget=${handleSaveBudget}
         onSaveBuyDay=${handleSaveBuyDay}
+        onInviteLink=${hasToken ? handleInviteLink : undefined}
       />`
     }
 
