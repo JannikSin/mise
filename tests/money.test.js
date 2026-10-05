@@ -7,6 +7,10 @@ import {
   recordEntries,
   balancesFor,
   settleBetween,
+  purchaseEntry,
+  paymentEntry,
+  eatenWeights,
+  removeMoneyEntry,
 } from "../app/lib/money.js";
 
 const CATALOGUE = {
@@ -80,12 +84,13 @@ test("recordEntries is idempotent by table id", () => {
 });
 
 test("balancesFor nets both directions and settleBetween clears the pair", () => {
-  // david cooked t1 (mom owes 4.5); mom cooked t2 (david owes 3)
+  // david bought t1 (mom owes 4.5); mom bought t2 (david owes 3)
   const ledger = {
     entries: [
       {
         id: "t1",
         date: "2026-07-20",
+        kind: "purchase",
         payerId: "david",
         total: 13.5,
         estimate: false,
@@ -94,6 +99,7 @@ test("balancesFor nets both directions and settleBetween clears the pair", () =>
       {
         id: "t2",
         date: "2026-07-21",
+        kind: "purchase",
         payerId: "mom",
         total: 6,
         estimate: false,
@@ -107,7 +113,10 @@ test("balancesFor nets both directions and settleBetween clears the pair", () =>
   assert.equal(hers[0].net, -1.5); // mirror image
   const settled = settleBetween(ledger, "david", "mom");
   assert.deepEqual(balancesFor(settled, "david"), []);
-  assert.ok(settled.entries.every((e) => e.settled));
+  // SETTLED records the zeroing payback, it never rewrites the history
+  assert.equal(settled.entries.length, 3);
+  assert.deepEqual(settled.entries[2].shares, { david: 1.5 });
+  assert.equal(settled.entries[2].payerId, "mom");
 });
 
 // PAY FOR WHAT YOU EAT (David 2026-08-10, spec §11.1): a valid frozen pot
@@ -206,4 +215,103 @@ test("recordEntries re-costs an UNSETTLED whole-pack entry once and never touche
   assert.deepEqual(ledger.entries.find((e) => e.id === "t2"), paid, "a settled entry is history");
   const again = recordEntries(ledger, [fresh1, fresh2]);
   assert.equal(again.added, 0, "a healed entry is not healed twice");
+});
+
+// ONLY CONFIRMED MONEY MOVES THE BALANCE (David, 2026-10-05): a meal record
+// billed at shelf prices to the cook is who-ate-what, never a debt.
+test("meal records never count as money; only purchases and paybacks do", () => {
+  const meal = {
+    id: "m1",
+    date: "2026-10-01",
+    payerId: "david",
+    total: 20,
+    estimate: true,
+    shares: { david: 12, elliot: 8 },
+    settled: false,
+    basis: /** @type {"eaten"} */ ("eaten"),
+  };
+  const ledger = { entries: [meal] };
+  assert.deepEqual(balancesFor(ledger, "david"), []);
+  // settling a meal-only ledger records nothing
+  assert.equal(settleBetween(ledger, "david", "elliot"), ledger);
+});
+
+test("purchaseEntry splits a real receipt by eaten weight, to the cent", () => {
+  const weights = eatenWeights([
+    { id: "a", date: "d", payerId: "david", total: 10, estimate: true, shares: { david: 6, elliot: 4 } },
+    { id: "b", date: "d", payerId: "david", total: 10, estimate: true, shares: { david: 6, elliot: 4 } },
+  ]);
+  assert.deepEqual(weights, { david: 12, elliot: 8 });
+  const e = purchaseEntry({
+    id: "p1",
+    date: "2026-10-05",
+    payerId: "elliot",
+    total: 74.33,
+    split: "eaten",
+    weights,
+    members: ["david", "elliot"],
+  });
+  assert.ok(e);
+  assert.equal(e.kind, "purchase");
+  assert.equal(e.shares.david, 44.6); // 60% of 74.33
+  assert.equal(Math.round((e.shares.david + e.shares.elliot) * 100) / 100, 74.33);
+  // Elliot paid, so David owes Elliot his eaten share
+  assert.deepEqual(balancesFor({ entries: [e] }, "david"), [
+    { profileId: "elliot", net: -44.6, entries: 1, estimate: false },
+  ]);
+});
+
+test("purchaseEntry even split, and refuses an entry it cannot make honestly", () => {
+  const even = purchaseEntry({
+    id: "p2",
+    date: "d",
+    payerId: "elliot",
+    total: 50,
+    split: "even",
+    weights: {},
+    members: ["david", "elliot"],
+  });
+  assert.deepEqual(even?.shares, { david: 25, elliot: 25 });
+  const base = { id: "x", date: "d", payerId: "elliot", split: /** @type {"eaten"} */ ("eaten"), members: [] };
+  assert.equal(purchaseEntry({ ...base, total: 0, weights: { david: 1, elliot: 1 } }), null);
+  // no shared meals = nothing to split by; the caller offers the even split
+  assert.equal(purchaseEntry({ ...base, total: 40, weights: {} }), null);
+});
+
+test("a Zelle payback offsets the debt; removeMoneyEntry undoes a typo, never a meal", () => {
+  const trip = purchaseEntry({
+    id: "p1",
+    date: "d",
+    payerId: "elliot",
+    total: 60,
+    split: "even",
+    weights: {},
+    members: ["david", "elliot"],
+  });
+  const zelle = paymentEntry({ id: "z1", date: "d", fromId: "david", toId: "elliot", total: 20 });
+  assert.ok(trip && zelle);
+  const ledger = { entries: [trip, zelle] };
+  assert.equal(balancesFor(ledger, "david")[0].net, -10);
+  assert.equal(balancesFor(ledger, "elliot")[0].net, 10);
+  assert.equal(paymentEntry({ id: "z", date: "d", fromId: "david", toId: "david", total: 5 }), null);
+  const meal = { id: "z1", date: "d", payerId: "david", total: 1, estimate: true, shares: { elliot: 1 } };
+  const undone = removeMoneyEntry({ entries: [zelle, meal] }, "z1");
+  assert.deepEqual(undone.entries, [meal]);
+});
+
+test("SETTLED with one housemate leaves a third housemate's debt alone", () => {
+  const trip = purchaseEntry({
+    id: "p3",
+    date: "d",
+    payerId: "a",
+    total: 90,
+    split: "even",
+    weights: {},
+    members: ["a", "b", "c"],
+  });
+  assert.ok(trip);
+  const settled = settleBetween({ entries: [trip] }, "a", "b", { id: "s1", date: "d" });
+  assert.deepEqual(balancesFor(settled, "a"), [
+    { profileId: "c", net: 30, entries: 1, estimate: false },
+  ]);
 });

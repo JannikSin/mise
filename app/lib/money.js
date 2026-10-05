@@ -8,12 +8,23 @@
 // Costing honesty mirrors the shopping list: ingredient prices come from
 // prices.json (receipt-refreshed when the scanner runs); rows the catalogue
 // cannot price make the total a FLOOR and mark the entry `estimate`.
+//
+// ONLY CONFIRMED MONEY MOVES THE BALANCE (David, 2026-10-05, zermatt: "it
+// should only add money there when it is confirmed who paid and how much,
+// cause totals differ based on what is available"). Shelf-price estimates
+// are wrong in both amount and direction: Elliot buys, David Zelles him
+// after, but a meal record bills the COOK. So meal records (no `kind`) are
+// WHO-ATE-WHAT only: they weight a trip's split and never become a debt.
+// The balance is built from two confirmed kinds, both typed by a person:
+//   kind "purchase": someone paid a real receipt total; each housemate owes
+//     their eaten share of the shared meals that trip was for.
+//   kind "payment": someone paid someone back (a Zelle); it offsets.
 import { canonicalFood } from "./ingredients.js";
 import { itemCost } from "./prices.js";
 import { parsePot } from "./synth.js";
 
 /**
- * @typedef {{ id: string, date: string, payerId: string, total: number, estimate: boolean, shares: Record<string, number>, settled?: boolean, basis?: "eaten" }} LedgerEntry
+ * @typedef {{ id: string, date: string, payerId: string, total: number, estimate: boolean, shares: Record<string, number>, settled?: boolean, basis?: "eaten", kind?: "purchase" | "payment", toId?: string, split?: "eaten" | "even", note?: string }} LedgerEntry
  *   id = the table's id (idempotency + id-keyed merge). `basis: "eaten"` =
  *   billed at the eaten share of each ingredient; absent = the old
  *   whole-package billing, which recordEntries re-costs while unsettled
@@ -321,7 +332,8 @@ export function recordEntries(ledger, candidates) {
 
 /**
  * Net unsettled balances from MY point of view: positive = they owe me.
- * A payer's own share of their own table is their own dinner, not a debt.
+ * A payer's own share is their own food, not a debt. Only CONFIRMED money
+ * counts (purchases and paybacks); meal records are weights, never debts.
  * @param {Ledger} ledger
  * @param {string} me
  * @returns {{ profileId: string, net: number, entries: number, estimate: boolean }[]} sorted by |net| desc
@@ -341,7 +353,7 @@ export function balancesFor(ledger, me) {
     by.set(who, cur);
   };
   for (const e of ledger.entries) {
-    if (e.settled) continue;
+    if (e.settled || !isConfirmedMoney(e)) continue;
     if (e.payerId === me) {
       for (const [pid, share] of Object.entries(e.shares)) {
         if (pid !== me) bump(pid, share, e.estimate);
@@ -357,21 +369,129 @@ export function balancesFor(ledger, me) {
 }
 
 /**
- * Settle every unsettled entry between me and one other person (both
- * directions). Field-wise merge keeps concurrent settles safe. Pure.
+ * SETTLED between me and one other person: records the payback that zeroes
+ * the PAIR's net, never flips whole entries (a three-way trip would erase
+ * the third person's debt with it). Pure; `id` and `date` from the caller.
  * @param {Ledger} ledger
  * @param {string} me
  * @param {string} other
+ * @param {{ id: string, date: string }} [at]
  * @returns {Ledger}
  */
-export function settleBetween(ledger, me, other) {
+export function settleBetween(ledger, me, other, at = { id: `settle-${me}-${other}`, date: "" }) {
+  const net = balancesFor(ledger, me).find((b) => b.profileId === other)?.net ?? 0;
+  if (Math.abs(net) < 0.01) return ledger;
+  const pay =
+    net > 0
+      ? paymentEntry({ id: at.id, date: at.date, fromId: other, toId: me, total: net })
+      : paymentEntry({ id: at.id, date: at.date, fromId: me, toId: other, total: -net });
+  return pay ? { ...ledger, entries: [...ledger.entries, pay] } : ledger;
+}
+
+/**
+ * A confirmed money entry: a real receipt total or a real payback. Meal
+ * records (no kind) are who-ate-what and never count as money.
+ * @param {LedgerEntry} e
+ */
+export function isConfirmedMoney(e) {
+  return e.kind === "purchase" || e.kind === "payment";
+}
+
+/**
+ * Each person's eaten weight across a set of meal records: the sum of their
+ * eaten-cost shares. Used only as PROPORTIONS for a confirmed trip.
+ * @param {LedgerEntry[]} meals
+ * @returns {Record<string, number>}
+ */
+export function eatenWeights(meals) {
+  /** @type {Record<string, number>} */
+  const w = {};
+  for (const m of meals) {
+    if (isConfirmedMoney(m)) continue;
+    for (const [id, v] of Object.entries(m.shares ?? {})) {
+      const n = Number(v);
+      if (n > 0) w[id] = (w[id] ?? 0) + n;
+    }
+  }
+  return w;
+}
+
+/**
+ * WE BOUGHT GROCERIES: a confirmed receipt total split by what each person
+ * eats (David's rule: pay for what you eat, never an automatic even split),
+ * or evenly when the person entering it says so. Rounding lands on the payer
+ * so the shares always add to the receipt to the cent. Null when the input
+ * cannot make an honest entry (no amount, nobody to split with).
+ * @param {{ id: string, date: string, payerId: string, total: number, split: "eaten" | "even", weights: Record<string, number>, members: string[], note?: string }} a
+ * @returns {LedgerEntry | null}
+ */
+export function purchaseEntry(a) {
+  const total = Math.round(Number(a.total) * 100) / 100;
+  if (!(total > 0) || !a.payerId) return null;
+  const ids =
+    a.split === "even"
+      ? [...new Set([a.payerId, ...a.members])]
+      : Object.keys(a.weights).filter((id) => (a.weights[id] ?? 0) > 0);
+  if (ids.length < 2) return null;
+  const sum = ids.reduce((s, id) => s + (a.split === "even" ? 1 : (a.weights[id] ?? 0)), 0);
+  /** @type {Record<string, number>} */
+  const shares = {};
+  let given = 0;
+  for (const id of ids) {
+    if (id === a.payerId) continue;
+    const part = a.split === "even" ? 1 : (a.weights[id] ?? 0);
+    const v = Math.round(((total * part) / sum) * 100) / 100;
+    shares[id] = v;
+    given += v;
+  }
+  shares[a.payerId] = Math.round((total - given) * 100) / 100;
+  return {
+    id: a.id,
+    date: a.date,
+    kind: "purchase",
+    payerId: a.payerId,
+    total,
+    estimate: false,
+    shares,
+    settled: false,
+    split: a.split,
+    ...(a.note ? { note: a.note } : {}),
+  };
+}
+
+/**
+ * I PAID SOMEONE BACK: a real transfer (Zelle, cash). The sender is the
+ * payer and the receiver's share is the whole amount, so it nets against
+ * what the sender owed them.
+ * @param {{ id: string, date: string, fromId: string, toId: string, total: number }} a
+ * @returns {LedgerEntry | null}
+ */
+export function paymentEntry(a) {
+  const total = Math.round(Number(a.total) * 100) / 100;
+  if (!(total > 0) || !a.fromId || !a.toId || a.fromId === a.toId) return null;
+  return {
+    id: a.id,
+    date: a.date,
+    kind: "payment",
+    payerId: a.fromId,
+    toId: a.toId,
+    total,
+    estimate: false,
+    shares: { [a.toId]: total },
+    settled: false,
+  };
+}
+
+/**
+ * Remove one confirmed entry (a mistyped amount). Meal records are never
+ * removed this way.
+ * @param {Ledger} ledger
+ * @param {string} id
+ * @returns {Ledger}
+ */
+export function removeMoneyEntry(ledger, id) {
   return {
     ...ledger,
-    entries: ledger.entries.map((e) => {
-      const involves =
-        (e.payerId === me && e.shares[other] != null) ||
-        (e.payerId === other && e.shares[me] != null);
-      return involves && !e.settled ? { ...e, settled: true } : e;
-    }),
+    entries: ledger.entries.filter((e) => !(e.id === id && isConfirmedMoney(e))),
   };
 }

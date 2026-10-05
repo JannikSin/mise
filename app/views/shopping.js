@@ -1,4 +1,5 @@
 import { html } from "htm/preact";
+import { MoneyCard } from "./money.js";
 import { parsePantryDictation } from "../lib/scan.js";
 import { Fragment } from "preact";
 import { tokenBroken } from "../lib/github.js";
@@ -253,7 +254,7 @@ const FRESH_STEPS = [
  *   onRemovePantry?: (kind: "staple" | "perishable", key: string) => void,
  *   onEmptyPantry?: (keepStaples: boolean) => Promise<boolean | undefined> | void,
  *   pantryLocations?: string[],
- *   moneyBalances?: { profileId: string, net: number, entries: number, estimate: boolean }[],
+ *   money?: Omit<Parameters<typeof MoneyCard>[0], "nameOf" | "onSettle"> | null,
  *   profiles?: Record<string, any>[],
  *   onSettle?: (other: string) => void,
  *   substitutions?: { entryId: string, date: string, slot: string, fromId: string, fromName: string, toId: string, toName: string, drops: string[] }[],
@@ -307,7 +308,7 @@ export function ShoppingView({
   onRemovePantry = undefined,
   onEmptyPantry = undefined,
   pantryLocations = ["fridge", "freezer", "pantry", "unsorted"],
-  moneyBalances = undefined,
+  money = null,
   profiles = undefined,
   onSettle = undefined,
   substitutions = [],
@@ -1891,31 +1892,13 @@ export function ShoppingView({
       }
       ${
         tab === "list" &&
-        (moneyBalances ?? []).length > 0 &&
-        html`<div class="tile" role="status">
-          <div class="k">💰 house money · from shared tables</div>
-          ${(moneyBalances ?? []).map((b) => {
-            const name = (profiles ?? []).find((p) => p.id === b.profileId)?.name ?? b.profileId;
-            return html`<div class="row" key=${b.profileId}>
-              <span class="k num">
-                ${b.net > 0 ? `${name} owes you` : `you owe ${name}`}
-                ${b.estimate ? " ~" : " "}$${Math.abs(b.net).toFixed(2)}
-                <small> · ${b.entries} meal${b.entries === 1 ? "" : "s"}</small>
-              </span>
-              ${
-                onSettle &&
-                html`<button class="secondary" onClick=${() => onSettle(b.profileId)}>
-                  SETTLED
-                </button>`
-              }
-            </div>`;
-          })}
-          <p class="hint">
-            you pay for what you eat: your share of the food is your share of the bill, so two
-            thirds of the food means two thirds of the cost, never an automatic even split. Settle
-            in the real world (Venmo, cash), then tap SETTLED.
-          </p>
-        </div>`
+        money &&
+        html`<${MoneyCard}
+          ...${money}
+          nameOf=${(/** @type {string} */ id) =>
+            (profiles ?? []).find((p) => p.id === id)?.name ?? id}
+          onSettle=${onSettle}
+        />`
       }
       ${
         tab === "list" &&

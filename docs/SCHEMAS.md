@@ -1228,6 +1228,18 @@ Rules (binding, from the Tribunal plan gate):
 
 ## Money ledger — `households/<h>/ledger.json`
 
+**ONLY CONFIRMED MONEY MOVES THE BALANCE (David, 2026-10-05, zermatt).** Entries
+WITHOUT a `kind` are meal records (who ate what, priced at shelf estimates and billed
+to the cook): they never count toward a balance and SETTLED never touches them; they
+only WEIGHT a trip's split. The balance is built from two kinds a person types on the
+List tab: `kind: "purchase"` (WE BOUGHT GROCERIES: who paid, the receipt total, a
+date; `shares` = each person's eaten share of the shared meals in the 7 days from that
+date, or `split: "even"`; rounding lands on the payer so shares sum to the receipt) and
+`kind: "payment"` (I PAID SOMEONE BACK: `payerId` sent `total` to `toId`;
+`shares: { [toId]: total }`, so it nets against the debt). Either can be removed by its
+✕ (a typo); meal records cannot. Read-time tolerant: an old file is all meal records
+and reads as all square.
+
 Who-owes-who from shared Tables (roadmap M1). The table's COOK's device
 records each FINISHED table once (idempotent by table id; entries are
 id-keyed so concurrent recorders merge to one). Costing mirrors the
@@ -1247,6 +1259,9 @@ balances settle in the real world, then SETTLED flips the flag.
       "estimate": false,
       "shares": { "david": 9, "mom": 4.5 }, // payer's own share = their own dinner, not a debt
       "settled": false,
+      "kind": "purchase", // ? "purchase" | "payment" = confirmed money; absent = a meal record (never a debt)
+      "toId": "elliot", // ? payment only: who received it
+      "split": "eaten", // ? purchase only: "eaten" (default) | "even"
       "basis": "eaten", // ? 2026-10-04: billed at each ingredient's EATEN share (itemCost().eaten).
       // Absent = the old whole-package billing (a jar of honey per bowl); an UNSETTLED
       // entry without it is re-costed once by recordEntries. Settled entries never change.

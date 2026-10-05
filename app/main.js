@@ -194,6 +194,11 @@ import {
   recordEntries,
   balancesFor,
   settleBetween,
+  isConfirmedMoney,
+  eatenWeights,
+  purchaseEntry,
+  paymentEntry,
+  removeMoneyEntry,
   recipeTripCost,
   recipeTripItems,
 } from "./lib/money.js";
@@ -4233,7 +4238,10 @@ function App() {
     (/** @type {string} */ other) => {
       const profilesById = new Map(allProfilesRef.current.map((p) => [p.id, p]));
       const myHouse = /** @type {string} */ (profilesById.get(me)?.household ?? "home");
-      const next = settleBetween(ledgerRef.current, me, other);
+      const next = settleBetween(ledgerRef.current, me, other, {
+        id: `m-${Date.now().toString(36)}-settle`,
+        date: localIsoDate(new Date()),
+      });
       setLedger(next);
       void write(ledgerPathFor(myHouse), /** @type {any} */ (next), { raw: true });
     },
@@ -4241,6 +4249,100 @@ function App() {
   );
 
   const moneyBalances = useMemo(() => balancesFor(ledger, me), [ledger, me]);
+
+  // CONFIRMED MONEY (David, 2026-10-05): a person records who paid and how
+  // much; the meal records above only weight the split.
+  const myHouseNow = /** @type {string} */ (
+    allProfiles.find((p) => p.id === me)?.household ?? "home"
+  );
+  const houseMembers = useMemo(
+    () => allProfiles.filter((p) => (p.household ?? "home") === myHouseNow).map((p) => p.id),
+    [allProfiles, myHouseNow],
+  );
+  // what each of us eats from the shared meals of the 7 days a trip starts:
+  // the house tables priced at their eaten share (planned ones included,
+  // since the groceries are bought FOR them), plus recorded meals that date
+  // range for tables that already left the events file
+  const moneyWeightsFor = useCallback(
+    (/** @type {string} */ from) => {
+      try {
+        const start = parseLocalIso(from);
+        const end = new Date(start);
+        end.setDate(end.getDate() + 6);
+        const to = localIsoDate(end);
+        const profilesById = new Map(allProfiles.map((p) => [p.id, p]));
+        const bankById = recipesById(bankRecipes);
+        /** @type {import("./lib/money.js").LedgerEntry[]} */
+        const meals = [];
+        const seen = new Set();
+        for (const { house, events } of houseEvents) {
+          if (house !== myHouseNow) continue;
+          for (const t of events.tables) {
+            if (typeof t.date !== "string" || t.date < from || t.date > to) continue;
+            const recipe = bankById.get(t.recipeId);
+            if (!recipe) continue;
+            const e = ledgerEntryFor(t, me, recipe, priceCatalogue, myPriceStore(), profilesById);
+            if (e) {
+              meals.push(e);
+              seen.add(e.id);
+            }
+          }
+        }
+        for (const e of ledgerRef.current.entries) {
+          if (!isConfirmedMoney(e) && !seen.has(e.id) && e.date >= from && e.date <= to) {
+            meals.push(e);
+          }
+        }
+        return eatenWeights(meals);
+      } catch {
+        return {};
+      }
+    },
+    [allProfiles, bankRecipes, houseEvents, priceCatalogue, me, myHouseNow],
+  );
+  const writeMoney = useCallback(
+    (/** @type {(l: import("./lib/money.js").Ledger) => import("./lib/money.js").Ledger} */ f) => {
+      const next = f(ledgerRef.current);
+      setLedger(next);
+      void write(ledgerPathFor(myHouseNow), /** @type {any} */ (next), { raw: true });
+    },
+    [myHouseNow],
+  );
+  const moneyId = () =>
+    `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const handlePurchase = useCallback(
+    (
+      /** @type {{ payerId: string, total: number, date: string, split: "eaten" | "even" }} */ a,
+    ) => {
+      const e = purchaseEntry({
+        id: moneyId(),
+        ...a,
+        weights: moneyWeightsFor(a.date),
+        members: houseMembers,
+      });
+      if (e) writeMoney((l) => ({ ...l, entries: [...l.entries, e] }));
+    },
+    [moneyWeightsFor, houseMembers, writeMoney],
+  );
+  const handlePayment = useCallback(
+    (/** @type {{ fromId: string, toId: string, total: number, date: string }} */ a) => {
+      const e = paymentEntry({ id: moneyId(), ...a });
+      if (e) writeMoney((l) => ({ ...l, entries: [...l.entries, e] }));
+    },
+    [writeMoney],
+  );
+  const handleRemoveMoney = useCallback(
+    (/** @type {string} */ id) => writeMoney((l) => removeMoneyEntry(l, id)),
+    [writeMoney],
+  );
+  const moneyRecent = useMemo(
+    () =>
+      ledger.entries
+        .filter((e) => isConfirmedMoney(e) && !e.settled)
+        .sort((a, b) => (a.date < b.date ? 1 : -1))
+        .slice(0, 6),
+    [ledger],
+  );
 
   const publicAlarm = repo?.privacy === "PUBLIC";
   // A DEAD TOKEN MUST BE LOUD, not a two-word badge in a corner.
@@ -4508,7 +4610,18 @@ function App() {
         repo=${repo}
         loading=${!listLoaded}
         onBuild=${handleBuildList}
-        moneyBalances=${hasCap("money") ? moneyBalances : []}
+        money=${hasCap("money") && ledgerLoaded
+          ? {
+              me,
+              members: houseMembers,
+              balances: moneyBalances,
+              recent: moneyRecent,
+              weightsFor: moneyWeightsFor,
+              onPurchase: handlePurchase,
+              onPayment: handlePayment,
+              onRemove: handleRemoveMoney,
+            }
+          : null}
         profiles=${allProfiles}
         onSettle=${handleSettle}
         substitutions=${substitutions}

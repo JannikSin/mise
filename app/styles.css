@@ -2706,3 +2706,31 @@ details.dayrow summary:focus-visible {
   color: #0c0f11;
   font-weight: 600;
 }
+
+/* house money forms (zermatt, 2026-10-05): stacked fields, thumb-sized */
+.money-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+.money-form label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+.money-form input,
+.money-form select {
+  width: 100%;
+  min-height: 44px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 0 10px;
+  font-family: var(--sans);
+  font-size: 16px;
+  color-scheme: dark;
+}
+.money-recent .row {
+  align-items: center;
+}
