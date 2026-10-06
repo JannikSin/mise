@@ -87,6 +87,15 @@ function SwVersion([string]$ref) {
   if (-not $mt.Success) { Fail "no CACHE_VERSION marker in ${ref}:sw.js" }
   return [int]$mt.Groups[1].Value
 }
+function MiseRelease([string]$ref) {
+  # the person-facing version (app/lib/release.js, David 2026-10-05). A ref
+  # without the file is the v1 baseline.
+  $js = (git show "${ref}:app/lib/release.js" 2>$null) -join "`n"
+  if ($LASTEXITCODE -ne 0 -or -not $js) { return @{ v = 1; date = "2026-10-05" } }
+  $mt = [regex]::Match($js, 'version:\s*(\d+),\s*date:\s*"([^"]*)"')
+  if (-not $mt.Success) { Fail "no release entry in ${ref}:app/lib/release.js" }
+  return @{ v = [int]$mt.Groups[1].Value; date = $mt.Groups[2].Value }
+}
 function HighestShippedVersion() {
   $max = 0
   foreach ($t in (git tag --list "release/*")) {
@@ -213,6 +222,15 @@ $shellChanged = git diff --name-only $mainSha $shipSha -- $Shell
 if ($shellChanged -and $vShip -le $vMain) {
   Fail "shell files changed but CACHE_VERSION did not move (main v$vMain, $Tag v$vShip):`n$($shellChanged -join "`n")"
 }
+
+# 4b. release version gate (David, 2026-10-05: every promotion bumps the
+# version and adds its changelog): next's top release must sit above live's
+# and carry the ship day.
+$rMain = MiseRelease $mainSha
+$rShip = MiseRelease $shipSha
+if ($rShip.v -le $rMain.v) { Fail "release version did not move (live v$($rMain.v), $Tag v$($rShip.v)); open the next version in app/lib/release.js" }
+if ($rShip.date -ne $date) { Fail "release v$($rShip.v) is dated '$($rShip.date)', the ship day is $date; date it in app/lib/release.js and re-tag" }
+Write-Host "4b. release version: live v$($rMain.v) -> v$($rShip.v) ($date)"
 Write-Host "4. shell: v$vMain -> v$vShip ($(@($shellChanged).Count) shell file(s) changed)"
 
 if (-not $Confirm) {

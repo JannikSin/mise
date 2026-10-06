@@ -1,4 +1,5 @@
 import { html } from "htm/preact";
+import { RELEASES, versionLabel } from "../lib/release.js";
 import { useEffect, useState } from "preact/hooks";
 import {
   DATA_REPO,
@@ -568,6 +569,23 @@ export function SystemView({
 
       <div class="tile">
         <h2 class="k">App</h2>
+        <div class="row">
+          <span class="k">Version</span>
+          <span class="status ok">Mise ${versionLabel(dataBranch())}</span>
+        </div>
+        <details class="changelog">
+          <summary class="hint">what changed in each version</summary>
+          ${RELEASES.map(
+            (r) => html`<div key=${r.version}>
+              <p class="k">
+                v${r.version}${r.date ? ` · ${r.date}` : " · on the sandbox, not live yet"}
+              </p>
+              <ul>
+                ${r.notes.map((n) => html`<li class="hint">${n}</li>`)}
+              </ul>
+            </div>`,
+          )}
+        </details>
         <div class="row">
           <span class="k">Profile</span>
           <span class="status dim">${profile ? `${profile.emoji} ${profile.name}` : "…"}</span>
