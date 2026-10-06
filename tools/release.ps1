@@ -88,13 +88,17 @@ function SwVersion([string]$ref) {
   return [int]$mt.Groups[1].Value
 }
 function MiseRelease([string]$ref) {
-  # the person-facing version (app/lib/release.js, David 2026-10-05). A ref
-  # without the file is the v1 baseline.
+  # the person-facing version (app/lib/release.js, David 2026-10-05): the top
+  # entry's version string and date. A ref without the file is the 1.0 baseline.
   $js = (git show "${ref}:app/lib/release.js" 2>$null) -join "`n"
-  if ($LASTEXITCODE -ne 0 -or -not $js) { return @{ v = 1; date = "2026-10-05" } }
-  $mt = [regex]::Match($js, 'version:\s*(\d+),\s*date:\s*"([^"]*)"')
-  if (-not $mt.Success) { Fail "no release entry in ${ref}:app/lib/release.js" }
-  return @{ v = [int]$mt.Groups[1].Value; date = $mt.Groups[2].Value }
+  if ($LASTEXITCODE -ne 0 -or -not $js) { return @{ v = "1.0"; date = "2026-10-05" } }
+  $all = [regex]::Matches($js, 'version:\s*(?:"([^"]+)"|UNRELEASED),\s*date:\s*"([^"]*)"')
+  if ($all.Count -eq 0) { Fail "no release entry in ${ref}:app/lib/release.js" }
+  $top = $all[0]
+  $v = if ($top.Groups[1].Success) { $top.Groups[1].Value } else { "unreleased" }
+  # live's number = the newest SHIPPED entry
+  $shipped = ($all | Where-Object { $_.Groups[1].Success -and $_.Groups[1].Value -match '^\d+\.\d+$' } | Select-Object -First 1)
+  return @{ v = $v; date = $top.Groups[2].Value; live = $(if ($shipped) { $shipped.Groups[1].Value } else { "1.0" }) }
 }
 function HighestShippedVersion() {
   $max = 0
@@ -223,14 +227,15 @@ if ($shellChanged -and $vShip -le $vMain) {
   Fail "shell files changed but CACHE_VERSION did not move (main v$vMain, $Tag v$vShip):`n$($shellChanged -join "`n")"
 }
 
-# 4b. release version gate (David, 2026-10-05: every promotion bumps the
-# version and adds its changelog): next's top release must sit above live's
-# and carry the ship day.
+# 4b. release version gate (David, 2026-10-05): the number is chosen at ship
+# time, sized to the improvement, and only moves up as a decimal (1.1 < 1.15 <
+# 1.5 < 2.0). The tag's top entry must be that number, above live's, dated today.
 $rMain = MiseRelease $mainSha
 $rShip = MiseRelease $shipSha
-if ($rShip.v -le $rMain.v) { Fail "release version did not move (live v$($rMain.v), $Tag v$($rShip.v)); open the next version in app/lib/release.js" }
+if ($rShip.v -notmatch '^\d+\.\d+$') { Fail "the top release in app/lib/release.js is '$($rShip.v)'; name it (propose the number to David, he confirms) and date it $date, then re-tag" }
+if ([decimal]$rShip.v -le [decimal]$rMain.live) { Fail "release version did not move up (live v$($rMain.live), $Tag v$($rShip.v))" }
 if ($rShip.date -ne $date) { Fail "release v$($rShip.v) is dated '$($rShip.date)', the ship day is $date; date it in app/lib/release.js and re-tag" }
-Write-Host "4b. release version: live v$($rMain.v) -> v$($rShip.v) ($date)"
+Write-Host "4b. release version: live v$($rMain.live) -> v$($rShip.v) ($date)"
 Write-Host "4. shell: v$vMain -> v$vShip ($(@($shellChanged).Count) shell file(s) changed)"
 
 if (-not $Confirm) {

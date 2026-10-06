@@ -162,11 +162,13 @@ host; `main` and the live host are touched on Sunday morning by `tools/release.p
 (built Saturday, week one by hand and watched) against the `ship/YYYY-MM-DD` tag David's
 yes produced. "Never force-push" has exactly one exception: `release.ps1 --rollback`.
 
-**Release versions (David, 2026-10-05).** What a person reads is `Mise vN` in SYS, from
-`app/lib/release.js`, never the shell number. Live was v1 on 2026-10-05. Every promotion
-from `next` to `main` bumps N and adds plain-language notes: the top entry is the release
-in progress on `next` (empty date, the sandbox shows `vN-next`); the session that takes
-David's yes dates it with the ship day before tagging; `release.ps1` gate 4b refuses a
-release whose version did not move or whose date is not the ship day; right after a
-release, `next` opens N+1 with an empty date. A hotfix to `main` adds its line to the
-CURRENT live version's notes and does not bump.
+**Release versions (David, 2026-10-05).** What a person reads is `Mise vX.Y` in SYS, from
+`app/lib/release.js`, never the shell number. Live was v1.0 on 2026-10-05. The sandbox has NO
+number of its own: it shows `v<live> + work in progress`, and its changes collect in plain
+language under the top entry, version `unreleased`. The number is chosen AT SHIP TIME and
+sized to the improvement (1.1, 1.15, 1.5, 2.0; compared as decimals): the session taking
+David's yes proposes it with a one-line reason, he confirms, then rename `unreleased` to that
+number and date it with the ship day before tagging. `release.ps1` gate 4b refuses a ship whose
+top entry is unnamed, not above live, or not dated the ship day. Right after a release, `next`
+opens a fresh `unreleased` entry. A hotfix to `main` adds its line to the current live
+version's notes and does not change the number.

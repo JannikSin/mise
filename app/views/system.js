@@ -1,5 +1,5 @@
 import { html } from "htm/preact";
-import { RELEASES, versionLabel } from "../lib/release.js";
+import { RELEASES, UNRELEASED, versionLabel } from "../lib/release.js";
 import { useEffect, useState } from "preact/hooks";
 import {
   DATA_REPO,
@@ -578,7 +578,9 @@ export function SystemView({
           ${RELEASES.map(
             (r) => html`<div key=${r.version}>
               <p class="k">
-                v${r.version}${r.date ? ` · ${r.date}` : " · on the sandbox, not live yet"}
+                ${r.version === UNRELEASED
+                  ? "Unreleased · on the sandbox, gets its number when it ships"
+                  : `v${r.version} · ${r.date}`}
               </p>
               <ul>
                 ${r.notes.map((n) => html`<li class="hint">${n}</li>`)}
