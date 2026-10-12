@@ -1961,6 +1961,30 @@ const UNBUILT = [
       "engineering job. The first half of the done test, a first-time cook reaching a result that " +
       "tastes good, is not machine-checkable and this ledger does not pretend otherwise.",
   },
+  {
+    id: "P3",
+    name: "P3 GAP one profile per person in three stages, with targets set from Settings",
+    why:
+      "owner tweener, the 2026-10-12 redo (decision 0013). Today the targets live in a mirrored " +
+      "pair of files edited by hand; the shared base, food and training profile and the Settings " +
+      "field for targets are not built.",
+  },
+  {
+    id: "P4",
+    name: "P4 GAP the finished list loads into the store's cart in one press",
+    why:
+      "owner tweener, the 2026-10-12 redo (decision 0016 keeps the automatic Kroger cart). The " +
+      "Worker's /kroger/cart routes and a manual cart button exist; loading the set week's list " +
+      "automatically, verified on the live Worker, is not built.",
+  },
+  {
+    id: "P8",
+    name: "P8 GAP an invited guest scales that day's planned batch and never adds a meal",
+    why:
+      "owner tweener, the 2026-10-12 redo (decision 0014, David's guests rule). Guest seats are " +
+      "composed on brigade tables, but nothing yet guarantees that inviting a guest only scales " +
+      "the day's existing batch, and the standing week cannot hold a guest at all.",
+  },
 
 ];
 

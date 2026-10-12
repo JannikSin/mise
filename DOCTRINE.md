@@ -19,26 +19,40 @@ making that one plan the best plan possible. A feature must be able to lose to t
 - **Browsing.** Mise is not a cookbook to leaf through or a menu of options to pick from.
 - **Logging what you ate.** It confirms the plan after the fact in one tap; it never asks
   you to record a meal it did not plan.
-- **A frozen week.** Consistency between list and plan is a guard, not a lock (decision 0003).
-- **Being David's app.** It is a general model that happens to fit its first household;
-  a feature that needs a fact about him is a bug.
+- **Training, supplements and the daily routine.** Anvil owns them (decision 0012). Mise
+  reads body weight from the shared profile and writes no routine row of its own.
+- **Planning for people who are not coming.** A guest exists in the plan only once invited,
+  and only as portions on a meal already planned (decision 0014).
 - **Nutrition science.** Targets and philosophies come from outside (the councils, the
-  audited bank); Mise applies them, it does not argue them.
+  audited bank, named sources); Mise applies them, it does not argue them.
 
 ## Tenets, in order, unless you know better ones
 
-1. **Take the choices away.** A screen that hands you a decision you did not want has
-   failed, even when every number on it is right. This costs flexibility on purpose.
-2. **The bought week is never disturbed.** Work in progress waits for Sunday or rides the
-   sandbox; a fix that cannot wait is a named hotfix. This costs immediacy.
-3. **One tap, after the fact.** Nothing asks to be started first; every confirmation is
-   valid days later. This costs precision (a stopwatch would know more, and is never pressed).
-4. **Real data before green tests.** An engine that has never run on the kitchen's own
-   data is untested, however green the suite. This costs speed.
-5. **A stranger could do it from the screen.** Never fix his data backstage; ship the
-   button. This costs the quick edit.
-6. **His reading is the scarce resource.** The short version on top, always. This costs
-   completeness.
+Amended 2026-10-12 on David's approval (decision 0015). The order breaks ties.
+
+1. **Choices are removed, and what remains is verified.** Every plan, recipe and nutrition
+   rule is checked against the person's targets, budget, kitchen and time, and traces to a
+   named source, before it is shown. When a constraint cannot be met, the plan says so.
+   This costs variety and the freedom to pick.
+2. **Flavour from a few plain ingredients.** A recipe earns its place by tasting good with a
+   short list of ordinary groceries. This costs elaborate dishes and specialty items.
+3. **Buy whole, use completely.** The week is built on shared ingredients so that every
+   package bought is finished before it spoils. This costs variety across the week.
+4. **Cook once, eat several times.** Batch cooking is the default, and effort and time are
+   spent as carefully as money. This costs freshness and day-to-day variety.
+5. **Decided at the start of the week.** Planning and buying happen once; during the week
+   the app serves recipes, and any change is one the person starts. This costs mid-week
+   spontaneity.
+6. **Priced and ready to buy.** A week is finished only when every item is priced at the
+   person's store and loaded into the cart. This costs stores without a price feed.
+7. **Fitted to the person.** A thorough profile, filled in once, drives every plan; depth of
+   fit outranks fast onboarding. This costs setup time.
+
+~~1. Take the choices away. 2. The bought week is never disturbed. 3. One tap, after the
+fact. 4. Real data before green tests. 5. A stranger could do it from the screen. 6. His
+reading is the scarce resource.~~ Superseded 2026-10-12 by the seven above (decision 0015).
+Tenets 2 and 3 of the old set live on as invariants; 4 and 5 are in `CLAUDE.md`; 6 is a
+house rule for sessions, not a property of the app.
 
 ## Invariants
 
@@ -55,6 +69,9 @@ Absolute, testable, each with its cause and the thing that enforces it.
 | The service worker deletes only `mise-` caches | 22 days of sibling eviction (0006) | the filter in `sw.js`; no test yet |
 | An estimate is never frozen at plan time and shown later as current | 550 kcal per swipe credited for a week (incidents) | re-derivation in `plan.js`; no test yet |
 | `main` is written only by the release or a named hotfix, and the deploy ships an allowlist | seven shells in one evening (0008) | `tools/release.ps1` refuses without a `ship/` tag; `tools/sandbox-deploy.ps1` copies the shell set only |
+| An invited guest adds portions to the batch already planned for that day; a guest never adds a separate meal and never appears uninvited | David's ruling, 2026-10-12 (decision 0014) | not yet; owed by the redo, gate register `P8 GAP` |
+| One profile per person; each app writes only its own section (base, food, training) | two apps writing one number: 210 g against 190 g (decision 0013) | not yet; owed by the redo, gate register `P3 GAP` |
+| Every confirmation is valid after the fact | the cooked tap sat behind a stopwatch (incidents) | the Plan-row tap; `tests/promises.test.js` P7 |
 | A release changes code only; no release step writes a plan, a list or a household file | the bought week (0008) | `tools/release.ps1` touches no data path; the re-seed writes the `sandbox` branch only |
 
 ## Amending this doctrine
