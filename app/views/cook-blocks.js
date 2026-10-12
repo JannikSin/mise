@@ -2,6 +2,7 @@ import { html } from "htm/preact";
 import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 import { datesOfWeek, prepSundayOf, recipesById } from "../lib/plan.js";
 import { isDatedItem, pantryItems, perishableStatus } from "../lib/shopping.js";
+import { isParked } from "../lib/parked.js";
 
 /**
  * The WEEK-level half of what used to be the Cook tab.
@@ -224,7 +225,10 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
 
     <div class="actions wrap">
       <a class="secondary linkbtn" href="#/dinner">💬 what should dinner be? →</a>
-      <a class="secondary linkbtn" href="#/menu">🍴 eating out? scan the menu →</a>
+      ${
+        !isParked("menu") &&
+        html`<a class="secondary linkbtn" href="#/menu">🍴 eating out? scan the menu →</a>`
+      }
       <a class="secondary linkbtn" href="#/cookbook">browse all recipes →</a>
     </div>
   `;

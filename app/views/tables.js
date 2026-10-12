@@ -12,6 +12,7 @@ import {
 } from "../lib/tables.js";
 import { autoPlanEligible } from "../lib/plan.js";
 import { brigadeRunLines, cookDaysLabel } from "./brigade-lines.js";
+import { isParked } from "../lib/parked.js";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -1325,6 +1326,7 @@ export function TablesView({
         // bottom of the page on purpose (David, 2026-08-09): the daily
         // check-offs moved to Crystal; remedies stay in Mise because they
         // cook from the pantry, but they don't lead the family page
+        !isParked("remedies") &&
         html`<div class="actions wrap">
           <a class="secondary linkbtn remedy" href="#/remedies">feeling off? → remedies</a>
         </div>`

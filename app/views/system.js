@@ -30,6 +30,7 @@ import { TOUR_STEPS, TOUR_TABS } from "../lib/tour.js";
 import { EQUIPMENT, canMake, unlockCounts } from "../lib/equipment.js";
 import { SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { notifyTest } from "../lib/worker.js";
+import { isParked } from "../lib/parked.js";
 
 const BUY_DAY_NAMES = [
   "Sunday",
@@ -364,7 +365,11 @@ export function SystemView({
   const [renameDraft, setRenameDraft] = useState("");
   const [addPick, setAddPick] = useState("");
   const [invite, setInvite] = useState(
-    /** @type {{ busy: boolean, url: string, note: string }} */ ({ busy: false, url: "", note: "" }),
+    /** @type {{ busy: boolean, url: string, note: string }} */ ({
+      busy: false,
+      url: "",
+      note: "",
+    }),
   );
 
   // Rename the house for EVERYONE in it: carry the shared files to the new
@@ -576,16 +581,19 @@ export function SystemView({
         <details class="changelog">
           <summary class="hint">what changed in each version</summary>
           ${RELEASES.map(
-            (r) => html`<div key=${r.version}>
-              <p class="k">
-                ${r.version === UNRELEASED
-                  ? "Unreleased · on the sandbox, gets its number when it ships"
-                  : `v${r.version} · ${r.date}`}
-              </p>
-              <ul>
-                ${r.notes.map((n) => html`<li class="hint">${n}</li>`)}
-              </ul>
-            </div>`,
+            (r) =>
+              html`<div key=${r.version}>
+                <p class="k">
+                  ${
+                  r.version === UNRELEASED
+                    ? "Unreleased · on the sandbox, gets its number when it ships"
+                    : `v${r.version} · ${r.date}`
+                }
+                </p>
+                <ul>
+                  ${r.notes.map((n) => html`<li class="hint">${n}</li>`)}
+                </ul>
+              </div>`,
           )}
         </details>
         <div class="row">
@@ -727,7 +735,7 @@ export function SystemView({
               <span class="status dim">they make their own profile on their phone</span>
             </div>
             <div class="actions wrap">
-              ${(/** @type {const} */ (["member", "guest"])).map(
+              ${/** @type {const} */ (["member", "guest"]).map(
                 (kind) =>
                   html`<button
                     key=${kind}
@@ -751,17 +759,18 @@ export function SystemView({
                   </button>`,
               )}
             </div>
-            ${invite.url &&
-            html`<div class="token-form">
-              <input
-                aria-label="Invite link"
-                readonly
-                value=${invite.url}
-                onFocus=${(/** @type {any} */ e) => e.currentTarget.select()}
-              />
-              <button
-                class="primary"
-                onClick=${async () => {
+            ${
+              invite.url &&
+              html`<div class="token-form">
+                <input
+                  aria-label="Invite link"
+                  readonly
+                  value=${invite.url}
+                  onFocus=${(/** @type {any} */ e) => e.currentTarget.select()}
+                />
+                <button
+                  class="primary"
+                  onClick=${async () => {
                   const nav = /** @type {any} */ (navigator);
                   try {
                     if (typeof nav.share === "function")
@@ -772,15 +781,16 @@ export function SystemView({
                     setInvite({ ...invite, note: "copy the link above" });
                   }
                 }}
-              >
-                ${typeof (/** @type {any} */ (navigator).share) === "function" ? "SHARE" : "COPY"}
-              </button>
-            </div>`}
+                >
+                  ${typeof (/** @type {any} */ (navigator).share) === "function" ? "SHARE" : "COPY"}
+                </button>
+              </div>`
+            }
             ${invite.note && html`<p class="hint" role="status">${invite.note}</p>`}
             <p class="hint">
-              A housemate joins ${household}: shared tables, the list, house money. A guest gets their
-              own plate at your table and a page of the meals they're seated at. One person, one link,
-              good for seven days; paste it into iMessage or Gmail.
+              A housemate joins ${household}: shared tables, the list, house money. A guest gets
+              their own plate at your table and a page of the meals they're seated at. One person,
+              one link, good for seven days; paste it into iMessage or Gmail.
             </p>`
         }
         <div class="row">
@@ -982,18 +992,21 @@ export function SystemView({
         ${profileErr && html`<p class="hint">⚠ ${profileErr}</p>`}
       </div>
 
-      <div class="tile">
-        <h2 class="k">Occasions</h2>
-        <div class="row">
-          <span class="k">Days off the plan</span>
-          <a class="secondary" href="#/occasions">OCCASIONS</a>
-        </div>
-        <p class="hint">
-          A medical prep, a holiday, travel, a race. Set the date and the app stops planning those
-          days, follows a fixed script instead, and takes that person off shared tables while it
-          runs.
-        </p>
-      </div>
+      ${
+        !isParked("occasions") &&
+        html`<div class="tile">
+          <h2 class="k">Occasions</h2>
+          <div class="row">
+            <span class="k">Days off the plan</span>
+            <a class="secondary" href="#/occasions">OCCASIONS</a>
+          </div>
+          <p class="hint">
+            A medical prep, a holiday, travel, a race. Set the date and the app stops planning those
+            days, follows a fixed script instead, and takes that person off shared tables while it
+            runs.
+          </p>
+        </div>`
+      }
 
       <div class="tile">
         <h2 class="k">Tour</h2>
