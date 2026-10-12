@@ -178,6 +178,8 @@ export function solveSeatDay(dishes, bands, sigma, fixed = {}) {
   let bestFloor = null;
   /** @type {Combo | null} */
   let bestMiss = null;
+  /** @type {Combo | null} at or above the calorie floor, protein over the ceiling */
+  let bestPOver = null;
   const combo = new Array(free.length).fill(0);
   const total = grids.reduce((p, g) => p * g.length, 1);
   for (let i = 0; i < total; i++) {
@@ -202,15 +204,32 @@ export function solveSeatDay(dishes, bands, sigma, fixed = {}) {
       protein: Math.round(p),
       score,
     });
-    if (p > bands.pHi || kcal > bands.kcalHi) {
-      // over the ceiling or the +100 cap: only ever acceptable as the least
-      // violation when NOTHING fits under the caps (a seat so small the
-      // tiniest plate overshoots must still be fed, and named)
+    if (kcal > bands.kcalHi || (p > bands.pHi && kcal < bands.kcalFloorLo)) {
+      // over the +100 calorie cap, or over the protein ceiling while STILL
+      // under the calorie floor: only ever acceptable as the least violation
+      // when NOTHING fits under the caps (a seat so small the tiniest plate
+      // overshoots must still be fed, and named)
       const overScore = Math.max(0, kcal - bands.kcalHi) / 25 + Math.max(0, p - bands.pHi) + score;
       // an over-miss never displaces an under-miss (too little names itself
       // on the day report; too much silently overfeeds)
       if (!bestMiss || (bestMiss.over && overScore < (bestMiss.overScore ?? Infinity))) {
         bestMiss = { ...pick(), score: overScore, overScore, over: true };
+      }
+      continue;
+    }
+    if (p > bands.pHi) {
+      // THE CALORIE FLOOR OUTRANKS THE PROTEIN CEILING (the calorie-floor
+      // bug, found 2026-09-25 on the live week: a Sunday-plus-batch day sat
+      // 650 kcal under the floor at 214 g because every lever on the menu
+      // was protein-dense, and the solver preferred the under-floor miss to
+      // crossing 215 g). Core Purpose P1/P5: the floor is health, the
+      // ceiling is money. A combo that reaches the floor with protein over
+      // the ceiling is chosen over any under-floor miss, and NAMED as over
+      // (the day report says protein, not food, is over). Least overshoot
+      // wins; closest to target breaks ties.
+      const pOverScore = (p - bands.pHi) / 10 + Math.max(0, bands.kcalLo - kcal) / 50 + score;
+      if (!bestPOver || pOverScore < bestPOver.score) {
+        bestPOver = { ...pick(), score: pOverScore, overScore: pOverScore, over: true };
       }
       continue;
     }
@@ -229,7 +248,7 @@ export function solveSeatDay(dishes, bands, sigma, fixed = {}) {
       }
     }
   }
-  const chosen = bestBand ?? bestFloor ?? bestMiss;
+  const chosen = bestBand ?? bestFloor ?? bestPOver ?? bestMiss;
   if (!chosen) return null;
   const withFixed = { ...chosen.servings };
   for (const [slot, s] of Object.entries(fixed)) withFixed[slot] = s;
@@ -1059,6 +1078,8 @@ export function planBrigadeWeek(events, brigade, ctx) {
     const startBySlot = {};
     /** @type {Record<string, Record<string, any>[]>} */
     const dayPools = { ...poolsBySlot };
+    /** @type {{ batchNo: number, cands: Record<string, any>[] } | null} a snack batch not yet locked: its bake is chosen once the day's dishes are known */
+    let pendingBake = null;
     for (const slot of liveSlots) {
       // A PINNED DISH IS THE SLOT'S ONLY CANDIDATE (David, 2026-09-07): the
       // day composes and sizes every plate around it. Without this the keep
@@ -1177,8 +1198,26 @@ export function planBrigadeWeek(events, brigade, ctx) {
                     ((hash(`${seed}|${slot}|${batchNo}|${a.id}`) >>> 0) % 997) -
                     ((hash(`${seed}|${slot}|${batchNo}|${b.id}`) >>> 0) % 997),
                 );
-          bake = ranked.find((r) => r.id !== prev?.id) ?? ranked[0];
-          if (bake) snackBakes.set(batchNo, bake);
+          // THE BAKE THAT LANDS, CHEAPEST FIRST (the calorie-floor bug,
+          // found live 2026-09-25): cost alone picked the 210-kcal protein
+          // muffin for the whole batch, and three servings of it cannot
+          // carry an afternoon, so Fri, Sat and Sun sat under the floor until
+          // David unticked it by hand. The batch is still ONE bake, still the
+          // cheapest, but "cheapest" is judged among bakes that let every
+          // seat land on the batch's first day; the lock happens below, once
+          // the day's other dishes are known (dinner is picked after snack).
+          // A different bake from last batch is still preferred, but it no
+          // longer outranks the floor: the previous bake goes LAST in line,
+          // so it is chosen again only when nothing else lands (David,
+          // 2026-08-30: "repetition is a feature, not a cost").
+          const cands = [
+            ...ranked.filter((r) => r.id !== prev?.id),
+            ...ranked.filter((r) => r.id === prev?.id),
+          ];
+          if (cands.length > 0) {
+            pendingBake = { batchNo, cands };
+            bake = cands[0];
+          }
         }
         if (bake) {
           startBySlot[slot] = bake;
@@ -1321,12 +1360,15 @@ export function planBrigadeWeek(events, brigade, ctx) {
 
     // compose over seats that actually eat something from the pot today
     const eating = seats.filter((s) => s.bands && s.exclude.size < liveSlots.length);
-    const composed =
+    const composeOn = (
+      /** @type {Record<string, Record<string, any>[]>} */ pools,
+      /** @type {Record<string, Record<string, any>>} */ starts,
+    ) =>
       eating.length > 0
         ? composeDay({
             slots: liveSlots,
-            poolsBySlot: dayPools,
-            startBySlot,
+            poolsBySlot: pools,
+            startBySlot: starts,
             // a forced leftover is not a repeat to be avoided, so its slot
             // carries no recency at all — otherwise the walk would spend its
             // whole budget trying to swap the one dish it cannot swap
@@ -1349,6 +1391,46 @@ export function planBrigadeWeek(events, brigade, ctx) {
             })),
           })
         : null;
+    /** @type {ReturnType<typeof composeDay>} */
+    let composed;
+    if (pendingBake) {
+      // lock the batch's bake: the cheapest candidate under which every
+      // eating seat lands (band or floor) today; if none lands, the one that
+      // lands the most seats, cheapest on a tie. One compose per candidate,
+      // on the batch's first day only.
+      const every = (
+        /** @type {ReturnType<typeof composeDay>} */ r,
+        /** @type {(s: string) => boolean} */ ok,
+      ) => Boolean(r) && Object.values(/** @type {any} */ (r).seats).every((s) => ok(s.status));
+      const landed = (/** @type {ReturnType<typeof composeDay>} */ r) =>
+        r
+          ? Object.values(r.seats).reduce(
+              (n, s) => n + (s.status === "band" ? 2 : s.status === "floor" ? 1 : 0),
+              0,
+            )
+          : -1;
+      const tried = pendingBake.cands.map((cand) => ({
+        cand,
+        r: composeOn({ ...dayPools, snack: [cand] }, { ...startBySlot, snack: cand }),
+      }));
+      const best =
+        tried.find((t) => every(t.r, (st) => st === "band")) ??
+        tried.find((t) => every(t.r, (st) => st === "band" || st === "floor")) ??
+        tried.reduce(
+          (/** @type {(typeof tried)[number] | undefined} */ a, t) =>
+            !a || landed(t.r) > landed(a.r) ? t : a,
+          undefined,
+        );
+      const chosen = best?.cand ?? pendingBake.cands[0];
+      if (chosen) {
+        snackBakes.set(pendingBake.batchNo, chosen);
+        startBySlot.snack = chosen;
+        dayPools.snack = [chosen];
+      }
+      composed = best?.r ?? null;
+    } else {
+      composed = composeOn(dayPools, startBySlot);
+    }
     const picks = composed?.picks ?? startBySlot;
     for (const slot of liveSlots) {
       const rid = picks[slot]?.id;

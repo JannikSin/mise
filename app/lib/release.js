@@ -27,6 +27,7 @@ export const RELEASES = [
     version: UNRELEASED,
     date: "",
     notes: [
+      "Every planned day reaches your calorie floor: the snack bake is the cheapest one that fills the day, and protein may run over its ceiling (and says so) before calories run short.",
       "House money counts only confirmed payments: WE BOUGHT GROCERIES and I PAID SOMEONE BACK on the List tab.",
       "Invite by link in SYS: invite a housemate or a guest, they make their own profile.",
       "Version numbers, shown here.",

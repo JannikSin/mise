@@ -87,7 +87,7 @@ export function brigadeRunLines(result, { runWeek, todayIso, nameOf }) {
     status === "floor"
       ? "under target but above their own minimum"
       : status === "over"
-        ? "over — even the smallest plates exceed their ceiling"
+        ? "fed to their calorie floor, but over their protein ceiling (or the smallest plates overshoot)"
         : status === "no-targets"
           ? "no targets on file — seated at standard portions"
           : "short — the shared menu cannot reach their target";

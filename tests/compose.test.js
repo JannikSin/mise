@@ -1323,3 +1323,105 @@ test("EVERY DINNER HAS MEAT: with dinnerMeat on, every dinner is anchored on chi
   assert.equal(validBrigade({ ...BRIGADE, dinnerMeat: "yes" }), false);
   assert.equal(validBrigade({ ...BRIGADE, dinnerMeat: true }), true);
 });
+
+// ---------------------------------------------------------------------------
+// THE CALORIE-FLOOR BUG (doctrine proposal fix #1, found live 2026-09-25,
+// fixed 2026-10-12 tweener). Two causes, one test each, plus the four-food
+// week's no-swipe day.
+// ---------------------------------------------------------------------------
+
+/** a bank where the cheapest bake cannot carry the day and the dense one can */
+const FLOOR_BANK = new Map(
+  [
+    recipe("bf-light", "breakfast", 393, 13, { safeDays: 4 }),
+    recipe("snk-light", "snack", 210, 16, { safeDays: 4 }),
+    recipe("snk-dense", "snack", 656, 18, { safeDays: 4 }),
+    recipe("din-chili", "dinner", 450, 38, { safeDays: 4 }),
+  ].map((r) => [r.id, r]),
+);
+const FLOOR_BRIGADE = { ...BRIGADE, slots: ["breakfast", "snack", "dinner"] };
+const bakeCost = (/** @type {string} */ id) =>
+  id === "snk-light"
+    ? [{ key: "light", cost: 1 }]
+    : id === "snk-dense"
+      ? [{ key: "dense", cost: 9 }]
+      : [];
+
+test("CALORIE FLOOR: the snack bake is the cheapest one that LANDS the day, never the cheapest one that starves it", () => {
+  // 2026-09-25: cost alone picked the 210-kcal protein muffin for the batch,
+  // and Fri, Sun, Mon sat under the floor until David unticked it by hand
+  const { events, report } = planBrigadeWeek(
+    { tables: [] },
+    FLOOR_BRIGADE,
+    wayneCtx({ bankById: FLOOR_BANK, tripItems: bakeCost }),
+  );
+  const snacks = events.tables.filter((t) => t.slot === "snack").map((t) => t.recipeId);
+  assert.equal(snacks.length, 7);
+  assert.ok(
+    snacks.every((id) => id === "snk-dense"),
+    `the light bake leaves every seat under the floor: ${snacks.join(", ")}`,
+  );
+  for (const r of report)
+    assert.equal(r.status, "band", `${r.seatId} ${r.date} ${r.dayKcal} kcal ${r.status}`);
+  // and when the cheap bake DOES land, cost still wins: the fix is not "densest"
+  const roomy = new Map([
+    ...FLOOR_BANK,
+    ["din-chili", recipe("din-chili", "dinner", 900, 45, { safeDays: 4 })],
+  ]);
+  const cheap = planBrigadeWeek(
+    { tables: [] },
+    FLOOR_BRIGADE,
+    wayneCtx({ bankById: roomy, tripItems: bakeCost }),
+  );
+  const first = cheap.events.tables.find((t) => t.slot === "snack" && t.date === DATES[0]);
+  assert.equal(first?.recipeId, "snk-light", "a cheap bake that lands is still chosen first");
+});
+
+test("CALORIE FLOOR: the floor outranks the protein ceiling; a day reaches its calories and names the protein overshoot", () => {
+  // 2026-09-25: a Sunday-plus-batch day sat about 650 kcal under the floor at
+  // 214 g, because every lever was protein-dense and the solver preferred an
+  // under-floor miss to crossing 215 g. P1/P5: the floor is health, the
+  // ceiling is money.
+  const dense = [
+    // the floor IS reachable (1.25 x 600 + 2.5 x 900 = 3,000 kcal), but only
+    // above the ceiling: these dishes run about 80 g per 1,000 kcal
+    { slot: "breakfast", recipe: recipe("bf", "breakfast", 600, 45) },
+    { slot: "dinner", recipe: recipe("din", "dinner", 900, 80) },
+  ];
+  const bands = seatBands(davidTargets, { calories: 1200, protein: 90 });
+  assert.ok(bands);
+  const solved = solveSeatDay(dense, bands, {});
+  assert.ok(solved);
+  assert.ok(
+    solved.kcal >= bands.kcalFloorLo,
+    `${solved.kcal} kcal must reach the floor ${bands.kcalFloorLo}`,
+  );
+  assert.equal(solved.status, "over", "the overshoot is named, never hidden");
+  assert.ok(solved.protein > bands.pHi);
+  // a menu that CAN reach the floor under the ceiling never goes over
+  const mixed = [...dense, { slot: "snack", recipe: recipe("snk", "snack", 650, 15) }];
+  const ok = solveSeatDay(mixed, bands, {});
+  assert.ok(ok && (ok.status === "band" || ok.status === "floor"), `got ${ok?.status}`);
+  assert.ok(ok.protein <= bands.pHi && ok.kcal >= bands.kcalFloorLo);
+});
+
+test("THE FOUR-FOOD WEEK: a day with no dining swipe sizes the plates up to the floor, or names the miss", () => {
+  // wallfacer review 2 (2026-10-12): oats jar, banana bread, chili; the swipe
+  // day clears the floor, the no-swipe day is about 1,000 kcal short at
+  // standard portions. The solver must size up, and where the grids stop it,
+  // say "miss", never "band".
+  const four = [
+    { slot: "breakfast", recipe: recipe("oats-jar", "breakfast", 1060, 70) },
+    { slot: "snack", recipe: recipe("banana-bread", "snack", 330, 6) },
+    { slot: "dinner", recipe: recipe("chili", "dinner", 540, 41) },
+  ];
+  const swipe = seatBands(davidTargets, { calories: 1200, protein: 90 });
+  const none = seatBands(davidTargets, { calories: 0, protein: 0 });
+  assert.ok(swipe && none);
+  const withSwipe = solveSeatDay(four, swipe, {});
+  const noSwipe = solveSeatDay(four, none, {});
+  assert.ok(withSwipe && noSwipe);
+  assert.ok(withSwipe.kcal + 1200 >= 3500, `swipe day ${withSwipe.kcal + 1200}`);
+  assert.ok(noSwipe.kcal >= 3500, `no-swipe day reaches the floor at ${noSwipe.kcal} kcal`);
+  assert.notEqual(noSwipe.status, "miss");
+});
