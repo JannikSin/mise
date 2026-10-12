@@ -20,11 +20,18 @@ all its history, and the foods actually eaten were outside the bank.
 ## Decision
 
 **Kept:** the automatic Kroger cart load, invites (working end to end first), chat on the
-paddington model, dining-hall trays, receipt scanning, use-what's-left, and profiles.
+paddington model, dining-hall trays, receipt scanning, and profiles.
 **Parked**, each with a return date in Crystal `Lanes/Mise-Later`: menu scan, remedies,
-occasions. **Cut:** the July test folders, the empty W51 plan, `fitness/workouts.json` and
+occasions. **Cut:** use-what's-left (amended the same evening: leftovers are a planning
+failure to fix upstream, not a button), the July test folders, the empty W51 plan, `fitness/workouts.json` and
 `fitness/activities.json`. Each cut and each park is its own commit. P12's second nutrition
 philosophy is fixed in code (`philosophy.js` wired as a profile data bundle), not parked.
+
+**Amended 2026-10-12, later the same evening (David):** the cart is kept because live Kroger
+prices are what let price reduction work inside generation; the hall tray must tell him exactly
+what to take at the hall he is going to so the day still meets its targets; receipts compare
+what was paid against what the plan predicted; profiles are created by a short quiz each person
+takes once.
 
 ## Consequences
 

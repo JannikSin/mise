@@ -111,8 +111,6 @@ function monthDay(isoDate) {
  *   onAddGuest?: (date: string, profileId: string, slots: string[]) => Promise<string | null>,
  *   onRemoveGuest?: (date: string, profileId: string) => void,
  *   onNewGuestProfile?: () => void,
- *   whatsLeft?: (slot: string) => ReturnType<typeof import("../lib/shelfcheck.js").useWhatsLeft>,
- *   onUseWhatsLeft?: (date: string, slot: string, recipeId: string) => void,
  *   profileId?: string,
  *   onInviteLink?: (kind: "member" | "guest") => Promise<string>
  * }} props `brigade` (2026-09-05): my house's standing arrangement and its
@@ -155,18 +153,12 @@ export function PlannerView({
   onAddGuest = undefined,
   onRemoveGuest = undefined,
   onNewGuestProfile = undefined,
-  whatsLeft = undefined,
-  onUseWhatsLeft = undefined,
 }) {
   const rootRef = useRef(/** @type {HTMLElement | null} */ (null));
   // scoreboard accordion (David's layout pick, 2026-07-23): which days are
   // expanded. Absent = default (today open, everything else collapsed);
   // native <details> does the rest, this map only remembers user toggles
   const [openDays, setOpenDays] = useState(/** @type {Record<string, boolean>} */ ({}));
-  // USE WHAT'S LEFT (David 2026-09-07): which slot is showing its picks
-  const [leftoverPick, setLeftoverPick] = useState(
-    /** @type {{ date: string, slot: string } | null} */ (null),
-  );
   const todayRef = useRef(todayIso);
   todayRef.current = todayIso;
 
@@ -1084,78 +1076,6 @@ export function PlannerView({
                         >
                           ${/** @type {any} */ (outEntry)?.currency ? "🎫 SWIPE" : "🍴 EATING OUT"}
                         </button>`
-                      }
-                      ${
-                        // USE WHAT'S LEFT (David, 2026-09-07: "at the end of the
-                        // week there are various miscellaneous things just lying
-                        // around... one of them really should just be what's
-                        // left in the fridge, and I generate something from
-                        // there"). Dinner and lunch slots offer the dishes the
-                        // shelf already mostly holds; picking one pins it here.
-                        (key === "dinner" || key === "lunch") &&
-                        !outEntry &&
-                        whatsLeft &&
-                        onUseWhatsLeft &&
-                        !stacked.some((e) => e.cookedAt) &&
-                        html`<button
-                          class="outbtn ${leftoverPick?.date === date && leftoverPick?.slot === key ? "on" : ""}"
-                          aria-label="Cook from what is left in the kitchen on ${full} ${monthDay(date)}"
-                          onClick=${() =>
-                            setLeftoverPick(
-                              leftoverPick?.date === date && leftoverPick?.slot === key
-                                ? null
-                                : { date, slot: key },
-                            )}
-                        >
-                          🥘 USE WHAT'S LEFT
-                        </button>`
-                      }
-                      ${
-                        leftoverPick?.date === date &&
-                        leftoverPick?.slot === key &&
-                        whatsLeft &&
-                        onUseWhatsLeft &&
-                        (() => {
-                          const picks = whatsLeft(key);
-                          return html`<div class="leftoverpicks">
-                            ${
-                              picks.length === 0
-                                ? html`<p class="hint">
-                                    nothing in your bank is more than 60% covered by what is on the
-                                    shelf right now; the shelf check above shows what you have
-                                  </p>`
-                                : picks.map(
-                                    (p) =>
-                                      html`<button
-                                        class="fill mealbtn"
-                                        key=${p.recipe.id}
-                                        onClick=${() => {
-                                          onUseWhatsLeft(date, key, p.recipe.id);
-                                          setLeftoverPick(null);
-                                        }}
-                                      >
-                                        <span class="chipbody">
-                                          <span class="n">
-                                            ${p.recipe.name}
-                                            <span class="hint plateline">
-                                              ${Math.round(p.coverage * 100)}% on the shelf · uses
-                                              ${p.covered.slice(0, 5).join(", ")}${
-                                                p.expiring.length > 0
-                                                  ? ` · use soon: ${p.expiring.join(", ")}`
-                                                  : ""
-                                              }${p.missing.length > 0 ? ` · still needs: ${p.missing.join(", ")}` : " · needs nothing"}
-                                            </span>
-                                          </span>
-                                          <span class="m num"
-                                            >${p.recipe.nutrition?.calories} ·
-                                            ${p.recipe.nutrition?.protein}P</span
-                                          >
-                                        </span>
-                                      </button>`,
-                                  )
-                            }
-                          </div>`;
-                        })()
                       }
                       ${
                         // A SWIPE IS NOW SOMETHING YOU CAN OPEN. Until today

@@ -1412,10 +1412,8 @@ a CHANGE DISH control on the Table tab is the owed UI (Tasks).
 
 **`useItUp` (2026-09-07, David: "one of them really should just be what's left in
 the fridge, and I generate something from there").** A pinned entry the person
-chose from the Plan tab's USE WHAT'S LEFT picks (`useWhatsLeft` in
-app/lib/shelfcheck.js: dishes at least 60% covered by the shelf, expiring rows
-first). Marks the meal as a clear-the-fridge cook so the review can count it;
-nothing else reads it.
+chose from the Plan tab's USE WHAT'S LEFT picks. The picker was cut on 2026-10-12
+(decision 0016); old plan files may still carry the field, and nothing reads it.
 
 **`potFromBank` (shared-table pot lines only; absent = a normal entry).** A
 cook/buyer's derived shopping pseudo-entry carries the BANK recipe's id and the

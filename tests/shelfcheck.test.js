@@ -5,7 +5,6 @@ import {
   confirmShelfRow,
   editShelfRow,
   goneShelfRow,
-  useWhatsLeft,
   weekNeedsCheck,
   setPantryCount,
   SHELF_CHECK_DAYS,
@@ -88,51 +87,6 @@ test("STILL HAVE stamps the row; EDIT normalizes the words and writes off a lowe
   assert.ok(!pantryItems(gone.pantry).some((i) => i.id === "k1"));
   assert.equal(gone.waste?.food, "kale");
   assert.equal(goneShelfRow(PANTRY, "rice").waste, null, "a state item is not a shelf row");
-});
-
-test("useWhatsLeft ranks dishes the shelf mostly covers, expiring food first, and says what is still missing", () => {
-  const bank = [
-    {
-      id: "kale-eggs",
-      name: "Kale and eggs",
-      mealType: "dinner",
-      ingredients: [
-        { food: "kale", qty: 2, unit: "cup" },
-        { food: "eggs", qty: 3, unit: "each" },
-        { food: "rice", qty: 1, unit: "cup" },
-        { food: "olive oil", qty: 1, unit: "tbsp", staple: true },
-      ],
-    },
-    {
-      id: "yogurt-bowl",
-      name: "Yogurt bowl",
-      mealType: "breakfast",
-      ingredients: [
-        { food: "greek yogurt", qty: 1, unit: "cup" },
-        { food: "banana", qty: 1, unit: "each" },
-      ],
-    },
-    {
-      id: "steak",
-      name: "Steak dinner",
-      mealType: "dinner",
-      ingredients: [
-        { food: "steak", qty: 300, unit: "g" },
-        { food: "potato", qty: 2, unit: "each" },
-        { food: "rice", qty: 1, unit: "cup" },
-      ],
-    },
-  ];
-  const picks = useWhatsLeft(bank, PANTRY, "2026-09-07", { slot: "dinner" });
-  assert.deepEqual(
-    picks.map((p) => p.recipe.id),
-    ["kale-eggs"],
-    "the steak is a shopping trip, not what's left; breakfast is not a dinner",
-  );
-  assert.equal(picks[0].coverage, 1);
-  assert.deepEqual(picks[0].expiring, ["kale"], "week-old kale is inside its last days");
-  const bf = useWhatsLeft(bank, PANTRY, "2026-09-07", { slot: "breakfast" });
-  assert.equal(bf.length, 0, "half a bowl (no banana) is under the 60% line");
 });
 
 test("weekNeedsCheck: the week's need against the shelf, in the list's own arithmetic (David, 2026-09-07)", () => {

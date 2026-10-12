@@ -2691,15 +2691,6 @@ details.dayrow summary:focus-visible {
   font: inherit;
   padding: 6px 8px;
 }
-.leftoverpicks {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 6px 0 8px;
-  padding-left: 8px;
-  border-left: 2px solid currentColor;
-}
-
 /* the release train's sandbox strip: on every screen of the Mise NEXT build */
 .banner.sandbox {
   background: #ff9500;

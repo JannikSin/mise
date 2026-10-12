@@ -4505,14 +4505,6 @@ function App() {
         onOpen=${handleOpenEntry}
         onCooked=${handleCookedEntry}
         onToggleOut=${handleToggleOut}
-        ${
-          /* USE WHAT'S LEFT is off the slots until it is a pre-planned slot
-             (David, 2026-09-07: "you wouldn't have it next to every single
-             dinner meal... you would pre-plan Saturday dinner or Sunday lunch
-             to be use what's left"). The picker and the handler stay for that
-             build: pass whatsLeft and onUseWhatsLeft to bring the buttons back. */
-          ""
-        }
         onSwipeEaten=${(/** @type {string} */ date, /** @type {string} */ slot) =>
           updatePlan(
             toggleSwipeEaten(
