@@ -16,12 +16,12 @@
 }
 
 :root {
-  --bg: #0c0f11;
-  --panel: #14181b;
-  --panel-2: #1a2024;
-  --line: #262e33;
+  --bg: #13271c;
+  --panel: #1a3224;
+  --panel-2: #213c2c;
+  --line: #2f4d3b;
   --text: #e8edef;
-  --dim: #7d8b92;
+  --dim: #93a59c;
   --signal: #3ddc84;
   --signal-dark: #22b866;
   --amber: #ffb224;

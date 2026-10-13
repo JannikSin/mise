@@ -92,7 +92,7 @@ $html = Get-Content -Raw -Encoding UTF8 $idx
 if ($html -notmatch 'name="mise-data-branch" content="main"') { throw "index.html lacks the committed data-branch meta; refusing to deploy a shell that cannot fail closed" }
 $html = $html.Replace('name="mise-data-branch" content="main"', 'name="mise-data-branch" content="sandbox"')
 $html = $html.Replace('<meta name="apple-mobile-web-app-title" content="Mise" />', '<meta name="apple-mobile-web-app-title" content="Mise NEXT" />')
-$html = $html.Replace('<meta name="theme-color" content="#0c0f11" />', '<meta name="theme-color" content="#ff9500" />')
+$html = $html.Replace('<meta name="theme-color" content="#13271c" />', '<meta name="theme-color" content="#ff9500" />')
 $html = $html.Replace('<title>Mise</title>', '<title>Mise NEXT</title>')
 [System.IO.File]::WriteAllText($idx, $html, (New-Object System.Text.UTF8Encoding($false)))
 
