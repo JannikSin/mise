@@ -24,8 +24,8 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
-    version: UNRELEASED,
-    date: "",
+    version: "1.2",
+    date: "2026-10-13",
     notes: [
       "USE WHAT'S LEFT is gone from the Plan tab: leftovers get fixed in the plan, not with a button.",
       "The weigh-in tile left Mise: weight, sleep and the daily routine live in Anvil now.",
