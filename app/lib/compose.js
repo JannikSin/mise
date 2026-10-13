@@ -674,7 +674,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         dinnerAnchor: t?.dinnerAnchor === true,
       };
     });
-  if (members.length < 2) return empty;
+  if (members.length < 1) return empty;
   const memberIdSet = new Set(members.map((m) => m.id));
   /** @type {string[]} */
   const notes = [];

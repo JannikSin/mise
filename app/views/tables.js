@@ -239,10 +239,8 @@ export function TablesView({
 
   const submitBrigade = () => {
     if (!brigadeForm) return;
-    if (brigadeForm.memberIds.length < 2) {
-      setBrigadeNote([
-        "Standing dinners need at least two people — that is what makes them shared.",
-      ]);
+    if (brigadeForm.memberIds.length < 1) {
+      setBrigadeNote(["Pick who eats: one person is fine, cooking for one is a kitchen too."]);
       return;
     }
     if (brigadeForm.slots.length === 0) {
@@ -987,14 +985,21 @@ export function TablesView({
         const dayAfter = parseLocalIso(/** @type {string} */ (datesOfWeek(weekId)[6] ?? todayIso));
         dayAfter.setDate(dayAfter.getDate() + 1);
         const nextWeekId = isoWeekId(dayAfter);
-        const runWeek = upcomingIn(nextWeekId) > upcomingIn(weekId) ? nextWeekId : weekId;
+        // 2026-10-13 (David: "can we have it start this week?"): the week on
+        // screen is planned from today whenever it has a day left; next week is
+        // its own button. The old rule picked whichever week had MORE days
+        // left, so a Tuesday-night run silently planned the next Sunday on.
+        const thisLeft = upcomingIn(weekId);
+        const nextLeft = upcomingIn(nextWeekId);
+        const runWeek = thisLeft > 0 ? weekId : nextWeekId;
+        const offerNext = thisLeft > 0 && nextLeft > 0;
         const weekDates = datesOfWeek(runWeek);
         // the subtitle must never promise a range the tap cannot set: a
         // brigade starting past next week shows its start date instead of a
         // confident range that would dead-end in outOfRange
         const overlaps = weekDates.some((d) => d >= b.from && d <= b.until);
         const range = overlaps
-          ? `${parseLocalIso(weekDates[0] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })} – ${parseLocalIso(weekDates[6] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })}`
+          ? `${parseLocalIso([weekDates[0] ?? todayIso, todayIso, b.from].sort()[2] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })} – ${parseLocalIso(weekDates[6] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })}`
           : `starts ${parseLocalIso(b.from).toLocaleDateString([], { month: "short", day: "numeric" })} — flip Plan to that week`;
         return html`
           <div class="tile" key=${b.id}>
@@ -1039,9 +1044,25 @@ export function TablesView({
                 disabled=${brigadeBusy === b.id}
                 onClick=${() => runBrigade(b.id, false, runWeek)}
               >
-                ${brigadeBusy === b.id ? "SETTING…" : "SET THIS WEEK"}
+                ${
+                  brigadeBusy === b.id
+                    ? "SETTING…"
+                    : runWeek === weekId
+                      ? "SET THIS WEEK, FROM TODAY"
+                      : "SET NEXT WEEK"
+                }
                 <small>${range} · every plate sized to each person's numbers</small>
               </button>
+              ${
+                offerNext &&
+                html`<button
+                  class="secondary"
+                  disabled=${brigadeBusy === b.id}
+                  onClick=${() => runBrigade(b.id, false, nextWeekId)}
+                >
+                  SET NEXT WEEK
+                </button>`
+              }
               <button
                 class="secondary"
                 disabled=${brigadeBusy === b.id}

@@ -86,9 +86,13 @@ test("validBrigade requires an end date and a bounded span", () => {
   );
   assert.equal(validBrigade({ ...BRIGADE, until: "2026-07-01" }), false, "until before from");
   assert.equal(
-    validBrigade({ ...BRIGADE, memberIds: ["mom"] }),
+    validBrigade({ ...BRIGADE, memberIds: [] }),
     false,
-    "a brigade needs 2+ people",
+    "a brigade needs at least one person",
+  );
+  assert.ok(
+    validBrigade({ ...BRIGADE, memberIds: ["mom"] }),
+    "one person is a kitchen too (2026-10-13)",
   );
   assert.equal(validBrigade({ ...BRIGADE, slots: ["brunch"] }), false, "unknown slot");
   assert.equal(validBrigade({ ...BRIGADE, id: "" }), false, "empty id defeats the entry strip");
@@ -120,7 +124,19 @@ test("an unpromoted AI recipe is never auto-planned into a brigade", () => {
     ...BANK,
     ["ai", recipe("ai", 500, { tags: ["ai-special"] })],
     ["hbp", recipe("hbp", 500, { tags: ["hbp-annotated"] })],
-    ["ok", recipe("ok", 500, { tags: ["ai-special"], promoted: true, audited: { standard: "greger", on: "2026-08-19", by: "test fixture", evidence: "promotion requires an audit (P12)" } })],
+    [
+      "ok",
+      recipe("ok", 500, {
+        tags: ["ai-special"],
+        promoted: true,
+        audited: {
+          standard: "greger",
+          on: "2026-08-19",
+          by: "test fixture",
+          evidence: "promotion requires an audit (P12)",
+        },
+      }),
+    ],
   ]);
   const pool = brigadePool(bank, [{ id: "mom" }, { id: "laurie" }], "dinner");
   assert.ok(
@@ -284,13 +300,15 @@ test("ONE HOUSE: a member who moved out stops being planned for", () => {
   // stop riding the cook's shopping list, checked at materialize time rather
   // than trusted from when the brigade was created.
   const moved = new Map([...PROFILES, ["laurie", { id: "laurie", household: "laurie-apt" }]]);
-  const { events, made } = planBrigadeWeek(
-    { tables: [] },
-    BRIGADE,
-    ctx({ profilesById: moved }),
-  );
-  assert.equal(made, 0, "a brigade of one is not a brigade");
-  assert.equal(events.tables.length, 0);
+  const { events, made } = planBrigadeWeek({ tables: [] }, BRIGADE, ctx({ profilesById: moved }));
+  // since 2026-10-13 one person is a kitchen too: the cook who stays keeps
+  // the week, and her seat is the only one (it used to stop at zero meals)
+  assert.ok(made > 0, "the member who stayed is still planned for");
+  for (const t of events.tables)
+    assert.deepEqual(
+      t.seats.map((x) => x.id),
+      ["mom"],
+    );
 
   // with a third member still in the house it keeps running, minus her
   const three = { ...BRIGADE, memberIds: ["mom", "laurie", "david"] };
@@ -311,11 +329,7 @@ test("a thin pool is reported out loud, never silently repeated", () => {
 test("a pool of zero makes nothing at all", () => {
   const members = new Map([...TARGETS]);
   members.set("mom", { ...TARGETS.get("mom"), avoidIngredients: ["lentils", "onion"] });
-  const { events, thin } = planBrigadeWeek(
-    { tables: [] },
-    BRIGADE,
-    ctx({ targetsById: members }),
-  );
+  const { events, thin } = planBrigadeWeek({ tables: [] }, BRIGADE, ctx({ targetsById: members }));
   assert.equal(events.tables.length, 0);
   assert.deepEqual(thin, [{ slot: "dinner", available: 0 }]);
 });
@@ -327,7 +341,7 @@ test("addBrigade refuses an invalid one; removeBrigade cleans up its future meal
       empty,
       {
         name: "bad",
-        memberIds: ["mom"],
+        memberIds: [],
         slots: ["dinner"],
         from: "2026-07-27",
         until: "2026-08-02",
@@ -502,17 +516,16 @@ test("a recipe any member banned outright (avoidRecipes) never reaches the share
   const members = [{ id: "mom", avoidRecipes: ["chili"] }, { id: "laurie" }];
   const pool = brigadePool(BANK, members, "dinner");
   assert.ok(!pool.some((r) => r.id === "chili"));
-  assert.ok(pool.some((r) => r.id === "tagine"), "everything else stays");
+  assert.ok(
+    pool.some((r) => r.id === "tagine"),
+    "everything else stays",
+  );
 });
 
 test("planBrigadeWeek honors a member's avoidRecipes from their targets", () => {
   const targets = new Map(TARGETS);
   targets.set("mom", { ...TARGETS.get("mom"), avoidRecipes: ["chili", "tagine", "curry"] });
-  const { events, thin } = planBrigadeWeek(
-    { tables: [] },
-    BRIGADE,
-    ctx({ targetsById: targets }),
-  );
+  const { events, thin } = planBrigadeWeek({ tables: [] }, BRIGADE, ctx({ targetsById: targets }));
   // only onion-stew survives her ban list, so the week repeats it and says so
   assert.ok(events.tables.every((t) => t.recipeId === "onion-stew"));
   assert.ok(thin.length > 0, "a one-recipe pool is reported thin, not papered over");
@@ -565,7 +578,10 @@ test("THE BRIGADE'S COOK BUYS: each rotating cook shops exactly their own nights
   assert.ok(cooks.has("mom") && cooks.has("laurie") && cooks.has("david"));
   for (const x of d.allCookExtras) assert.ok(x.servings > 0 && x.recipeId && x.date);
   // mom's list carries exactly the nights SHE cooks — no more, no less
-  const momNights = events.tables.filter((t) => t.cookId === "mom").map((t) => t.date).sort();
+  const momNights = events.tables
+    .filter((t) => t.cookId === "mom")
+    .map((t) => t.date)
+    .sort();
   assert.ok(momNights.length > 0, "the rotation gives mom nights");
   assert.deepEqual(
     d.cookExtras.map((x) => x.date).sort(),
@@ -657,9 +673,9 @@ test("a SKIPPED named cook auto-buys nothing, and seat order cannot move the buy
       i === 0
         ? {
             ...t,
-            seats: [...t.seats].reverse().map((s) =>
-              s.id === t.cookId ? { ...s, status: "skipped" } : s,
-            ),
+            seats: [...t.seats]
+              .reverse()
+              .map((s) => (s.id === t.cookId ? { ...s, status: "skipped" } : s)),
           }
         : { ...t, seats: [...t.seats].reverse() },
     ),
@@ -682,15 +698,27 @@ test("a SKIPPED named cook auto-buys nothing, and seat order cannot move the buy
   const base = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
   for (const who of ["mom", "laurie"]) {
     const a = deriveTables([{ house: "taranowski", events: base }], {
-      profileId: who, bankById: BANK, ownEntries: [], today: TODAY, profilesById: PROFILES,
-    }).cookExtras.map((x) => x.date).sort();
+      profileId: who,
+      bankById: BANK,
+      ownEntries: [],
+      today: TODAY,
+      profilesById: PROFILES,
+    })
+      .cookExtras.map((x) => x.date)
+      .sort();
     const rev = {
       ...base,
       tables: base.tables.map((t) => ({ ...t, seats: [...t.seats].reverse() })),
     };
     const b = deriveTables([{ house: "taranowski", events: rev }], {
-      profileId: who, bankById: BANK, ownEntries: [], today: TODAY, profilesById: PROFILES,
-    }).cookExtras.map((x) => x.date).sort();
+      profileId: who,
+      bankById: BANK,
+      ownEntries: [],
+      today: TODAY,
+      profilesById: PROFILES,
+    })
+      .cookExtras.map((x) => x.date)
+      .sort();
     assert.deepEqual(a, b, `${who}'s buys are identical under seat reordering`);
   }
 });
@@ -729,7 +757,7 @@ test("a grocery claim survives brigade regeneration, like a skip does", () => {
   assert.equal(
     re.tables.find((t) => t.id === night.id).buyerId,
     "laurie",
-    "\"I'm buying Wednesday\" is a decision, not a detail to rebuild away",
+    '"I\'m buying Wednesday" is a decision, not a detail to rebuild away',
   );
 });
 
@@ -752,8 +780,11 @@ test("cookedAt and sameForEveryone survive regeneration ONLY while the dish is u
   assert.equal(same?.sameForEveryone, true);
   // shrink the pool so the pick CHANGES -> neither field may follow the swap
   const smallBank = new Map([...BANK].filter(([id]) => id !== t0.recipeId));
-  const swapped = planBrigadeWeek(marked, BRIGADE, ctx({ regenerate: true, bankById: smallBank }))
-    .events;
+  const swapped = planBrigadeWeek(
+    marked,
+    BRIGADE,
+    ctx({ regenerate: true, bankById: smallBank }),
+  ).events;
   const after = swapped.tables.find((t) => t.id === t0.id);
   assert.ok(after && after.recipeId !== t0.recipeId, "the dish actually changed");
   assert.equal(after.cookedAt, undefined, "a swapped dish is NOT already cooked");
@@ -763,7 +794,14 @@ test("cookedAt and sameForEveryone survive regeneration ONLY while the dish is u
 // ---- cook days, named slots, editing in place (2026-09-05) ------------------
 
 test("validBrigade accepts cookDays and slotRecipes when well-formed and refuses them poisoned", () => {
-  const base = { id: "b", name: "x", memberIds: ["a", "b"], slots: ["dinner"], from: "2026-09-06", until: "2026-09-26" };
+  const base = {
+    id: "b",
+    name: "x",
+    memberIds: ["a", "b"],
+    slots: ["dinner"],
+    from: "2026-09-06",
+    until: "2026-09-26",
+  };
   assert.ok(validBrigade({ ...base, cookDays: [0, 1, 5, 6] }));
   assert.ok(validBrigade({ ...base, slotRecipes: { breakfast: ["bowl-a"] } }));
   assert.ok(!validBrigade({ ...base, cookDays: [7] }), "no eighth weekday");
@@ -773,9 +811,24 @@ test("validBrigade accepts cookDays and slotRecipes when well-formed and refuses
 });
 
 test("updateBrigade changes the standing rule IN PLACE, keeps the id, and refuses an invalid patch", () => {
-  let ev = addBrigade({ tables: [] }, { name: "K", memberIds: ["a", "b"], slots: ["dinner"], from: "2026-09-06", until: "2026-09-26" }, "2026-09-06");
+  let ev = addBrigade(
+    { tables: [] },
+    {
+      name: "K",
+      memberIds: ["a", "b"],
+      slots: ["dinner"],
+      from: "2026-09-06",
+      until: "2026-09-26",
+    },
+    "2026-09-06",
+  );
   const id = ev.brigades[0].id;
-  ev = updateBrigade(ev, id, { cookDays: [0, 1, 5, 6], slotRecipes: { breakfast: ["bowl"] } }, "2026-09-06");
+  ev = updateBrigade(
+    ev,
+    id,
+    { cookDays: [0, 1, 5, 6], slotRecipes: { breakfast: ["bowl"] } },
+    "2026-09-06",
+  );
   assert.equal(ev.brigades[0].id, id);
   assert.deepEqual(ev.brigades[0].cookDays, [0, 1, 5, 6]);
   // an explicit undefined removes the field, so absent stays the default
@@ -784,4 +837,19 @@ test("updateBrigade changes the standing rule IN PLACE, keeps the id, and refuse
   const before = ev;
   ev = updateBrigade(ev, id, { cookDays: [9] }, "2026-09-06");
   assert.deepEqual(ev.brigades, before.brigades, "a bad patch changes nothing");
+});
+
+test("a brigade of one plans its week, one seat per meal (cooking for one, 2026-10-13)", () => {
+  const solo = { ...BRIGADE, memberIds: ["mom"], cookId: "mom" };
+  const { made, events } = planBrigadeWeek({ tables: [], brigades: [solo] }, solo, ctx());
+  assert.ok(made > 0, "the week is planned, not refused");
+  const mine = events.tables.filter((t) => t.fromBrigade === "b1");
+  assert.ok(mine.length > 0);
+  for (const t of mine) {
+    assert.deepEqual(
+      (t.seats ?? []).map((x) => x.id),
+      ["mom"],
+      "one seat, and it is hers",
+    );
+  }
 });

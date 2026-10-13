@@ -74,7 +74,9 @@ export function validBrigade(b) {
   if (b.until < b.from) return false;
   const span = (+new Date(`${b.until}T12:00:00`) - +new Date(`${b.from}T12:00:00`)) / 86400000;
   if (span > MAX_BRIGADE_DAYS) return false;
-  if (!Array.isArray(b.memberIds) || b.memberIds.length < 2) return false;
+  // one person is a kitchen too (David cooks for one since 2026-10-09; Mise
+  // decision 0013): a standing week of one is a brigade with one seat
+  if (!Array.isArray(b.memberIds) || b.memberIds.length < 1) return false;
   if (!b.memberIds.every((/** @type {any} */ m) => typeof m === "string" && m.length > 0))
     return false;
   if (!Array.isArray(b.slots) || b.slots.length === 0) return false;

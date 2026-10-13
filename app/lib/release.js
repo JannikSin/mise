@@ -30,6 +30,9 @@ export const RELEASES = [
       "USE WHAT'S LEFT is gone from the Plan tab: leftovers get fixed in the plan, not with a button.",
       "The weigh-in tile left Mise: weight, sleep and the daily routine live in Anvil now.",
       "Menu scan, remedies and occasions are parked: their buttons are hidden, nothing is deleted.",
+      "Standing meals can start this week, from today: SET THIS WEEK, FROM TODAY plans the week on screen, and SET NEXT WEEK is its own button.",
+      "Cooking for one works: a standing week of one person is allowed, and when a housemate moves out the cook who stays keeps the week.",
+      "A lighter green background, so Mise and Anvil look different at a glance.",
     ],
   },
   {
