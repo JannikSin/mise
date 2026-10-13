@@ -24,6 +24,11 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
+    version: UNRELEASED,
+    date: "",
+    notes: [],
+  },
+  {
     version: "1.2",
     date: "2026-10-13",
     notes: [
