@@ -90,8 +90,16 @@ function SwVersion([string]$ref) {
 function MiseRelease([string]$ref) {
   # the person-facing version (app/lib/release.js, David 2026-10-05): the top
   # entry's version string and date. A ref without the file is the 1.0 baseline.
+  # Under $ErrorActionPreference = "Stop", Windows PowerShell 5.1 turns a native
+  # command's stderr into a terminating error even when redirected, so a ref
+  # that predates the file (the first release that carries it) killed the run
+  # (2026-10-12, v1.1). Read it with errors non-terminating and judge by exit code.
+  $prevPref = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
   $js = (git show "${ref}:app/lib/release.js" 2>$null) -join "`n"
-  if ($LASTEXITCODE -ne 0 -or -not $js) { return @{ v = "1.0"; date = "2026-10-05" } }
+  $code = $LASTEXITCODE
+  $ErrorActionPreference = $prevPref
+  if ($code -ne 0 -or -not $js) { return @{ v = "1.0"; date = "2026-10-05"; live = "1.0" } }
   $all = [regex]::Matches($js, 'version:\s*(?:"([^"]+)"|UNRELEASED),\s*date:\s*"([^"]*)"')
   if ($all.Count -eq 0) { Fail "no release entry in ${ref}:app/lib/release.js" }
   $top = $all[0]
