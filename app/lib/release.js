@@ -26,7 +26,9 @@ export const RELEASES = [
   {
     version: UNRELEASED,
     date: "",
-    notes: [],
+    notes: [
+      "Your four foods are in the bank as you make them: the doubled chili pot, the cheesy chicken pesto bake, Grandma's banana nut bread and the overnight oats jar. Flour is one row on the list whether a recipe writes grams or tablespoons.",
+    ],
   },
   {
     version: "1.2",

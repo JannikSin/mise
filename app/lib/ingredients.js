@@ -236,6 +236,9 @@ const FOOD_UNITS = {
   // spinach by the cup. 585 g maps to bags.
   "baby-spinach": { unit: "g", cup: 30 },
   "rolled-oats": { unit: "g", cup: 90 },
+  // the banana bread writes flour in grams, the piccata dusts in tablespoons;
+  // one row on the list (2026-10-13, the four foods). 125 g a cup, spooned.
+  "all-purpose-flour": { unit: "g", cup: 125 },
   "cooked-brown-rice": { unit: "cup", cup: 195 },
   "brown-rice": { unit: "g", cup: 190 },
   "shelled-edamame": { unit: "g", cup: 155 },
