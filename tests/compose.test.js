@@ -864,6 +864,31 @@ test("a bought week keeps its leftover chains and a second plain SET writes noth
   assert.equal(third.made, 0, "nothing to write the second time");
 });
 
+test("a bought dish is kept only while it passes everyone at the table: a roommate's allergy wins over the bought rule (Tribunal Red Team, 2026-10-16)", () => {
+  const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+  const dinner = first.events.tables.find((t) => t.slot === "dinner");
+  // that bought dinner turns out to carry peanut, and Elliot is allergic, as
+  // if he were linked after the buy
+  const bank = new Map(bankById);
+  const dish = bank.get(dinner.recipeId);
+  bank.set(dish.id, { ...dish, ingredients: [...dish.ingredients, { qty: 1, unit: "tbsp", food: "peanut butter" }] });
+  const ctx = wayneCtx({
+    bought: () => true,
+    bankById: bank,
+    targetsById: new Map([
+      ["david", davidTargets],
+      ["elliot", { ...elliotTargets, avoidIngredients: ["peanut"] }],
+    ]),
+  });
+  const re = planBrigadeWeek(first.events, BRIGADE, ctx);
+  const now = re.events.tables.find((t) => t.id === dinner.id);
+  assert.notEqual(now.recipeId, dinner.recipeId, "the bought dish is not kept over his allergy");
+  assert.ok(
+    !bank.get(now.recipeId).ingredients.some((i) => String(i.food).includes("peanut")),
+    "nothing on his plate contains peanut",
+  );
+});
+
 test("THE SUNDAY BATCH survives a Sunday-night SET: past the dinner cutoff the plan starts Monday, the batch prepped tonight still counts (2026-10-16)", () => {
   const b = { ...COOK_BRIGADE, cookDays: [0, 4, 5, 6], batches: [{ cookDay: 0, feeds: [2, 3] }] };
   // 8 pm Sunday: planning starts Monday, but the calendar still says Sunday

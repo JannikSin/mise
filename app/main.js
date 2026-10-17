@@ -178,6 +178,7 @@ import {
   addSeat,
   removeSeat,
   brigadeTableId,
+  seatScreen,
 } from "./lib/tables.js";
 import {
   applyOccasion,
@@ -3625,11 +3626,21 @@ function App() {
       let next = cur;
       /** @type {{ slot: string, name: string, kcal: number }[]} */
       const added = [];
+      /** @type {string[]} */
+      const refused = [];
       for (const slot of slots) {
         const t = cur.tables.find((x) => x.id === brigadeTableId(active.id, date, slot));
         if (!t) continue;
         if ((t.seats ?? []).some((s) => s.id === profileId)) continue;
         const recipe = bank.get(t.recipeId);
+        // the allergy screen, fail closed (Tribunal Red Team, 2026-10-16):
+        // a guest is never seated on a dish their profile refuses, and an
+        // unreadable profile seats nobody
+        const no = seatScreen(recipe, targets);
+        if (no.length > 0) {
+          refused.push(`${SLOT_META[slot]?.full ?? slot} (${recipe?.name ?? t.recipeId}: ${no.join(", ")})`);
+          continue;
+        }
         const servings = seatServingsFor(targets ?? undefined, slot, recipe);
         next = addSeat(next, t.id, { id: profileId, servings }, today);
         added.push({
@@ -3638,8 +3649,11 @@ function App() {
           kcal: Math.round((recipe?.nutrition?.calories ?? 0) * servings),
         });
       }
+      const who0 = allProfilesRef.current.find((p) => p.id === profileId)?.name ?? profileId;
       if (added.length === 0)
-        return "No shared meal is set for that day yet — GENERATE MY WEEK first.";
+        return refused.length > 0
+          ? `${who0} was not added: ${refused.join("; ")}.`
+          : "No shared meal is set for that day yet. SET MY WEEK on Plan first.";
       writeHouseEvents(house, next);
       const who = allProfilesRef.current.find((p) => p.id === profileId)?.name ?? profileId;
       const what = added
@@ -3648,7 +3662,7 @@ function App() {
             `${SLOT_META[a.slot]?.full ?? a.slot} (${a.name}, about ${a.kcal} kcal more to cook)`,
         )
         .join(", ");
-      return `${who} joins ${what}${targets ? "" : " — no profile targets found, so a standard plate"}. The cook's pot and the list grow by those plates.`;
+      return `${who} joins ${what}. The cook's pot and the list grow by those plates.${refused.length > 0 ? ` Not added to ${refused.join("; ")}.` : ""}`;
     },
     [writeHouseEvents, me],
   );

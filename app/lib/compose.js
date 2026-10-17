@@ -1106,7 +1106,28 @@ export function planBrigadeWeek(events, brigade, ctx) {
       // that exists (it held only by coincidence of the seeded walk until the
       // 2026-09-24 snack batches changed the day around it)
       // ...and so is a dish whose food is already in the kitchen (the
-      // bought-day rule above): its portions re-solve, the dish stays
+      // bought-day rule above): its portions re-solve, the dish stays, BUT
+      // only while it still passes every person at the table (Tribunal Red
+      // Team, 2026-10-16: a roommate linked after the buy, or a guest, could
+      // otherwise get a plate of a dish their allergy screen refuses).
+      // Fails closed: a person whose targets cannot be read blocks the keep.
+      const boughtSafe = (/** @type {any} */ t) => {
+        const dish = t ? ctx.bankById.get(String(t.recipeId)) : undefined;
+        if (!dish) return false;
+        const ids = new Set([
+          ...members.map((m) => m.id),
+          ...(t.seats ?? [])
+            .filter((/** @type {any} */ st) => st.status !== "skipped")
+            .map((/** @type {any} */ st) => String(st.id)),
+        ]);
+        return [...ids].every((id) => {
+          const tg = ctx.targetsById.get(id);
+          return (
+            tg != null &&
+            recipeConflicts(dish, tg.diet, tg.avoidIngredients, tg.avoidRecipes).length === 0
+          );
+        });
+      };
       const pinnedDish =
         /** @type {any} */ (existingBySlot[slot])?.pinned ||
         /** @type {any} */ (existingBySlot[slot])?.cookedAt ||
@@ -1116,7 +1137,8 @@ export function planBrigadeWeek(events, brigade, ctx) {
           // branch below so its pot chain survives (review, 2026-10-16)
           !(/** @type {any} */ (existingBySlot[slot])?.leftoverOf) &&
           ctx.bought &&
-          boughtFor(existingBySlot[slot]))
+          boughtFor(existingBySlot[slot]) &&
+          boughtSafe(existingBySlot[slot]))
           ? ctx.bankById.get(String(existingBySlot[slot]?.recipeId))
           : undefined;
       if (pinnedDish) {

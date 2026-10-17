@@ -19,6 +19,7 @@ import {
   pruneTables,
   stripTableEntries,
   mergeViewPlan,
+  seatScreen,
 } from "../app/lib/tables.js";
 import { recipeConflicts, mergeRecipePool } from "../app/lib/plan.js";
 import { mergeFieldWise } from "../app/lib/merge.js";
@@ -634,4 +635,16 @@ test("addSeat seats a person once, clamped; removeSeat takes them off", () => {
   assert.equal(ev.tables[0].seats.length, 3, "seated once");
   ev = removeSeat(ev, "t1", "laurie", TODAY);
   assert.deepEqual(ev.tables[0].seats.map((s) => s.id), ["david", "mom"]);
+});
+
+// Tribunal Red Team, 2026-10-16: People > add to a dinner seated a guest with
+// no allergy screen. The seat screen refuses a conflict and fails closed.
+test("seatScreen refuses a dish a guest's profile refuses, and refuses when the profile cannot be read", () => {
+  const satay = { id: "satay", ingredients: [{ food: "peanut butter" }, { food: "chicken" }] };
+  const plain = { id: "plain", ingredients: [{ food: "chicken" }, { food: "rice" }] };
+  const peanutGuest = { avoidIngredients: ["peanut"] };
+  assert.deepEqual(seatScreen(satay, peanutGuest), ["contains peanut"]);
+  assert.deepEqual(seatScreen(plain, peanutGuest), []);
+  assert.deepEqual(seatScreen(plain, null), ["their profile could not be read"]);
+  assert.deepEqual(seatScreen(undefined, peanutGuest), ["the dish could not be found"]);
 });

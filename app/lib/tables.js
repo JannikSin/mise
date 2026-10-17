@@ -1066,6 +1066,21 @@ export function slotShareFor(targets, slot) {
 }
 
 /**
+ * May this person be seated on this dish? The allergy and diet screen for a
+ * seat added by hand (People > add to a dinner). Fails CLOSED (Tribunal Red
+ * Team, 2026-10-16): no readable targets means no seat, because an unread
+ * profile is an unread peanut allergy.
+ * @param {Record<string, any> | null | undefined} recipe
+ * @param {Record<string, any> | null | undefined} targets
+ * @returns {string[]} reasons not to seat them; empty = safe
+ */
+export function seatScreen(recipe, targets) {
+  if (!recipe) return ["the dish could not be found"];
+  if (!targets) return ["their profile could not be read"];
+  return recipeConflicts(recipe, targets.diet, targets.avoidIngredients, targets.avoidRecipes);
+}
+
+/**
  * Recipes every member of the brigade can eat: the INTERSECTION of their
  * screens, never the union. This is what makes "we all eat the same meal"
  * safe rather than a backdoor around a screen every other path enforces.
