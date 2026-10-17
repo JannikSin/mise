@@ -586,6 +586,7 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
  * @param {{
  *   dates: string[],
  *   today: string,
+ *   calendarToday?: string,
  *   house: string,
  *   profilesById: Map<string, any>,
  *   targetsById: Map<string, any>,
@@ -881,7 +882,10 @@ export function planBrigadeWeek(events, brigade, ctx) {
         const head = /** @type {string} */ (fed[0]);
         const ex = byId.get(brigadeTableId(brigade.id, head, "dinner"));
         const real =
-          prep >= ctx.today ||
+          // the CALENDAR day, not the planning day: after the 7:30 pm cutoff
+          // planning starts tomorrow, but a batch prepped tonight is still
+          // real (2026-10-16: a Sunday-night SET made Monday a cook night)
+          prep >= (ctx.calendarToday ?? ctx.today) ||
           (ex &&
             /** @type {any} */ (ex).preparedOn === prep &&
             (Boolean(/** @type {any} */ (ex).cookedAt) || !ctx.bought || ctx.bought(ex)));

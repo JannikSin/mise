@@ -849,6 +849,20 @@ test("THE SUNDAY BATCH: Mon eats Sunday's dinner, Tue + Wed eat a second Sunday 
   assert.deepEqual(nights.uncovered, []);
 });
 
+test("THE SUNDAY BATCH survives a Sunday-night SET: past the dinner cutoff the plan starts Monday, the batch prepped tonight still counts (2026-10-16)", () => {
+  const b = { ...COOK_BRIGADE, cookDays: [0, 4, 5, 6], batches: [{ cookDay: 0, feeds: [2, 3] }] };
+  // 8 pm Sunday: planning starts Monday, but the calendar still says Sunday
+  const { events } = planBrigadeWeek(
+    { tables: [] },
+    b,
+    sunCtx({ today: "2026-09-07", calendarToday: "2026-09-06" }),
+  );
+  assert.equal(dinnerOn(events, "2026-09-08").preparedOn, "2026-09-06", "Tuesday is still Sunday's batch");
+  // without the calendar day it is the old behaviour: no batch claims the fridge
+  const old = planBrigadeWeek({ tables: [] }, b, sunCtx({ today: "2026-09-07" }));
+  assert.ok(!dinnerOn(old.events, "2026-09-08").preparedOn);
+});
+
 test("THE SUNDAY BATCH: a past Sunday whose batch was never cooked or bought leaves Tue and Wed to be planned honestly", () => {
   const b = { ...COOK_BRIGADE, cookDays: [0, 4, 5, 6], batches: [{ cookDay: 0, feeds: [2, 3] }] };
   const first = planBrigadeWeek({ tables: [] }, b, sunCtx());

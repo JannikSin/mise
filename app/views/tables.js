@@ -1187,7 +1187,10 @@ export function TablesView({
               </div>
               <div class="sub">Which meals they share</div>
               <div class="chips">
-                ${SLOTS.map(
+                ${SLOTS.filter(
+                  // no smoothie category any more (2026-10-16), unless already chosen
+                  ({ key }) => key !== "smoothie" || brigadeForm.slots.includes(key),
+                ).map(
                   (s) => html`
                     <button
                       key=${s.key}
@@ -1304,7 +1307,7 @@ export function TablesView({
                   );
                   const chosen = brigadeForm.slotRecipes[slot] ?? [];
                   if (options.length === 0) return "";
-                  return html`<details class="slotonly" key=${slot} open=${chosen.length > 0}>
+                  return html`<details class="slotonly" key=${slot}>
                     <summary class="sub">
                       Only these ${SLOT_META[slot]?.full?.toLowerCase() ?? slot} recipes
                       <span class="hint">

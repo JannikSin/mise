@@ -564,13 +564,16 @@ export function SystemView({
 
   return html`
     <div class="view">
-      <div class="hero"><h1>System</h1></div>
+      <div class="hero"><h1>Settings</h1></div>
 
-      <a class="tile" href="#/cookbook">
-        <div class="k">Recipe Library</div>
-        <div class="v">→</div>
-        <div class="d">purpose-tagged · macro'd</div>
-      </a>
+      ${
+        !isParked("cookbook") &&
+        html`<a class="tile" href="#/cookbook">
+          <div class="k">Recipe Library</div>
+          <div class="v">→</div>
+          <div class="d">purpose-tagged · macro'd</div>
+        </a>`
+      }
 
       <div class="tile">
         <h2 class="k">App</h2>
@@ -578,45 +581,352 @@ export function SystemView({
           <span class="k">Version</span>
           <span class="status ok">Mise ${versionLabel(dataBranch())}</span>
         </div>
-        <details class="changelog">
-          <summary class="hint">what changed in each version</summary>
-          ${RELEASES.map(
-            (r) =>
-              html`<div key=${r.version}>
-                <p class="k">
-                  ${
-                  r.version === UNRELEASED
-                    ? "Unreleased · on the sandbox, gets its number when it ships"
-                    : `v${r.version} · ${r.date}`
-                }
-                </p>
-                <ul>
-                  ${r.notes.map((n) => html`<li class="hint">${n}</li>`)}
-                </ul>
-              </div>`,
-          )}
-        </details>
         <div class="row">
           <span class="k">Profile</span>
           <span class="status dim">${profile ? `${profile.emoji} ${profile.name}` : "…"}</span>
         </div>
-        <div class="row">
-          <span class="k">Shell</span>
-          <span class="status ok">running ✓</span>
-        </div>
-        <div class="row">
-          <span class="k">Offline cache</span>
-          ${
-            sw === "ready"
-              ? html`<span class="status ok">ready</span>`
-              : sw === "failed"
-                ? html`<span class="status bad">unavailable ✗</span>`
-                : html`<span class="status dim">installing…</span>`
-          }
-        </div>
         <div class="actions">
           <button class="secondary" onClick=${switchProfile}>SWITCH PROFILE</button>
         </div>
+        <h3>Your meals</h3>
+        <p class="hint">
+          The meals Mise plans for you each day. Turn one off and the week stops planning it (a
+          fixed daily dish in that slot goes with it, and a shared kitchen skips you on it); turn it
+          on and the next week fills it. A meal your kitchen's brigade adds (a shared snack) is
+          planned for you even if it is not ticked here.
+        </p>
+        <div class="chips">
+          ${SLOT_KEYS.filter((k) => k !== "smoothie" || mealSlots.includes(k)).map(
+            (k) =>
+              html`<button
+                key=${k}
+                class="chip ${mealSlots.includes(k) ? "on" : ""}"
+                aria-pressed=${mealSlots.includes(k)}
+                disabled=${!onSaveMealSlots}
+                onClick=${() => toggleSlot(k)}
+              >
+                ${SLOT_META[k]?.full ?? k}
+              </button>`,
+          )}
+        </div>
+        <div class="actions">
+          <button
+            class="secondary"
+            onClick=${saveSlots}
+            disabled=${slotDraft === null || slotBusy || mealSlots.length === 0}
+          >
+            ${slotBusy ? "SAVING…" : "SAVE MEALS"}
+          </button>
+        </div>
+        ${slotNote ? html`<p class="hint" role="status">${slotNote}</p>` : null}
+
+        <h3>Your weekly food budget</h3>
+        <p class="hint">
+          Your share of the groceries per week, in dollars. The List's budget tile checks your share
+          against it, and the planner aims under it.
+        </p>
+        <div class="field">
+          <input
+            type="number"
+            inputmode="numeric"
+            min="1"
+            max="1000"
+            aria-label="Weekly food budget in dollars"
+            value=${budgetValue}
+            disabled=${!onSaveBudget}
+            onInput=${(/** @type {any} */ e) => setBudgetDraft(e.currentTarget.value)}
+          />
+        </div>
+        <div class="actions">
+          <button
+            class="secondary"
+            onClick=${saveBudget}
+            disabled=${budgetDraft === null || !onSaveBudget}
+          >
+            SAVE BUDGET
+          </button>
+        </div>
+        ${budgetNote ? html`<p class="hint" role="status">${budgetNote}</p>` : null}
+
+        <h3>Your buy day</h3>
+        <p class="hint">
+          The day you buy the week's food. BUILD on the List shops the seven days that start on it.
+        </p>
+        <div class="chips wrapchips" role="group" aria-label="Buy day">
+          ${BUY_DAY_NAMES.map(
+            (name, i) =>
+              html`<button
+                key=${name}
+                class=${i === buyDay ? "chip on" : "chip"}
+                aria-pressed=${i === buyDay}
+                disabled=${!onSaveBuyDay}
+                onClick=${() => saveBuyDay(i)}
+              >
+                ${name.slice(0, 3)}
+              </button>`,
+          )}
+        </div>
+        ${buyDayNote ? html`<p class="hint" role="status">${buyDayNote}</p>` : null}
+
+        <h3>Your kitchen</h3>
+        <p class="hint">
+          Tick what you actually own. Mise will stop offering food you cannot cook, and adding a
+          thing opens more of the bank. Leave every box unticked and nothing is filtered, which is
+          how it behaved before you told it anything.
+        </p>
+        <div class="gear-grid">
+          ${EQUIPMENT.map(
+            (e) =>
+              html`<label class="gear-item" key=${e.id}>
+                <input
+                  type="checkbox"
+                  checked=${gear.includes(e.id)}
+                  onChange=${() => toggleGear(e.id)}
+                />
+                <span>
+                  ${e.label} ${e.note ? html`<small class="hint"> — ${e.note}</small>` : null}
+                </span>
+              </label>`,
+          )}
+        </div>
+        <div class="row">
+          <span class="k">Cookable with this kitchen</span>
+          <span class="status num"
+            >${cookableNow} of ${bank.length} · ${dinnersNow}/${totalDinners} dinners</span
+          >
+        </div>
+        ${
+          undeclared
+            ? html`<p class="hint">
+                Nothing declared yet, so everything is offered. Tick a box and this becomes what
+                YOUR kitchen can cook.
+              </p>`
+            : null
+        }
+        ${
+          dinnersNow === 0 && !undeclared
+            ? html`<p class="hint">
+                ⚠️ Nothing in the bank is a dinner you can cook with this. A microwave alone cannot
+                make any of them, and an empty kitchen certainly cannot — you need at least a burner
+                and a pan.
+              </p>`
+            : null
+        }
+        ${
+          unlocks.length > 0
+            ? html`<p class="hint">
+                ${"What one more thing would open: "}
+                ${unlocks
+                  .slice(0, 4)
+                  .map((u) => `${u.label} +${u.unlocks}`)
+                  .join(" · ")}
+              </p>`
+            : null
+        }
+        <div class="actions">
+          <button class="secondary" onClick=${saveGear} disabled=${gearDraft === null || gearBusy}>
+            ${gearBusy ? "SAVING…" : "SAVE KITCHEN"}
+          </button>
+        </div>
+        ${gearNote ? html`<p class="hint">${gearNote}</p>` : null}
+
+        ${
+          profilesFallback &&
+          html`<p class="hint">
+            ⚠ profile list couldn't load (offline or token not set), showing the built-in default.
+            Other profiles still exist and are safe; profile edits are blocked until the real list
+            loads.
+          </p>`
+        }
+        ${profileErr && html`<p class="hint">⚠ ${profileErr}</p>`}
+      </div>
+
+      ${
+        !isParked("occasions") &&
+        html`<div class="tile">
+          <h2 class="k">Occasions</h2>
+          <div class="row">
+            <span class="k">Days off the plan</span>
+            <a class="secondary" href="#/occasions">OCCASIONS</a>
+          </div>
+          <p class="hint">
+            A medical prep, a holiday, travel, a race. Set the date and the app stops planning those
+            days, follows a fixed script instead, and takes that person off shared tables while it
+            runs.
+          </p>
+        </div>`
+      }
+
+      ${
+        !isParked("tour") &&
+        html`      <div class="tile">
+        <h2 class="k">Tour</h2>
+        <div class="row tourrow">
+          <span class="k">Guided tour</span>
+          <button class="secondary" onClick=${onReplayTour}>REPLAY THE TOUR</button>
+        </div>
+        ${
+          tourState &&
+          html`<p class="hint num">
+            last run:
+            ${tourState.status === "done" ? "finished" : `reached step ${tourState.lastStep} of ${TOUR_STEPS.length}`}
+          </p>`
+        }
+        <details class="whatlist">
+          <summary class="block-title">What everything does</summary>
+          ${Object.entries(TOUR_TABS).map(
+            ([route, tab]) => html`
+              <div class="batch" key=${route}>
+                <div class="k">${tab}</div>
+                ${TOUR_STEPS.filter((st) => st.route === route).map(
+                  (st) =>
+                    html`<div class="whatitem" key=${st.selector}>
+                      <b>${st.title}.</b> ${st.text}
+                    </div>`,
+                )}
+              </div>
+            `,
+          )}
+        </details>
+      </div>`
+      }
+
+      <div class="tile">
+        <h2 class="k">Sync</h2>
+        <div class="row">
+          <span class="k">Queued writes</span>
+          ${
+            sync.loading
+              ? html`<span class="status dim">…</span>`
+              : sync.flushing
+                ? html`<span class="status num dim">syncing…</span>`
+                : html`<span class="status num ${sync.pending ? "warn" : "ok"}"
+                    >${sync.pending}</span
+                  >`
+          }
+        </div>
+        ${
+          sync.lastError &&
+          sync.pending > 0 &&
+          html`<div class="row">
+            <span class="k">Last push error</span>
+            <span class="status warn">${sync.lastError}</span>
+          </div>`
+        }
+        <div class="row">
+          <span class="k">Conflicts</span>
+          ${
+            sync.loading
+              ? html`<span class="status dim">…</span>`
+              : html`<span class="status num ${sync.conflicts ? "bad" : "ok"}"
+                  >${sync.conflicts}</span
+                >`
+          }
+        </div>
+        <div class="row">
+          <span class="k">Last sync</span>
+          <span class="status num dim"
+            >${sync.loading ? "…" : formatSyncTime(sync.lastSyncAt)}</span
+          >
+        </div>
+        ${
+          (repo?.auth === "invalid" || repo?.auth === "norepo") &&
+          sync.pending > 0 &&
+          html`<p class="hint">Not syncing — your access token needs fixing (see below).</p>`
+        }
+        <div class="actions">
+          <button class="secondary" onClick=${onExport}>⬇ EXPORT MY DATA</button>
+        </div>
+        <p class="hint">
+          Downloads this profile's data (targets, pantry, list, plans, logs, own recipes) as one
+          JSON file — your offline backup, works from the local cache even without signal.
+        </p>
+      </div>
+
+      <div class="tile">
+        <h2 class="k">Data repo — ${DATA_REPO.owner}/${DATA_REPO.repo}</h2>
+        <div class="row">
+          <span class="k">Privacy</span>
+          ${
+            repo == null
+              ? html`<span class="status dim">checking…</span>`
+              : repo.privacy === "private"
+                ? html`<span class="status ok">PRIVATE ✓</span>`
+                : repo.privacy === "PUBLIC"
+                  ? html`<span class="status bad">PUBLIC ✗</span>`
+                  : html`<span class="status warn">unknown (offline?)</span>`
+          }
+        </div>
+        <div class="row">
+          <span class="k">Token</span>
+          ${
+            repo == null
+              ? html`<span class="status dim">…</span>`
+              : repo.auth === "ok"
+                ? html`<span class="status ok">connected ✓</span>`
+                : repo.auth === "missing"
+                  ? html`<span class="status warn">not set</span>`
+                  : repo.auth === "invalid"
+                    ? html`<span class="status bad">invalid ✗</span>`
+                    : repo.auth === "norepo"
+                      ? html`<span class="status bad">no repo access ✗</span>`
+                      : html`<span class="status warn">unverified (offline)</span>`
+          }
+        </div>
+        ${
+          renewSoon &&
+          html`<p class="hint">
+            ⚠ This token is nearly a year old — fine-grained tokens expire at 12 months. Create a
+            fresh one now (github.com → Settings → Developer settings → Fine-grained tokens) and
+            paste it below before the old one dies mid-week.
+          </p>`
+        }
+        ${
+          (!hasToken || repo?.auth === "invalid" || repo?.auth === "norepo" || renewSoon) &&
+          html`
+            ${
+              repo?.auth === "invalid" &&
+              html`<p class="hint">Your saved token stopped working — paste a new one.</p>`
+            }
+            ${
+              repo?.auth === "norepo" &&
+              html`<p class="hint">
+                Your token is valid, but it cannot see ${DATA_REPO.owner}/${DATA_REPO.repo}. Do NOT
+                make another token. Open github.com → Settings → Developer settings → Fine-grained
+                tokens → this token → Repository access → <b>Only select repositories</b> → add
+                ${DATA_REPO.repo}, and under Permissions set <b>Contents: Read and write</b>. Save.
+                The token string does not change, so nothing needs re-pasting here.
+              </p>`
+            }
+            <div class="token-form">
+              <input
+                type="password"
+                aria-label="Fine-grained personal access token"
+                placeholder="paste fine-grained PAT"
+                value=${draft}
+                onInput=${(/** @type {{ currentTarget: HTMLInputElement }} */ e) =>
+                  onDraft(e.currentTarget.value)}
+              />
+              <button class="primary" onClick=${onSaveToken}>SAVE</button>
+            </div>
+            <p class="hint">
+              Stored only on this device. Get one at github.com → Settings → Developer settings →
+              Fine-grained tokens: access to the ${DATA_REPO.repo} repo only, Contents read/write,
+              nothing else.
+            </p>
+          `
+        }
+      </div>
+
+      ${
+        /* EVERYTHING ELSE, folded (David, 2026-10-16: "there's so much in
+           settings ... do an audit of things that are actually necessary").
+           Nothing here is gone: houses and family (People does the everyday
+           part), the data repo and branch, the test buttons, version notes. */ ""
+      }
+      <details class="tile moresettings">
+        <summary class="k">More · houses, data repo, tests, version notes</summary>
+        <h3>Houses</h3>
         <div class="row">
           <span class="k">House</span>
           <select
@@ -812,148 +1122,6 @@ export function SystemView({
           </button>
         </div>
         ${houseNote && html`<p class="hint" role="status">${houseNote}</p>`}
-        <h3>Your meals</h3>
-        <p class="hint">
-          The meals Mise plans for you each day. Turn one off and the week stops planning it (a
-          fixed daily dish in that slot goes with it, and a shared kitchen skips you on it); turn it
-          on and the next week fills it. A meal your kitchen's brigade adds (a shared snack) is
-          planned for you even if it is not ticked here.
-        </p>
-        <div class="chips">
-          ${SLOT_KEYS.map(
-            (k) =>
-              html`<button
-                key=${k}
-                class="chip ${mealSlots.includes(k) ? "on" : ""}"
-                aria-pressed=${mealSlots.includes(k)}
-                disabled=${!onSaveMealSlots}
-                onClick=${() => toggleSlot(k)}
-              >
-                ${SLOT_META[k]?.full ?? k}
-              </button>`,
-          )}
-        </div>
-        <div class="actions">
-          <button
-            class="secondary"
-            onClick=${saveSlots}
-            disabled=${slotDraft === null || slotBusy || mealSlots.length === 0}
-          >
-            ${slotBusy ? "SAVING…" : "SAVE MEALS"}
-          </button>
-        </div>
-        ${slotNote ? html`<p class="hint" role="status">${slotNote}</p>` : null}
-
-        <h3>Your weekly food budget</h3>
-        <p class="hint">
-          Your share of the groceries per week, in dollars. The List's budget tile checks your share
-          against it, and the planner aims under it.
-        </p>
-        <div class="field">
-          <input
-            type="number"
-            inputmode="numeric"
-            min="1"
-            max="1000"
-            aria-label="Weekly food budget in dollars"
-            value=${budgetValue}
-            disabled=${!onSaveBudget}
-            onInput=${(/** @type {any} */ e) => setBudgetDraft(e.currentTarget.value)}
-          />
-        </div>
-        <div class="actions">
-          <button
-            class="secondary"
-            onClick=${saveBudget}
-            disabled=${budgetDraft === null || !onSaveBudget}
-          >
-            SAVE BUDGET
-          </button>
-        </div>
-        ${budgetNote ? html`<p class="hint" role="status">${budgetNote}</p>` : null}
-
-        <h3>Your buy day</h3>
-        <p class="hint">
-          The day you buy the week's food. BUILD on the List shops the seven days that start on it.
-        </p>
-        <div class="chips wrapchips" role="group" aria-label="Buy day">
-          ${BUY_DAY_NAMES.map(
-            (name, i) =>
-              html`<button
-                key=${name}
-                class=${i === buyDay ? "chip on" : "chip"}
-                aria-pressed=${i === buyDay}
-                disabled=${!onSaveBuyDay}
-                onClick=${() => saveBuyDay(i)}
-              >
-                ${name.slice(0, 3)}
-              </button>`,
-          )}
-        </div>
-        ${buyDayNote ? html`<p class="hint" role="status">${buyDayNote}</p>` : null}
-
-        <h3>Your kitchen</h3>
-        <p class="hint">
-          Tick what you actually own. Mise will stop offering food you cannot cook, and adding a
-          thing opens more of the bank. Leave every box unticked and nothing is filtered, which is
-          how it behaved before you told it anything.
-        </p>
-        <div class="gear-grid">
-          ${EQUIPMENT.map(
-            (e) =>
-              html`<label class="gear-item" key=${e.id}>
-                <input
-                  type="checkbox"
-                  checked=${gear.includes(e.id)}
-                  onChange=${() => toggleGear(e.id)}
-                />
-                <span>
-                  ${e.label} ${e.note ? html`<small class="hint"> — ${e.note}</small>` : null}
-                </span>
-              </label>`,
-          )}
-        </div>
-        <div class="row">
-          <span class="k">Cookable with this kitchen</span>
-          <span class="status num"
-            >${cookableNow} of ${bank.length} · ${dinnersNow}/${totalDinners} dinners</span
-          >
-        </div>
-        ${
-          undeclared
-            ? html`<p class="hint">
-                Nothing declared yet, so everything is offered. Tick a box and this becomes what
-                YOUR kitchen can cook.
-              </p>`
-            : null
-        }
-        ${
-          dinnersNow === 0 && !undeclared
-            ? html`<p class="hint">
-                ⚠️ Nothing in the bank is a dinner you can cook with this. A microwave alone cannot
-                make any of them, and an empty kitchen certainly cannot — you need at least a burner
-                and a pan.
-              </p>`
-            : null
-        }
-        ${
-          unlocks.length > 0
-            ? html`<p class="hint">
-                ${"What one more thing would open: "}
-                ${unlocks
-                  .slice(0, 4)
-                  .map((u) => `${u.label} +${u.unlocks}`)
-                  .join(" · ")}
-              </p>`
-            : null
-        }
-        <div class="actions">
-          <button class="secondary" onClick=${saveGear} disabled=${gearDraft === null || gearBusy}>
-            ${gearBusy ? "SAVING…" : "SAVE KITCHEN"}
-          </button>
-        </div>
-        ${gearNote ? html`<p class="hint">${gearNote}</p>` : null}
-
         <p class="hint">
           a house is a physical kitchen: everyone in the same house shares the EVERYONE grocery trip
           AND the pantry (one kitchen, one fridge). Moving house also switches you to that house's
@@ -981,233 +1149,7 @@ export function SystemView({
           family is who you ARE, a house is the kitchen you cook and shop from right now. The
           profile chooser groups people by family; houses can change week to week.
         </p>
-        ${
-          profilesFallback &&
-          html`<p class="hint">
-            ⚠ profile list couldn't load (offline or token not set), showing the built-in default.
-            Other profiles still exist and are safe; profile edits are blocked until the real list
-            loads.
-          </p>`
-        }
-        ${profileErr && html`<p class="hint">⚠ ${profileErr}</p>`}
-      </div>
-
-      ${
-        !isParked("occasions") &&
-        html`<div class="tile">
-          <h2 class="k">Occasions</h2>
-          <div class="row">
-            <span class="k">Days off the plan</span>
-            <a class="secondary" href="#/occasions">OCCASIONS</a>
-          </div>
-          <p class="hint">
-            A medical prep, a holiday, travel, a race. Set the date and the app stops planning those
-            days, follows a fixed script instead, and takes that person off shared tables while it
-            runs.
-          </p>
-        </div>`
-      }
-
-      <div class="tile">
-        <h2 class="k">Tour</h2>
-        <div class="row tourrow">
-          <span class="k">Guided tour</span>
-          <button class="secondary" onClick=${onReplayTour}>REPLAY THE TOUR</button>
-        </div>
-        ${
-          tourState &&
-          html`<p class="hint num">
-            last run:
-            ${tourState.status === "done" ? "finished" : `reached step ${tourState.lastStep} of ${TOUR_STEPS.length}`}
-          </p>`
-        }
-        <details class="whatlist">
-          <summary class="block-title">What everything does</summary>
-          ${Object.entries(TOUR_TABS).map(
-            ([route, tab]) => html`
-              <div class="batch" key=${route}>
-                <div class="k">${tab}</div>
-                ${TOUR_STEPS.filter((st) => st.route === route).map(
-                  (st) =>
-                    html`<div class="whatitem" key=${st.selector}>
-                      <b>${st.title}.</b> ${st.text}
-                    </div>`,
-                )}
-              </div>
-            `,
-          )}
-        </details>
-      </div>
-
-      <div class="tile">
-        <h2 class="k">Sync</h2>
-        <div class="row">
-          <span class="k">Queued writes</span>
-          ${
-            sync.loading
-              ? html`<span class="status dim">…</span>`
-              : sync.flushing
-                ? html`<span class="status num dim">syncing…</span>`
-                : html`<span class="status num ${sync.pending ? "warn" : "ok"}"
-                    >${sync.pending}</span
-                  >`
-          }
-        </div>
-        ${
-          sync.lastError &&
-          sync.pending > 0 &&
-          html`<div class="row">
-            <span class="k">Last push error</span>
-            <span class="status warn">${sync.lastError}</span>
-          </div>`
-        }
-        <div class="row">
-          <span class="k">Conflicts</span>
-          ${
-            sync.loading
-              ? html`<span class="status dim">…</span>`
-              : html`<span class="status num ${sync.conflicts ? "bad" : "ok"}"
-                  >${sync.conflicts}</span
-                >`
-          }
-        </div>
-        <div class="row">
-          <span class="k">Last sync</span>
-          <span class="status num dim"
-            >${sync.loading ? "…" : formatSyncTime(sync.lastSyncAt)}</span
-          >
-        </div>
-        ${
-          (repo?.auth === "invalid" || repo?.auth === "norepo") &&
-          sync.pending > 0 &&
-          html`<p class="hint">Not syncing — your access token needs fixing (see below).</p>`
-        }
-        <div class="actions">
-          <button class="primary" onClick=${onTestWrite}>TEST SYNC WRITE</button>
-        </div>
-        <p class="hint">
-          Writes a timestamp to meta.json in the data repo. Works offline — it queues and pushes
-          when signal returns.
-        </p>
-        <div class="actions">
-          <button class="secondary" onClick=${onExport}>⬇ EXPORT MY DATA</button>
-        </div>
-        <p class="hint">
-          Downloads this profile's data (targets, pantry, list, plans, logs, own recipes) as one
-          JSON file — your offline backup, works from the local cache even without signal.
-        </p>
-        <div class="actions">
-          <button class="secondary" disabled=${notify === "busy"} onClick=${runNotifyTest}>
-            ${notify === "busy" ? "TESTING…" : "🔔 TEST NOTIFICATIONS"}
-          </button>
-        </div>
-        <p class="hint">
-          Sends one real ntfy ping to your phone and lists everything today's schedule would send
-          (cook reminders, store run, batch day, check-in nags).
-        </p>
-        ${notifyErr && html`<p class="hint scanerr" role="status">${notifyErr}</p>`}
-        ${
-          notifyResult &&
-          html`<div class="tile" role="status">
-            <div class="k">
-              ${notifyResult.pinged ? "✓ ping sent — check your phone" : "no ping"} ·
-              ${
-                notifyResult.cronReady
-                  ? "hourly cron LIVE"
-                  : notifyResult.topicSet
-                    ? "cron waiting on MISE_DATA_TOKEN (Worker secret)"
-                    : "cron waiting on NTFY_TOPIC + MISE_DATA_TOKEN (Worker secrets)"
-              }
-            </div>
-            ${
-              notifyResult.preview.length === 0
-                ? html`<div class="d">
-                    nothing scheduled today (no plan, or groceries not confirmed)
-                  </div>`
-                : notifyResult.preview.map(
-                    (n) =>
-                      html`<div class="d" key=${n.title + n.body}>
-                        <b>${n.title}</b> — ${n.body}
-                      </div>`,
-                  )
-            }
-          </div>`
-        }
-      </div>
-
-      <div class="tile">
-        <h2 class="k">Data repo — ${DATA_REPO.owner}/${DATA_REPO.repo}</h2>
-        <div class="row">
-          <span class="k">Privacy</span>
-          ${
-            repo == null
-              ? html`<span class="status dim">checking…</span>`
-              : repo.privacy === "private"
-                ? html`<span class="status ok">PRIVATE ✓</span>`
-                : repo.privacy === "PUBLIC"
-                  ? html`<span class="status bad">PUBLIC ✗</span>`
-                  : html`<span class="status warn">unknown (offline?)</span>`
-          }
-        </div>
-        <div class="row">
-          <span class="k">Token</span>
-          ${
-            repo == null
-              ? html`<span class="status dim">…</span>`
-              : repo.auth === "ok"
-                ? html`<span class="status ok">connected ✓</span>`
-                : repo.auth === "missing"
-                  ? html`<span class="status warn">not set</span>`
-                  : repo.auth === "invalid"
-                    ? html`<span class="status bad">invalid ✗</span>`
-                    : repo.auth === "norepo"
-                      ? html`<span class="status bad">no repo access ✗</span>`
-                      : html`<span class="status warn">unverified (offline)</span>`
-          }
-        </div>
-        ${
-          renewSoon &&
-          html`<p class="hint">
-            ⚠ This token is nearly a year old — fine-grained tokens expire at 12 months. Create a
-            fresh one now (github.com → Settings → Developer settings → Fine-grained tokens) and
-            paste it below before the old one dies mid-week.
-          </p>`
-        }
-        ${
-          (!hasToken || repo?.auth === "invalid" || repo?.auth === "norepo" || renewSoon) &&
-          html`
-            ${
-              repo?.auth === "invalid" &&
-              html`<p class="hint">Your saved token stopped working — paste a new one.</p>`
-            }
-            ${
-              repo?.auth === "norepo" &&
-              html`<p class="hint">
-                Your token is valid, but it cannot see ${DATA_REPO.owner}/${DATA_REPO.repo}. Do NOT
-                make another token. Open github.com → Settings → Developer settings → Fine-grained
-                tokens → this token → Repository access → <b>Only select repositories</b> → add
-                ${DATA_REPO.repo}, and under Permissions set <b>Contents: Read and write</b>. Save.
-                The token string does not change, so nothing needs re-pasting here.
-              </p>`
-            }
-            <div class="token-form">
-              <input
-                type="password"
-                aria-label="Fine-grained personal access token"
-                placeholder="paste fine-grained PAT"
-                value=${draft}
-                onInput=${(/** @type {{ currentTarget: HTMLInputElement }} */ e) =>
-                  onDraft(e.currentTarget.value)}
-              />
-              <button class="primary" onClick=${onSaveToken}>SAVE</button>
-            </div>
-            <p class="hint">
-              Stored only on this device. Get one at github.com → Settings → Developer settings →
-              Fine-grained tokens: access to the ${DATA_REPO.repo} repo only, Contents read/write,
-              nothing else.
-            </p>
-          `
-        }
+        <h3>Data repo</h3>
         <div class="row">
           <span class="k">Data repo</span>
           <span class="status ${dataRepoOverridden() ? "warn" : "dim"} num">
@@ -1256,7 +1198,85 @@ export function SystemView({
           wipes this device's local data, profile, and token, then reloads — you'll re-enter that
           group's token. Blank + SWITCH returns to the family repo.
         </p>
-      </div>
+        <h3>Tests</h3>
+        <div class="actions">
+          <button class="primary" onClick=${onTestWrite}>TEST SYNC WRITE</button>
+        </div>
+        <p class="hint">
+          Writes a timestamp to meta.json in the data repo. Works offline — it queues and pushes
+          when signal returns.
+        </p>
+        <div class="actions">
+          <button class="secondary" disabled=${notify === "busy"} onClick=${runNotifyTest}>
+            ${notify === "busy" ? "TESTING…" : "🔔 TEST NOTIFICATIONS"}
+          </button>
+        </div>
+        <p class="hint">
+          Sends one real ntfy ping to your phone and lists everything today's schedule would send
+          (cook reminders, store run, batch day, check-in nags).
+        </p>
+        ${notifyErr && html`<p class="hint scanerr" role="status">${notifyErr}</p>`}
+        ${
+          notifyResult &&
+          html`<div class="tile" role="status">
+            <div class="k">
+              ${notifyResult.pinged ? "✓ ping sent — check your phone" : "no ping"} ·
+              ${
+                notifyResult.cronReady
+                  ? "hourly cron LIVE"
+                  : notifyResult.topicSet
+                    ? "cron waiting on MISE_DATA_TOKEN (Worker secret)"
+                    : "cron waiting on NTFY_TOPIC + MISE_DATA_TOKEN (Worker secrets)"
+              }
+            </div>
+            ${
+              notifyResult.preview.length === 0
+                ? html`<div class="d">
+                    nothing scheduled today (no plan, or groceries not confirmed)
+                  </div>`
+                : notifyResult.preview.map(
+                    (n) =>
+                      html`<div class="d" key=${n.title + n.body}>
+                        <b>${n.title}</b> — ${n.body}
+                      </div>`,
+                  )
+            }
+          </div>`
+        }
+        <div class="row">
+          <span class="k">Shell</span>
+          <span class="status ok">running ✓</span>
+        </div>
+        <div class="row">
+          <span class="k">Offline cache</span>
+          ${
+            sw === "ready"
+              ? html`<span class="status ok">ready</span>`
+              : sw === "failed"
+                ? html`<span class="status bad">unavailable ✗</span>`
+                : html`<span class="status dim">installing…</span>`
+          }
+        </div>
+        <h3>Versions</h3>
+        <details class="changelog">
+          <summary class="hint">what changed in each version</summary>
+          ${RELEASES.map(
+            (r) =>
+              html`<div key=${r.version}>
+                <p class="k">
+                  ${
+                  r.version === UNRELEASED
+                    ? "Unreleased · on the sandbox, gets its number when it ships"
+                    : `v${r.version} · ${r.date}`
+                }
+                </p>
+                <ul>
+                  ${r.notes.map((n) => html`<li class="hint">${n}</li>`)}
+                </ul>
+              </div>`,
+          )}
+        </details>
+      </details>
     </div>
   `;
 }

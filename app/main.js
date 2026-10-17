@@ -3821,6 +3821,7 @@ function App() {
       const { events, made, thin, report, swept, notes, nights } = planBrigadeWeek(cur, run, {
         dates: datesOfWeek(week),
         today,
+        calendarToday: localIsoDate(new Date()),
         house,
         profilesById: new Map(allProfilesRef.current.map((p) => [p.id, p])),
         targetsById,
