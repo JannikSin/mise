@@ -796,22 +796,6 @@ export function planBrigadeWeek(events, brigade, ctx) {
           "dinner: no dish with meat passes every member's screen, so the full pool is used",
         );
     }
-    // LEFTOVER-FIRST DINNERS (David, 2026-10-17: "make them what the engine
-    // chooses for dinners"). A kitchen that does not cook every night eats
-    // each pot two or three times, so its dinners come from the dishes
-    // written for that: tagged "leftover-first" (big pot or the 9x13, hold
-    // 3 to 4 days, reheat well). A slot narrowed by hand (slotRecipes) wins;
-    // fewer than three such dishes passing everyone's screen = the full pool.
-    if (
-      slot === "dinner" &&
-      !(Array.isArray(only) && only.length > 0) &&
-      Array.isArray(brigade.cookDays) &&
-      brigade.cookDays.length > 0 &&
-      brigade.cookDays.length < 7
-    ) {
-      const lf = pool.filter((r) => (r.tags ?? []).includes("leftover-first"));
-      if (lf.length >= 3) pool = lf;
-    }
     if (pool.length === 0) {
       thin.push({ slot, available: 0 });
       continue;
@@ -1263,23 +1247,6 @@ export function planBrigadeWeek(events, brigade, ctx) {
         const need = Math.max(...[date, ...feeds].map((d) => dayOffset(d) - dayOffset(from)));
         const safe = pool.filter((r) => safeDaysOf(r) >= need);
         if (safe.length > 0) pool = safe;
-        // THE DISH HAS TO FIT THE PAN (David, 2026-10-17: "confirm every dish
-        // scales ... if a bake can't hold 8, say so"). A recipe may declare
-        // `maxServings`, what its pot or the 4.3 L Pyrex holds; a cook night
-        // only picks a dish that holds every portion its pot must feed (each
-        // eater's own portion, every night the pot covers). Honest relax: if
-        // nothing fits, the pool stands and the prep block says "two dishes".
-        const potNights = [date, ...feeds];
-        const potEstimate = (/** @type {Record<string, any>} */ r) =>
-          potNights.length *
-          members.reduce((sum, m) => {
-            const raw = seatServingsRaw(ctx.targetsById.get(m.id), slot, r);
-            return sum + (raw === null ? 1 : raw);
-          }, 0);
-        const fits = pool.filter(
-          (r) => !(Number(r.maxServings) > 0) || potEstimate(r) <= Number(r.maxServings) + 0.25,
-        );
-        if (fits.length > 0) pool = fits;
         const batch = pool.filter(isBatchDish);
         if (batch.length >= 3) pool = batch;
         // a Sunday BATCH sits in the fridge for days before it is eaten: it

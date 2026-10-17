@@ -24,8 +24,8 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
-    version: UNRELEASED,
-    date: "",
+    version: "1.3",
+    date: "2026-10-17",
     notes: [
       "Your four foods are in the bank as you make them: the doubled chili pot, the cheesy chicken pesto bake, Grandma's banana nut bread and the overnight oats jar. Flour is one row on the list whether a recipe writes grams or tablespoons.",
       "Plan shows the week and its meals; how the engine built it is folded at the bottom. A meal swipe reads as a meal and opens the tray picker. ATE IT on every meal. No smoothie slot.",
