@@ -1110,7 +1110,13 @@ export function planBrigadeWeek(events, brigade, ctx) {
       const pinnedDish =
         /** @type {any} */ (existingBySlot[slot])?.pinned ||
         /** @type {any} */ (existingBySlot[slot])?.cookedAt ||
-        (!ctx.regenerate && existingBySlot[slot] && ctx.bought && boughtFor(existingBySlot[slot]))
+        (!ctx.regenerate &&
+          existingBySlot[slot] &&
+          // a leftover night is not its own dish: it takes the leftover
+          // branch below so its pot chain survives (review, 2026-10-16)
+          !(/** @type {any} */ (existingBySlot[slot])?.leftoverOf) &&
+          ctx.bought &&
+          boughtFor(existingBySlot[slot]))
           ? ctx.bankById.get(String(existingBySlot[slot]?.recipeId))
           : undefined;
       if (pinnedDish) {
@@ -1785,7 +1791,6 @@ export function planBrigadeWeek(events, brigade, ctx) {
       const keepIfSame = Boolean(
         existing &&
           !ctx.regenerate &&
-          !(/** @type {any} */ (existing).pinned) &&
           boughtFor(existing) &&
           existing.recipeId === meal.id &&
           /** @type {any} */ (existing.leftoverOf ?? undefined) === wantLeftoverOf,

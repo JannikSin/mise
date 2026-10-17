@@ -316,6 +316,24 @@ export function PlannerView({
         }
       </div>
       ${
+        // a SET that set nothing says why, in view (review, 2026-10-16): the
+        // run's report is folded below, but "nothing was set" needs an action
+        brigadeRun &&
+        brigade &&
+        (/** @type {any} */ (brigadeRun).outOfRange ||
+          (/** @type {any} */ (brigadeRun).made === 0 &&
+            (/** @type {any} */ (brigadeRun).thin ?? []).some(
+              (/** @type {any} */ t) => t.available === 0,
+            ))) &&
+        html`<div class="tile lockbanner" role="status">
+          ${brigadeRunLines(/** @type {any} */ (brigadeRun), {
+            runWeek: weekId,
+            todayIso,
+            nameOf: (id) => brigade.profiles.find((p) => p.id === id)?.name ?? id,
+          }).map((l, i) => html`<div class="d" key=${i}>${l}</div>`)}
+        </div>`
+      }
+      ${
         tableStale &&
         html`<p class="hint">
           ⚠ a shared dinner landed after this week was set — SET MY WEEK again to plan around

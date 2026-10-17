@@ -3699,7 +3699,7 @@ function App() {
         handleUpdateBrigade(active.id, { memberIds: [...active.memberIds, id] });
       return `${res.note}. SET MY WEEK on Plan sizes their plates.`;
     },
-    [handleUpdateBrigade],
+    [handleUpdateBrigade, me],
   );
 
   /** a brand-new person: the guest questionnaire, then straight back to Plan */

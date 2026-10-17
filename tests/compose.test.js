@@ -849,6 +849,21 @@ test("THE SUNDAY BATCH: Mon eats Sunday's dinner, Tue + Wed eat a second Sunday 
   assert.deepEqual(nights.uncovered, []);
 });
 
+test("a bought week keeps its leftover chains and a second plain SET writes nothing (review, 2026-10-16)", () => {
+  const first = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx());
+  const chained = first.events.tables.filter((t) => t.leftoverOf);
+  assert.ok(chained.length > 0, "the fixture has leftover nights");
+  const again = planBrigadeWeek(first.events, COOK_BRIGADE, sunCtx({ bought: () => true }));
+  for (const t of chained)
+    assert.equal(
+      again.events.tables.find((x) => x.id === t.id)?.leftoverOf,
+      t.leftoverOf,
+      `${t.date} still eats its pot`,
+    );
+  const third = planBrigadeWeek(again.events, COOK_BRIGADE, sunCtx({ bought: () => true }));
+  assert.equal(third.made, 0, "nothing to write the second time");
+});
+
 test("THE SUNDAY BATCH survives a Sunday-night SET: past the dinner cutoff the plan starts Monday, the batch prepped tonight still counts (2026-10-16)", () => {
   const b = { ...COOK_BRIGADE, cookDays: [0, 4, 5, 6], batches: [{ cookDay: 0, feeds: [2, 3] }] };
   // 8 pm Sunday: planning starts Monday, but the calendar still says Sunday

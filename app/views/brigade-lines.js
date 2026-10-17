@@ -45,7 +45,7 @@ export function brigadeRunLines(result, { runWeek, todayIso, nameOf }) {
     return lines;
   }
   if (made === 0) {
-    lines.push("This week's shared meals are already set. PICK DIFFERENT MEALS changes them.");
+    lines.push("This week's shared meals are already set.");
   } else {
     const dates = datesOfWeek(runWeek);
     const range = `${parseLocalIso(dates[0] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })} – ${parseLocalIso(dates[6] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })}`;
@@ -105,7 +105,7 @@ export function brigadeRunLines(result, { runWeek, todayIso, nameOf }) {
   if ((swiped ?? []).length > 0) {
     const n = /** @type {any[]} */ (swiped).length;
     lines.push(
-      `🎫 Your ${n} swipe ${n === 1 ? "lunch is" : "lunches are"} on your plan — 🍽 PICK MY TRAY on the Plan tab plans each plate.`,
+      `🎫 Your ${n} swipe ${n === 1 ? "lunch is" : "lunches are"} on your plan; tap one to pick the tray.`,
     );
   }
   for (const a of assumed ?? []) {

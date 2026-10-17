@@ -146,7 +146,10 @@ export function PeopleSection({
                                 disabled=${busy}
                                 onClick=${() =>
                                   on
-                                    ? onRemoveFromDinner?.(d, p.id)
+                                    ? run(async () => {
+                                        onRemoveFromDinner?.(d, p.id);
+                                        return `${p.name ?? p.id} is off ${dayLabel(d)}'s dinner`;
+                                      })
                                     : run(() => onAddToDinner(d, p.id))}
                               >
                                 ${dayLabel(d)}

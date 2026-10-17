@@ -357,7 +357,10 @@ export function TablesView({
   /** @type {Record<string, string[]>} */
   const dinnerGuests = {};
   for (const t of (houseEvents ?? []).find((h) => h.house === myHouse)?.events?.tables ?? []) {
-    if (t.slot !== "dinner" || typeof t.date !== "string" || t.date < todayIso) continue;
+    // the kitchen's own dinners only: a one-off table's seat cannot be
+    // taken off from here (review, 2026-10-16)
+    if (t.slot !== "dinner" || !t.fromBrigade || typeof t.date !== "string" || t.date < todayIso)
+      continue;
     for (const st of t.seats ?? []) {
       if (st.status === "skipped" || activeBrigade?.memberIds.includes(st.id)) continue;
       dinnerGuests[t.date] = [...new Set([...(dinnerGuests[t.date] ?? []), st.id])];
