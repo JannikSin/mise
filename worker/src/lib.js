@@ -1283,7 +1283,15 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
       (e) => !e.out && !e.cookedAt && (e.table || (shopped && e.recipeId)),
     );
     if (due.length === 0) continue;
-    const label = slot === "smoothie" || slot === "snack" ? "Afternoon fuel" : `Cook ${slot}`;
+    // a no-cook night is a reheat, not a cook (2026-10-17): the pot was made
+    // on its cook night, so the ping says dinner, not "cook"
+    const allLeftovers = due.every((e) => e.leftover);
+    const label =
+      slot === "smoothie" || slot === "snack"
+        ? "Afternoon fuel"
+        : allLeftovers
+          ? `${slot[0]?.toUpperCase() ?? ""}${slot.slice(1)} tonight`
+          : `Cook ${slot}`;
     // one notification per hour, meals merged (smoothie+snack share 15:00)
     const existing = out.find((n) => n.title === label);
     const body = due.map(mealLine).filter(Boolean).join(" · ");
@@ -1330,17 +1338,25 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
   // evening catch-up: planned meals still unconfirmed. The not-logged-yet
   // nag retired with the in-app check-in (2026-08-09) — Crystal owns the
   // personal tracking now.
+  // ATE IT? (David, 2026-10-17: "ATE IT must be easier"; audit M62). One
+  // evening ping for today's meals not yet marked eaten: his own, the
+  // kitchen's shared ones, and the swipe. No longer gated on a receipt scan,
+  // which in 31 weeks happened twice, so the ping never fired.
   if (hour === 20) {
-    const uncooked = shopped
-      ? entries.filter((e) => e.date === dateIso && e.recipeId && !e.out && !e.cookedAt).length
-      : 0;
-    if (uncooked > 0) {
+    const meals = entries.filter(
+      (e) => e.date === dateIso && (e.recipeId || e.table) && !e.out && !e.cookedAt,
+    ).length;
+    const swipes = entries.filter(
+      (e) => e.date === dateIso && e.out && e.currency && !e.eatenAt,
+    ).length;
+    const open = meals + swipes;
+    if (open > 0) {
       out.push({
-        title: "Evening catch-up",
-        body: `${uncooked} planned meal${uncooked === 1 ? "" : "s"} not marked cooked`,
-        tags: "clipboard",
+        title: "Ate it?",
+        body: `${open} of today's meal${open === 1 ? "" : "s"} not marked eaten. One tap: ATE EVERYTHING TODAY on Plan.`,
+        tags: "white_check_mark",
         priority: "default",
-        click: APP_URL,
+        click: `${APP_URL}#/plan`,
       });
     }
   }

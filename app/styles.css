@@ -913,6 +913,21 @@ summary.block-title {
   color: inherit;
 }
 
+/* one tap for the whole day (2026-10-17) */
+.daymeals .ateall {
+  width: 100%;
+  min-height: 44px;
+  margin: 4px 0 8px;
+  border: 1px solid var(--signal);
+  background: none;
+  color: var(--signal);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
 /* the engine's reports, folded under the week (2026-10-16) */
 .engineinfo {
   margin: 18px 0 8px;
