@@ -849,7 +849,11 @@ function App() {
         clean = /** @type {any} */ ({
           ...clean,
           manifest: remanifest(/** @type {any} */ (clean).manifest, {
-            plan: clean,
+            // the week as eaten, shared meals included: measuring the
+            // stripped plan left every brigade meal out of the floors and
+            // protein lines (engine audit, 2026-10-16). Callers hand in the
+            // merged view plan; the fingerprint ignores table rows.
+            plan: next,
             targets: manifestInputs.current.targets,
             recipes: manifestInputs.current.recipes,
             dailyDays: manifestInputs.current.dailyDays,
