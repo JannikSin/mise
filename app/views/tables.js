@@ -1,7 +1,7 @@
 import { html } from "htm/preact";
 import { tokenBroken } from "../lib/github.js";
 import { useEffect, useState } from "preact/hooks";
-import { datesOfWeek, recipesById, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
+import { datesOfWeek, recipesById, shiftWeek, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { parseLocalIso, isoWeekId } from "../lib/dates.js";
 import {
   SERVINGS_MIN,
@@ -13,6 +13,7 @@ import {
 import { autoPlanEligible } from "../lib/plan.js";
 import { brigadeRunLines, cookDaysLabel } from "./brigade-lines.js";
 import { isParked } from "../lib/parked.js";
+import { PeopleSection } from "./people.js";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -52,7 +53,11 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onUpdateBrigade?: (id: string, patch: Record<string, any>) => void,
  *   onRemoveBrigade: (id: string) => void,
  *   onRunBrigade: (id: string, week: string, regenerate?: boolean) => Promise<{ made: number, thin: { slot: string, available: number }[], report?: { date: string, seatId: string, kcal: number, protein: number, dayKcal: number, dayProtein: number, share?: number, status: string }[], swept?: { swaps: number, saved: number }, swiped?: { date: string, slot: string }[], assumed?: { id: string, slot: string }[] }>,
- *   showScoreboard?: boolean
+ *   showScoreboard?: boolean,
+ *   onAddToDinner?: (date: string, profileId: string) => Promise<string | null>,
+ *   onRemoveFromDinner?: (date: string, profileId: string) => void,
+ *   onLinkRoommate?: (profileId: string) => Promise<string>,
+ *   onInviteLink?: (kind: "member" | "guest") => Promise<string>
  * }} props
  */
 export function TablesView({
@@ -83,6 +88,10 @@ export function TablesView({
   onRemoveBrigade,
   onRunBrigade,
   showScoreboard = true,
+  onAddToDinner = undefined,
+  onRemoveFromDinner = undefined,
+  onLinkRoommate = undefined,
+  onInviteLink = undefined,
 }) {
   const byId = recipesById(bankRecipes ?? []);
   const myHouse = /** @type {string} */ (
@@ -300,7 +309,7 @@ export function TablesView({
         batches: /** @type {any} */ (rule).batches ?? undefined,
         dinnerMeat: /** @type {any} */ (rule).dinnerMeat ?? undefined,
       });
-      setBrigadeNote(["Saved. PICK DIFFERENT MEALS applies the new rule to this week."]);
+      setBrigadeNote(["Saved. SET MY WEEK on the Plan tab applies the new rule."]);
     } else {
       onCreateBrigade(rule);
     }
@@ -343,6 +352,17 @@ export function TablesView({
       // two overlapping brigades (one expiring today): the longest-running
       // one owns the week run
       .sort((a, b) => (b.until ?? "").localeCompare(a.until ?? ""))[0] ?? null;
+  // who is a GUEST at which coming dinner: seated on my kitchen's dinner and
+  // not a member of the kitchen (the People tab's day chips read this)
+  /** @type {Record<string, string[]>} */
+  const dinnerGuests = {};
+  for (const t of (houseEvents ?? []).find((h) => h.house === myHouse)?.events?.tables ?? []) {
+    if (t.slot !== "dinner" || typeof t.date !== "string" || t.date < todayIso) continue;
+    for (const st of t.seats ?? []) {
+      if (st.status === "skipped" || activeBrigade?.memberIds.includes(st.id)) continue;
+      dinnerGuests[t.date] = [...new Set([...(dinnerGuests[t.date] ?? []), st.id])];
+    }
+  }
   // CREATE TABLE form state
   const [tableForm, setTableForm] = useState(
     /** @type {null | { name: string, date: string, slot: string, recipeId: string, seats: Record<string, { in: boolean, servings: number }> }} */ (
@@ -671,6 +691,33 @@ export function TablesView({
   return html`
     <div class="view">
       <div class="hero">
+        <h1>People<span>.</span></h1>
+        <div class="sub">who eats from your kitchen, and who comes to dinner</div>
+      </div>
+
+      <${PeopleSection}
+        profiles=${profiles}
+        me=${me}
+        todayIso=${todayIso}
+        weekId=${weekId}
+        nextWeekId=${shiftWeek(weekId, 1)}
+        kitchenMemberIds=${activeBrigade?.memberIds ?? [me]}
+        dinnerGuests=${dinnerGuests}
+        onAddToDinner=${onAddToDinner}
+        onRemoveFromDinner=${onRemoveFromDinner}
+        onLinkRoommate=${onLinkRoommate}
+        onInviteLink=${onInviteLink}
+      />
+
+      ${
+        // THE TABLE TAB'S WEEK (decision 0018, David 2026-10-16: "the whole
+        // table tab ... I don't ever look at it ... don't show every
+        // individual meal"). The meal cards, rota, batch tile, scoreboard and
+        // one-off tables stay built behind one parked flag; the week is read
+        // on Plan and set by SET MY WEEK.
+        !isParked("tableweek") &&
+        html`
+      <div class="hero">
         <h1>${activeBrigade ? "Table" : "Today"}<span>.</span></h1>
         <div class="sub">
           ${
@@ -701,6 +748,11 @@ export function TablesView({
             : "every shared meal coming up, with the cook named. One pot, everyone's own portion; money from finished dinners settles on the List tab."
         }
       </p>
+      `
+      }
+      ${
+        !isParked("tableweek") &&
+        html`
       ${
         // the week's cook rota at the TOP of the page (David, 2026-08-09:
         // "is it clear who cooks each day?") — one glance, not a scroll past
@@ -917,17 +969,21 @@ export function TablesView({
               </div>
             </div>`
       }
+      `
+      }
       ${
         // the block explains itself only when it has content or is being
         // created — an empty jargon heading taught nothing (council 2026-08-02)
         (myBrigades.length > 0 || brigadeForm) &&
-        html`<h2 class="block-title">Who cooks (standing dinners)</h2>
-          <p class="hint">
-            Two or more people in this house eating the same meals, each at their own portion. Set
-            it once, then run it every week.
-          </p>`
+        html`<h2 class="block-title">Your kitchen's dinners</h2>
+          <p class="hint">Who cooks, which nights, and the Sunday batch. SET MY WEEK on Plan uses it.</p>`
       }
-      ${myBrigades.map((b) => {
+      ${(activeBrigade
+        ? // a running kitchen hides the ended ones (2026-10-16): two dead
+          // "renew it" cards above the live one read as three kitchens
+          myBrigades.filter((x) => (x.until ?? "9999-12-31") >= todayIso)
+        : myBrigades
+      ).map((b) => {
         const names = b.memberIds.map((id) => {
           const p = (profiles ?? []).find((x) => x.id === id);
           return `${p?.emoji ?? ""} ${p?.name ?? id}`.trim();
@@ -1039,7 +1095,9 @@ export function TablesView({
             }
             <div class="sub">${rotation.length > 0 && html`👨‍🍳 ${rotation.join(" · ")}`}</div>
             <div class="actions">
-              <button
+              ${
+                !isParked("tableweek") &&
+                html`<button
                 class="primary"
                 disabled=${brigadeBusy === b.id}
                 onClick=${() => runBrigade(b.id, false, runWeek)}
@@ -1069,7 +1127,8 @@ export function TablesView({
                 onClick=${() => runBrigade(b.id, true, runWeek)}
               >
                 PICK DIFFERENT MEALS
-              </button>
+              </button>`
+              }
               ${
                 onUpdateBrigade &&
                 html`<button class="secondary" onClick=${() => openBrigadeForm(b, true)}>
@@ -1089,7 +1148,8 @@ export function TablesView({
       }
       ${
         !brigadeForm
-          ? html`<div class="actions">
+          ? !activeBrigade &&
+            html`<div class="actions">
               <button class="secondary" onClick=${() => openBrigadeForm()}>
                 + SET WHO COOKS
                 <small>the standing arrangement — SET THIS WEEK then plans the whole week</small>
@@ -1340,9 +1400,12 @@ export function TablesView({
             </div>`
       }
 
-      <div class="actions">
-        <a class="secondary linkbtn" href="#/dinner">💬 what should dinner be? →</a>
-      </div>
+      ${
+        !isParked("dinnerchat") &&
+        html`<div class="actions">
+          <a class="secondary linkbtn" href="#/dinner">💬 what should dinner be? →</a>
+        </div>`
+      }
       ${
         // bottom of the page on purpose (David, 2026-08-09): the daily
         // check-offs moved to Crystal; remedies stay in Mise because they

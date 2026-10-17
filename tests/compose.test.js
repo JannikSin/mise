@@ -1010,6 +1010,36 @@ test("a leftover table that drifted from its pot is REPAIRED by the next plain S
   }
 });
 
+test("a bought day keeps its dishes but its portions and cook follow the rule again (2026-10-16)", () => {
+  const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+  const day = first.events.tables[0].date;
+  // a stale day: the old run's portions and a cook the rule no longer names
+  const stale = {
+    ...first.events,
+    tables: first.events.tables.map((t) =>
+      t.date === day
+        ? { ...t, cookId: "someone-else", seats: t.seats.map((st) => ({ ...st, servings: 3 })) }
+        : t,
+    ),
+  };
+  const re = planBrigadeWeek(stale, BRIGADE, wayneCtx({ bought: () => true }));
+  for (const t of first.events.tables.filter((x) => x.date === day)) {
+    const now = re.events.tables.find((x) => x.id === t.id);
+    assert.equal(now.recipeId, t.recipeId, `${t.slot}: the bought dish stays`);
+    assert.equal(now.cookId, t.cookId, `${t.slot}: the cook is the rule's again`);
+    assert.deepEqual(
+      now.seats.map((st) => st.servings),
+      t.seats.map((st) => st.servings),
+      `${t.slot}: the portions are solved again, not frozen`,
+    );
+  }
+  // a bought day already in order is rewritten to exactly itself
+  const again = planBrigadeWeek(first.events, BRIGADE, wayneCtx({ bought: () => true }));
+  for (const t of first.events.tables) {
+    assert.deepEqual(again.events.tables.find((x) => x.id === t.id), t, `${t.id} unchanged`);
+  }
+});
+
 test("a set meal whose food was never bought is planned again on a plain SET; bought ones are kept (David, 2026-09-06)", () => {
   const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
   const dinners = first.events.tables.filter((t) => t.slot === "dinner");

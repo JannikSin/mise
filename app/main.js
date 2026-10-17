@@ -148,6 +148,7 @@ import {
   householdPathFor,
   normalizeHousehold,
 } from "./lib/household.js";
+import { addHousemate } from "./lib/roommates.js";
 import { weekAdherence, rankScoreboard } from "./lib/adherence.js";
 import {
   normalizeEvents,
@@ -220,7 +221,9 @@ const TABS = [
   // shared meals, and the app's own vocabulary has always been SET A TABLE
   // (David, 2026-08-30: "that's clearly not today, that's clearly the
   // whole week")
-  { hash: "#/tables", view: "tables", icon: "◫", label: "Table" },
+  // "People" (David, 2026-10-16): who eats from the kitchen and who comes to
+  // dinner; the week's meals are read on Plan
+  { hash: "#/tables", view: "tables", icon: "◫", label: "People" },
   { hash: "#/system", view: "system", icon: "☰", label: "Settings" },
 ];
 
@@ -3641,7 +3644,7 @@ function App() {
             `${SLOT_META[a.slot]?.full ?? a.slot} (${a.name}, about ${a.kcal} kcal more to cook)`,
         )
         .join(", ");
-      return `${who} joins ${what}${targets ? "" : " — no profile targets found, so a standard plate"}. The cook's pot and the list grow by those plates; PICK DIFFERENT MEALS re-solves the day with ${who} at the table.`;
+      return `${who} joins ${what}${targets ? "" : " — no profile targets found, so a standard plate"}. The cook's pot and the list grow by those plates.`;
     },
     [writeHouseEvents, me],
   );
@@ -3663,6 +3666,36 @@ function App() {
       if (next !== cur) writeHouseEvents(house, next);
     },
     [writeHouseEvents],
+  );
+
+  /**
+   * LINK A ROOMMATE (People tab, 2026-10-16): they join this house and, when
+   * a standing kitchen runs, its members, so every shared meal from the next
+   * SET MY WEEK on is cooked for them too.
+   */
+  const handleLinkRoommate = useCallback(
+    async (/** @type {string} */ id) => {
+      const house = myHouseOf();
+      const res = await addHousemate(house, me, id);
+      if (!res.ok) return res.note;
+      setAllProfiles((cur) =>
+        cur.map((x) => {
+          if (x.id !== id) return x;
+          const rest = { ...x };
+          delete rest.household;
+          return house === "home" ? rest : { ...rest, household: house };
+        }),
+      );
+      const today = localIsoDate(new Date());
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      const active = (cur?.brigades ?? []).find(
+        (b) => b.memberIds.includes(me) && (b.until ?? "9999-12-31") >= today,
+      );
+      if (active && !active.memberIds.includes(id))
+        handleUpdateBrigade(active.id, { memberIds: [...active.memberIds, id] });
+      return `${res.note}. SET MY WEEK on Plan sizes their plates.`;
+    },
+    [handleUpdateBrigade],
   );
 
   /** a brand-new person: the guest questionnaire, then straight back to Plan */
@@ -4771,6 +4804,11 @@ function App() {
         onUpdateBrigade=${handleUpdateBrigade}
         onRemoveBrigade=${handleRemoveBrigade}
         onRunBrigade=${handleRunBrigade}
+        onAddToDinner=${(/** @type {string} */ date, /** @type {string} */ id) =>
+          handleAddGuestSeat(date, id, ["dinner"])}
+        onRemoveFromDinner=${handleRemoveGuestSeat}
+        onLinkRoommate=${handleLinkRoommate}
+        onInviteLink=${hasToken ? handleInviteLink : undefined}
       />`
     }
     ${

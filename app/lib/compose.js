@@ -1015,7 +1015,20 @@ export function planBrigadeWeek(events, brigade, ctx) {
     if (!ctx.regenerate) {
       replanned += liveSlots.filter((slot) => !boughtFor(existingBySlot[slot])).length;
     }
-    if (allExisting && !ctx.regenerate && allBought) {
+    // A BOUGHT DAY KEEPS ITS DISHES, NOT ITS PORTIONS (2026-10-16). This
+    // path used to skip the whole day once its food read as bought, which
+    // froze the old seat sizes and the old rotating cook: after David turned
+    // "take turns" off and moved his cook nights, Thursday kept a plan made
+    // for the old rule and landed 3,100 kcal, Friday 5,145, with Elliot still
+    // named cook. Only a day whose every meal is cooked (or pinned by hand)
+    // is left alone now; a bought day is composed again with each bought
+    // dish pinned below, so only the portions and the cook move.
+    const allSettled = liveSlots.every((slot) => {
+      const t = /** @type {any} */ (existingBySlot[slot]);
+      return Boolean(t?.cookedAt || t?.pinned);
+    });
+    // (without a `bought` reader the caller predates the rule: unchanged)
+    if (allExisting && !ctx.regenerate && allBought && (!ctx.bought || allSettled)) {
       // idempotent — except for THE ONE THING a leftover night must never be:
       // a different dish from the pot it eats (found live 2026-09-06: a cost
       // sweep swapped Monday's curry after Wednesday had been fixed to the
@@ -1088,9 +1101,12 @@ export function planBrigadeWeek(events, brigade, ctx) {
       // ...and so is a dish already COOKED: a re-roll may never re-plan food
       // that exists (it held only by coincidence of the seeded walk until the
       // 2026-09-24 snack batches changed the day around it)
+      // ...and so is a dish whose food is already in the kitchen (the
+      // bought-day rule above): its portions re-solve, the dish stays
       const pinnedDish =
         /** @type {any} */ (existingBySlot[slot])?.pinned ||
-        /** @type {any} */ (existingBySlot[slot])?.cookedAt
+        /** @type {any} */ (existingBySlot[slot])?.cookedAt ||
+        (!ctx.regenerate && existingBySlot[slot] && ctx.bought && boughtFor(existingBySlot[slot]))
           ? ctx.bankById.get(String(existingBySlot[slot]?.recipeId))
           : undefined;
       if (pinnedDish) {
@@ -1759,17 +1775,17 @@ export function planBrigadeWeek(events, brigade, ctx) {
         const finalDish = srcRecipeId ? ctx.bankById.get(srcRecipeId) : undefined;
         if (finalDish && finalDish.id !== meal.id) meal = finalDish;
       }
-      if (
+      // an existing bought table with the same dish stays byte-identical
+      // only when its cook and portions already match what this run solved
+      // (2026-10-16: skipping it outright froze the old rule's plates)
+      const keepIfSame = Boolean(
         existing &&
-        !ctx.regenerate &&
-        !(/** @type {any} */ (existing).pinned) &&
-        boughtFor(existing) &&
-        existing.recipeId === meal.id &&
-        /** @type {any} */ (existing.leftoverOf ?? undefined) === wantLeftoverOf
-      ) {
-        // untouched existing table on a partially-new day stays untouched
-        continue;
-      }
+          !ctx.regenerate &&
+          !(/** @type {any} */ (existing).pinned) &&
+          boughtFor(existing) &&
+          existing.recipeId === meal.id &&
+          /** @type {any} */ (existing.leftoverOf ?? undefined) === wantLeftoverOf,
+      );
       const sameDish = existing?.recipeId === meal.id;
       const pinnedHere = Boolean(/** @type {any} */ (existing)?.pinned);
       // guests ride along: every seated non-member who is still a real profile
@@ -1839,6 +1855,16 @@ export function planBrigadeWeek(events, brigade, ctx) {
           ...(edited ? { edited: true } : {}),
         });
       }
+      if (
+        keepIfSame &&
+        existing?.cookId === cookFor(date) &&
+        (existing?.seats ?? []).length === seatRows.length &&
+        seatRows.every((r) => {
+          const old = (existing?.seats ?? []).find((x) => x.id === r.id);
+          return old != null && old.servings === r.servings && old.status === r.status;
+        })
+      )
+        continue;
       byId.set(id, {
         id,
         name: brigade.name,
