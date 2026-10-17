@@ -28,6 +28,12 @@ export const RELEASES = [
     date: "",
     notes: [
       "Your four foods are in the bank as you make them: the doubled chili pot, the cheesy chicken pesto bake, Grandma's banana nut bread and the overnight oats jar. Flour is one row on the list whether a recipe writes grams or tablespoons.",
+      "Plan shows the week and its meals; how the engine built it is folded at the bottom. A meal swipe reads as a meal and opens the tray picker. ATE IT on every meal. No smoothie slot.",
+      "List: pick the store, see the total, and your share against your budget (the budget is per person, per week). One heading per aisle.",
+      "Table is now People: add anyone to a dinner, link a roommate, invite by link. Change who cooks and which nights there.",
+      "Settings is down to what you use; houses, data and test buttons fold under More.",
+      "Parked, nothing deleted: house money, the Kroger cart buttons, PICK DIFFERENT MEALS, recipe browsing, the dinner chat, the tour.",
+      "A bought day keeps its dishes but its portions and cook follow your rule again, and a batch prepped on Sunday evening still counts after 7:30 pm.",
     ],
   },
   {

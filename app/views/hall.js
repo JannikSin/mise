@@ -164,12 +164,8 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
 
   return html`
     <section class="card">
-      <h2>Dining hall</h2>
-      <p class="hint">
-        Pick a court and a meal and Mise builds a tray from what they are actually serving today,
-        aimed at what is left of your day. Purdue publishes the numbers; the tray is composed from
-        them, not guessed.
-      </p>
+      <h2>🎫 Meal swipe · pick my tray</h2>
+      <p class="hint">Pick the court; the tray comes from what it is serving today.</p>
 
       <div class="row">
         <span class="k">Court</span>
@@ -253,9 +249,8 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
       ${
         isSwipe &&
         html`<p class="hint">
-          🎫 This is your swipe for ${meal.toLowerCase()} on ${date}, so the tray deliberately
-          loads protein: it costs nothing here, and every gram you eat at the hall is a gram the
-          week's groceries do not have to buy.${statedTray ? " The aim is YOUR stated swipe tray (Settings → your dining currency), eaten big on purpose; the day's cooking is already sized around it." : ""}
+          Load up on protein here: it is free at the hall, and the rest of the day is planned
+          around this tray.
         </p>`
       }
 
