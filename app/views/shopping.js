@@ -48,6 +48,7 @@ import {
   cartLines,
 } from "../lib/shopping.js";
 import { AISLES } from "../lib/ingredients.js";
+import { isParked } from "../lib/parked.js";
 import { decodeReceiptLine, shopScore } from "../lib/receipt.js";
 import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 import { datesOfWeek, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
@@ -1043,16 +1044,6 @@ export function ShoppingView({
     </span>`;
   };
 
-  // Section groups for an arbitrary subset of rows, in the same aisle order
-  const sectionsFor = (/** @type {any[]} */ items) =>
-    aisles.order
-      .map((s) => ({
-        section: s,
-        label: aisles.labels[s] ?? "",
-        items: items.filter((i) => i.section === s),
-      }))
-      .filter((g) => g.items.length > 0);
-
   // What a trip block adds up to at this store — shown beside the block
   // title so the staples block can be priced against a bulk order elsewhere
   const tripSubtotal = (/** @type {{ items: any[] }[]} */ groups) => {
@@ -1088,21 +1079,12 @@ export function ShoppingView({
             groups: sections.filter((g) => tripOf(g.section) === "fresh"),
           },
         ].filter((t) => t.groups.length > 0)
-      : stapleItems.length > 0
-        ? [
-            {
-              key: "week",
-              label: "This week's food",
-              groups: sectionsFor(tripItems.filter((i) => !isStapleRow(i, prices, homeStore))),
-            },
-            {
-              key: "staples",
-              label: "Staples · stock-up",
-              hint: "These outlast the week — candidates for a bulk order (Amazon, Costco) instead of the trolley. Tick a row here once it's ordered, same as bought.",
-              groups: sectionsFor(stapleItems),
-            },
-          ].filter((t) => t.groups.length > 0)
-        : [{ key: "all", label: "", groups: sections }];
+      : [{ key: "all", label: "", groups: sections }];
+  // ONE LIST, one heading per aisle (David, 2026-10-16: "it's saying meat and
+  // then it repeats meat and then it's saying dairy and then it repeats
+  // dairy"). The staples used to be a second block with its own aisles; a
+  // staple row now carries a small stock-up tag in its own aisle instead.
+  const stapleIds = new Set(stapleItems.map((i) => i.id));
 
   // combined household trip: this profile's list + every other profile's,
   // merged read-time (no third artifact to sync)
@@ -1559,18 +1541,9 @@ export function ShoppingView({
             )}
           </div>
           <div class="row">
-            <span class="k">Est. ${STORE_NAMES[homeStore] ?? homeStore} trip</span>
-            <span class="status num">$${homeSummary.subtotal.toFixed(2)}</span>
-          </div>
-          ${
-            homeSummary.tax > 0 &&
-            html`<div class="row">
-              <span class="k">grocery tax ${(taxRateFor(region) * 100).toFixed(1)}%</span>
-              <span class="status num">$${homeSummary.tax.toFixed(2)}</span>
-            </div>`
-          }
-          <div class="row">
-            <span class="k">Total</span>
+            <span class="k"
+              >${STORE_NAMES[homeStore] ?? homeStore} total${homeSummary.tax > 0 ? " with tax" : ""}</span
+            >
             <span class="status num">
               ${
                 // P5: "Variable-weight items make the estimate a range,
@@ -1587,29 +1560,6 @@ export function ShoppingView({
             </span>
           </div>
           ${
-            homeSummary.variableRows > 0 &&
-            html`<div class="row">
-              <span class="k hint">
-                ↳ ${homeSummary.variableRows} row${homeSummary.variableRows === 1 ? " is" : "s are"}
-                sold by weight, so the pack you get decides the cents
-              </span>
-            </div>`
-          }
-          ${
-            // P5's stocking rule made visible: whole packages are the
-            // TRIP cost; what this week's meals consume is the number
-            // the weekly budget answers to. The rest becomes pantry
-            // stock that later weeks eat for free.
-            homeSummary.eaten > 0 &&
-            homeSummary.eaten < homeSummary.subtotal - 0.5 &&
-            html`<div class="row">
-              <span class="k">↳ eaten this week ≈ $${homeSummary.eaten.toFixed(2)}</span>
-              <span class="status num"
-                >$${(homeSummary.subtotal - homeSummary.eaten).toFixed(2)} becomes stock</span
-              >
-            </div>`
-          }
-          ${
             typeof weeklyBudgetUsd === "number" &&
             weeklyBudgetUsd > 0 &&
             (() => {
@@ -1623,33 +1573,37 @@ export function ShoppingView({
                 brigade?.iShop && (brigade.seats ?? 1) > 1
                   ? /** @type {number} */ (brigade.seats)
                   : 1;
-              const share = homeSummary.eaten / seats;
-              const label = seats > 1 ? `your ≈1/${seats} eaten share` : "eaten share";
+              // his share of THIS trip, the number he pays (2026-10-16); the
+              // old eaten-only share read $13 beside a $59 trip
+              const share = homeSummary.total / seats;
+              // David, 2026-10-16: "is that for both people? We each pay $100
+              // or it's $100 total?" It is EACH person's budget; say so, and
+              // say what his share of this week's food comes to.
+              const label = seats > 1 ? `your share (1 of ${seats})` : "this week's food";
               return html`<div class="row">
                 <span class="k"
-                  >weekly budget $${weeklyBudgetUsd.toFixed(0)}${seats > 1 ? " (yours)" : ""}</span
+                  >budget $${weeklyBudgetUsd.toFixed(0)}${seats > 1 ? " a person" : ""} a week</span
                 >
                 <span class="status num ${share > weeklyBudgetUsd ? "warn" : ""}"
-                  >${share > weeklyBudgetUsd ? `${label} over by $${(share - weeklyBudgetUsd).toFixed(2)}` : `${label} ≈ $${share.toFixed(2)} fits ✓`}</span
+                  >${share > weeklyBudgetUsd ? `${label} $${share.toFixed(2)}, over by $${(share - weeklyBudgetUsd).toFixed(2)}` : `${label} ≈ $${share.toFixed(2)} ✓`}</span
                 >
               </div>`;
             })()
           }
           ${
             homeSummary.unpriced > 0 &&
-            html`<div class="row">
-              <span class="k status warn"
-                >⚠ ${homeSummary.unpriced} of ${tripItems.length} rows UNPRICED</span
-              >
-              <span class="status warn">total is a floor</span>
-            </div>`
+            html`<p class="hint">
+              ${homeSummary.unpriced} ${homeSummary.unpriced === 1 ? "row has" : "rows have"} no
+              price yet, so the total is a little low · tap $? on a row to price it
+            </p>`
           }
-          <p class="hint">
-            ${homeSummary.priced} of ${tripItems.length} rows
-            priced${
-              homeSummary.estimates > 0 ? `, ${homeSummary.estimates} are estimates (~)` : ""
-            }.
-          </p>
+          ${pricePick?.fromTile ? pickSheet() : ""}
+          ${
+            // decision 0018 (David, 2026-10-16: "all I want to see is the price,
+            // I want to choose the store and then see the price, that's it"):
+            // the live-price controls and the Kroger cart stay built, doors shut
+            !isParked("kroger") &&
+            html`
           ${
             canLive &&
             html`<div class="row">
@@ -1681,7 +1635,6 @@ export function ShoppingView({
               </button>
             </div>`
           }
-          ${pricePick?.fromTile ? pickSheet() : ""}
           ${
             // NO FEATURE SHIPS DARK, and this one did (David,
             // 2026-08-25: "it said not linked and push failed"). The
@@ -1809,6 +1762,8 @@ export function ShoppingView({
               — one search, one tap, priced forever.
             </p>`
           }
+            `
+          }
         </div>
       `
     );
@@ -1828,7 +1783,7 @@ export function ShoppingView({
             // one kitchen, one list: for a brigade's shopper this IS the
             // brigade trip (the cook buys by rule), so the chip says so;
             // a non-shopping member keeps a plain LIST for odds and ends
-            brigade ? (brigade.iShop ? "BRIGADE" : "LIST") : "SHOPPING"
+            brigade ? "LIST" : "SHOPPING"
           }
           ${items.length ? `(${items.length})` : ""}
         </button>
@@ -1893,6 +1848,7 @@ export function ShoppingView({
       ${
         tab === "list" &&
         money &&
+        !isParked("money") &&
         html`<${MoneyCard}
           ...${money}
           nameOf=${(/** @type {string} */ id) =>
@@ -2010,30 +1966,13 @@ export function ShoppingView({
             </div>`
           }
           ${buildNote && html`<p class="hint" role="status">${buildNote}</p>`}
-          <p class="hint lockhint">
-            ${
-              /** @type {any} */ (plan)?.fallback
-                ? html`<strong>Shopped plan saved ✓</strong> — the week stays freely changeable; the
-                    Plan tab watches that every bought perishable still gets cooked before it dies,
-                    and ↩ can always put the shopped plan back.`
-                : html`<strong>Going shopping? Tap 🛒 GOING TO THE STORE first.</strong> It saves
-                    this plan as your fallback — the week stays changeable after you buy, and the
-                    app tracks that everything perishable still gets used.`
-            }
-          </p>
-          <p class="hint">
-            Aggregates the week's
-            plan${brigade?.iShop ? ", the whole brigade's meals in one buy, " : ", "}drops pantry
-            staples${
-              soloTrip
-                ? " and food already on the kitchen's shelves"
-                : brigade
-                  ? ""
-                  : " (the HOUSEHOLD tab subtracts what the kitchen already holds, once for the house)"
-            },
-            groups by aisle. Rebuilt lists keep your ticks and manual items. Tick = got it / have
-            enough this week. P+ = already own it — moves it to your permanent pantry staples.
-          </p>
+          ${
+            // the saved-plan confirmation stays; the always-on explainers went
+            // (David, 2026-10-16: "it's giving a lot of random data that i
+            // don't need")
+            /** @type {any} */ (plan)?.fallback &&
+            html`<p class="hint lockhint">Shopped plan saved ✓</p>`
+          }
 
           ${trips.map(
             (trip) => html`
@@ -2052,7 +1991,13 @@ export function ShoppingView({
                 ${trip.groups.map(
                   (g) => html`
                     <h2 class="block-title" key=${g.section}>
-                      ${g.section}${g.label && html` <span class="hint">${g.label}</span>`}
+                      ${g.section}${
+                        // the store's aisle name, only when it says something
+                        // the section name does not ("MEAT MEAT", 2026-10-16)
+                        g.label &&
+                        g.label.trim().toLowerCase() !== String(g.section).trim().toLowerCase() &&
+                        html` <span class="hint">${g.label}</span>`
+                      }
                     </h2>
                     <div class="slots">
                       ${rowGroups(g.items).map(
@@ -2082,6 +2027,10 @@ export function ShoppingView({
                                   }${
                                     members.some((m) => m.manual)
                                       ? html` <span class="tag">manual</span>`
+                                      : ""
+                                  }${
+                                    members.some((m) => stapleIds.has(m.id))
+                                      ? html` <span class="tag">stock-up</span>`
                                       : ""
                                   }${
                                     members.some((m) => /** @type {any} */ (m).kitchenHas)

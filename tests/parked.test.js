@@ -4,8 +4,13 @@ import { PARKED, isParked } from "../app/lib/parked.js";
 
 // Mise decision 0016 (David, 2026-10-12): menu scan, remedies and occasions are
 // parked. Their routes and tests stay; only the doors on the screens close.
-test("the parked set is exactly the three features David parked on 2026-10-12", () => {
-  assert.deepEqual([...PARKED].sort(), ["menu", "occasions", "remedies"]);
+// Decision 0018 (David, 2026-10-16) parks six more: house money, the Kroger
+// cart buttons, the re-roll, recipe browsing, the dinner chat and the tour.
+test("the parked set is exactly what David parked on 2026-10-12 and 2026-10-16", () => {
+  assert.deepEqual(
+    [...PARKED].sort(),
+    ["cookbook", "dinnerchat", "kroger", "menu", "money", "occasions", "remedies", "reroll", "tour"],
+  );
   assert.equal(isParked("menu"), true);
   assert.equal(isParked("hall"), false, "hall trays were kept, never parked");
   assert.equal(isParked("invite"), false, "invites were kept, never parked");

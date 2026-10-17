@@ -45,31 +45,34 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
   const batchEntries = plan.entries;
   const seenSunday = new Set();
   const sundayComponents = [];
-  const weekdayAssembly = [];
   for (const entry of batchEntries) {
-    if (!entry.recipeId) continue;
+    // a shared (brigade) meal carries its dish as viewRecipeId, never
+    // recipeId; reading only recipeId left the Sunday batch block blind to
+    // the whole shared week (engine audit, 2026-10-16)
+    const rid = entry.recipeId ?? /** @type {any} */ (entry).viewRecipeId;
+    if (!rid) continue;
     // mid-week, an already-eaten day contributes nothing: no assembly note,
     // and no catch-up component for a dish with no remaining day to eat it
     // (a recipe also planned on a live day is still caught by that entry)
     if (catchUp && entry.date < today) continue;
-    const recipe = byId.get(entry.recipeId);
+    // a shared meal is Sunday prep only when it is made on the week's own
+    // Sunday: Sunday's own meals and the pot prepared then for later nights.
+    // Friday's pot is cooked Friday, and leftovers are never cooked again.
+    if (
+      /** @type {any} */ (entry).table &&
+      (/** @type {any} */ (entry).leftoverOf ||
+        (entry.date !== weekDates[0] && /** @type {any} */ (entry).preparedOn !== weekDates[0]))
+    )
+      continue;
+    const recipe = byId.get(rid);
     const bp = recipe?.batchPrep;
     if (!bp) continue;
     if (bp.sundayComponent && !seenSunday.has(recipe.id)) {
       seenSunday.add(recipe.id);
       sundayComponents.push({ id: recipe.id, name: recipe.name, text: bp.sundayComponent });
     }
-    if (bp.weekdayAssembly) {
-      weekdayAssembly.push({
-        id: entry.id,
-        date: entry.date,
-        name: recipe.name,
-        text: bp.weekdayAssembly,
-      });
-    }
   }
-  weekdayAssembly.sort((a, b) => a.date.localeCompare(b.date));
-  const hasBatchPrep = sundayComponents.length > 0 || weekdayAssembly.length > 0;
+  const hasBatchPrep = sundayComponents.length > 0;
   // auto-open when the batching is TODAY: the shown week's own Sunday
   const openBatch = today === prepSundayOf(plan.week);
 
@@ -211,25 +214,25 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
               </div>
             </div>`,
         )}
-        ${weekdayAssembly.map(
-          (w) =>
-            html`<div class="batch" key=${w.id}>
-              <div class="k">
-                ${parseLocalIso(w.date).toLocaleDateString([], { weekday: "short" })} · ${w.name}
-              </div>
-              ${w.text}
-            </div>`,
-        )}
       </details>`
     }
 
-    <div class="actions wrap">
-      <a class="secondary linkbtn" href="#/dinner">💬 what should dinner be? →</a>
-      ${
-        !isParked("menu") &&
-        html`<a class="secondary linkbtn" href="#/menu">🍴 eating out? scan the menu →</a>`
-      }
-      <a class="secondary linkbtn" href="#/cookbook">browse all recipes →</a>
-    </div>
+    ${
+      (!isParked("dinnerchat") || !isParked("menu") || !isParked("cookbook")) &&
+      html`<div class="actions wrap">
+        ${
+          !isParked("dinnerchat") &&
+          html`<a class="secondary linkbtn" href="#/dinner">💬 what should dinner be? →</a>`
+        }
+        ${
+          !isParked("menu") &&
+          html`<a class="secondary linkbtn" href="#/menu">🍴 eating out? scan the menu →</a>`
+        }
+        ${
+          !isParked("cookbook") &&
+          html`<a class="secondary linkbtn" href="#/cookbook">browse all recipes →</a>`
+        }
+      </div>`
+    }
   `;
 }

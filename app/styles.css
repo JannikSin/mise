@@ -881,16 +881,47 @@ summary.block-title {
    twice in ten weeks (parts audit, 2026-09-21); the confirmation has to live
    where the plan is read. Once tapped the row shows the cooked chip instead. */
 .slotrow .cooktap {
-  min-width: 44px;
+  min-width: 56px;
   min-height: 44px;
+  padding: 0 8px;
   flex-shrink: 0;
-  border: 1px solid var(--dim);
+  border: 1px solid var(--signal);
   background: none;
-  color: var(--dim);
-  font-size: 17px;
+  color: var(--signal);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
   line-height: 1;
   cursor: pointer;
   border-radius: 10px;
+}
+
+/* a swipe already marked eaten keeps its button, quiet, so it can be undone */
+.slotrow .cooktap.on {
+  border-color: var(--line-strong);
+  color: var(--dim);
+}
+
+/* the meal swipe reads as a meal row (2026-10-16), not as a greyed-out slot */
+.slotrow.isout:has(.swipecard) {
+  border-style: dashed;
+  opacity: 1;
+}
+
+.slotrow .swipecard {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* the engine's reports, folded under the week (2026-10-16) */
+.engineinfo {
+  margin: 18px 0 8px;
+}
+
+.engineinfo > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 8px 0;
 }
 
 .slotrow .cooktap:focus-visible {
