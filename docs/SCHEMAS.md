@@ -1087,7 +1087,11 @@ targets.json`, created by the guest themselves on the host's phone at
   does not exist. Covered credit is per member per DATE (`memberCoverage`):
   their own plan's pinned/OUT entries (which also take that seat off the
   slot's pot, written `status: "skipped", auto: true` — machine skips are
-  recomputed every run, human declines carry), presumed dining swipes at
+  recomputed every run, human declines carry). THE PLATE SCREEN (2026-10-16):
+  every seat, member or guest, is checked against the dish actually written,
+  whichever path chose it; a seat whose profile refuses the dish or cannot be
+  read is written `status: "skipped", auto: true, blocked: "<reasons>"` and
+  the dish stays for everyone else. Presumed dining swipes at
   the currency's stated tray, and fixed slots ONLY where they pass that
   member's own screens. A seat's `edited: true` servings (stamped by
   patchSeat, never inferred) bind the solve while the dish is unchanged.

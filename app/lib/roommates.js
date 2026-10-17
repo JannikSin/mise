@@ -22,9 +22,9 @@ export async function addHousemate(household, me, id) {
   const hh = normalizeHousehold(raw);
   const res = setMemberRoles(hh, me, id, ["eater"]);
   if (!res.changed && !hh.members.some((m) => m.id === id)) return { ok: false, note: res.reason };
-  if (res.changed) {
-    await write(path, { ...(raw ?? {}), members: res.household.members }, { raw: true });
-  }
+  // the profile moves FIRST (Tribunal Realist, 2026-10-16): if the profile
+  // list is unreachable nothing has been written yet, so "nobody moved" is
+  // true; the household roster follows only once the move landed
   const ok = await patchProfiles((list) =>
     list.map((x) => {
       if (x.id !== id) return x;
@@ -34,5 +34,8 @@ export async function addHousemate(household, me, id) {
     }),
   );
   if (!ok) return { ok: false, note: "the profile list was unreachable, so nobody moved" };
+  if (res.changed) {
+    await write(path, { ...(raw ?? {}), members: res.household.members }, { raw: true });
+  }
   return { ok: true, note: "linked: they now share this kitchen's meals, pantry and trip" };
 }

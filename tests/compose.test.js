@@ -889,6 +889,82 @@ test("a bought dish is kept only while it passes everyone at the table: a roomma
   );
 });
 
+// THE PLATE SCREEN (Tribunal Red Team, 2026-10-16, round 1): every seat is
+// checked against the dish actually written, whichever path chose it.
+const peanutBank = (/** @type {(r: any) => boolean} */ which) => {
+  const bank = new Map(bankById);
+  for (const r of bankById.values())
+    if (which(r))
+      bank.set(r.id, { ...r, ingredients: [...r.ingredients, { qty: 1, unit: "tbsp", food: "peanut butter" }] });
+  return bank;
+};
+const allergicElliot = { ...elliotTargets, avoidIngredients: ["peanut"] };
+const seatOf = (t, id) => t.seats.find((x) => x.id === id);
+
+test("plate screen: a guest carried onto a re-solved dish they cannot eat is skipped with the reason", () => {
+  const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+  const dinner = first.events.tables.find((t) => t.slot === "dinner");
+  const withGuest = {
+    ...first.events,
+    tables: first.events.tables.map((t) =>
+      t.id === dinner.id ? { ...t, seats: [...t.seats, { id: "guest", servings: 1 }] } : t,
+    ),
+  };
+  const ctx = wayneCtx({
+    regenerate: true,
+    bankById: peanutBank((r) => r.mealType === "dinner"),
+    profilesById: new Map([...WAYNE_PROFILES, ["guest", { id: "guest", name: "Guest", household: "elsewhere" }]]),
+    targetsById: new Map([
+      ["david", davidTargets],
+      ["elliot", elliotTargets],
+      ["guest", { ...elliotTargets, avoidIngredients: ["peanut"] }],
+    ]),
+  });
+  const re = planBrigadeWeek(withGuest, BRIGADE, ctx);
+  const g = seatOf(re.events.tables.find((t) => t.id === dinner.id), "guest");
+  assert.equal(g.status, "skipped");
+  assert.match(g.blocked, /peanut/);
+  assert.ok(re.notes.some((n) => /Guest is not served/.test(n)), "the run says so");
+});
+
+for (const kind of ["pinned", "cookedAt"]) {
+  test(`plate screen: a ${kind === "pinned" ? "pinned" : "cooked"} peanut dish keeps for the others and skips the allergic roommate`, () => {
+    const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+    const dinner = first.events.tables.find((t) => t.slot === "dinner");
+    const held = {
+      ...first.events,
+      tables: first.events.tables.map((t) =>
+        t.id === dinner.id ? { ...t, [kind]: kind === "pinned" ? true : "2026-08-31T18:00:00" } : t,
+      ),
+    };
+    const ctx = wayneCtx({
+      bought: () => false,
+      bankById: peanutBank((r) => r.id === dinner.recipeId),
+      targetsById: new Map([
+        ["david", davidTargets],
+        ["elliot", allergicElliot],
+      ]),
+    });
+    const re = planBrigadeWeek(held, BRIGADE, ctx);
+    const now = re.events.tables.find((t) => t.id === dinner.id);
+    assert.equal(now.recipeId, dinner.recipeId, "the held dish stays");
+    assert.equal(seatOf(now, "elliot").status, "skipped");
+    assert.match(seatOf(now, "elliot").blocked, /peanut/);
+    assert.notEqual(seatOf(now, "david").status, "skipped", "everyone else still eats it");
+  });
+}
+
+test("plate screen fails closed: a member whose profile cannot be read is not served", () => {
+  const ctx = wayneCtx({ targetsById: new Map([["david", davidTargets]]) });
+  const { events } = planBrigadeWeek({ tables: [] }, BRIGADE, ctx);
+  const elliotSeats = events.tables.map((t) => seatOf(t, "elliot")).filter(Boolean);
+  assert.ok(elliotSeats.length > 0);
+  for (const st of elliotSeats) {
+    assert.equal(st.status, "skipped");
+    assert.equal(st.blocked, "their profile could not be read");
+  }
+});
+
 test("THE SUNDAY BATCH survives a Sunday-night SET: past the dinner cutoff the plan starts Monday, the batch prepped tonight still counts (2026-10-16)", () => {
   const b = { ...COOK_BRIGADE, cookDays: [0, 4, 5, 6], batches: [{ cookDay: 0, feeds: [2, 3] }] };
   // 8 pm Sunday: planning starts Monday, but the calendar still says Sunday

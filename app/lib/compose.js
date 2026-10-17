@@ -1128,6 +1128,21 @@ export function planBrigadeWeek(events, brigade, ctx) {
           );
         });
       };
+      if (
+        !ctx.regenerate &&
+        existingBySlot[slot] &&
+        !(/** @type {any} */ (existingBySlot[slot])?.leftoverOf) &&
+        !(/** @type {any} */ (existingBySlot[slot])?.pinned) &&
+        !(/** @type {any} */ (existingBySlot[slot])?.cookedAt) &&
+        ctx.bought &&
+        boughtFor(existingBySlot[slot]) &&
+        !boughtSafe(existingBySlot[slot])
+      ) {
+        const was = ctx.bankById.get(String(existingBySlot[slot]?.recipeId));
+        notes.push(
+          `${date} ${slot}: ${String(was?.name ?? existingBySlot[slot]?.recipeId)} changed, it conflicts with someone at the table; its groceries stay in the pantry`,
+        );
+      }
       const pinnedDish =
         /** @type {any} */ (existingBySlot[slot])?.pinned ||
         /** @type {any} */ (existingBySlot[slot])?.cookedAt ||
@@ -1886,13 +1901,42 @@ export function planBrigadeWeek(events, brigade, ctx) {
           ...(edited ? { edited: true } : {}),
         });
       }
+      // THE ONE SCREEN AT THE PLATE (Tribunal Red Team, 2026-10-16, round 1):
+      // every seat, member or guest, is checked against the dish actually
+      // being written, whatever path chose it (composed, pinned, cooked,
+      // bought, leftover). A seat whose profile refuses the dish, or whose
+      // profile cannot be read, is written SKIPPED with the reason; the dish
+      // stays for everyone else. A human decline is left as it was.
+      for (const r of /** @type {any[]} */ (seatRows)) {
+        if (r.status === "skipped" && !r.auto) continue;
+        const tg = ctx.targetsById.get(r.id);
+        const no = tg
+          ? recipeConflicts(meal, tg.diet, tg.avoidIngredients, tg.avoidRecipes)
+          : ["their profile could not be read"];
+        if (no.length === 0) {
+          if (r.blocked) delete r.blocked;
+          continue;
+        }
+        r.status = "skipped";
+        r.auto = true;
+        r.blocked = no.join(", ");
+        const who = String(ctx.profilesById.get(r.id)?.name ?? r.id);
+        notes.push(
+          `${date} ${slot}: ${who} is not served ${String(meal.name ?? meal.id)} (${r.blocked}); the dish stays for everyone else`,
+        );
+      }
       if (
         keepIfSame &&
         existing?.cookId === cookFor(date) &&
         (existing?.seats ?? []).length === seatRows.length &&
         seatRows.every((r) => {
           const old = (existing?.seats ?? []).find((x) => x.id === r.id);
-          return old != null && old.servings === r.servings && old.status === r.status;
+          return (
+            old != null &&
+            old.servings === r.servings &&
+            old.status === r.status &&
+            /** @type {any} */ (old).blocked === /** @type {any} */ (r).blocked
+          );
         })
       )
         continue;
