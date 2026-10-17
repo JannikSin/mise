@@ -4091,13 +4091,19 @@ function App() {
           // seats sized from each person's own targets (E3, 2026-08-30) —
           // the old `: 1` fallback fed a 3700 kcal and a 2850 kcal person
           // identical plates and shrank the buy to match
-          seats: participantIds.map((id) => ({
-            id,
-            servings:
+          seats: participantIds.map((id) => {
+            const servings =
               recipe && targetsById?.get(id)
                 ? seatServingsFor(targetsById.get(id), slot, recipe)
-                : 1,
-          })),
+                : 1;
+            // the plate screen on the AI pick too (Tribunal Realist, round
+            // 2): a person whose profile refuses the dish, or cannot be read,
+            // is seated skipped with the reason, never served it
+            const no = seatScreen(recipe, targetsById?.get(id));
+            return no.length > 0
+              ? { id, servings, status: /** @type {"skipped"} */ ("skipped"), auto: true, blocked: no.join(", ") }
+              : { id, servings };
+          }),
         },
         today,
       );

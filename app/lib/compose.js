@@ -1005,6 +1005,55 @@ export function planBrigadeWeek(events, brigade, ctx) {
     Boolean(/** @type {any} */ (t).pinned) ||
     !ctx.bought ||
     ctx.bought(t);
+  // THE ONE SCREEN AT THE PLATE (Tribunal Red Team, 2026-10-16, rounds 1-2):
+  // every seat, member or guest, is checked against the dish actually being
+  // written, on EVERY path that writes or keeps a table (composed, pinned,
+  // cooked, bought, leftover, the settled-day branch and its leftover
+  // repair). A seat whose profile refuses the dish, or cannot be read, is
+  // skipped with the reason and the dish stays for everyone else. A human
+  // decline is never touched. A seat the screen skipped earlier is served
+  // again the moment it passes (the allergy was removed, the dish changed).
+  // Mutates `rows`; returns whether any seat changed.
+  /** @type {Map<string, { id: string, slot: string, meal: Record<string, any> }[]>} */
+  const screenedByDate = new Map();
+  const plateScreen = (
+    /** @type {any[]} */ rows,
+    /** @type {Record<string, any>} */ meal,
+    /** @type {string} */ date,
+    /** @type {string} */ slot,
+  ) => {
+    let changed = false;
+    for (const r of rows) {
+      if (r.status === "skipped" && !r.auto) continue;
+      const tg = ctx.targetsById.get(r.id);
+      const no = tg
+        ? recipeConflicts(meal, tg.diet, tg.avoidIngredients, tg.avoidRecipes)
+        : ["their profile could not be read"];
+      if (no.length === 0) {
+        if (r.blocked) {
+          delete r.blocked;
+          delete r.status;
+          delete r.auto;
+          changed = true;
+        }
+        continue;
+      }
+      const reason = no.join(", ");
+      const fresh = r.status !== "skipped" || !r.auto || r.blocked !== reason;
+      r.status = "skipped";
+      r.auto = true;
+      r.blocked = reason;
+      screenedByDate.set(date, [...(screenedByDate.get(date) ?? []), { id: r.id, slot, meal }]);
+      if (fresh) {
+        changed = true;
+        const who = String(ctx.profilesById.get(r.id)?.name ?? r.id);
+        notes.push(
+          `${date} ${slot}: ${who} is not served ${String(meal.name ?? meal.id)} (${reason}); the dish stays for everyone else`,
+        );
+      }
+    }
+    return changed;
+  };
   let replanned = 0;
   for (const date of dates) {
     /** @type {Record<string, import("./tables.js").TableEvent | undefined>} */
@@ -1064,12 +1113,26 @@ export function planBrigadeWeek(events, brigade, ctx) {
         delete keep.cookedAt; // you cannot have cooked a dish that was never on this night
         delete keep.tailor;
         delete keep.pot;
+        plateScreen(seatRows, dish, date, slot);
         byId.set(t.id, { ...keep, recipeId: src.recipeId, seats: seatRows });
         servedBySlot[slot]?.set(date, src.recipeId);
         made++;
         notes.push(
           `${date} ${slot}: repaired to ${dish.name ?? src.recipeId}, the pot it eats from (it had drifted to another dish)`,
         );
+      }
+      // a settled day is still screened at the plate (Tribunal Red Team,
+      // round 2): pinned or cooked food is kept, but never served to someone
+      // whose profile refuses it. Written only when a seat actually changed.
+      for (const slot of liveSlots) {
+        const t = byId.get(brigadeTableId(brigade.id, date, slot));
+        const dish = t ? ctx.bankById.get(String(t.recipeId)) : undefined;
+        if (!t || !dish) continue;
+        const rows = (t.seats ?? []).map((st) => ({ ...st }));
+        if (plateScreen(rows, dish, date, slot)) {
+          byId.set(t.id, { ...t, seats: rows });
+          made++;
+        }
       }
       continue;
     }
@@ -1893,38 +1956,18 @@ export function planBrigadeWeek(events, brigade, ctx) {
           id: g.id,
           servings: fixedHere
             ? fixedSeat.servings
-            : g.status === "skipped"
+            : g.status === "skipped" && !(/** @type {any} */ (g).auto)
               ? g.servings
               : (solvedS ?? (sameDish ? g.servings : 1)),
           ...(raw3 !== undefined ? { rawServings: raw3 } : {}),
-          ...(g.status ? { status: g.status } : {}),
+          // a MACHINE skip (auto) is recomputed by the plate screen every run;
+          // carrying its status without `auto` turned it into a permanent
+          // human decline (Tribunal Engineer, round 2)
+          ...(g.status && !(/** @type {any} */ (g).auto) ? { status: g.status } : {}),
           ...(edited ? { edited: true } : {}),
         });
       }
-      // THE ONE SCREEN AT THE PLATE (Tribunal Red Team, 2026-10-16, round 1):
-      // every seat, member or guest, is checked against the dish actually
-      // being written, whatever path chose it (composed, pinned, cooked,
-      // bought, leftover). A seat whose profile refuses the dish, or whose
-      // profile cannot be read, is written SKIPPED with the reason; the dish
-      // stays for everyone else. A human decline is left as it was.
-      for (const r of /** @type {any[]} */ (seatRows)) {
-        if (r.status === "skipped" && !r.auto) continue;
-        const tg = ctx.targetsById.get(r.id);
-        const no = tg
-          ? recipeConflicts(meal, tg.diet, tg.avoidIngredients, tg.avoidRecipes)
-          : ["their profile could not be read"];
-        if (no.length === 0) {
-          if (r.blocked) delete r.blocked;
-          continue;
-        }
-        r.status = "skipped";
-        r.auto = true;
-        r.blocked = no.join(", ");
-        const who = String(ctx.profilesById.get(r.id)?.name ?? r.id);
-        notes.push(
-          `${date} ${slot}: ${who} is not served ${String(meal.name ?? meal.id)} (${r.blocked}); the dish stays for everyone else`,
-        );
-      }
+      plateScreen(seatRows, meal, date, slot);
       if (
         keepIfSame &&
         existing?.cookId === cookFor(date) &&
@@ -1971,18 +2014,32 @@ export function planBrigadeWeek(events, brigade, ctx) {
       for (const s of eating) {
         const solved = composed.seats[s.id];
         if (!solved) continue;
+        // a seat the plate screen took off a dish does not eat it: the
+        // report subtracts that plate, and the day can no longer read as met
+        // (Tribunal Engineer, round 2: Elliot screened off a pinned dinner
+        // still reported "band")
+        let offKcal = 0;
+        let offProtein = 0;
+        for (const x of screenedByDate.get(date) ?? []) {
+          if (x.id !== s.id) continue;
+          const sv = Number(solved.servings?.[x.slot]) || 0;
+          offKcal += sv * (Number(x.meal.nutrition?.calories) || 0);
+          offProtein += sv * (Number(x.meal.nutrition?.protein) || 0);
+        }
+        const screened = offKcal > 0 || offProtein > 0;
         report.push({
           date,
           seatId: s.id,
-          kcal: solved.kcal,
-          protein: solved.protein,
-          dayKcal: solved.kcal + s.covered.calories,
-          dayProtein: solved.protein + s.covered.protein,
+          kcal: Math.round(solved.kcal - offKcal),
+          protein: Math.round(solved.protein - offProtein),
+          dayKcal: Math.round(solved.kcal - offKcal + s.covered.calories),
+          dayProtein: Math.round(solved.protein - offProtein + s.covered.protein),
           // share < 1 = a subset brigade: dayKcal is the planned slots'
           // share plus covered credit, NOT a whole day — the caller's copy
           // must not read as a starvation warning (Final Gate Engineer)
           share: s.share,
-          status: solved.status,
+          status: screened ? "miss" : solved.status,
+          ...(screened ? { screened: true } : {}),
           ...(s.guest ? { guest: true } : {}),
         });
       }

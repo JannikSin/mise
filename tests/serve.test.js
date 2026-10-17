@@ -141,11 +141,30 @@ test("family synonyms reach the soft tier only", () => {
   assert.deepEqual(softAvoidMatches(leeky, ["peanut"]), []);
 });
 
-test("unreadable rules degrade to a plain plate line, never a guess", () => {
+// Tribunal Realist, 2026-10-16 round 2: this used to degrade to a plain plate
+// line, which is fail-OPEN for an allergy. An unread profile now gets no
+// plating instruction; still loading (undefined) plates as before.
+test("unreadable rules fail closed: no plating instruction for an unread profile", () => {
   const t = table({ seats: [{ id: "a", servings: 1 }] });
   const m = buildServe(t, RECIPE, PROFILES, { a: null });
-  assert.equal(m.rows[0].kind, "plate");
-  assert.equal(m.rows[0].note, undefined);
+  assert.equal(m.rows[0].kind, "aside");
+  assert.equal(m.rows[0].note, "their profile could not be read");
+  const loading = buildServe(t, RECIPE, PROFILES, {});
+  assert.equal(loading.rows[0].kind, "plate");
+});
+
+test("a seat the plate screen skipped reads as an allergy, never 'save it'", () => {
+  const t = table({
+    buyerId: "a", // bought: the skipped seat's share is in the pan
+    seats: [
+      { id: "a", servings: 1 },
+      { id: "b", servings: 1, status: "skipped", auto: true, blocked: "contains peanut" },
+    ],
+  });
+  const m = buildServe(t, RECIPE, PROFILES, {});
+  const b = m.rows.find((r) => r.id === "b");
+  assert.equal(b?.kind, "aside");
+  assert.match(b?.note ?? "", /contains peanut\. Do not plate it\./);
 });
 
 test("panFraction speaks kitchen, never decimals", () => {

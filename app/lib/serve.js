@@ -108,13 +108,27 @@ export function buildServe(t, recipe, profilesOrder, rulesBySeat, synth) {
     const rules = rulesBySeat[p.id];
     const name = p.name ?? p.id;
     if (seat.status === "skipped") {
-      // only reachable when bought: their share exists as food
-      rows.push({ id: p.id, name, kind: "aside", fraction, note: "not here tonight, save it" });
+      // a seat the plate screen took off this dish is an ALLERGY, never a
+      // "save it for later" (Tribunal Realist, round 2): say so plainly
+      const blocked = /** @type {any} */ (seat).blocked;
+      rows.push({
+        id: p.id,
+        name,
+        kind: "aside",
+        fraction,
+        note: blocked ? `not for ${name}: ${blocked}. Do not plate it.` : "not here tonight, save it",
+      });
       continue;
     }
-    const hard = rules
-      ? recipeConflicts(recipe, rules.diet, rules.avoidIngredients, rules.avoidRecipes)
-      : [];
+    // fails closed (Tribunal Realist, round 2): a profile that was read and
+    // came back empty (null) is an unread allergy, so no plating instruction;
+    // undefined only means the rules are still loading
+    const hard =
+      rules === null
+        ? ["their profile could not be read"]
+        : rules
+          ? recipeConflicts(recipe, rules.diet, rules.avoidIngredients, rules.avoidRecipes)
+          : [];
     if (hard.length > 0) {
       // never hand the cook an instruction to plate this seat (spec §5.5):
       // their food is still in the pan (they count in the denominator), so
