@@ -24,6 +24,14 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
+    version: UNRELEASED,
+    date: "",
+    notes: [
+      "On a kitchen that does not cook every night, the week leans on big-pot and baking-dish dinners that keep, and a cook night only picks a dish whose pot holds everyone's portions.",
+      "Mid-week, Plan leads with the days; one button marks everything eaten today, and an evening ping asks if you ate it.",
+    ],
+  },
+  {
     version: "1.3",
     date: "2026-10-17",
     notes: [

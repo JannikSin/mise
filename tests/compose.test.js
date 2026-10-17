@@ -1072,6 +1072,51 @@ test("plate screen fails closed: a member whose profile cannot be read is not se
   }
 });
 
+// David's rhythm (2026-10-17): leftover-first dinners lead, and a pot must fit its pan.
+test("on a kitchen that does not cook every night, dinners come from the leftover-first dishes", () => {
+  const lf = new Set(["din-bulgogi", "din-gyros", "din-soup"]);
+  const bank = new Map(
+    [...KEEPS_BANK].map(([id, r]) => [
+      id,
+      r.mealType !== "dinner"
+        ? r
+        : // every dinner equally safe and batch-friendly: only the tag differs
+          {
+            ...r,
+            safeDays: 4,
+            tags: ["batch-friendly", ...(lf.has(id) ? ["leftover-first"] : [])],
+          },
+    ]),
+  );
+  const { events } = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx({ bankById: bank }));
+  const dinners = events.tables.filter((t) => t.slot === "dinner");
+  assert.ok(dinners.length > 0);
+  for (const t of dinners) assert.ok(lf.has(t.recipeId), `${t.date} ${t.recipeId} is leftover-first`);
+  // a kitchen that cooks every night keeps the full pool
+  const every = { ...COOK_BRIGADE, cookDays: [0, 1, 2, 3, 4, 5, 6] };
+  const all = planBrigadeWeek({ tables: [] }, every, sunCtx({ bankById: bank }));
+  assert.ok(
+    all.events.tables.some((t) => t.slot === "dinner" && !lf.has(t.recipeId)),
+    "every-night cooking is not narrowed",
+  );
+});
+
+test("a cook night only picks a dish whose maxServings holds every portion its pot feeds", () => {
+  // every dinner caps at 1 portion except din-stew; a pot feeding later nights needs more
+  const bank = new Map(
+    [...KEEPS_BANK].map(([id, r]) => [
+      id,
+      r.mealType === "dinner" ? { ...r, safeDays: 4, maxServings: id === "din-stew" ? 20 : 1 } : r,
+    ]),
+  );
+  const { events } = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx({ bankById: bank }));
+  const feeding = events.tables.filter(
+    (t) => t.slot === "dinner" && events.tables.some((x) => x.leftoverOf === t.id),
+  );
+  assert.ok(feeding.length > 0, "the week has pots that feed later nights");
+  for (const t of feeding) assert.equal(t.recipeId, "din-stew", `${t.date}: only the dish that fits`);
+});
+
 test("THE SUNDAY BATCH survives a Sunday-night SET: past the dinner cutoff the plan starts Monday, the batch prepped tonight still counts (2026-10-16)", () => {
   const b = { ...COOK_BRIGADE, cookDays: [0, 4, 5, 6], batches: [{ cookDay: 0, feeds: [2, 3] }] };
   // 8 pm Sunday: planning starts Monday, but the calendar still says Sunday
