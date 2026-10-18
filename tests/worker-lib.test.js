@@ -27,6 +27,7 @@ import {
   screenTailorAvoid,
   specialAvoidHits,
   buildNotifications,
+  EVENING_HOUR,
   isoWeekIdOf,
   buildAskRequest,
   parseAskResponse,
@@ -852,18 +853,60 @@ test("Sunday sends the batch reminder at 10", () => {
   assert.equal(out[0].title, "Batch day");
 });
 
-test("evening catch-up covers only uncooked meals — the log nag retired to Crystal", () => {
-  // no plan, nothing uncooked → silence (previously this hour nagged the log)
-  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 20, plan: null }), []);
-  const out = buildNotifications({ ...NOTIF_BASE, hour: 20, plan: PLAN_SHOPPED });
+test("evening ATE IT? ping, 11:00 pm Eastern, covers today's unconfirmed meals and swipe, with or without a receipt (2026-10-17, hour 2026-10-18)", () => {
+  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: EVENING_HOUR, plan: null }), []);
+  const out = buildNotifications({ ...NOTIF_BASE, hour: EVENING_HOUR, plan: PLAN_SHOPPED });
   assert.equal(out.length, 1);
-  assert.match(out[0].body, /2 planned meals not marked cooked/);
-  assert.ok(!/Not logged yet/.test(out[0].body));
-  const cooked = {
-    ...PLAN_SHOPPED,
-    entries: [{ ...PLAN_SHOPPED.entries[0], cookedAt: "2026-07-23" }],
+  assert.equal(out[0].title, "Ate it?");
+  assert.match(out[0].body, /2 of today's meals not marked eaten/);
+  const unshopped = { ...PLAN_SHOPPED };
+  delete unshopped.shoppedAt;
+  assert.equal(buildNotifications({ ...NOTIF_BASE, hour: EVENING_HOUR, plan: unshopped }).length, 1, "no receipt gate");
+  const withSharedAndSwipe = {
+    week: "2026-W30",
+    entries: [
+      { id: "t", date: "2026-07-23", slot: "dinner", table: "t1", freeText: "Chili", servings: 1 },
+      { id: "s", date: "2026-07-23", slot: "lunch", out: true, currency: "swipes", servings: 1 },
+    ],
   };
-  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 20, plan: cooked }), []);
+  assert.match(
+    buildNotifications({ ...NOTIF_BASE, hour: EVENING_HOUR, plan: withSharedAndSwipe })[0].body,
+    /2 of today's meals/,
+  );
+  const allDone = {
+    ...PLAN_SHOPPED,
+    entries: PLAN_SHOPPED.entries.map((e) => ({ ...e, cookedAt: "2026-07-23" })),
+  };
+  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: EVENING_HOUR, plan: allDone }), []);
+});
+
+test("shared meals ping on cook nights only: the cook dinner, never a leftover night or the shared breakfast and snack (2026-10-18)", () => {
+  const shared = (/** @type {Record<string, any>} */ e) => ({
+    id: e.slot,
+    date: "2026-07-23",
+    table: `t-${e.slot}`,
+    servings: 1,
+    ...e,
+  });
+  const cookNight = {
+    week: "2026-W30",
+    entries: [
+      shared({ slot: "dinner", freeText: "Oyakodon, plus the batch: Shepherd's pie" }),
+      shared({ slot: "breakfast", freeText: "Breakfast balls" }),
+      shared({ slot: "snack", freeText: "Muffins" }),
+    ],
+  };
+  const atFive = buildNotifications({ ...NOTIF_BASE, hour: 17, plan: cookNight });
+  assert.equal(atFive.length, 1);
+  assert.equal(atFive[0].title, "Cook dinner");
+  assert.match(atFive[0].body, /plus the batch/);
+  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 15, plan: cookNight }), [], "no snack ping");
+  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 7, plan: cookNight }), [], "no morning ping");
+  const leftoverNight = {
+    week: "2026-W30",
+    entries: [shared({ slot: "dinner", freeText: "Shepherd's pie (leftovers, reheat)", leftover: true })],
+  };
+  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 17, plan: leftoverNight }), []);
 });
 
 test("/ask: request grounds in the sanitized snapshot, response is plain text", () => {

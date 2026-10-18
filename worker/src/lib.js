@@ -1202,6 +1202,9 @@ export function validateDinnerDecision(input, candidateIds, personIds) {
 const APP_URL = "https://janniksin.github.io/mise/";
 
 /** meal slots the cook reminders cover, with their local reminder hour */
+/** The evening ATE IT? hour, Chicago clock (the cron's): 11:00 pm Eastern. */
+export const EVENING_HOUR = 22;
+
 const MEAL_HOURS = /** @type {const} */ ([
   ["lunch", 11],
   ["smoothie", 15],
@@ -1259,9 +1262,11 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
   // the day ahead. The "Log: ..." nag retired 2026-08-09 with the in-app
   // check-in (David: personal tracking lives in Crystal now) — mornings with
   // no meals to name send nothing at all.
+  // The kitchen's shared meals (e.table) stay out of this one: David's rule,
+  // 2026-10-18, is a ping on cook nights and the evening ATE IT? only.
   if (hour === 7) {
-    const brk = todayEntries("breakfast").filter((e) => !e.out);
-    const dinner = todayEntries("dinner").filter((e) => !e.out);
+    const brk = todayEntries("breakfast").filter((e) => !e.out && !e.table);
+    const dinner = todayEntries("dinner").filter((e) => !e.out && !e.table);
     const lines = [];
     if (shopped && brk.length > 0) lines.push(`Breakfast: ${brk.map(mealLine).join(" · ")}`);
     if (dinner.length > 0) lines.push(`Tonight: ${dinner.map(mealLine).join(" · ")}`);
@@ -1279,8 +1284,14 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
   // cook reminders, only for confirmed-shopped weeks and uncooked meals
   for (const [slot, mealHour] of MEAL_HOURS) {
     if (hour !== mealHour) continue;
+    // A shared meal pings only on a COOK NIGHT (David, 2026-10-18: "a ping on
+    // cook nights", three a week): its dinner, never a leftover or batch
+    // reheat, never the shared breakfast or snack.
     const due = todayEntries(slot).filter(
-      (e) => !e.out && !e.cookedAt && (e.table || (shopped && e.recipeId)),
+      (e) =>
+        !e.out &&
+        !e.cookedAt &&
+        (e.table ? slot === "dinner" && !e.leftover : shopped && e.recipeId),
     );
     if (due.length === 0) continue;
     const label = slot === "smoothie" || slot === "snack" ? "Afternoon fuel" : `Cook ${slot}`;
@@ -1330,17 +1341,27 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
   // evening catch-up: planned meals still unconfirmed. The not-logged-yet
   // nag retired with the in-app check-in (2026-08-09) — Crystal owns the
   // personal tracking now.
-  if (hour === 20) {
-    const uncooked = shopped
-      ? entries.filter((e) => e.date === dateIso && e.recipeId && !e.out && !e.cookedAt).length
-      : 0;
-    if (uncooked > 0) {
+  // ATE IT? (David, 2026-10-17: "ATE IT must be easier"; audit M62). One
+  // evening ping for today's meals not yet marked eaten: his own, the
+  // kitchen's shared ones, and the swipe. No longer gated on a receipt scan,
+  // which in 31 weeks happened twice, so the ping never fired.
+  // At 22:00 Chicago, which is 11:00 pm at Purdue (David, 2026-10-18: "about
+  // 11:00 pm").
+  if (hour === EVENING_HOUR) {
+    const meals = entries.filter(
+      (e) => e.date === dateIso && (e.recipeId || e.table) && !e.out && !e.cookedAt,
+    ).length;
+    const swipes = entries.filter(
+      (e) => e.date === dateIso && e.out && e.currency && !e.eatenAt,
+    ).length;
+    const open = meals + swipes;
+    if (open > 0) {
       out.push({
-        title: "Evening catch-up",
-        body: `${uncooked} planned meal${uncooked === 1 ? "" : "s"} not marked cooked`,
-        tags: "clipboard",
+        title: "Ate it?",
+        body: `${open} of today's meal${open === 1 ? "" : "s"} not marked eaten. Tap ATE IT on each one in Plan.`,
+        tags: "white_check_mark",
         priority: "default",
-        click: APP_URL,
+        click: `${APP_URL}#/plan`,
       });
     }
   }
