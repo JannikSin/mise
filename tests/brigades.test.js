@@ -925,3 +925,42 @@ test("Tribunal loop 2: a Sunday batch is cooked by Sunday's cook, whoever's turn
   assert.ok(batch.length > 0, "a batch was planned");
   for (const t of batch) assert.equal(t.cookId, sunday?.cookId, `${t.date} batch credited to the prep day's cook`);
 });
+
+// SUNDAY DINNER IS THE BATCH (David, 2026-10-18): with cookDays alone and no
+// separate batch, Sunday's own pot feeds the nights after it, so it gets the
+// batch rules (batch-style, never fish, nothing crisp, keeps past the need).
+test("v1.9c: with no separate batch, Sunday's dinner pot covers Mon to Thu under the batch rules", () => {
+  const dish = (id, food, tags, extra = {}) =>
+    recipe(id, 600, { tags, safeDays: 5, ingredients: [{ qty: 500, unit: "g", food }], ...extra });
+  const bank = new Map(
+    [
+      dish("chili-pot", "ground beef", ["batch-friendly"]),
+      dish("lentil-stew", "lentils", ["batch-friendly"]),
+      dish("turkey-bake", "ground turkey", ["meal-prep"]),
+      dish("salmon-bake", "salmon", ["batch-friendly"]),
+      dish("crispy-chicken-traybake", "chicken thigh", ["batch-friendly"]),
+      dish("peanut-chicken-curry", "peanut butter", ["batch-friendly"]),
+      dish("quick-stir-fry", "chicken breast", []),
+    ].map((r) => [r.id, r]),
+  );
+  const targets = new Map([
+    ["mom", { macros: { calories: 1800 }, mealSlots: ["breakfast", "lunch", "dinner"], avoidIngredients: ["peanut"] }],
+    ["laurie", { macros: { calories: 2000 }, mealSlots: ["breakfast", "lunch", "dinner"] }],
+  ]);
+  const WEEK5 = ["2026-10-25", "2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29"];
+  const ok = new Set(["chili-pot", "lentil-stew", "turkey-bake"]);
+  for (let salt = 0; salt < 8; salt++) {
+    const rule = { ...BRIGADE, from: "2026-10-25", until: "2026-11-21", cookDays: [0, 5], salt };
+    const { events } = planBrigadeWeek(
+      { tables: [] },
+      rule,
+      ctx({ dates: WEEK5, today: "2026-10-25", bankById: bank, targetsById: targets }),
+    );
+    const dinners = events.tables.filter((t) => t.slot === "dinner").sort((a, b) => a.date.localeCompare(b.date));
+    const sunday = dinners.find((t) => t.date === "2026-10-25");
+    assert.ok(sunday, "Sunday cooks");
+    assert.ok(ok.has(sunday.recipeId), `salt ${salt}: Sunday picked ${sunday.recipeId}`);
+    for (const t of dinners.filter((x) => x.date !== "2026-10-25"))
+      assert.equal(t.leftoverOf, sunday.id, `salt ${salt}: ${t.date} eats Sunday's pot`);
+  }
+});

@@ -1295,8 +1295,12 @@ export function planBrigadeWeek(events, brigade, ctx) {
         // a Sunday BATCH sits in the fridge for days before it is eaten: it
         // must reheat well (David, 2026-09-24: "not fish, not crispy things,
         // nothing that turns mushy"), so batch-style dishes only, never fish,
-        // and a dish that keeps a day past the need when there is one
-        if (prepDay) {
+        // and a dish that keeps a day past the need when there is one.
+        // The same holds for a cook night whose OWN pot feeds three or more
+        // nights (David, 2026-10-18: "Sunday dinner is always the batch"):
+        // with no separate batch, Sunday's dinner pot is the one that sits in
+        // the fridge until Thursday, so it gets the batch rules too (P4, P7).
+        if (prepDay || feeds.length >= 3) {
           const keeps = pool.filter(
             (r) =>
               isBatchDish(r) &&
@@ -1306,6 +1310,8 @@ export function planBrigadeWeek(events, brigade, ctx) {
           if (keeps.length > 0) pool = keeps;
           const roomy = pool.filter((r) => safeDaysOf(r) > need);
           if (roomy.length > 0) pool = roomy;
+        }
+        if (prepDay) {
           // two pots on the prep day are two DIFFERENT dishes
           const sameDay = cookedBySlot[slot]?.get(prepDay);
           const other = pool.filter((r) => r.id !== sameDay);
