@@ -3685,7 +3685,7 @@ function App() {
       const what = added
         .map(
           (a) =>
-            `${SLOT_META[a.slot]?.full ?? a.slot} (${a.name}, about ${a.kcal} kcal more to cook)`,
+            `${SLOT_META[a.slot]?.full ?? a.slot} (${a.name}, about ${a.kcal} kcal${a.madeOn ? "" : " more to cook"})`,
         )
         .join(", ");
       const made = added.filter((a) => a.madeOn);

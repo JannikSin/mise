@@ -1295,7 +1295,13 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
         (e.table ? slot === "dinner" && !e.leftover && e.mine !== false : shopped && e.recipeId),
     );
     if (due.length === 0) continue;
-    const label = slot === "smoothie" || slot === "snack" ? "Afternoon fuel" : `Cook ${slot}`;
+    // his batch on someone else's dinner night is titled as the batch, not dinner
+    const label =
+      slot === "smoothie" || slot === "snack"
+        ? "Afternoon fuel"
+        : due.every((e) => e.batchOnly)
+          ? "Cook the batch"
+          : `Cook ${slot}`;
     // one notification per hour, meals merged (smoothie+snack share 15:00)
     const existing = out.find((n) => n.title === label);
     const body = due.map(mealLine).filter(Boolean).join(" · ");
@@ -1319,7 +1325,7 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
       if (open > 0) {
         out.push({
           title: "Store run",
-          body: `${open} items on the list. Scan the receipt after — that's what unlocks cook reminders.`,
+          body: `${open} items on the list.`,
           tags: "shopping_cart",
           priority: "default",
           click: `${APP_URL}#/list`,

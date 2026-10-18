@@ -923,6 +923,7 @@ test("shared meals ping on cook nights only: the cook dinner, never a leftover n
   };
   const batchPing = buildNotifications({ ...NOTIF_BASE, hour: 17, plan: batchOnTheirNight });
   assert.equal(batchPing.length, 1);
+  assert.equal(batchPing[0].title, "Cook the batch");
   assert.equal(batchPing[0].body, "the batch: Shepherd's pie");
   assert.match(
     buildNotifications({ ...NOTIF_BASE, hour: EVENING_HOUR, plan: batchOnTheirNight })[0].body,

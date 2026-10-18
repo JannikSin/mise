@@ -1664,13 +1664,17 @@ export function ShoppingView({
             // "take turns" this list, and so the cart, holds only my nights
             (brigade?.othersBuy ?? []).length > 0 &&
             html`<p class="hint">
-              Not on your list:
-              ${" "}${(brigade?.othersBuy ?? [])
+              ${[...new Set((brigade?.othersBuy ?? []).map((o) => o.name))]
                 .map(
-                  (o) =>
-                    `${parseLocalIso(o.date).toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" })} (${o.name} buys)`,
+                  (name) =>
+                    `${name} buys some of the food for ${(brigade?.othersBuy ?? [])
+                      .filter((o) => o.name === name)
+                      .map((o) =>
+                        parseLocalIso(o.date).toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" }),
+                      )
+                      .join(", ")}`,
                 )
-                .join(", ")}.
+                .join("; ")}, so that food is not on your list.
             </p>`
           }
           ${
