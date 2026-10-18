@@ -1189,21 +1189,36 @@ export function useRecipeOnTable(events, tableId, recipe, targetsById, nameOf) {
   const t = (events?.tables ?? []).find((x) => x.id === tableId);
   if (!t) return { refused: ["there is no shared dinner that night"] };
   if (t.cookedAt) return { refused: ["that dinner is already cooked"] };
+  // a leftover night eats another night's pot: the swap belongs on the night
+  // the pot is cooked (Tribunal Red Team, v1.7b: swapping it here bought
+  // nothing and the next SET put the old dish back)
+  if (t.leftoverOf) return { refused: ["that night eats another night's pot; pick the night it is cooked"] };
+  // a frozen pot is bought food: swapping it orphans the groceries
+  if (t.pot) return { refused: ["its food is already bought"] };
+  // EVERY night that eats this pot is screened and rewritten with it (Tribunal
+  // Red Team, v1.7b: a roommate skipped on the cook night but seated on the
+  // leftover night was never screened, and the pot is cooked with their plate)
+  const fed = (events.tables ?? []).filter((x) => x.leftoverOf === tableId && !x.cookedAt);
   /** @type {string[]} */
   const refused = [];
-  for (const seat of t.seats ?? []) {
-    if (/** @type {any} */ (seat).status === "skipped") continue;
-    const no = seatScreen(recipe, targetsById.get(seat.id) ?? null);
-    if (no.length > 0) refused.push(`${nameOf(seat.id)}: ${no.join(", ")}`);
+  const screened = new Set();
+  for (const table of [t, ...fed]) {
+    for (const seat of table.seats ?? []) {
+      if (/** @type {any} */ (seat).status === "skipped" || screened.has(seat.id)) continue;
+      screened.add(seat.id);
+      const no = seatScreen(recipe, targetsById.get(seat.id) ?? null);
+      if (no.length > 0) refused.push(`${nameOf(seat.id)}: ${no.join(", ")}`);
+    }
   }
   if (refused.length > 0) return { refused };
+  const fedIds = new Set(fed.map((x) => x.id));
   return {
     events: {
       ...events,
       tables: events.tables.map((x) => {
-        if (x.id !== tableId) return x;
+        if (x.id !== tableId && !fedIds.has(x.id)) return x;
         /** @type {Record<string, any>} */
-        const next = { ...x, recipeId: String(recipe.id), pinned: true };
+        const next = { ...x, recipeId: String(recipe.id), ...(x.id === tableId ? { pinned: true } : {}) };
         delete next.pot;
         delete next.tailor;
         return /** @type {TableEvent} */ (next);

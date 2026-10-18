@@ -16,7 +16,7 @@ const table = (over = {}) => ({
     { id: "david", servings: 1 },
     { id: "elliot", servings: 0.75 },
   ],
-  pot: "solved-for-chili",
+
   tailor: { seats: {}, cook: [] },
   ...over,
 });
@@ -68,4 +68,28 @@ test("a seat skipped at that dinner is not screened against the dish", () => {
     ],
   });
   assert.ok("events" in useRecipeOnTable({ tables: [skipped] }, skipped.id, satay, targets, name));
+});
+
+test("Tribunal v1.7b: the leftover nights that eat the pot are screened and rewritten with it", () => {
+  const cook = table({ seats: [{ id: "david", servings: 1 }, { id: "elliot", servings: 0.75, status: "skipped" }] });
+  const left = table({
+    id: "b-k-2026-10-22-dinner",
+    date: "2026-10-22",
+    leftoverOf: cook.id,
+    seats: [{ id: "david", servings: 1 }, { id: "elliot", servings: 0.75 }],
+  });
+  const peanut = useRecipeOnTable({ tables: [cook, left] }, cook.id, satay, targets, name);
+  assert.ok("refused" in peanut, "elliot eats the pot on the leftover night, so a peanut pot is refused");
+  const ok = useRecipeOnTable({ tables: [cook, left] }, cook.id, curry, targets, name);
+  assert.ok(!("refused" in ok));
+  const out = /** @type {any} */ (ok).events.tables;
+  assert.deepEqual(out.map((x) => x.recipeId), [curry.id, curry.id], "the leftover night eats the new pot");
+  assert.equal(out[1].pinned, undefined, "only the cook night is pinned");
+});
+
+test("Tribunal v1.7b: a leftover night or an already-bought pot is never swapped", () => {
+  const left = table({ leftoverOf: "b-k-2026-10-19-dinner" });
+  assert.ok("refused" in useRecipeOnTable({ tables: [left] }, left.id, curry, targets, name));
+  const bought = table({ pot: "solved-for-chili" });
+  assert.ok("refused" in useRecipeOnTable({ tables: [bought] }, bought.id, curry, targets, name));
 });

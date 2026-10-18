@@ -3706,8 +3706,12 @@ function App() {
       if (cur && table) {
         /** @type {Map<string, Record<string, any> | null>} */
         const targetsById = new Map();
-        for (const s of table.seats ?? []) {
-          if (/** @type {any} */ (s).status === "skipped") continue;
+        // the cook night AND every night that eats its pot (Tribunal, v1.7b)
+        const fedSeats = cur.tables
+          .filter((x) => x.leftoverOf === table.id)
+          .flatMap((x) => x.seats ?? []);
+        for (const s of [...(table.seats ?? []), ...fedSeats]) {
+          if (/** @type {any} */ (s).status === "skipped" || targetsById.has(s.id)) continue;
           targetsById.set(
             s.id,
             /** @type {any} */ (await readTargetsOf(s.id).catch(() => null)) ?? null,

@@ -349,7 +349,7 @@ export function ShoppingView({
   // thumbnails, each frame's scanned items, progress, and what he said. Its
   // READ IT BACK lands in `heard`, the same preview SAY WHAT YOU HAVE uses.
   const [walk, setWalk] = useState(
-    /** @type {null | { busy?: string, error?: string, thumbs?: string[], items?: { name: string, kind: string, qty: string }[][], failed?: number }} */ (
+    /** @type {null | { busy?: string, error?: string, thumbs?: string[], items?: { name: string, kind: string, qty: string }[][], failed?: number, limited?: number }} */ (
       null
     ),
   );
@@ -491,10 +491,10 @@ export function ShoppingView({
       const frames = await sampleVideoFrames(file, (d) => frameTimes(d, 8));
       const thumbs = frames.map((f) => URL.createObjectURL(f));
       setWalk({ busy: `looking at frame 0 of ${frames.length}…`, thumbs });
-      const { items, failed } = await scanFrames(frames, (done, total) =>
+      const { items, failed, limited } = await scanFrames(frames, (done, total) =>
         setWalk((w) => ({ ...(w ?? {}), busy: `looking at frame ${done} of ${total}…` })),
       );
-      setWalk({ thumbs, items, failed });
+      setWalk({ thumbs, items, failed, limited });
     } catch (err) {
       setWalk({ error: err instanceof Error ? err.message : "that video could not be read" });
     }
@@ -2661,7 +2661,11 @@ export function ShoppingView({
             ${
               walk?.items &&
               html`<p class="hint">
-                ${walk.items.length} frames looked at${walk.failed ? `, ${walk.failed} could not be read` : ""}.
+                ${walk.items.length} frames looked at${
+                  walk.limited
+                    ? `, ${walk.limited} skipped because Mise was asked too fast (try again in a few minutes)`
+                    : ""
+                }${(walk.failed ?? 0) - (walk.limited ?? 0) > 0 ? `, ${(walk.failed ?? 0) - (walk.limited ?? 0)} could not be read` : ""}.
                 What you say wins over what a frame guessed. The read-back shows under Say what you have.
               </p>`
             }

@@ -198,12 +198,15 @@ export async function sampleVideoFrames(file, timesFor) {
  * @param {Blob[]} frames
  * @param {(done: number, total: number) => void} [onProgress]
  * @param {(file: Blob) => Promise<{ name: string, kind: string, qty: string }[]>} [scan] test seam
- * @returns {Promise<{ items: { name: string, kind: string, qty: string }[][], failed: number }>}
+ * @returns {Promise<{ items: { name: string, kind: string, qty: string }[][], failed: number, limited: number }>}
  */
 export async function scanFrames(frames, onProgress, scan = scanPhoto) {
   /** @type {{ name: string, kind: string, qty: string }[][]} */
   const items = [];
   let failed = 0;
+  // frames refused for asking too fast are counted apart, so the screen can
+  // say "slow down" instead of "could not be read" (Tribunal, v1.7b)
+  let limited = 0;
   let done = 0;
   let next = 0;
   /** @type {Error | null} */
@@ -216,6 +219,7 @@ export async function scanFrames(frames, onProgress, scan = scanPhoto) {
       } catch (e) {
         failed++;
         lastErr = e instanceof Error ? e : new Error("scan failed");
+        if (/slow down|429|rate/i.test(lastErr.message)) limited++;
         items[i] = [];
       }
       done++;
@@ -224,7 +228,7 @@ export async function scanFrames(frames, onProgress, scan = scanPhoto) {
   };
   await Promise.all([lane(), lane(), lane()]);
   if (frames.length > 0 && failed === frames.length && lastErr) throw lastErr;
-  return { items, failed };
+  return { items, failed, limited };
 }
 
 /**
