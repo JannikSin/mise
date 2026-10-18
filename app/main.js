@@ -4841,6 +4841,12 @@ function App() {
     />`}
     ${route.view === "status" && html`<${StatusView} code=${/** @type {any} */ (route).code ?? ""} />`}
     ${
+      // a signed-in phone opening a guest's page: say whose page it is
+      // rather than show a blank screen (v1.6 builder note)
+      route.view === "me" &&
+      html`<div class="view"><p class="hint">This page is for guests. Your own meals are on Plan.</p></div>`
+    }
+    ${
       route.view === "hall" &&
       html`<${HallView}
         targets=${targets}
