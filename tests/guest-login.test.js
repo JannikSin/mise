@@ -95,4 +95,6 @@ test("a guest sees first names and a whitelisted recipe, nothing else", () => {
   assert.deepEqual(Object.keys(r).sort(), ["ingredients", "name", "servings", "steps"]);
   assert.deepEqual(Object.keys(r.ingredients[0]).sort(), ["food", "note", "qty", "unit"]);
   assert.deepEqual(r.steps, ["Brown it."]);
+  const salt = guestRecipe({ name: "x", ingredients: [{ food: "salt", qty: null }, { food: "pepper" }] });
+  assert.deepEqual(salt.ingredients.map((i) => i.qty), [null, null], "no amount is null, never 0");
 });

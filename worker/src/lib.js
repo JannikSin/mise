@@ -3457,7 +3457,9 @@ export function guestRecipe(r) {
     name: str(r.name, 120),
     servings: Number(r.servings) > 0 ? Number(r.servings) : 1,
     ingredients: (Array.isArray(r.ingredients) ? r.ingredients : []).slice(0, 40).map((i) => ({
-      qty: Number.isFinite(Number(i?.qty)) ? Number(i.qty) : null,
+      // a missing amount is null, never 0 ("salt to taste" shows no number)
+      qty:
+        i?.qty == null || i.qty === "" || !Number.isFinite(Number(i.qty)) ? null : Number(i.qty),
       unit: str(i?.unit, 20),
       food: str(i?.food, 80),
       note: str(i?.note, 160),

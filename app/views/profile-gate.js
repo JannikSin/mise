@@ -59,7 +59,7 @@ function splitList(/** @type {string} */ s) {
 }
 
 /**
- * @param {{ guest?: boolean, onDone?: (id: string) => void, invite?: { code: string, house: string }, busy?: boolean, onInviteSubmit?: (entry: Record<string, any>, targets: Record<string, any>) => Promise<void>, lead?: any }} [props] guest
+ * @param {{ guest?: boolean, onDone?: (id: string) => void, invite?: { code: string, house: string }, busy?: boolean, onInviteSubmit?: (entry: Record<string, any>, targets: Record<string, any>) => Promise<void>, lead?: any, extraValid?: boolean }} [props] guest
  * mode (guesthouse spec §8, David's yes 2026-08-29 plenum): the SAME
  * questionnaire, but the profile lands in the `guesthouse` household, the
  * device stays signed in as its owner, and onDone fires instead of a
@@ -73,6 +73,8 @@ export function ProfileGateView({
   busy = false,
   onInviteSubmit = undefined,
   lead = null,
+  // the caller's own fields must be valid too (v1.6: the guest's login)
+  extraValid = true,
 } = {}) {
   const [profiles, setProfiles] = useState(/** @type {Record<string, any>[]} */ ([]));
   const [loading, setLoading] = useState(true);
@@ -193,7 +195,7 @@ export function ProfileGateView({
     numeric.weightLb <= 500;
 
   const addProfile = async () => {
-    if (!formValid || saving || busy) return;
+    if (!formValid || saving || busy || !extraValid) return;
     const trimmedName = name.trim();
     const id = trimmedName
       .toLowerCase()
@@ -354,8 +356,8 @@ export function ProfileGateView({
         <div class="sub">
           ${invite
             ? invite.house === "guesthouse"
-              ? "Welcome to Mise. This is a guest link: make your profile once, here on your own phone, and every plate you're served is sized to your numbers and checked against your allergies."
-              : `you've been invited to join ${invite.house ? `the ${invite.house}` : "a shared"} kitchen. Fill this in once, on your own phone.`
+              ? "Welcome to Mise. This is a guest link: make your profile once, here on your own phone, and every plate is sized for you and checked against your allergies."
+              : "You've been invited to join a shared kitchen. Fill this in once, on your own phone."
             : guest
               ? "guest profile — fill this in and the table sets your plate to your own numbers"
               : "who's checking in?"}
@@ -856,7 +858,7 @@ export function ProfileGateView({
           </details>
 
           <div class="actions">
-            <button class="primary" onClick=${addProfile} disabled=${!formValid || saving}>
+            <button class="primary" onClick=${addProfile} disabled=${!formValid || saving || !extraValid}>
               ${saving ? "SETTING UP…" : "ADD & OPEN"}
             </button>
           </div>

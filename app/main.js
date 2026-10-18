@@ -5156,9 +5156,11 @@ function GuestLinkRoot() {
     setSession(s);
     location.hash = "#/me";
   };
-  const signOut = () => {
+  const [notice, setNotice] = useState("");
+  const signOut = (/** @type {boolean | undefined} */ expired) => {
     setGuestSession("");
     setSession("");
+    setNotice(expired ? "You were signed out. Log in again." : "");
   };
   const r = /** @type {any} */ (route);
   if (r.view === "status") return html`<${StatusView} code=${r.code ?? ""} />`;
@@ -5166,6 +5168,7 @@ function GuestLinkRoot() {
   return html`<${WelcomeView}
     code=${r.view === "join" ? (r.code ?? "") : ""}
     member=${Boolean(r.member)}
+    notice=${notice}
     onSignedIn=${signedIn}
   />`;
 }

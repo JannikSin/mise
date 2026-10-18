@@ -38,6 +38,14 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
   // passkey"), so next time the guest types it instead of needing the link
   const [loginName, setLoginName] = useState("");
   const [pin, setPin] = useState("");
+  // the server's own rule, checked here so SAVE waits until both are right
+  const nameOk = /^\p{L}[\p{L} '-]*$/u.test(loginName.trim().replace(/\s+/g, " ")) &&
+    loginName.trim().length >= 2 &&
+    loginName.trim().length <= 30;
+  const pinOk = /^\d{4}$/.test(pin);
+  // an error about the login (taken, too many tries, no signal) shows by the
+  // login fields; the survey stays filled in
+  const [loginError, setLoginError] = useState("");
   const nextDinners = Array.from({ length: 14 }, (_, n) => {
     const d = new Date();
     d.setDate(d.getDate() + n);
@@ -61,7 +69,7 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
         <div class="k">${state.name}</div>
         <p class="hint">
           Your profile is saved and
-          ${state.house === "guesthouse" ? "you can be seated at any table" : `you are a member of the ${state.house} kitchen`}.
+          ${state.house === "guesthouse" ? "you can be seated at any table" : "you are a member of the shared kitchen"}.
           The cook sees your numbers and allergies the moment they add you to a meal.
           ${dinners.length > 0
             ? ` We told the cook you could come ${dinners.length} night${dinners.length === 1 ? "" : "s"}; they confirm it.`
@@ -79,35 +87,40 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
       </div>
     </div>`;
   }
+  // a used, expired or unknown link cannot be retried: no TRY AGAIN, just
+  // what to do (Tribunal, 2026-10-18)
   if (state.kind === "error") {
     return html`<div class="view">
       <div class="hero">
         <h1>Mise<span>.</span></h1>
       </div>
       <div class="tile">
-        <p class="hint scanerr">${state.message}</p>
-        <div class="actions">
-          <button class="secondary" onClick=${() => setState({ kind: "form" })}>TRY AGAIN</button>
-        </div>
+        <p class="hint scanerr">
+          This link can't be used any more. Ask your host to send a new link.
+        </p>
       </div>
     </div>`;
   }
   const loginTile = html`<div class="tile">
     <div class="k">Your login</div>
     <p class="hint">
-      What you'll type next time to see your meals. A name only you would use, and 4 digits.
+      Pick any name you'll remember, like your first name and last initial. Then pick 4 digits.
+      You'll type both to see your meals next time.
     </p>
     <div class="token-form">
       <input
         aria-label="Login name"
-        placeholder="login name (e.g. Sam K)"
+        placeholder="your name, e.g. Sam K"
         autocomplete="username"
         value=${loginName}
-        onInput=${(/** @type {any} */ e) => setLoginName(e.currentTarget.value)}
+        onInput=${(/** @type {any} */ e) => {
+          setLoginName(e.currentTarget.value);
+          setLoginError("");
+        }}
       />
       <input
         aria-label="4-digit passkey"
-        placeholder="4-digit passkey"
+        placeholder="4 digits you choose"
         inputmode="numeric"
         maxlength="4"
         autocomplete="new-password"
@@ -115,6 +128,14 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
         onInput=${(/** @type {any} */ e) => setPin(e.currentTarget.value.replace(/\D/g, "").slice(0, 4))}
       />
     </div>
+    ${
+      (loginName || pin) &&
+      !(nameOk && pinOk) &&
+      html`<p class="hint">
+        ${!nameOk ? "A name of 2 to 30 letters (spaces, ' and - are fine). " : ""}${!pinOk ? "Exactly 4 digits." : ""}
+      </p>`
+    }
+    ${loginError && html`<p class="hint scanerr" role="status">${loginError}</p>`}
   </div>`;
   const dinnerPicker = !member
       ? html`<div class="tile">
@@ -143,14 +164,18 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
     invite=${{ code, house: member ? house : "guesthouse" }}
     lead=${html`${loginTile}${dinnerPicker}`}
     busy=${state.kind === "busy"}
+    extraValid=${nameOk && pinOk}
     onInviteSubmit=${async (
       /** @type {Record<string, any>} */ entry,
       /** @type {Record<string, any>} */ targets,
     ) => {
-      if (loginName.trim().length < 2 || !/^\d{4}$/.test(pin)) {
-        setState({ kind: "error", message: "Set a login name and a 4-digit passkey at the top first." });
+      if (!nameOk || !pinOk) {
+        setLoginError(
+          "Almost done. Scroll up and add your login name (2 or more letters) and 4 digits, then tap save again.",
+        );
         return;
       }
+      setLoginError("");
       setState({ kind: "busy" });
       try {
         const r = await claimInvite(code, entry, targets, dinners, { name: loginName.trim(), pin });
@@ -160,7 +185,15 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
         }
         setState({ kind: "done", id: r.id, name: r.name, house: r.house });
       } catch (e) {
-        setState({ kind: "error", message: e instanceof Error ? e.message : "could not save" });
+        const msg = e instanceof Error ? e.message : "could not save";
+        // a dead link has nothing to retry; anything else stays on the form,
+        // filled in, with the reason beside the login fields
+        if (/already used|expired|does not exist/.test(msg)) {
+          setState({ kind: "error", message: msg });
+        } else {
+          setState({ kind: "form" });
+          setLoginError(msg);
+        }
       }
     }}
   />`;
@@ -221,7 +254,7 @@ export function StatusView({ code }) {
           (data.rows ?? []).length === 0
             ? html`<p class="hint">
                 Nothing on the calendar for you in the next two weeks yet. When
-                ${data.house ?? "the kitchen"} seats you at a meal, it shows up here.
+                your host seats you at a meal, it shows up here.
               </p>`
             : (data.rows ?? []).map(
                 (r) =>
@@ -263,9 +296,9 @@ const dayLabel = (/** @type {string} */ iso) =>
   });
 
 /**
- * @param {{ code: string, member?: boolean, onSignedIn: (session: string) => void }} props
+ * @param {{ code: string, member?: boolean, notice?: string, onSignedIn: (session: string) => void }} props
  */
-export function WelcomeView({ code, member = false, onSignedIn }) {
+export function WelcomeView({ code, member = false, notice = "", onSignedIn }) {
   const [mode, setMode] = useState(/** @type {"choose" | "login" | "signup"} */ ("choose"));
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
@@ -299,9 +332,15 @@ export function WelcomeView({ code, member = false, onSignedIn }) {
             ? "This is a guest link. New here? Sign up once. Been here before? Log in."
             : "Log in with the name and passkey you set when you signed up."}
         </p>
+        ${notice && html`<p class="hint" role="status">${notice}</p>`}
         <div class="actions">
-          <button class="ask" onClick=${() => setMode("login")}>LOG IN</button>
-          ${code && html`<button class="secondary" onClick=${() => setMode("signup")}>SIGN UP</button>`}
+          ${
+            // a link with a code is mostly a new guest: SIGN UP leads
+            code
+              ? html`<button class="ask" onClick=${() => setMode("signup")}>SIGN UP</button>
+                  <button class="secondary" onClick=${() => setMode("login")}>LOG IN</button>`
+              : html`<button class="ask" onClick=${() => setMode("login")}>LOG IN</button>`
+          }
         </div>
         ${!code && html`<p class="hint">To sign up, open the link your host sent you.</p>`}
       </div>`
@@ -346,7 +385,7 @@ export function WelcomeView({ code, member = false, onSignedIn }) {
 }
 
 /**
- * @param {{ session: string, onSignOut: () => void }} props
+ * @param {{ session: string, onSignOut: (expired?: boolean) => void }} props
  */
 export function GuestHomeView({ session, onSignOut }) {
   const [data, setData] = useState(/** @type {null | Awaited<ReturnType<typeof guestMe>>} */ (null));
@@ -360,7 +399,7 @@ export function GuestHomeView({ session, onSignOut }) {
         if (!alive) return;
         const msg = e instanceof Error ? e.message : "could not load";
         // a removed login or an expired session goes back to Welcome
-        if (/signed out/.test(msg)) onSignOut();
+        if (/signed out/.test(msg)) onSignOut(true);
         else setError(msg);
       });
     return () => {
@@ -410,19 +449,23 @@ export function GuestHomeView({ session, onSignOut }) {
                   ${recipe.ingredients.map(
                     (i, n) =>
                       html`<div class="hint" key=${n}>
-                        ${i.qty ?? ""} ${i.unit} ${i.food}${i.note ? `, ${i.note}` : ""}
+                        ${i.qty ? `${i.qty} ${i.unit} ` : ""}${i.food}${i.note ? `, ${i.note}` : ""}
                       </div>`,
                   )}
                   <div class="sub">Steps</div>
                   ${recipe.steps.map((s, n) => html`<p class="hint" key=${n}>${n + 1}. ${s}</p>`)}
                 </div>`
               }
-              ${!recipe && html`<p class="hint">tap for the recipe when your host has one in Mise</p>`}
+              ${
+                recipe
+                  ? !isOpen && html`<p class="hint">tap for the recipe</p>`
+                  : html`<p class="hint">Recipe not added yet</p>`
+              }
             </div>`;
           }))
     }
     <div class="actions">
-      <button class="secondary" onClick=${onSignOut}>SIGN OUT</button>
+      <button class="secondary" onClick=${() => onSignOut(false)}>SIGN OUT</button>
     </div>
     <p class="hint">Only your own meals. Reload to refresh.</p>
   </div>`;
