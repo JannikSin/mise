@@ -524,8 +524,10 @@ export function ShoppingView({
         };
       }
     })();
+    // a new walk replaces the last walk's narration, so filming twice never
+    // lists the same foods twice (Tribunal, v1.9)
     const fillSaid = (/** @type {string} */ text) => {
-      if (text) setWalkSaid((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
+      if (text) setWalkSaid(text);
     };
     try {
       const frames = await sampleVideoFrames(file, (d) => frameTimes(d, 8));
@@ -534,6 +536,7 @@ export function ShoppingView({
       const { items, failed, limited } = await scanFrames(frames, (done, total) =>
         setWalk((w) => ({ ...(w ?? {}), busy: `looking at frame ${done} of ${total}…` })),
       );
+      setWalk((w) => ({ ...(w ?? {}), busy: "listening to what you said…" }));
       const said = await heard;
       fillSaid(said.text);
       setWalk({ thumbs, items, failed, limited, heardNote: said.note });

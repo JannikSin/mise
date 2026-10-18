@@ -130,6 +130,9 @@ export async function extractNarration(file) {
     /** @type {any} */ (globalThis).OfflineAudioContext ??
     /** @type {any} */ (globalThis).webkitOfflineAudioContext;
   if (!Ctx) return { reason: "decode-failed" };
+  // a multi-minute 4K clip held whole in memory can kill the tab before any
+  // catch runs (Tribunal, v1.9); past this size the box is for typing
+  if (file.size > 250 * 1024 * 1024) return { reason: "decode-failed" };
   try {
     const bytes = await file.arrayBuffer();
     // an OfflineAudioContext decodes without touching the speaker or asking
