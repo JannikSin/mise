@@ -24,6 +24,17 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
+    version: UNRELEASED,
+    date: "",
+    notes: [
+      "The kitchen rule has no end date. It keeps going, and pauses on its own for Purdue's Thanksgiving break (Nov 25 to 29) and winter break (Dec 20 to Jan 10). Your current rule switches over the first time you open the app.",
+      "Take turns cooks and buys separately now: the cooking rotates, but there is one list, bought by one person (you pick who in EDIT).",
+      "On a kitchen that does not cook every night, dinners lean on big pots and bakes that keep, and a cook night only picks a dish whose pan holds everyone. If a batch is too big for one pan, the week says so.",
+      "One bag of chocolate chips instead of three. Mid-week, Plan leads with the days, and ATE EVERYTHING TODAY marks the whole day in one tap.",
+      "Dining court trays are trays a person eats: at most two helpings of a dish, and toppings no longer count toward the protein.",
+    ],
+  },
+  {
     version: "1.4",
     date: "2026-10-18",
     notes: [
