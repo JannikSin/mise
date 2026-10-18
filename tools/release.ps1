@@ -275,8 +275,11 @@ $deadline = (Get-Date).AddMinutes(6)
 $built = $false
 do {
   Start-Sleep -Seconds 15
-  $b = gh api "repos/$GhRepo/pages/builds/latest" --jq '[.status, .commit] | @tsv'
-  $parts = $b -split "`t"
+  # GitHub sometimes answers this poll with nothing ("unexpected EOF"); an
+  # empty or short answer is a missed poll, not a failure, so keep polling.
+  $b = gh api "repos/$GhRepo/pages/builds/latest" --jq '[.status, .commit] | @tsv' 2>$null | Select-Object -First 1
+  $parts = @("$b" -split "`t")
+  if ($parts.Count -lt 2 -or $parts[1].Length -lt 7) { Write-Host "   pages: no answer this poll, retrying"; continue }
   Write-Host "   pages: $($parts[0]) @ $($parts[1].Substring(0,7))"
   if ($parts[0] -eq "built" -and $parts[1] -eq $shipSha) { $built = $true }
   if ($parts[0] -eq "errored") { Fail "Pages build errored" }
