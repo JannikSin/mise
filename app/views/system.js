@@ -27,6 +27,7 @@ import {
   setMemberRoles,
 } from "../lib/household.js";
 import { TOUR_STEPS, TOUR_TABS } from "../lib/tour.js";
+import { boundaryOn, isAdmin, makeAdminKey, validPasskey } from "../lib/privacy.js";
 import { EQUIPMENT, canMake, unlockCounts } from "../lib/equipment.js";
 import { SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { notifyTest } from "../lib/worker.js";
@@ -339,6 +340,22 @@ export function SystemView({
   // but renaming one for EVERYONE and adding a housemate could only be done
   // by editing JSON, which meant David could not do it. Standing rule: ship
   // the button, never fix the data backstage.
+  // the admin's own controls (privacy.js): before any admin is marked,
+  // everyone keeps today's controls; once marked, only the admin edits houses
+  const canEditHouses = !boundaryOn(allProfiles ?? []) || isAdmin(profile);
+  const [adminPin, setAdminPin] = useState("");
+  const [adminNote, setAdminNote] = useState("");
+  const saveAdminPin = async () => {
+    if (!validPasskey(adminPin)) {
+      setAdminNote("4 to 8 digits");
+      return;
+    }
+    const key = await makeAdminKey(adminPin);
+    if (await applyPatch((x) => ({ ...x, adminKey: key }))) {
+      setAdminPin("");
+      setAdminNote("saved: opening your profile on another phone now asks for it");
+    }
+  };
   const housemates = (allProfiles ?? []).filter((x) => (x.household ?? "home") === household);
   const outsiders = (allProfiles ?? []).filter((x) => (x.household ?? "home") !== household);
   const [houseDoc, setHouseDoc] = useState(/** @type {Record<string, any> | null} */ (null));
@@ -588,6 +605,23 @@ export function SystemView({
         <div class="actions">
           <button class="secondary" onClick=${switchProfile}>SWITCH PROFILE</button>
         </div>
+        ${
+          isAdmin(profile) &&
+          html`<div class="row">
+              <span class="k">Admin passkey</span>
+              <input
+                aria-label="Admin passkey"
+                type="password"
+                inputmode="numeric"
+                autocomplete="new-password"
+                placeholder=${profile?.adminKey ? "set (type to change)" : "not set"}
+                value=${adminPin}
+                onInput=${(/** @type {any} */ e) => setAdminPin(e.currentTarget.value)}
+              />
+              <button class="linktext" onClick=${saveAdminPin}>SET</button>
+            </div>
+            ${adminNote && html`<p class="hint">${adminNote}</p>`}`
+        }
         <h3>Your meals</h3>
         <p class="hint">
           The meals Mise plans for you each day. Turn one off and the week stops planning it (a
@@ -857,6 +891,12 @@ export function SystemView({
                   : html`<span class="status warn">unknown (offline?)</span>`
           }
         </div>
+        <p class="hint">
+          Each person's screens show only their own household and the guests at their own
+          table; the admin sees everyone. That boundary is in the app: anyone holding this data
+          token can read the private repo directly, and the app downloads every household's
+          meals, so the browser's developer tools or offline cache can still show them.
+        </p>
         <div class="row">
           <span class="k">Token</span>
           ${
@@ -926,6 +966,12 @@ export function SystemView({
       }
       <details class="tile moresettings">
         <summary class="k">More · houses, data repo, tests, version notes</summary>
+        ${
+          // houses, housemates and family are the admin's (David, 2026-10-18:
+          // "Other than me, who should have admin privileges ..."): a
+          // non-admin never sees other households here, nor moves into one
+          canEditHouses
+            ? html`
         <h3>Houses</h3>
         <div class="row">
           <span class="k">House</span>
@@ -1149,6 +1195,9 @@ export function SystemView({
           family is who you ARE, a house is the kitchen you cook and shop from right now. The
           profile chooser groups people by family; houses can change week to week.
         </p>
+            `
+            : html`<p class="hint">Houses and family are set by the kitchen's admin.</p>`
+        }
         <h3>Data repo</h3>
         <div class="row">
           <span class="k">Data repo</span>

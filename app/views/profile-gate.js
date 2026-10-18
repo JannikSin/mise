@@ -5,6 +5,24 @@ import { getToken } from "../lib/github.js";
 import { targetsFromQuestionnaire } from "../lib/targets.js";
 import { localIsoDate } from "../lib/dates.js";
 import { OnboardView } from "./onboard.js";
+import {
+  ADMIN_DEVICE_KEY,
+  DEVICE_HOUSE_KEY,
+  boundaryOn,
+  chooserProfiles,
+  isAdmin,
+  maySwitchTo,
+  profilesNamed,
+} from "../lib/privacy.js";
+
+/** @param {string} key */
+const stored = (key) => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
 
 /**
  * Full-screen profile chooser: shown by main.js when localStorage's
@@ -166,14 +184,38 @@ export function ProfileGateView({
     };
   }, []);
 
-  const choose = (/** @type {string} */ id) => {
+  // THE ADMIN ROW NEEDS ITS PASSKEY (Tribunal plan gate, 2026-10-18: on a
+  // roommate's phone, tapping the admin's name would have shown the family)
+  const [askPin, setAskPin] = useState(/** @type {string | null} */ (null));
+  const [pin, setPin] = useState("");
+  const [pinErr, setPinErr] = useState("");
+  const [typedName, setTypedName] = useState("");
+  const adminDevice = stored(ADMIN_DEVICE_KEY) === "1";
+  const signIn = (/** @type {string} */ id) => {
+    localStorage.setItem("mise.activeProfile", id);
+    location.reload();
+  };
+  const choose = async (/** @type {string} */ id, /** @type {string} */ withPin = "") => {
     if (guest) {
       // never sign in as a guest: hand the phone back and land on Tables
       onDone?.(id);
       return;
     }
-    localStorage.setItem("mise.activeProfile", id);
-    location.reload();
+    const target = profiles.find((p) => p.id === id);
+    if (isAdmin(target) && target?.adminKey && !withPin) {
+      setAskPin(id);
+      setPinErr("");
+      return;
+    }
+    if (!(await maySwitchTo(target, withPin, adminDevice))) {
+      setPinErr(
+        target?.adminKey
+          ? "that passkey doesn't match"
+          : "this profile can only be opened on its own phone",
+      );
+      return;
+    }
+    signIn(id);
   };
 
   const numeric = {
@@ -382,8 +424,10 @@ export function ProfileGateView({
         (() => {
           const famOf = (/** @type {Record<string, any>} */ p) => p.family ?? "";
           // §5: a guesthouse profile is never a sign-in identity — Sam must
-          // not see Priya, so nobody is ever "inside" the guesthouse
-          const offerable = profiles.filter((p) => p.household !== "guesthouse");
+          // not see Priya, so nobody is ever "inside" the guesthouse. And
+          // only this device's own household (privacy.js, 2026-10-18): a
+          // fresh device lists no one and asks for a name below.
+          const offerable = chooserProfiles(profiles, stored(DEVICE_HOUSE_KEY), adminDevice);
           const fams = [...new Set(offerable.map(famOf))];
           const showHeaders = fams.filter(Boolean).length > 0 && fams.length > 1;
           const block = (/** @type {Record<string, any>[]} */ list) => html`
@@ -411,6 +455,52 @@ export function ProfileGateView({
             );
         })()
       }
+      ${
+        askPin &&
+        html`<div class="tile">
+          <div class="k">Passkey</div>
+          <div class="token-form">
+            <input
+              aria-label="Passkey"
+              type="password"
+              inputmode="numeric"
+              autocomplete="off"
+              value=${pin}
+              onInput=${(/** @type {any} */ e) => setPin(e.currentTarget.value)}
+            />
+            <button class="ask" onClick=${() => choose(/** @type {string} */ (askPin), pin)}>OPEN</button>
+          </div>
+        </div>`
+      }
+      ${
+        !guest &&
+        !invite &&
+        boundaryOn(profiles) &&
+        html`<div class="tile">
+          <div class="k">Not listed? Type your name</div>
+          <div class="token-form">
+            <input
+              aria-label="Your name"
+              value=${typedName}
+              onInput=${(/** @type {any} */ e) => setTypedName(e.currentTarget.value)}
+            />
+            <button
+              class="secondary"
+              onClick=${() => {
+                const found = profilesNamed(profiles, typedName);
+                if (found.length !== 1) {
+                  setPinErr("no profile by that name on this kitchen's list");
+                  return;
+                }
+                void choose(/** @type {string} */ (found[0]?.id));
+              }}
+            >
+              OPEN
+            </button>
+          </div>
+        </div>`
+      }
+      ${pinErr && html`<p class="hint scanerr" role="status">${pinErr}</p>`}
       <button class="secondary linkbtn" hidden=${guest || Boolean(invite)} onClick=${() => setChatMode(true)}>
         prefer to chat? set up by conversation →
       </button>

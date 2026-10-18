@@ -24,6 +24,12 @@ import {
   pathFor,
 } from "./lib/store.js";
 import { initRouter, parseRoute } from "./lib/router.js";
+import {
+  visibleProfilesFor,
+  visibleHouseEventsFor,
+  DEVICE_HOUSE_KEY,
+  ADMIN_DEVICE_KEY,
+} from "./lib/privacy.js";
 import { normalizeEquipment } from "./lib/equipment.js";
 import {
   buyDayOf,
@@ -647,6 +653,29 @@ function App() {
 
   const allProfilesRef = useRef(allProfiles);
   allProfilesRef.current = allProfiles;
+  // WHO SEES WHOM (David, 2026-10-18; app/lib/privacy.js): logic keeps the
+  // raw lists, every VIEW gets these. A non-admin's screens show their own
+  // household plus guests seated at their own tables; the admin sees all.
+  const visibleProfiles = useMemo(
+    () => visibleProfilesFor(allProfiles, me, houseEvents, localIsoDate(new Date())),
+    [allProfiles, me, houseEvents],
+  );
+  const visibleHouseEvents = useMemo(
+    () => visibleHouseEventsFor(houseEvents, allProfiles, me),
+    [houseEvents, allProfiles, me],
+  );
+  // the chooser on this device lists only this household from now on, and
+  // the admin row is offered only where the admin has signed in before
+  useEffect(() => {
+    const mine = allProfiles.find((p) => p.id === me);
+    if (!mine) return;
+    try {
+      localStorage.setItem(DEVICE_HOUSE_KEY, String(mine.household ?? "home"));
+      if (mine.admin === true) localStorage.setItem(ADMIN_DEVICE_KEY, "1");
+    } catch {
+      // storage refused: the chooser falls back to asking for a name
+    }
+  }, [allProfiles, me]);
   useEffect(() => {
     let alive = true;
     const load = () => {
@@ -2701,10 +2730,10 @@ function App() {
       tables: (events?.tables ?? []).filter(
         (t) => t.fromBrigade === active.id && weekSet.has(t.date),
       ),
-      profiles: allProfiles,
+      profiles: visibleProfiles,
       me,
     };
-  }, [houseEvents, allProfiles, me, weekId]);
+  }, [houseEvents, allProfiles, visibleProfiles, me, weekId]);
 
   // the arrangement I was in that has ENDED, when none is active (pierogi,
   // 2026-10-04): Wayne kitchen ran out on Oct 2, the Plan tab said nothing,
@@ -4824,7 +4853,7 @@ function App() {
               onRemove: handleRemoveMoney,
             }
           : null}
-        profiles=${allProfiles}
+        profiles=${visibleProfiles}
         onSettle=${handleSettle}
         substitutions=${substitutions}
         onSubstitute=${handleSubstitute}
@@ -4937,7 +4966,7 @@ function App() {
     ${
       route.view === "menu" &&
       html`<${MenuView}
-        profiles=${allProfiles}
+        profiles=${visibleProfiles}
         me=${me}
         hasToken=${hasToken}
         repo=${repo}
@@ -4947,7 +4976,7 @@ function App() {
     ${
       route.view === "annotate" &&
       html`<${AnnotateView}
-        profiles=${allProfiles}
+        profiles=${visibleProfiles}
         me=${me}
         hasToken=${hasToken}
         repo=${repo}
@@ -4964,8 +4993,8 @@ function App() {
     ${
       route.view === "tables" &&
       html`<${TablesView}
-        houseEvents=${houseEvents}
-        profiles=${allProfiles}
+        houseEvents=${visibleHouseEvents}
+        profiles=${visibleProfiles}
         me=${me}
         showScoreboard=${hasCap("scoreboard")}
         todayIso=${localIsoDate(new Date())}
@@ -5006,7 +5035,7 @@ function App() {
       route.view === "occasions" &&
       html`<${OccasionsView}
         occasions=${occasions}
-        profiles=${allProfiles}
+        profiles=${visibleProfiles}
         me=${me}
         recipes=${allRecipes}
         todayIso=${localIsoDate(new Date())}
@@ -5019,7 +5048,7 @@ function App() {
     ${
       route.view === "dinner" &&
       html`<${DinnerView}
-        profiles=${allProfiles}
+        profiles=${visibleProfiles}
         me=${me}
         bankRecipes=${bankRecipes}
         hasToken=${hasToken}
