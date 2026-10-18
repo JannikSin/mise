@@ -1205,10 +1205,11 @@ const APP_URL = "https://janniksin.github.io/mise/";
 export const EVENING_HOUR = 22;
 
 /** meal slots the cook reminders cover, with their local reminder hour */
+// No 3 pm "Afternoon fuel" ping (David, 2026-10-18, his alert budget): the
+// snack is in the backpack from the morning, so the reminders are the day
+// ahead, cook nights, the store run and the evening ATE IT? only.
 const MEAL_HOURS = /** @type {const} */ ([
   ["lunch", 11],
-  ["smoothie", 15],
-  ["snack", 15],
   ["dinner", 17],
 ]);
 

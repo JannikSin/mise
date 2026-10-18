@@ -956,3 +956,15 @@ test("/ask: request grounds in the sanitized snapshot, response is plain text", 
   assert.equal(parsed.reply, "Sear then bake at 400F.");
   assert.ok(parseAskResponse({}).reply.length > 0, "empty response degrades honestly");
 });
+
+test("no 3 pm Afternoon fuel ping (David's alert budget, 2026-10-18)", () => {
+  const plan = {
+    week: "2026-W30",
+    shoppedAt: "2026-07-20",
+    entries: [
+      { id: "s", date: "2026-07-23", slot: "snack", recipeId: "muffins", servings: 1 },
+      { id: "m", date: "2026-07-23", slot: "smoothie", recipeId: "shake", servings: 1 },
+    ],
+  };
+  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 15, plan }), []);
+});
