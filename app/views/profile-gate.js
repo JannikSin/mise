@@ -1046,10 +1046,10 @@ export function ProfileGateView({
           </div>
           ${editNote && html`<p class="hint" role="status">${editNote}</p>`}
           ${saveErr && html`<p class="hint">⚠ ${saveErr}</p>`}
-          <p class="hint">
+          ${!edit && html`<p class="hint">
             ADD lights up when everything is filled in: name, emoji, age 10-100, height 3-7 ft
             (inches 0-11), weight 60-500 lb.
-          </p>
+          </p>`}
           <p class="hint">
             calories and protein are computed from these answers (Mifflin-St Jeor); recipes come
             from the shared bank matched to the goal. Everything is adjustable later in Settings.
