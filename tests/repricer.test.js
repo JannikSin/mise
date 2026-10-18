@@ -397,3 +397,43 @@ test("applyLivePrice refuses a sizeless pack write (P4 guard)", () => {
   assert.notEqual(next, cat);
   assert.equal(next.items[0].prices[STORE].size, "per lb");
 });
+
+test("THIS WEEK'S SALES (2026-10-18): a pinned row checked days ago is re-checked on BUILD, and a sale is counted", async () => {
+  const book = normalizePins({
+    redList: [],
+    stores: { [STORE]: { locationId: "02100824", name: "Pay Less" } },
+    pins: {
+      "brown-rice": { [STORE]: { upc: "111", description: "rice", size: "32 oz", soldBy: "UNIT" } },
+      "black-beans": { [STORE]: { upc: "222", description: "beans", size: "15 oz", soldBy: "UNIT" } },
+    },
+  });
+  // rice was priced 5 days ago (still fresh by STALE_PRICE_DAYS), beans today
+  let cat = applyLivePrice(EMPTY_CAT, STORE, "brown rice", productFor("111"), "2026-08-25");
+  cat = applyLivePrice(cat, STORE, "black beans", productFor("222"), TODAY);
+  /** @type {string[]} */
+  const asked = [];
+  const res = await repriceList({
+    items: [
+      { food: "brown rice", qty: 1, unit: "x", section: "grains" },
+      { food: "black beans", qty: 1, unit: "x", section: "canned" },
+    ],
+    pins: book,
+    prices: cat,
+    store: STORE,
+    todayIso: TODAY,
+    api: {
+      pricesById: async (upcs) => {
+        asked.push(...upcs);
+        return {
+          products: upcs.map((u) => productFor(u, { price: { regular: 2.5, promo: 1.99 } })),
+          failed: [],
+          requested: upcs.length,
+        };
+      },
+      search: async () => [],
+    },
+  });
+  assert.deepEqual(asked, ["111"], "only the row not checked today is asked for");
+  assert.equal(res.checkedToday, 2, "both rows now carry today's price");
+  assert.equal(res.onSale, 1, "this week's promo lands as a sale");
+});

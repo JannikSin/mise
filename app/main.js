@@ -1479,7 +1479,8 @@ function App() {
           avoid: targetsRef.current?.avoidIngredients ?? [],
           todayIso: localIsoDate(new Date()),
           api: { pricesById: krogerPricesById, search: krogerSearch },
-          onProgress: setRepriceNote,
+          // one plain line, not a progress counter (David, 2026-10-18)
+          onProgress: () => setRepriceNote("checking today's prices…"),
         });
         // the run took long enough for the user to have tapped $?, confirmed
         // a pin, or applied a receipt: their write wins. If the live books
@@ -1501,9 +1502,16 @@ function App() {
           if (res.pinsChanged) handleSavePins(res.pins);
           if (res.pricesChanged) handleSavePrices(res.prices);
         }
-        setRepriceNote(res.note);
+        // THE ONE LINE (2026-10-18): what David reads after BUILD. The
+        // engine's detail (re-priced, auto-picked, misses) stays out of it.
+        const where = String(normalizePins(book).stores?.[store]?.name ?? "your store");
+        setRepriceNote(
+          (res.checkedToday ?? 0) > 0
+            ? `prices checked today at ${where}${(res.onSale ?? 0) > 0 ? `; ${res.onSale} on sale` : ""}`
+            : "",
+        );
       } catch {
-        setRepriceNote("live pricing failed. The list still built.");
+        setRepriceNote("");
       } finally {
         repriceBusyRef.current = false;
       }

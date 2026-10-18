@@ -128,6 +128,8 @@ export function recordMiss(pins, food, store, todayIso) {
  *   pinsChanged: boolean,
  *   pricesChanged: boolean,
  *   ops: RepriceOp[],
+ *   checkedToday?: number,
+ *   onSale?: number,
  *   refreshed: number,
  *   autoPicked: number,
  *   missed: number,
@@ -176,13 +178,21 @@ export async function repriceList({ items, pins, prices, store, avoid = [], toda
   }
   const rows = [...byKey.values()];
 
-  // ---- phase 1: byId refresh for pinned rows whose price is stale or absent
+  // ---- phase 1: byId refresh for every pinned row not checked TODAY.
+  // THIS WEEK'S SALES (David, 2026-10-18: "Is it able to look for deals on
+  // Kroger? Because it should."): a sale lasts about a week, so a price
+  // checked 13 days ago (still "fresh" by STALE_PRICE_DAYS) misses this
+  // week's promo. Every row on the list that has a pin is re-checked on
+  // BUILD, inside the same byId chunk budget; a price already checked
+  // today is not asked for twice.
   const needsRefresh = rows.flatMap((it) => {
     const pin = pinFor(book, it.food, store);
     if (!pin?.upc) return [];
     const row = (cat.items ?? []).find((r) => r.id === pinKey(it.food));
     const sp = /** @type {any} */ (row?.prices?.[store]);
-    return !sp || isStalePrice(sp, todayIso) || !sp.at ? [{ food: it.food, upc: pin.upc }] : [];
+    return !sp || !sp.at || String(sp.at).slice(0, 10) < todayIso
+      ? [{ food: it.food, upc: pin.upc }]
+      : [];
   });
   const chunks = [];
   for (let i = 0; i < needsRefresh.length && chunks.length < BYID_MAX_CHUNKS; i += BYID_CHUNK) {
@@ -284,7 +294,22 @@ export async function repriceList({ items, pins, prices, store, avoid = [], toda
     }
   }
 
-  return done(summaryNote(refreshed, autoPicked, missed, needPick, truncated));
+  // the one line David reads (2026-10-18): how many rows on THIS list were
+  // checked today, and how many of them are on sale
+  let checkedToday = 0;
+  let onSale = 0;
+  for (const it of rows) {
+    const row = (cat.items ?? []).find((r) => r.id === pinKey(it.food));
+    const sp = /** @type {any} */ (row?.prices?.[store]);
+    if (!sp?.at || String(sp.at).slice(0, 10) !== todayIso) continue;
+    checkedToday += 1;
+    if (sp.sale) onSale += 1;
+  }
+  return {
+    ...done(summaryNote(refreshed, autoPicked, missed, needPick, truncated)),
+    checkedToday,
+    onSale,
+  };
 }
 
 /**
