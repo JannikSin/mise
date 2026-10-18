@@ -2,6 +2,7 @@ import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 import { ProfileGateView } from "./profile-gate.js";
 import { claimInvite, inviteStatus } from "../lib/worker.js";
+import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 
 // JOIN BY LINK (guesthouse spec §8, David 2026-09-14: "more onboarding
 // planning and implementation"). The host taps "invite by link" on a day's
@@ -29,6 +30,15 @@ export function JoinView({ code, house = "" }) {
       kind: "form",
     }),
   );
+  // WHICH DINNERS CAN YOU MAKE (David, 2026-10-18: "just give me the form and
+  // I'll give it to them"). The guest picks; the host seats them with one tap
+  // on People, and that tap runs the allergy screen. Optional.
+  const [dinners, setDinners] = useState(/** @type {string[]} */ ([]));
+  const nextDinners = Array.from({ length: 14 }, (_, n) => {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return localIsoDate(d);
+  });
   if (!code) {
     return html`<div class="view">
       <div class="hero">
@@ -75,8 +85,33 @@ export function JoinView({ code, house = "" }) {
       </div>
     </div>`;
   }
+  const dinnerPicker =
+    house === "guesthouse" || house === ""
+      ? html`<div class="tile">
+          <div class="k">Which dinners can you make?</div>
+          <div class="chips wrapchips" role="group" aria-label="Dinners you can make">
+            ${nextDinners.map((d) => {
+              const on = dinners.includes(d);
+              return html`<button
+                key=${d}
+                class=${on ? "chip on" : "chip"}
+                aria-pressed=${on}
+                onClick=${() => setDinners(on ? dinners.filter((x) => x !== d) : [...dinners, d])}
+              >
+                ${parseLocalIso(d).toLocaleDateString([], {
+                  weekday: "short",
+                  month: "numeric",
+                  day: "numeric",
+                })}
+              </button>`;
+            })}
+          </div>
+          <p class="hint">Tap every night that works. Then fill in your profile below.</p>
+        </div>`
+      : null;
   return html`<${ProfileGateView}
     invite=${{ code, house }}
+    lead=${dinnerPicker}
     busy=${state.kind === "busy"}
     onInviteSubmit=${async (
       /** @type {Record<string, any>} */ entry,
@@ -84,7 +119,7 @@ export function JoinView({ code, house = "" }) {
     ) => {
       setState({ kind: "busy" });
       try {
-        const r = await claimInvite(code, entry, targets);
+        const r = await claimInvite(code, entry, targets, dinners);
         setState({ kind: "done", id: r.id, name: r.name, house: r.house });
       } catch (e) {
         setState({ kind: "error", message: e instanceof Error ? e.message : "could not save" });

@@ -3132,6 +3132,33 @@ export function sanitizeInviteTargets(input) {
 }
 
 /**
+ * The dinners a guest says they can make (David, 2026-10-18: "just give me the
+ * form and I'll give it to them"). Dates only, YYYY-MM-DD, from yesterday
+ * (a phone a timezone behind) to two weeks out, unique, sorted, at most 14.
+ * Anything else is dropped, never refused: the dates are a wish the host
+ * acts on with one tap, and his tap runs the allergy screen.
+ * @param {any} input
+ * @param {string} todayIso the Worker's today, YYYY-MM-DD
+ * @returns {string[]}
+ */
+export function sanitizeInviteDinners(input, todayIso) {
+  if (!Array.isArray(input)) return [];
+  const day = (/** @type {number} */ n) => {
+    const d = new Date(`${todayIso}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+  const from = day(-1);
+  const until = day(14);
+  const ok = input
+    .slice(0, 40)
+    .filter(
+      (d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= from && d <= until,
+    );
+  return [...new Set(ok)].sort().slice(0, 14);
+}
+
+/**
  * A profile id from a name that does not collide with any existing id.
  * @param {string} name
  * @param {Set<string>} taken

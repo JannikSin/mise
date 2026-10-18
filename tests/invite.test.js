@@ -9,6 +9,7 @@ import {
   INVITE_CODE_RE,
   sanitizeInviteEntry,
   sanitizeInviteTargets,
+  sanitizeInviteDinners,
   slugForName,
   findInvite,
   inviteState,
@@ -105,4 +106,18 @@ test("inviteStatusRows: only this person's live seats in the window, with their 
   assert.deepEqual(rows, [
     { date: "2026-09-15", slot: "dinner", dish: "Dish pasta", servings: 1.25, plate: ["add 100 g pasta"], cook: "DAVID" },
   ]);
+});
+
+test("sanitizeInviteDinners: dates the guest can make, the next two weeks only (2026-10-18)", () => {
+  assert.deepEqual(
+    sanitizeInviteDinners(
+      ["2026-10-23", "2026-10-20", "2026-10-20", "2026-10-16", "2026-11-30", "Tue", 7, null],
+      "2026-10-18",
+    ),
+    ["2026-10-20", "2026-10-23"],
+    "sorted, unique, inside the window, junk dropped",
+  );
+  assert.deepEqual(sanitizeInviteDinners(["2026-10-17"], "2026-10-18"), ["2026-10-17"], "a phone a day behind");
+  assert.deepEqual(sanitizeInviteDinners("2026-10-20", "2026-10-18"), [], "not a list, nothing");
+  assert.deepEqual(sanitizeInviteDinners(undefined, "2026-10-18"), []);
 });

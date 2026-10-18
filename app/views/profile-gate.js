@@ -59,7 +59,7 @@ function splitList(/** @type {string} */ s) {
 }
 
 /**
- * @param {{ guest?: boolean, onDone?: (id: string) => void, invite?: { code: string, house: string }, busy?: boolean, onInviteSubmit?: (entry: Record<string, any>, targets: Record<string, any>) => Promise<void> }} [props] guest
+ * @param {{ guest?: boolean, onDone?: (id: string) => void, invite?: { code: string, house: string }, busy?: boolean, onInviteSubmit?: (entry: Record<string, any>, targets: Record<string, any>) => Promise<void>, lead?: any }} [props] guest
  * mode (guesthouse spec §8, David's yes 2026-08-29 plenum): the SAME
  * questionnaire, but the profile lands in the `guesthouse` household, the
  * device stays signed in as its owner, and onDone fires instead of a
@@ -72,6 +72,7 @@ export function ProfileGateView({
   invite = undefined,
   busy = false,
   onInviteSubmit = undefined,
+  lead = null,
 } = {}) {
   const [profiles, setProfiles] = useState(/** @type {Record<string, any>[]} */ ([]));
   const [loading, setLoading] = useState(true);
@@ -360,6 +361,7 @@ export function ProfileGateView({
               : "who's checking in?"}
         </div>
       </div>
+      ${lead}
       ${loading && html`<p class="hint">loading profiles…</p>`}
       ${
         fallback &&

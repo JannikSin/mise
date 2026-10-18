@@ -30,6 +30,7 @@ import {
   slugOf,
   sanitizeInviteEntry,
   sanitizeInviteTargets,
+  sanitizeInviteDinners,
   slugForName,
   findInvite,
   inviteState,
@@ -766,6 +767,7 @@ export default {
           return json(410, { error: "this invite has expired, ask for a new one" }, cors);
         const entry = sanitizeInviteEntry(body.entry);
         const targets = sanitizeInviteTargets(body.targets);
+        const dinners = sanitizeInviteDinners(body.dinners, nowIso.slice(0, 10));
         if (!entry) return json(400, { error: "a name and an emoji are required" }, cors);
         if (!targets) return json(400, { error: "the profile numbers did not make sense" }, cors);
         const house = slugOf(/** @type {any} */ (invite).house) || "guesthouse";
@@ -861,6 +863,8 @@ export default {
           capabilities: [],
           household: house,
           ...(entry.family ? { family: entry.family } : {}),
+          // the dinners they said they can make; the host seats them with one tap
+          ...(dinners.length > 0 ? { wantsDinners: dinners } : {}),
         };
         for (let attempt = 0; attempt < 2; attempt++) {
           const cur =

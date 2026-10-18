@@ -243,10 +243,11 @@ export async function newInvite(kind, hostHouse, by) {
  * @param {string} code
  * @param {Record<string, any>} entry
  * @param {Record<string, any>} targets
+ * @param {string[]} [dinners] YYYY-MM-DD dinners they can make (2026-10-18)
  * @returns {Promise<{ id: string, name: string, house: string }>}
  */
-export async function claimInvite(code, entry, targets) {
-  const data = await postOpen("/invite/claim", { code, entry, targets });
+export async function claimInvite(code, entry, targets, dinners = []) {
+  const data = await postOpen("/invite/claim", { code, entry, targets, dinners });
   return {
     id: String(data.id ?? ""),
     name: String(data.name ?? ""),

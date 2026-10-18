@@ -107,6 +107,10 @@ export function PeopleSection({
               const inKitchen = kitchenMemberIds.includes(p.id);
               const isOpen = open === p.id;
               const seatedOn = days.filter((d) => (dinnerGuests[d] ?? []).includes(p.id));
+              // the dinners they picked on their invite form (2026-10-18), still ahead and not seated
+              const asked = /** @type {string[]} */ (
+                Array.isArray(p.wantsDinners) ? p.wantsDinners : []
+              ).filter((d) => days.includes(d) && !seatedOn.includes(d));
               return html`
                 <div class="tile person" key=${p.id}>
                   <button
@@ -125,7 +129,9 @@ export function PeopleSection({
                           ? "eats from your kitchen"
                           : seatedOn.length > 0
                             ? `guest at dinner ${seatedOn.map(dayLabel).join(", ")}`
-                            : ""
+                            : asked.length > 0
+                              ? `can come ${asked.map(dayLabel).join(", ")}`
+                              : ""
                       }
                     </span>
                   </button>
@@ -156,6 +162,26 @@ export function PeopleSection({
                               </button>`;
                             })}
                           </div>
+                          ${
+                            asked.length > 0 &&
+                            html`<div class="actions">
+                              <button
+                                class="secondary"
+                                disabled=${busy}
+                                onClick=${() =>
+                                  run(async () => {
+                                    // one at a time: each add runs the plate screen and
+                                    // its own write, and says why if a dinner refuses them
+                                    const notes = [];
+                                    for (const d of asked) notes.push(await onAddToDinner(d, p.id));
+                                    return notes.filter(Boolean).join(" · ");
+                                  })}
+                              >
+                                ADD TO THE DINNERS THEY PICKED
+                                <small>${asked.map(dayLabel).join(", ")}</small>
+                              </button>
+                            </div>`
+                          }
                           <p class="hint">
                             Their plate comes from their own profile and the dinner is cooked
                             bigger by that much. Tap a day again to take them off.

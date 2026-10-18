@@ -131,6 +131,7 @@ test("a claim spends the code FIRST, then writes both targets files and one prof
         "the body's household is ignored; the invite decides",
       );
       assert.deepEqual(row.capabilities, []);
+      assert.equal(row.wantsDinners, undefined, "no dinners picked, no field");
       // the LIVE branch was never written
       assert.equal(repo.files.main["profiles.json"].obj.profiles.length, 1);
       assert.equal(repo.files.main["profiles/priya/profile/targets.json"], undefined);
@@ -368,4 +369,25 @@ test("an open-route failure never echoes internal detail", async () => {
     assert.ok(!/failed: \d{3}|api\.github|token/i.test(text), text);
     assert.equal(repo.calls.filter((c) => c.startsWith("PUT")).length, 0);
   });
+});
+
+test("the dinners a guest picks on the form land on their profile row (2026-10-18)", async () => {
+  await withRepo(
+    {
+      sandbox: {
+        "invites.json": { invites: [invite()] },
+        "profiles.json": { profiles: [{ id: "david", name: "David", household: "wayne" }] },
+      },
+      main: { "invites.json": { invites: [] }, "profiles.json": { profiles: [] } },
+    },
+    async (repo) => {
+      const res = await worker.fetch(
+        req("/invite/claim", { code: CODE, ...PRIYA, dinners: [plusDays(3), plusDays(1), "junk", plusDays(40)] }),
+        ENV,
+      );
+      assert.equal(res.status, 200, await res.text());
+      const row = repo.files.sandbox["profiles.json"].obj.profiles.find((p) => p.id === "priya");
+      assert.deepEqual(row.wantsDinners, [plusDays(1), plusDays(3)]);
+    },
+  );
 });
