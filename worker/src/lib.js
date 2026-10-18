@@ -1367,7 +1367,7 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
     if (open > 0) {
       out.push({
         title: "Ate it?",
-        body: `${open} of today's meal${open === 1 ? "" : "s"} not marked eaten. Tap ATE IT on each one in Plan.`,
+        body: `${open} of today's meal${open === 1 ? "" : "s"} not marked eaten. One tap: ATE EVERYTHING TODAY on Plan.`,
         tags: "white_check_mark",
         priority: "default",
         click: `${APP_URL}#/plan`,

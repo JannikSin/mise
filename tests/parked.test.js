@@ -28,3 +28,10 @@ test("the parked set is exactly what David parked on 2026-10-12 and 2026-10-16, 
   assert.equal(isParked("invite"), false, "invites were kept, never parked");
   assert.equal(isParked("reroll"), false, "PICK DIFFERENT MEALS is back (2026-10-18)");
 });
+
+// 2026-10-17: a fridge component goes with a dinner, never a planned snack
+test("fridge components are never auto-planned", async () => {
+  const { autoPlanEligible } = await import("../app/lib/plan.js");
+  assert.equal(autoPlanEligible({ id: "raita", mealType: "snack", tags: ["fridge-component"] }), false);
+  assert.equal(autoPlanEligible({ id: "muffin", mealType: "snack", tags: ["batch-friendly"] }), true);
+});

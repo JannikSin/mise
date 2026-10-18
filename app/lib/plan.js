@@ -299,6 +299,9 @@ export function autoPlanEligible(recipe) {
   if (untrustedForAutoPlan(recipe)) return false;
   if (recipe.mealType === "snack" && (tags.includes("drink") || tags.includes("beverage")))
     return false;
+  // a fridge component (labneh, raita, pickled onions) goes WITH a dinner;
+  // it is never a planned snack of its own (2026-10-17, the import)
+  if (tags.includes("fridge-component")) return false;
   return true;
 }
 

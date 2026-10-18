@@ -203,6 +203,54 @@ export function PlannerView({
   // week's first live day (a fully past week opens nothing)
   const defaultOpenDate = dates.includes(todayRef.current ?? "") ? todayRef.current : firstLive;
 
+  // MID-WEEK, THE WEEK COMES FIRST (2026-10-17 audit, M78; tenet 5): once
+  // the week on screen is today's week and already planned, the days lead
+  // and SET MY WEEK moves below them. Before that, SET leads.
+  const weekPlanned = plan.entries.some(
+    (e) => e.recipeId || /** @type {any} */ (e).viewRecipeId || e.table,
+  );
+  const setOnTop = !(dates.includes(todayIso) && weekPlanned);
+  const setBlock = html`
+      <div class="actions">
+        <button
+          class="ask"
+          aria-label="Set my week: fill what is missing, keep anything bought or cooked"
+          onClick=${() => onGenerateWeek(false)}
+          disabled=${recipes.length === 0 || firstLive == null || noTargets}
+        >
+          ✦ SET MY WEEK
+          <small>
+            ${
+              firstLive == null
+                ? "this week is over, nothing left to plan"
+                : brigadeCovers
+                  ? `shared meals and your own · keeps anything bought or cooked`
+                  : midWeek
+                    ? firstLive === dates[6]
+                      ? "plans today only · earlier days already eaten"
+                      : `plans ${parseLocalIso(firstLive).toLocaleDateString([], { weekday: "short" })}–Sat · earlier days already eaten`
+                    : "overlapping ingredients → fewer, bulkier buys"
+            }
+          </small>
+        </button>
+        ${
+          // BEFORE BUYING ONLY (Tribunal Realist, 2026-10-18): a cart pickup
+          // ticks nothing and stocks no pantry, so after GOING TO THE STORE
+          // the re-roll could not tell bought dinners from unbought ones and
+          // would swap food already paid for (tenet 5: decided at the start).
+          !isParked("reroll") &&
+          !(/** @type {any} */ (plan)?.fallback) &&
+          html`<button
+            class="secondary"
+            aria-label="Pick different meals for everything not bought or cooked"
+            onClick=${() => onGenerateWeek(true)}
+            disabled=${recipes.length === 0 || firstLive == null || noTargets}
+          >
+            PICK DIFFERENT MEALS
+            <small>swaps meals you have not bought or cooked yet</small>
+          </button>`
+        }
+      </div>`;
   return html`
     <div class="view" ref=${rootRef}>
       <div class="hero weeknav">
@@ -280,46 +328,7 @@ export function PlannerView({
           </div>
         `
       }
-      <div class="actions">
-        <button
-          class="ask"
-          aria-label="Set my week: fill what is missing, keep anything bought or cooked"
-          onClick=${() => onGenerateWeek(false)}
-          disabled=${recipes.length === 0 || firstLive == null || noTargets}
-        >
-          ✦ SET MY WEEK
-          <small>
-            ${
-              firstLive == null
-                ? "this week is over, nothing left to plan"
-                : brigadeCovers
-                  ? `shared meals and your own · keeps anything bought or cooked`
-                  : midWeek
-                    ? firstLive === dates[6]
-                      ? "plans today only · earlier days already eaten"
-                      : `plans ${parseLocalIso(firstLive).toLocaleDateString([], { weekday: "short" })}–Sat · earlier days already eaten`
-                    : "overlapping ingredients → fewer, bulkier buys"
-            }
-          </small>
-        </button>
-        ${
-          // BEFORE BUYING ONLY (Tribunal Realist, 2026-10-18): a cart pickup
-          // ticks nothing and stocks no pantry, so after GOING TO THE STORE
-          // the re-roll could not tell bought dinners from unbought ones and
-          // would swap food already paid for (tenet 5: decided at the start).
-          !isParked("reroll") &&
-          !(/** @type {any} */ (plan)?.fallback) &&
-          html`<button
-            class="secondary"
-            aria-label="Pick different meals for everything not bought or cooked"
-            onClick=${() => onGenerateWeek(true)}
-            disabled=${recipes.length === 0 || firstLive == null || noTargets}
-          >
-            PICK DIFFERENT MEALS
-            <small>swaps meals you have not bought or cooked yet</small>
-          </button>`
-        }
-      </div>
+      ${setOnTop && setBlock}
       ${
         // a SET that set nothing says why, in view (review, 2026-10-16): the
         // run's report is folded below, but "nothing was set" needs an action
@@ -424,6 +433,39 @@ export function PlannerView({
               </span>
             </summary>
             <div class="daymeals">
+              ${
+                // ONE TAP FOR THE DAY (David, 2026-10-17: "ATE IT must be
+                // easier"): every meal of today or an earlier day that is not
+                // yet confirmed, the swipe included, in one press
+                (() => {
+                  if (date > todayIso) return "";
+                  const meals = plan.entries.filter(
+                    (e) =>
+                      e.date === date &&
+                      !e.out &&
+                      !e.cookedAt &&
+                      byId.get(String(e.recipeId ?? /** @type {any} */ (e).viewRecipeId ?? "")),
+                  );
+                  const swipes = plan.entries.filter(
+                    (e) =>
+                      e.date === date &&
+                      e.out &&
+                      /** @type {any} */ (e).currency &&
+                      !(/** @type {any} */ (e).eatenAt),
+                  );
+                  if (meals.length + swipes.length < 2 || (!onCooked && !onSwipeEaten)) return "";
+                  return html`<button
+                    class="ateall"
+                    aria-label=${`Ate everything planned ${dayName} ${monthDay(date)}`}
+                    onClick=${() => {
+                      for (const e of meals) onCooked?.(e);
+                      for (const e of swipes) onSwipeEaten?.(date, String(e.slot));
+                    }}
+                  >
+                    ✓ ATE EVERYTHING ${date === todayIso ? "TODAY" : dayName.toUpperCase()}
+                  </button>`;
+                })()
+              }
               <div class="slotgrid">
                 ${SLOTS.map(({ key, label, full }) => {
                   const outEntry = outEntryAt(plan.entries, date, key);
@@ -724,6 +766,7 @@ export function PlannerView({
           </details>
         `;
       })}
+      ${!setOnTop && setBlock}
       <${CookBlocks}
         recipes=${identityRecipes ?? recipes}
         plan=${plan}

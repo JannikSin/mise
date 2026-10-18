@@ -179,6 +179,12 @@ const NAME_ALIASES = {
   "spring-onion": "scallion",
   "garbanzo-beans": "chickpeas",
   "greek-yoghurt": "greek-yogurt",
+  // ONE BAG OF CHIPS (2026-10-16 audit, M80): the bank says chocolate chips,
+  // dark, mini and semisweet, and the list bought three 10 oz bags for one
+  // week's bakes. They melt into the same muffin; one key, one bag.
+  "dark-chocolate-chips": "chocolate-chips",
+  "mini-chocolate-chips": "chocolate-chips",
+  "semisweet-chocolate-chips": "chocolate-chips",
   // the pantry says "Whey protein (5 lb tub)", recipes say "whey protein
   // powder" — two keys meant the PLENTY tub never suppressed the list row
   // and David was told to buy whey he owns in bulk (2026-08-18)
@@ -361,7 +367,7 @@ const FOOD_UNITS = {
   pecans: { unit: "cup", cup: 109 },
   almonds: { unit: "cup", cup: 143 },
   raisins: { unit: "cup", cup: 145 },
-  "dark-chocolate-chips": { unit: "cup", cup: 170 },
+  "chocolate-chips": { unit: "cup", cup: 170 },
   "frozen-mango": { unit: "cup", cup: 165 },
   // 2026-09-25: no weight for these three meant a cup or a tablespoon against
   // a pack sold by weight or by the piece was "unknowable" and charged the
