@@ -28,8 +28,8 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
-    version: UNRELEASED,
-    date: "",
+    version: "1.8",
+    date: "2026-10-18",
     notes: [
       "Settings has YOUR PROFILE: the full set of questions, filled in with what Mise already knows about you. Change anything and save; nothing else in your profile is touched. Your calorie target sits next to what Mise suggests from your numbers, and a target far from it asks you to say why.",
       "Each person sees only their own household, plus guests at their own table. David, as admin, sees everyone. David's profile has a passkey, so nobody can open it from another phone.",
