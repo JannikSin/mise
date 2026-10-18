@@ -24,8 +24,8 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
-    version: UNRELEASED,
-    date: "",
+    version: "1.5",
+    date: "2026-10-18",
     notes: [
       "The kitchen rule has no end date. It keeps going, and pauses on its own for Purdue's Thanksgiving break (Nov 25 to 29) and winter break (Dec 20 to Jan 10). Your current rule switches over the first time you open the app.",
       "When you take turns, the cooking rotates but there is one list, bought by one person: the shopper named on the kitchen rule. Change who in People, EDIT.",
