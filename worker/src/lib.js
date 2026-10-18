@@ -1297,13 +1297,8 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
     );
     if (due.length === 0) continue;
     // his batch on someone else's dinner night is titled as the batch, not dinner
-    const label =
-      slot === "smoothie" || slot === "snack"
-        ? "Afternoon fuel"
-        : due.every((e) => e.batchOnly)
-          ? "Cook the batch"
-          : `Cook ${slot}`;
-    // one notification per hour, meals merged (smoothie+snack share 15:00)
+    const label = due.every((e) => e.batchOnly) ? "Cook the batch" : `Cook ${slot}`;
+    // one notification per hour, meals merged
     const existing = out.find((n) => n.title === label);
     const body = due.map(mealLine).filter(Boolean).join(" · ");
     if (existing) {
