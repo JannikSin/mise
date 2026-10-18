@@ -910,7 +910,8 @@ export function SystemView({
           Each person's screens show only their own household and the guests at their own
           table; the admin sees everyone. That boundary is in the app: anyone holding this data
           token can read the private repo directly, and the app downloads every household's
-          meals, so the browser's developer tools or offline cache can still show them.
+          meals, so the browser's developer tools or offline cache can still show them, and a
+          fresh browser (or cleared site data) can still open a profile by typing its name.
         </p>
         <div class="row">
           <span class="k">Token</span>

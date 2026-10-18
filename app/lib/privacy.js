@@ -78,9 +78,8 @@ export function visibleHouseEventsFor(houseEvents, profiles, me) {
       ? h
       : {
           house: h.house,
+          // an allow-list, never a spread: only the tables you sit at
           events: {
-            ...h.events,
-            brigades: [],
             tables: (h.events?.tables ?? []).filter((/** @type {any} */ t) =>
               (t?.seats ?? []).some((/** @type {any} */ s) => s?.id === me),
             ),
@@ -115,9 +114,39 @@ export function chooserProfiles(profiles, deviceHouse, adminDevice) {
 export function profilesNamed(profiles, typed) {
   const key = String(typed ?? "").trim().toLowerCase();
   if (!key) return [];
+  // never the admin row: his profile opens from the list with its passkey
   return (profiles ?? []).filter(
-    (p) => p.household !== "guesthouse" && String(p.name ?? "").trim().toLowerCase() === key,
+    (p) =>
+      p.household !== "guesthouse" &&
+      !isAdmin(p) &&
+      String(p.name ?? "").trim().toLowerCase() === key,
   );
+}
+
+/**
+ * The household a NEW profile made on this device may join (Tribunal Red
+ * Team, 2026-10-18: "+ add profile" with a typed house put anyone into the
+ * family). Once the boundary is on, only the admin's device chooses; every
+ * other device creates in its own house ("home" on a fresh device).
+ * @param {Record<string, any>[]} profiles
+ * @param {string | null} deviceHouse
+ * @param {boolean} adminDevice
+ * @param {string} typed
+ */
+export function allowedNewHouse(profiles, deviceHouse, adminDevice, typed) {
+  if (!boundaryOn(profiles) || adminDevice) return typed;
+  return deviceHouse ?? "home";
+}
+
+/**
+ * The occasions a person's screens may show: only those of profiles they may
+ * see (Tribunal Red Team: every household's occasions reached the view).
+ * @param {{ profileId: string }[]} occasions
+ * @param {Record<string, any>[]} visible
+ */
+export function visibleOccasionsFor(occasions, visible) {
+  const ids = new Set((visible ?? []).map((p) => p.id));
+  return (occasions ?? []).filter((o) => ids.has(o.profileId));
 }
 
 /** A passkey is 4 to 8 digits. @param {string} pin */
@@ -148,12 +177,26 @@ export async function checkAdminKey(key, pin) {
  * May this device switch into `target`? Non-admin rows: yes. The admin row:
  * with the right passkey, or, while no passkey is set yet, only on a device
  * that has been the admin before (where he sets one in Settings).
+ * A profile from ANOTHER household than this device's (Tribunal Red Team,
+ * 2026-10-18: Elliot typing "Mom" became Mom) also needs the admin's
+ * passkey, unless this is the admin's own device.
  * @param {Record<string, any> | undefined} target
  * @param {string} pin
  * @param {boolean} adminDevice
+ * @param {{ profiles?: Record<string, any>[], deviceHouse?: string | null }} [where]
  */
-export async function maySwitchTo(target, pin, adminDevice) {
+export async function maySwitchTo(target, pin, adminDevice, where = {}) {
   if (!target) return false;
+  const list = where.profiles ?? [];
+  if (
+    !isAdmin(target) &&
+    boundaryOn(list) &&
+    !adminDevice &&
+    where.deviceHouse &&
+    houseOf(target) !== where.deviceHouse
+  ) {
+    return checkAdminKey(list.find(isAdmin)?.adminKey, pin);
+  }
   if (!isAdmin(target)) return true;
   if (!target.adminKey) return adminDevice;
   return checkAdminKey(target.adminKey, pin);

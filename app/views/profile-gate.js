@@ -18,6 +18,7 @@ import {
   isAdmin,
   maySwitchTo,
   profilesNamed,
+  allowedNewHouse,
 } from "../lib/privacy.js";
 
 /** @param {string} key */
@@ -198,6 +199,11 @@ export function ProfileGateView({
   const [pinErr, setPinErr] = useState("");
   const [typedName, setTypedName] = useState("");
   const adminDevice = stored(ADMIN_DEVICE_KEY) === "1";
+  // a new profile joins this device's own house unless this is the admin's
+  // device (Tribunal Red Team: "+ add profile" could be typed into the family)
+  const mayPlaceAnywhere = !boundaryOn(profiles) || adminDevice;
+  const houseForNew = () =>
+    allowedNewHouse(profiles, stored(DEVICE_HOUSE_KEY), adminDevice, household);
   const signIn = (/** @type {string} */ id) => {
     localStorage.setItem("mise.activeProfile", id);
     location.reload();
@@ -209,14 +215,21 @@ export function ProfileGateView({
       return;
     }
     const target = profiles.find((p) => p.id === id);
-    if (isAdmin(target) && target?.adminKey && !withPin) {
+    const deviceHouse = stored(DEVICE_HOUSE_KEY);
+    const crossHouse =
+      boundaryOn(profiles) &&
+      !adminDevice &&
+      deviceHouse !== null &&
+      !isAdmin(target) &&
+      String(target?.household ?? "home") !== deviceHouse;
+    if (((isAdmin(target) && target?.adminKey) || crossHouse) && !withPin) {
       setAskPin(id);
-      setPinErr("");
+      setPinErr(crossHouse ? "another household's profile: the admin's passkey opens it" : "");
       return;
     }
-    if (!(await maySwitchTo(target, withPin, adminDevice))) {
+    if (!(await maySwitchTo(target, withPin, adminDevice, { profiles, deviceHouse }))) {
       setPinErr(
-        target?.adminKey
+        target?.adminKey || crossHouse
           ? "that passkey doesn't match"
           : "this profile can only be opened on its own phone",
       );
@@ -425,10 +438,10 @@ export function ProfileGateView({
       // would silently mean "home", a real kitchen with real shelves)
       ...(guest
         ? { household: "guesthouse" }
-        : household.trim() && household.trim().toLowerCase() !== "home"
-          ? { household: slugify(household) }
+        : houseForNew().trim() && houseForNew().trim().toLowerCase() !== "home"
+          ? { household: slugify(houseForNew()) }
           : {}),
-      ...(family.trim() ? { family: slugify(family) } : {}),
+      ...(family.trim() && mayPlaceAnywhere ? { family: slugify(family) } : {}),
     };
     if (invite && onInviteSubmit) {
       setSaving(false);
@@ -480,7 +493,7 @@ export function ProfileGateView({
   const surveyContext = () => ({
     ...(name.trim() ? { name: name.trim() } : {}),
     ...(emoji.trim() ? { emoji: emoji.trim() } : {}),
-    ...(household.trim() ? { household: household.trim() } : {}),
+    ...(houseForNew().trim() ? { household: houseForNew().trim() } : {}),
     ...(usState.trim() ? { state: usState.trim().toUpperCase() } : {}),
     ...(age ? { age: Number(age) } : {}),
     ...(heightFt ? { heightFt: Number(heightFt) } : {}),
@@ -533,12 +546,14 @@ export function ProfileGateView({
           </div>
           <div class="token-form" hidden=${guest || Boolean(edit)}>
             <input
+              hidden=${!mayPlaceAnywhere}
               aria-label="Family this person belongs to"
-              placeholder="family (e.g. taranowski)"
+              placeholder="family"
               value=${family}
               onInput=${(/** @type {any} */ e) => setFamily(e.currentTarget.value)}
             />
             <input
+              hidden=${!mayPlaceAnywhere}
               aria-label="House (the kitchen they cook and shop from)"
               placeholder="house (e.g. home)"
               value=${household}
@@ -1100,9 +1115,12 @@ export function ProfileGateView({
         </div>`
       }
       ${
+        // a fresh device only (Tribunal Red Team): on a device that already
+        // belongs to a household, a typed name could reach another one
         !guest &&
         !invite &&
         boundaryOn(profiles) &&
+        stored(DEVICE_HOUSE_KEY) === null &&
         html`<div class="tile">
           <div class="k">Not listed? Type your name</div>
           <div class="token-form">

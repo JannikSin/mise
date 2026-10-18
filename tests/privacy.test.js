@@ -58,7 +58,7 @@ test("another house's events show only the tables you are seated at, and none of
   const seen = visibleHouseEventsFor(EVENTS, PROFILES, "elliot");
   const fam = seen.find((h) => h.house === "taranowski");
   assert.deepEqual(fam?.events.tables.map((t) => t.id), ["t3"]);
-  assert.deepEqual(fam?.events.brigades, []);
+  assert.equal(fam?.events.brigades, undefined, "an allow-list: nothing but your tables");
   assert.equal(seen.find((h) => h.house === "wayne")?.events.tables.length, 1);
 });
 
@@ -80,4 +80,23 @@ test("picking the admin row needs its passkey once one is set", async () => {
   assert.equal(await maySwitchTo(PROFILES[0], "", false), false, "unset passkey: only a device that has been the admin");
   assert.equal(await maySwitchTo(PROFILES[0], "", true), true);
   assert.equal(await maySwitchTo(PROFILES[1], "", false), true, "a non-admin row needs nothing");
+});
+
+test("Red Team 2026-10-18: Elliot's phone cannot type its way into Mom, nor add a profile to the family", async () => {
+  const { allowedNewHouse, visibleOccasionsFor } = await import("../app/lib/privacy.js");
+  const key = await makeAdminKey("2468", new Uint8Array(16).fill(3));
+  const withKey = PROFILES.map((p) => (p.id === "david" ? { ...p, adminKey: key } : p));
+  const mom = withKey.find((p) => p.id === "mom");
+  const where = { profiles: withKey, deviceHouse: "wayne" };
+  assert.equal(await maySwitchTo(mom, "", false, where), false, "another household without the passkey");
+  assert.equal(await maySwitchTo(mom, "1111", false, where), false);
+  assert.equal(await maySwitchTo(mom, "2468", false, where), true, "the admin's passkey opens it");
+  assert.equal(await maySwitchTo(withKey[1], "", false, where), true, "own house: no passkey");
+  assert.deepEqual(profilesNamed(withKey, "david"), [], "the admin row is never found by name");
+  assert.equal(allowedNewHouse(withKey, "wayne", false, "taranowski"), "wayne", "a new profile joins the device's house");
+  assert.equal(allowedNewHouse(withKey, null, false, "taranowski"), "home");
+  assert.equal(allowedNewHouse(withKey, "wayne", true, "taranowski"), "taranowski", "the admin's device chooses");
+  const occ = [{ profileId: "mom" }, { profileId: "elliot" }, { profileId: "priya" }];
+  const vis = visibleProfilesFor(withKey, "elliot", EVENTS, TODAY);
+  assert.deepEqual(visibleOccasionsFor(occ, vis).map((o) => o.profileId), ["elliot", "priya"]);
 });

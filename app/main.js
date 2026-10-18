@@ -27,6 +27,7 @@ import { initRouter, parseRoute } from "./lib/router.js";
 import {
   visibleProfilesFor,
   visibleHouseEventsFor,
+  visibleOccasionsFor,
   DEVICE_HOUSE_KEY,
   ADMIN_DEVICE_KEY,
 } from "./lib/privacy.js";
@@ -5055,7 +5056,7 @@ function App() {
     ${
       route.view === "occasions" &&
       html`<${OccasionsView}
-        occasions=${occasions}
+        occasions=${visibleOccasionsFor(occasions, visibleProfiles)}
         profiles=${visibleProfiles}
         me=${me}
         recipes=${allRecipes}
