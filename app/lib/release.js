@@ -36,7 +36,8 @@ export const RELEASES = [
       "No more 3 pm snack ping. Reminders are now the morning's day ahead, cook nights, the store run and the 11 pm Ate it?.",
       "Add a recipe from a link, right on Plan: Mise fits it to you, checks everyone's allergies, and either puts it on a night this week or saves it to your recipes.",
       "Settings has YOUR PROFILE: the full set of questions, filled in with what Mise already knows about you. Change anything and save; nothing else in your profile is touched. Your calorie target sits next to what Mise suggests from your numbers, and a target far from it asks you to say why.",
-      "Each person sees only their own household, plus guests at their own table. David, as admin, sees everyone. Your profile can have a passkey, so nobody can open it from another phone.",
+      "Each person sees only their own household, plus guests at their own table. David, as admin, sees everyone. David's profile has a passkey, so nobody can open it from another phone.",
+      "One profile per person: Settings, Your profile, with the fuller questions. Anvil will read the same profile once Anvil's own update lands; until then Anvil keeps its own copy.",
     ],
   },
   {
