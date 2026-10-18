@@ -44,7 +44,8 @@
   what it would do.
 
 .PARAMETER Tag
-  The ship tag to release. Default: ship/<today>.
+  The ship tag to release. Default: ship/<today>. A second ship the same day is
+  ship/<today>b, then c, d (David, 2026-10-18: four releases in one night).
 
 .PARAMETER SkipGates
   Skip lint/typecheck/tests (they were run seconds ago by hand, say). Everything else
@@ -126,7 +127,7 @@ $nextSha = Sha "origin/$Sandbox"
 # ---------------------------------------------------------------- ROLLBACK
 if ($Rollback) {
   if (-not $To) { Fail "-Rollback needs -To release/YYYY-MM-DD" }
-  if ($To -notmatch '^release/\d{4}-\d{2}-\d{2}$') { Fail "-To must name a release/ tag" }
+  if ($To -notmatch '^release/\d{4}-\d{2}-\d{2}(-\d{4})?$') { Fail "-To must name a release/ tag" }
   if ((git cat-file -t $To) -ne "tag") { Fail "$To is not an annotated tag on this clone (fetch tags?)" }
   $toSha = Sha $To
   Write-Host "(a) rollback target: $To = $toSha (shell v$(SwVersion $toSha))"
@@ -184,8 +185,8 @@ if ($Rollback) {
 
 # ---------------------------------------------------------------- FORWARD
 if (-not $Tag) { $Tag = "ship/$today" }
-if ($Tag -notmatch '^ship/\d{4}-\d{2}-\d{2}$') { Fail "the ship tag must be ship/YYYY-MM-DD, got $Tag" }
-$date = $Tag.Substring(5)
+if ($Tag -notmatch '^ship/\d{4}-\d{2}-\d{2}[b-z]?$') { Fail "the ship tag must be ship/YYYY-MM-DD (b, c, ... for a later ship that day), got $Tag" }
+$date = $Tag.Substring(5, 10)
 
 # 1. consent: an annotated tag on ORIGIN, at the tip of origin/next
 $remoteTag = (git ls-remote --tags origin "refs/tags/$Tag") -split "\s+"
