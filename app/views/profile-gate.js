@@ -2,7 +2,12 @@ import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 import { readProfiles, patchProfiles, writeTargetsOf } from "../lib/store.js";
 import { getToken } from "../lib/github.js";
-import { targetsFromQuestionnaire } from "../lib/targets.js";
+import {
+  targetsFromQuestionnaire,
+  avoidTermsFromAllergens,
+  outsideSafeBand,
+} from "../lib/targets.js";
+/** @typedef {import("../lib/targets.js").mergeProfileAnswers} MergeFn */
 import { localIsoDate } from "../lib/dates.js";
 import { OnboardView } from "./onboard.js";
 import {
@@ -77,7 +82,7 @@ function splitList(/** @type {string} */ s) {
 }
 
 /**
- * @param {{ guest?: boolean, onDone?: (id: string) => void, invite?: { code: string, house: string }, busy?: boolean, onInviteSubmit?: (entry: Record<string, any>, targets: Record<string, any>) => Promise<void>, lead?: any, extraValid?: boolean }} [props] guest
+ * @param {{ guest?: boolean, onDone?: (id: string) => void, invite?: { code: string, house: string }, busy?: boolean, onInviteSubmit?: (entry: Record<string, any>, targets: Record<string, any>) => Promise<void>, lead?: any, extraValid?: boolean, edit?: { id: string, targets: Record<string, any>, onSave: (fresh: Record<string, any>, stated: Parameters<MergeFn>[2]) => Promise<boolean> } }} [props] guest
  * mode (guesthouse spec §8, David's yes 2026-08-29 plenum): the SAME
  * questionnaire, but the profile lands in the `guesthouse` household, the
  * device stays signed in as its owner, and onDone fires instead of a
@@ -93,6 +98,7 @@ export function ProfileGateView({
   lead = null,
   // the caller's own fields must be valid too (v1.6: the guest's login)
   extraValid = true,
+  edit = undefined,
 } = {}) {
   const [profiles, setProfiles] = useState(/** @type {Record<string, any>[]} */ ([]));
   const [loading, setLoading] = useState(true);
@@ -168,8 +174,9 @@ export function ProfileGateView({
 
   useEffect(() => {
     let alive = true;
-    // an invitee's phone has no token: do not even ask for the list
-    if (invite) {
+    // an invitee's phone has no token: do not even ask for the list; an
+    // edit inside Settings does not need it either
+    if (invite || edit) {
       setLoading(false);
       return;
     }
@@ -236,22 +243,70 @@ export function ProfileGateView({
     numeric.weightLb >= 60 &&
     numeric.weightLb <= 500;
 
-  const addProfile = async () => {
-    if (!formValid || saving || busy || !extraValid) return;
-    const trimmedName = name.trim();
-    const id = trimmedName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    // JOIN BY LINK: the Worker picks a free id and writes the files; this
-    // device has no token and no profile list to collide against
-    if (!id || (!invite && profiles.some((p) => p.id === id))) return;
-    setSaving(true);
-    setSaveErr("");
+  // YOUR PROFILE, EDITED (v1.8, P3): the survey pre-filled from the file
+  const [statedCal, setStatedCal] = useState("");
+  const [statedPro, setStatedPro] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
+  const [goalDate, setGoalDate] = useState("");
+  const [editNote, setEditNote] = useState("");
+  useEffect(() => {
+    if (!edit) return;
+    const t = edit.targets ?? {};
+    const b = t.body ?? {};
+    if (b.sex === "m" || b.sex === "f") setSex(b.sex);
+    if (b.age) setAge(String(b.age));
+    if (b.heightIn) {
+      setHeightFt(String(Math.floor(Number(b.heightIn) / 12)));
+      setHeightIn(String(Math.round(Number(b.heightIn) % 12)));
+    }
+    if (b.weightLb) setWeightLb(String(b.weightLb));
+    if (b.activity) setActivity(Number(b.activity));
+    setGoal(t.phase === "loss" ? "loss" : t.phase === "gain" ? "gain" : "maintain");
+    if (t.goalWeightLb ?? b.goalWeightLb) setGoalWeightLb(String(t.goalWeightLb ?? b.goalWeightLb));
+    if (t.diet) setDiet(t.diet);
+    const algs = Array.isArray(t.allergens) ? t.allergens : [];
+    setAllergens(algs);
+    // avoid terms the allergens do not already imply ride in the free text,
+    // so a re-save keeps them (Elliot's "tempeh, pesto")
+    const implied = new Set(avoidTermsFromAllergens(algs, ""));
+    setAllergensFreeText(
+      (Array.isArray(t.avoidIngredients) ? t.avoidIngredients : [])
+        .filter((/** @type {string} */ a) => !implied.has(a))
+        .join(", "),
+    );
+    if (t.snackAppetite) setSnackAppetite(t.snackAppetite);
+    if (t.maxWeeknightMinutes) setMaxWeeknightMinutes(t.maxWeeknightMinutes);
+    setDislikes((t.dislikeIngredients ?? []).join(", "));
+    /** @type {Record<string, "loved" | "avoided">} */
+    const cp = {};
+    for (const c of t.cuisinePrefs?.loved ?? []) cp[c] = "loved";
+    for (const c of t.cuisinePrefs?.avoided ?? []) cp[c] = "avoided";
+    setCuisinePrefs(cp);
+    if (t.maxDifficulty) setMaxDifficulty(t.maxDifficulty);
+    if (Array.isArray(t.equipment)) setEquipment(t.equipment);
+    if (t.breakfastStyle) setBreakfastStyle(t.breakfastStyle);
+    if (t.budget === "tight" || t.budget === "loose") setBudget(t.budget);
+    setStores((t.stores ?? []).join(", "));
+    if (t.shopsPerWeek) setShopsPerWeek(t.shopsPerWeek);
+    setTiredOf((t.tiredOf ?? []).join(", "));
+    if (t.region?.state) setUsState(String(t.region.state));
+    if (t.leftoverTolerance) setLeftoverTolerance(t.leftoverTolerance);
+    setPacksLunch(Boolean(t.packsLunch));
+    setLunchMicrowave(Boolean(t.lunchMicrowave));
+    setMealsOut(Number(t.mealsOutPerWeek) || 0);
+    setStatedCal(String(t.macros?.calories ?? ""));
+    setStatedPro(String(t.macros?.protein ?? ""));
+    setGoalDate(String(t.base?.goal?.date ?? ""));
+    setName(edit.id);
+    setEmoji("·");
+  }, []);
+
+  // the survey answers as a targets file (shared by ADD and the v1.8 edit)
+  const freshTargets = () => {
     const loved = Object.keys(cuisinePrefs).filter((c) => cuisinePrefs[c] === "loved");
     const avoided = Object.keys(cuisinePrefs).filter((c) => cuisinePrefs[c] === "avoided");
     const equipAll = EQUIPMENT.every((e) => equipment.includes(e));
-    const targets = targetsFromQuestionnaire(
+    return targetsFromQuestionnaire(
       {
         sex,
         age: numeric.age,
@@ -290,6 +345,64 @@ export function ProfileGateView({
         ...(mealsOut > 0 ? { mealsOutPerWeek: mealsOut } : {}),
       },
     );
+  };
+
+  const recommended = (() => {
+    try {
+      return formValid ? Math.round(Number(freshTargets().macros.calories)) : 0;
+    } catch {
+      return 0;
+    }
+  })();
+  const calNum = Number(statedCal);
+  const needsReason = outsideSafeBand(calNum, recommended);
+  const saveEdit = async () => {
+    if (!edit || !formValid || saving) return;
+    if (!(calNum >= 1000 && calNum <= 12000) || !(Number(statedPro) >= 30)) {
+      setEditNote("set a calorie target (1,000 to 12,000) and a protein target");
+      return;
+    }
+    if (needsReason && !overrideReason.trim()) {
+      setEditNote("that target is far from what your numbers suggest: say why below, then save");
+      return;
+    }
+    setSaving(true);
+    setEditNote("");
+    // the merge itself runs against the file as it is at SAVE (main.js), so
+    // a budget or meal change saved meanwhile is not lost
+    const stated = {
+      calories: calNum,
+      protein: Number(statedPro),
+      reason: needsReason ? overrideReason : "",
+      todayIso: localIsoDate(new Date()),
+      body: {
+        sex,
+        age: numeric.age,
+        heightIn: numeric.heightFt * 12 + numeric.heightIn,
+        weightLb: numeric.weightLb,
+        activity,
+        ...(Number(goalWeightLb) > 0 ? { goalWeightLb: Number(goalWeightLb) } : {}),
+      },
+      ...(goalDate ? { goalDate } : {}),
+    };
+    const ok = await edit.onSave(freshTargets(), stated);
+    setSaving(false);
+    setEditNote(ok ? "saved: the next SET MY WEEK plans from this" : "could not save; nothing changed");
+  };
+
+  const addProfile = async () => {
+    if (!formValid || saving || busy || !extraValid) return;
+    const trimmedName = name.trim();
+    const id = trimmedName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    // JOIN BY LINK: the Worker picks a free id and writes the files; this
+    // device has no token and no profile list to collide against
+    if (!id || (!invite && profiles.some((p) => p.id === id))) return;
+    setSaving(true);
+    setSaveErr("");
+    const targets = freshTargets();
     const slugify = (/** @type {string} */ s) =>
       s
         .trim()
@@ -391,130 +504,20 @@ export function ProfileGateView({
     `;
   }
 
-  return html`
-    <div class="view">
-      <div class="hero">
-        <h1>Mise<span>.</span></h1>
-        <div class="sub">
-          ${invite
-            ? invite.house === "guesthouse"
-              ? "Welcome to Mise. This is a guest link: make your profile once, here on your own phone, and every plate is sized for you and checked against your allergies."
-              : "You've been invited to join a shared kitchen. Fill this in once, on your own phone."
-            : guest
-              ? "guest profile — fill this in and the table sets your plate to your own numbers"
-              : "who's checking in?"}
-        </div>
-      </div>
-      ${lead}
-      ${loading && html`<p class="hint">loading profiles…</p>`}
-      ${
-        fallback &&
-        !loading &&
-        !invite &&
-        html`<p class="hint">
-          ⚠ couldn't load the profile list (offline or token not set), so this is the built-in
-          default. Any other profiles still exist and are safe; they'll appear once this device
-          syncs.
-        </p>`
-      }
-      ${
-        // family = the top-level grouping (David's structure, 2026-07-21):
-        // people belong to a family; households are the movable shopping
-        // unit inside SYS. Headers only appear once 2+ families exist.
-        (() => {
-          const famOf = (/** @type {Record<string, any>} */ p) => p.family ?? "";
-          // §5: a guesthouse profile is never a sign-in identity — Sam must
-          // not see Priya, so nobody is ever "inside" the guesthouse. And
-          // only this device's own household (privacy.js, 2026-10-18): a
-          // fresh device lists no one and asks for a name below.
-          const offerable = chooserProfiles(profiles, stored(DEVICE_HOUSE_KEY), adminDevice);
-          const fams = [...new Set(offerable.map(famOf))];
-          const showHeaders = fams.filter(Boolean).length > 0 && fams.length > 1;
-          const block = (/** @type {Record<string, any>[]} */ list) => html`
-            <div class="slots">
-              ${list.map(
-                (p) => html`
-                  <button class="ask" key=${p.id} onClick=${() => choose(p.id)}>
-                    ${p.emoji} ${p.name}
-                  </button>
-                `,
-              )}
-            </div>
-          `;
-          if (guest || invite) return "";
-          if (!showHeaders) return block(offerable);
-          return fams
-            .sort((a, b) => (a || "zz").localeCompare(b || "zz"))
-            .map(
-              (f) => html`
-                <div key=${f || "none"}>
-                  <h2 class="block-title">${f ? f.toUpperCase() : "EVERYONE ELSE"}</h2>
-                  ${block(offerable.filter((p) => famOf(p) === f))}
-                </div>
-              `,
-            );
-        })()
-      }
-      ${
-        askPin &&
-        html`<div class="tile">
-          <div class="k">Passkey</div>
-          <div class="token-form">
-            <input
-              aria-label="Passkey"
-              type="password"
-              inputmode="numeric"
-              autocomplete="off"
-              value=${pin}
-              onInput=${(/** @type {any} */ e) => setPin(e.currentTarget.value)}
-            />
-            <button class="ask" onClick=${() => choose(/** @type {string} */ (askPin), pin)}>OPEN</button>
-          </div>
-        </div>`
-      }
-      ${
-        !guest &&
-        !invite &&
-        boundaryOn(profiles) &&
-        html`<div class="tile">
-          <div class="k">Not listed? Type your name</div>
-          <div class="token-form">
-            <input
-              aria-label="Your name"
-              value=${typedName}
-              onInput=${(/** @type {any} */ e) => setTypedName(e.currentTarget.value)}
-            />
-            <button
-              class="secondary"
-              onClick=${() => {
-                const found = profilesNamed(profiles, typedName);
-                if (found.length !== 1) {
-                  setPinErr("no profile by that name on this kitchen's list");
-                  return;
-                }
-                void choose(/** @type {string} */ (found[0]?.id));
-              }}
-            >
-              OPEN
-            </button>
-          </div>
-        </div>`
-      }
-      ${pinErr && html`<p class="hint scanerr" role="status">${pinErr}</p>`}
-      <button class="secondary linkbtn" hidden=${guest || Boolean(invite)} onClick=${() => setChatMode(true)}>
-        prefer to chat? set up by conversation →
-      </button>
-      <details open=${guest || Boolean(invite)}>
-        <summary class="block-title">${guest || invite ? "your profile" : "+ add profile"}</summary>
+  const form = html`
+      <details open=${guest || Boolean(invite) || Boolean(edit)}>
+        <summary class="block-title">${guest || invite || edit ? "your profile" : "+ add profile"}</summary>
         <div class="tile">
           <p class="hint">
             ${
-              guest || invite
+              edit
+                ? "Change anything and SAVE. Only what this survey asks about changes; everything else in your profile stays as it is."
+                : guest || invite
                 ? "Your name, your numbers, and anything you can't or won't eat. The more you fill in, the better your plate fits."
                 : 'fill what you like here, or tap "set up by conversation" above and answer a few questions.'
             }
           </p>
-          <div class="token-form">
+          <div class="token-form" hidden=${Boolean(edit)}>
             <input
               aria-label="Profile name"
               placeholder="name"
@@ -528,7 +531,7 @@ export function ProfileGateView({
               onInput=${(/** @type {any} */ e) => setEmoji(e.currentTarget.value)}
             />
           </div>
-          <div class="token-form" hidden=${guest}>
+          <div class="token-form" hidden=${guest || Boolean(edit)}>
             <input
               aria-label="Family this person belongs to"
               placeholder="family (e.g. taranowski)"
@@ -682,8 +685,8 @@ export function ProfileGateView({
             onInput=${(/** @type {any} */ e) => setAllergensFreeText(e.currentTarget.value)}
           />
 
-          <h2 class="block-title">meals a day</h2>
-          <div class="chips wrapchips" role="group" aria-label="Meals per day">
+          <h2 class="block-title" hidden=${Boolean(edit)}>meals a day</h2>
+          <div class="chips wrapchips" role="group" aria-label="Meals per day" hidden=${Boolean(edit)}>
             <button
               class="chip ${skipBreakfast ? "" : "on"}"
               aria-pressed=${!skipBreakfast}
@@ -947,11 +950,60 @@ export function ProfileGateView({
             <p class="hint">2+ splits the list into a pantry run and a fresh run.</p>
           </details>
 
+          ${
+            edit &&
+            html`<h2 class="block-title">your daily target</h2>
+              <div class="token-form">
+                <input
+                  aria-label="Calories a day"
+                  inputmode="numeric"
+                  value=${statedCal}
+                  onInput=${(/** @type {any} */ e) => setStatedCal(e.currentTarget.value)}
+                />
+                <input
+                  aria-label="Protein grams a day"
+                  inputmode="numeric"
+                  value=${statedPro}
+                  onInput=${(/** @type {any} */ e) => setStatedPro(e.currentTarget.value)}
+                />
+              </div>
+              <p class="hint">
+                calories and protein grams a day.
+                ${recommended > 0 ? ` From your numbers Mise suggests about ${recommended.toLocaleString()} kcal.` : ""}
+              </p>
+              ${
+                needsReason &&
+                html`<p class="hint scanerr" role="alert">
+                    ⚠ ${calNum.toLocaleString()} kcal is far from the ${recommended.toLocaleString()} your
+                    numbers suggest. That can be right (a doctor's plan, a sport, a set protocol); say which.
+                  </p>
+                  <input
+                    aria-label="Why this target"
+                    placeholder="why this target"
+                    value=${overrideReason}
+                    onInput=${(/** @type {any} */ e) => setOverrideReason(e.currentTarget.value)}
+                  />`
+              }
+              <div class="token-form">
+                <input
+                  aria-label="Goal date"
+                  type="date"
+                  value=${goalDate}
+                  onInput=${(/** @type {any} */ e) => setGoalDate(e.currentTarget.value)}
+                />
+              </div>
+              <p class="hint">the date you want to reach your goal by (optional)</p>`
+          }
           <div class="actions">
-            <button class="primary" onClick=${addProfile} disabled=${!formValid || saving || !extraValid}>
-              ${saving ? "SETTING UP…" : "ADD & OPEN"}
+            <button
+              class="primary"
+              onClick=${edit ? saveEdit : addProfile}
+              disabled=${edit ? saving : !formValid || saving || !extraValid}
+            >
+              ${edit ? (saving ? "SAVING…" : "SAVE MY PROFILE") : saving ? "SETTING UP…" : "ADD & OPEN"}
             </button>
           </div>
+          ${editNote && html`<p class="hint" role="status">${editNote}</p>`}
           ${saveErr && html`<p class="hint">⚠ ${saveErr}</p>`}
           <p class="hint">
             ADD lights up when everything is filled in: name, emoji, age 10-100, height 3-7 ft
@@ -963,6 +1015,123 @@ export function ProfileGateView({
           </p>
         </div>
       </details>
+  `;
+  // EDIT MODE (v1.8): the same fuller survey, pre-filled, inside Settings
+  if (edit) return form;
+  return html`
+    <div class="view">
+      <div class="hero">
+        <h1>Mise<span>.</span></h1>
+        <div class="sub">
+          ${invite
+            ? invite.house === "guesthouse"
+              ? "Welcome to Mise. This is a guest link: make your profile once, here on your own phone, and every plate is sized for you and checked against your allergies."
+              : "You've been invited to join a shared kitchen. Fill this in once, on your own phone."
+            : guest
+              ? "guest profile — fill this in and the table sets your plate to your own numbers"
+              : "who's checking in?"}
+        </div>
+      </div>
+      ${lead}
+      ${loading && html`<p class="hint">loading profiles…</p>`}
+      ${
+        fallback &&
+        !loading &&
+        !invite &&
+        html`<p class="hint">
+          ⚠ couldn't load the profile list (offline or token not set), so this is the built-in
+          default. Any other profiles still exist and are safe; they'll appear once this device
+          syncs.
+        </p>`
+      }
+      ${
+        // family = the top-level grouping (David's structure, 2026-07-21):
+        // people belong to a family; households are the movable shopping
+        // unit inside SYS. Headers only appear once 2+ families exist.
+        (() => {
+          const famOf = (/** @type {Record<string, any>} */ p) => p.family ?? "";
+          // §5: a guesthouse profile is never a sign-in identity — Sam must
+          // not see Priya, so nobody is ever "inside" the guesthouse. And
+          // only this device's own household (privacy.js, 2026-10-18): a
+          // fresh device lists no one and asks for a name below.
+          const offerable = chooserProfiles(profiles, stored(DEVICE_HOUSE_KEY), adminDevice);
+          const fams = [...new Set(offerable.map(famOf))];
+          const showHeaders = fams.filter(Boolean).length > 0 && fams.length > 1;
+          const block = (/** @type {Record<string, any>[]} */ list) => html`
+            <div class="slots">
+              ${list.map(
+                (p) => html`
+                  <button class="ask" key=${p.id} onClick=${() => choose(p.id)}>
+                    ${p.emoji} ${p.name}
+                  </button>
+                `,
+              )}
+            </div>
+          `;
+          if (guest || invite) return "";
+          if (!showHeaders) return block(offerable);
+          return fams
+            .sort((a, b) => (a || "zz").localeCompare(b || "zz"))
+            .map(
+              (f) => html`
+                <div key=${f || "none"}>
+                  <h2 class="block-title">${f ? f.toUpperCase() : "EVERYONE ELSE"}</h2>
+                  ${block(offerable.filter((p) => famOf(p) === f))}
+                </div>
+              `,
+            );
+        })()
+      }
+      ${
+        askPin &&
+        html`<div class="tile">
+          <div class="k">Passkey</div>
+          <div class="token-form">
+            <input
+              aria-label="Passkey"
+              type="password"
+              inputmode="numeric"
+              autocomplete="off"
+              value=${pin}
+              onInput=${(/** @type {any} */ e) => setPin(e.currentTarget.value)}
+            />
+            <button class="ask" onClick=${() => choose(/** @type {string} */ (askPin), pin)}>OPEN</button>
+          </div>
+        </div>`
+      }
+      ${
+        !guest &&
+        !invite &&
+        boundaryOn(profiles) &&
+        html`<div class="tile">
+          <div class="k">Not listed? Type your name</div>
+          <div class="token-form">
+            <input
+              aria-label="Your name"
+              value=${typedName}
+              onInput=${(/** @type {any} */ e) => setTypedName(e.currentTarget.value)}
+            />
+            <button
+              class="secondary"
+              onClick=${() => {
+                const found = profilesNamed(profiles, typedName);
+                if (found.length !== 1) {
+                  setPinErr("no profile by that name on this kitchen's list");
+                  return;
+                }
+                void choose(/** @type {string} */ (found[0]?.id));
+              }}
+            >
+              OPEN
+            </button>
+          </div>
+        </div>`
+      }
+      ${pinErr && html`<p class="hint scanerr" role="status">${pinErr}</p>`}
+      <button class="secondary linkbtn" hidden=${guest || Boolean(invite)} onClick=${() => setChatMode(true)}>
+        prefer to chat? set up by conversation →
+      </button>
+      ${form}
     </div>
   `;
 }

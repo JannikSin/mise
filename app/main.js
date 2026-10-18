@@ -71,7 +71,7 @@ import { DinnerView } from "./views/dinner.js";
 import { AskView } from "./views/ask.js";
 import { TablesView } from "./views/tables.js";
 import { ConfirmModal } from "./views/confirm-modal.js";
-import { upsertDay } from "./lib/targets.js";
+import { upsertDay, mergeProfileAnswers } from "./lib/targets.js";
 import {
   deriveShoppingList,
   tripPlan,
@@ -365,6 +365,27 @@ function App() {
     await writeTargetsOf(me, { ...cur, weeklyBudgetUsd: usd });
     setTargets(/** @type {any} */ (await readTargetsOf(me)));
   }, []);
+
+  // YOUR PROFILE (v1.8, P3; decision 0013: "targets are set from Mise's
+  // Settings"). The survey's answers merge into the file as it is NOW, so a
+  // field the survey does not own is never lost.
+  const handleSaveProfile = useCallback(
+    async (
+      /** @type {Record<string, any>} */ fresh,
+      /** @type {Parameters<typeof mergeProfileAnswers>[2]} */ stated,
+    ) => {
+      const me = activeProfile();
+      try {
+        const cur = /** @type {any} */ (await readTargetsOf(me)) ?? {};
+        await writeTargetsOf(me, mergeProfileAnswers(cur, fresh, stated));
+        setTargets(/** @type {any} */ (await readTargetsOf(me)));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [],
+  );
 
   // YOUR BUY DAY (P4, P7, David 2026-09-25: "sunday was not a good day to
   // buy... lets switch the buy day to friday"). BUILD shops the seven days
@@ -5077,6 +5098,7 @@ function App() {
         onSaveMealSlots=${handleSaveMealSlots}
         onSaveBudget=${handleSaveBudget}
         onSaveBuyDay=${handleSaveBuyDay}
+        onSaveProfile=${hasToken ? handleSaveProfile : undefined}
         onInviteLink=${hasToken ? handleInviteLink : undefined}
       />`
     }

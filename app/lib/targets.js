@@ -404,3 +404,96 @@ export function targetsFromQuestionnaire(q, todayIso, prefs = {}) {
     supplementPlan: [],
   };
 }
+
+// EDITING A PROFILE YOU ALREADY HAVE (David, 2026-10-18: "one profile per
+// person ... I kind of like the fuller questions"; decision 0013: "targets are
+// set from Mise's Settings; hand edits of the mirrored targets pair end").
+// P3. The survey re-run is MERGED into the file, never written over it: the
+// file carries hand-set fields the survey knows nothing about (currencies,
+// supplement ids shared with Anvil, protein provenance...), and a rebuild
+// would erase them (Tribunal plan gate).
+
+/** Answers the survey owns. Absent in a fresh answer = its default, so removed. */
+export const SURVEY_OWNED = [
+  "phase",
+  "goalWeightLb",
+  "diet",
+  "allergens",
+  "avoidIngredients",
+  "snackAppetite",
+  "maxWeeknightMinutes",
+  "dislikeIngredients",
+  "cuisinePrefs",
+  "maxDifficulty",
+  "equipment",
+  "breakfastStyle",
+  "budget",
+  "stores",
+  "shopsPerWeek",
+  "tiredOf",
+  "region",
+  "leftoverTolerance",
+  "packsLunch",
+  "lunchMicrowave",
+  "mealsOutPerWeek",
+];
+
+/** Body numbers the survey owns inside `body`; other body keys are kept. */
+const BODY_OWNED = ["sex", "age", "heightIn", "weightLb", "activity", "goalWeightLb"];
+
+/**
+ * A stated calorie target outside this band, against Mise's own
+ * recommendation, needs a typed reason (P3: "an override outside the
+ * physiological safe band requires a stated reason ... a loud advisory,
+ * never a hard block").
+ * @param {number} stated
+ * @param {number} recommended
+ */
+export function outsideSafeBand(stated, recommended) {
+  if (!(recommended > 0) || !(stated > 0)) return false;
+  return stated < recommended * 0.75 || stated > recommended * 1.4;
+}
+
+/**
+ * Merge a fresh survey result into the existing targets file.
+ * @param {Record<string, any>} existing the file as it is
+ * @param {Record<string, any>} fresh targetsFromQuestionnaire's output
+ * @param {{ calories: number, protein: number, reason?: string, todayIso: string,
+ *   body?: Record<string, any>, goalDate?: string }} stated the numbers the person
+ *   keeps (pre-filled from the file), an override reason, today, the body numbers
+ * @returns {Record<string, any>}
+ */
+export function mergeProfileAnswers(existing, fresh, stated) {
+  /** @type {Record<string, any>} */
+  const out = { ...(existing ?? {}) };
+  for (const k of SURVEY_OWNED) {
+    if (fresh[k] === undefined) delete out[k];
+    else out[k] = fresh[k];
+  }
+  // the person's own stated numbers win; floors and the rest of macros stay
+  out.macros = {
+    ...(existing?.macros ?? {}),
+    calories: Math.round(stated.calories),
+    protein: Math.round(stated.protein),
+  };
+  if (existing?.phase !== fresh.phase) out.phaseSince = stated.todayIso;
+  // the survey's other defaults fill only what is missing
+  for (const k of Object.keys(fresh)) {
+    if (k === "macros" || k === "phaseSince" || SURVEY_OWNED.includes(k)) continue;
+    if (out[k] === undefined) out[k] = fresh[k];
+  }
+  if (stated.body) {
+    const body = { ...(existing?.body ?? {}) };
+    for (const k of BODY_OWNED) if (stated.body[k] !== undefined) body[k] = stated.body[k];
+    out.body = body;
+  }
+  // `base` carries only what the file had nowhere (decision 0013's base stage):
+  // the goal's date; the body numbers already live in `body`
+  if (stated.goalDate) {
+    out.base = { ...(existing?.base ?? {}), goal: { ...(existing?.base?.goal ?? {}), date: stated.goalDate } };
+  }
+  if (stated.reason?.trim()) {
+    out.targetOverride = { reason: stated.reason.trim(), on: stated.todayIso, calories: out.macros.calories };
+  }
+  return out;
+}

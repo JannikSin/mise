@@ -27,6 +27,7 @@ import {
   setMemberRoles,
 } from "../lib/household.js";
 import { TOUR_STEPS, TOUR_TABS } from "../lib/tour.js";
+import { ProfileGateView } from "./profile-gate.js";
 import { boundaryOn, isAdmin, makeAdminKey, validPasskey } from "../lib/privacy.js";
 import { EQUIPMENT, canMake, unlockCounts } from "../lib/equipment.js";
 import { SLOT_KEYS, SLOT_META } from "../lib/plan.js";
@@ -64,6 +65,7 @@ const BUY_DAY_NAMES = [
  *   onSaveMealSlots?: (slots: string[]) => Promise<void>,
  *   onSaveBudget?: (usd: number) => Promise<void>,
  *   onSaveBuyDay?: (day: number) => Promise<void>,
+ *   onSaveProfile?: (fresh: Record<string, any>, stated: any) => Promise<boolean>,
  *   onInviteLink?: (kind: "member" | "guest") => Promise<string>
  * }} props
  */
@@ -85,6 +87,7 @@ export function SystemView({
   onSaveMealSlots = undefined,
   onSaveBudget = undefined,
   onSaveBuyDay = undefined,
+  onSaveProfile = undefined,
   onInviteLink = undefined,
 }) {
   const ageDays = tokenAgeDays();
@@ -621,6 +624,18 @@ export function SystemView({
               <button class="linktext" onClick=${saveAdminPin}>SET</button>
             </div>
             ${adminNote && html`<p class="hint">${adminNote}</p>`}`
+        }
+        ${
+          // YOUR PROFILE (v1.8, P3): the fuller survey, pre-filled, merged
+          // into your file on SAVE; targets are set here, never by hand
+          onSaveProfile &&
+          targets &&
+          html`<details class="tile">
+            <summary class="k">Your profile · body, goal, food, allergies, targets</summary>
+            <${ProfileGateView}
+              edit=${{ id: me ?? "", targets, onSave: onSaveProfile }}
+            />
+          </details>`
         }
         <h3>Your meals</h3>
         <p class="hint">
