@@ -24,8 +24,8 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
-    version: UNRELEASED,
-    date: "",
+    version: "1.4",
+    date: "2026-10-18",
     notes: [
       "After GOING TO THE STORE, the List can send your week to your Pay Less cart in one tap. It only adds to the cart; you still pick the pickup time and check out in the Pay Less app. Anything it cannot send is named, so you add it yourself. The first time, it asks you to sign in to Kroger.",
       "The List says which nights are not on it and who buys them, when you take turns.",
