@@ -28,8 +28,8 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
-    version: UNRELEASED,
-    date: "",
+    version: "1.7",
+    date: "2026-10-18",
     notes: [
       "BUILD checks today's Pay Less prices and this week's sales on its own, and says so in one line: prices checked today, and how many items are on sale.",
       "Walk the fridge: on the List's PANTRY, film the shelves while you say what you see; Mise reads the video and your words, you check the read-back, and it all goes in.",
