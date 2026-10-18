@@ -852,42 +852,18 @@ test("Sunday sends the batch reminder at 10", () => {
   assert.equal(out[0].title, "Batch day");
 });
 
-test("evening ATE IT? ping covers today's unconfirmed meals and swipe, with or without a receipt (2026-10-17)", () => {
+test("evening catch-up covers only uncooked meals — the log nag retired to Crystal", () => {
+  // no plan, nothing uncooked → silence (previously this hour nagged the log)
   assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 20, plan: null }), []);
   const out = buildNotifications({ ...NOTIF_BASE, hour: 20, plan: PLAN_SHOPPED });
   assert.equal(out.length, 1);
-  assert.equal(out[0].title, "Ate it?");
-  assert.match(out[0].body, /2 of today's meals not marked eaten/);
-  const unshopped = { ...PLAN_SHOPPED };
-  delete unshopped.shoppedAt;
-  assert.equal(buildNotifications({ ...NOTIF_BASE, hour: 20, plan: unshopped }).length, 1, "no receipt gate");
-  const withSharedAndSwipe = {
-    week: "2026-W30",
-    entries: [
-      { id: "t", date: "2026-07-23", slot: "dinner", table: "t1", freeText: "Chili", servings: 1 },
-      { id: "s", date: "2026-07-23", slot: "lunch", out: true, currency: "swipes", servings: 1 },
-    ],
-  };
-  assert.match(
-    buildNotifications({ ...NOTIF_BASE, hour: 20, plan: withSharedAndSwipe })[0].body,
-    /2 of today's meals/,
-  );
-  const allDone = {
+  assert.match(out[0].body, /2 planned meals not marked cooked/);
+  assert.ok(!/Not logged yet/.test(out[0].body));
+  const cooked = {
     ...PLAN_SHOPPED,
-    entries: PLAN_SHOPPED.entries.map((e) => ({ ...e, cookedAt: "2026-07-23" })),
+    entries: [{ ...PLAN_SHOPPED.entries[0], cookedAt: "2026-07-23" }],
   };
-  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 20, plan: allDone }), []);
-});
-
-test("a leftover night pings 'Dinner tonight', not 'Cook dinner' (2026-10-17)", () => {
-  const plan = {
-    week: "2026-W30",
-    entries: [
-      { id: "t", date: "2026-07-23", slot: "dinner", table: "t1", freeText: "Chili (leftovers, reheat)", leftover: true, servings: 1 },
-    ],
-  };
-  const out = buildNotifications({ ...NOTIF_BASE, hour: 17, plan });
-  assert.equal(out[0].title, "Dinner tonight");
+  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 20, plan: cooked }), []);
 });
 
 test("/ask: request grounds in the sanitized snapshot, response is plain text", () => {

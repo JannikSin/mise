@@ -326,43 +326,7 @@ function chicagoNow() {
  */
 async function runNotifications(token, topic, now, send) {
   const weekId = isoWeekIdOf(now.dateIso);
-  const rawPlan = await ghReadJson(`plans/${weekId}.json`, token);
-  // THE KITCHEN'S SHARED MEALS (2026-10-17): his plan file holds only his own
-  // meals; the shared ones live in the household's events.json, so every
-  // ping used to miss them. Today's tables he is seated at (not skipped) join
-  // the entries the reminders read, named by dish, leftovers marked.
-  /** @type {Record<string, any>[]} */
-  const shared = [];
-  /** @type {string[]} batch pots cooked TODAY for a later night (their recipe ids) */
-  const batchesToday = [];
-  const profiles = await ghReadJson("profiles.json", token);
-  const house = String(
-    (profiles?.profiles ?? []).find((/** @type {any} */ p) => p?.id === "david")?.household ??
-      "",
-  );
-  if (/^[a-z0-9-]+$/.test(house)) {
-    const events = await ghReadJson(`households/${house}/events.json`, token);
-    for (const t of events?.tables ?? []) {
-      if (t?.slot === "dinner" && t?.preparedOn === now.dateIso && t?.date !== now.dateIso)
-        batchesToday.push(String(t.recipeId));
-      if (t?.date !== now.dateIso) continue;
-      const seat = (t.seats ?? []).find((/** @type {any} */ x) => x?.id === "david");
-      if (!seat || seat.status === "skipped") continue;
-      shared.push({
-        id: `table-${t.id}`,
-        date: t.date,
-        slot: t.slot,
-        table: t.id,
-        tableRecipeId: t.recipeId,
-        // a batch pot made on an earlier day is a reheat tonight, like a leftover
-        leftover: Boolean(t.leftoverOf || (t.preparedOn && t.preparedOn !== t.date)),
-        ...(t.cookedAt ? { cookedAt: t.cookedAt } : {}),
-      });
-    }
-  }
-  const plan = rawPlan || shared.length > 0
-    ? { ...(rawPlan ?? {}), entries: [...(rawPlan?.entries ?? []), ...shared] }
-    : null;
+  const plan = await ghReadJson(`plans/${weekId}.json`, token);
   // shopping only matters at its hours; skip the read otherwise. (The daily
   // log read left with the log nags, 2026-08-09 — Crystal owns tracking.)
   const wantsShopping = now.weekday === "Sat" || now.weekday === "Sun";
@@ -373,9 +337,8 @@ async function runNotifications(token, topic, now, send) {
   const todaysIds = [
     ...new Set(
       (plan?.entries ?? [])
-        .filter((/** @type {any} */ e) => e.date === now.dateIso && (e.recipeId || e.tableRecipeId))
-        .map((/** @type {any} */ e) => String(e.recipeId ?? e.tableRecipeId))
-        .concat(batchesToday)
+        .filter((/** @type {any} */ e) => e.date === now.dateIso && e.recipeId)
+        .map((/** @type {any} */ e) => String(e.recipeId))
         // defense-in-depth: recipe ids are slugs; anything else never
         // reaches a URL (no path/query traversal via a poisoned plan file)
         .filter((/** @type {string} */ id) => /^[a-z0-9-]+$/.test(id)),
@@ -386,13 +349,6 @@ async function runNotifications(token, topic, now, send) {
     if (r?.name) names[id] = String(r.name);
   }
   const recipeName = (/** @type {string} */ id) => names[id] ?? id;
-  // a shared meal reads as its dish, a leftover night says so
-  for (const e of shared) {
-    e.freeText = `${recipeName(String(e.tableRecipeId))}${e.leftover ? " (leftovers, reheat)" : ""}`;
-    // the prep day's dinner names the batch cooked alongside it
-    if (e.slot === "dinner" && !e.leftover && batchesToday.length > 0)
-      e.freeText += `, plus the batch: ${batchesToday.map(recipeName).join(", ")}`;
-  }
 
   const notifications = send
     ? buildNotifications({ ...now, plan, shopping, recipeName })
