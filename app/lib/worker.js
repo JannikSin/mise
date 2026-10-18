@@ -6,6 +6,7 @@
 
 import { getToken, DATA_REPO, dataRepoOverridden, dataBranch } from "./github.js";
 import { withCartSend } from "./shopping.js";
+import { narrationWav } from "./scan.js";
 
 const WORKER_URL = "https://mise-worker.janniksin.workers.dev";
 
@@ -113,6 +114,47 @@ export async function scanPhoto(file) {
   const { image, mediaType } = await downscalePhoto(file);
   const data = await post("/scan", { image, mediaType });
   return Array.isArray(data.items) ? data.items : [];
+}
+
+/**
+ * THE WALK'S NARRATION, the browser half (P6, David 2026-10-18: "show
+ * everything and also narrate everything"). Decodes the video file's own
+ * audio track with the Web Audio API (Safari and Chrome both decode the
+ * AAC inside .mov/.mp4), turns it into a small 16 kHz WAV (narrationWav),
+ * and returns it, or a plain reason the walk falls back to typing.
+ * @param {File | Blob} file
+ * @returns {Promise<{ wav: Uint8Array, trimmed: boolean } | { reason: "no-audio" | "decode-failed" }>}
+ */
+export async function extractNarration(file) {
+  const Ctx =
+    /** @type {any} */ (globalThis).OfflineAudioContext ??
+    /** @type {any} */ (globalThis).webkitOfflineAudioContext;
+  if (!Ctx) return { reason: "decode-failed" };
+  try {
+    const bytes = await file.arrayBuffer();
+    // an OfflineAudioContext decodes without touching the speaker or asking
+    // for the microphone; its own length is irrelevant to decoding
+    const ctx = new Ctx(1, 1, 16000);
+    const audio = await new Promise((resolve, reject) => {
+      const p = ctx.decodeAudioData(bytes, resolve, reject);
+      if (p && typeof p.then === "function") p.then(resolve, reject);
+    });
+    return narrationWav(/** @type {any} */ (audio));
+  } catch {
+    return { reason: "decode-failed" };
+  }
+}
+
+/**
+ * The narration WAV to text through the Worker's /transcribe.
+ * @param {Uint8Array} wav
+ * @returns {Promise<string>}
+ */
+export async function transcribeNarration(wav) {
+  let s = "";
+  for (let i = 0; i < wav.length; i += 0x8000) s += String.fromCharCode(...wav.subarray(i, i + 0x8000));
+  const data = await post("/transcribe", { audio: btoa(s), mediaType: "audio/wav" });
+  return typeof data.text === "string" ? data.text : "";
 }
 
 /**

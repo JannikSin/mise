@@ -13,6 +13,8 @@ import {
   krogerUnlink,
   scanPhoto,
   sampleVideoFrames,
+  extractNarration,
+  transcribeNarration,
   scanFrames,
   scanReceipt,
   recordKrogerPush,
@@ -349,7 +351,7 @@ export function ShoppingView({
   // thumbnails, each frame's scanned items, progress, and what he said. Its
   // READ IT BACK lands in `heard`, the same preview SAY WHAT YOU HAVE uses.
   const [walk, setWalk] = useState(
-    /** @type {null | { busy?: string, error?: string, thumbs?: string[], items?: { name: string, kind: string, qty: string }[][], failed?: number, limited?: number }} */ (
+    /** @type {null | { busy?: string, error?: string, thumbs?: string[], items?: { name: string, kind: string, qty: string }[][], failed?: number, limited?: number, heardNote?: string }} */ (
       null
     ),
   );
@@ -487,6 +489,44 @@ export function ShoppingView({
     if (!file || walk?.busy) return;
     for (const u of walk?.thumbs ?? []) URL.revokeObjectURL(u);
     setWalk({ busy: "reading the video…" });
+    // the narration is in the same file (David, 2026-10-18: "show everything
+    // and also narrate everything"): listened to alongside the frames, then
+    // put in the box he can still correct. Every miss says why in one line
+    // and leaves the box for typing.
+    const heard = (async () => {
+      const n = await extractNarration(file);
+      if ("reason" in n) {
+        return {
+          text: "",
+          note:
+            n.reason === "no-audio"
+              ? "No narration heard on the video; type or dictate what you see below."
+              : "This phone could not read the video's sound; type or dictate what you see below.",
+        };
+      }
+      try {
+        const text = (await transcribeNarration(n.wav)).trim();
+        return {
+          text,
+          note: !text
+            ? "No words heard on the video; type or dictate what you see below."
+            : n.trimmed
+              ? "Heard the first 90 seconds of what you said; check it below."
+              : "Heard what you said; check it below.",
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        return {
+          text: "",
+          note: /not switched on/.test(msg)
+            ? "Listening to the video is not switched on yet; type or dictate what you see below."
+            : "Could not listen to the video right now; type or dictate what you see below.",
+        };
+      }
+    })();
+    const fillSaid = (/** @type {string} */ text) => {
+      if (text) setWalkSaid((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
+    };
     try {
       const frames = await sampleVideoFrames(file, (d) => frameTimes(d, 8));
       const thumbs = frames.map((f) => URL.createObjectURL(f));
@@ -494,9 +534,17 @@ export function ShoppingView({
       const { items, failed, limited } = await scanFrames(frames, (done, total) =>
         setWalk((w) => ({ ...(w ?? {}), busy: `looking at frame ${done} of ${total}…` })),
       );
-      setWalk({ thumbs, items, failed, limited });
+      const said = await heard;
+      fillSaid(said.text);
+      setWalk({ thumbs, items, failed, limited, heardNote: said.note });
     } catch (err) {
-      setWalk({ error: err instanceof Error ? err.message : "that video could not be read" });
+      // the frames failed, but what he said may still be there
+      const said = await heard;
+      fillSaid(said.text);
+      setWalk({
+        error: err instanceof Error ? err.message : "that video could not be read",
+        heardNote: said.note,
+      });
     }
   };
 
@@ -2616,7 +2664,7 @@ export function ShoppingView({
           <details class="saywhat" open=${Boolean(walk)}>
             <summary class="block-title">
               🎥 Walk the fridge
-              <span class="hint">film the shelves, then type or dictate what you see. Mise does not listen to the video's sound</span>
+              <span class="hint">film the shelves while you say what you see, then add it all</span>
             </summary>
             <label class="secondary linkbtn">
               ${walk?.thumbs ? "FILM AGAIN" : "FILM OR PICK A VIDEO"}
@@ -2639,10 +2687,11 @@ export function ShoppingView({
                 )}
               </div>`
             }
+            ${walk?.heardNote && html`<p class="hint" role="status">${walk.heardNote}</p>`}
             <textarea
               aria-label="What you see, in your own words"
               rows="3"
-              placeholder="type or dictate what you see, amounts too: a dozen eggs, half a gallon of milk…"
+              placeholder="what you said shows here; fix anything, or type or dictate: a dozen eggs, half a gallon of milk…"
               value=${walkSaid}
               onInput=${(/** @type {any} */ e) => setWalkSaid(e.currentTarget.value)}
             ></textarea>
