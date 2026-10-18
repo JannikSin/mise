@@ -28,6 +28,7 @@ async function finalizeProfile(p0, existing) {
   };
   const adminDevice = read(ADMIN_DEVICE_KEY) === "1";
   const mayPlaceAnywhere = !boundaryOn(existing) || adminDevice;
+  /** @type {Record<string, any>} */
   const p = {
     ...p0,
     household: allowedNewHouse(existing, read(DEVICE_HOUSE_KEY), adminDevice, p0?.household),

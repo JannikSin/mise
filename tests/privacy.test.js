@@ -106,3 +106,15 @@ test("Realist 2026-10-18: someone seated at your own table is visible, the admin
   const ev = [{ house: "taranowski", events: { tables: [{ id: "x", date: "2026-10-19", seats: [{ id: "mom" }, { id: "david" }] }] } }];
   assert.ok(visibleProfilesFor(PROFILES, "mom", ev, TODAY).some((p) => p.id === "david"));
 });
+
+test("Tribunal loop 2: a household typed into the CHAT still lands in the device's own house", async () => {
+  const { allowedNewHouse } = await import("../app/lib/privacy.js");
+  const profiles = [
+    { id: "david", household: "wayne", admin: true },
+    { id: "elliot", household: "wayne" },
+    { id: "mom", household: "taranowski" },
+  ];
+  assert.equal(allowedNewHouse(profiles, "wayne", false, "taranowski"), "wayne");
+  assert.equal(allowedNewHouse(profiles, null, false, "taranowski"), "home");
+  assert.equal(allowedNewHouse(profiles, "wayne", true, "taranowski"), "taranowski", "the admin device may place anywhere");
+});
