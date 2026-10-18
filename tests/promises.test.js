@@ -1545,6 +1545,9 @@ const PROMISES = [
         { id: "rice", name: "Brown Rice", calories: 210, protein: 5, allergens: [] },
         { id: "bun", name: "Hamburger Bun", calories: 150, protein: 5, allergens: ["gluten", "wheat"] },
         { id: "mystery", name: "Mystery Bake", calories: NaN, protein: NaN, allergens: [] },
+        // a second side (2026-10-18): trays now take at most two helpings of a
+        // dish, so a line with one main and one side cannot fill 700 kcal
+        { id: "potatoes", name: "Roasted Potatoes", calories: 120, protein: 3, allergens: [] },
       ];
       const tray = composeTray(menu, { calories: 700, protein: 50 });
       assert.equal(tray.meets.protein, true, `the tray missed its protein quota: ${tray.protein} g`);

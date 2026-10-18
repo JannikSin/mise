@@ -80,3 +80,18 @@ test("a profile with no targets does not produce a NaN quota", () => {
   const q = quotaFor({ calories: 0, protein: 0 }, { calories: 0, protein: 0 }, 0);
   assert.ok(Number.isFinite(q.calories) && Number.isFinite(q.protein));
 });
+
+test("a real tray: at most two helpings of a dish, and toppings never pad it (2026-10-18)", async () => {
+  const { composeTray, isTopping } = await import("../app/lib/dininghall.js");
+  const menu = [
+    { id: "shawarma", name: "Halal Chicken Shawarma", calories: 180, protein: 30, servingSize: "4oz Portion" },
+    { id: "bits", name: "Bacon Bits", calories: 70, protein: 6, servingSize: "2 Tbsp" },
+    { id: "cheese", name: "Shredded Cheddar Cheese", calories: 110, protein: 7, servingSize: "Ounce" },
+    { id: "rice", name: "Brown Rice", calories: 220, protein: 5, servingSize: "1 Cup" },
+  ];
+  const t = composeTray(menu, { calories: 900, protein: 80 });
+  assert.ok(t.picks.every((p) => p.servings <= 2), "no third scoop of anything");
+  assert.ok(!t.picks.some((p) => /Bacon|Shredded/.test(p.name)), "toppings stay off the count");
+  assert.equal(t.meets.protein, false, "a menu that cannot reach the quota honestly says so");
+  assert.equal(isTopping({ name: "Chicken Thighs in Mango Habanero Sauce", servingSize: "Each" }), false);
+});

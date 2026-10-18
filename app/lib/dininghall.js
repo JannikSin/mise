@@ -109,6 +109,21 @@ export function parseItem(item) {
   };
 }
 
+const TOPPING_WORDS =
+  /\b(bits|shredded|diced|chopped|grated|crumbles|crumbled|croutons|sprinkles|dressing|syrup|relish|pickles?|pico)\b/i;
+
+/**
+ * A garnish or condiment from the toppings bar, by its serving ("2 Tbsp")
+ * or its name ("Shredded Cheddar"). Exported for the tests.
+ * @param {{ name: string, servingSize?: string }} item
+ */
+export function isTopping(item) {
+  return (
+    /\b(tbsp|tablespoons?|tsp|teaspoons?)\b/i.test(String(item.servingSize ?? "")) ||
+    TOPPING_WORDS.test(String(item.name ?? ""))
+  );
+}
+
 /** Does this hall item carry anything the person avoids? */
 function unsafeFor(
   /** @type {{ allergens: string[] }} */ item,
@@ -157,7 +172,10 @@ function unsafeFor(
  */
 export function composeTray(items, quota, opts = {}) {
   const avoid = new Set((opts.avoidAllergens ?? []).map((a) => String(a).toLowerCase()));
-  const maxEach = Math.max(1, opts.maxServingsPerItem ?? 3);
+  // TWO HELPINGS AT MOST (David, 2026-10-18: "Am I actually getting that?"):
+  // on the real Purdue menus three scoops of one thing, 12 oz of shawarma,
+  // was how a tray reached 90 g. Nobody eats that; two is a real second plate.
+  const maxEach = Math.max(1, opts.maxServingsPerItem ?? 2);
   const ceiling = Number(opts.calorieCeiling) > 0 ? Number(opts.calorieCeiling) : quota.calories * 1.15;
 
   /** @type {{ name: string, because: string[] }[]} */
@@ -166,6 +184,13 @@ export function composeTray(items, quota, opts = {}) {
   for (const it of items ?? []) {
     if (!Number.isFinite(it.calories) || !Number.isFinite(it.protein)) {
       excluded.push({ name: it.name, because: ["the hall published no numbers for it"] });
+      continue;
+    }
+    // a topping is not a meal: 3x bacon bits and 3x shredded cheese padded
+    // real trays to their quota (2026-10-18). Spoon-sized servings and the
+    // garnish words stay off the tray.
+    if (isTopping(it)) {
+      excluded.push({ name: it.name, because: ["a topping, not part of the tray's count"] });
       continue;
     }
     const hits = unsafeFor({ ...it, allergens: it.allergens ?? [] }, avoid);
