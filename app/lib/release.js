@@ -28,6 +28,16 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
+    version: UNRELEASED,
+    date: "",
+    notes: [
+      "BUILD checks today's Pay Less prices and this week's sales on its own, and says so in one line: prices checked today, and how many items are on sale.",
+      "Walk the fridge: on the List's PANTRY, film the shelves while you say what you see; Mise reads the video and your words, you check the read-back, and it all goes in.",
+      "No more 3 pm snack ping. Reminders are now the morning's day ahead, cook nights, the store run and the 11 pm Ate it?.",
+      "Add a recipe from a link, right on Plan: Mise fits it to you, checks everyone's allergies, and either puts it on a night this week or saves it to your recipes.",
+    ],
+  },
+  {
     version: "1.6",
     date: "2026-10-18",
     notes: [
@@ -45,10 +55,6 @@ export const RELEASES = [
       "On a kitchen that does not cook every night, dinners lean on big pots and bakes that keep, and a cook night only picks a dish whose pan holds everyone. If a batch is too big for one pan, the week says so.",
       "One bag of chocolate chips instead of three. Mid-week, Plan leads with the days, and ATE EVERYTHING TODAY marks the whole day in one tap.",
       "Dining court trays are trays a person eats: at most two helpings of a dish, and toppings no longer count toward the protein.",
-      "BUILD checks today's Pay Less prices and this week's sales on its own, and says so in one line: prices checked today, and how many items are on sale.",
-      "Walk the fridge: on the List's PANTRY, film the shelves while you say what you see; Mise reads the video and your words, you check the read-back, and it all goes in.",
-      "No more 3 pm snack ping. Reminders are now the morning's day ahead, cook nights, the store run and the 11 pm Ate it?.",
-      "Add a recipe from a link, right on Plan: Mise fits it to you, checks everyone's allergies, and either puts it on a night this week or saves it to your recipes.",
     ],
   },
   {
