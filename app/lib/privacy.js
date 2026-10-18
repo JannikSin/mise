@@ -59,7 +59,9 @@ export function visibleProfilesFor(profiles, me, houseEvents, todayIso) {
       for (const s of t.seats ?? []) if (s?.id) seated.add(String(s.id));
     }
   }
-  return list.filter((p) => houseOf(p) === house || (seated.has(p.id) && !isAdmin(p)));
+  // anyone seated at your own table is already known to you, the admin too
+  // (Tribunal Realist: Mom would otherwise see David's seat as "david")
+  return list.filter((p) => houseOf(p) === house || seated.has(p.id));
 }
 
 /**
@@ -80,6 +82,7 @@ export function visibleHouseEventsFor(houseEvents, profiles, me) {
           house: h.house,
           // an allow-list, never a spread: only the tables you sit at
           events: {
+            brigades: [],
             tables: (h.events?.tables ?? []).filter((/** @type {any} */ t) =>
               (t?.seats ?? []).some((/** @type {any} */ s) => s?.id === me),
             ),

@@ -58,7 +58,8 @@ test("another house's events show only the tables you are seated at, and none of
   const seen = visibleHouseEventsFor(EVENTS, PROFILES, "elliot");
   const fam = seen.find((h) => h.house === "taranowski");
   assert.deepEqual(fam?.events.tables.map((t) => t.id), ["t3"]);
-  assert.equal(fam?.events.brigades, undefined, "an allow-list: nothing but your tables");
+  assert.deepEqual(fam?.events.brigades, [], "an allow-list: nothing but your tables");
+  assert.deepEqual(Object.keys(fam?.events ?? {}).sort(), ["brigades", "tables"]);
   assert.equal(seen.find((h) => h.house === "wayne")?.events.tables.length, 1);
 });
 
@@ -99,4 +100,9 @@ test("Red Team 2026-10-18: Elliot's phone cannot type its way into Mom, nor add 
   const occ = [{ profileId: "mom" }, { profileId: "elliot" }, { profileId: "priya" }];
   const vis = visibleProfilesFor(withKey, "elliot", EVENTS, TODAY);
   assert.deepEqual(visibleOccasionsFor(occ, vis).map((o) => o.profileId), ["elliot", "priya"]);
+});
+
+test("Realist 2026-10-18: someone seated at your own table is visible, the admin included", () => {
+  const ev = [{ house: "taranowski", events: { tables: [{ id: "x", date: "2026-10-19", seats: [{ id: "mom" }, { id: "david" }] }] } }];
+  assert.ok(visibleProfilesFor(PROFILES, "mom", ev, TODAY).some((p) => p.id === "david"));
 });

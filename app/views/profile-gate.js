@@ -257,6 +257,9 @@ export function ProfileGateView({
     numeric.weightLb <= 500;
 
   // YOUR PROFILE, EDITED (v1.8, P3): the survey pre-filled from the file
+  // in edit mode a person with no body numbers on file starts with no sex
+  // picked (Tribunal Realist: the "f" default would save a female body)
+  const [sexPicked, setSexPicked] = useState(!edit);
   const [statedCal, setStatedCal] = useState("");
   const [statedPro, setStatedPro] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
@@ -266,7 +269,10 @@ export function ProfileGateView({
     if (!edit) return;
     const t = edit.targets ?? {};
     const b = t.body ?? {};
-    if (b.sex === "m" || b.sex === "f") setSex(b.sex);
+    if (b.sex === "m" || b.sex === "f") {
+      setSex(b.sex);
+      setSexPicked(true);
+    }
     if (b.age) setAge(String(b.age));
     if (b.heightIn) {
       setHeightFt(String(Math.floor(Number(b.heightIn) / 12)));
@@ -360,9 +366,12 @@ export function ProfileGateView({
     );
   };
 
+  // body numbers are optional in edit mode: without them nothing about the
+  // body is saved and there is no suggestion, but every other answer saves
+  const bodyGiven = formValid && sexPicked;
   const recommended = (() => {
     try {
-      return formValid ? Math.round(Number(freshTargets().macros.calories)) : 0;
+      return bodyGiven ? Math.round(Number(freshTargets().macros.calories)) : 0;
     } catch {
       return 0;
     }
@@ -370,7 +379,7 @@ export function ProfileGateView({
   const calNum = Number(statedCal);
   const needsReason = outsideSafeBand(calNum, recommended);
   const saveEdit = async () => {
-    if (!edit || !formValid || saving) return;
+    if (!edit || saving) return;
     if (!(calNum >= 1000 && calNum <= 12000) || !(Number(statedPro) >= 30)) {
       setEditNote("set a calorie target (1,000 to 12,000) and a protein target");
       return;
@@ -388,14 +397,18 @@ export function ProfileGateView({
       protein: Number(statedPro),
       reason: needsReason ? overrideReason : "",
       todayIso: localIsoDate(new Date()),
-      body: {
-        sex,
-        age: numeric.age,
-        heightIn: numeric.heightFt * 12 + numeric.heightIn,
-        weightLb: numeric.weightLb,
-        activity,
-        ...(Number(goalWeightLb) > 0 ? { goalWeightLb: Number(goalWeightLb) } : {}),
-      },
+      ...(bodyGiven
+        ? {
+            body: {
+              sex,
+              age: numeric.age,
+              heightIn: numeric.heightFt * 12 + numeric.heightIn,
+              weightLb: numeric.weightLb,
+              activity,
+              ...(Number(goalWeightLb) > 0 ? { goalWeightLb: Number(goalWeightLb) } : {}),
+            },
+          }
+        : {}),
       ...(goalDate ? { goalDate } : {}),
     };
     const ok = await edit.onSave(freshTargets(), stated);
@@ -574,10 +587,16 @@ export function ProfileGateView({
 
           <h2 class="block-title">about them</h2>
           <div class="chips" role="group" aria-label="Sex (for calorie math)">
-            <button class="chip ${sex === "f" ? "on" : ""}" onClick=${() => setSex("f")}>
+            <button class="chip ${sexPicked && sex === "f" ? "on" : ""}" onClick=${() => {
+                setSex("f");
+                setSexPicked(true);
+              }}>
               female
             </button>
-            <button class="chip ${sex === "m" ? "on" : ""}" onClick=${() => setSex("m")}>
+            <button class="chip ${sexPicked && sex === "m" ? "on" : ""}" onClick=${() => {
+                setSex("m");
+                setSexPicked(true);
+              }}>
               male
             </button>
           </div>
@@ -982,6 +1001,13 @@ export function ProfileGateView({
                   onInput=${(/** @type {any} */ e) => setStatedPro(e.currentTarget.value)}
                 />
               </div>
+              ${
+                !bodyGiven &&
+                html`<p class="hint">
+                  Add your sex, age, height and weight above to save them and get Mise's
+                  suggestion; everything else saves without them.
+                </p>`
+              }
               <p class="hint">
                 calories and protein grams a day.
                 ${recommended > 0 ? ` From your numbers Mise suggests about ${recommended.toLocaleString()} kcal.` : ""}

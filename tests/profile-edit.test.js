@@ -107,3 +107,11 @@ test("SAVE writes both mirrored files identically", async () => {
   assert.ok(paths.some((p) => p.endsWith(TARGETS_PATH)) && paths.some((p) => p.endsWith(LEGACY_TARGETS_PATH)));
   assert.deepEqual(written[paths[0]], written[paths[1]]);
 });
+
+test("Realist 2026-10-18: a save without body numbers leaves body exactly as it was (or absent)", () => {
+  const noBody = { ...EXISTING };
+  delete (/** @type {any} */ (noBody)).body;
+  const out = mergeProfileAnswers(noBody, fresh({ budget: "tight" }), { calories: 2850, protein: 145, todayIso: "2026-10-18" });
+  assert.equal(out.body, undefined, "no body numbers given, no body written");
+  assert.equal(out.budget, "tight", "the other answers still save");
+});
