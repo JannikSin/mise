@@ -31,6 +31,19 @@ import {
   sanitizeInviteEntry,
   sanitizeInviteTargets,
   sanitizeInviteDinners,
+  guestNameKey,
+  validGuestPin,
+  hashGuestPin,
+  verifyGuestPin,
+  signGuestSession,
+  verifyGuestSession,
+  guestLocked,
+  guestAfterFail,
+  findGuestLogin,
+  firstNameOf,
+  guestRecipe,
+  GUEST_DUMMY_SALT,
+  GUEST_LOCK_MS,
   slugForName,
   findInvite,
   inviteState,
@@ -269,6 +282,92 @@ async function ghReadJsonRef(path, token, branch) {
 const INVITE_MAX_BODY_BYTES = 64 * 1024;
 /** how long a claimed code keeps opening the status page (M1) */
 const INVITE_STATUS_TTL_MS = 60 * 24 * 60 * 60 * 1000;
+
+// GUEST LOG IN CACHES (v1.6, plan gate 2026-10-18): a log in NEVER writes to
+// GitHub, so the wrong-try counter and the guests.json read live in the
+// Cache API (per colo), with an in-isolate map where the platform has none
+// (tests, local dev). Per colo is a soft boundary, which is the bar David set.
+/** @type {Map<string, { value: any, until: number }>} */
+const memCache = new Map();
+
+/**
+ * @param {string} key
+ * @returns {Promise<any>}
+ */
+async function cacheGet(key) {
+  const store = /** @type {any} */ (globalThis).caches?.default;
+  if (store) {
+    const hit = await store.match(key).catch(() => null);
+    return hit ? hit.json().catch(() => null) : null;
+  }
+  const m = memCache.get(key);
+  return m && m.until > Date.now() ? m.value : null;
+}
+
+/**
+ * @param {string} key
+ * @param {any} value
+ * @param {number} seconds
+ */
+async function cachePut(key, value, seconds) {
+  const store = /** @type {any} */ (globalThis).caches?.default;
+  if (store) {
+    await store
+      .put(
+        key,
+        new Response(JSON.stringify(value), {
+          headers: { "cache-control": `max-age=${seconds}` },
+        }),
+      )
+      .catch(() => {});
+    return;
+  }
+  memCache.set(key, { value, until: Date.now() + seconds * 1000 });
+}
+
+/** @param {string} key */
+async function cacheDelete(key) {
+  const store = /** @type {any} */ (globalThis).caches?.default;
+  if (store) await store.delete(key).catch(() => {});
+  else memCache.delete(key);
+}
+
+/** tests only: the in-isolate cache must not carry one test's guests into the next */
+export function resetGuestCachesForTests() {
+  memCache.clear();
+}
+
+/** the guest logins, read at most once a minute per colo */
+const guestsKey = (/** @type {string} */ branch) => `https://mise-worker.internal/guests/${branch}`;
+
+/**
+ * @param {string} token
+ * @param {string} branch
+ * @returns {Promise<{ logins: any[] }>}
+ */
+async function cachedGuests(token, branch) {
+  const hit = await cacheGet(guestsKey(branch));
+  if (hit) return hit;
+  const file = (await ghReadJsonRef("guests.json", token, branch)) ?? { logins: [] };
+  const clean = { logins: Array.isArray(file.logins) ? file.logins : [] };
+  await cachePut(guestsKey(branch), clean, 60);
+  return clean;
+}
+
+/**
+ * A recipe as a guest sees it (guestRecipe), cached an hour under its own key.
+ * @param {string} id
+ * @param {string} token
+ * @param {string} branch
+ */
+async function cachedGuestRecipe(id, token, branch) {
+  const key = `https://mise-worker.internal/recipe-guest/${branch}/${id}`;
+  const hit = await cacheGet(key);
+  if (hit) return hit;
+  const r = guestRecipe(await ghReadJsonRef(`recipes/${id}.json`, token, branch));
+  if (r) await cachePut(key, r, 3600);
+  return r;
+}
 
 /**
  * A recipe read through the Cache API when the platform has one (an hour),
@@ -653,6 +752,8 @@ export default {
         "/invite/new",
         "/invite/claim",
         "/invite/status",
+        "/guest/login",
+        "/guest/me",
         "/notify-test",
         "/hall/day",
         "/hall/items",
@@ -679,6 +780,115 @@ export default {
     //    limit (per isolate, so a soft limit; the code is the hard one).
     //  - a status grant that expires (60 days after the claim), reads only
     //    the invitee's own seats, and never reports internal detail.
+    // GUEST LOG IN (v1.6, David 2026-10-18): "type your name + a quick
+    // passkey"; once in, a guest sees only their own meals and those recipes.
+    // Same open-route guards as the invite routes (origin picks the branch,
+    // per-address rate limit, bounded body, the dedicated credential), plus:
+    //  - a log in never writes to GitHub: the wrong-try counter and the
+    //    guests.json read are cached (cacheGet/cachePut), so guessing cannot
+    //    spend the write quota or reveal a name by response time;
+    //  - an unknown name, a wrong passkey and a locked login all answer the
+    //    same words, and an unknown name still runs the hash (dummy salt);
+    //  - /guest/me confirms the login row still exists, so deleting it from
+    //    guests.json signs that guest out within a minute.
+    if (url.pathname === "/guest/login" || url.pathname === "/guest/me") {
+      const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+      const weight = url.pathname === "/guest/login" ? 3 : 2;
+      if (!allowRequest(rateState, `guest:${ip}`, Date.now(), weight)) {
+        return json(429, { error: "slow down, try again in a few minutes" }, cors);
+      }
+      const branch = branchForOrigin(request.headers.get("origin"));
+      if (!branch) return json(403, { error: "not available from this origin" }, cors);
+      const writeToken = env.MISE_INVITE_TOKEN;
+      if (!writeToken) return json(503, { error: "guest log in is not switched on yet" }, cors);
+      /** @type {any} */
+      let body;
+      try {
+        const raw = await request.text();
+        if (raw.length > 4096) return json(413, { error: "too large" }, cors);
+        body = JSON.parse(raw);
+      } catch {
+        return json(400, { error: "bad json" }, cors);
+      }
+      const nope = () =>
+        json(401, { error: "that name and passkey don't match" }, cors);
+      try {
+        const guests = await cachedGuests(writeToken, branch);
+        const nowMs = Date.now();
+
+        if (url.pathname === "/guest/login") {
+          const nameKey = guestNameKey(body?.name);
+          const pin = typeof body?.pin === "string" ? body.pin : "";
+          const failKey = `https://mise-worker.internal/guest-fail/${branch}/${nameKey ?? "invalid"}`;
+          const fails = await cacheGet(failKey);
+          const row = nameKey ? findGuestLogin(guests, nameKey) : null;
+          // the hash always runs, so every answer costs the same
+          const good =
+            row && validGuestPin(pin) && !guestLocked(fails, nowMs)
+              ? await verifyGuestPin(pin, String(row.salt), String(row.hash))
+              : (await hashGuestPin(validGuestPin(pin) ? pin : "0000", GUEST_DUMMY_SALT), false);
+          if (!good || !row) {
+            if (nameKey && !guestLocked(fails, nowMs)) {
+              await cachePut(failKey, guestAfterFail(fails, nowMs), Math.ceil(GUEST_LOCK_MS / 1000));
+            }
+            return nope();
+          }
+          await cacheDelete(failKey);
+          const session = await signGuestSession(
+            { p: String(row.profileId), b: branch },
+            writeToken,
+            nowMs,
+          );
+          return json(200, { session, name: firstNameOf(row.name) }, cors);
+        }
+
+        // /guest/me
+        const s = await verifyGuestSession(body?.session, writeToken, branch, nowMs);
+        const row = s ? (guests.logins ?? []).find((l) => l && l.profileId === s.p) : null;
+        if (!s || !row) return json(401, { error: "signed out" }, cors);
+        const hostHouse = slugOf(row.hostHouse);
+        const events = hostHouse
+          ? await ghReadJsonRef(`households/${hostHouse}/events.json`, writeToken, branch)
+          : null;
+        const profs = await ghReadJsonRef("profiles.json", writeToken, branch);
+        const people = new Map(
+          (profs?.profiles ?? []).map((/** @type {any} */ p) => [String(p.id), String(p.name ?? "")]),
+        );
+        const rows = inviteStatusRows(
+          Array.isArray(events?.tables) ? events.tables : [],
+          s.p,
+          (id) => id,
+          (id) => firstNameOf(people.get(id) ?? ""),
+          chicagoNow().dateIso,
+        );
+        /** @type {Record<string, any>} */
+        const recipes = {};
+        const ids = [
+          ...new Set(rows.map((r) => r.dish).filter((id) => /^[a-z0-9-]+$/.test(id))),
+        ].slice(0, 6);
+        for (const id of ids) {
+          const r = await cachedGuestRecipe(id, writeToken, branch);
+          if (r && JSON.stringify(recipes).length < 120_000) recipes[id] = r;
+        }
+        return json(
+          200,
+          {
+            name: firstNameOf(row.name),
+            rows: rows.map((r) => ({
+              ...r,
+              recipeId: r.dish,
+              dish: recipes[r.dish]?.name ?? r.dish.replace(/-/g, " "),
+            })),
+            recipes,
+          },
+          cors,
+        );
+      } catch (e) {
+        console.log("guest route failed", url.pathname, e instanceof Error ? e.message : String(e));
+        return json(502, { error: "could not reach the kitchen's records, try again in a minute" }, cors);
+      }
+    }
+
     if (url.pathname === "/invite/claim" || url.pathname === "/invite/status") {
       const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
       const weight = url.pathname === "/invite/status" ? 6 : 3;
@@ -800,6 +1010,37 @@ export default {
         const dinners =
           house === "guesthouse" ? sanitizeInviteDinners(body.dinners, nowIso.slice(0, 10)) : [];
 
+        // SIGN UP (v1.6, David 2026-10-18: "set your login name and passkey").
+        // Optional: an old link with no login still claims as before. The
+        // invite was validated above (exists, branch, unspent, unexpired), so a
+        // spent code cannot probe names; a taken name is refused HERE, before
+        // the code is spent, and the passkey is hashed before any write.
+        /** @type {null | { nameKey: string, name: string, salt: string, hash: string }} */
+        let login = null;
+        /** @type {{ data: any, sha?: string } | null} */
+        let guestsFile = null;
+        if (body.login !== undefined) {
+          const nameKey = guestNameKey(body.login?.name);
+          if (!nameKey || !validGuestPin(body.login?.pin)) {
+            return json(
+              400,
+              { error: "pick a login name of 2 to 30 letters and a 4-digit passkey" },
+              cors,
+            );
+          }
+          guestsFile = await ghReadWithSha("guests.json", writeToken, branch);
+          if (findGuestLogin(guestsFile.data, nameKey)) {
+            return json(409, { error: "that login name is taken; add your last initial" }, cors);
+          }
+          const { salt, hash } = await hashGuestPin(String(body.login.pin));
+          login = {
+            nameKey,
+            name: String(body.login.name).normalize("NFKC").trim().replace(/\s+/g, " "),
+            salt,
+            hash,
+          };
+        }
+
         // 1. a free id: absent from profiles.json AND with no files under
         //    profiles/<id>/ (H5: a recycled id would inherit a stranger's targets)
         const profs = await ghReadWithSha("profiles.json", writeToken, branch);
@@ -910,6 +1151,49 @@ export default {
           if (res.ok) break;
           if (res.status !== 409 || attempt === 1)
             return spentFail(new Error(`profiles ${res.status}`));
+        }
+
+        // 5. the login, LAST, against the sha read before the stamp; one
+        //    re-read retry that checks the name again (two sign-ups racing for
+        //    one name: the loser's code is already spent, so spentFail)
+        if (login) {
+          const row = {
+            ...login,
+            profileId: id,
+            house,
+            hostHouse: slugOf(/** @type {any} */ (invite).hostHouse) || "home",
+            branch,
+            createdAt: nowIso,
+          };
+          let saved = null;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            const cur =
+              attempt === 0 && guestsFile
+                ? guestsFile
+                : await ghReadWithSha("guests.json", writeToken, branch);
+            const logins = Array.isArray(cur.data?.logins) ? cur.data.logins : [];
+            if (findGuestLogin({ logins }, login.nameKey))
+              return spentFail(new Error("login name taken in a race"));
+            const next = { ...(cur.data ?? {}), logins: [...logins, row] };
+            const res = await ghWriteJson(
+              "guests.json",
+              next,
+              cur.sha,
+              writeToken,
+              `guest login for ${id}`,
+              branch,
+            );
+            if (res.ok) {
+              saved = next;
+              break;
+            }
+            if (res.status !== 409 || attempt === 1)
+              return spentFail(new Error(`guests ${res.status}`));
+          }
+          // the fresh file goes in the cache now, so /guest/me finds them at once
+          if (saved) await cachePut(guestsKey(branch), { logins: saved.logins }, 60);
+          const session = await signGuestSession({ p: id, b: branch }, writeToken, nowMs);
+          return json(200, { ok: true, id, name: entry.name, house, session }, cors);
         }
         return json(200, { ok: true, id, name: entry.name, house }, cors);
       } catch (e) {
