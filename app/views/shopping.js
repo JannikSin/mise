@@ -1,6 +1,6 @@
 import { html } from "htm/preact";
 import { MoneyCard } from "./money.js";
-import { parsePantryDictation } from "../lib/scan.js";
+import { parsePantryDictation, frameTimes, mergeFridgeWalk } from "../lib/scan.js";
 import { Fragment } from "preact";
 import { tokenBroken } from "../lib/github.js";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -12,6 +12,8 @@ import {
   krogerSearch,
   krogerUnlink,
   scanPhoto,
+  sampleVideoFrames,
+  scanFrames,
   scanReceipt,
   recordKrogerPush,
   krogerPushLog,
@@ -342,6 +344,16 @@ export function ShoppingView({
   const [heard, setHeard] = useState(
     /** @type {null | ReturnType<typeof parsePantryDictation>} */ (null),
   );
+  // WALK THE FRIDGE (David, 2026-10-18: "record a video, roll it past all
+  // the shelves inside the fridge, and narrate everything"): the frames'
+  // thumbnails, each frame's scanned items, progress, and what he said. Its
+  // READ IT BACK lands in `heard`, the same preview SAY WHAT YOU HAVE uses.
+  const [walk, setWalk] = useState(
+    /** @type {null | { busy?: string, error?: string, thumbs?: string[], items?: { name: string, kind: string, qty: string }[][], failed?: number }} */ (
+      null
+    ),
+  );
+  const [walkSaid, setWalkSaid] = useState("");
   // which shelf the next photo is of. Tagging the shot turns an additive scan
   // into a SWEEP: those photos become the whole truth about that location.
   const [scanLocation, setScanLocation] = useState("fridge");
@@ -467,6 +479,25 @@ export function ShoppingView({
     setReceipt({
       notice: `${chosen.length} lines applied — those items left the list and are on the shelves now (PANTRY tab)`,
     });
+  };
+
+  const onWalkPicked = async (/** @type {{ currentTarget: HTMLInputElement }} */ e) => {
+    const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = "";
+    if (!file || walk?.busy) return;
+    for (const u of walk?.thumbs ?? []) URL.revokeObjectURL(u);
+    setWalk({ busy: "reading the video…" });
+    try {
+      const frames = await sampleVideoFrames(file, (d) => frameTimes(d, 8));
+      const thumbs = frames.map((f) => URL.createObjectURL(f));
+      setWalk({ busy: `looking at frame 0 of ${frames.length}…`, thumbs });
+      const { items, failed } = await scanFrames(frames, (done, total) =>
+        setWalk((w) => ({ ...(w ?? {}), busy: `looking at frame ${done} of ${total}…` })),
+      );
+      setWalk({ thumbs, items, failed });
+    } catch (err) {
+      setWalk({ error: err instanceof Error ? err.message : "that video could not be read" });
+    }
   };
 
   const onPhotoPicked = async (/** @type {{ currentTarget: HTMLInputElement }} */ e) => {
@@ -2582,6 +2613,59 @@ export function ShoppingView({
               + ${scanLocation.toUpperCase()}
             </button>
           </div>
+          <details class="saywhat" open=${Boolean(walk)}>
+            <summary class="block-title">
+              🎥 Walk the fridge
+              <span class="hint">film the shelves, say what you see, then add it all</span>
+            </summary>
+            <label class="secondary linkbtn">
+              ${walk?.thumbs ? "FILM AGAIN" : "FILM OR PICK A VIDEO"}
+              <input
+                type="file"
+                accept="video/*"
+                capture="environment"
+                hidden
+                disabled=${Boolean(walk?.busy)}
+                onChange=${onWalkPicked}
+              />
+            </label>
+            ${walk?.busy && html`<p class="hint" role="status">${walk.busy}</p>`}
+            ${walk?.error && html`<p class="hint scanerr" role="status">${walk.error}</p>`}
+            ${
+              (walk?.thumbs ?? []).length > 0 &&
+              html`<div class="thumbs">
+                ${(walk?.thumbs ?? []).map(
+                  (u, i) => html`<img key=${u} src=${u} alt=${`frame ${i + 1}`} class="thumb" />`,
+                )}
+              </div>`
+            }
+            <textarea
+              aria-label="What you see, in your own words"
+              rows="3"
+              placeholder="say what you see, amounts too: a dozen eggs, half a gallon of milk, 2 lbs chicken…"
+              value=${walkSaid}
+              onInput=${(/** @type {any} */ e) => setWalkSaid(e.currentTarget.value)}
+            ></textarea>
+            <div class="actions wrap">
+              <button
+                class="secondary"
+                disabled=${Boolean(walk?.busy) || (!walk?.items && !walkSaid.trim())}
+                onClick=${() => {
+                  setHeard(mergeFridgeWalk(walk?.items ?? [], walkSaid));
+                  setWalkSaid("");
+                }}
+              >
+                READ IT BACK
+              </button>
+            </div>
+            ${
+              walk?.items &&
+              html`<p class="hint">
+                ${walk.items.length} frames looked at${walk.failed ? `, ${walk.failed} could not be read` : ""}.
+                What you say wins over what a frame guessed. The read-back shows under Say what you have.
+              </p>`
+            }
+          </details>
           <details class="saywhat" open=${Boolean(said || heard)}>
             <summary class="block-title">
               🎙 Say what you have

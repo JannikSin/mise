@@ -116,6 +116,118 @@ export async function scanPhoto(file) {
 }
 
 /**
+ * WALK THE FRIDGE, the browser half (P6, David 2026-10-18): stills from a
+ * video he filmed along the shelves, taken at the times `timesFor` picks
+ * (frameTimes in scan.js) with a hidden <video> and a <canvas>, each a JPEG
+ * Blob that scanPhoto then downscales like any photo. A browser that cannot
+ * decode the clip or seek in it rejects with a plain sentence, never a silent
+ * empty walk.
+ * @param {File | Blob} file
+ * @param {(duration: number) => number[]} timesFor
+ * @returns {Promise<Blob[]>}
+ */
+export async function sampleVideoFrames(file, timesFor) {
+  const cannot =
+    "this phone's browser could not read frames from that video. Take a few photos with SCAN instead, or say what you have below.";
+  const url = URL.createObjectURL(file);
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+  video.src = url;
+  /** @param {string} ev @param {number} ms */
+  const once = (ev, ms) =>
+    new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(cannot)), ms);
+      video.addEventListener(
+        ev,
+        () => {
+          clearTimeout(t);
+          resolve(undefined);
+        },
+        { once: true },
+      );
+      video.addEventListener(
+        "error",
+        () => {
+          clearTimeout(t);
+          reject(new Error(cannot));
+        },
+        { once: true },
+      );
+    });
+  try {
+    await once("loadedmetadata", 15000);
+    // iOS paints no frame until the clip has played once, even muted
+    try {
+      await video.play();
+      video.pause();
+    } catch {
+      // autoplay refused: seeking still works on most engines
+    }
+    const times = timesFor(video.duration);
+    if (times.length === 0) throw new Error(cannot);
+    const scale = Math.min(1, MAX_EDGE / Math.max(video.videoWidth || 1, video.videoHeight || 1));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round((video.videoWidth || 1) * scale));
+    canvas.height = Math.max(1, Math.round((video.videoHeight || 1) * scale));
+    const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext("2d"));
+    /** @type {Blob[]} */
+    const frames = [];
+    for (const t of times) {
+      const seeked = once("seeked", 8000);
+      video.currentTime = t;
+      await seeked;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.8));
+      if (blob) frames.push(/** @type {Blob} */ (blob));
+    }
+    if (frames.length === 0) throw new Error(cannot);
+    return frames;
+  } finally {
+    video.removeAttribute("src");
+    URL.revokeObjectURL(url);
+  }
+}
+
+/**
+ * Each frame through the SAME /scan the photo scan uses (one image per
+ * request, so no Worker change), three at a time so a walk of 8 waits about
+ * three scans' worth. A frame that fails is skipped and counted; the walk
+ * fails only when every frame does.
+ * @param {Blob[]} frames
+ * @param {(done: number, total: number) => void} [onProgress]
+ * @param {(file: Blob) => Promise<{ name: string, kind: string, qty: string }[]>} [scan] test seam
+ * @returns {Promise<{ items: { name: string, kind: string, qty: string }[][], failed: number }>}
+ */
+export async function scanFrames(frames, onProgress, scan = scanPhoto) {
+  /** @type {{ name: string, kind: string, qty: string }[][]} */
+  const items = [];
+  let failed = 0;
+  let done = 0;
+  let next = 0;
+  /** @type {Error | null} */
+  let lastErr = null;
+  const lane = async () => {
+    while (next < frames.length) {
+      const i = next++;
+      try {
+        items[i] = await scan(/** @type {Blob} */ (frames[i]));
+      } catch (e) {
+        failed++;
+        lastErr = e instanceof Error ? e : new Error("scan failed");
+        items[i] = [];
+      }
+      done++;
+      onProgress?.(done, frames.length);
+    }
+  };
+  await Promise.all([lane(), lane(), lane()]);
+  if (frames.length > 0 && failed === frames.length && lastErr) throw lastErr;
+  return { items, failed };
+}
+
+/**
  * Grocery-receipt photo(s) → the store and its priced food lines, for the
  * price-catalogue freshness loop. Same downscale + auth path as the pantry
  * scan; returns empty when the model finds nothing.

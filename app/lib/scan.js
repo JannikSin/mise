@@ -241,3 +241,85 @@ export function applyScanItems(pantry, items, todayIso, location) {
   }
   return packPantry(next);
 }
+
+/**
+ * WALK THE FRIDGE (David, 2026-10-18: "can I record a video, roll it past all
+ * the shelves inside the fridge, and narrate everything? Can you process that
+ * and update things?"). P6, the pantry is spent before it is replaced.
+ *
+ * Where in a clip to take its frames: `count` evenly spaced, each in the
+ * middle of its slice, so neither the first frame (the phone still finding
+ * focus) nor the last (the thumb reaching for stop) is used. A clip with no
+ * readable length gives none, and the view says so instead of guessing.
+ * @param {number} duration seconds
+ * @param {number} [count]
+ * @returns {number[]} seconds into the clip
+ */
+export function frameTimes(duration, count = 8) {
+  if (!Number.isFinite(duration) || duration <= 0) return [];
+  const n = Math.max(1, Math.min(12, Math.round(count)));
+  return Array.from({ length: n }, (_, i) => ((i + 0.5) * duration) / n);
+}
+
+/** a leading amount as a number ("2 lbs" 2, "half a bag" 0.5), or null */
+function leadingAmount(/** @type {string} */ qty) {
+  const s = String(qty ?? "").trim().toLowerCase();
+  if (!s) return null;
+  const frac = s.match(/^(\d+)\s*\/\s*(\d+)/);
+  if (frac) return Number(frac[1]) / Math.max(1, Number(frac[2]));
+  const num = s.match(/^\d+(?:\.\d+)?/);
+  if (num) return Number(num[0]);
+  if (/^(half|1\/2)\b/.test(s)) return 0.5;
+  if (/^(a|an|one)\b/.test(s)) return 1;
+  if (/^a couple\b|^two\b/.test(s)) return 2;
+  if (/^a few\b|^three\b/.test(s)) return 3;
+  return null;
+}
+
+/**
+ * One read-back from a walk: every frame's items, merged by food, then the
+ * narration on top. The same food seen in several frames is one row keeping
+ * the LARGER amount (a shelf filmed twice is the same carton, not two). What
+ * he SAYS wins over what a frame guessed whenever both name an amount, and a
+ * food only said is added. The result is the dictation preview shape, so it
+ * lands through the same READ IT BACK, drop, ADD path as SAY WHAT YOU HAVE.
+ * @param {{ name: string, kind: string, qty: string }[][]} frames items per scanned frame
+ * @param {string} narration what he said while filming (may be empty)
+ * @returns {ReturnType<typeof parsePantryDictation>}
+ */
+export function mergeFridgeWalk(frames, narration) {
+  /** @type {Map<string, ReturnType<typeof parsePantryDictation>[number]>} */
+  const byFood = new Map();
+  for (const items of frames ?? []) {
+    for (const it of items ?? []) {
+      const name = String(it?.name ?? "").trim();
+      if (!name) continue;
+      const key = canonicalFood(name);
+      const kind = it.kind === "staple" ? "staple" : "fresh";
+      const row = {
+        name,
+        kind: /** @type {"staple" | "fresh"} */ (kind),
+        qty: String(it.qty ?? ""),
+        // a walk is of the fridge: what it sees fresh is dated there today
+        location: /** @type {"fridge" | "unsorted"} */ (kind === "fresh" ? "fridge" : "unsorted"),
+      };
+      const had = byFood.get(key);
+      if (!had) {
+        byFood.set(key, row);
+        continue;
+      }
+      const a = leadingAmount(had.qty);
+      const b = leadingAmount(row.qty);
+      if ((b !== null && (a === null || b > a)) || (!had.qty && row.qty)) {
+        byFood.set(key, { ...had, qty: row.qty });
+      }
+    }
+  }
+  for (const said of parsePantryDictation(narration)) {
+    const key = canonicalFood(said.name);
+    const had = byFood.get(key);
+    // his words win: amount, low, and where it lives
+    byFood.set(key, had ? { ...had, ...said, name: had.name, qty: said.qty || had.qty } : said);
+  }
+  return [...byFood.values()];
+}

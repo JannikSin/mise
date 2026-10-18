@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyScanItems, parsePantryDictation } from "../app/lib/scan.js";
+import { applyScanItems, parsePantryDictation, frameTimes, mergeFridgeWalk } from "../app/lib/scan.js";
 
 const PANTRY = {
   staples: [
@@ -227,4 +227,60 @@ test("a dictated COUNT retires the bare PLENTY assertion for the same food (Davi
   const eggs = next.items.filter((i) => i.food === "eggs");
   assert.equal(eggs.length, 1);
   assert.equal(eggs[0].qty, "12 each");
+});
+
+// WALK THE FRIDGE (David, 2026-10-18: "record a video, roll it past all the
+// shelves inside the fridge, and narrate everything")
+test("frame times sit in the middle of even slices, never at the ends, and a clip with no length gives none", () => {
+  assert.deepEqual(frameTimes(16), [1, 3, 5, 7, 9, 11, 13, 15]);
+  assert.deepEqual(frameTimes(Infinity), [], "a clip with no readable length is said, not guessed");
+  assert.deepEqual(frameTimes(0), []);
+  assert.equal(frameTimes(60, 40).length, 12, "capped: a walk is a handful of scans, not forty");
+});
+
+test("a walk merges frames by food keeping the larger amount, and his words win", () => {
+  const frames = [
+    [
+      { name: "eggs", kind: "fresh", qty: "6" },
+      { name: "milk", kind: "fresh", qty: "" },
+    ],
+    [
+      { name: "Eggs", kind: "fresh", qty: "12" },
+      { name: "soy sauce", kind: "staple", qty: "" },
+    ],
+  ];
+  const out = mergeFridgeWalk(frames, "half a gallon of milk, running low on rice");
+  const by = Object.fromEntries(out.map((r) => [r.name.toLowerCase(), r]));
+  assert.equal(by.eggs?.qty, "12", "the same carton in two frames is one row, the larger count");
+  assert.equal(out.filter((r) => r.name.toLowerCase() === "eggs").length, 1);
+  assert.match(String(by.milk?.qty), /gallon/, "what he said beats a frame that saw no amount");
+  assert.equal(by.milk?.location, "fridge");
+  assert.equal(by["soy sauce"]?.kind, "staple");
+  assert.equal(by.rice?.state, "low", "a food only said is added, with how he said it");
+});
+
+test("his amount wins over a frame's when both name one", () => {
+  const out = mergeFridgeWalk([[{ name: "chicken thighs", kind: "fresh", qty: "4 lbs" }]], "2 lbs chicken thighs");
+  assert.equal(out.length, 1);
+  assert.match(out[0]?.qty ?? "", /^2/);
+});
+
+test("a frame that fails is skipped and counted; only all failing fails the walk", async () => {
+  const { scanFrames } = await import("../app/lib/worker.js");
+  const frames = [new Blob(["a"]), new Blob(["b"]), new Blob(["c"])];
+  let n = 0;
+  const flaky = async () => {
+    n++;
+    if (n === 2) throw new Error("blurry");
+    return [{ name: "eggs", kind: "fresh", qty: "6" }];
+  };
+  const r = await scanFrames(frames, undefined, flaky);
+  assert.equal(r.failed, 1);
+  assert.equal(r.items.length, 3);
+  await assert.rejects(
+    scanFrames(frames, undefined, async () => {
+      throw new Error("no connection");
+    }),
+    /no connection/,
+  );
 });
