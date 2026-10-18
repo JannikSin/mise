@@ -24,6 +24,15 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
+    version: UNRELEASED,
+    date: "",
+    notes: [
+      "After GOING TO THE STORE, the List can send your week to your Pay Less cart in one tap. It only adds to the cart; you still pick the pickup time and check out in the Pay Less app.",
+      "PICK DIFFERENT MEALS is back on Plan, for when you do not like the week you see.",
+      "Reminders: one ping on each cook night, and at about 11:00 pm an Ate it? for anything not marked eaten.",
+    ],
+  },
+  {
     version: "1.3",
     date: "2026-10-17",
     notes: [
