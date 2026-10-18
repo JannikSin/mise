@@ -301,7 +301,7 @@ export async function guestLogin(name, pin) {
 /**
  * The signed-in guest's own upcoming meals and their recipes.
  * @param {string} session
- * @returns {Promise<{ name: string, rows: { date: string, slot: string, dish: string, recipeId: string, servings: number, plate: string[], cook: string }[], recipes: Record<string, { name: string, servings: number, ingredients: { qty: number | null, unit: string, food: string, note: string }[], steps: string[] }> }>}
+ * @returns {Promise<{ name: string, rows: { date: string, slot: string, dish: string, recipeId: string, servings: number, plate: string[], cook: string }[], recipes: Record<string, { name: string, servings: number, ingredients: { qty: number | null, unit: string, food: string, note: string }[], steps: string[] }>, profile?: { name: string, diet: string, allergens: string[], avoid: string[], dislike: string[], loves: string[], avoids: string[], calories: number | null, protein: number | null } }>}
  */
 export async function guestMe(session) {
   return /** @type {any} */ (await postOpen("/guest/me", { session }));

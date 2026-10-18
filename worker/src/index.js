@@ -42,6 +42,7 @@ import {
   findGuestLogin,
   firstNameOf,
   guestRecipe,
+  guestProfileSummary,
   GUEST_DUMMY_SALT,
   GUEST_LOCK_MS,
   slugForName,
@@ -906,6 +907,19 @@ export default {
           const r = await cachedGuestRecipe(id, writeToken, branch);
           if (r && JSON.stringify(recipes).length < 120_000) recipes[id] = r;
         }
+        // their OWN profile, read only (Loyalist, 2026-10-18): only this
+        // profile's file, by the session's own id, whitelisted; a failed
+        // read leaves the panel out rather than failing the page
+        /** @type {ReturnType<typeof guestProfileSummary>} */
+        let profile = null;
+        if (/^[a-z0-9-]+$/.test(s.p)) {
+          profile = guestProfileSummary(
+            await ghReadJsonRef(`profiles/${s.p}/profile/targets.json`, writeToken, branch).catch(
+              () => null,
+            ),
+            firstNameOf(row.name),
+          );
+        }
         return json(
           200,
           {
@@ -916,6 +930,7 @@ export default {
               dish: recipes[r.dish]?.name ?? r.dish.replace(/-/g, " "),
             })),
             recipes,
+            ...(profile ? { profile } : {}),
           },
           cors,
         );

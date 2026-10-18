@@ -3470,3 +3470,38 @@ export function guestRecipe(r) {
       .filter(Boolean),
   };
 }
+
+/**
+ * The guest's own profile as they see it (v1.6, David 2026-10-18: a guest
+ * sees "their own profile"), built from a whitelist of their targets file,
+ * capped, read only. Editing comes later.
+ * @param {Record<string, any> | null} t profiles/<id>/profile/targets.json
+ * @param {string} name
+ * @returns {{ name: string, diet: string, allergens: string[], avoid: string[], dislike: string[], loves: string[], avoids: string[], calories: number | null, protein: number | null } | null}
+ */
+export function guestProfileSummary(t, name) {
+  if (!t || typeof t !== "object") return null;
+  const list = (/** @type {unknown} */ v) =>
+    (Array.isArray(v) ? v : [])
+      .filter((x) => typeof x === "string")
+      .slice(0, 20)
+      .map((x) => String(x).slice(0, 40));
+  const prefs = t.cuisinePrefs && typeof t.cuisinePrefs === "object" ? t.cuisinePrefs : {};
+  const by = (/** @type {string} */ want) =>
+    Object.entries(prefs)
+      .filter(([, v]) => v === want)
+      .map(([k]) => String(k).slice(0, 40))
+      .slice(0, 20);
+  const num = (/** @type {unknown} */ v) => (Number(v) > 0 ? Math.round(Number(v)) : null);
+  return {
+    name: String(name ?? "").slice(0, 40),
+    diet: typeof t.diet === "string" ? t.diet.slice(0, 40) : "",
+    allergens: list(t.allergens),
+    avoid: list(t.avoidIngredients),
+    dislike: list(t.dislikeIngredients),
+    loves: by("loved"),
+    avoids: by("avoided"),
+    calories: num(t.macros?.calories),
+    protein: num(t.macros?.protein),
+  };
+}

@@ -16,6 +16,10 @@
 // tools/release.ps1 refuses a release whose top entry is not a number above
 // live's or is not dated the ship day. Right after a release, next opens a
 // fresh "unreleased" entry. Notes are for David: outcome, not mechanism.
+//
+// RELEASE CHECKLIST, v1.6: deploy the Worker BEFORE the app. The guest LOG IN
+// and SIGN UP screens call /guest/login, /guest/me and the login field of
+// /invite/claim; against the old Worker they fail.
 
 /** @typedef {{ version: string, date: string, notes: string[] }} Release */
 
@@ -34,6 +38,7 @@ export const RELEASES = [
       "Dining court trays are trays a person eats: at most two helpings of a dish, and toppings no longer count toward the protein.",
       "Guests get their own log in: the guest link opens Welcome to Mise with LOG IN or SIGN UP. Sign up is the profile survey plus a login name and a 4-digit passkey; next time they just log in. No one's name is ever listed.",
       "Once in, a guest sees only the meals you added them to, who cooks, their plate, and the recipe. Nothing of your kitchen, your family or your other guests.",
+      "Guests also see their own profile, read only: what they eat, what they don't, and their numbers.",
     ],
   },
   {

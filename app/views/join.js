@@ -414,6 +414,28 @@ export function GuestHomeView({ session, onSignOut }) {
     ${!data && !error && html`<p class="hint">loading…</p>`}
     ${error && html`<p class="hint scanerr">${error}</p>`}
     ${
+      // their own profile, read only (David, 2026-10-18: a guest sees "their
+      // own profile"); editing comes later
+      data?.profile &&
+      (() => {
+        const p = data.profile;
+        const eats = [p.diet, ...p.loves].filter(Boolean);
+        const not = [...p.allergens, ...p.avoid, ...p.dislike, ...p.avoids].filter(Boolean);
+        return html`<div class="tile">
+          <div class="k">Your profile</div>
+          ${eats.length > 0 && html`<p class="hint">You eat: ${eats.join(", ")}</p>`}
+          <p class="hint">You don't eat: ${not.length > 0 ? not.join(", ") : "nothing listed"}</p>
+          ${
+            p.calories &&
+            html`<p class="hint">
+              Your numbers: about ${p.calories.toLocaleString()} calories${p.protein ? ` and ${p.protein} g protein` : ""} a day
+            </p>`
+          }
+          <p class="hint">To change these, ask your host for a new link.</p>
+        </div>`;
+      })()
+    }
+    ${
       data &&
       (data.rows.length === 0
         ? html`<p class="hint">

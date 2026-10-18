@@ -295,3 +295,28 @@ test("one unspent code cannot probe login names: after five taken answers it sto
     assert.deepEqual(statuses, [409, 409, 409, 409, 409, 429]);
   });
 });
+
+test("a guest sees their OWN profile, read only and whitelisted; a failed read just leaves it out", async () => {
+  resetGuestCachesForTests();
+  await withRepo(SEED(), async (repo) => {
+    const res = await worker.fetch(req("/invite/claim", { code: CODE, ...PRIYA, login: LOGIN }, SANDBOX, "9.4.0.1"), ENV);
+    const { session } = JSON.parse(await res.text());
+    const me = await worker.fetch(req("/guest/me", { session }, SANDBOX, "9.4.0.2"), ENV);
+    const view = JSON.parse(await me.text());
+    assert.equal(view.profile.name, "Priya");
+    assert.deepEqual(view.profile.allergens, ["peanuts"]);
+    assert.deepEqual(view.profile.avoid, ["peanut"]);
+    assert.equal(view.profile.calories, 2300);
+    assert.equal(view.profile.protein, 120);
+    assert.deepEqual(
+      Object.keys(view.profile).sort(),
+      ["allergens", "avoid", "avoids", "calories", "diet", "dislike", "loves", "name", "protein"],
+      "nothing past the whitelist (no fat, carbs, phase)",
+    );
+    assert.ok(!repo.calls.some((c) => c.includes("profiles/sam/")), "never another guest's file");
+    delete repo.files.sandbox["profiles/priya/profile/targets.json"];
+    const bare = await worker.fetch(req("/guest/me", { session }, SANDBOX, "9.4.0.3"), ENV);
+    assert.equal(bare.status, 200, "the meals still load");
+    assert.equal(JSON.parse(await bare.text()).profile, undefined);
+  });
+});
