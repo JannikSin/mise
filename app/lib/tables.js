@@ -1335,7 +1335,11 @@ export function updateBrigade(events, id, patch, today) {
           t.date >= today &&
           breakOn(next, t.date) &&
           !t.cookedAt &&
-          !(/** @type {any} */ (t).pinned)
+          !(/** @type {any} */ (t).pinned) &&
+          // a pot already frozen (bought) or a guest seated stays, to be
+          // undone by hand rather than vanish (Tribunal Red Team, loop 2)
+          !t.pot &&
+          (t.seats ?? []).every((s) => next.memberIds.includes(s.id))
         ),
     ),
   };

@@ -349,6 +349,16 @@ export function PlannerView({
         </div>`
       }
       ${
+        // a pot bigger than one pan is a shopping and cooking fact, so it is
+        // in view, not folded into the run report (Tribunal Realist, loop 2)
+        (/** @type {any} */ (brigadeRun)?.notes ?? [])
+          .filter((/** @type {string} */ n) => n.includes("more than one pan holds"))
+          .map(
+            (/** @type {string} */ n, /** @type {number} */ i) =>
+              html`<p class="hint" role="note" key=${`pan-${i}`}>🍲 ${n}</p>`,
+          )
+      }
+      ${
         tableStale &&
         html`<p class="hint">
           ⚠ a shared dinner landed after this week was set — SET MY WEEK again to plan around

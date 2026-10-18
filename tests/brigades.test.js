@@ -907,3 +907,21 @@ test("Tribunal 2026-10-18: turning breaks on removes un-cooked meals already set
   const out = updateBrigade(events, "b1", { open: true, breaks: "purdue" }, "2026-11-20");
   assert.deepEqual(out.tables.map((x) => x.date).sort(), ["2026-11-24", "2026-11-27"]);
 });
+
+test("Tribunal loop 2: a Sunday batch is cooked by Sunday's cook, whoever's turn the eating night is", () => {
+  const SUNWEEK = ["2026-10-25", "2026-10-26", "2026-10-27", "2026-10-28"];
+  const rule = {
+    ...BRIGADE,
+    from: "2026-10-25",
+    until: "2026-11-21",
+    memberIds: ["mom", "laurie"],
+    rotateCooks: true,
+    cookDays: [0],
+    batches: [{ cookDay: 0, feeds: [1, 2] }],
+  };
+  const { events } = planBrigadeWeek({ tables: [] }, rule, ctx({ dates: SUNWEEK, today: "2026-10-25" }));
+  const batch = events.tables.filter((t) => t.slot === "dinner" && t.preparedOn === "2026-10-25");
+  const sunday = events.tables.find((t) => t.slot === "dinner" && t.date === "2026-10-25");
+  assert.ok(batch.length > 0, "a batch was planned");
+  for (const t of batch) assert.equal(t.cookId, sunday?.cookId, `${t.date} batch credited to the prep day's cook`);
+});

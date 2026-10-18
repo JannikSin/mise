@@ -2033,7 +2033,14 @@ export function planBrigadeWeek(events, brigade, ctx) {
         slot,
         recipeId: meal.id,
         seats: seatRows,
-        cookId: cookFor(date),
+        // a batch is cooked on its PREP day, so that day's cook owns it, not
+        // the cook whose turn the eating night is (Tribunal loop 2, 2026-10-18:
+        // Sunday's chili was credited to Monday's cook)
+        cookId: cookFor(
+          LEFTOVER_SLOTS.has(slot) && preparedOnMap.has(date)
+            ? /** @type {string} */ (preparedOnMap.get(date))
+            : date,
+        ),
         // a no-cook night names the pot it eats from; its seats size that
         // pot's buy and nothing is bought or cooked twice
         ...(wantLeftoverOf ? { leftoverOf: wantLeftoverOf } : {}),
