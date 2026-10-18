@@ -104,4 +104,10 @@ test("#/join and #/status carry a 20-char base32 code, and drop anything else", 
   });
   assert.deepEqual(parseRoute("#/join?code=../etc"), { view: "join" });
   assert.deepEqual(parseRoute("#/join"), { view: "join" });
+  // a roommate's link says so, so their form skips the dinner picker (2026-10-18)
+  assert.deepEqual(parseRoute("#/join?code=k3m7pq2xvta4bcdefgh2&as=member"), {
+    view: "join",
+    code: "k3m7pq2xvta4bcdefgh2",
+    member: true,
+  });
 });

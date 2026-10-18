@@ -1,6 +1,6 @@
 # 0018. A simpler surface: the engine stays quiet, Table becomes People
 
-- **Status:** accepted
+- **Status:** accepted; amended by 0019 (2026-10-18): the cart button and the re-roll are back
 - **Date:** 2026-10-16
 - **Deciders:** David (his Mise notes, 2026-10-16 evening); built by session bagel
 - **Tenet invoked:** 1 (choices removed), and "a short list used every week beats a long list that could be used"

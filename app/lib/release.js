@@ -27,9 +27,11 @@ export const RELEASES = [
     version: UNRELEASED,
     date: "",
     notes: [
-      "After GOING TO THE STORE, the List can send your week to your Pay Less cart in one tap. It only adds to the cart; you still pick the pickup time and check out in the Pay Less app.",
-      "PICK DIFFERENT MEALS is back on Plan, for when you do not like the week you see.",
-      "Reminders: one ping on each cook night, and at about 11:00 pm an Ate it? for anything not marked eaten.",
+      "After GOING TO THE STORE, the List can send your week to your Pay Less cart in one tap. It only adds to the cart; you still pick the pickup time and check out in the Pay Less app. Anything it cannot send is named, so you add it yourself.",
+      "The List says which nights are not on it and who buys them, when you take turns.",
+      "PICK DIFFERENT MEALS is back on Plan, for when you do not like the week you see, before you buy it.",
+      "Reminders: one ping on each night you cook, and at about 11:00 pm an Ate it? for anything not marked eaten.",
+      "Guests: the invite link asks which dinners they could come to, and People adds them to those nights in one tap.",
     ],
   },
   {

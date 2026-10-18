@@ -1201,10 +1201,10 @@ export function validateDinnerDecision(input, candidateIds, personIds) {
 
 const APP_URL = "https://janniksin.github.io/mise/";
 
-/** meal slots the cook reminders cover, with their local reminder hour */
 /** The evening ATE IT? hour, Chicago clock (the cron's): 11:00 pm Eastern. */
 export const EVENING_HOUR = 22;
 
+/** meal slots the cook reminders cover, with their local reminder hour */
 const MEAL_HOURS = /** @type {const} */ ([
   ["lunch", 11],
   ["smoothie", 15],
@@ -1286,12 +1286,13 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
     if (hour !== mealHour) continue;
     // A shared meal pings only on a COOK NIGHT (David, 2026-10-18: "a ping on
     // cook nights", three a week): its dinner, never a leftover or batch
-    // reheat, never the shared breakfast or snack.
+    // reheat, never the shared breakfast or snack, and only when the night is
+    // HIS to cook (`mine` false = the table names someone else; absent = his).
     const due = todayEntries(slot).filter(
       (e) =>
         !e.out &&
         !e.cookedAt &&
-        (e.table ? slot === "dinner" && !e.leftover : shopped && e.recipeId),
+        (e.table ? slot === "dinner" && !e.leftover && e.mine !== false : shopped && e.recipeId),
     );
     if (due.length === 0) continue;
     const label = slot === "smoothie" || slot === "snack" ? "Afternoon fuel" : `Cook ${slot}`;
@@ -1348,8 +1349,10 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
   // At 22:00 Chicago, which is 11:00 pm at Purdue (David, 2026-10-18: "about
   // 11:00 pm").
   if (hour === EVENING_HOUR) {
+    // a batch-only reminder is a cooking job, not a meal to mark eaten
     const meals = entries.filter(
-      (e) => e.date === dateIso && (e.recipeId || e.table) && !e.out && !e.cookedAt,
+      (e) =>
+        e.date === dateIso && (e.recipeId || e.table) && !e.out && !e.cookedAt && !e.batchOnly,
     ).length;
     const swipes = entries.filter(
       (e) => e.date === dateIso && e.out && e.currency && !e.eatenAt,

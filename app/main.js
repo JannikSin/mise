@@ -2727,6 +2727,17 @@ function App() {
       .sort();
     const iShop = myBuys.length > 0;
     const cookName = profilesById.get(active.cookId)?.name ?? "The cook";
+    // THE DAYS SOMEONE ELSE BUYS, said out loud (Tribunal Realist, 2026-10-18):
+    // on "take turns" the list and the cart hold only my nights, and nothing
+    // on the List said so. The next seven days, by date, with who buys.
+    const weekOut = localIsoDate(new Date(Date.now() + 6 * 86400000));
+    /** @type {Map<string, string>} */
+    const others = new Map();
+    for (const x of tableDerived.allCookExtras) {
+      const buyer = /** @type {any} */ (x).buyerId ?? x.cookId;
+      if (buyer === me || x.date < todayIso || x.date > weekOut) continue;
+      others.set(x.date, profilesById.get(buyer)?.name ?? buyer);
+    }
     return {
       id: active.id,
       name: active.name ?? "Brigade",
@@ -2737,6 +2748,7 @@ function App() {
       // against my personal weeklyBudgetUsd (David, 2026-08-30)
       seats: Math.max(1, (active.memberIds ?? []).length),
       shopperName: cookName,
+      othersBuy: [...others].sort(([a], [b]) => a.localeCompare(b)).map(([date, name]) => ({ date, name })),
     };
   }, [houseEvents, allProfiles, me, tableDerived]);
   listBrigadeRef.current = listBrigade;
@@ -2838,6 +2850,13 @@ function App() {
         console.warn("mise: refused an events write that would empty brigades AND tables", house);
         return;
       }
+      // the ref moves NOW, not at the next render: back-to-back writes (seat
+      // a guest on several nights in one tap) each build on the last one
+      // instead of on a render that may not have run yet (Tribunal, 2026-10-18)
+      houseEventsRef.current = [
+        ...houseEventsRef.current.filter((h) => h.house !== house),
+        { house, events: next },
+      ];
       setHouseEvents((cur2) => [...cur2.filter((h) => h.house !== house), { house, events: next }]);
       void write(eventsPathFor(house), /** @type {any} */ (next), { raw: true });
     },
@@ -3624,7 +3643,7 @@ function App() {
       const bank = recipesById(bankRecipesRef.current);
       const today = localIsoDate(new Date());
       let next = cur;
-      /** @type {{ slot: string, name: string, kcal: number }[]} */
+      /** @type {{ slot: string, name: string, kcal: number, madeOn?: string }[]} */
       const added = [];
       /** @type {string[]} */
       const refused = [];
@@ -3643,10 +3662,17 @@ function App() {
         }
         const servings = seatServingsFor(targets ?? undefined, slot, recipe);
         next = addSeat(next, t.id, { id: profileId, servings }, today);
+        // A POT ALREADY MADE CANNOT GROW (Tribunal Realist, 2026-10-18): a
+        // leftover or batch night eats a pot cooked earlier; once that day
+        // has passed, or the pot is marked cooked, the extra plate comes out
+        // of what is there, and the message must say so
+        const source = t.leftoverOf ? cur.tables.find((x) => x.id === t.leftoverOf) : t;
+        const madeOn = source?.preparedOn ?? source?.date ?? t.date;
         added.push({
           slot,
           name: recipe?.name ?? t.recipeId,
           kcal: Math.round((recipe?.nutrition?.calories ?? 0) * servings),
+          ...(source?.cookedAt || madeOn < today ? { madeOn } : {}),
         });
       }
       const who0 = allProfilesRef.current.find((p) => p.id === profileId)?.name ?? profileId;
@@ -3662,7 +3688,12 @@ function App() {
             `${SLOT_META[a.slot]?.full ?? a.slot} (${a.name}, about ${a.kcal} kcal more to cook)`,
         )
         .join(", ");
-      return `${who} joins ${what}. The cook's pot and the list grow by those plates.${refused.length > 0 ? ` Not added to ${refused.join("; ")}.` : ""}`;
+      const made = added.filter((a) => a.madeOn);
+      const potLine =
+        made.length === added.length
+          ? `That pot was already made ${made.map((a) => parseLocalIso(/** @type {string} */ (a.madeOn)).toLocaleDateString([], { weekday: "long" })).join(", ")}, so their plate comes out of what is there; check there is enough.`
+          : `The cook's pot and the list grow by those plates.${made.length > 0 ? ` Already made, so not growing: ${made.map((a) => a.name).join(", ")}.` : ""}`;
+      return `${who} joins ${what}. ${potLine}${refused.length > 0 ? ` Not added to ${refused.join("; ")}.` : ""}`;
     },
     [writeHouseEvents, me],
   );
@@ -3725,7 +3756,8 @@ function App() {
     const hostHouse = allProfilesRef.current.find((p) => p.id === me)?.household ?? "home";
     const { code } = await newInvite(kind, hostHouse, me);
     const base = `${location.origin}${location.pathname}`;
-    return `${base}#/join?code=${encodeURIComponent(code)}`;
+    // a roommate's link says so, so their form skips "which dinners can you make"
+    return `${base}#/join?code=${encodeURIComponent(code)}${kind === "member" ? "&as=member" : ""}`;
   }, []);
 
   const handleNewGuestProfile = useCallback(() => {
@@ -4758,7 +4790,10 @@ function App() {
         }}
       />`
     }
-    ${route.view === "join" && html`<${JoinView} code=${/** @type {any} */ (route).code ?? ""} />`}
+    ${route.view === "join" && html`<${JoinView}
+      code=${/** @type {any} */ (route).code ?? ""}
+      member=${Boolean(/** @type {any} */ (route).member)}
+    />`}
     ${route.view === "status" && html`<${StatusView} code=${/** @type {any} */ (route).code ?? ""} />`}
     ${
       route.view === "hall" &&

@@ -12,7 +12,7 @@
 //
 // Back on 2026-10-18 (David, v1.4): the re-roll ("a button that picks
 // different meals if I don't like what I see"), and the cart button, which
-// opens after GOING TO THE STORE. "kroger" now parks only the List's
+// opens after GOING TO THE STORE. "liveprices" (was "kroger") parks only the List's
 // live-price controls.
 
 /** @type {ReadonlySet<string>} */
@@ -21,7 +21,7 @@ export const PARKED = new Set([
   "remedies",
   "occasions",
   "money",
-  "kroger",
+  "liveprices",
   "cookbook",
   "dinnerchat",
   "tour",

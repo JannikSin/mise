@@ -22,9 +22,9 @@ import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 // 2026-09-14, M5).
 
 /**
- * @param {{ code: string, house?: string }} props
+ * @param {{ code: string, house?: string, member?: boolean }} props
  */
-export function JoinView({ code, house = "" }) {
+export function JoinView({ code, house = "", member = false }) {
   const [state, setState] = useState(
     /** @type {{ kind: "form" } | { kind: "busy" } | { kind: "done", id: string, name: string, house: string } | { kind: "error", message: string }} */ ({
       kind: "form",
@@ -59,6 +59,9 @@ export function JoinView({ code, house = "" }) {
           Your profile is saved and
           ${state.house === "guesthouse" ? "you can be seated at any table" : `you are a member of the ${state.house} kitchen`}.
           The cook sees your numbers and allergies the moment they add you to a meal.
+          ${dinners.length > 0
+            ? ` We told the cook you could come ${dinners.length} night${dinners.length === 1 ? "" : "s"}; they confirm it.`
+            : ""}
         </p>
         <div class="actions">
           <a class="ask linkbtn" href=${`#/status?code=${encodeURIComponent(code)}`}>
@@ -85,11 +88,10 @@ export function JoinView({ code, house = "" }) {
       </div>
     </div>`;
   }
-  const dinnerPicker =
-    house === "guesthouse" || house === ""
+  const dinnerPicker = !member
       ? html`<div class="tile">
-          <div class="k">Which dinners can you make?</div>
-          <div class="chips wrapchips" role="group" aria-label="Dinners you can make">
+          <div class="k">Which dinners could you come to?</div>
+          <div class="chips wrapchips" role="group" aria-label="Dinners you could come to">
             ${nextDinners.map((d) => {
               const on = dinners.includes(d);
               return html`<button
@@ -106,7 +108,7 @@ export function JoinView({ code, house = "" }) {
               </button>`;
             })}
           </div>
-          <p class="hint">Tap every night that works. Then fill in your profile below.</p>
+          <p class="hint">Optional. Tap every night that works, then fill in your profile below.</p>
         </div>`
       : null;
   return html`<${ProfileGateView}

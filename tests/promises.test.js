@@ -1973,9 +1973,10 @@ const UNBUILT = [
     id: "P4",
     name: "P4 GAP the finished list loads into the store's cart in one press",
     why:
-      "owner tweener, the 2026-10-12 redo (decision 0016 keeps the automatic Kroger cart). The " +
-      "Worker's /kroger/cart routes and a manual cart button exist; loading the set week's list " +
-      "automatically, verified on the live Worker, is not built.",
+      "owner monolith (decisions 0016, 0018, 0019). Since v1.4 the List sends the set week's " +
+      "list to the cart in one press after GOING TO THE STORE, and the Worker's /kroger/cart " +
+      "routes answer as configured; closed only when David's first real send is checked in the " +
+      "Pay Less app, which waits on the redirect URI being registered on his Kroger app.",
   },
   {
     id: "P8",

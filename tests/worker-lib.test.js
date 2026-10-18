@@ -891,7 +891,7 @@ test("shared meals ping on cook nights only: the cook dinner, never a leftover n
   const cookNight = {
     week: "2026-W30",
     entries: [
-      shared({ slot: "dinner", freeText: "Oyakodon, plus the batch: Shepherd's pie" }),
+      shared({ slot: "dinner", freeText: "Oyakodon, plus the batch: Shepherd's pie", mine: true }),
       shared({ slot: "breakfast", freeText: "Breakfast balls" }),
       shared({ slot: "snack", freeText: "Muffins" }),
     ],
@@ -907,6 +907,27 @@ test("shared meals ping on cook nights only: the cook dinner, never a leftover n
     entries: [shared({ slot: "dinner", freeText: "Shepherd's pie (leftovers, reheat)", leftover: true })],
   };
   assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 17, plan: leftoverNight }), []);
+  // a take-turns night that is someone else's to cook never pings him (Tribunal Realist)
+  const theirNight = {
+    week: "2026-W30",
+    entries: [shared({ slot: "dinner", freeText: "Oyakodon", mine: false })],
+  };
+  assert.deepEqual(buildNotifications({ ...NOTIF_BASE, hour: 17, plan: theirNight }), []);
+  // ...but his batch cooked that night still does, and it is not a meal to mark eaten
+  const batchOnTheirNight = {
+    week: "2026-W30",
+    entries: [
+      shared({ slot: "dinner", freeText: "Oyakodon", mine: false }),
+      shared({ slot: "dinner", id: "b", table: "batch", freeText: "the batch: Shepherd's pie", mine: true, batchOnly: true }),
+    ],
+  };
+  const batchPing = buildNotifications({ ...NOTIF_BASE, hour: 17, plan: batchOnTheirNight });
+  assert.equal(batchPing.length, 1);
+  assert.equal(batchPing[0].body, "the batch: Shepherd's pie");
+  assert.match(
+    buildNotifications({ ...NOTIF_BASE, hour: EVENING_HOUR, plan: batchOnTheirNight })[0].body,
+    /^1 of today's meal /,
+  );
 });
 
 test("/ask: request grounds in the sanitized snapshot, response is plain text", () => {

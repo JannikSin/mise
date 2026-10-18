@@ -38,7 +38,7 @@ import {
   cycleDayPick,
   expiryFrom,
   cartLines,
-  cartSendsThisTrip,
+  withCartSend,
   isStapleRow,
   recipeBought,
 } from "../app/lib/shopping.js";
@@ -2499,14 +2499,31 @@ test("P+ on a food the shelf already counts confirms the count instead of laying
   assert.equal(r.shopping.items.length, 0, "and the list row still leaves");
 });
 
-test("a reload never forgets this trip's cart send (2026-10-18)", () => {
-  const log = [
-    { ok: true, at: "2026-10-18T15:02:00.000Z" }, // the real send, this trip
-    { ok: true, test: true, at: "2026-10-18T14:58:00.000Z" }, // 3 test items
-    { ok: false, at: "2026-10-18T14:55:00.000Z" }, // Kroger refused it
-    { ok: true, at: "2026-10-11T16:00:00.000Z" }, // last week's trip
-  ];
-  assert.equal(cartSendsThisTrip(log, "2026-10-18"), 1, "only the accepted full send counts");
-  assert.equal(cartSendsThisTrip(log, ""), 0, "no GOING TO THE STORE, no trip");
-  assert.equal(cartSendsThisTrip([], "2026-10-18"), 0);
+test("a week's full cart sends are remembered per week, whatever else happens (2026-10-18)", () => {
+  let book = withCartSend({}, "2026-W43");
+  assert.deepEqual(book, { "2026-W43": 1 });
+  book = withCartSend(book, "2026-W43");
+  assert.equal(book["2026-W43"], 2, "a second full copy is counted, so the re-arm shows 2");
+  // only the 8 newest weeks are kept, so the record never grows without end
+  for (let w = 30; w < 42; w++) book = withCartSend(book, `2026-W${w}`);
+  assert.equal(Object.keys(book).length, 8);
+  assert.equal(book["2026-W43"], 2, "this week survives the pruning");
+  assert.equal(book["2026-W30"], undefined);
+});
+
+test("a row counted in pieces with no pack size sends that many pieces (2026-10-18)", () => {
+  const lines = cartLines(
+    [
+      { food: "sweet potatoes", qty: 10, unit: "each" },
+      { food: "banana", qty: 3.5, unit: "each" },
+      { food: "saffron", qty: 2, unit: "g" },
+    ],
+    (food) => `u-${food}`,
+    () => null,
+  );
+  assert.deepEqual(
+    lines.map((l) => l.quantity),
+    [10, 4, 1],
+    "pieces round up; a weighed unpriced row still sends one package",
+  );
 });

@@ -6,14 +6,15 @@ import { PARKED, isParked } from "../app/lib/parked.js";
 // parked. Their routes and tests stay; only the doors on the screens close.
 // Decision 0018 (David, 2026-10-16) parks seven more: house money, the Kroger
 // cart buttons, the re-roll, recipe browsing, the dinner chat, the tour, the
-// Table tab's per-meal week. David brought the re-roll back on 2026-10-18 (v1.4).
+// Table tab's per-meal week. Decision 0019 (2026-10-18, v1.4) brings back the re-roll and
+// the cart button (after GOING TO THE STORE); only the live-price controls stay parked.
 test("the parked set is exactly what David parked on 2026-10-12 and 2026-10-16, less the re-roll", () => {
   assert.deepEqual(
     [...PARKED].sort(),
     [
       "cookbook",
       "dinnerchat",
-      "kroger",
+      "liveprices",
       "menu",
       "money",
       "occasions",

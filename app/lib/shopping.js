@@ -776,28 +776,37 @@ export function cartLines(items, upcFor, packsFor) {
     const upc = upcFor(i?.food);
     if (!upc) continue;
     const n = Number(packsFor(i));
-    // an unpriced row cannot know its pack size: one package, same as before
-    byUpc.set(upc, (byUpc.get(upc) ?? 0) + (Number.isFinite(n) && n > 0 ? Math.ceil(n) : 1));
+    // a row counted in pieces with no pack size is that many pieces (Tribunal
+    // Realist, 2026-10-18: 10 sweet potatoes went to the cart as 1); any other
+    // unpriced row cannot know its pack size: one package, same as before
+    const pieces = i?.unit === "each" && Number(i?.qty) > 0 ? Math.ceil(Number(i.qty)) : 1;
+    byUpc.set(
+      upc,
+      (byUpc.get(upc) ?? 0) + (Number.isFinite(n) && n > 0 ? Math.ceil(n) : pieces),
+    );
   }
   // Kroger rejects a line over 99; clamp rather than have the whole push fail
   return [...byUpc].map(([upc, quantity]) => ({ upc, quantity: Math.min(99, quantity) }));
 }
 
 /**
- * How many full sends this trip has already put in the cart (2026-10-18). The
- * List's own counter lives in memory and forgot a send on reload, which
- * re-armed a second full copy; the durable push log does not forget. Counts
- * entries Kroger accepted that are not test pushes and fall on or after the
- * day GOING TO THE STORE saved the week. No saved week, no trip: 0.
- * @param {{ ok?: boolean, test?: boolean, at?: string }[]} log
- * @param {string} shoppedOn YYYY-MM-DD the fallback was saved, "" if never
- * @returns {number}
+ * The per-week record of full cart sends (2026-10-18, Tribunal Red Team). The
+ * List's own counter lives in memory and forgot a send on reload; the push
+ * log rotates after 5 entries, so test pushes could push a real send out; and
+ * GOING TO THE STORE re-dates the fallback on every tap. A count keyed by the
+ * plan's WEEK survives all three: a second full copy of a week into an
+ * add-only cart always needs the explicit re-arm. Keeps the 8 newest weeks.
+ * @param {Record<string, number>} book weekId -> full sends
+ * @param {string} weekId
+ * @returns {Record<string, number>}
  */
-export function cartSendsThisTrip(log, shoppedOn) {
-  if (!shoppedOn) return 0;
-  return (log ?? []).filter(
-    (e) => e?.ok === true && e.test !== true && String(e.at ?? "").slice(0, 10) >= shoppedOn,
-  ).length;
+export function withCartSend(book, weekId) {
+  const next = { ...(book ?? {}), [weekId]: ((book ?? {})[weekId] ?? 0) + 1 };
+  return Object.fromEntries(
+    Object.entries(next)
+      .sort(([a], [b]) => b.localeCompare(a))
+      .slice(0, 8),
+  );
 }
 
 /**

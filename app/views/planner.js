@@ -303,7 +303,12 @@ export function PlannerView({
           </small>
         </button>
         ${
+          // BEFORE BUYING ONLY (Tribunal Realist, 2026-10-18): a cart pickup
+          // ticks nothing and stocks no pantry, so after GOING TO THE STORE
+          // the re-roll could not tell bought dinners from unbought ones and
+          // would swap food already paid for (tenet 5: decided at the start).
           !isParked("reroll") &&
+          !(/** @type {any} */ (plan)?.fallback) &&
           html`<button
             class="secondary"
             aria-label="Pick different meals for everything not bought or cooked"
@@ -311,7 +316,7 @@ export function PlannerView({
             disabled=${recipes.length === 0 || firstLive == null || noTargets}
           >
             PICK DIFFERENT MEALS
-            <small>re-rolls anything not bought or cooked</small>
+            <small>swaps meals you have not bought or cooked yet</small>
           </button>`
         }
       </div>

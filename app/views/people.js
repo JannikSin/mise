@@ -111,6 +111,10 @@ export function PeopleSection({
               const asked = /** @type {string[]} */ (
                 Array.isArray(p.wantsDinners) ? p.wantsDinners : []
               ).filter((d) => days.includes(d) && !seatedOn.includes(d));
+              // picked nights past the seven shown here: named, seatable once they come into view
+              const askedLater = /** @type {string[]} */ (
+                Array.isArray(p.wantsDinners) ? p.wantsDinners : []
+              ).filter((d) => d > (days[days.length - 1] ?? ""));
               return html`
                 <div class="tile person" key=${p.id}>
                   <button
@@ -177,10 +181,17 @@ export function PeopleSection({
                                     return notes.filter(Boolean).join(" · ");
                                   })}
                               >
-                                ADD TO THE DINNERS THEY PICKED
+                                ADD THEM TO THEIR NIGHTS
                                 <small>${asked.map(dayLabel).join(", ")}</small>
                               </button>
                             </div>`
+                          }
+                          ${
+                            askedLater.length > 0 &&
+                            html`<p class="hint">
+                              Also asked for ${askedLater.map(dayLabel).join(", ")}; those show up
+                              here once they are in the next seven days.
+                            </p>`
                           }
                           <p class="hint">
                             Their plate comes from their own profile and the dinner is cooked

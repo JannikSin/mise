@@ -5,6 +5,7 @@
 // change with it.
 
 import { getToken, DATA_REPO, dataRepoOverridden, dataBranch } from "./github.js";
+import { withCartSend } from "./shopping.js";
 
 const WORKER_URL = "https://mise-worker.janniksin.workers.dev";
 
@@ -426,6 +427,7 @@ const KROGER_ACCESS = "mise.kroger.access";
 const KROGER_REFRESH = "mise.kroger.refresh";
 const KROGER_EXPIRES = "mise.kroger.expires";
 const KROGER_LOG = "mise.kroger.log";
+const KROGER_SENDS = "mise.kroger.sends";
 
 /**
  * A DURABLE RECORD OF WHAT WAS PUSHED (David, 2026-08-25: "I'm logged in to my
@@ -450,6 +452,35 @@ export function recordKrogerPush(entry) {
     localStorage.setItem(KROGER_LOG, JSON.stringify(log.slice(0, 5)));
   } catch {
     // a browser refusing storage still gets the live note; only history is lost
+  }
+}
+
+/**
+ * Full (non-test) sends of a week's list that Kroger accepted, from this
+ * phone. See withCartSend for why this is not read from the push log.
+ * @param {string} weekId
+ * @returns {number}
+ */
+export function cartSendsFor(weekId) {
+  try {
+    const book = JSON.parse(localStorage.getItem(KROGER_SENDS) ?? "{}");
+    const n = Number(book?.[weekId]);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** @param {string} weekId */
+export function recordCartSend(weekId) {
+  try {
+    const book = JSON.parse(localStorage.getItem(KROGER_SENDS) ?? "{}");
+    localStorage.setItem(
+      KROGER_SENDS,
+      JSON.stringify(withCartSend(book && typeof book === "object" ? book : {}, weekId)),
+    );
+  } catch {
+    // storage refused: the in-memory counter still guards this visit
   }
 }
 

@@ -343,8 +343,17 @@ async function runNotifications(token, topic, now, send) {
   );
   if (/^[a-z0-9-]+$/.test(house)) {
     const events = await ghReadJson(`households/${house}/events.json`, token);
+    // WHOSE NIGHT IT IS (Tribunal Realist, 2026-10-18): on a take-turns
+    // kitchen the table names its cook, and the cook ping is for HIM only. A
+    // table with no cookId is his (a kitchen of one).
+    const mine = (/** @type {any} */ t) => !t?.cookId || t.cookId === "david";
     for (const t of events?.tables ?? []) {
-      if (t?.slot === "dinner" && t?.preparedOn === now.dateIso && t?.date !== now.dateIso)
+      if (
+        t?.slot === "dinner" &&
+        t?.preparedOn === now.dateIso &&
+        t?.date !== now.dateIso &&
+        mine(t)
+      )
         batchesToday.push(String(t.recipeId));
       if (t?.date !== now.dateIso) continue;
       const seat = (t.seats ?? []).find((/** @type {any} */ x) => x?.id === "david");
@@ -357,11 +366,12 @@ async function runNotifications(token, topic, now, send) {
         tableRecipeId: t.recipeId,
         // a batch pot made on an earlier day is a reheat tonight, like a leftover
         leftover: Boolean(t.leftoverOf || (t.preparedOn && t.preparedOn !== t.date)),
+        mine: mine(t),
         ...(t.cookedAt ? { cookedAt: t.cookedAt } : {}),
       });
     }
   }
-  const plan = rawPlan || shared.length > 0
+  let plan = rawPlan || shared.length > 0
     ? { ...(rawPlan ?? {}), entries: [...(rawPlan?.entries ?? []), ...shared] }
     : null;
   // shopping only matters at its hours; skip the read otherwise. (The daily
@@ -388,11 +398,27 @@ async function runNotifications(token, topic, now, send) {
   }
   const recipeName = (/** @type {string} */ id) => names[id] ?? id;
   // a shared meal reads as its dish, a leftover night says so
+  let batchNamed = false;
   for (const e of shared) {
     e.freeText = `${recipeName(String(e.tableRecipeId))}${e.leftover ? " (leftovers, reheat)" : ""}`;
-    // the prep day's dinner names the batch cooked alongside it
-    if (e.slot === "dinner" && !e.leftover && batchesToday.length > 0)
+    // the prep day's dinner names the batch he cooks alongside it
+    if (e.slot === "dinner" && !e.leftover && e.mine && batchesToday.length > 0) {
       e.freeText += `, plus the batch: ${batchesToday.map(recipeName).join(", ")}`;
+      batchNamed = true;
+    }
+  }
+  // his batch on someone else's dinner night still gets its ping, on its own
+  if (batchesToday.length > 0 && !batchNamed) {
+    shared.push({
+      id: "batch-today",
+      date: now.dateIso,
+      slot: "dinner",
+      table: "batch",
+      mine: true,
+      batchOnly: true,
+      freeText: `the batch: ${batchesToday.map(recipeName).join(", ")}`,
+    });
+    plan = { ...(plan ?? {}), entries: [...(plan?.entries ?? []), shared[shared.length - 1]] };
   }
 
   const notifications = send
@@ -767,10 +793,12 @@ export default {
           return json(410, { error: "this invite has expired, ask for a new one" }, cors);
         const entry = sanitizeInviteEntry(body.entry);
         const targets = sanitizeInviteTargets(body.targets);
-        const dinners = sanitizeInviteDinners(body.dinners, nowIso.slice(0, 10));
         if (!entry) return json(400, { error: "a name and an emoji are required" }, cors);
         if (!targets) return json(400, { error: "the profile numbers did not make sense" }, cors);
         const house = slugOf(/** @type {any} */ (invite).house) || "guesthouse";
+        // only a dinner guest picks dinners; a roommate eats every shared meal
+        const dinners =
+          house === "guesthouse" ? sanitizeInviteDinners(body.dinners, nowIso.slice(0, 10)) : [];
 
         // 1. a free id: absent from profiles.json AND with no files under
         //    profiles/<id>/ (H5: a recycled id would inherit a stranger's targets)

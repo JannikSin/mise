@@ -15,6 +15,8 @@ import {
   scanReceipt,
   recordKrogerPush,
   krogerPushLog,
+  cartSendsFor,
+  recordCartSend,
   krogerLinkExpiry,
 } from "../lib/worker.js";
 import {
@@ -46,7 +48,6 @@ import {
   tripOf,
   isStapleRow,
   cartLines,
-  cartSendsThisTrip,
 } from "../lib/shopping.js";
 import { AISLES } from "../lib/ingredients.js";
 import { isParked } from "../lib/parked.js";
@@ -247,7 +248,7 @@ const FRESH_STEPS = [
  *   weeklyBudgetUsd?: number,
  *   region?: { country?: string, state?: string },
  *   storeSlug?: string,
- *   brigade?: { id: string, name: string, iShop: boolean, nights: number, seats: number, shopperName: string } | null,
+ *   brigade?: { id: string, name: string, iShop: boolean, nights: number, seats: number, shopperName: string, othersBuy?: { date: string, name: string }[] } | null,
  *   trip?: string[] | null,
  *   buildNote?: string,
  *   repriceNote?: string,
@@ -764,11 +765,12 @@ export function ShoppingView({
   useEffect(() => setPushLog(krogerPushLog()), []);
   const [cartArmed, setCartArmed] = useState(false);
   // A RELOAD FORGOT THE SEND (2026-10-18): cartSent lives in memory, so
-  // reopening the List re-armed a full second copy. The durable log counts
-  // this trip's real sends too: ok, not a test, on or after the day GOING TO
-  // THE STORE saved the week.
+  // reopening the List re-armed a full second copy. The per-week record
+  // (withCartSend) remembers this week's full sends across reloads, rotated
+  // logs and a second tap of GOING TO THE STORE.
   const shoppedOn = String(/** @type {any} */ (plan)?.fallback?.savedAt ?? "");
-  const sentCount = Math.max(cartSent, cartSendsThisTrip(pushLog, shoppedOn));
+  const cartWeek = String(/** @type {any} */ (plan)?.week ?? weekId);
+  const sentCount = Math.max(cartSent, cartSendsFor(cartWeek));
   // THE CART, BACK (David, 2026-10-18: "I don't want you to order. I just
   // want you to add it to the cart", and only once the week is set and he is
   // going to the store). The live-price controls stay parked (decision 0018);
@@ -794,6 +796,11 @@ export function ShoppingView({
   // number that ORDERS it, so the cart and the week's total cannot drift apart.
   // An unpriced row still falls back to one package, which is the old
   // behaviour and is flagged to the user as an estimate elsewhere.
+  // the unticked rows the cart cannot carry (no product picked at this store
+  // yet), named so they are bought by hand, not discovered missing at pickup
+  const notSent = tripItems
+    .filter((i) => !i.checked && !pinFor(pins, i.food, homeStore)?.upc)
+    .map((i) => i.food);
   const cartRows = cartLines(
     tripItems,
     (food) => pinFor(pins, food, homeStore)?.upc,
@@ -839,7 +846,10 @@ export function ShoppingView({
         return;
       }
       const sent = await krogerCartAdd(rows);
-      if (opts.test !== true) setCartSent((n) => n + 1);
+      if (opts.test !== true) {
+        setCartSent((n) => n + 1);
+        recordCartSend(cartWeek);
+      }
       recordKrogerPush({
         ok: true,
         rows,
@@ -1614,7 +1624,7 @@ export function ShoppingView({
             // decision 0018 (David, 2026-10-16: "all I want to see is the price,
             // I want to choose the store and then see the price, that's it"):
             // the live-price controls and the Kroger cart stay built, doors shut
-            !isParked("kroger") &&
+            !isParked("liveprices") &&
             html`
           ${
             canLive &&
@@ -1650,6 +1660,28 @@ export function ShoppingView({
             `
           }
           ${
+            // who buys the other nights (Tribunal Realist, 2026-10-18): on
+            // "take turns" this list, and so the cart, holds only my nights
+            (brigade?.othersBuy ?? []).length > 0 &&
+            html`<p class="hint">
+              Not on your list:
+              ${" "}${(brigade?.othersBuy ?? [])
+                .map(
+                  (o) =>
+                    `${parseLocalIso(o.date).toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" })} (${o.name} buys)`,
+                )
+                .join(", ")}.
+            </p>`
+          }
+          ${
+            canLive &&
+            !cartOpen &&
+            html`<p class="hint">
+              After you tap GOING TO THE STORE, you can send this list to your
+              ${" "}${STORE_NAMES[homeStore] ?? "Kroger"} cart.
+            </p>`
+          }
+          ${
             // the cart has its own door (2026-10-18): open once GOING TO THE
             // STORE has saved the week, whatever the price controls do
             cartOpen &&
@@ -1676,7 +1708,7 @@ export function ShoppingView({
             !cartOff &&
             html`<div class="row">
                 <span class="k"
-                  >kroger cart · ${cartRows.length} of ${tripItems.length} rows have a UPC</span
+                  >${STORE_NAMES[homeStore] ?? "Kroger"} cart · ${cartRows.length} items ready to send</span
                 >
                 <button
                   class="linktext"
@@ -1691,16 +1723,20 @@ export function ShoppingView({
                 </button>
               </div>
               <p class="hint">
-                Sends the unticked rows to your Kroger cart for
-                ${" "}${STORE_NAMES[homeStore] ?? homeStore}. It cannot place the order and cannot
-                choose a pickup slot — no Kroger API does — so you finish in the app. ⚠️ Kroger has
-                no store field on a cart write: items land in whichever store your Kroger ACCOUNT
-                has selected, so set that to ${" "}${STORE_NAMES[homeStore] ?? homeStore} first.
+                Adds your unticked items to your cart. It never orders: you pick a pickup time and
+                pay in the ${STORE_NAMES[homeStore] ?? "Kroger"} app. First check that app's store
+                says ${" "}${STORE_NAMES[homeStore] ?? homeStore}.
               </p>
+              ${
+                notSent.length > 0 &&
+                html`<p class="hint">
+                  Not sent, add these yourself: ${notSent.join(", ")}.
+                </p>`
+              }
               ${
                 testRows.length > 0 &&
                 html`<div class="row">
-                    <span class="k">test it first · ${testRows.length} cheap rows, 1 each</span>
+                    <span class="k">test it first · ${testRows.length} cheap items, 1 each</span>
                     <button
                       class="linktext"
                       disabled=${cartNote === "sending…"}
@@ -1710,9 +1746,7 @@ export function ShoppingView({
                     </button>
                   </div>
                   <p class="hint">
-                    Proves the whole path — sign-in, product match, quantity, which store — for a
-                    few dollars instead of a week of food. Check them in the Kroger app, then send
-                    the real list.
+                    Sends 3 cheap items so you can check it works before the full list.
                   </p>`
               }`
           }
@@ -1780,7 +1814,7 @@ export function ShoppingView({
             `
           }
           ${
-            !isParked("kroger") &&
+            !isParked("liveprices") &&
             canLive &&
             homeSummary.unpriced > 0 &&
             html`<p class="hint">

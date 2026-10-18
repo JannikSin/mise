@@ -46,9 +46,10 @@ export function parseRoute(hash) {
       const code = String(params.get("code") ?? "")
         .trim()
         .toLowerCase();
-      /** @type {{ view: string, code?: string }} */
+      /** @type {{ view: string, code?: string, member?: boolean }} */
       const route = { view: head };
       if (/^[a-z2-7]{20}$/.test(code)) route.code = code;
+      if (params.get("as") === "member") route.member = true;
       return route;
     }
     case "hall": {

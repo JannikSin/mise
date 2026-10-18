@@ -391,3 +391,25 @@ test("the dinners a guest picks on the form land on their profile row (2026-10-1
     },
   );
 });
+
+test("a roommate invite never carries picked dinners onto the profile (2026-10-18)", async () => {
+  await withRepo(
+    {
+      sandbox: {
+        "invites.json": { invites: [invite({ house: "wayne" })] },
+        "profiles.json": { profiles: [{ id: "david", name: "David", household: "wayne" }] },
+      },
+      main: { "invites.json": { invites: [] }, "profiles.json": { profiles: [] } },
+    },
+    async (repo) => {
+      const res = await worker.fetch(
+        req("/invite/claim", { code: CODE, ...PRIYA, dinners: [plusDays(2)] }),
+        ENV,
+      );
+      assert.equal(res.status, 200, await res.text());
+      const row = repo.files.sandbox["profiles.json"].obj.profiles.find((p) => p.id === "priya");
+      assert.equal(row.household, "wayne");
+      assert.equal(row.wantsDinners, undefined);
+    },
+  );
+});
