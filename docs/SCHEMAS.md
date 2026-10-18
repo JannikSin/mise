@@ -383,7 +383,10 @@ Guest log in (v1.6, David 2026-10-18: "type your name + a quick passkey").
   per isolate, and in the Cache API too where available); a log in never
   writes to GitHub. Wrong tries are limited per name (5 per 10 minutes per
   isolate, checked before any read) and locked 15 minutes after 5; a failed
-  read of this file answers "try again", never a sign-out.
+  read of this file answers "try again", never a sign-out. The limit counts
+  every try on a name, right or wrong, so anyone who knows a guest's name can
+  lock them out for a few minutes (and a guest signing in on several phones
+  inside ten minutes can too); accepted for the light boundary David asked for.
 - Kept apart from `invites.json`, whose housekeeping drops spent invites
   after 30 days and would delete logins.
 - Deleting a row signs that guest out within a minute (`/guest/me` checks
