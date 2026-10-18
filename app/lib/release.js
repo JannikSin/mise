@@ -28,8 +28,8 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
-    version: UNRELEASED,
-    date: "",
+    version: "1.6",
+    date: "2026-10-18",
     notes: [
       "Guests get their own log in: the guest link opens Welcome to Mise with LOG IN or SIGN UP. Sign up is the profile survey plus a login name and a 4-digit passkey; next time they just log in. No one's name is ever listed.",
       "Once in, a guest sees only the meals you added them to, who cooks, their plate, and the recipe. Nothing of your kitchen, your family or your other guests.",
