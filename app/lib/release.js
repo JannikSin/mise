@@ -28,6 +28,15 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
+    version: UNRELEASED,
+    date: "",
+    notes: [
+      "Walk the fridge now listens: film the shelves while you say what you see, and what you said lands in the box for you to check. If the phone cannot hear it, the box stays for typing and says why.",
+      "Sunday's dinner can be the batch: in People, EDIT, untick the batch nights and Sunday's one pot covers the nights after it, picked to keep and reheat well.",
+      "Sunday cooking can have a rough minutes limit in the kitchen rule; Plan shows the week's Sunday prep against it.",
+    ],
+  },
+  {
     version: "1.8",
     date: "2026-10-18",
     notes: [
