@@ -984,9 +984,9 @@ test("v1.9c: Sunday prep is estimated roughly, each Sunday dish once, and said a
   ];
   // pot 20 + 15 (cook capped), balls 15, muffins 15 + 15 = 80, Friday not counted
   assert.deepEqual(sundayPrepMinutes(tables, bank, "2026-10-25"), { minutes: 80, dishes: 3 });
-  assert.equal(sundayPrepLine(80), "Sunday prep about 80 min.");
-  assert.equal(sundayPrepLine(80, 60), "Sunday prep about 80 min, over your 60 minutes by 20.");
-  assert.equal(sundayPrepLine(80, 150), "Sunday prep about 80 min, inside your 150.");
+  assert.equal(sundayPrepLine(80), "Sunday prep about 80 min at recipe size.");
+  assert.equal(sundayPrepLine(80, 60), "Sunday prep about 80 min at recipe size, over your 60 minutes by 20.");
+  assert.equal(sundayPrepLine(80, 150), "Sunday prep about 80 min at recipe size, inside your 150.");
   assert.equal(validBrigade({ ...BRIGADE, sundayMinutes: 150 }), true);
   assert.equal(validBrigade({ ...BRIGADE, sundayMinutes: -5 }), false);
   assert.equal(validBrigade({ ...BRIGADE, sundayMinutes: "lots" }), false);

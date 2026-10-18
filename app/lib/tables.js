@@ -143,9 +143,9 @@ export function sundayPrepMinutes(tables, recipeById, sundayIso) {
  */
 export function sundayPrepLine(minutes, limit = 0) {
   if (limit > 0 && minutes > limit)
-    return `Sunday prep about ${minutes} min, over your ${limit} minutes by ${minutes - limit}.`;
-  if (limit > 0) return `Sunday prep about ${minutes} min, inside your ${limit}.`;
-  return `Sunday prep about ${minutes} min.`;
+    return `Sunday prep about ${minutes} min at recipe size, over your ${limit} minutes by ${minutes - limit}.`;
+  if (limit > 0) return `Sunday prep about ${minutes} min at recipe size, inside your ${limit}.`;
+  return `Sunday prep about ${minutes} min at recipe size.`;
 }
 
 /**
