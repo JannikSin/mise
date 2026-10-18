@@ -23,7 +23,7 @@ import {
   writeTargetsOf,
   pathFor,
 } from "./lib/store.js";
-import { initRouter } from "./lib/router.js";
+import { initRouter, parseRoute } from "./lib/router.js";
 import { normalizeEquipment } from "./lib/equipment.js";
 import {
   buyDayOf,
@@ -5081,13 +5081,42 @@ function showCrash(/** @type {string} */ what, /** @type {any} */ err) {
 window.addEventListener("error", (e) => showCrash("error", e.error ?? e.message));
 window.addEventListener("unhandledrejection", (e) => showCrash("promise", e.reason));
 
+/**
+ * A GUEST'S PHONE (David, 2026-10-18: his invite link "just pulls up to the
+ * GitHub thing ... It just says David as a profile and then add another
+ * profile"). A fresh phone has no chosen profile, so the boot below used to
+ * render the profile chooser, with the built-in default profile, before the
+ * router ever saw #/join: an invited guest never reached the invite form.
+ * An invite or status link now renders on its own, with no profile, no
+ * token and no household data on the device; every other route is unchanged.
+ */
+function GuestLinkRoot() {
+  const [route, setRoute] = useState(() => parseRoute(location.hash));
+  useEffect(() => {
+    const on = () => setRoute(parseRoute(location.hash));
+    window.addEventListener("hashchange", on);
+    return () => window.removeEventListener("hashchange", on);
+  }, []);
+  const r = /** @type {any} */ (route);
+  return r.view === "status"
+    ? html`<${StatusView} code=${r.code ?? ""} />`
+    : html`<${JoinView} code=${r.code ?? ""} member=${Boolean(r.member)} />`;
+}
+
 const root = document.getElementById("app");
 if (root) {
   // gate: no profile chosen yet (fresh install, or System's "switch
-  // profile" cleared the key) — render the chooser instead of the app.
+  // profile" cleared the key) — render the chooser instead of the app,
+  // except on an invite or status link, which needs neither
+  const first = parseRoute(location.hash).view;
+  const guestLink = first === "join" || first === "status";
   try {
     render(
-      localStorage.getItem("mise.activeProfile") ? html`<${App} />` : html`<${ProfileGateView} />`,
+      localStorage.getItem("mise.activeProfile")
+        ? html`<${App} />`
+        : guestLink
+          ? html`<${GuestLinkRoot} />`
+          : html`<${ProfileGateView} />`,
       root,
     );
   } catch (err) {

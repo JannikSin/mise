@@ -31,7 +31,7 @@ export const RELEASES = [
       "The List says which nights are not on it and who buys them, when you take turns.",
       "PICK DIFFERENT MEALS is back on Plan, for when you do not like the week you see, before you buy it.",
       "Reminders: one ping on each night you cook, and at about 11:00 pm an Ate it? for anything not marked eaten.",
-      "Guests: the invite link asks which dinners they could come to, and People adds them to those nights in one tap.",
+      "Guests: the invite link opens straight to a welcome and their own profile form, with no other profiles shown and no sign-in; it asks which dinners they could come to, and People adds them to those nights in one tap.",
     ],
   },
   {

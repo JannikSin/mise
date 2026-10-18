@@ -354,7 +354,7 @@ export function ProfileGateView({
         <div class="sub">
           ${invite
             ? invite.house === "guesthouse"
-              ? "you've been invited to a table. Fill this in once, on your own phone, and every plate they serve you is sized to your numbers and your allergies."
+              ? "Welcome to Mise. This is a guest link: make your profile once, here on your own phone, and every plate you're served is sized to your numbers and checked against your allergies."
               : `you've been invited to join the ${invite.house} kitchen. Fill this in once, on your own phone.`
             : guest
               ? "guest profile — fill this in and the table sets your plate to your own numbers"
@@ -416,8 +416,11 @@ export function ProfileGateView({
         <summary class="block-title">${guest || invite ? "your profile" : "+ add profile"}</summary>
         <div class="tile">
           <p class="hint">
-            fill what you like here, or tap "set up by conversation" above and answer a few
-            questions.
+            ${
+              guest || invite
+                ? "Your name, your numbers, and anything you can't or won't eat. The more you fill in, the better your plate fits."
+                : 'fill what you like here, or tap "set up by conversation" above and answer a few questions.'
+            }
           </p>
           <div class="token-form">
             <input
