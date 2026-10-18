@@ -3357,7 +3357,12 @@ function App() {
         const stored = next.tables.find((x) => x.id === tableId);
         if (stored && (orphan || !parsePot(stored.pot, recipe))) {
           const pot = await potStringFor(stored);
-          next = setTablePot(next, tableId, pot ?? null, today);
+          // ATE EVERYTHING TODAY marks several tables in one tap; another
+          // mark may have been written while this one waited, so stamp the
+          // FRESH copy, never the one read before the await (Tribunal
+          // Red Team + Realist, 2026-10-18: the last write lost the others)
+          const fresh = houseEventsRef.current.find((h) => h.house === house)?.events ?? events;
+          next = setTablePot(setTableCooked(fresh, tableId, today, today), tableId, pot ?? null, today);
         }
         writeHouseEvents(house, next);
         return;
@@ -3623,20 +3628,35 @@ function App() {
   // AN OPEN RULE ROLLS ITSELF (David, 2026-10-18: "the shared kitchen
   // shouldn't have an end date"). When an open rule no longer reaches three
   // weeks out, its 28-day window moves forward and is saved, so it never
-  // lapses and no phone, old or new, ever sees it end. A roll the record
+  // lapses and no phone, old or new, ever sees it end. A rule written before
+  // v1.5 (no `open` key at all) is turned open, with Purdue's breaks, once:
+  // that is what he asked for, and EDIT can turn it off (stored open: false).
+  // rolledRule returns null when nothing would move, and a roll the record
   // refuses is not retried, so this cannot loop.
   useEffect(() => {
     const house = myHouseOf();
-    const cur = houseEvents.find((h) => h.house === house)?.events;
+    // the ref, like every other writer: the clobber guard reads it too
+    const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
     if (!cur) return;
     const today = localIsoDate(new Date());
     let next = cur;
     let moved = false;
-    for (const b of cur.brigades ?? []) {
-      const r = rolledRule(b, today);
+    for (const b0 of cur.brigades ?? []) {
+      const b =
+        b0.open === undefined && b0.until >= today
+          ? { ...b0, open: true, breaks: "purdue" }
+          : b0;
+      const r = rolledRule(b, today) ?? (b !== b0 ? { from: b.from, until: b.until } : null);
       if (!r) continue;
-      const after = updateBrigade(next, b.id, r, today);
-      if ((after.brigades ?? []).find((x) => x.id === b.id)?.until !== r.until) continue;
+      const after = updateBrigade(
+        next,
+        b.id,
+        b !== b0 ? { ...r, open: true, breaks: "purdue" } : r,
+        today,
+      );
+      const nb = (after.brigades ?? []).find((x) => x.id === b.id);
+      // refused by the record (nothing changed): skip, never rewrite
+      if (!nb || nb.until !== r.until || (b !== b0 && nb.open !== true)) continue;
       next = after;
       moved = true;
     }

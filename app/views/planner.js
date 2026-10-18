@@ -12,6 +12,7 @@ import {
   SLOT_META,
 } from "../lib/plan.js";
 import { parseLocalIso } from "../lib/dates.js";
+import { brigadeCovers as ruleCovers } from "../lib/tables.js";
 import { isPerBowl } from "../lib/portions.js";
 import { manifestDrifted, manifestLines } from "../lib/manifest.js";
 import { CookBlocks } from "./cook-blocks.js";
@@ -174,7 +175,7 @@ export function PlannerView({
   const brigadeCovers =
     brigade != null &&
     dates.some(
-      (d) => brigadeDays.has(d) || (d >= brigade.active.from && d <= brigade.active.until),
+      (d) => brigadeDays.has(d) || ruleCovers(brigade.active, d),
     );
   // P3, no invented person. These two lines used to read `?? 3400` and
   // `?? 210`, which are DAVID'S targets from an earlier phase: any profile

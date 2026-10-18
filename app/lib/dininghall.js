@@ -118,10 +118,12 @@ const TOPPING_WORDS =
  * @param {{ name: string, servingSize?: string }} item
  */
 export function isTopping(item) {
-  return (
-    /\b(tbsp|tablespoons?|tsp|teaspoons?)\b/i.test(String(item.servingSize ?? "")) ||
-    TOPPING_WORDS.test(String(item.name ?? ""))
-  );
+  const serving = String(item.servingSize ?? "").trim();
+  if (/\b(tbsp|tablespoons?|tsp|teaspoons?)\b/i.test(serving)) return true;
+  // a garnish word counts only on a garnish-sized serving: "Shredded Cheddar,
+  // Ounce" is a topping, "Shredded Chicken, 4 oz" is a main (Tribunal Realist)
+  const small = serving === "" || /^(1\s*)?(oz|ounce)$/i.test(serving) || /^1\/4\s*cup/i.test(serving);
+  return small && TOPPING_WORDS.test(String(item.name ?? ""));
 }
 
 /** Does this hall item carry anything the person avoids? */

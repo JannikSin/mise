@@ -560,13 +560,11 @@ test("brigade dinners walk a SCATTERED order, still run-day independent", () => 
   }
 });
 
-test("THE BRIGADE'S COOK BUYS: each rotating cook shops exactly their own nights", () => {
-  // David 2026-08-30 ("in a brigade you shouldn't have the option to buy
-  // just for yourself — the brigade buys"): an unclaimed BRIGADE table
-  // defaults its buy to the table's NAMED cook, which is exactly what the
-  // brigade form has always promised ("everyone cooks one or two dinners
-  // and shops for their own nights"). Hand-set tables keep the 2026-08-03
-  // claims model untouched — that case is pinned separately below.
+test("ONE LIST WHEN COOKS TAKE TURNS: the cooking rotates, the kitchen's shopper buys every night", () => {
+  // David 2026-10-18 supersedes 2026-08-30's "each cook shops their own
+  // nights": "taking turns on cooking should not be dependent or even affect
+  // who buys the list ... there should only be one list compiled and one list
+  // bought". The rule's named cook is the shopper; an explicit claim still wins.
   const rot = { ...BRIGADE, memberIds: ["mom", "laurie", "david"], rotateCooks: true };
   const { events } = planBrigadeWeek({ tables: [] }, rot, ctx());
   const d = deriveTables([{ house: "taranowski", events }], {
@@ -577,27 +575,16 @@ test("THE BRIGADE'S COOK BUYS: each rotating cook shops exactly their own nights
     profilesById: PROFILES,
   });
   assert.equal(d.allCookExtras.length, WEEK.length, "every night has a batch");
-  const cooks = new Set(d.allCookExtras.map((x) => x.cookId));
-  assert.ok(cooks.has("mom") && cooks.has("laurie") && cooks.has("david"));
-  for (const x of d.allCookExtras) assert.ok(x.servings > 0 && x.recipeId && x.date);
-  // mom's list carries exactly the nights SHE cooks — no more, no less
-  const momNights = events.tables
-    .filter((t) => t.cookId === "mom")
-    .map((t) => t.date)
-    .sort();
-  assert.ok(momNights.length > 0, "the rotation gives mom nights");
+  const cooks = new Set(events.tables.map((t) => t.cookId));
+  assert.ok(cooks.has("mom") && cooks.has("laurie") && cooks.has("david"), "the cooking rotates");
   assert.deepEqual(
     d.cookExtras.map((x) => x.date).sort(),
-    momNights,
-    "the named cook buys their own nights by rule",
+    [...WEEK].sort(),
+    "the shopper's one list carries every night, whoever cooks",
   );
-  // the effective buyer travels on allCookExtras so claim UIs stop nagging
-  for (const x of d.allCookExtras) {
-    assert.equal(/** @type {any} */ (x).buyerId, x.cookId, "brigade batches carry their buyer");
-  }
-  // the union across all three members is the whole week, with no overlap
-  let union = 0;
-  for (const who of ["mom", "laurie", "david"]) {
+  for (const x of d.allCookExtras) assert.equal(/** @type {any} */ (x).buyerId, "mom");
+  // nobody else is handed a list: every night bought exactly once
+  for (const who of ["laurie", "david"]) {
     const view = deriveTables([{ house: "taranowski", events }], {
       profileId: who,
       bankById: BANK,
@@ -605,29 +592,15 @@ test("THE BRIGADE'S COOK BUYS: each rotating cook shops exactly their own nights
       today: TODAY,
       profilesById: PROFILES,
     });
-    union += view.cookExtras.length;
+    assert.equal(view.cookExtras.length, 0, `${who} buys nothing`);
   }
-  assert.equal(union, WEEK.length, "every night bought exactly once across the house");
-  // an EXPLICIT claim still beats the cook (multi-shopper houses unchanged)
+  // an EXPLICIT claim still beats the shopper (a hand-claimed night)
   const claimed = {
     ...events,
-    tables: events.tables.map((t, i) => (i < 2 ? { ...t, buyerId: "mom" } : t)),
+    tables: events.tables.map((t, i) => (i === 0 ? { ...t, buyerId: "laurie" } : t)),
   };
-  const d2 = deriveTables([{ house: "taranowski", events: claimed }], {
-    profileId: "mom",
-    bankById: BANK,
-    ownEntries: [],
-    today: TODAY,
-    profilesById: PROFILES,
-  });
-  const momCookNightsInFirstTwo = events.tables
-    .slice(0, 2)
-    .filter((t) => t.cookId === "mom").length;
-  assert.equal(
-    d2.cookExtras.length,
-    momNights.length + 2 - momCookNightsInFirstTwo,
-    "her claims add to her cook nights without double-counting",
-  );
+  const replanned = planBrigadeWeek(claimed, rot, ctx()).events;
+  assert.equal(replanned.tables.find((t) => t.id === events.tables[0]?.id)?.buyerId, "laurie");
 });
 
 test("a hand-set (non-brigade) table still rides NOBODY's list unclaimed", () => {
@@ -903,4 +876,34 @@ test("an open rule rolls its 28-day window forward, never ends, and keeps whose 
   assert.equal(days % 2, 0, "moved in whole turns of two cooks, so nobody's night flips");
   assert.equal(rolledRule({ ...rule, ...r }, "2026-10-25"), null, "one roll, no loop");
   assert.equal(rolledRule({ ...rule, open: undefined }, "2026-11-20"), null, "a dated rule never rolls");
+});
+
+test("Tribunal 2026-10-18: a long rotation never rolls the same window twice, and bad rule fields are refused", () => {
+  const ten = Array.from({ length: 10 }, (_, i) => `m${i}`);
+  const rule = { ...BRIGADE, memberIds: ten, rotateCooks: true, open: true, from: "2026-10-09", until: "2026-11-05" };
+  const r = rolledRule(rule, "2026-10-18");
+  assert.equal(r, null, "nothing would move, so nothing is written (no write loop)");
+  assert.equal(validBrigade({ ...BRIGADE, breaks: "constructor" }), false, "a prototype key is not a break calendar");
+  assert.equal(validBrigade({ ...BRIGADE, breaks: "purdue" }), true);
+  assert.equal(validBrigade({ ...BRIGADE, open: "yes" }), false);
+  assert.equal(breakOn({ breaks: "__proto__" }, "2026-11-26"), null);
+});
+
+test("Tribunal 2026-10-18: cooks take turns, but one person buys every shared meal", () => {
+  const rule = { ...BRIGADE, rotateCooks: true, cookId: "mom" };
+  const { events } = planBrigadeWeek({ tables: [] }, rule, ctx());
+  const cooks = new Set(events.tables.map((t) => t.cookId));
+  assert.ok(cooks.size > 1, "the cooking still rotates");
+  assert.ok(events.tables.every((t) => t.buyerId === "mom"), "one list, bought by the shopper");
+});
+
+test("Tribunal 2026-10-18: turning breaks on removes un-cooked meals already set on a break day", () => {
+  const rule = { ...BRIGADE, from: "2026-11-20", until: "2026-12-17" };
+  const t = (date, extra = {}) => ({ id: `b1-${date}-dinner`, name: "x", date, slot: "dinner", recipeId: "chili", seats: [], fromBrigade: "b1", ...extra });
+  const events = {
+    brigades: [rule],
+    tables: [t("2026-11-24"), t("2026-11-26"), t("2026-11-27", { cookedAt: "2026-11-27" })],
+  };
+  const out = updateBrigade(events, "b1", { open: true, breaks: "purdue" }, "2026-11-20");
+  assert.deepEqual(out.tables.map((x) => x.date).sort(), ["2026-11-24", "2026-11-27"]);
 });

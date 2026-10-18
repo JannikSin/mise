@@ -65,12 +65,21 @@ const MAX_BRIGADE_DAYS = 28;
 // (purdue.edu/registrar/calendars/academic) has Thanksgiving break Nov 25-28
 // and spring classes from Jan 11; Housing (housing.purdue.edu, Important
 // Dates) has the break Nov 25-29 and winter check-out at noon Dec 20. Finals
-// (Dec 14-19) still eat at home. Add the next year's breaks here each summer.
+// (Dec 14-19) still eat at home. Projected years below; confirm them against
+// the published calendar each summer.
 /** @type {Record<string, { from: string, until: string, why: string }[]>} */
 export const SCHOOL_BREAKS = {
   purdue: [
     { from: "2026-11-25", until: "2026-11-29", why: "Thanksgiving break" },
     { from: "2026-12-20", until: "2027-01-10", why: "Winter break" },
+    // projected calendar (purdue.edu/registrar/calendars/academic-projected,
+    // read 2026-10-18): Thanksgiving Nov 24-27 2027, finals end Dec 18,
+    // spring classes Jan 10 2028; Thanksgiving Nov 22-25 2028. Same shape
+    // as 2026: Wednesday to Sunday, and the day after finals to the day
+    // before classes. Winter 2028-29 waits for its finals dates.
+    { from: "2027-11-24", until: "2027-11-28", why: "Thanksgiving break" },
+    { from: "2027-12-19", until: "2028-01-09", why: "Winter break" },
+    { from: "2028-11-22", until: "2028-11-26", why: "Thanksgiving break" },
   ],
 };
 
@@ -80,11 +89,11 @@ export const SCHOOL_BREAKS = {
  * @param {string} date YYYY-MM-DD
  */
 export function breakOn(b, date) {
-  return (
-    (SCHOOL_BREAKS[String(b?.breaks ?? "")] ?? []).find(
-      (x) => date >= x.from && date <= x.until,
-    ) ?? null
-  );
+  const key = String(b?.breaks ?? "");
+  // own keys only: "constructor" or "__proto__" in a poisoned file must not
+  // reach a prototype method (Tribunal Red Team, 2026-10-18)
+  if (!Object.hasOwn(SCHOOL_BREAKS, key)) return null;
+  return (SCHOOL_BREAKS[key] ?? []).find((x) => date >= x.from && date <= x.until) ?? null;
 }
 
 /**
@@ -119,7 +128,12 @@ export function rolledRule(b, todayIso) {
     Math.round((Date.parse(`${todayIso}T12:00:00Z`) - Date.parse(`${b.from}T12:00:00Z`)) / 86400000),
   );
   const from = day(b.from, Math.floor(behind / step) * step);
-  return { from, until: day(from, MAX_BRIGADE_DAYS - 1) };
+  const until = day(from, MAX_BRIGADE_DAYS - 1);
+  // nothing to move (a long rotation can leave the window short of three
+  // weeks until its next turn comes round): null, so the caller never
+  // rewrites the same window in a loop (Tribunal Red Team + Engineer)
+  if (from === b.from && until === b.until) return null;
+  return { from, until };
 }
 
 /**
@@ -156,6 +170,10 @@ export function validBrigade(b) {
     if (!b.cookDays.every((/** @type {any} */ d) => Number.isInteger(d) && d >= 0 && d <= 6))
       return false;
   }
+  // the two 2026-10-18 fields are checked, never repaired: a poisoned
+  // `breaks` would otherwise throw in every view that asks brigadeCovers
+  if (b.open !== undefined && typeof b.open !== "boolean") return false;
+  if (b.breaks !== undefined && !Object.hasOwn(SCHOOL_BREAKS, String(b.breaks))) return false;
   if (b.batches !== undefined) {
     if (!Array.isArray(b.batches)) return false;
     for (const x of b.batches) {
@@ -258,6 +276,9 @@ export function cookOf(t, house, profilesById) {
  * in a brigade you shouldn't have the option to buy just for yourself; the
  * brigade buys" — and that is what the brigade form always promised
  * ("everyone cooks one or two dinners and shops for their own nights").
+ * Superseded 2026-10-18 when cooks take turns: planBrigadeWeek writes the
+ * rule's shopper as every table's buyerId ("one list compiled and one list
+ * bought"), so this cook fallback serves only non-rotating rules.
  * NAMED means `t.cookId`, seated, not skipped, living in the table's house:
  * never cookOf's positional fallback, because a 409 merge can reorder seats
  * and a positional buyer flips between devices (measured double-buy,
@@ -1303,6 +1324,19 @@ export function updateBrigade(events, id, patch, today) {
     ...cleaned,
     brigades: (cleaned.brigades ?? []).map((b) =>
       b.id === id ? /** @type {Brigade} */ (next) : b,
+    ),
+    // meals already set on what is now a break day come off (Tribunal
+    // Engineer, 2026-10-18), unless cooked or pinned: those happened or were
+    // chosen by hand
+    tables: cleaned.tables.filter(
+      (t) =>
+        !(
+          t.fromBrigade === id &&
+          t.date >= today &&
+          breakOn(next, t.date) &&
+          !t.cookedAt &&
+          !(/** @type {any} */ (t).pinned)
+        ),
     ),
   };
 }

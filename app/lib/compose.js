@@ -1281,6 +1281,15 @@ export function planBrigadeWeek(events, brigade, ctx) {
           (r) => !(Number(r.maxServings) > 0) || potEstimate(r) <= Number(r.maxServings) + 0.25,
         );
         if (fits.length > 0) pool = fits;
+        // ...and when nothing fits it is SAID, not found at the Pyrex
+        // (Tribunal Realist, 2026-10-18: a Mon-Thu batch for two needs about
+        // 9 portions against dishes that hold 8)
+        else if (pool.some((r) => Number(r.maxServings) > 0)) {
+          const most = Math.min(...pool.map((r) => potEstimate(r)));
+          notes.push(
+            `${prepDay ?? date} ${slot}: this pot is about ${Math.round(most)} portions, more than one pan holds. Use the big pot, or make it in two dishes.`,
+          );
+        }
         const batch = pool.filter(isBatchDish);
         if (batch.length >= 3) pool = batch;
         // a Sunday BATCH sits in the fridge for days before it is eaten: it
@@ -2031,7 +2040,16 @@ export function planBrigadeWeek(events, brigade, ctx) {
         ...(LEFTOVER_SLOTS.has(slot) && preparedOnMap.has(date)
           ? { preparedOn: preparedOnMap.get(date) }
           : {}),
-        ...(existing?.buyerId ? { buyerId: existing.buyerId } : {}),
+        // ONE LIST, ONE BUYER (David, 2026-10-18: "taking turns on cooking
+        // should not be dependent or even affect who buys the list ... there
+        // should only be one list compiled and one list bought"): when cooks
+        // take turns, every table is bought by the kitchen's shopper (the
+        // rule's named cook). A buyer someone claimed by hand still wins.
+        ...(existing?.buyerId
+          ? { buyerId: existing.buyerId }
+          : brigade.rotateCooks
+            ? { buyerId: cookId }
+            : {}),
         ...(existing?.headId ? { headId: existing.headId } : {}),
         ...(sameDish && existing?.cookedAt ? { cookedAt: existing.cookedAt } : {}),
         ...(sameDish && existing?.sameForEveryone ? { sameForEveryone: true } : {}),

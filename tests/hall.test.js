@@ -94,4 +94,6 @@ test("a real tray: at most two helpings of a dish, and toppings never pad it (20
   assert.ok(!t.picks.some((p) => /Bacon|Shredded/.test(p.name)), "toppings stay off the count");
   assert.equal(t.meets.protein, false, "a menu that cannot reach the quota honestly says so");
   assert.equal(isTopping({ name: "Chicken Thighs in Mango Habanero Sauce", servingSize: "Each" }), false);
+  assert.equal(isTopping({ name: "Shredded Chicken", servingSize: "4 oz" }), false, "a main, not a garnish");
+  assert.equal(isTopping({ name: "Shredded Cheddar Cheese", servingSize: "Ounce" }), true);
 });

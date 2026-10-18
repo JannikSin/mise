@@ -10,6 +10,7 @@ import {
   effectiveBuyerOf,
   resolveHead,
   brigadeCovers,
+  breakOn,
 } from "../lib/tables.js";
 import { autoPlanEligible } from "../lib/plan.js";
 import { brigadeRunLines, cookDaysLabel } from "./brigade-lines.js";
@@ -302,7 +303,8 @@ export function TablesView({
       // an open rule stores a 28-day window that rolls itself forward
       // (rolledRule); every app version accepts a window that long
       until: brigadeForm.open ? plusDays(brigadeForm.from, 27) : brigadeForm.until,
-      ...(brigadeForm.open ? { open: true, breaks: "purdue" } : {}),
+      // stored either way: an absent `open` is an old rule the app turns on once
+      ...(brigadeForm.open ? { open: true, breaks: "purdue" } : { open: false }),
       ...(everyNight || !brigadeForm.slots.includes("dinner")
         ? {}
         : { cookDays: [...brigadeForm.cookDays].sort() }),
@@ -318,7 +320,7 @@ export function TablesView({
         ...rule,
         // an unset rule must be REMOVED from the record, not left as it was
         rotateCooks: brigadeForm.rotateCooks ? true : undefined,
-        open: brigadeForm.open ? true : undefined,
+        open: brigadeForm.open,
         breaks: brigadeForm.open ? "purdue" : undefined,
         cookDays: /** @type {any} */ (rule).cookDays ?? undefined,
         slotRecipes: /** @type {any} */ (rule).slotRecipes ?? undefined,
@@ -787,7 +789,7 @@ export function TablesView({
               const d = new Date(start);
               d.setDate(d.getDate() + i);
               const iso = d.toISOString().slice(0, 10);
-              if (iso < activeBrigade.from || iso > activeBrigade.until) continue;
+              if (!brigadeCovers(activeBrigade, iso)) continue;
               const off = Math.round((Date.parse(iso) - Date.parse(activeBrigade.from)) / 86400000);
               const ids = activeBrigade.memberIds;
               const id = ids[((off % ids.length) + ids.length) % ids.length];
@@ -1075,7 +1077,9 @@ export function TablesView({
         const overlaps = weekDates.some((d) => brigadeCovers(b, d));
         const range = overlaps
           ? `${parseLocalIso([weekDates[0] ?? todayIso, todayIso, b.from].sort()[2] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })} – ${parseLocalIso(weekDates[6] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })}`
-          : `starts ${parseLocalIso(b.from).toLocaleDateString([], { month: "short", day: "numeric" })} — flip Plan to that week`;
+          : weekDates.some((d) => breakOn(b, d))
+            ? `off this week: ${breakOn(b, weekDates.find((d) => breakOn(b, d)) ?? "")?.why ?? "school break"}`
+            : `starts ${parseLocalIso(b.from).toLocaleDateString([], { month: "short", day: "numeric" })} — flip Plan to that week`;
         return html`
           <div class="tile" key=${b.id}>
             <div class="k">${b.name}</div>
@@ -1089,7 +1093,7 @@ export function TablesView({
               }
               ${
                 b.rotateCooks
-                  ? html` · cooks take turns`
+                  ? html` · cooks take turns, ${cook?.name ?? "the shopper"} buys`
                   : cook
                     ? html` · ${cook.name ?? cook.id} shops`
                     : ""
@@ -1373,24 +1377,28 @@ export function TablesView({
                 </button>
               </div>
               ${
-                brigadeForm.rotateCooks
-                  ? html`<p class="hint">
-                      The cook rotates day by day in the order people are listed above — with four
-                      people over a week, everyone cooks one or two dinners and shops for their own
-                      nights (the HOUSEHOLD list still merges it into one trip).
-                    </p>`
-                  : html`<select
-                      aria-label="Cook"
-                      value=${brigadeForm.cookId}
-                      onChange=${(/** @type {any} */ e) =>
-                        setBrigadeForm({ ...brigadeForm, cookId: e.currentTarget.value })}
-                    >
-                      ${brigadeForm.memberIds.map((id) => {
-                        const p = (profiles ?? []).find((x) => x.id === id);
-                        return html`<option key=${id} value=${id}>${p?.name ?? id}</option>`;
-                      })}
-                    </select>`
+                // ONE LIST, ONE BUYER (David, 2026-10-18): taking turns moves
+                // the cooking, never the shopping, so the shopper is picked
+                // either way
+                brigadeForm.rotateCooks &&
+                html`<p class="hint">
+                  The cook rotates day by day in the order people are listed above. The shopping
+                  does not: one list, bought by the person below.
+                </p>`
               }
+              <select
+                aria-label=${brigadeForm.rotateCooks ? "Who buys" : "Cook"}
+                value=${brigadeForm.cookId}
+                onChange=${(/** @type {any} */ e) =>
+                  setBrigadeForm({ ...brigadeForm, cookId: e.currentTarget.value })}
+              >
+                ${brigadeForm.memberIds.map((id) => {
+                  const p = (profiles ?? []).find((x) => x.id === id);
+                  return html`<option key=${id} value=${id}>
+                    ${p?.name ?? id}${brigadeForm.rotateCooks ? " buys" : ""}
+                  </option>`;
+                })}
+              </select>
               <label class="row">
                 <input
                   type="checkbox"
