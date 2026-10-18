@@ -2616,7 +2616,7 @@ export function ShoppingView({
           <details class="saywhat" open=${Boolean(walk)}>
             <summary class="block-title">
               🎥 Walk the fridge
-              <span class="hint">film the shelves, say what you see, then add it all</span>
+              <span class="hint">film the shelves, then type or dictate what you see. Mise does not listen to the video's sound</span>
             </summary>
             <label class="secondary linkbtn">
               ${walk?.thumbs ? "FILM AGAIN" : "FILM OR PICK A VIDEO"}
@@ -2642,7 +2642,7 @@ export function ShoppingView({
             <textarea
               aria-label="What you see, in your own words"
               rows="3"
-              placeholder="say what you see, amounts too: a dozen eggs, half a gallon of milk, 2 lbs chicken…"
+              placeholder="type or dictate what you see, amounts too: a dozen eggs, half a gallon of milk…"
               value=${walkSaid}
               onInput=${(/** @type {any} */ e) => setWalkSaid(e.currentTarget.value)}
             ></textarea>

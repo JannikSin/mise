@@ -284,15 +284,13 @@ export function AnnotateView({
     <div class="view">
       ${
         scan === "busy"
-          ? html`<span class="backlink" aria-disabled="true">← COOKBOOK</span>`
-          : html`<a class="backlink" href="#/cookbook">← COOKBOOK</a>`
+          ? html`<span class="backlink" aria-disabled="true">← PLAN</span>`
+          : html`<a class="backlink" href="#/plan">← PLAN</a>`
       }
-      <div class="hero"><h1>Recipe scan</h1></div>
+      <div class="hero"><h1>Add a recipe from a link</h1></div>
       <p class="hint">
-        found a recipe? paste its link or photograph the page. the engine converts it to grams, pins
-        real temperatures, and bends it toward the plan without changing the dish. recipes built on
-        preserving or fermenting (bread starters, canning, curing, sous vide) are shown as written
-        but never saved: their numbers are food-safety controls.
+        Paste a recipe link, or photograph the page. Mise fits it to everyone eating and checks
+        their allergies. Canning, curing and bread starters are shown but never saved.
       </p>
 
       <h2 class="block-title">Objective</h2>
@@ -542,7 +540,7 @@ export function AnnotateView({
                   ${
                     onUseThisWeek &&
                     nights.length > 0 &&
-                    html`<div class="k">Use it this week: which night?</div>
+                    html`<div class="k">Pick a night, then tap USE IT THIS WEEK</div>
                       <div class="chips wrapchips" role="group" aria-label="Night to cook it">
                         ${nights.map(
                           (d) => html`<button
@@ -582,8 +580,8 @@ export function AnnotateView({
                   </div>
                   <p class="hint">
                     Use it this week puts it on that night's dinner, after checking everyone's
-                    allergies. Either way it is saved to your recipes; the planner only picks it on
-                    its own after a quick check.
+                    allergies. Either way it is saved to your recipes: you can pick it any time,
+                    and the planner will not choose it on its own until it has been checked.
                   </p>
                 </div>`
               : save !== "done" &&
@@ -592,7 +590,7 @@ export function AnnotateView({
           ${
             save === "done" &&
             html`<p class="hint" role="status">
-              ${useNote || "Saved to your recipes. The planner picks it on its own after a quick check."}
+              ${useNote || "Saved to your recipes. You can pick it any time; the planner will not choose it on its own until it has been checked."}
             </p>`
           }
           ${
