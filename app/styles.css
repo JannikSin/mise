@@ -2750,3 +2750,30 @@ details.dayrow summary:focus-visible {
   border-radius: 6px;
   flex: none;
 }
+
+/* the passkey box (David, 2026-10-18): full width so the digits show, OPEN
+   underneath instead of beside it squeezing the box to nothing */
+.pin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pin-input {
+  width: 100%;
+  min-height: 52px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 24px;
+  letter-spacing: 0.3em;
+  text-align: center;
+  padding: 10px;
+}
+
+.pin-input:focus {
+  outline: none;
+  border-color: var(--recover);
+}

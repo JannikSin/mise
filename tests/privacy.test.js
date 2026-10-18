@@ -118,3 +118,28 @@ test("Tribunal loop 2: a household typed into the CHAT still lands in the device
   assert.equal(allowedNewHouse(profiles, null, false, "taranowski"), "home");
   assert.equal(allowedNewHouse(profiles, "wayne", true, "taranowski"), "taranowski", "the admin device may place anywhere");
 });
+
+test("v1.9: everyone may have a passkey, and a profile with one opens only with it (David, 2026-10-18)", async () => {
+  const { keyOf } = await import("../app/lib/privacy.js");
+  const key = await makeAdminKey("0042", new Uint8Array(16).fill(5));
+  const elliot = { ...PROFILES[1], passkey: key };
+  assert.equal(await maySwitchTo(elliot, "", false), false, "a passkeyed housemate needs it");
+  assert.equal(await maySwitchTo(elliot, "42", false), false, "leading zeros are part of the passkey");
+  assert.equal(await maySwitchTo(elliot, "0042", false), true);
+  const david = { ...PROFILES[0], passkey: key };
+  assert.equal(await maySwitchTo(david, "0042", false), true, "the admin's passkey under the v1.9 name");
+  assert.deepEqual(keyOf({ adminKey: key }), key, "a v1.8 adminKey is still honoured");
+  assert.equal(keyOf({ id: "x" }), undefined);
+  assert.ok(
+    chooserProfiles([david, PROFILES[1]], "wayne", false).some((p) => p.id === "david"),
+    "the admin row is listed once it has a passkey under either name",
+  );
+});
+
+test("v1.9: the passkey box keeps digits only (spaces, full-width digits, pasted dashes)", async () => {
+  const { cleanPasskey } = await import("../app/lib/privacy.js");
+  assert.equal(cleanPasskey(" 12 34 "), "1234");
+  assert.equal(cleanPasskey("１２３４"), "1234", "full-width digits from a phone keyboard");
+  assert.equal(cleanPasskey("12-34-5678-9"), "12345678", "at most 8");
+  assert.equal(cleanPasskey(undefined), "");
+});

@@ -28,7 +28,14 @@ import {
 } from "../lib/household.js";
 import { TOUR_STEPS, TOUR_TABS } from "../lib/tour.js";
 import { ProfileGateView } from "./profile-gate.js";
-import { boundaryOn, isAdmin, makeAdminKey, validPasskey } from "../lib/privacy.js";
+import {
+  boundaryOn,
+  cleanPasskey,
+  isAdmin,
+  keyOf,
+  makeAdminKey,
+  validPasskey,
+} from "../lib/privacy.js";
 import { EQUIPMENT, canMake, unlockCounts } from "../lib/equipment.js";
 import { SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { notifyTest } from "../lib/worker.js";
@@ -346,18 +353,58 @@ export function SystemView({
   // the admin's own controls (privacy.js): before any admin is marked,
   // everyone keeps today's controls; once marked, only the admin edits houses
   const canEditHouses = !boundaryOn(allProfiles ?? []) || isAdmin(profile);
-  const [adminPin, setAdminPin] = useState("");
-  const [adminNote, setAdminNote] = useState("");
-  const saveAdminPin = async () => {
-    if (!validPasskey(adminPin)) {
-      setAdminNote("4 to 8 digits");
+  // YOUR PASSKEY, everyone's (David, 2026-10-18: "everybody else should also
+  // have their own passkey"). Typed twice and shown as digits: v1.8 hid both,
+  // so one stray tap saved a passkey nobody knew.
+  const [newPin, setNewPin] = useState("");
+  const [newPin2, setNewPin2] = useState("");
+  const [pinNote, setPinNote] = useState("");
+  const savePin = async () => {
+    if (!validPasskey(newPin)) {
+      setPinNote("4 to 8 digits");
       return;
     }
-    const key = await makeAdminKey(adminPin);
-    if (await applyPatch((x) => ({ ...x, adminKey: key }))) {
-      setAdminPin("");
-      setAdminNote("saved: opening your profile on another phone now asks for it");
+    if (newPin !== newPin2) {
+      setPinNote("the two boxes don't match; type it again");
+      return;
     }
+    const key = await makeAdminKey(newPin);
+    // adminKey (v1.8's name) goes, so only one key is ever in force
+    if (
+      await applyPatch((x) => {
+        /** @type {Record<string, any>} */
+        const next = { ...x, passkey: key };
+        delete next.adminKey;
+        return next;
+      })
+    ) {
+      setPinNote(`saved: ${newPin}. Opening your profile on any other phone now asks for it.`);
+      setNewPin("");
+      setNewPin2("");
+    }
+  };
+  // the admin clears a passkey someone forgot; they set a new one in Settings
+  const clearPinOf = async (/** @type {string} */ id) => {
+    const ok = await patchProfiles((list) =>
+      list.map((x) => {
+        if (x.id !== id) return x;
+        const rest = { ...x };
+        delete rest.passkey;
+        delete rest.adminKey;
+        return rest;
+      }),
+    );
+    if (ok)
+      setAllProfiles((cur) =>
+        cur
+          ? cur.map((x) => (x.id === id ? { ...x, passkey: undefined, adminKey: undefined } : x))
+          : cur,
+      );
+    setPinNote(
+      ok
+        ? "passkey cleared; they can set a new one in Settings"
+        : "couldn't reach the profile list; nothing changed",
+    );
   };
   const housemates = (allProfiles ?? []).filter((x) => (x.household ?? "home") === household);
   const outsiders = (allProfiles ?? []).filter((x) => (x.household ?? "home") !== household);
@@ -609,21 +656,57 @@ export function SystemView({
           <button class="secondary" onClick=${switchProfile}>SWITCH PROFILE</button>
         </div>
         ${
-          isAdmin(profile) &&
-          html`<div class="row">
-              <span class="k">Admin passkey</span>
-              <input
-                aria-label="Admin passkey"
-                type="password"
-                inputmode="numeric"
-                autocomplete="new-password"
-                placeholder=${profile?.adminKey ? "set (type to change)" : "not set"}
-                value=${adminPin}
-                onInput=${(/** @type {any} */ e) => setAdminPin(e.currentTarget.value)}
-              />
-              <button class="linktext" onClick=${saveAdminPin}>SET</button>
+          profile &&
+          html`<div class="tile pin-form">
+            <div class="k">
+              Your passkey · ${keyOf(profile) ? "set (type a new one to change it)" : "not set"}
             </div>
-            ${adminNote && html`<p class="hint">${adminNote}</p>`}`
+              <input
+              class="pin-input"
+              aria-label="New passkey"
+              type="text"
+                inputmode="numeric"
+              pattern="[0-9]*"
+              autocomplete="off"
+              maxlength="8"
+              placeholder="new passkey, 4 to 8 digits"
+              value=${newPin}
+              onInput=${(/** @type {any} */ e) => setNewPin(cleanPasskey(e.currentTarget.value))}
+              />
+            <input
+              class="pin-input"
+              aria-label="Same passkey again"
+              type="text"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              autocomplete="off"
+              maxlength="8"
+              placeholder="the same again"
+              value=${newPin2}
+              onInput=${(/** @type {any} */ e) => setNewPin2(cleanPasskey(e.currentTarget.value))}
+            />
+            <button
+              class="primary"
+              onClick=${savePin}
+              disabled=${!validPasskey(newPin) || !newPin2}
+            >
+              SAVE PASSKEY
+            </button>
+            ${pinNote && html`<p class="hint" role="status">${pinNote}</p>`}
+            ${
+                isAdmin(profile) &&
+                (allProfiles ?? []).some((x) => x.id !== me && keyOf(x)) &&
+                html`<div class="k">Forgot theirs? Clear it, they set a new one</div>
+                  ${(allProfiles ?? [])
+                    .filter((x) => x.id !== me && keyOf(x))
+                    .map(
+                      (x) =>
+                        html`<button class="linktext" onClick=${() => clearPinOf(x.id)}>
+                          CLEAR ${x.emoji} ${x.name}'s passkey
+                        </button>`,
+                    )}`
+              }
+          </div>`
         }
         ${
           // YOUR PROFILE (v1.8, P3): the fuller survey, pre-filled, merged
@@ -632,9 +715,7 @@ export function SystemView({
           targets &&
           html`<details class="tile">
             <summary class="k">Your profile · body, goal, food, allergies, targets</summary>
-            <${ProfileGateView}
-              edit=${{ id: me ?? "", targets, onSave: onSaveProfile }}
-            />
+            <${ProfileGateView} edit=${{ id: me ?? "", targets, onSave: onSaveProfile }} />
           </details>`
         }
         <h3>Your meals</h3>
@@ -778,7 +859,6 @@ export function SystemView({
           </button>
         </div>
         ${gearNote ? html`<p class="hint">${gearNote}</p>` : null}
-
         ${
           profilesFallback &&
           html`<p class="hint">
@@ -805,7 +885,6 @@ export function SystemView({
           </p>
         </div>`
       }
-
       ${
         !isParked("tour") &&
         html`      <div class="tile">
@@ -907,11 +986,11 @@ export function SystemView({
           }
         </div>
         <p class="hint">
-          Each person's screens show only their own household and the guests at their own
-          table; the admin sees everyone. That boundary is in the app: anyone holding this data
-          token can read the private repo directly, and the app downloads every household's
-          meals, so the browser's developer tools or offline cache can still show them, and a
-          fresh browser (or cleared site data) can still open a profile by typing its name.
+          Each person's screens show only their own household and the guests at their own table; the
+          admin sees everyone. That boundary is in the app: anyone holding this data token can read
+          the private repo directly, and the app downloads every household's meals, so the browser's
+          developer tools or offline cache can still show them, and a fresh browser (or cleared site
+          data) can still open a profile by typing its name.
         </p>
         <div class="row">
           <span class="k">Token</span>
@@ -1031,9 +1110,9 @@ export function SystemView({
           </button>
         </div>
         <p class="hint">
-          A house is one kitchen: everyone in it shares the pantry, the shopping trip, the table
-          calendar and the ledger. Moving re-points you at that kitchen; it never carries your
-          groceries with you. A brand-new house starts empty.
+                  A house is one kitchen: everyone in it shares the pantry, the shopping trip, the
+                  table calendar and the ledger. Moving re-points you at that kitchen; it never
+                  carries your groceries with you. A brand-new house starts empty.
         </p>
         <div class="row">
           <span class="k">In this house</span>
@@ -1107,7 +1186,8 @@ export function SystemView({
               <span class="status dim">they make their own profile on their phone</span>
             </div>
             <div class="actions wrap">
-              ${/** @type {const} */ (["member", "guest"]).map(
+              ${
+                /** @type {const} */ (["member", "guest"]).map(
                 (kind) =>
                   html`<button
                     key=${kind}
@@ -1129,7 +1209,8 @@ export function SystemView({
                   >
                     ${kind === "member" ? "INVITE A HOUSEMATE" : "INVITE A GUEST"}
                   </button>`,
-              )}
+                )
+              }
             </div>
             ${
               invite.url &&
@@ -1185,9 +1266,9 @@ export function SystemView({
         </div>
         ${houseNote && html`<p class="hint" role="status">${houseNote}</p>`}
         <p class="hint">
-          a house is a physical kitchen: everyone in the same house shares the EVERYONE grocery trip
-          AND the pantry (one kitchen, one fridge). Moving house also switches you to that house's
-          pantry. Move someone for a visit week, move them back after.
+                  a house is a physical kitchen: everyone in the same house shares the EVERYONE
+                  grocery trip AND the pantry (one kitchen, one fridge). Moving house also switches
+                  you to that house's pantry. Move someone for a visit week, move them back after.
         </p>
         <div class="row">
           <span class="k">Family</span>
@@ -1208,8 +1289,8 @@ export function SystemView({
           </button>
         </div>
         <p class="hint">
-          family is who you ARE, a house is the kitchen you cook and shop from right now. The
-          profile chooser groups people by family; houses can change week to week.
+                  family is who you ARE, a house is the kitchen you cook and shop from right now.
+                  The profile chooser groups people by family; houses can change week to week.
         </p>
             `
             : html`<p class="hint">Houses and family are set by the kitchen's admin.</p>`

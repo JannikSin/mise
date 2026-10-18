@@ -19,6 +19,9 @@ import {
   maySwitchTo,
   profilesNamed,
   allowedNewHouse,
+  cleanPasskey,
+  keyOf,
+  validPasskey,
 } from "../lib/privacy.js";
 
 /** @param {string} key */
@@ -222,14 +225,18 @@ export function ProfileGateView({
       deviceHouse !== null &&
       !isAdmin(target) &&
       String(target?.household ?? "home") !== deviceHouse;
-    if (((isAdmin(target) && target?.adminKey) || crossHouse) && !withPin) {
+    if ((keyOf(target) || crossHouse) && !withPin) {
       setAskPin(id);
+      setPin("");
       setPinErr(crossHouse ? "another household's profile: the admin's passkey opens it" : "");
       return;
     }
     if (!(await maySwitchTo(target, withPin, adminDevice, { profiles, deviceHouse }))) {
+      // a miss wipes the box (David, 2026-10-18: old digits stayed, so every
+      // retry was the old digits plus the right passkey and never matched)
+      setPin("");
       setPinErr(
-        target?.adminKey || crossHouse
+        keyOf(target) || crossHouse
           ? "that passkey doesn't match"
           : "this profile can only be opened on its own phone",
       );
@@ -413,7 +420,9 @@ export function ProfileGateView({
     };
     const ok = await edit.onSave(freshTargets(), stated);
     setSaving(false);
-    setEditNote(ok ? "saved: the next SET MY WEEK plans from this" : "could not save; nothing changed");
+    setEditNote(
+      ok ? "saved: the next SET MY WEEK plans from this" : "could not save; nothing changed",
+    );
   };
 
   const addProfile = async () => {
@@ -459,7 +468,11 @@ export function ProfileGateView({
     if (invite && onInviteSubmit) {
       setSaving(false);
       await onInviteSubmit(
-        { name: trimmedName, emoji: emoji.trim(), ...(family.trim() ? { family: slugify(family) } : {}) },
+        {
+          name: trimmedName,
+          emoji: emoji.trim(),
+          ...(family.trim() ? { family: slugify(family) } : {}),
+        },
         targets,
       );
       return;
@@ -532,7 +545,9 @@ export function ProfileGateView({
 
   const form = html`
       <details open=${guest || Boolean(invite) || Boolean(edit)}>
-        <summary class="block-title">${guest || invite || edit ? "your profile" : "+ add profile"}</summary>
+      <summary class="block-title">
+        ${guest || invite || edit ? "your profile" : "+ add profile"}
+      </summary>
         <div class="tile">
           <p class="hint">
             ${
@@ -587,16 +602,22 @@ export function ProfileGateView({
 
           <h2 class="block-title">about them</h2>
           <div class="chips" role="group" aria-label="Sex (for calorie math)">
-            <button class="chip ${sexPicked && sex === "f" ? "on" : ""}" onClick=${() => {
+          <button
+            class="chip ${sexPicked && sex === "f" ? "on" : ""}"
+            onClick=${() => {
                 setSex("f");
                 setSexPicked(true);
-              }}>
+            }}
+          >
               female
             </button>
-            <button class="chip ${sexPicked && sex === "m" ? "on" : ""}" onClick=${() => {
+          <button
+            class="chip ${sexPicked && sex === "m" ? "on" : ""}"
+            onClick=${() => {
                 setSex("m");
                 setSexPicked(true);
-              }}>
+            }}
+          >
               male
             </button>
           </div>
@@ -720,7 +741,12 @@ export function ProfileGateView({
           />
 
           <h2 class="block-title" hidden=${Boolean(edit)}>meals a day</h2>
-          <div class="chips wrapchips" role="group" aria-label="Meals per day" hidden=${Boolean(edit)}>
+        <div
+          class="chips wrapchips"
+          role="group"
+          aria-label="Meals per day"
+          hidden=${Boolean(edit)}
+        >
             <button
               class="chip ${skipBreakfast ? "" : "on"}"
               aria-pressed=${!skipBreakfast}
@@ -1004,8 +1030,8 @@ export function ProfileGateView({
               ${
                 !bodyGiven &&
                 html`<p class="hint">
-                  Add your sex, age, height and weight above to save them and get Mise's
-                  suggestion; everything else saves without them.
+                  Add your sex, age, height and weight above to save them and get Mise's suggestion;
+                  everything else saves without them.
                 </p>`
               }
               <p class="hint">
@@ -1015,8 +1041,9 @@ export function ProfileGateView({
               ${
                 needsReason &&
                 html`<p class="hint scanerr" role="alert">
-                    ⚠ ${calNum.toLocaleString()} kcal is far from the ${recommended.toLocaleString()} your
-                    numbers suggest. That can be right (a doctor's plan, a sport, a set protocol); say which.
+                    ⚠ ${calNum.toLocaleString()} kcal is far from the
+                    ${recommended.toLocaleString()} your numbers suggest. That can be right (a
+                    doctor's plan, a sport, a set protocol); say which.
                   </p>
                   <input
                     aria-label="Why this target"
@@ -1046,13 +1073,16 @@ export function ProfileGateView({
           </div>
           ${editNote && html`<p class="hint" role="status">${editNote}</p>`}
           ${saveErr && html`<p class="hint">⚠ ${saveErr}</p>`}
-          ${!edit && html`<p class="hint">
+        ${
+            !edit &&
+            html`<p class="hint">
             ADD lights up when everything is filled in: name, emoji, age 10-100, height 3-7 ft
             (inches 0-11), weight 60-500 lb.
-          </p>`}
+            </p>`
+          }
           <p class="hint">
-            calories and protein are computed from these answers (Mifflin-St Jeor); recipes come
-            from the shared bank matched to the goal. Everything is adjustable later in Settings.
+          calories and protein are computed from these answers (Mifflin-St Jeor); recipes come from
+          the shared bank matched to the goal. Everything is adjustable later in Settings.
           </p>
         </div>
       </details>
@@ -1064,17 +1094,18 @@ export function ProfileGateView({
       <div class="hero">
         <h1>Mise<span>.</span></h1>
         <div class="sub">
-          ${invite
+          ${
+            invite
             ? invite.house === "guesthouse"
               ? "Welcome to Mise. This is a guest link: make your profile once, here on your own phone, and every plate is sized for you and checked against your allergies."
               : "You've been invited to join a shared kitchen. Fill this in once, on your own phone."
             : guest
               ? "guest profile — fill this in and the table sets your plate to your own numbers"
-              : "who's checking in?"}
+                : "who's checking in?"
+          }
         </div>
       </div>
-      ${lead}
-      ${loading && html`<p class="hint">loading profiles…</p>`}
+      ${lead} ${loading && html`<p class="hint">loading profiles…</p>`}
       ${
         fallback &&
         !loading &&
@@ -1125,20 +1156,33 @@ export function ProfileGateView({
       }
       ${
         askPin &&
-        html`<div class="tile">
-          <div class="k">Passkey</div>
-          <div class="token-form">
+        // digits shown, not dots (David, 2026-10-18: "This isn't something
+        // people are looking over your shoulder for. You can show the
+        // numbers"); the box gets the full width, OPEN sits under it
+        html`<form
+          class="tile pin-form"
+          onSubmit=${(/** @type {any} */ e) => {
+            e.preventDefault();
+            choose(/** @type {string} */ (askPin), pin);
+          }}
+        >
+          <label class="k" for="open-passkey">
+            Passkey for ${profiles.find((p) => p.id === askPin)?.name ?? "this profile"}
+          </label>
             <input
-              aria-label="Passkey"
-              type="password"
+            id="open-passkey"
+            class="pin-input"
+            type="text"
               inputmode="numeric"
+            pattern="[0-9]*"
               autocomplete="off"
+            maxlength="8"
+            placeholder="4 to 8 digits"
               value=${pin}
-              onInput=${(/** @type {any} */ e) => setPin(e.currentTarget.value)}
+            onInput=${(/** @type {any} */ e) => setPin(cleanPasskey(e.currentTarget.value))}
             />
-            <button class="ask" onClick=${() => choose(/** @type {string} */ (askPin), pin)}>OPEN</button>
-          </div>
-        </div>`
+          <button class="ask" type="submit" disabled=${!validPasskey(pin)}>OPEN</button>
+        </form>`
       }
       ${
         // a fresh device only (Tribunal Red Team): on a device that already
@@ -1172,7 +1216,11 @@ export function ProfileGateView({
         </div>`
       }
       ${pinErr && html`<p class="hint scanerr" role="status">${pinErr}</p>`}
-      <button class="secondary linkbtn" hidden=${guest || Boolean(invite)} onClick=${() => setChatMode(true)}>
+      <button
+        class="secondary linkbtn"
+        hidden=${guest || Boolean(invite)}
+        onClick=${() => setChatMode(true)}
+      >
         prefer to chat? set up by conversation →
       </button>
       ${form}

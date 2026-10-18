@@ -21,6 +21,15 @@ export const DEVICE_HOUSE_KEY = "mise.deviceHouse";
 /** @param {Record<string, any> | undefined | null} p */
 export const isAdmin = (p) => p?.admin === true;
 
+/**
+ * A profile's own passkey (David, 2026-10-18: "everybody else should also
+ * have their own passkey"). `passkey` since v1.9; v1.8 wrote `adminKey` on
+ * the admin row only, still honoured so no older key is ever ignored.
+ * @param {Record<string, any> | undefined | null} p
+ * @returns {{ salt: string, hash: string } | undefined}
+ */
+export const keyOf = (p) => p?.passkey ?? p?.adminKey ?? undefined;
+
 /** @param {Record<string, any> | undefined | null} p */
 const houseOf = (p) => String(p?.household ?? "home");
 
@@ -104,7 +113,7 @@ export function chooserProfiles(profiles, deviceHouse, adminDevice) {
   const list = (profiles ?? []).filter((p) => p.household !== "guesthouse");
   if (!boundaryOn(profiles)) return list;
   return list.filter((p) => {
-    if (isAdmin(p)) return adminDevice || Boolean(p.adminKey);
+    if (isAdmin(p)) return adminDevice || Boolean(keyOf(p));
     return deviceHouse !== null && houseOf(p) === deviceHouse;
   });
 }
@@ -115,14 +124,18 @@ export function chooserProfiles(profiles, deviceHouse, adminDevice) {
  * @param {string} typed
  */
 export function profilesNamed(profiles, typed) {
-  const key = String(typed ?? "").trim().toLowerCase();
+  const key = String(typed ?? "")
+    .trim()
+    .toLowerCase();
   if (!key) return [];
   // never the admin row: his profile opens from the list with its passkey
   return (profiles ?? []).filter(
     (p) =>
       p.household !== "guesthouse" &&
       !isAdmin(p) &&
-      String(p.name ?? "").trim().toLowerCase() === key,
+      String(p.name ?? "")
+        .trim()
+        .toLowerCase() === key,
   );
 }
 
@@ -152,6 +165,17 @@ export function visibleOccasionsFor(occasions, visible) {
   return (occasions ?? []).filter((o) => ids.has(o.profileId));
 }
 
+/**
+ * What a passkey box keeps of what was typed: digits only, at most 8. Phones
+ * paste spaces and full-width digits; NFKC turns those into plain digits.
+ * @param {unknown} raw
+ */
+export const cleanPasskey = (raw) =>
+  String(raw ?? "")
+    .normalize("NFKC")
+    .replace(/\D/g, "")
+    .slice(0, 8);
+
 /** A passkey is 4 to 8 digits. @param {string} pin */
 export const validPasskey = (pin) => /^\d{4,8}$/.test(String(pin ?? ""));
 
@@ -177,9 +201,9 @@ export async function checkAdminKey(key, pin) {
 }
 
 /**
- * May this device switch into `target`? Non-admin rows: yes. The admin row:
- * with the right passkey, or, while no passkey is set yet, only on a device
- * that has been the admin before (where he sets one in Settings).
+ * May this device switch into `target`? A profile with its own passkey: only
+ * with it. Without one: yes, except the admin row, which then opens only on a
+ * device that has been the admin before (where he sets one in Settings).
  * A profile from ANOTHER household than this device's (Tribunal Red Team,
  * 2026-10-18: Elliot typing "Mom" became Mom) also needs the admin's
  * passkey, unless this is the admin's own device.
@@ -198,11 +222,11 @@ export async function maySwitchTo(target, pin, adminDevice, where = {}) {
     where.deviceHouse &&
     houseOf(target) !== where.deviceHouse
   ) {
-    return checkAdminKey(list.find(isAdmin)?.adminKey, pin);
+    return checkAdminKey(keyOf(list.find(isAdmin)), pin);
   }
-  if (!isAdmin(target)) return true;
-  if (!target.adminKey) return adminDevice;
-  return checkAdminKey(target.adminKey, pin);
+  // a profile with its own passkey opens only with it, on any phone
+  if (keyOf(target)) return checkAdminKey(keyOf(target), pin);
+  return isAdmin(target) ? adminDevice : true;
 }
 
 /** @param {string} iso @param {number} n */
@@ -227,7 +251,12 @@ async function derive(pin, salt) {
     ["deriveBits"],
   );
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt: /** @type {BufferSource} */ (salt), iterations: 10000 },
+    {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      salt: /** @type {BufferSource} */ (salt),
+      iterations: 10000,
+    },
     key,
     256,
   );

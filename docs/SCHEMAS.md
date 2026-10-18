@@ -116,10 +116,12 @@ data to the app repo.
 
 **Who sees whom (v1.8).** One row may carry `admin: true` (David). Once any row
 does, a non-admin's screens show only their own `household` plus guests seated
-at their own tables (app/lib/privacy.js); the admin sees all. The admin row may
-carry `adminKey: { salt, hash }` (PBKDF2-SHA-256, 10,000 rounds, hex), checked
-before a device may switch into that profile. Every write through
-`patchProfiles` carries both fields through untouched. The boundary is in the
+at their own tables (app/lib/privacy.js); the admin sees all. Any row may carry
+`passkey: { salt, hash }` (PBKDF2-SHA-256, 10,000 rounds, hex; v1.9, set in
+Settings by its owner, cleared by the admin), checked before a device may
+switch into that profile. v1.8 wrote the admin's as `adminKey`, still honoured
+(`keyOf`) and dropped when a new passkey is saved. Every write through
+`patchProfiles` carries these fields through untouched. The boundary is in the
 app: a data-token holder can read this file directly.
 
 ```jsonc
