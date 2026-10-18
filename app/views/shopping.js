@@ -1678,14 +1678,6 @@ export function ShoppingView({
             </p>`
           }
           ${
-            canLive &&
-            !cartOpen &&
-            html`<p class="hint">
-              After you tap GOING TO THE STORE, you can send this list to your
-              ${" "}${STORE_NAMES[homeStore] ?? "Kroger"} cart.
-            </p>`
-          }
-          ${
             // the cart has its own door (2026-10-18): open once GOING TO THE
             // STORE has saved the week, whatever the price controls do
             cartOpen &&
