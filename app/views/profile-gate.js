@@ -355,7 +355,7 @@ export function ProfileGateView({
           ${invite
             ? invite.house === "guesthouse"
               ? "Welcome to Mise. This is a guest link: make your profile once, here on your own phone, and every plate you're served is sized to your numbers and checked against your allergies."
-              : `you've been invited to join the ${invite.house} kitchen. Fill this in once, on your own phone.`
+              : `you've been invited to join ${invite.house ? `the ${invite.house}` : "a shared"} kitchen. Fill this in once, on your own phone.`
             : guest
               ? "guest profile — fill this in and the table sets your plate to your own numbers"
               : "who's checking in?"}

@@ -112,7 +112,7 @@ export function JoinView({ code, house = "", member = false }) {
         </div>`
       : null;
   return html`<${ProfileGateView}
-    invite=${{ code, house }}
+    invite=${{ code, house: member ? house : "guesthouse" }}
     lead=${dinnerPicker}
     busy=${state.kind === "busy"}
     onInviteSubmit=${async (
