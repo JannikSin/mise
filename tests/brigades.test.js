@@ -10,6 +10,9 @@ import {
   updateBrigade,
   deriveTables,
   cookOf,
+  brigadeCovers,
+  breakOn,
+  rolledRule,
 } from "../app/lib/tables.js";
 // the table factory's sizing half moved into the day composer on 2026-08-30
 // (session monolith); the settled factory behaviours pinned below all hold
@@ -852,4 +855,52 @@ test("a brigade of one plans its week, one seat per meal (cooking for one, 2026-
       "one seat, and it is hers",
     );
   }
+});
+
+// NO END DATE, WITH SCHOOL BREAKS (David, 2026-10-18)
+test("an open rule pauses for Purdue's Thanksgiving and winter breaks and runs either side", () => {
+  const rule = { ...BRIGADE, from: "2026-11-16", until: "2026-12-13", open: true, breaks: "purdue" };
+  assert.equal(brigadeCovers(rule, "2026-11-24"), true, "the Tuesday before the break cooks");
+  assert.equal(brigadeCovers(rule, "2026-11-25"), false, "Thanksgiving break: Wed Nov 25");
+  assert.equal(brigadeCovers(rule, "2026-11-29"), false, "to Sun Nov 29");
+  assert.equal(brigadeCovers(rule, "2026-11-30"), true, "back Mon Nov 30");
+  assert.equal(breakOn({ breaks: "purdue" }, "2026-12-25")?.why, "Winter break");
+  assert.equal(breakOn({ breaks: "purdue" }, "2027-01-11"), null, "spring classes Jan 11");
+  assert.equal(brigadeCovers({ ...rule, breaks: undefined }, "2026-11-26"), true, "no breaks key, no pause");
+});
+
+test("the planner plans no shared meal on a break day", () => {
+  const rule = {
+    ...BRIGADE,
+    from: "2026-11-23",
+    until: "2026-12-20",
+    open: true,
+    breaks: "purdue",
+  };
+  const dates = ["2026-11-23", "2026-11-24", "2026-11-25", "2026-11-26", "2026-11-27", "2026-11-28", "2026-11-29"];
+  const { events } = planBrigadeWeek({ tables: [] }, rule, ctx({ dates, today: "2026-11-23" }));
+  assert.deepEqual(
+    [...new Set(events.tables.map((t) => t.date))].sort(),
+    ["2026-11-23", "2026-11-24"],
+  );
+});
+
+test("an open rule rolls its 28-day window forward, never ends, and keeps whose turn it is", () => {
+  const rule = {
+    ...BRIGADE,
+    from: "2026-10-13",
+    until: "2026-11-09",
+    open: true,
+    rotateCooks: true,
+    memberIds: ["mom", "laurie"],
+  };
+  assert.equal(rolledRule(rule, "2026-10-18"), null, "still reaches three weeks out");
+  const r = rolledRule(rule, "2026-10-25");
+  assert.ok(r);
+  assert.ok(r.from <= "2026-10-25" && r.until >= "2026-11-14", "covers three weeks ahead");
+  assert.ok(validBrigade({ ...rule, ...r }), "every app version still accepts the window");
+  const days = (Date.parse(r.from) - Date.parse(rule.from)) / 86400000;
+  assert.equal(days % 2, 0, "moved in whole turns of two cooks, so nobody's night flips");
+  assert.equal(rolledRule({ ...rule, ...r }, "2026-10-25"), null, "one roll, no loop");
+  assert.equal(rolledRule({ ...rule, open: undefined }, "2026-11-20"), null, "a dated rule never rolls");
 });

@@ -12,7 +12,7 @@ import { parsePot, solveSeat } from "./synth.js";
  * @typedef {{ portionGrams?: number, plate: string[], estCalories: number, estProtein: number }} TailorSeat scale-first: portionGrams = weighed grams of the finished dish on this plate (absent/0 on pre-scale tailors)
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
  * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, fromWeekRun?: boolean, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string, leftoverOf?: string, preparedOn?: string }} TableEvent `fromWeekRun` is LEGACY: written only by the retired AI week run; read solely by planBrigadeWeek's shadow sweep, which clears such tables from a brigade's span. `leftoverOf` names the COOK table this meal is eaten from (a no-cook night, David 2026-09-05): its seats size the pot, it is never bought or cooked on its own. `preparedOn` (2026-09-24) marks a BATCH pot: this night's dish is cooked on that earlier date (the Sunday batch) and its later nights eat it as leftovers; its safe window runs from that date.
- * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]>, batches?: { cookDay: number, feeds: number[] }[], dinnerMeat?: boolean }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool. `batches` (David, 2026-09-24) = a second pot cooked on `cookDay` and eaten on the weekdays in `feeds` (the Sunday batch for Tue + Wed); absent = no batch. `dinnerMeat` (David, 2026-09-25) = every dinner the brigade plans is anchored on chicken, turkey, beef or pork; absent = any protein.
+ * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]>, batches?: { cookDay: number, feeds: number[] }[], dinnerMeat?: boolean, open?: boolean, breaks?: string }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool. `batches` (David, 2026-09-24) = a second pot cooked on `cookDay` and eaten on the weekdays in `feeds` (the Sunday batch for Tue + Wed); absent = no batch. `dinnerMeat` (David, 2026-09-25) = every dinner the brigade plans is anchored on chicken, turkey, beef or pork; absent = any protein. `open` (David, 2026-10-18) = no end date: the 28-day record rolls forward (rolledRule). `breaks` = a SCHOOL_BREAKS key; the rule plans nothing on those dates.
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
 
@@ -53,6 +53,74 @@ export function normalizeEvents(raw) {
 
 /** A brigade may not run longer than this without being renewed (Red Team). */
 const MAX_BRIGADE_DAYS = 28;
+
+// NO END DATE, WITH SCHOOL BREAKS (David, 2026-10-18: "The shared kitchen
+// shouldn't have an end date ... Thanksgiving break ... and then also winter
+// break"). An `open` rule keeps the 28-day record every app version accepts
+// and rolls itself forward (rolledRule), because an older phone drops a
+// longer one at its trust boundary and its next save would erase the rule
+// from the shared file. `breaks: "purdue"` pauses it on the dates below.
+//
+// From Purdue's own calendars, read 2026-10-18: Registrar
+// (purdue.edu/registrar/calendars/academic) has Thanksgiving break Nov 25-28
+// and spring classes from Jan 11; Housing (housing.purdue.edu, Important
+// Dates) has the break Nov 25-29 and winter check-out at noon Dec 20. Finals
+// (Dec 14-19) still eat at home. Add the next year's breaks here each summer.
+/** @type {Record<string, { from: string, until: string, why: string }[]>} */
+export const SCHOOL_BREAKS = {
+  purdue: [
+    { from: "2026-11-25", until: "2026-11-29", why: "Thanksgiving break" },
+    { from: "2026-12-20", until: "2027-01-10", why: "Winter break" },
+  ],
+};
+
+/**
+ * The school break a rule is paused for on `date`, or null.
+ * @param {{ breaks?: string }} b
+ * @param {string} date YYYY-MM-DD
+ */
+export function breakOn(b, date) {
+  return (
+    (SCHOOL_BREAKS[String(b?.breaks ?? "")] ?? []).find(
+      (x) => date >= x.from && date <= x.until,
+    ) ?? null
+  );
+}
+
+/**
+ * Does this rule plan shared meals on `date`: inside its dates and not on a
+ * school break. Every place that asks "is the kitchen on that day" asks this.
+ * @param {{ from: string, until: string, breaks?: string }} b
+ * @param {string} date
+ */
+export function brigadeCovers(b, date) {
+  return date >= b.from && date <= b.until && !breakOn(b, date);
+}
+
+/**
+ * An open rule's next 28-day window, or null when it does not need one yet
+ * (it still reaches three weeks out) or is not open. `from` moves only in
+ * steps of the rotation's length, so "take turns" keeps who cooks which night.
+ * @param {{ from: string, until: string, open?: boolean, rotateCooks?: boolean, memberIds?: string[] }} b
+ * @param {string} todayIso
+ * @returns {{ from: string, until: string } | null}
+ */
+export function rolledRule(b, todayIso) {
+  if (b?.open !== true) return null;
+  const day = (/** @type {string} */ iso, /** @type {number} */ n) => {
+    const t = new Date(`${iso}T12:00:00Z`);
+    t.setUTCDate(t.getUTCDate() + n);
+    return t.toISOString().slice(0, 10);
+  };
+  if (b.until >= day(todayIso, 20)) return null;
+  const step = b.rotateCooks ? Math.max(1, (b.memberIds ?? []).length) : 1;
+  const behind = Math.max(
+    0,
+    Math.round((Date.parse(`${todayIso}T12:00:00Z`) - Date.parse(`${b.from}T12:00:00Z`)) / 86400000),
+  );
+  const from = day(b.from, Math.floor(behind / step) * step);
+  return { from, until: day(from, MAX_BRIGADE_DAYS - 1) };
+}
 
 /**
  * One brigade validated at the trust boundary, mirroring validTable.

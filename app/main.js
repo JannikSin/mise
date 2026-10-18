@@ -175,6 +175,8 @@ import {
   cookOf,
   seatServingsFor,
   updateBrigade,
+  rolledRule,
+  brigadeCovers,
   addSeat,
   removeSeat,
   brigadeTableId,
@@ -1979,7 +1981,7 @@ function App() {
               (b) =>
                 b.memberIds.includes(me) &&
                 (b.until ?? "") >= todayIso &&
-                weekDates.some((d) => d >= b.from && d <= b.until && d >= todayIso),
+                weekDates.some((d) => brigadeCovers(b, d) && d >= todayIso),
             )
             .sort((a, b) => (b.until ?? "").localeCompare(a.until ?? ""))[0] ?? null;
         if (active && runBrigadeRef.current) {
@@ -3618,6 +3620,29 @@ function App() {
     [writeHouseEvents],
   );
 
+  // AN OPEN RULE ROLLS ITSELF (David, 2026-10-18: "the shared kitchen
+  // shouldn't have an end date"). When an open rule no longer reaches three
+  // weeks out, its 28-day window moves forward and is saved, so it never
+  // lapses and no phone, old or new, ever sees it end. A roll the record
+  // refuses is not retried, so this cannot loop.
+  useEffect(() => {
+    const house = myHouseOf();
+    const cur = houseEvents.find((h) => h.house === house)?.events;
+    if (!cur) return;
+    const today = localIsoDate(new Date());
+    let next = cur;
+    let moved = false;
+    for (const b of cur.brigades ?? []) {
+      const r = rolledRule(b, today);
+      if (!r) continue;
+      const after = updateBrigade(next, b.id, r, today);
+      if ((after.brigades ?? []).find((x) => x.id === b.id)?.until !== r.until) continue;
+      next = after;
+      moved = true;
+    }
+    if (moved) writeHouseEvents(house, next);
+  }, [houseEvents, writeHouseEvents]);
+
   /**
    * ONE MORE PERSON ON ONE DAY (canon P8, David 2026-09-05). Seats a real
    * profile on this day's shared meals, each plate sized from THEIR targets
@@ -3636,7 +3661,7 @@ function App() {
       const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
       const active =
         (cur?.brigades ?? []).find(
-          (b) => b.memberIds.includes(me) && date >= b.from && date <= b.until,
+          (b) => b.memberIds.includes(me) && brigadeCovers(b, date),
         ) ?? null;
       if (!cur || !active) return "No standing brigade covers that day.";
       const targets = /** @type {any} */ (await readTargetsOf(profileId));
@@ -3935,9 +3960,7 @@ function App() {
       // zero overlap between the viewed week and the brigade's span is the
       // W31/W32 trap: "made 0" would read as "already set" while nothing was
       // set at all — name the real cause so the view can say it (Realist e)
-      const overlap = datesOfWeek(week).filter(
-        (d) => d >= brigade.from && d <= brigade.until,
-      ).length;
+      const overlap = datesOfWeek(week).filter((d) => brigadeCovers(brigade, d)).length;
       return {
         made,
         thin,

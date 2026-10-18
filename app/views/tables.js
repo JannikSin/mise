@@ -9,6 +9,7 @@ import {
   clampGuests,
   effectiveBuyerOf,
   resolveHead,
+  brigadeCovers,
 } from "../lib/tables.js";
 import { autoPlanEligible } from "../lib/plan.js";
 import { brigadeRunLines, cookDaysLabel } from "./brigade-lines.js";
@@ -17,6 +18,13 @@ import { PeopleSection } from "./people.js";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+
+/** @param {string} iso @param {number} n */
+const plusDays = (iso, n) => {
+  const t = new Date(`${iso}T12:00:00Z`);
+  t.setUTCDate(t.getUTCDate() + n);
+  return t.toISOString().slice(0, 10);
+};
 
 const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key, full: key }) }));
 
@@ -204,7 +212,7 @@ export function TablesView({
   const houseMates = (profiles ?? []).filter((p) => (p.household ?? "home") === myHouse);
   const myBrigades = (houseEvents ?? []).find((h) => h.house === myHouse)?.events?.brigades ?? [];
   const [brigadeForm, setBrigadeForm] = useState(
-    /** @type {null | { editId: string | null, name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string, cookDays: number[], slotRecipes: Record<string, string[]>, batchFeeds: number[], dinnerMeat: boolean }} */ (
+    /** @type {null | { editId: string | null, name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string, open: boolean, cookDays: number[], slotRecipes: Record<string, string[]>, batchFeeds: number[], dinnerMeat: boolean }} */ (
       null
     ),
   );
@@ -232,6 +240,9 @@ export function TablesView({
       rotateCooks: Boolean(seed?.rotateCooks),
       from: editing && seed?.from ? seed.from : todayIso,
       until: editing && seed?.until ? seed.until : until.toISOString().slice(0, 10),
+      // no end date is the default (David, 2026-10-18): any save of the rule
+      // keeps it going, paused only for school breaks
+      open: seed?.open !== false,
       cookDays:
         Array.isArray(seed?.cookDays) && seed.cookDays.length > 0
           ? [...seed.cookDays]
@@ -288,7 +299,10 @@ export function TablesView({
       cookId: orderedMembers.includes(brigadeForm.cookId) ? brigadeForm.cookId : orderedMembers[0],
       ...(brigadeForm.rotateCooks ? { rotateCooks: true } : {}),
       from: brigadeForm.from,
-      until: brigadeForm.until,
+      // an open rule stores a 28-day window that rolls itself forward
+      // (rolledRule); every app version accepts a window that long
+      until: brigadeForm.open ? plusDays(brigadeForm.from, 27) : brigadeForm.until,
+      ...(brigadeForm.open ? { open: true, breaks: "purdue" } : {}),
       ...(everyNight || !brigadeForm.slots.includes("dinner")
         ? {}
         : { cookDays: [...brigadeForm.cookDays].sort() }),
@@ -304,6 +318,8 @@ export function TablesView({
         ...rule,
         // an unset rule must be REMOVED from the record, not left as it was
         rotateCooks: brigadeForm.rotateCooks ? true : undefined,
+        open: brigadeForm.open ? true : undefined,
+        breaks: brigadeForm.open ? "purdue" : undefined,
         cookDays: /** @type {any} */ (rule).cookDays ?? undefined,
         slotRecipes: /** @type {any} */ (rule).slotRecipes ?? undefined,
         batches: /** @type {any} */ (rule).batches ?? undefined,
@@ -1002,7 +1018,7 @@ export function TablesView({
             const d = new Date(start);
             d.setDate(d.getDate() + i);
             const iso = d.toISOString().slice(0, 10);
-            if (iso < b.from || iso > b.until) continue;
+            if (!brigadeCovers(b, iso)) continue;
             const off = Math.round((Date.parse(iso) - Date.parse(b.from)) / 86400000);
             const id =
               b.memberIds[((off % b.memberIds.length) + b.memberIds.length) % b.memberIds.length];
@@ -1040,7 +1056,7 @@ export function TablesView({
         // learned: these buttons target the week holding MORE upcoming
         // in-span days, viewed week or the next one; ties keep the view.
         const upcomingIn = (/** @type {string} */ w) =>
-          datesOfWeek(w).filter((d) => d >= b.from && d <= b.until && d >= todayIso).length;
+          datesOfWeek(w).filter((d) => brigadeCovers(b, d) && d >= todayIso).length;
         const dayAfter = parseLocalIso(/** @type {string} */ (datesOfWeek(weekId)[6] ?? todayIso));
         dayAfter.setDate(dayAfter.getDate() + 1);
         const nextWeekId = isoWeekId(dayAfter);
@@ -1056,7 +1072,7 @@ export function TablesView({
         // the subtitle must never promise a range the tap cannot set: a
         // brigade starting past next week shows its start date instead of a
         // confident range that would dead-end in outOfRange
-        const overlaps = weekDates.some((d) => d >= b.from && d <= b.until);
+        const overlaps = weekDates.some((d) => brigadeCovers(b, d));
         const range = overlaps
           ? `${parseLocalIso([weekDates[0] ?? todayIso, todayIso, b.from].sort()[2] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })} – ${parseLocalIso(weekDates[6] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })}`
           : `starts ${parseLocalIso(b.from).toLocaleDateString([], { month: "short", day: "numeric" })} — flip Plan to that week`;
@@ -1065,8 +1081,12 @@ export function TablesView({
             <div class="k">${b.name}</div>
             <div class="sub">${names.join(" · ")}</div>
             <div class="sub">
-              ${b.slots.map((s) => SLOT_META[s]?.full ?? s).join(", ")} · through
-              ${" "}${parseLocalIso(b.until).toLocaleDateString([], { month: "short", day: "numeric" })}
+              ${b.slots.map((s) => SLOT_META[s]?.full ?? s).join(", ")} ·
+              ${" "}${
+                b.open
+                  ? `no end date${b.breaks ? ", off for school breaks" : ""}`
+                  : `through ${parseLocalIso(b.until).toLocaleDateString([], { month: "short", day: "numeric" })}`
+              }
               ${
                 b.rotateCooks
                   ? html` · cooks take turns`
@@ -1371,6 +1391,15 @@ export function TablesView({
                       })}
                     </select>`
               }
+              <label class="row">
+                <input
+                  type="checkbox"
+                  checked=${brigadeForm.open}
+                  onChange=${(/** @type {any} */ e) =>
+                    setBrigadeForm({ ...brigadeForm, open: e.currentTarget.checked })}
+                />
+                <span>No end date (off for Thanksgiving and winter break)</span>
+              </label>
               <div class="row">
                 <input
                   type="date"
@@ -1380,18 +1409,23 @@ export function TablesView({
                   onInput=${(/** @type {any} */ e) =>
                     setBrigadeForm({ ...brigadeForm, from: e.currentTarget.value })}
                 />
-                <input
-                  type="date"
-                  aria-label="Ends"
-                  min=${brigadeForm.from}
-                  value=${brigadeForm.until}
-                  onInput=${(/** @type {any} */ e) =>
-                    setBrigadeForm({ ...brigadeForm, until: e.currentTarget.value })}
-                />
+                ${
+                  !brigadeForm.open &&
+                  html`<input
+                    type="date"
+                    aria-label="Ends"
+                    min=${brigadeForm.from}
+                    value=${brigadeForm.until}
+                    onInput=${(/** @type {any} */ e) =>
+                      setBrigadeForm({ ...brigadeForm, until: e.currentTarget.value })}
+                  />`
+                }
               </div>
               <p class="hint">
-                A brigade runs for up to four weeks, then you renew it. Portions come from each
-                person's own targets, so one pot serves different plates.
+                ${brigadeForm.open
+                  ? "It keeps going until you change it, and pauses for Purdue's Thanksgiving and winter breaks."
+                  : "Without that box it runs up to four weeks, then you renew it."}
+                Portions come from each person's own targets, so one pot serves different plates.
               </p>
               <div class="actions">
                 <button class="secondary" onClick=${() => setBrigadeForm(null)}>CANCEL</button>

@@ -22,6 +22,7 @@ import {
   brigadeTableId,
   pruneTables,
   validBrigade,
+  brigadeCovers,
 } from "./tables.js";
 import { buffetMacroEstimate, recipeConflicts, weekRunSwipes } from "./plan.js";
 import { recipeProteinClass } from "./foodclass.js";
@@ -705,7 +706,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
     return (members[at] ?? firstMember).id;
   };
   const dates = ctx.dates
-    .filter((d) => d >= brigade.from && d <= brigade.until)
+    .filter((d) => brigadeCovers(brigade, d))
     .filter((d) => d >= ctx.today)
     .sort();
 
