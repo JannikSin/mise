@@ -243,3 +243,55 @@ test("an old link with no login still claims as before", async () => {
     assert.equal(repo.files.sandbox["guests.json"], undefined);
   });
 });
+
+test("Tribunal BLOCK: ten wrong passkeys sent at once still lock the name; the right one then fails", async () => {
+  resetGuestCachesForTests();
+  await withRepo(SEED(), async () => {
+    await worker.fetch(req("/invite/claim", { code: CODE, ...PRIYA, login: LOGIN }, SANDBOX, "9.1.0.1"), ENV);
+    const burst = await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        worker.fetch(req("/guest/login", { name: "Priya K", pin: "9999" }, SANDBOX, `9.1.1.${i}`), ENV),
+      ),
+    );
+    assert.ok(burst.every((r) => r.status === 401));
+    const right = await worker.fetch(req("/guest/login", { name: "Priya K", pin: "4821" }, SANDBOX, "9.1.2.1"), ENV);
+    assert.equal(right.status, 401, "the burst cannot race past the limit");
+  });
+});
+
+test("a GitHub hiccup reading guests.json says try again, it never signs the guest out", async () => {
+  resetGuestCachesForTests();
+  await withRepo(SEED(), async () => {
+    const res = await worker.fetch(req("/invite/claim", { code: CODE, ...PRIYA, login: LOGIN }, SANDBOX, "9.2.0.1"), ENV);
+    const { session } = JSON.parse(await res.text());
+    resetGuestCachesForTests();
+    const real = globalThis.fetch;
+    globalThis.fetch = /** @type {any} */ (async (/** @type {any} */ input, /** @type {any} */ init) =>
+      String(input).includes("guests.json")
+        ? new Response("busy", { status: 500 })
+        : real(input, init));
+    try {
+      const me = await worker.fetch(req("/guest/me", { session }, SANDBOX, "9.2.0.2"), ENV);
+      assert.equal(me.status, 502, "try again, not signed out");
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
+});
+
+test("one unspent code cannot probe login names: after five taken answers it stops", async () => {
+  resetGuestCachesForTests();
+  const seed = SEED();
+  seed.sandbox["guests.json"] = { logins: [{ nameKey: "priyak", profileId: "other" }] };
+  await withRepo(seed, async () => {
+    const statuses = [];
+    for (let i = 0; i < 6; i++) {
+      const r = await worker.fetch(
+        req("/invite/claim", { code: CODE, ...PRIYA, login: { name: "Priya K", pin: "1111" } }, SANDBOX, `9.3.0.${i}`),
+        ENV,
+      );
+      statuses.push(r.status);
+    }
+    assert.deepEqual(statuses, [409, 409, 409, 409, 409, 429]);
+  });
+});

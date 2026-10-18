@@ -284,9 +284,12 @@ const INVITE_MAX_BODY_BYTES = 64 * 1024;
 const INVITE_STATUS_TTL_MS = 60 * 24 * 60 * 60 * 1000;
 
 // GUEST LOG IN CACHES (v1.6, plan gate 2026-10-18): a log in NEVER writes to
-// GitHub, so the wrong-try counter and the guests.json read live in the
-// Cache API (per colo), with an in-isolate map where the platform has none
-// (tests, local dev). Per colo is a soft boundary, which is the bar David set.
+// GitHub, so the wrong-try counter and the guests.json read live in an
+// in-memory map, per isolate, and in the Cache API too where it is available
+// (Tribunal 2026-10-18: on a *.workers.dev host with no route the Cache API
+// may store nothing, so the map is the counter that always holds). Per
+// isolate is a soft boundary, which is the bar David set; the synchronous
+// per-name limiter in /guest/login is the guard parallel guesses cannot race.
 /** @type {Map<string, { value: any, until: number }>} */
 const memCache = new Map();
 
@@ -295,13 +298,14 @@ const memCache = new Map();
  * @returns {Promise<any>}
  */
 async function cacheGet(key) {
+  const m = memCache.get(key);
+  if (m && m.until > Date.now()) return m.value;
   const store = /** @type {any} */ (globalThis).caches?.default;
   if (store) {
     const hit = await store.match(key).catch(() => null);
     return hit ? hit.json().catch(() => null) : null;
   }
-  const m = memCache.get(key);
-  return m && m.until > Date.now() ? m.value : null;
+  return null;
 }
 
 /**
@@ -310,6 +314,7 @@ async function cacheGet(key) {
  * @param {number} seconds
  */
 async function cachePut(key, value, seconds) {
+  memCache.set(key, { value, until: Date.now() + seconds * 1000 });
   const store = /** @type {any} */ (globalThis).caches?.default;
   if (store) {
     await store
@@ -320,24 +325,23 @@ async function cachePut(key, value, seconds) {
         }),
       )
       .catch(() => {});
-    return;
   }
-  memCache.set(key, { value, until: Date.now() + seconds * 1000 });
 }
 
 /** @param {string} key */
 async function cacheDelete(key) {
+  memCache.delete(key);
   const store = /** @type {any} */ (globalThis).caches?.default;
   if (store) await store.delete(key).catch(() => {});
-  else memCache.delete(key);
 }
 
-/** tests only: the in-isolate cache must not carry one test's guests into the next */
+/** tests only: the in-isolate cache and limits must not carry one test into the next */
 export function resetGuestCachesForTests() {
   memCache.clear();
+  rateState.clear();
 }
 
-/** the guest logins, read at most once a minute per colo */
+/** the guest logins, read at most once a minute per isolate */
 const guestsKey = (/** @type {string} */ branch) => `https://mise-worker.internal/guests/${branch}`;
 
 /**
@@ -348,8 +352,21 @@ const guestsKey = (/** @type {string} */ branch) => `https://mise-worker.interna
 async function cachedGuests(token, branch) {
   const hit = await cacheGet(guestsKey(branch));
   if (hit) return hit;
-  const file = (await ghReadJsonRef("guests.json", token, branch)) ?? { logins: [] };
-  const clean = { logins: Array.isArray(file.logins) ? file.logins : [] };
+  // ONLY a real 404 means no logins yet. Any other failure (GitHub down, rate
+  // limited) throws to the route's "try again", never a sign-out (Tribunal)
+  const res = await fetch(
+    `https://api.github.com/repos/${DATA_REPO}/contents/guests.json?ref=${encodeURIComponent(branch)}`,
+    {
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: "application/vnd.github.raw+json",
+        "user-agent": "mise-worker",
+      },
+    },
+  );
+  if (!res.ok && res.status !== 404) throw new Error(`guests ${res.status}`);
+  const file = res.ok ? await res.json() : { logins: [] };
+  const clean = { logins: Array.isArray(file?.logins) ? file.logins : [] };
   await cachePut(guestsKey(branch), clean, 60);
   return clean;
 }
@@ -811,7 +828,26 @@ export default {
         return json(400, { error: "bad json" }, cors);
       }
       const nope = () =>
-        json(401, { error: "that name and passkey don't match" }, cors);
+        json(
+          401,
+          {
+            error:
+              "That name and passkey don't match. Check the spelling, or ask your host for a new link. Too many tries pauses log in for a bit.",
+          },
+          cors,
+        );
+      // THE GUARD PARALLEL GUESSES CANNOT RACE (Tribunal Red Team BLOCK,
+      // 2026-10-18: 40 wrong tries sent at once all read fails=0 across the
+      // hash await, none locked, and the right one then signed in). Before
+      // any read or hash, synchronously: 5 tries per name per 10 minutes per
+      // isolate, whatever the address. Every name pays it, real or not, and a
+      // refusal answers the same words, so it reveals nothing.
+      if (url.pathname === "/guest/login") {
+        const limitKey = guestNameKey(body?.name) ?? "invalid";
+        if (!allowRequest(rateState, `guestname:${branch}:${limitKey}`, Date.now(), 6)) {
+          return nope();
+        }
+      }
       try {
         const guests = await cachedGuests(writeToken, branch);
         const nowMs = Date.now();
@@ -1030,6 +1066,15 @@ export default {
           }
           guestsFile = await ghReadWithSha("guests.json", writeToken, branch);
           if (findGuestLogin(guestsFile.data, nameKey)) {
+            // one unspent code must not become a name-probing tool: five
+            // "taken" answers per code per 10 minutes, then a plain stop
+            if (!allowRequest(rateState, `claimname:${code}`, Date.now(), 6)) {
+              return json(
+                429,
+                { error: "Too many names tried. Wait a few minutes, or ask your host for help." },
+                cors,
+              );
+            }
             return json(409, { error: "that login name is taken; add your last initial" }, cors);
           }
           const { salt, hash } = await hashGuestPin(String(body.login.pin));

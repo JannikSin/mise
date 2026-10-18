@@ -380,11 +380,14 @@ Guest log in (v1.6, David 2026-10-18: "type your name + a quick passkey").
 - Written ONLY by `/invite/claim` when the claim carries a `login`, as the
   last write of the claim; a taken `nameKey` is refused before the invite
   is spent. `/guest/login` and `/guest/me` only read it (cached a minute
-  per colo); a log in never writes to GitHub.
+  per isolate, and in the Cache API too where available); a log in never
+  writes to GitHub. Wrong tries are limited per name (5 per 10 minutes per
+  isolate, checked before any read) and locked 15 minutes after 5; a failed
+  read of this file answers "try again", never a sign-out.
 - Kept apart from `invites.json`, whose housekeeping drops spent invites
   after 30 days and would delete logins.
 - Deleting a row signs that guest out within a minute (`/guest/me` checks
-  the row on every load). There is no passkey reset: the host sends a fresh
+  the row on every load, against a copy at most a minute old per isolate). There is no passkey reset: the host sends a fresh
   invite link and the old row is removed by hand.
 - No PIN is ever stored, and no screen lists names.
 
