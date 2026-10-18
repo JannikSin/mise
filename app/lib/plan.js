@@ -328,7 +328,13 @@ export function recipeConflicts(recipe, diet, avoid, avoidRecipes) {
       ? DIET_ADMITS[/** @type {keyof typeof DIET_ADMITS} */ (diet)]
       : null;
   if (admits && !admits.has(dietOf(recipe))) reasons.push(`not ${diet}`);
-  const terms = (avoid ?? []).map((t) => t.toLowerCase()).filter(Boolean);
+  // a plural avoid also catches its singular (Tribunal, 2026-10-18: "peanuts"
+  // never matched "peanut butter"); stricter only, so it can never let a
+  // dish through that the plain term refused
+  const terms = (avoid ?? [])
+    .map((t) => t.toLowerCase().trim())
+    .filter(Boolean)
+    .flatMap((t) => (t.length > 3 && /s$/.test(t) ? [t, t.replace(/(es|s)$/, "")] : [t]));
   for (const ing of recipe.ingredients ?? []) {
     if (ing.optional) continue; // optional ingredients never trigger the avoid screen
     const food = String(ing.food ?? "").toLowerCase();

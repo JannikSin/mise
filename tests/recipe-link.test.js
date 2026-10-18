@@ -93,3 +93,11 @@ test("Tribunal v1.7b: a leftover night or an already-bought pot is never swapped
   const bought = table({ pot: "solved-for-chili" });
   assert.ok("refused" in useRecipeOnTable({ tables: [bought] }, bought.id, curry, targets, name));
 });
+
+test("a plural avoid word catches its singular: 'peanuts' refuses peanut butter (2026-10-18)", async () => {
+  const { recipeConflicts } = await import("../app/lib/plan.js");
+  const satayish = { id: "s", ingredients: [{ food: "peanut butter" }] };
+  assert.deepEqual(recipeConflicts(satayish, "omnivore", ["peanuts"]), ["contains peanut"]);
+  assert.deepEqual(recipeConflicts({ id: "t", ingredients: [{ food: "cashew" }] }, "omnivore", ["cashews"]), ["contains cashew"]);
+  assert.deepEqual(recipeConflicts({ id: "u", ingredients: [{ food: "rice" }] }, "omnivore", ["peanuts"]), []);
+});

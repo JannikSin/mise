@@ -219,7 +219,7 @@ export async function scanFrames(frames, onProgress, scan = scanPhoto) {
       } catch (e) {
         failed++;
         lastErr = e instanceof Error ? e : new Error("scan failed");
-        if (/slow down|429|rate/i.test(lastErr.message)) limited++;
+        if (/slow down|\b429\b|rate.?limit/i.test(lastErr.message)) limited++;
         items[i] = [];
       }
       done++;
