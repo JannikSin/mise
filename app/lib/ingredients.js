@@ -374,6 +374,15 @@ const FOOD_UNITS = {
   "frozen-pineapple-chunks": { unit: "cup", cup: 165 },
   "fresh-basil": { unit: "cup", cup: 24 },
   "tomato-paste": { unit: "tbsp", cup: 262 },
+  // teide's leftover-first dinners (2026-10-17): USDA cup weights. In v1.4
+  // ahead of the rest of that work, because the laptop's seed bank already
+  // carries them and the drift guard fails without them (2026-10-18)
+  "garam-masala": { unit: "tsp", cup: 96 },
+  capers: { unit: "tbsp", cup: 136 },
+  "lemon-zest": { unit: "tsp", cup: 96 },
+  "harissa-paste": { unit: "tbsp", cup: 256 },
+  "fresh-dill": { unit: "tbsp", cup: 9 },
+  "lime-juice": { unit: "tbsp", cup: 240 },
   "fermented-black-beans": { unit: "tbsp", cup: 160 },
   // Piece weights (grams, USDA medium sizes) for every counted food the bank
   // uses: without one, "3 each" against a weight-labelled package cannot be
