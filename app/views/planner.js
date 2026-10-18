@@ -251,6 +251,16 @@ export function PlannerView({
             <small>swaps meals you have not bought or cooked yet</small>
           </button>`
         }
+        ${
+          // RECIPE FROM A LINK (David, 2026-10-18: "give you the link to the
+          // recipe online and you generate a recipe that complies with
+          // everything and you add it into the system"): the front door to
+          // Recipe Scan, which was reachable only from the parked cookbook
+          html`<a class="secondary linkbtn" href="#/annotate">
+            ADD A RECIPE FROM A LINK
+            <small>paste a link; it is fitted to you and checked for everyone's allergies</small>
+          </a>`
+        }
       </div>`;
   return html`
     <div class="view" ref=${rootRef}>

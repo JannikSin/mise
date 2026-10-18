@@ -1170,6 +1170,49 @@ export function seatScreen(recipe, targets) {
 }
 
 /**
+ * USE IT THIS WEEK (David, 2026-10-18: "a nice platform where I could just
+ * give you the link to the recipe online and you generate a recipe that
+ * complies with everything and you add it into the system"). P12, P3.
+ * A recipe brought in by link goes on one shared dinner, pinned so SET MY
+ * WEEK keeps it, and only after EVERY seated person's screen passes; a
+ * profile that cannot be read refuses (fail closed, seatScreen). A cooked
+ * dinner is not swapped. Its pot and plate lines are dropped, because they
+ * were solved for the old dish. Pure: returns the new events or the reasons.
+ * @param {HouseEvents} events
+ * @param {string} tableId
+ * @param {Record<string, any>} recipe
+ * @param {Map<string, Record<string, any> | null>} targetsById each seated person's targets, null when unreadable
+ * @param {(id: string) => string} nameOf
+ * @returns {{ events: HouseEvents } | { refused: string[] }}
+ */
+export function useRecipeOnTable(events, tableId, recipe, targetsById, nameOf) {
+  const t = (events?.tables ?? []).find((x) => x.id === tableId);
+  if (!t) return { refused: ["there is no shared dinner that night"] };
+  if (t.cookedAt) return { refused: ["that dinner is already cooked"] };
+  /** @type {string[]} */
+  const refused = [];
+  for (const seat of t.seats ?? []) {
+    if (/** @type {any} */ (seat).status === "skipped") continue;
+    const no = seatScreen(recipe, targetsById.get(seat.id) ?? null);
+    if (no.length > 0) refused.push(`${nameOf(seat.id)}: ${no.join(", ")}`);
+  }
+  if (refused.length > 0) return { refused };
+  return {
+    events: {
+      ...events,
+      tables: events.tables.map((x) => {
+        if (x.id !== tableId) return x;
+        /** @type {Record<string, any>} */
+        const next = { ...x, recipeId: String(recipe.id), pinned: true };
+        delete next.pot;
+        delete next.tailor;
+        return /** @type {TableEvent} */ (next);
+      }),
+    },
+  };
+}
+
+/**
  * Recipes every member of the brigade can eat: the INTERSECTION of their
  * screens, never the union. This is what makes "we all eat the same meal"
  * safe rather than a backdoor around a screen every other path enforces.

@@ -8,7 +8,8 @@ import {
   expandAvoid,
   resultHumanText,
 } from "../lib/annotate.js";
-import { recipeConflicts } from "../lib/plan.js";
+import { datesOfWeek, recipeConflicts } from "../lib/plan.js";
+import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 import { isDatedItem, pantryItems } from "../lib/shopping.js";
 
 // mirror of worker/src/lib.js OBJECTIVES (separate deploy targets share no module)
@@ -60,7 +61,8 @@ const STASH_KEY = "mise.annotate.last";
  *   pantry: Record<string, any>,
  *   targets: Record<string, any> | null,
  *   onDinerFacts: (ids: string[]) => Promise<Record<string, any>[]>,
- *   onSaved: (recipe: Record<string, any>) => void
+ *   onSaved: (recipe: Record<string, any>) => void,
+ *   onUseThisWeek?: (recipe: Record<string, any>, date: string) => Promise<string>
  * }} props
  */
 export function AnnotateView({
@@ -74,6 +76,7 @@ export function AnnotateView({
   targets,
   onDinerFacts,
   onSaved,
+  onUseThisWeek = undefined,
 }) {
   const fileRef = useRef(/** @type {HTMLInputElement | null} */ (null));
   const myHouse = (profiles ?? []).find((p) => p.id === me)?.household ?? "home";
@@ -217,7 +220,15 @@ export function AnnotateView({
     if (file) await run(file);
   };
 
-  const doSave = async () => {
+  // USE IT THIS WEEK (David, 2026-10-18): which night, and what happened.
+  // The nights offered are the Plan week on screen, from today on.
+  const todayIso = localIsoDate(new Date());
+  const nights = plan?.week ? datesOfWeek(String(plan.week)).filter((d) => d >= todayIso) : [];
+  const [useOn, setUseOn] = useState(/** @type {string} */ (""));
+  const [useNote, setUseNote] = useState(/** @type {string} */ (""));
+
+  /** @param {string} [date] a night to put it on after saving */
+  const doSave = async (date = "") => {
     if (save === "busy" || typeof scan !== "object" || scan === null || !("result" in scan)) return;
     setSave("busy");
     try {
@@ -231,6 +242,8 @@ export function AnnotateView({
       });
       onSaved(recipe);
       setSave("done");
+      // saved first, then placed: the dinner points at a recipe that exists
+      if (date && onUseThisWeek) setUseNote(await onUseThisWeek(recipe, date));
     } catch (err) {
       setSave({ error: err instanceof Error ? err.message : "save failed, try again" });
     }
@@ -525,17 +538,52 @@ export function AnnotateView({
 
           ${
             eligible?.ok && save !== "done"
-              ? html`<div class="actions">
-                  <button
-                    class="primary"
-                    disabled=${save === "busy"}
-                    onClick=${() => void doSave()}
-                  >
-                    ${save === "busy" ? "SAVING…" : "ADD TO COOKBOOK"}
-                  </button>
+              ? html`<div class="tile">
+                  ${
+                    onUseThisWeek &&
+                    nights.length > 0 &&
+                    html`<div class="k">Use it this week: which night?</div>
+                      <div class="chips wrapchips" role="group" aria-label="Night to cook it">
+                        ${nights.map(
+                          (d) => html`<button
+                            key=${d}
+                            class=${useOn === d ? "chip on" : "chip"}
+                            aria-pressed=${useOn === d}
+                            onClick=${() => setUseOn(useOn === d ? "" : d)}
+                          >
+                            ${parseLocalIso(d).toLocaleDateString([], {
+                              weekday: "short",
+                              month: "numeric",
+                              day: "numeric",
+                            })}
+                          </button>`,
+                        )}
+                      </div>`
+                  }
+                  <div class="actions">
+                    ${
+                      onUseThisWeek &&
+                      nights.length > 0 &&
+                      html`<button
+                        class="primary"
+                        disabled=${save === "busy" || !useOn}
+                        onClick=${() => void doSave(useOn)}
+                      >
+                        ${save === "busy" ? "SAVING…" : "USE IT THIS WEEK"}
+                      </button>`
+                    }
+                    <button
+                      class="secondary"
+                      disabled=${save === "busy"}
+                      onClick=${() => void doSave()}
+                    >
+                      ADD TO MY RECIPES
+                    </button>
+                  </div>
                   <p class="hint">
-                    saves unpromoted: choosable from the cookbook, never auto-planned until you
-                    promote it.
+                    Use it this week puts it on that night's dinner, after checking everyone's
+                    allergies. Either way it is saved to your recipes; the planner only picks it on
+                    its own after a quick check.
                   </p>
                 </div>`
               : save !== "done" &&
@@ -544,7 +592,7 @@ export function AnnotateView({
           ${
             save === "done" &&
             html`<p class="hint" role="status">
-              saved to the <a href="#/cookbook">cookbook</a>, unpromoted.
+              ${useNote || "Saved to your recipes. The planner picks it on its own after a quick check."}
             </p>`
           }
           ${

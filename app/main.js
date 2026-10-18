@@ -183,6 +183,7 @@ import {
   removeSeat,
   brigadeTableId,
   seatScreen,
+  useRecipeOnTable,
 } from "./lib/tables.js";
 import {
   applyOccasion,
@@ -3681,6 +3682,68 @@ function App() {
    * more food that is; the next PICK DIFFERENT MEALS re-solves the day
    * jointly with them at the table.
    */
+  // USE IT THIS WEEK (David, 2026-10-18: "give you the link to the recipe
+  // online and you generate a recipe that complies with everything and you
+  // add it into the system"). P12, P3. A recipe scanned from a link goes on
+  // one night's dinner: the shared dinner when the kitchen eats together that
+  // night (every seated person screened first, fail closed), otherwise his
+  // own dinner (his screen first). Pinned, so SET MY WEEK keeps it; BUILD
+  // adds its food. It stays out of GENERATE: a scanned recipe is unpromoted
+  // until audited (untrustedForAutoPlan).
+  const handleUseThisWeek = useCallback(
+    async (/** @type {Record<string, any>} */ recipe, /** @type {string} */ date) => {
+      const day = parseLocalIso(date).toLocaleDateString([], { weekday: "long" });
+      const nameOf = (/** @type {string} */ id) =>
+        String(allProfilesRef.current.find((p) => p.id === id)?.name ?? id);
+      const house = myHouseOf();
+      const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
+      const active =
+        (cur?.brigades ?? []).find((b) => b.memberIds.includes(me) && brigadeCovers(b, date)) ??
+        null;
+      const table = active
+        ? cur?.tables.find((x) => x.id === brigadeTableId(active.id, date, "dinner"))
+        : null;
+      if (cur && table) {
+        /** @type {Map<string, Record<string, any> | null>} */
+        const targetsById = new Map();
+        for (const s of table.seats ?? []) {
+          if (/** @type {any} */ (s).status === "skipped") continue;
+          targetsById.set(
+            s.id,
+            /** @type {any} */ (await readTargetsOf(s.id).catch(() => null)) ?? null,
+          );
+        }
+        // the fresh copy: a read above may have waited
+        const fresh = houseEventsRef.current.find((h) => h.house === house)?.events ?? cur;
+        const r = useRecipeOnTable(fresh, table.id, recipe, targetsById, nameOf);
+        if ("refused" in r) return `Not put on ${day}'s dinner: ${r.refused.join("; ")}.`;
+        writeHouseEvents(house, r.events);
+        return `${recipe.name} is ${day}'s dinner for everyone at the table. BUILD on the List adds its food.`;
+      }
+      const mine = /** @type {any} */ (await readTargetsOf(me).catch(() => null)) ?? null;
+      const no = seatScreen(recipe, mine);
+      if (no.length > 0) return `Not put on ${day}'s dinner: ${no.join(", ")}.`;
+      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      if (!datesOfWeek(p.week).includes(date)) return "Open that week on Plan first.";
+      const own = p.entries.find(
+        (e) => e.date === date && e.slot === "dinner" && !e.out && !e.cookedAt && !e.table,
+      );
+      if (own) {
+        const swapped = setEntryRecipe(p, own.id, String(recipe.id));
+        updatePlan({
+          ...swapped,
+          entries: swapped.entries.map((e) => (e.id === own.id ? { ...e, pinned: true } : e)),
+        });
+      } else {
+        updatePlan(
+          addEntry(p, date, "dinner", { recipeId: String(recipe.id), servings: 1, pinned: true }),
+        );
+      }
+      return `${recipe.name} is your dinner ${day}. BUILD on the List adds its food.`;
+    },
+    [writeHouseEvents, updatePlan, me],
+  );
+
   const handleAddGuestSeat = useCallback(
     async (
       /** @type {string} */ date,
@@ -4891,6 +4954,7 @@ function App() {
         onDinerFacts=${handleDinerFacts}
         onSaved=${(/** @type {Record<string, any>} */ recipe) =>
           setBankRecipes([...bankRecipesRef.current.filter((r) => r.id !== recipe.id), recipe])}
+        onUseThisWeek=${handleUseThisWeek}
       />`
     }
     ${
