@@ -3503,3 +3503,32 @@ export function guestProfileSummary(t, name) {
     protein: num(t.macros?.protein),
   };
 }
+
+/** The largest narration accepted, in decoded bytes (90 s of 16 kHz PCM16 is about 2.9 MB). */
+export const TRANSCRIBE_MAX_BYTES = 4 * 1024 * 1024;
+
+/**
+ * A /transcribe body ({ audio: base64, mediaType: "audio/wav" }) to its WAV
+ * bytes, or null when it is not a WAV, or "too-large" past the cap. The
+ * RIFF/WAVE header is checked, not just the claimed type.
+ * @param {any} body
+ * @returns {Uint8Array | null | "too-large"}
+ */
+export function wavBytesFrom(body) {
+  if (body?.mediaType !== "audio/wav" || typeof body?.audio !== "string" || !body.audio) return null;
+  // base64 is 4 chars per 3 bytes: refuse before decoding anything huge
+  if ((body.audio.length * 3) / 4 > TRANSCRIBE_MAX_BYTES + 4) return "too-large";
+  /** @type {Uint8Array} */
+  let bytes;
+  try {
+    const bin = atob(body.audio);
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  } catch {
+    return null;
+  }
+  if (bytes.length > TRANSCRIBE_MAX_BYTES) return "too-large";
+  const tag = (/** @type {number} */ at) => String.fromCharCode(...bytes.slice(at, at + 4));
+  if (bytes.length < 44 || tag(0) !== "RIFF" || tag(8) !== "WAVE") return null;
+  return bytes;
+}

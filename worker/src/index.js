@@ -24,6 +24,7 @@ import {
   buildTailorRequest,
   buildDinnerRequest,
   branchForOrigin,
+  wavBytesFrom,
   mintInviteCode,
   INVITE_TTL_MS,
   INVITE_CODE_RE,
@@ -726,7 +727,7 @@ export default {
 
   /**
    * @param {Request} request
-   * @param {{ ANTHROPIC_API_KEY?: string, SCAN_MODEL?: string, REMEDY_MODEL?: string, MISE_DATA_TOKEN?: string, MISE_INVITE_TOKEN?: string, NTFY_TOPIC?: string }} env
+   * @param {{ ANTHROPIC_API_KEY?: string, SCAN_MODEL?: string, REMEDY_MODEL?: string, MISE_DATA_TOKEN?: string, MISE_INVITE_TOKEN?: string, NTFY_TOPIC?: string, AI?: { run: (model: string, input: any) => Promise<any> } }} env
    */
   async fetch(request, env) {
     const cors = corsFor(request.headers.get("origin"));
@@ -757,6 +758,7 @@ export default {
       request.method !== "POST" ||
       (![
         "/scan",
+        "/transcribe",
         "/receipt",
         "/onboard",
         "/remedy",
@@ -1285,7 +1287,11 @@ export default {
         // attempts (Tribunal M1); /kroger/byId fans out one upstream call
         // per UPC. (/dinnerweek and its weight-6 branch retired 2026-08-30:
         // the brigade week is composed deterministically on-device.)
-        url.pathname === "/annotate" ? 4 : url.pathname === "/kroger/byId" ? 2 : 1,
+        url.pathname === "/annotate"
+          ? 4
+          : url.pathname === "/kroger/byId" || url.pathname === "/transcribe"
+            ? 2
+            : 1,
       )
     ) {
       return json(429, { error: "slow down — try again in a few minutes" }, cors);
@@ -1388,6 +1394,8 @@ export default {
     if (
       url.pathname !== "/annotate-save" &&
       url.pathname !== "/invite/new" &&
+      // transcription runs on Workers AI (the AI binding), not the chat key
+      url.pathname !== "/transcribe" &&
       !url.pathname.startsWith("/kroger/") &&
       !url.pathname.startsWith("/hall/") &&
       !providerConfigured(env)
@@ -1418,6 +1426,27 @@ export default {
     {
       const hall = await handleHall(url.pathname, body, (s, b) => json(s, b, cors));
       if (hall) return hall;
+    }
+
+    // THE WALK'S NARRATION (P6, David 2026-10-18: "show everything and also
+    // narrate everything"): the phone pulls the speech out of his fridge
+    // video and sends a small 16 kHz WAV; Workers AI's Whisper turns it into
+    // the text the pantry dictation parser already reads. Text only comes
+    // back; the audio is never stored.
+    if (url.pathname === "/transcribe") {
+      if (!env.AI || typeof env.AI.run !== "function") {
+        return json(503, { error: "transcription is not switched on yet" }, cors);
+      }
+      const bytes = wavBytesFrom(body);
+      if (bytes === "too-large") return json(413, { error: "that narration is too long" }, cors);
+      if (!bytes) return json(400, { error: "a WAV narration (audio/wav) is required" }, cors);
+      try {
+        const out = await env.AI.run("@cf/openai/whisper", { audio: [...bytes] });
+        const text = typeof out?.text === "string" ? out.text.trim().slice(0, 4000) : "";
+        return json(200, { text }, cors);
+      } catch {
+        return json(502, { error: "could not hear that narration, try again" }, cors);
+      }
     }
 
     try {

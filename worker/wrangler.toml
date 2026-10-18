@@ -54,3 +54,6 @@ enabled = true
 # his Kroger developer app, and that app needs the cart.basic:write scope.
 [vars]
 KROGER_REDIRECT_URI = "https://mise-worker.janniksin.workers.dev/kroger/cart/callback"
+
+[ai]
+binding = "AI"
