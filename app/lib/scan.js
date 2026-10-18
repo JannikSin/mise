@@ -323,3 +323,119 @@ export function mergeFridgeWalk(frames, narration) {
   }
   return [...byFood.values()];
 }
+
+// ---------------------------------------------------------------------------
+// THE WALK'S OWN NARRATION (P6, David 2026-10-18: "show everything and also
+// narrate everything"). He talks while he films, so the words are already in
+// the video; v1.7 made him type them again. These three pure steps turn the
+// decoded audio into a small WAV the Worker can transcribe: one channel,
+// 16 kHz (what Whisper listens at), 16-bit samples. 90 seconds of that is
+// about 2.9 MB, so the clip itself never leaves the phone.
+// ---------------------------------------------------------------------------
+
+/** The longest narration sent: past this the walk is trimmed, and says so. */
+export const NARRATION_MAX_SECONDS = 90;
+/** The sample rate Whisper expects. */
+export const NARRATION_RATE = 16000;
+
+/**
+ * Average every channel into one.
+ * @param {Float32Array[]} channels
+ * @returns {Float32Array}
+ */
+export function downmixToMono(channels) {
+  const live = (channels ?? []).filter((c) => c && c.length > 0);
+  if (live.length === 0) return new Float32Array(0);
+  if (live.length === 1) return /** @type {Float32Array} */ (live[0]);
+  const n = Math.min(...live.map((c) => c.length));
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let sum = 0;
+    for (const c of live) sum += /** @type {number} */ (c[i]);
+    out[i] = sum / live.length;
+  }
+  return out;
+}
+
+/**
+ * Linear resampling to `toRate`. Plenty for speech headed to a transcriber,
+ * and it keeps the step pure and testable.
+ * @param {Float32Array} samples
+ * @param {number} fromRate
+ * @param {number} [toRate]
+ * @returns {Float32Array}
+ */
+export function resampleLinear(samples, fromRate, toRate = NARRATION_RATE) {
+  if (!samples || samples.length === 0 || !(fromRate > 0)) return new Float32Array(0);
+  if (fromRate === toRate) return samples;
+  const outLen = Math.max(1, Math.floor((samples.length * toRate) / fromRate));
+  const out = new Float32Array(outLen);
+  const step = fromRate / toRate;
+  for (let i = 0; i < outLen; i++) {
+    const pos = i * step;
+    const j = Math.floor(pos);
+    const frac = pos - j;
+    const a = /** @type {number} */ (samples[j] ?? 0);
+    const b = /** @type {number} */ (samples[j + 1] ?? a);
+    out[i] = a + (b - a) * frac;
+  }
+  return out;
+}
+
+/**
+ * PCM16 mono WAV bytes (44-byte RIFF header + little-endian samples, clipped
+ * to [-1, 1]).
+ * @param {Float32Array} samples
+ * @param {number} [rate]
+ * @returns {Uint8Array}
+ */
+export function encodeWav16(samples, rate = NARRATION_RATE) {
+  const n = samples.length;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const str = (/** @type {number} */ at, /** @type {string} */ s) => {
+    for (let i = 0; i < s.length; i++) v.setUint8(at + i, s.charCodeAt(i));
+  };
+  str(0, "RIFF");
+  v.setUint32(4, 36 + n * 2, true);
+  str(8, "WAVE");
+  str(12, "fmt ");
+  v.setUint32(16, 16, true); // fmt chunk size
+  v.setUint16(20, 1, true); // PCM
+  v.setUint16(22, 1, true); // mono
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true); // byte rate
+  v.setUint16(32, 2, true); // block align
+  v.setUint16(34, 16, true); // bits per sample
+  str(36, "data");
+  v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
+    const s = Math.max(-1, Math.min(1, /** @type {number} */ (samples[i])));
+    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Uint8Array(buf);
+}
+
+/**
+ * Decoded audio (an AudioBuffer-like: sampleRate, numberOfChannels,
+ * getChannelData) to narration WAV bytes, capped at NARRATION_MAX_SECONDS.
+ * @param {{ sampleRate: number, numberOfChannels: number, length: number, getChannelData: (i: number) => Float32Array }} audio
+ * @returns {{ wav: Uint8Array, trimmed: boolean } | { reason: "no-audio" }}
+ */
+export function narrationWav(audio) {
+  if (!audio || !(audio.numberOfChannels > 0) || !(audio.length > 0) || !(audio.sampleRate > 0)) {
+    return { reason: "no-audio" };
+  }
+  const channels = [];
+  for (let i = 0; i < audio.numberOfChannels; i++) channels.push(audio.getChannelData(i));
+  const keep = Math.min(audio.length, Math.round(audio.sampleRate * NARRATION_MAX_SECONDS));
+  const mono = downmixToMono(channels.map((c) => c.subarray(0, keep)));
+  // silence is no narration: nothing above a whisper-quiet floor
+  let peak = 0;
+  for (let i = 0; i < mono.length; i += 64) peak = Math.max(peak, Math.abs(/** @type {number} */ (mono[i])));
+  if (peak < 0.01) return { reason: "no-audio" };
+  return {
+    wav: encodeWav16(resampleLinear(mono, audio.sampleRate)),
+    trimmed: keep < audio.length,
+  };
+}
