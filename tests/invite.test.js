@@ -121,3 +121,12 @@ test("sanitizeInviteDinners: dates the guest can make, the next two weeks only (
   assert.deepEqual(sanitizeInviteDinners("2026-10-20", "2026-10-18"), [], "not a list, nothing");
   assert.deepEqual(sanitizeInviteDinners(undefined, "2026-10-18"), []);
 });
+
+test("sanitizeInviteTargets keeps the base section (v1.8, decision 0013)", () => {
+  const out = sanitizeInviteTargets({
+    macros: { calories: 2300, protein: 120 },
+    phase: "gain",
+    base: { goal: { date: "2027-05-01" } },
+  });
+  assert.deepEqual(out?.base, { goal: { date: "2027-05-01" } });
+});

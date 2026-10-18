@@ -35,6 +35,8 @@ export const RELEASES = [
       "Walk the fridge: on the List's PANTRY, film the shelves while you say what you see; Mise reads the video and your words, you check the read-back, and it all goes in.",
       "No more 3 pm snack ping. Reminders are now the morning's day ahead, cook nights, the store run and the 11 pm Ate it?.",
       "Add a recipe from a link, right on Plan: Mise fits it to you, checks everyone's allergies, and either puts it on a night this week or saves it to your recipes.",
+      "Settings has YOUR PROFILE: the full set of questions, filled in with what Mise already knows about you. Change anything and save; nothing else in your profile is touched. Your calorie target sits next to what Mise suggests from your numbers, and a target far from it asks you to say why.",
+      "Each person sees only their own household, plus guests at their own table. David, as admin, sees everyone. Your profile can have a passkey, so nobody can open it from another phone.",
     ],
   },
   {

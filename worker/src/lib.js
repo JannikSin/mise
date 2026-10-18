@@ -3079,6 +3079,8 @@ const TARGET_KEYS = new Set([
   "priorityStack",
   "nonNegotiables",
   "supplementPlan",
+  // v1.8 (decision 0013's base stage): the goal's date and other base fields
+  "base",
 ]);
 
 /**

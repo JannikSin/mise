@@ -114,6 +114,14 @@ data to the app repo.
 
 ## Profiles — `profiles.json` (data-repo ROOT, never scoped)
 
+**Who sees whom (v1.8).** One row may carry `admin: true` (David). Once any row
+does, a non-admin's screens show only their own `household` plus guests seated
+at their own tables (app/lib/privacy.js); the admin sees all. The admin row may
+carry `adminKey: { salt, hash }` (PBKDF2-SHA-256, 10,000 rounds, hex), checked
+before a device may switch into that profile. Every write through
+`patchProfiles` carries both fields through untouched. The boundary is in the
+app: a data-token holder can read this file directly.
+
 ```jsonc
 {
   "profiles": [
@@ -1608,6 +1616,30 @@ budget. It sat under `fitness/` only because it predates the split.
 `fitness/daily.json` is NOT part of this rename. Both apps write that file
 deliberately, through one sha-and-merge path with field-wise resolution.
 That is designed sharing, not leftover mixing.
+
+### One profile per person, in stages (v1.8, decision 0013)
+
+This file IS the person's profile. Its stages:
+
+- **base** (everyone): `body` holds the body numbers (`sex`, `age`, `heightIn`,
+  `weightLb`, `activity`, `goalWeightLb`; other keys kept), `phase` the goal's
+  direction, and `base` only what lives nowhere else:
+  `base.goal.date` (YYYY-MM-DD, the date the goal is aimed at). Nothing is
+  stored twice.
+- **food** (Mise's): every other top-level key, as before (macros, diet,
+  allergens, avoidIngredients, equipment, stores, budget, currencies...).
+  Not moved under a `food` key, so old app versions and Anvil read it
+  unchanged.
+- **training** (Anvil's): lives in `anvil-data`, never here.
+
+**Edited from Settings > Your profile**, never by hand: the survey's answers are
+MERGED (`mergeProfileAnswers`, app/lib/targets.js): it owns `SURVEY_OWNED`,
+`macros.calories`, `macros.protein`, the body numbers above and
+`base.goal.date`; an answer back at its default is removed (absent = default);
+every other key, known or not, is left exactly as it was. A stated calorie
+target under 75% or over 140% of Mise's own suggestion needs a typed reason,
+kept as `targetOverride: { reason, on, calories }`. The Worker's invite claim
+keeps `base` (TARGET_KEYS).
 
 ## Fitness — `fitness/targets.json`
 

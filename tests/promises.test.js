@@ -1968,9 +1968,10 @@ const UNBUILT = [
     id: "P3",
     name: "P3 GAP one profile per person in three stages, with targets set from Settings",
     why:
-      "owner tweener, the 2026-10-12 redo (decision 0013). Today the targets live in a mirrored " +
-      "pair of files edited by hand; the shared base, food and training profile and the Settings " +
-      "field for targets are not built.",
+      "owner monolith (decision 0013). Since v1.8 the profile file is one per person with base " +
+      "and food stages and targets are set from Settings > Your profile (a merge, never a rebuild). " +
+      "Still open: Anvil reading the base stage from Mise instead of its own copy (polaris), and " +
+      "retiring the mirrored fitness/targets.json once it does.",
   },
   {
     id: "P4",
