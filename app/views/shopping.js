@@ -46,6 +46,7 @@ import {
   tripOf,
   isStapleRow,
   cartLines,
+  cartSendsThisTrip,
 } from "../lib/shopping.js";
 import { AISLES } from "../lib/ingredients.js";
 import { isParked } from "../lib/parked.js";
@@ -762,6 +763,17 @@ export function ShoppingView({
   const [pushLog, setPushLog] = useState(/** @type {any[]} */ ([]));
   useEffect(() => setPushLog(krogerPushLog()), []);
   const [cartArmed, setCartArmed] = useState(false);
+  // A RELOAD FORGOT THE SEND (2026-10-18): cartSent lives in memory, so
+  // reopening the List re-armed a full second copy. The durable log counts
+  // this trip's real sends too: ok, not a test, on or after the day GOING TO
+  // THE STORE saved the week.
+  const shoppedOn = String(/** @type {any} */ (plan)?.fallback?.savedAt ?? "");
+  const sentCount = Math.max(cartSent, cartSendsThisTrip(pushLog, shoppedOn));
+  // THE CART, BACK (David, 2026-10-18: "I don't want you to order. I just
+  // want you to add it to the cart", and only once the week is set and he is
+  // going to the store). The live-price controls stay parked (decision 0018);
+  // the cart opens only after GOING TO THE STORE has saved the shopped week.
+  const cartOpen = shoppedOn !== "";
   // rows we can actually send: a UPC only exists once a food is pinned here
   //
   // TWO BUGS LIVED IN THE ONE LINE THIS REPLACES (David, 2026-08-24: "last
@@ -811,10 +823,10 @@ export function ShoppingView({
     if (rows.length === 0) return;
     // a test push is small and repeatable by design, so it skips the re-arm
     // that protects the full list
-    if (opts.test !== true && cartSent > 0 && !cartArmed) {
+    if (opts.test !== true && sentCount > 0 && !cartArmed) {
       setCartArmed(true);
       setCartNote(
-        `already sent ${cartSent} time${cartSent === 1 ? "" : "s"} — sending again ADDS another copy to your Kroger cart. Tap once more only if you really want doubles.`,
+        `already sent ${sentCount} time${sentCount === 1 ? "" : "s"} — sending again ADDS another copy to your Kroger cart. Tap once more only if you really want doubles.`,
       );
       return;
     }
@@ -1635,6 +1647,13 @@ export function ShoppingView({
               </button>
             </div>`
           }
+            `
+          }
+          ${
+            // the cart has its own door (2026-10-18): open once GOING TO THE
+            // STORE has saved the week, whatever the price controls do
+            cartOpen &&
+            html`
           ${
             // NO FEATURE SHIPS DARK, and this one did (David,
             // 2026-08-25: "it said not linked and push failed"). The
@@ -1664,7 +1683,11 @@ export function ShoppingView({
                   disabled=${cartRows.length === 0 || cartNote === "sending…"}
                   onClick=${() => sendToKrogerCart()}
                 >
-                  ${krogerLinked() ? "SEND TO CART" : "LINK KROGER"}
+                  ${
+                    krogerLinked()
+                      ? `SEND TO ${(STORE_NAMES[homeStore] ?? "KROGER").toUpperCase()} CART`
+                      : "LINK KROGER"
+                  }
                 </button>
               </div>
               <p class="hint">
@@ -1754,15 +1777,16 @@ export function ShoppingView({
               </p>
             </details>`
           }
+            `
+          }
           ${
+            !isParked("kroger") &&
             canLive &&
             homeSummary.unpriced > 0 &&
             html`<p class="hint">
               BUILD already searched the priciest rows; anything still unpriced carries a $? button
               — one search, one tap, priced forever.
             </p>`
-          }
-            `
           }
         </div>
       `

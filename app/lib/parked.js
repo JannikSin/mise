@@ -9,6 +9,11 @@
 // browsing, the dinner chat, the tour, the Table tab's per-meal week (now
 // People) join them. The doctrine's tenet 1
 // (choices taken away) and the 10/13 comparison already named the last four.
+//
+// Back on 2026-10-18 (David, v1.4): the re-roll ("a button that picks
+// different meals if I don't like what I see"), and the cart button, which
+// opens after GOING TO THE STORE. "kroger" now parks only the List's
+// live-price controls.
 
 /** @type {ReadonlySet<string>} */
 export const PARKED = new Set([
@@ -17,7 +22,6 @@ export const PARKED = new Set([
   "occasions",
   "money",
   "kroger",
-  "reroll",
   "cookbook",
   "dinnerchat",
   "tour",

@@ -784,6 +784,23 @@ export function cartLines(items, upcFor, packsFor) {
 }
 
 /**
+ * How many full sends this trip has already put in the cart (2026-10-18). The
+ * List's own counter lives in memory and forgot a send on reload, which
+ * re-armed a second full copy; the durable push log does not forget. Counts
+ * entries Kroger accepted that are not test pushes and fall on or after the
+ * day GOING TO THE STORE saved the week. No saved week, no trip: 0.
+ * @param {{ ok?: boolean, test?: boolean, at?: string }[]} log
+ * @param {string} shoppedOn YYYY-MM-DD the fallback was saved, "" if never
+ * @returns {number}
+ */
+export function cartSendsThisTrip(log, shoppedOn) {
+  if (!shoppedOn) return 0;
+  return (log ?? []).filter(
+    (e) => e?.ok === true && e.test !== true && String(e.at ?? "").slice(0, 10) >= shoppedOn,
+  ).length;
+}
+
+/**
  * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, sources: { profileId: string, checked: boolean, qty: number, unit: string, food: string, section: string }[] }} CombinedItem
  */
 

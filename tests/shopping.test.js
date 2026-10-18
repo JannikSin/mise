@@ -38,6 +38,7 @@ import {
   cycleDayPick,
   expiryFrom,
   cartLines,
+  cartSendsThisTrip,
   isStapleRow,
   recipeBought,
 } from "../app/lib/shopping.js";
@@ -2496,4 +2497,16 @@ test("P+ on a food the shelf already counts confirms the count instead of laying
   assert.equal(rows[0].qty, "12 each");
   assert.ok(rows[0].checkedAt, "the counted row is confirmed");
   assert.equal(r.shopping.items.length, 0, "and the list row still leaves");
+});
+
+test("a reload never forgets this trip's cart send (2026-10-18)", () => {
+  const log = [
+    { ok: true, at: "2026-10-18T15:02:00.000Z" }, // the real send, this trip
+    { ok: true, test: true, at: "2026-10-18T14:58:00.000Z" }, // 3 test items
+    { ok: false, at: "2026-10-18T14:55:00.000Z" }, // Kroger refused it
+    { ok: true, at: "2026-10-11T16:00:00.000Z" }, // last week's trip
+  ];
+  assert.equal(cartSendsThisTrip(log, "2026-10-18"), 1, "only the accepted full send counts");
+  assert.equal(cartSendsThisTrip(log, ""), 0, "no GOING TO THE STORE, no trip");
+  assert.equal(cartSendsThisTrip([], "2026-10-18"), 0);
 });
