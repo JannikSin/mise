@@ -13,6 +13,8 @@ import {
   brigadeCovers,
   breakOn,
   rolledRule,
+  sundayPrepMinutes,
+  sundayPrepLine,
 } from "../app/lib/tables.js";
 // the table factory's sizing half moved into the day composer on 2026-08-30
 // (session monolith); the settled factory behaviours pinned below all hold
@@ -963,4 +965,29 @@ test("v1.9c: with no separate batch, Sunday's dinner pot covers Mon to Thu under
     for (const t of dinners.filter((x) => x.date !== "2026-10-25"))
       assert.equal(t.leftoverOf, sunday.id, `salt ${salt}: ${t.date} eats Sunday's pot`);
   }
+});
+
+test("v1.9c: Sunday prep is estimated roughly, each Sunday dish once, and said against his limit", () => {
+  const bank = new Map([
+    ["pot", { id: "pot", prepTime: 20, cookTime: 60 }],
+    ["balls", { id: "balls", prepTime: 15, cookTime: 0 }],
+    ["muffins", { id: "muffins", prepTime: 15, cookTime: 25 }],
+  ]);
+  const t = (id, date, recipeId, extra = {}) => ({ id, name: "k", date, slot: "dinner", recipeId, seats: [], ...extra });
+  const tables = [
+    t("a", "2026-10-25", "pot"),
+    t("b", "2026-10-26", "pot", { leftoverOf: "a" }),
+    t("c", "2026-10-25", "balls", { slot: "breakfast" }),
+    t("d", "2026-10-26", "balls", { slot: "breakfast" }),
+    t("e", "2026-10-25", "muffins", { slot: "snack" }),
+    t("f", "2026-10-30", "pot"),
+  ];
+  // pot 20 + 15 (cook capped), balls 15, muffins 15 + 15 = 80, Friday not counted
+  assert.deepEqual(sundayPrepMinutes(tables, bank, "2026-10-25"), { minutes: 80, dishes: 3 });
+  assert.equal(sundayPrepLine(80), "Sunday prep about 80 min.");
+  assert.equal(sundayPrepLine(80, 60), "Sunday prep about 80 min, over your 60 minutes by 20.");
+  assert.equal(sundayPrepLine(80, 150), "Sunday prep about 80 min, inside your 150.");
+  assert.equal(validBrigade({ ...BRIGADE, sundayMinutes: 150 }), true);
+  assert.equal(validBrigade({ ...BRIGADE, sundayMinutes: -5 }), false);
+  assert.equal(validBrigade({ ...BRIGADE, sundayMinutes: "lots" }), false);
 });

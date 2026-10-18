@@ -12,7 +12,7 @@ import {
   SLOT_META,
 } from "../lib/plan.js";
 import { parseLocalIso } from "../lib/dates.js";
-import { brigadeCovers as ruleCovers } from "../lib/tables.js";
+import { brigadeCovers as ruleCovers, sundayPrepLine, sundayPrepMinutes } from "../lib/tables.js";
 import { isPerBowl } from "../lib/portions.js";
 import { manifestDrifted, manifestLines } from "../lib/manifest.js";
 import { CookBlocks } from "./cook-blocks.js";
@@ -367,6 +367,23 @@ export function PlannerView({
             (/** @type {string} */ n, /** @type {number} */ i) =>
               html`<p class="hint" role="note" key=${`pan-${i}`}>🍲 ${n}</p>`,
           )
+      }
+      ${
+        // SUNDAY PREP, ROUGHLY (David, 2026-10-18): the week's Sunday cooking
+        // against his own rough limit, said, never enforced (P7)
+        (() => {
+          const b = /** @type {any} */ (brigade);
+          const sunday = dates[0];
+          if (!b?.active || !sunday) return "";
+          const est = sundayPrepMinutes(
+            b.tables ?? [],
+            new Map(recipes.map((r) => [r.id, r])),
+            sunday,
+          );
+          if (est.dishes === 0) return "";
+          const limit = Number(b.active.sundayMinutes) > 0 ? Number(b.active.sundayMinutes) : 0;
+          return html`<p class="hint" role="note">⏱ ${sundayPrepLine(est.minutes, limit)}</p>`;
+        })()
       }
       ${
         tableStale &&

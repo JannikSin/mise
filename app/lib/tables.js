@@ -12,7 +12,7 @@ import { parsePot, solveSeat } from "./synth.js";
  * @typedef {{ portionGrams?: number, plate: string[], estCalories: number, estProtein: number }} TailorSeat scale-first: portionGrams = weighed grams of the finished dish on this plate (absent/0 on pre-scale tailors)
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
  * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, fromBrigade?: string, fromWeekRun?: boolean, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string, leftoverOf?: string, preparedOn?: string }} TableEvent `fromWeekRun` is LEGACY: written only by the retired AI week run; read solely by planBrigadeWeek's shadow sweep, which clears such tables from a brigade's span. `leftoverOf` names the COOK table this meal is eaten from (a no-cook night, David 2026-09-05): its seats size the pot, it is never bought or cooked on its own. `preparedOn` (2026-09-24) marks a BATCH pot: this night's dish is cooked on that earlier date (the Sunday batch) and its later nights eat it as leftovers; its safe window runs from that date.
- * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]>, batches?: { cookDay: number, feeds: number[] }[], dinnerMeat?: boolean, open?: boolean, breaks?: string }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool. `batches` (David, 2026-09-24) = a second pot cooked on `cookDay` and eaten on the weekdays in `feeds` (the Sunday batch for Tue + Wed); absent = no batch. `dinnerMeat` (David, 2026-09-25) = every dinner the brigade plans is anchored on chicken, turkey, beef or pork; absent = any protein. `open` (David, 2026-10-18) = no end date: the 28-day record rolls forward (rolledRule). `breaks` = a SCHOOL_BREAKS key; the rule plans nothing on those dates.
+ * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]>, batches?: { cookDay: number, feeds: number[] }[], dinnerMeat?: boolean, open?: boolean, breaks?: string, sundayMinutes?: number }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool. `batches` (David, 2026-09-24) = a second pot cooked on `cookDay` and eaten on the weekdays in `feeds` (the Sunday batch for Tue + Wed); absent = no batch. `dinnerMeat` (David, 2026-09-25) = every dinner the brigade plans is anchored on chicken, turkey, beef or pork; absent = any protein. `open` (David, 2026-10-18) = no end date: the 28-day record rolls forward (rolledRule). `breaks` = a SCHOOL_BREAKS key; the rule plans nothing on those dates. `sundayMinutes` (David, 2026-10-18) = his rough limit on Sunday cooking, shown against the estimate, never enforced.
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
 
@@ -107,6 +107,48 @@ export function brigadeCovers(b, date) {
 }
 
 /**
+ * SUNDAY PREP, ROUGHLY (David, 2026-10-18: "There should be a time limit ...
+ * It can be a little bit vague now and we can set it more later"). The
+ * hands-on minutes of everything the kitchen cooks on Sunday: each distinct
+ * dish cooked that day (its dinner pot, a batch prepared that day, the day's
+ * bake and breakfast) counted once, as prepTime plus at most fifteen minutes
+ * of cookTime, because an oven or a simmer runs on its own. It does NOT scale
+ * with portions, so it is shown as "about", never enforced. P7.
+ * @param {TableEvent[]} tables
+ * @param {Map<string, Record<string, any>>} recipeById
+ * @param {string} sundayIso
+ * @returns {{ minutes: number, dishes: number }}
+ */
+export function sundayPrepMinutes(tables, recipeById, sundayIso) {
+  const ids = new Set();
+  for (const t of tables ?? []) {
+    if (t.leftoverOf) continue;
+    const cooksSunday = t.preparedOn ? t.preparedOn === sundayIso : t.date === sundayIso;
+    if (cooksSunday && t.recipeId) ids.add(t.recipeId);
+  }
+  let minutes = 0;
+  for (const id of ids) {
+    const r = recipeById.get(id);
+    const prep = Number(r?.prepTime) > 0 ? Number(r?.prepTime) : 0;
+    const cook = Number(r?.cookTime) > 0 ? Number(r?.cookTime) : 0;
+    minutes += prep + Math.min(cook, 15);
+  }
+  return { minutes: Math.round(minutes), dishes: ids.size };
+}
+
+/**
+ * The Plan line for Sunday prep: the estimate, and his limit when he set one.
+ * @param {number} minutes
+ * @param {number} [limit] his rough Sunday minutes, 0 or absent when unset
+ */
+export function sundayPrepLine(minutes, limit = 0) {
+  if (limit > 0 && minutes > limit)
+    return `Sunday prep about ${minutes} min, over your ${limit} minutes by ${minutes - limit}.`;
+  if (limit > 0) return `Sunday prep about ${minutes} min, inside your ${limit}.`;
+  return `Sunday prep about ${minutes} min.`;
+}
+
+/**
  * An open rule's next 28-day window, or null when it does not need one yet
  * (it still reaches three weeks out) or is not open. `from` moves only in
  * steps of the rotation's length, so "take turns" keeps who cooks which night.
@@ -173,6 +215,11 @@ export function validBrigade(b) {
   // the two 2026-10-18 fields are checked, never repaired: a poisoned
   // `breaks` would otherwise throw in every view that asks brigadeCovers
   if (b.open !== undefined && typeof b.open !== "boolean") return false;
+  if (
+    b.sundayMinutes !== undefined &&
+    !(typeof b.sundayMinutes === "number" && b.sundayMinutes > 0 && b.sundayMinutes <= 1440)
+  )
+    return false;
   if (b.breaks !== undefined && !Object.hasOwn(SCHOOL_BREAKS, String(b.breaks))) return false;
   if (b.batches !== undefined) {
     if (!Array.isArray(b.batches)) return false;

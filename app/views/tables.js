@@ -213,7 +213,7 @@ export function TablesView({
   const houseMates = (profiles ?? []).filter((p) => (p.household ?? "home") === myHouse);
   const myBrigades = (houseEvents ?? []).find((h) => h.house === myHouse)?.events?.brigades ?? [];
   const [brigadeForm, setBrigadeForm] = useState(
-    /** @type {null | { editId: string | null, name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string, open: boolean, cookDays: number[], slotRecipes: Record<string, string[]>, batchFeeds: number[], dinnerMeat: boolean }} */ (
+    /** @type {null | { editId: string | null, name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string, open: boolean, sundayMinutes: string, cookDays: number[], slotRecipes: Record<string, string[]>, batchFeeds: number[], dinnerMeat: boolean }} */ (
       null
     ),
   );
@@ -244,6 +244,7 @@ export function TablesView({
       // no end date is the default (David, 2026-10-18): any save of the rule
       // keeps it going, paused only for school breaks
       open: seed?.open !== false,
+      sundayMinutes: Number(seed?.sundayMinutes) > 0 ? String(seed?.sundayMinutes) : "",
       cookDays:
         Array.isArray(seed?.cookDays) && seed.cookDays.length > 0
           ? [...seed.cookDays]
@@ -305,6 +306,9 @@ export function TablesView({
       until: brigadeForm.open ? plusDays(brigadeForm.from, 27) : brigadeForm.until,
       // stored either way: an absent `open` is an old rule the app turns on once
       ...(brigadeForm.open ? { open: true, breaks: "purdue" } : { open: false }),
+      ...(Number(brigadeForm.sundayMinutes) > 0
+        ? { sundayMinutes: Math.min(1440, Math.round(Number(brigadeForm.sundayMinutes))) }
+        : {}),
       ...(everyNight || !brigadeForm.slots.includes("dinner")
         ? {}
         : { cookDays: [...brigadeForm.cookDays].sort() }),
@@ -321,6 +325,10 @@ export function TablesView({
         // an unset rule must be REMOVED from the record, not left as it was
         rotateCooks: brigadeForm.rotateCooks ? true : undefined,
         open: brigadeForm.open,
+        sundayMinutes:
+          Number(brigadeForm.sundayMinutes) > 0
+            ? Math.min(1440, Math.round(Number(brigadeForm.sundayMinutes)))
+            : undefined,
         breaks: brigadeForm.open ? "purdue" : undefined,
         cookDays: /** @type {any} */ (rule).cookDays ?? undefined,
         slotRecipes: /** @type {any} */ (rule).slotRecipes ?? undefined,
@@ -1301,9 +1309,24 @@ export function TablesView({
                         ${
                           brigadeForm.batchFeeds.length === 0
                             ? "Optional. Tap the nights that should eat a second Sunday pot instead of Sunday's dinner."
-                            : `Sunday cooks two dishes: dinner, and a batch for ${cookDaysLabel([...brigadeForm.batchFeeds].sort())} that keeps in the fridge until then.`
+                            : `Sunday cooks two dishes: dinner, and a batch for ${cookDaysLabel([...brigadeForm.batchFeeds].sort())} that keeps in the fridge until then. Sunday's dinner can be the batch: untick these and the Sunday pot covers the nights after it.`
                         }
-                      </p>`
+                      </p>
+                      <label class="row">
+                        <span>Sunday cooking: about</span>
+                        <input
+                          type="number"
+                          inputmode="numeric"
+                          min="1"
+                          max="1440"
+                          aria-label="Sunday cooking minutes"
+                          value=${brigadeForm.sundayMinutes}
+                          onInput=${(/** @type {any} */ e) =>
+                            setBrigadeForm({ ...brigadeForm, sundayMinutes: e.currentTarget.value })}
+                        />
+                        <span>minutes</span>
+                      </label>
+                      <p class="hint">Rough is fine; tune later. Plan shows the week's Sunday against it.</p>`
                   }
                   <div class="chips">
                     <button
