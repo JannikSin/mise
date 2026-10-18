@@ -3249,3 +3249,222 @@ export function inviteStatusRows(tables, profileId, dishName, personName, todayI
       };
     });
 }
+
+// ---- guest log in: name + 4-digit passkey (Mise v1.6, P8 + P3) ---------------
+// David, 2026-10-18: the guest link opens "Welcome to Mise" with LOG IN or
+// SIGN UP; "not too much security, just a little bit of a boundary". The
+// point is that a guest never sees other people's accounts or who else he has
+// over. A 4-digit passkey is 10,000 guesses, so the real control is the online
+// lockout (5 tries, then 15 minutes), not the hash cost: PBKDF2 runs at 10,000
+// iterations to stay inside a Worker's CPU budget (plan gate, 2026-10-18).
+
+export const GUEST_PBKDF2_ITERATIONS = 10000;
+export const GUEST_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+export const GUEST_MAX_FAILS = 5;
+export const GUEST_LOCK_MS = 15 * 60 * 1000;
+/** hashed against when the name is unknown, so a miss costs what a hit costs */
+export const GUEST_DUMMY_SALT = "bWlzZS1ndWVzdC1kdW1teQ";
+
+/**
+ * The comparison key for a login name: case and spacing never matter
+ * ("Sam K" and "sam  k" are one login). null when the name is not 2 to 30
+ * letters, spaces, apostrophes or hyphens.
+ * @param {unknown} name
+ * @returns {string | null}
+ */
+export function guestNameKey(name) {
+  if (typeof name !== "string") return null;
+  const clean = name.normalize("NFKC").trim().replace(/\s+/g, " ");
+  if (clean.length < 2 || clean.length > 30) return null;
+  if (!/^\p{L}[\p{L} '-]*$/u.test(clean)) return null;
+  return clean.toLowerCase().replace(/[\s'-]/g, "");
+}
+
+/**
+ * Exactly four digits.
+ * @param {unknown} pin
+ */
+export function validGuestPin(pin) {
+  return typeof pin === "string" && /^\d{4}$/.test(pin);
+}
+
+/** @param {Uint8Array} bytes */
+function b64url(bytes) {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** @param {string} s */
+function fromB64url(s) {
+  const pad = s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4);
+  const bin = atob(pad);
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+/**
+ * PBKDF2-SHA-256 of a passkey. A new random salt unless one is given.
+ * @param {string} pin
+ * @param {string} [salt] base64url
+ * @returns {Promise<{ salt: string, hash: string }>}
+ */
+export async function hashGuestPin(pin, salt) {
+  const saltBytes = salt ? fromB64url(salt) : crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, [
+    "deriveBits",
+  ]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: saltBytes, iterations: GUEST_PBKDF2_ITERATIONS },
+    key,
+    256,
+  );
+  return { salt: b64url(saltBytes), hash: b64url(new Uint8Array(bits)) };
+}
+
+/**
+ * Does this passkey match the stored hash? Compares every byte, always.
+ * @param {string} pin
+ * @param {string} salt
+ * @param {string} hash
+ */
+export async function verifyGuestPin(pin, salt, hash) {
+  const got = (await hashGuestPin(pin, salt)).hash;
+  if (got.length !== hash.length) return false;
+  let diff = 0;
+  for (let i = 0; i < got.length; i++) diff |= got.charCodeAt(i) ^ hash.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * The session signing key: SHA-256 of a fixed label and the Worker's invite
+ * credential, so no new secret is needed (rotating that token signs every
+ * guest out, which costs them one log in).
+ * @param {string} secret
+ */
+async function guestSessionKey(secret) {
+  const raw = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`mise-guest-session:${secret}`),
+  );
+  return crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, [
+    "sign",
+    "verify",
+  ]);
+}
+
+/**
+ * A signed session: which profile, which data branch, when it ends.
+ * @param {{ p: string, b: string }} who
+ * @param {string} secret
+ * @param {number} nowMs
+ */
+export async function signGuestSession(who, secret, nowMs) {
+  const body = b64url(
+    new TextEncoder().encode(
+      JSON.stringify({ p: String(who.p), b: String(who.b), exp: nowMs + GUEST_SESSION_TTL_MS }),
+    ),
+  );
+  const sig = await crypto.subtle.sign(
+    "HMAC",
+    await guestSessionKey(secret),
+    new TextEncoder().encode(body),
+  );
+  return `${body}.${b64url(new Uint8Array(sig))}`;
+}
+
+/**
+ * The session's profile when the signature holds, it has not expired and it
+ * was issued for this branch; null otherwise.
+ * @param {unknown} token
+ * @param {string} secret
+ * @param {string} branch
+ * @param {number} nowMs
+ * @returns {Promise<{ p: string, b: string, exp: number } | null>}
+ */
+export async function verifyGuestSession(token, secret, branch, nowMs) {
+  if (typeof token !== "string" || token.length > 1024) return null;
+  const [body, sig, extra] = token.split(".");
+  if (!body || !sig || extra !== undefined) return null;
+  try {
+    const ok = await crypto.subtle.verify(
+      "HMAC",
+      await guestSessionKey(secret),
+      fromB64url(sig),
+      new TextEncoder().encode(body),
+    );
+    if (!ok) return null;
+    const s = JSON.parse(new TextDecoder().decode(fromB64url(body)));
+    if (typeof s?.p !== "string" || s.b !== branch || !(Number(s.exp) > nowMs)) return null;
+    return { p: s.p, b: s.b, exp: Number(s.exp) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Is this login locked right now?
+ * @param {{ fails?: number, lockedUntil?: number } | null | undefined} entry
+ * @param {number} nowMs
+ */
+export function guestLocked(entry, nowMs) {
+  return Boolean(entry && Number(entry.lockedUntil) > nowMs);
+}
+
+/**
+ * The fail record after one more wrong try: a lock that has run out starts
+ * the count again; the fifth wrong try locks for GUEST_LOCK_MS.
+ * @param {{ fails?: number, lockedUntil?: number } | null | undefined} entry
+ * @param {number} nowMs
+ * @returns {{ fails: number, lockedUntil: number }}
+ */
+export function guestAfterFail(entry, nowMs) {
+  const expired = entry && Number(entry.lockedUntil) > 0 && Number(entry.lockedUntil) <= nowMs;
+  const fails = (expired ? 0 : Number(entry?.fails) || 0) + 1;
+  return { fails, lockedUntil: fails >= GUEST_MAX_FAILS ? nowMs + GUEST_LOCK_MS : 0 };
+}
+
+/**
+ * @typedef {{ nameKey: string, name: string, salt: string, hash: string, profileId: string, house: string, hostHouse: string, branch: string, createdAt: string }} GuestLogin
+ */
+
+/**
+ * @param {{ logins?: GuestLogin[] } | null | undefined} file guests.json
+ * @param {string} nameKey
+ * @returns {GuestLogin | null}
+ */
+export function findGuestLogin(file, nameKey) {
+  return (file?.logins ?? []).find((l) => l && l.nameKey === nameKey) ?? null;
+}
+
+/**
+ * First name only: the guest sees who cooks, never anyone's full name.
+ * @param {unknown} name
+ */
+export function firstNameOf(name) {
+  return String(name ?? "").trim().split(/\s+/)[0]?.slice(0, 30) ?? "";
+}
+
+/**
+ * The part of a recipe a guest is shown, built from a whitelist and capped,
+ * never spread from the stored file (plan gate, 2026-10-18).
+ * @param {Record<string, any> | null} r
+ * @returns {{ name: string, servings: number, ingredients: { qty: number | null, unit: string, food: string, note: string }[], steps: string[] } | null}
+ */
+export function guestRecipe(r) {
+  if (!r || typeof r.name !== "string") return null;
+  const str = (/** @type {unknown} */ v, /** @type {number} */ n) => String(v ?? "").slice(0, n);
+  return {
+    name: str(r.name, 120),
+    servings: Number(r.servings) > 0 ? Number(r.servings) : 1,
+    ingredients: (Array.isArray(r.ingredients) ? r.ingredients : []).slice(0, 40).map((i) => ({
+      qty: Number.isFinite(Number(i?.qty)) ? Number(i.qty) : null,
+      unit: str(i?.unit, 20),
+      food: str(i?.food, 80),
+      note: str(i?.note, 160),
+    })),
+    steps: (Array.isArray(r.instructions) ? r.instructions : [])
+      .slice(0, 20)
+      .map((s) => str(typeof s === "string" ? s : s?.text, 600))
+      .filter(Boolean),
+  };
+}
