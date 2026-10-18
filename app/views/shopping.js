@@ -1615,7 +1615,11 @@ export function ShoppingView({
           ${
             // today's prices and sales, checked by BUILD (2026-10-18): the one
             // line that says the total is today's, outside the parked controls
-            repriceNote && html`<p class="hint">${repriceNote}</p>`
+            // only the finished summary; progress and offline chatter stay
+            // behind the parked controls (Tribunal, v1.7a)
+            repriceNote &&
+              /^prices checked today/.test(repriceNote) &&
+              html`<p class="hint">${repriceNote}</p>`
           }
           ${
             homeSummary.unpriced > 0 &&
@@ -1648,7 +1652,6 @@ export function ShoppingView({
             </div>`
           }
           ${canLive && refreshNote && html`<p class="hint">${refreshNote}</p>`}
-
           ${
             canLive &&
             provisionalRows.length > 0 &&
