@@ -355,6 +355,39 @@ excluded nothing, forever. A working filter over data nobody wrote.
 - Spent or expired rows older than 30 days are dropped the next time a code
   is minted. The file is created on first mint.
 
+## Guests — `guests.json` (data-repo ROOT, written by the Worker only)
+
+Guest log in (v1.6, David 2026-10-18: "type your name + a quick passkey").
+
+```jsonc
+{
+  "logins": [
+    {
+      "nameKey": "priyak", // the login name, lowercased, spaces/'/- removed
+      "name": "Priya K", // as typed at sign up
+      "salt": "…", // base64url, 16 random bytes
+      "hash": "…", // PBKDF2-SHA-256, 10,000 iterations, base64url
+      "profileId": "priya", // the profile the sign up created
+      "house": "guesthouse", // copied from the invite
+      "hostHouse": "wayne", // whose calendar /guest/me reads
+      "branch": "sandbox", // the data branch it was created on
+      "createdAt": "2026-10-18T23:10:00.000Z",
+    },
+  ],
+}
+```
+
+- Written ONLY by `/invite/claim` when the claim carries a `login`, as the
+  last write of the claim; a taken `nameKey` is refused before the invite
+  is spent. `/guest/login` and `/guest/me` only read it (cached a minute
+  per colo); a log in never writes to GitHub.
+- Kept apart from `invites.json`, whose housekeeping drops spent invites
+  after 30 days and would delete logins.
+- Deleting a row signs that guest out within a minute (`/guest/me` checks
+  the row on every load). There is no passkey reset: the host sends a fresh
+  invite link and the old row is removed by hand.
+- No PIN is ever stored, and no screen lists names.
+
 ## Pins — `pins.json` (data-repo ROOT, shared reference, read raw)
 
 The ledger's identity file (fix list 3.2 promoted by PF.3): a confirmed
