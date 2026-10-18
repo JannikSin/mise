@@ -5,16 +5,34 @@ import { readProfiles, patchProfiles, writeTargetsOf, flushNow } from "../lib/st
 import { targetsFromQuestionnaire } from "../lib/targets.js";
 import { normalizeEquipment } from "../lib/equipment.js";
 import { localIsoDate } from "../lib/dates.js";
+import { ADMIN_DEVICE_KEY, DEVICE_HOUSE_KEY, allowedNewHouse, boundaryOn } from "../lib/privacy.js";
 
 /**
  * Turn the onboarder's finished raw answers into a profiles.json entry + a
  * fitness/targets.json, using the SAME deterministic Mifflin-St Jeor math as
  * the survey gate (the model never computes macros). Returns the new id.
- * @param {Record<string, any>} p validated onboard profile
+ * @param {Record<string, any>} p0 validated onboard profile
  * @param {Record<string, any>[]} existing current profiles
  * @returns {Promise<{ id: string, synced: boolean, syncError: string | null, pending: number } | null>} null if the name collides / is empty
  */
-async function finalizeProfile(p, existing) {
+async function finalizeProfile(p0, existing) {
+  // the chat's reply never chooses the household (Tribunal Red Team loop 2,
+  // v1.8): on a non-admin device the new profile joins this device's own
+  // house, exactly like the form, and a family is dropped
+  const read = (/** @type {string} */ k) => {
+    try {
+      return localStorage.getItem(k);
+    } catch {
+      return null;
+    }
+  };
+  const adminDevice = read(ADMIN_DEVICE_KEY) === "1";
+  const mayPlaceAnywhere = !boundaryOn(existing) || adminDevice;
+  const p = {
+    ...p0,
+    household: allowedNewHouse(existing, read(DEVICE_HOUSE_KEY), adminDevice, p0?.household),
+    ...(mayPlaceAnywhere ? {} : { family: undefined }),
+  };
   const id = String(p.name)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
