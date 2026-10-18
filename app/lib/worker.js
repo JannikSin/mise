@@ -245,15 +245,66 @@ export async function newInvite(kind, hostHouse, by) {
  * @param {Record<string, any>} entry
  * @param {Record<string, any>} targets
  * @param {string[]} [dinners] YYYY-MM-DD dinners they can make (2026-10-18)
- * @returns {Promise<{ id: string, name: string, house: string }>}
+ * @param {{ name: string, pin: string }} [login] sign up with a login (v1.6)
+ * @returns {Promise<{ id: string, name: string, house: string, session: string }>}
  */
-export async function claimInvite(code, entry, targets, dinners = []) {
-  const data = await postOpen("/invite/claim", { code, entry, targets, dinners });
+export async function claimInvite(code, entry, targets, dinners = [], login = undefined) {
+  const data = await postOpen("/invite/claim", {
+    code,
+    entry,
+    targets,
+    dinners,
+    ...(login ? { login } : {}),
+  });
   return {
     id: String(data.id ?? ""),
     name: String(data.name ?? ""),
     house: String(data.house ?? ""),
+    session: typeof data.session === "string" ? data.session : "",
   };
+}
+
+// GUEST SESSION (v1.6, David 2026-10-18: "type your name + a quick passkey").
+// The signed session opens only this guest's own meals. Namespaced, because
+// janniksin.github.io localStorage is shared with David's other apps.
+const GUEST_SESSION = "mise.guest.session";
+
+/** @returns {string} the stored guest session, or "" */
+export function guestSession() {
+  try {
+    return localStorage.getItem(GUEST_SESSION) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** @param {string} session "" signs out */
+export function setGuestSession(session) {
+  try {
+    if (session) localStorage.setItem(GUEST_SESSION, session);
+    else localStorage.removeItem(GUEST_SESSION);
+  } catch {
+    // a browser refusing storage: the guest logs in again next time
+  }
+}
+
+/**
+ * @param {string} name
+ * @param {string} pin
+ * @returns {Promise<{ session: string, name: string }>}
+ */
+export async function guestLogin(name, pin) {
+  const data = await postOpen("/guest/login", { name, pin });
+  return { session: String(data.session ?? ""), name: String(data.name ?? "") };
+}
+
+/**
+ * The signed-in guest's own upcoming meals and their recipes.
+ * @param {string} session
+ * @returns {Promise<{ name: string, rows: { date: string, slot: string, dish: string, recipeId: string, servings: number, plate: string[], cook: string }[], recipes: Record<string, { name: string, servings: number, ingredients: { qty: number | null, unit: string, food: string, note: string }[], steps: string[] }> }>}
+ */
+export async function guestMe(session) {
+  return /** @type {any} */ (await postOpen("/guest/me", { session }));
 }
 
 /**

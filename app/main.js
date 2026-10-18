@@ -42,10 +42,12 @@ import {
   krogerConsumeRedirect,
   krogerPricesById,
   krogerSearch,
+  guestSession,
+  setGuestSession,
 } from "./lib/worker.js";
 import { repriceList, reapplyOps } from "./lib/repricer.js";
 import { ProfileGateView } from "./views/profile-gate.js";
-import { JoinView, StatusView } from "./views/join.js";
+import { JoinView, StatusView, WelcomeView, GuestHomeView } from "./views/join.js";
 import { CookbookView } from "./views/cookbook.js";
 import { RecipeView } from "./views/recipe.js";
 import { RecipePeek } from "./views/recipe-peek.js";
@@ -5140,10 +5142,26 @@ function GuestLinkRoot() {
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
+  // v1.6 (David, 2026-10-18): Welcome to Mise with LOG IN / SIGN UP; once
+  // in, only the guest's own meals and their recipes
+  const [session, setSession] = useState(() => guestSession());
+  const signedIn = (/** @type {string} */ s) => {
+    setGuestSession(s);
+    setSession(s);
+    location.hash = "#/me";
+  };
+  const signOut = () => {
+    setGuestSession("");
+    setSession("");
+  };
   const r = /** @type {any} */ (route);
-  return r.view === "status"
-    ? html`<${StatusView} code=${r.code ?? ""} />`
-    : html`<${JoinView} code=${r.code ?? ""} member=${Boolean(r.member)} />`;
+  if (r.view === "status") return html`<${StatusView} code=${r.code ?? ""} />`;
+  if (session) return html`<${GuestHomeView} session=${session} onSignOut=${signOut} />`;
+  return html`<${WelcomeView}
+    code=${r.view === "join" ? (r.code ?? "") : ""}
+    member=${Boolean(r.member)}
+    onSignedIn=${signedIn}
+  />`;
 }
 
 const root = document.getElementById("app");
@@ -5152,7 +5170,9 @@ if (root) {
   // profile" cleared the key) — render the chooser instead of the app,
   // except on an invite or status link, which needs neither
   const first = parseRoute(location.hash).view;
-  const guestLink = first === "join" || first === "status";
+  // a guest who signed in before opens straight to their meals (v1.6)
+  const guestLink =
+    first === "join" || first === "status" || first === "me" || guestSession() !== "";
   try {
     render(
       localStorage.getItem("mise.activeProfile")

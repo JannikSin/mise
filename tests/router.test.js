@@ -111,3 +111,8 @@ test("#/join and #/status carry a 20-char base32 code, and drop anything else", 
     member: true,
   });
 });
+
+test("#/me is a returning guest's page, separate from the host's #/guest form (v1.6)", () => {
+  assert.deepEqual(parseRoute("#/me"), { view: "me" });
+  assert.deepEqual(parseRoute("#/guest"), { view: "guest" });
+});

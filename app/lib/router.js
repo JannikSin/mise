@@ -40,6 +40,10 @@ export function parseRoute(hash) {
     // JOIN BY LINK (guesthouse spec §8): #/join?code=… is the invitee's
     // questionnaire, #/status?code=… their read-only upcoming meals. Both
     // work with no token on the device, which is the whole point.
+    // #/me (v1.6): a returning guest's own meals, or Welcome to log in.
+    // (#/guest above is the HOST's add-a-guest questionnaire.)
+    case "me":
+      return { view: "me" };
     case "join":
     case "status": {
       const params = new URLSearchParams(query);
