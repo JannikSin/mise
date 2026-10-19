@@ -75,7 +75,10 @@ export function upsertDay(daily, date, patch) {
  * Allergen preset id -> the ingredient-name substrings it expands to, appended
  * to targets.avoidIngredients (survey-v2 Q10). Shared by the profile gate and
  * SYS so both render the same chips and expand the same way. Deliberately
- * broad: allergy handling wants false positives over false negatives.
+ * broad: allergy handling wants false positives over false negatives. Terms
+ * are SUBSTRING matches, so short ones (fish, rye, malt, soy) over-refuse by
+ * design; over-refusing is the safe error. Stored profiles pick up new terms
+ * on every read (store.js withCurrentAllergenTerms).
  * @type {Record<string, string[]>}
  */
 export const ALLERGEN_TERMS = {

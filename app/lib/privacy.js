@@ -9,7 +9,8 @@
 // household's events, so devtools or the offline cache can still show them.
 // What this module guarantees is that no SCREEN shows a non-admin a profile
 // outside their own household (plus guests seated at their own tables), and
-// that the admin profile cannot be picked on a device without its passkey.
+// that a profile with a passkey (the admin's, and since v1.9 anyone's) cannot be
+// picked on a device without it.
 // Logic keeps the raw lists (tables, seat screens, the ledger need them);
 // only what views render goes through these filters.
 
@@ -191,7 +192,8 @@ export const cleanPasskey = (raw) =>
 export const validPasskey = (pin) => /^\d{4,8}$/.test(String(pin ?? ""));
 
 /**
- * The stored form of an admin passkey: a random salt and a PBKDF2-SHA-256
+ * The stored form of a profile's passkey (the name is v1.8 legacy: since
+ * v1.9 it serves EVERY profile, not only the admin's): a random salt and a PBKDF2-SHA-256
  * hash (10,000 rounds, the same light bar as the guest login).
  * @param {string} pin
  * @param {Uint8Array} [salt] injectable for tests

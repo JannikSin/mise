@@ -120,8 +120,12 @@ at their own tables (app/lib/privacy.js); the admin sees all. Any row may carry
 `passkey: { salt, hash }` (PBKDF2-SHA-256, 10,000 rounds, hex; v1.9, set in
 Settings by its owner, cleared by the admin), checked before a device may
 switch into that profile. v1.8 wrote the admin's as `adminKey`, still honoured
-(`keyOf`) and dropped when a new passkey is saved. Every write through
-`patchProfiles` carries these fields through untouched. The boundary is in the
+(`keyOf`; a row with both uses `passkey`) and dropped when a new passkey is
+saved or the admin clears it. Every other write through `patchProfiles`
+carries these fields through untouched. Remove the `adminKey` fallback only
+once the live profiles.json has no `adminKey` rows. Events tables may carry
+`buyerFrom: "rule"`: a buyer filled from a take-turns rule's shopper, which
+follows the rule (app/lib/tables.js normalizeEvents); a hand claim has none. The boundary is in the
 app: a data-token holder can read this file directly.
 
 ```jsonc
