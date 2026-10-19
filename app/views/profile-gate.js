@@ -86,7 +86,7 @@ function splitList(/** @type {string} */ s) {
 }
 
 /**
- * @param {{ guest?: boolean, onDone?: (id: string) => void, invite?: { code: string, house: string }, busy?: boolean, onInviteSubmit?: (entry: Record<string, any>, targets: Record<string, any>) => Promise<void>, lead?: any, extraValid?: boolean, edit?: { id: string, targets: Record<string, any>, onSave: (fresh: Record<string, any>, stated: Parameters<MergeFn>[2]) => Promise<boolean> } }} [props] guest
+ * @param {{ guest?: boolean, onDone?: (id: string) => void, invite?: { code: string, house: string }, busy?: boolean, onInviteSubmit?: (entry: Record<string, any>, targets: Record<string, any>) => Promise<void>, lead?: any, extraValid?: boolean, onExtraInvalid?: () => void, edit?: { id: string, targets: Record<string, any>, onSave: (fresh: Record<string, any>, stated: Parameters<MergeFn>[2]) => Promise<boolean> } }} [props] guest
  * mode (guesthouse spec §8, David's yes 2026-08-29 plenum): the SAME
  * questionnaire, but the profile lands in the `guesthouse` household, the
  * device stays signed in as its owner, and onDone fires instead of a
@@ -102,6 +102,7 @@ export function ProfileGateView({
   lead = null,
   // the caller's own fields must be valid too (v1.6: the guest's login)
   extraValid = true,
+  onExtraInvalid = undefined,
   edit = undefined,
 } = {}) {
   const [profiles, setProfiles] = useState(/** @type {Record<string, any>[]} */ ([]));
@@ -426,6 +427,13 @@ export function ProfileGateView({
   };
 
   const addProfile = async () => {
+    // the login boxes live at the top of a long form: a tap with them empty
+    // says so up there instead of a grey button that never explains itself
+    // (audit 2026-10-18)
+    if (formValid && !saving && !busy && !extraValid) {
+      onExtraInvalid?.();
+      return;
+    }
     if (!formValid || saving || busy || !extraValid) return;
     const trimmedName = name.trim();
     const id = trimmedName
@@ -1066,7 +1074,7 @@ export function ProfileGateView({
             <button
               class="primary"
               onClick=${edit ? saveEdit : addProfile}
-              disabled=${edit ? saving : !formValid || saving || !extraValid}
+              disabled=${edit ? saving : !formValid || saving}
             >
               ${edit ? (saving ? "SAVING…" : "SAVE MY PROFILE") : saving ? "SETTING UP…" : "ADD & OPEN"}
             </button>

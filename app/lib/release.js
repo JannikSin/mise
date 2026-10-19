@@ -34,6 +34,13 @@ export const RELEASES = [
       "Walk the fridge now listens: film the shelves while you say what you see, and what you said lands in the box for you to check. If the phone cannot hear it, the box stays for typing and says why.",
       "Sunday's dinner can be the batch: in People, EDIT, untick the batch nights and Sunday's one pot covers the nights after it, picked to keep and reheat well.",
       "Sunday cooking can have a rough minutes limit in the kitchen rule; Plan shows the week's Sunday prep against it.",
+      "Passkeys show the digits you type, take the whole width, and clear after a wrong try. Everyone can set their own in Settings (typed twice), and David can clear one that someone forgot.",
+      "Allergies catch more: a dairy allergy now catches mozzarella, cheddar, queso and pesto; fish catches Worcestershire; eggs catch mayonnaise; gluten catches gnocchi; nuts catch pine nuts and pesto.",
+      "When cooks take turns, the whole week is one list bought by the shopper, Elliot's nights included.",
+      "Walk the fridge can read your video again.",
+      "Saving the kitchen rule never drops a recipe you picked, and SET MY WEEK waits until the recipes have loaded on a new phone, which also loads much faster now.",
+      "Easier to read on a phone: the kitchen rule form fits the screen, list amounts and prices no longer cut off, and no text box makes the iPhone zoom in.",
+      "Guests: a paused log in says so and says how long, a missing login name says so right where you type it, and guest pages never show who in the house is cooking.",
     ],
   },
   {

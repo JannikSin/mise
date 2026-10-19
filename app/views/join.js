@@ -46,6 +46,15 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
   // an error about the login (taken, too many tries, no signal) shows by the
   // login fields; the survey stays filled in
   const [loginError, setLoginError] = useState("");
+  // the login sits at the top of a long form: an error about it scrolls it
+  // into view, or the guest taps save and sees nothing happen (audit
+  // 2026-10-18: "name taken" was drawn 1,700px above the button)
+  const showLoginError = (/** @type {string} */ msg) => {
+    setLoginError(msg);
+    requestAnimationFrame(() =>
+      document.getElementById("join-login")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    );
+  };
   const nextDinners = Array.from({ length: 14 }, (_, n) => {
     const d = new Date();
     d.setDate(d.getDate() + n);
@@ -101,7 +110,7 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
       </div>
     </div>`;
   }
-  const loginTile = html`<div class="tile">
+  const loginTile = html`<div class="tile" id="join-login">
     <div class="k">Your login</div>
     <p class="hint">
       Pick any name you'll remember, like your first name and last initial. Then pick 4 digits.
@@ -165,14 +174,14 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
     lead=${html`${loginTile}${dinnerPicker}`}
     busy=${state.kind === "busy"}
     extraValid=${nameOk && pinOk}
+    onExtraInvalid=${() =>
+      showLoginError("Almost done: add your login name (2 or more letters) and 4 digits here, then tap save again.")}
     onInviteSubmit=${async (
       /** @type {Record<string, any>} */ entry,
       /** @type {Record<string, any>} */ targets,
     ) => {
       if (!nameOk || !pinOk) {
-        setLoginError(
-          "Almost done. Scroll up and add your login name (2 or more letters) and 4 digits, then tap save again.",
-        );
+        showLoginError("Almost done: add your login name (2 or more letters) and 4 digits here, then tap save again.");
         return;
       }
       setLoginError("");
@@ -192,7 +201,7 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
           setState({ kind: "error", message: msg });
         } else {
           setState({ kind: "form" });
-          setLoginError(msg);
+          showLoginError(msg);
         }
       }
     }}

@@ -34,3 +34,22 @@ test("allergy chips catch what the audit found passing (dairy, fish, egg, gluten
     for (const f of foods) assert.ok(recipeConflicts(rec(f), "omnivore", avoid).length > 0, `${chip} must refuse ${f}`);
   }
 });
+
+test("a Sunday buy day shops Sun to Sat (David, 2026-10-18: \"It should be building from Sunday to Saturday\")", async () => {
+  const { tripFor } = await import("../app/lib/plan.js");
+  assert.deepEqual(tripFor("2026-W43", "2026-10-18", "2026-10-18", 0), [
+    "2026-10-18", "2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-24",
+  ]);
+  assert.equal(tripFor("2026-W43", "2026-10-18", "2026-10-18", 5)?.[0], "2026-10-16", "Friday (the default) opens on the Friday before");
+});
+
+test("Anvil's day keys survive a Mise tap and a concurrent write (polaris, 2026-10-18)", async () => {
+  const { upsertDay } = await import("../app/lib/targets.js");
+  const { mergeFieldWise } = await import("../app/lib/merge.js");
+  const base = { days: [{ date: "2026-10-18", water: 4 }] };
+  const anvil = { days: [{ date: "2026-10-18", water: 4, trained: { lift: 55, tennis: 60 } }] };
+  const mise = upsertDay(base, "2026-10-18", { water: 5 });
+  const merged = mergeFieldWise(base, mise, anvil);
+  assert.deepEqual(merged.days, [{ date: "2026-10-18", water: 5, trained: { lift: 55, tennis: 60 } }]);
+  assert.deepEqual(upsertDay(anvil, "2026-10-18", { water: 6 }).days[0].trained, { lift: 55, tennis: 60 });
+});
