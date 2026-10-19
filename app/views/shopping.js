@@ -225,6 +225,7 @@ const FRESH_STEPS = [
  *   repo: Record<string, any> | null,
  *   loading: boolean,
  *   onBuild: (only?: { dates?: string[], slots?: string[] }) => void,
+ *   bankReady?: boolean,
  *   onToggleItem: (id: string) => void,
  *   onAddManual: (food: string) => void,
  *   onJustBought: () => void,
@@ -279,6 +280,7 @@ export function ShoppingView({
   repo,
   loading,
   onBuild,
+  bankReady = true,
   onToggleItem,
   onAddManual,
   onJustBought,
@@ -2019,6 +2021,7 @@ export function ShoppingView({
               !(brigade && !brigade.iShop) &&
               html`<button
                   class="primary"
+                  disabled=${!bankReady}
                   onClick=${() => {
                     // the trip (the seven days from the buy day) is main.js's
                     // business: BUILD always shops it, whichever week the view
@@ -2031,14 +2034,23 @@ export function ShoppingView({
                   }}
                 >
                   ${
-                    buyDays.length > 0 || buySlots.length > 0
+                    // a cold phone's BUILD before the bank lands would replace
+                    // the shared list with one missing every dinner (Tribunal
+                    // Realist, 2026-10-18): wait, and say so
+                    !bankReady
+                      ? "LOADING THE RECIPES…"
+                      : buyDays.length > 0 || buySlots.length > 0
                       ? `BUILD FOR ${buyDays.length || 7} ${(buyDays.length || 7) === 1 ? "DAY" : "DAYS"}`
                       : trip
                         ? `BUILD ${tripLabel(trip)}`
                         : `BUILD FROM W${weekId.split("-W")[1]}`
                   }
                 </button>
-                <button class="secondary" onClick=${() => setShowPartial(!showPartial)}>
+                <button
+                  class="secondary"
+                  disabled=${!bankReady}
+                  onClick=${() => setShowPartial(!showPartial)}
+                >
                   ${showPartial ? "WHOLE TRIP" : "JUST SOME DAYS"}
                 </button>`
             }

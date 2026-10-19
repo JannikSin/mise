@@ -813,8 +813,12 @@ export default {
     //    guests.json signs that guest out within a minute.
     if (url.pathname === "/guest/login" || url.pathname === "/guest/me") {
       const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
-      const weight = url.pathname === "/guest/login" ? 3 : 2;
-      if (!allowRequest(rateState, `guest:${ip}`, Date.now(), weight)) {
+      // separate budgets (Tribunal Realist, 2026-10-18): guests on one home
+      // wifi share an address, and one guest's wrong passkeys used to blank
+      // another guest's meals page. Guessing stays on the login budget (and
+      // the per-name limit below); reading your meals has its own.
+      const isLogin = url.pathname === "/guest/login";
+      if (!allowRequest(rateState, `${isLogin ? "guestlogin" : "guestme"}:${ip}`, Date.now(), isLogin ? 3 : 1)) {
         return json(429, { error: "slow down, try again in a few minutes" }, cors);
       }
       const branch = branchForOrigin(request.headers.get("origin"));

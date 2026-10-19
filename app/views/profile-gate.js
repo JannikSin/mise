@@ -1145,7 +1145,12 @@ export function ProfileGateView({
           // fresh device lists no one and asks for a name below.
           const offerable = chooserProfiles(profiles, stored(DEVICE_HOUSE_KEY), adminDevice);
           const fams = [...new Set(offerable.map(famOf))];
-          const showHeaders = fams.filter(Boolean).length > 0 && fams.length > 1;
+          // family headings are the admin's view: on a roommate's phone the
+          // heading named the admin's family (Tribunal Realist, 2026-10-18)
+          const showHeaders =
+            (!boundaryOn(profiles) || adminDevice) &&
+            fams.filter(Boolean).length > 0 &&
+            fams.length > 1;
           const block = (/** @type {Record<string, any>[]} */ list) => html`
             <div class="slots">
               ${list.map(

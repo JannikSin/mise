@@ -4896,6 +4896,7 @@ function App() {
         repo=${repo}
         loading=${!listLoaded}
         onBuild=${handleBuildList}
+        bankReady=${bankReady}
         money=${hasCap("money") && ledgerLoaded
           ? {
               me,
