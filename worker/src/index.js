@@ -835,8 +835,17 @@ export default {
           401,
           {
             error:
-              "That name and passkey don't match. Check the spelling, or ask your host for a new link. Too many tries pauses log in for a bit.",
+              "That name and passkey don't match. Check the spelling, or ask your host for a new link.",
           },
+          cors,
+        );
+      // a pause says so plainly (audit 2026-10-18: a locked guest got the
+      // mismatch words even for the RIGHT passkey and could not tell why).
+      // Unknown names pay the same pause, so it still reveals nothing.
+      const paused = () =>
+        json(
+          429,
+          { error: "Too many tries for that name. Log in is paused for 15 minutes; wait, then try again." },
           cors,
         );
       // THE GUARD PARALLEL GUESSES CANNOT RACE (Tribunal Red Team BLOCK,
@@ -848,7 +857,7 @@ export default {
       if (url.pathname === "/guest/login") {
         const limitKey = guestNameKey(body?.name) ?? "invalid";
         if (!allowRequest(rateState, `guestname:${branch}:${limitKey}`, Date.now(), 6)) {
-          return nope();
+          return paused();
         }
       }
       try {
@@ -866,6 +875,7 @@ export default {
             row && validGuestPin(pin) && !guestLocked(fails, nowMs)
               ? await verifyGuestPin(pin, String(row.salt), String(row.hash))
               : (await hashGuestPin(validGuestPin(pin) ? pin : "0000", GUEST_DUMMY_SALT), false);
+          if (guestLocked(fails, nowMs)) return paused();
           if (!good || !row) {
             if (nameKey && !guestLocked(fails, nowMs)) {
               await cachePut(failKey, guestAfterFail(fails, nowMs), Math.ceil(GUEST_LOCK_MS / 1000));

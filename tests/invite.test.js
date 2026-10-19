@@ -104,7 +104,7 @@ test("inviteStatusRows: only this person's live seats in the window, with their 
   ];
   const rows = inviteStatusRows(tables, "priya", (id) => `Dish ${id}`, (id) => id.toUpperCase(), "2026-09-14");
   assert.deepEqual(rows, [
-    { date: "2026-09-15", slot: "dinner", dish: "Dish pasta", servings: 1.25, plate: ["add 100 g pasta"], cook: "DAVID" },
+    { date: "2026-09-15", slot: "dinner", dish: "Dish pasta", servings: 1.25, plate: ["add 100 g pasta"], cook: "your host" },
   ]);
 });
 

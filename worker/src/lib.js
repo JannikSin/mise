@@ -3270,7 +3270,8 @@ export function inviteStatusRows(tables, profileId, dishName, personName, todayI
         dish: dishName(String(t.recipeId ?? "")),
         servings: Number(seat?.servings) || 1,
         plate: Array.isArray(plate) ? plate.map((l) => String(l).slice(0, 160)).slice(0, 4) : [],
-        cook: t.cookId ? personName(String(t.cookId)) : "",
+        // never a housemate's name on a guest page (audit 2026-10-18)
+        cook: t.cookId ? "your host" : "",
       };
     });
 }

@@ -158,7 +158,7 @@ test("sign up stores the login with the host house and returns a session; the gu
     assert.equal(me.status, 200, text);
     const view = JSON.parse(text);
     assert.equal(view.rows.length, 1, "only the meal they are seated at");
-    assert.equal(view.rows[0].cook, "David", "the cook by first name only");
+    assert.equal(view.rows[0].cook, "your host", "never a housemate's name on a guest page (audit 2026-10-18)");
     assert.equal(view.rows[0].dish, "Coconut Curry");
     assert.deepEqual(view.recipes["coconut-curry"].steps, ["Sear the chicken."]);
     for (const leak of ["Sam", "Rivera", "Taranowski", "wayne", "secret-dish", "audited", "nobody"]) {
@@ -206,7 +206,7 @@ test("log in: right passkey signs in; wrong passkey and unknown name answer the 
   });
 });
 
-test("five wrong passkeys lock the login: the right one then fails too, with the same words", async () => {
+test("five wrong passkeys lock the login: the right one then fails too, and the screen says it is paused (audit 2026-10-18)", async () => {
   resetGuestCachesForTests();
   await withRepo(SEED(), async () => {
     await worker.fetch(req("/invite/claim", { code: CODE, ...PRIYA, login: LOGIN }, SANDBOX, "9.0.1.1"), ENV);
@@ -214,8 +214,14 @@ test("five wrong passkeys lock the login: the right one then fails too, with the
       await worker.fetch(req("/guest/login", { name: "Priya K", pin: "9999" }, SANDBOX, `9.0.1.${10 + i}`), ENV);
     }
     const locked = await worker.fetch(req("/guest/login", { name: "Priya K", pin: "4821" }, SANDBOX, "9.0.1.20"), ENV);
-    assert.equal(locked.status, 401);
-    assert.match(await locked.text(), /don't match/);
+    assert.equal(locked.status, 429);
+    assert.match(await locked.text(), /paused for 15 minutes/);
+    // an unknown name pays the same pause, so a pause reveals nothing
+    for (let i = 0; i < 5; i++) {
+      await worker.fetch(req("/guest/login", { name: "Nobody Here", pin: "9999" }, SANDBOX, `9.0.1.${30 + i}`), ENV);
+    }
+    const ghost = await worker.fetch(req("/guest/login", { name: "Nobody Here", pin: "4821" }, SANDBOX, "9.0.1.40"), ENV);
+    assert.equal(ghost.status, 429);
   });
 });
 
@@ -253,9 +259,9 @@ test("Tribunal BLOCK: ten wrong passkeys sent at once still lock the name; the r
         worker.fetch(req("/guest/login", { name: "Priya K", pin: "9999" }, SANDBOX, `9.1.1.${i}`), ENV),
       ),
     );
-    assert.ok(burst.every((r) => r.status === 401));
+    assert.ok(burst.every((r) => r.status === 401 || r.status === 429), "no guess in the burst signs in");
     const right = await worker.fetch(req("/guest/login", { name: "Priya K", pin: "4821" }, SANDBOX, "9.1.2.1"), ENV);
-    assert.equal(right.status, 401, "the burst cannot race past the limit");
+    assert.equal(right.status, 429, "the burst cannot race past the limit");
   });
 });
 

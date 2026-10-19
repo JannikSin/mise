@@ -330,7 +330,7 @@ test("status: unclaimed before, then only this person's live seats with their pl
       assert.equal(out.rows[0].dish, "Chicken Piccata");
       assert.deepEqual(out.rows[0].plate, ["add 100 g pasta"]);
       assert.ok(!JSON.stringify(out).includes("DAVID SECRET"), "no other seat's plate leaks");
-      assert.equal(out.rows[0].cook, "David");
+      assert.equal(out.rows[0].cook, "your host");
     },
   );
   await withRepo(

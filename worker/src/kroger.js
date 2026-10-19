@@ -13,7 +13,12 @@ const TOKEN_URL = "https://api.kroger.com/v1/connect/oauth2/token";
 const API = "https://api.kroger.com/v1";
 
 /** Where a cart consent hand-off may return to. Mirrors the Worker CORS list. */
-export const ALLOWED_RETURN_ORIGINS = ["https://janniksin.github.io", "http://127.0.0.1:8378"];
+// mise-next added 2026-10-18: the sandbox could not link Kroger at all
+export const ALLOWED_RETURN_ORIGINS = [
+  "https://janniksin.github.io",
+  "http://127.0.0.1:8378",
+  "https://mise-next.pages.dev",
+];
 
 /** per-isolate token cache; client-credentials tokens live ~30 min */
 let cachedToken = /** @type {{ value: string, expiresAt: number } | null} */ (null);
