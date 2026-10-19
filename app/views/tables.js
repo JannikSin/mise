@@ -228,6 +228,12 @@ export function TablesView({
    *   nights, named breakfasts, who is in it — without ending it and starting another
    */
   const openBrigadeForm = (seed, editing = false) => {
+    // the form opens below the card, under the tab bar: bring it up so the
+    // tap visibly did something (Tribunal Usability, 2026-10-18)
+    setTimeout(
+      () => document.getElementById("rule-form")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      60,
+    );
     const until = new Date(`${todayIso}T12:00:00`);
     until.setDate(until.getDate() + 27); // the lib caps a brigade at four weeks
     setBrigadeForm({
@@ -1192,7 +1198,7 @@ export function TablesView({
                 <small>the standing arrangement — SET THIS WEEK then plans the whole week</small>
               </button>
             </div>`
-          : html`<div class="tile tableform">
+          : html`<div class="tile tableform" id="rule-form">
               <div class="k">
                 ${brigadeForm.editId ? "Change the standing rule" : "Set who cooks"}
               </div>

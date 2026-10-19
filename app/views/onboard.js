@@ -5,7 +5,13 @@ import { readProfiles, patchProfiles, writeTargetsOf, flushNow } from "../lib/st
 import { targetsFromQuestionnaire } from "../lib/targets.js";
 import { normalizeEquipment } from "../lib/equipment.js";
 import { localIsoDate } from "../lib/dates.js";
-import { ADMIN_DEVICE_KEY, DEVICE_HOUSE_KEY, allowedNewHouse, boundaryOn } from "../lib/privacy.js";
+import {
+  ADMIN_DEVICE_KEY,
+  DEVICE_HOUSE_KEY,
+  allowedNewHouse,
+  boundaryOn,
+  verifiedKey,
+} from "../lib/privacy.js";
 
 /**
  * Turn the onboarder's finished raw answers into a profiles.json entry + a
@@ -219,6 +225,11 @@ export function OnboardView({ survey = {}, hasToken }) {
           },
         ]);
         localStorage.setItem("mise.activeProfile", made.id);
+        try {
+          localStorage.setItem(verifiedKey(made.id), "1");
+        } catch {
+          // storage refused: harmless, a new profile has no passkey yet
+        }
         // an unsynced profile gets longer on screen, because the warning is
         // the whole point of showing it
         setTimeout(() => location.reload(), made.synced ? 900 : 6000);

@@ -30,6 +30,17 @@ export const isAdmin = (p) => p?.admin === true;
  */
 export const keyOf = (p) => p?.passkey ?? p?.adminKey ?? undefined;
 
+/**
+ * localStorage key: this phone opened `id` through a real check (its passkey,
+ * or a profile with none, from the real profile list). Tribunal Red Team,
+ * 2026-10-18: an offline phone with an empty cache offered the built-in
+ * David row with no passkey, one tap signed in, and the phone then marked
+ * itself the admin's. Now a passkeyed profile that was never verified here
+ * goes back to the chooser, and only a verified admin open marks the phone.
+ * @param {string} id
+ */
+export const verifiedKey = (id) => `mise.verified.${id}`;
+
 /** @param {Record<string, any> | undefined | null} p */
 const houseOf = (p) => String(p?.household ?? "home");
 

@@ -15,6 +15,7 @@ import {
   read,
   readCollection,
   collectionFresh,
+  collectionStalled,
   readProfiles,
   activeProfile,
   getSyncStatus,
@@ -31,6 +32,8 @@ import {
   visibleOccasionsFor,
   DEVICE_HOUSE_KEY,
   ADMIN_DEVICE_KEY,
+  keyOf,
+  verifiedKey,
 } from "./lib/privacy.js";
 import { normalizeEquipment } from "./lib/equipment.js";
 import {
@@ -579,7 +582,12 @@ function App() {
       readCollection("recipes", { raw: true }).then((r) => {
         if (!alive) return;
         setBankRecipes(r);
-        setBankReady(collectionFresh("recipes", { raw: true }));
+        // ready once the bank fully synced, or, when this launch cannot sync
+        // (offline, rate-limited), from a cache that is not empty
+        setBankReady(
+          collectionFresh("recipes", { raw: true }) ||
+            (collectionStalled("recipes", { raw: true }) && r.length > 0),
+        );
       });
       if (activeProfile() === "david") {
         setOwnRecipes([]);
@@ -661,6 +669,8 @@ function App() {
   // Tables (docs/tables-design.md): every house's events.json, cached-first,
   // refreshed on sync activity. A guest seated at another house's table
   // needs THAT house's file, so all houses load (a tiny in-repo set).
+  // readProfiles answered with its built-in default (no real list reachable)
+  const [profilesFallback, setProfilesFallback] = useState(false);
   const [houseEvents, setHouseEvents] = useState(
     /** @type {{ house: string, events: import("./lib/tables.js").HouseEvents }[]} */ ([]),
   );
@@ -697,14 +707,24 @@ function App() {
   // the admin row is offered only where the admin has signed in before
   useEffect(() => {
     const mine = allProfiles.find((p) => p.id === me);
-    if (!mine) return;
+    // the built-in default list proves nothing about this phone
+    if (!mine || profilesFallback) return;
     try {
+      const verified = localStorage.getItem(verifiedKey(me)) === "1";
+      // a passkeyed profile this phone never opened through its passkey
+      // (the offline fallback row, or an old session) asks for it now
+      if (keyOf(mine) && !verified) {
+        localStorage.removeItem("mise.activeProfile");
+        location.reload();
+        return;
+      }
       localStorage.setItem(DEVICE_HOUSE_KEY, String(mine.household ?? "home"));
-      if (mine.admin === true) localStorage.setItem(ADMIN_DEVICE_KEY, "1");
+      // the admin's phone only after a verified open (Tribunal Red Team)
+      if (mine.admin === true && verified) localStorage.setItem(ADMIN_DEVICE_KEY, "1");
     } catch {
       // storage refused: the chooser falls back to asking for a name
     }
-  }, [allProfiles, me]);
+  }, [allProfiles, me, profilesFallback]);
   useEffect(() => {
     let alive = true;
     const load = () => {
@@ -712,6 +732,7 @@ function App() {
         const prof = await readProfiles();
         if (!alive) return;
         setAllProfiles(prof.profiles);
+        setProfilesFallback(Boolean(/** @type {any} */ (prof).fallback));
         const houses = [
           ...new Set(prof.profiles.map((p) => /** @type {string} */ (p.household ?? "home"))),
         ];
@@ -1632,6 +1653,10 @@ function App() {
         recipesById(bankRecipesRef.current),
       );
       updateShopping(built);
+      // BUILD always answers (Tribunal Usability: the chip changed count with
+      // nothing saying the list was rebuilt); an empty-days note wins
+      const toBuy = (built.items ?? []).filter((/** @type {any} */ i) => !i.checked).length;
+      setBuildNote((n) => n || `List rebuilt: ${toBuy} ${toBuy === 1 ? "item" : "items"} to buy.`);
       // fire-and-forget: BUILD prices its own list when the network is there
       // (repricer.js owns the quota arithmetic); a dead network prices
       // nothing and breaks nothing, and the build itself never waits

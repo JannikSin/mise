@@ -30,11 +30,13 @@ import { TOUR_STEPS, TOUR_TABS } from "../lib/tour.js";
 import { ProfileGateView } from "./profile-gate.js";
 import {
   boundaryOn,
+  checkAdminKey,
   cleanPasskey,
   isAdmin,
   keyOf,
   makeAdminKey,
   validPasskey,
+  verifiedKey,
 } from "../lib/privacy.js";
 import { EQUIPMENT, canMake, unlockCounts } from "../lib/equipment.js";
 import { SLOT_KEYS, SLOT_META } from "../lib/plan.js";
@@ -358,6 +360,9 @@ export function SystemView({
   // so one stray tap saved a passkey nobody knew.
   const [newPin, setNewPin] = useState("");
   const [newPin2, setNewPin2] = useState("");
+  // changing a passkey that exists asks for it first (Tribunal Red Team: a
+  // phone left signed in could otherwise re-key someone's profile)
+  const [curPin, setCurPin] = useState("");
   const [pinNote, setPinNote] = useState("");
   const savePin = async () => {
     if (!validPasskey(newPin)) {
@@ -366,6 +371,11 @@ export function SystemView({
     }
     if (newPin !== newPin2) {
       setPinNote("the two boxes don't match; type it again");
+      return;
+    }
+    if (keyOf(profile) && !(await checkAdminKey(keyOf(profile), curPin))) {
+      setCurPin("");
+      setPinNote("your current passkey doesn't match; nothing changed");
       return;
     }
     const key = await makeAdminKey(newPin);
@@ -378,9 +388,15 @@ export function SystemView({
         return next;
       })
     ) {
-      setPinNote(`saved: ${newPin}. Opening your profile on any other phone now asks for it.`);
+      try {
+        localStorage.setItem(verifiedKey(me), "1");
+      } catch {
+        // storage refused: this phone asks for the passkey next time
+      }
+      setPinNote(`saved: ${newPin}. Opening your profile from the chooser now asks for it, on every phone.`);
       setNewPin("");
       setNewPin2("");
+      setCurPin("");
     }
   };
   // the admin clears a passkey someone forgot; they set a new one in Settings
@@ -661,6 +677,21 @@ export function SystemView({
             <div class="k">
               Your passkey · ${keyOf(profile) ? "set (type a new one to change it)" : "not set"}
             </div>
+              ${
+                keyOf(profile) &&
+                html`<input
+                  class="pin-input"
+                  aria-label="Current passkey"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  autocomplete="off"
+                  maxlength="8"
+                  placeholder="current passkey"
+                  value=${curPin}
+                  onInput=${(/** @type {any} */ e) => setCurPin(cleanPasskey(e.currentTarget.value))}
+                />`
+              }
               <input
               class="pin-input"
               aria-label="New passkey"

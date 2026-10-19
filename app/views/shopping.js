@@ -1710,6 +1710,11 @@ export function ShoppingView({
               price yet, so the total is a little low · tap $? on a row to price it
             </p>`
           }
+          ${
+            // the marks on prices, explained once (Tribunal Usability)
+            items.length > 0 &&
+            html`<p class="hint">~ an estimated price · † a price that may be out of date · "weighed" is sold by the pound</p>`
+          }
           ${pricePick?.fromTile ? pickSheet() : ""}
           ${
             // decision 0018 (David, 2026-10-16: "all I want to see is the price,

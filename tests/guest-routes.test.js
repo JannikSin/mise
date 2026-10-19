@@ -215,7 +215,7 @@ test("five wrong passkeys lock the login: the right one then fails too, and the 
     }
     const locked = await worker.fetch(req("/guest/login", { name: "Priya K", pin: "4821" }, SANDBOX, "9.0.1.20"), ENV);
     assert.equal(locked.status, 429);
-    assert.match(await locked.text(), /paused for 15 minutes/);
+    assert.match(await locked.text(), /paused for a few minutes/);
     // an unknown name pays the same pause, so a pause reveals nothing
     for (let i = 0; i < 5; i++) {
       await worker.fetch(req("/guest/login", { name: "Nobody Here", pin: "9999" }, SANDBOX, `9.0.1.${30 + i}`), ENV);

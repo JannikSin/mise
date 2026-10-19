@@ -2058,10 +2058,12 @@ export function planBrigadeWeek(events, brigade, ctx) {
         // should only be one list compiled and one list bought"): when cooks
         // take turns, every table is bought by the kitchen's shopper (the
         // rule's named cook). A buyer someone claimed by hand still wins.
-        ...(existing?.buyerId
+        // a buyer that came from the rule ("buyerFrom: rule") follows the
+        // rule's current shopper; only a hand claim is kept as it was
+        ...(existing?.buyerId && /** @type {any} */ (existing).buyerFrom !== "rule"
           ? { buyerId: existing.buyerId }
           : brigade.rotateCooks
-            ? { buyerId: cookId }
+            ? { buyerId: cookId, buyerFrom: "rule" }
             : {}),
         ...(existing?.headId ? { headId: existing.headId } : {}),
         ...(sameDish && existing?.cookedAt ? { cookedAt: existing.cookedAt } : {}),

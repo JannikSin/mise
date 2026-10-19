@@ -845,7 +845,7 @@ export default {
       const paused = () =>
         json(
           429,
-          { error: "Too many tries for that name. Log in is paused for 15 minutes; wait, then try again." },
+          { error: "Too many tries for that name. Log in is paused for a few minutes; wait, then try again." },
           cors,
         );
       // THE GUARD PARALLEL GUESSES CANNOT RACE (Tribunal Red Team BLOCK,
@@ -1067,7 +1067,7 @@ export default {
         const entry = sanitizeInviteEntry(body.entry);
         const targets = sanitizeInviteTargets(body.targets);
         if (!entry) return json(400, { error: "a name and an emoji are required" }, cors);
-        if (!targets) return json(400, { error: "the profile numbers did not make sense" }, cors);
+        if (!targets) return json(400, { error: "the profile could not be saved: check the numbers, and keep the allergy and avoid lists to a few hundred foods" }, cors);
         const house = slugOf(/** @type {any} */ (invite).house) || "guesthouse";
         // only a dinner guest picks dinners; a roommate eats every shared meal
         const dinners =

@@ -6,6 +6,13 @@
 // suffix anyone can register under, and this gate is what stands between the
 // Anthropic key's spend and the internet (Red Team, 2026-09-07). The third
 // literal is the release train's sandbox origin (docs/RELEASE_TRAIN.md).
+/**
+ * The longest allergy / never-serve list any route keeps whole: nine allergen
+ * chips fully expanded are about 150 terms, with room for typed extras. A list
+ * past it is refused, never trimmed (Tribunal, 2026-10-18).
+ */
+export const SAFETY_LIST_MAX = 400;
+
 const ALLOWED_ORIGINS = [
   "https://janniksin.github.io",
   "http://127.0.0.1:8378",
@@ -442,10 +449,13 @@ export function sanitizePeople(input) {
       calories: num(p.calories),
       protein: num(p.protein),
       diet: str(p.diet, 20),
+      // the whole list, never the first 20 (Tribunal Red Team BLOCK,
+      // 2026-10-18: dairy alone expands to 33 terms, so a guest's fish terms
+      // fell off and an anchovy plate note passed this screen)
       avoid: (Array.isArray(p.avoid) ? p.avoid : [])
         .filter((/** @type {any} */ s) => typeof s === "string" && s.trim())
         .map((/** @type {string} */ s) => s.trim().slice(0, 60))
-        .slice(0, 20),
+        .slice(0, SAFETY_LIST_MAX),
       say: str(p.say, 300),
     });
   }
@@ -3116,7 +3126,6 @@ function cleanValue(v, depth) {
 
 /** Lists the hard allergy screen reads: kept whole, never cut at 40. */
 const SAFETY_LIST_KEYS = new Set(["avoidIngredients", "allergens", "avoidRecipes"]);
-export const SAFETY_LIST_MAX = 400;
 
 /**
  * A safety list cleaned without losing an entry: strings only, each capped at

@@ -20,6 +20,7 @@ import {
   profilesNamed,
   allowedNewHouse,
   cleanPasskey,
+  verifiedKey,
   keyOf,
   validPasskey,
 } from "../lib/privacy.js";
@@ -208,8 +209,14 @@ export function ProfileGateView({
   const mayPlaceAnywhere = !boundaryOn(profiles) || adminDevice;
   const houseForNew = () =>
     allowedNewHouse(profiles, stored(DEVICE_HOUSE_KEY), adminDevice, household);
-  const signIn = (/** @type {string} */ id) => {
+  const signIn = (/** @type {string} */ id, verified = true) => {
     localStorage.setItem("mise.activeProfile", id);
+    try {
+      if (verified) localStorage.setItem(verifiedKey(id), "1");
+      else localStorage.removeItem(verifiedKey(id));
+    } catch {
+      // storage refused: the profile simply asks again next time
+    }
     location.reload();
   };
   const choose = async (/** @type {string} */ id, /** @type {string} */ withPin = "") => {
@@ -243,7 +250,9 @@ export function ProfileGateView({
       );
       return;
     }
-    signIn(id);
+    // a sign-in from the built-in default list (offline, empty cache) never
+    // verifies the profile on this phone (Tribunal Red Team, loop 1)
+    signIn(id, !fallback);
   };
 
   const numeric = {

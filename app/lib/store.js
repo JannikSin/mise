@@ -10,6 +10,7 @@
 import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
 import { listDir, readFile, writeFile, dataBranch } from "./github.js";
 import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
+import { avoidTermsFromAllergens } from "./targets.js";
 
 const io = { read: readFile, write: writeFile };
 
@@ -117,10 +118,33 @@ export const LEGACY_TARGETS_PATH = "fitness/targets.json";
  */
 export async function readTargetsOf(id, readFn = read) {
   const fresh = await readFn(pathFor(id, TARGETS_PATH), { raw: true }).catch(() => null);
-  if (fresh) return /** @type {any} */ (fresh);
+  if (fresh) return /** @type {any} */ (withCurrentAllergenTerms(fresh));
   return /** @type {any} */ (
-    await readFn(pathFor(id, LEGACY_TARGETS_PATH), { raw: true }).catch(() => null)
+    withCurrentAllergenTerms(
+      await readFn(pathFor(id, LEGACY_TARGETS_PATH), { raw: true }).catch(() => null),
+    )
   );
+}
+
+/**
+ * A stored profile's avoid list, widened to today's allergen terms (Tribunal
+ * Engineer + Red Team, 2026-10-18): the terms behind an allergy chip are
+ * copied into avoidIngredients only when the survey is saved, so a profile
+ * saved before the chip learned "mozzarella" never got it. Every read adds
+ * the current terms for its stored `allergens` ids. Only ever ADDS terms
+ * (stricter), keeps the stored order first, and returns the input untouched
+ * when there is nothing to add.
+ * @param {any} t
+ * @returns {any}
+ */
+export function withCurrentAllergenTerms(t) {
+  if (!t || typeof t !== "object" || !Array.isArray(t.allergens) || t.allergens.length === 0) {
+    return t;
+  }
+  const have = Array.isArray(t.avoidIngredients) ? t.avoidIngredients : [];
+  const seen = new Set(have.map((/** @type {unknown} */ x) => String(x).toLowerCase()));
+  const extra = avoidTermsFromAllergens(t.allergens, "").filter((x) => !seen.has(x));
+  return extra.length === 0 ? t : { ...t, avoidIngredients: [...have, ...extra] };
 }
 
 /**
@@ -132,9 +156,12 @@ export async function readTargetsOf(id, readFn = read) {
 export async function readTargetsMetaOf(id) {
   const miss = { data: null, sha: null, dirty: false };
   const fresh = await readMeta(pathFor(id, TARGETS_PATH), { raw: true }).catch(() => miss);
-  if (fresh?.data) return /** @type {any} */ (fresh);
+  if (fresh?.data) {
+    return /** @type {any} */ ({ ...fresh, data: withCurrentAllergenTerms(fresh.data) });
+  }
+  const legacy = await readMeta(pathFor(id, LEGACY_TARGETS_PATH), { raw: true }).catch(() => miss);
   return /** @type {any} */ (
-    await readMeta(pathFor(id, LEGACY_TARGETS_PATH), { raw: true }).catch(() => miss)
+    legacy?.data ? { ...legacy, data: withCurrentAllergenTerms(legacy.data) } : legacy
   );
 }
 
@@ -469,6 +496,11 @@ export async function readCollection(
 const passes = new Map();
 /** @type {Set<string>} */
 const freshDirs = new Set();
+// a pass that could not finish (offline, no token, rate-limited, a file that
+// would not download): the cache is all this launch has, and a phone in a
+// store with no signal must still plan from it (Tribunal loop 1)
+/** @type {Set<string>} */
+const stalledDirs = new Set();
 
 /**
  * Has this collection finished at least one full sync on this launch?
@@ -478,6 +510,16 @@ const freshDirs = new Set();
  */
 export function collectionFresh(dir, opts) {
   return freshDirs.has(opts?.raw ? dir : scoped(dir));
+}
+
+/**
+ * Did this launch's last sync of the collection fail to finish? Then the
+ * cache is the best there is: callers may plan from it when it is not empty.
+ * @param {string} dir as passed to readCollection
+ * @param {{ raw?: boolean }} [opts]
+ */
+export function collectionStalled(dir, opts) {
+  return stalledDirs.has(opts?.raw ? dir : scoped(dir));
 }
 
 /**
@@ -497,7 +539,13 @@ function revalidateCollection(scopedDir) {
  * @returns {Promise<void>}
  */
 async function revalidatePass(scopedDir) {
-  if (!navigator.onLine) return;
+  if (!navigator.onLine) {
+    if (!stalledDirs.has(scopedDir)) {
+      stalledDirs.add(scopedDir);
+      emit();
+    }
+    return;
+  }
   const prefix = `${scopedDir}/`;
   try {
     const listing = await listDir(scopedDir);
@@ -511,6 +559,7 @@ async function revalidatePass(scopedDir) {
     });
     // eight at a time: a cold bank of ~180 recipes was 180 serial round trips
     let next = 0;
+    let failed = 0;
     const worker = async () => {
       while (next < todo.length) {
         const entry = /** @type {{ path: string, sha: string }} */ (todo[next++]);
@@ -519,6 +568,7 @@ async function revalidatePass(scopedDir) {
         try {
           remote = await readFile(entry.path);
         } catch {
+          failed++;
           continue; // one unreadable/corrupt file must not sink the whole collection
         }
         if (!remote) continue;
@@ -537,13 +587,25 @@ async function revalidatePass(scopedDir) {
         changed = true;
       }
     }
-    const first = !freshDirs.has(scopedDir);
-    freshDirs.add(scopedDir);
+    // fresh only when EVERY file came down (Tribunal loop 1: a rate-limited
+    // cold phone was marked ready with a partial bank); a short pass is
+    // stalled, and the next emit tries again
+    const first = !freshDirs.has(scopedDir) && failed === 0;
+    if (failed === 0) {
+      freshDirs.add(scopedDir);
+      stalledDirs.delete(scopedDir);
+    } else {
+      stalledDirs.add(scopedDir);
+    }
     // the first full pass always tells the screens, even with nothing new:
     // that is how a waiting SET MY WEEK learns the bank is real
-    if (changed || first) emit();
+    if (changed || first || failed > 0) emit();
   } catch {
     // offline or no token — cache already served the read
+    if (!stalledDirs.has(scopedDir)) {
+      stalledDirs.add(scopedDir);
+      emit();
+    }
   }
 }
 
