@@ -460,11 +460,43 @@ export async function readCollection(
   return cached.map((r) => r.data);
 }
 
+// ONE PASS PER DIRECTORY (audit 2026-10-18: a first launch made about
+// 94,000 GitHub requests). Every emit() re-reads collections, and each read
+// used to start a fresh pass while earlier ones were still fetching. Now a
+// read joins the pass already running, and `freshDirs` records a directory
+// that has finished one full pass, so screens can wait for the real bank.
+/** @type {Map<string, Promise<void>>} */
+const passes = new Map();
+/** @type {Set<string>} */
+const freshDirs = new Set();
+
+/**
+ * Has this collection finished at least one full sync on this launch?
+ * (The cache alone can be partial on a new or cleared phone.)
+ * @param {string} dir as passed to readCollection
+ * @param {{ raw?: boolean }} [opts]
+ */
+export function collectionFresh(dir, opts) {
+  return freshDirs.has(opts?.raw ? dir : scoped(dir));
+}
+
 /**
  * @param {string} scopedDir already-final dir (caller applied scoping)
  * @returns {Promise<void>}
  */
-async function revalidateCollection(scopedDir) {
+function revalidateCollection(scopedDir) {
+  const running = passes.get(scopedDir);
+  if (running) return running;
+  const pass = revalidatePass(scopedDir).finally(() => passes.delete(scopedDir));
+  passes.set(scopedDir, pass);
+  return pass;
+}
+
+/**
+ * @param {string} scopedDir
+ * @returns {Promise<void>}
+ */
+async function revalidatePass(scopedDir) {
   if (!navigator.onLine) return;
   const prefix = `${scopedDir}/`;
   try {
@@ -473,23 +505,31 @@ async function revalidateCollection(scopedDir) {
     const cachedByPath = new Map(cached.map((r) => [r.path, r]));
     const listed = new Set(listing.map((e) => e.path));
     let changed = false;
-    for (const entry of listing) {
+    const todo = listing.filter((entry) => {
       const rec = cachedByPath.get(entry.path);
-      if (rec && (rec.sha === entry.sha || rec.dirty)) continue;
-      /** @type {Awaited<ReturnType<typeof readFile>>} */
-      let remote;
-      try {
-        remote = await readFile(entry.path);
-      } catch {
-        continue; // one unreadable/corrupt file must not sink the whole collection
+      return !(rec && (rec.sha === entry.sha || rec.dirty));
+    });
+    // eight at a time: a cold bank of ~180 recipes was 180 serial round trips
+    let next = 0;
+    const worker = async () => {
+      while (next < todo.length) {
+        const entry = /** @type {{ path: string, sha: string }} */ (todo[next++]);
+        /** @type {Awaited<ReturnType<typeof readFile>>} */
+        let remote;
+        try {
+          remote = await readFile(entry.path);
+        } catch {
+          continue; // one unreadable/corrupt file must not sink the whole collection
+        }
+        if (!remote) continue;
+        // store the LISTING's sha — it's what the next revalidate compares
+        // against, so a listing/content sha disagreement can never cause an
+        // endless refetch-emit loop (they're the same blob sha on GitHub)
+        await cacheRemote(entry.path, remote.data, entry.sha);
+        changed = true;
       }
-      if (!remote) continue;
-      // store the LISTING's sha — it's what the next revalidate compares
-      // against, so a listing/content sha disagreement can never cause an
-      // endless refetch-emit loop (they're the same blob sha on GitHub)
-      await cacheRemote(entry.path, remote.data, entry.sha);
-      changed = true;
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(8, todo.length) }, worker));
     for (const rec of cached) {
       if (!listed.has(rec.path) && !rec.dirty) {
         // atomic re-check inside: a write landing after our snapshot survives
@@ -497,7 +537,11 @@ async function revalidateCollection(scopedDir) {
         changed = true;
       }
     }
-    if (changed) emit();
+    const first = !freshDirs.has(scopedDir);
+    freshDirs.add(scopedDir);
+    // the first full pass always tells the screens, even with nothing new:
+    // that is how a waiting SET MY WEEK learns the bank is real
+    if (changed || first) emit();
   } catch {
     // offline or no token — cache already served the read
   }

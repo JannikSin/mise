@@ -87,6 +87,7 @@ function monthDay(isoDate) {
  *   onToggleOut: (date: string, slot: string) => void,
  *   onSwipeEaten?: (date: string, slot: string) => void,
  *   onGenerateWeek: (reroll?: boolean) => void,
+ *   bankReady?: boolean,
  *   buildReport: import("../lib/weekbuilder.js").WeekReport | null,
  *   tableStale: boolean,
  *   tableIssues: number,
@@ -134,6 +135,7 @@ export function PlannerView({
   onToggleOut,
   onSwipeEaten = undefined,
   onGenerateWeek,
+  bankReady = true,
   buildReport,
   tableStale,
   tableIssues,
@@ -217,12 +219,14 @@ export function PlannerView({
           class="ask"
           aria-label="Set my week: fill what is missing, keep anything bought or cooked"
           onClick=${() => onGenerateWeek(false)}
-          disabled=${recipes.length === 0 || firstLive == null || noTargets}
+          disabled=${recipes.length === 0 || !bankReady || firstLive == null || noTargets}
         >
           ✦ SET MY WEEK
           <small>
             ${
-              firstLive == null
+              !bankReady
+                ? "loading the recipes, one moment"
+                : firstLive == null
                 ? "this week is over, nothing left to plan"
                 : brigadeCovers
                   ? `shared meals and your own · keeps anything bought or cooked`
@@ -245,7 +249,7 @@ export function PlannerView({
             class="secondary"
             aria-label="Pick different meals for everything not bought or cooked"
             onClick=${() => onGenerateWeek(true)}
-            disabled=${recipes.length === 0 || firstLive == null || noTargets}
+            disabled=${recipes.length === 0 || !bankReady || firstLive == null || noTargets}
           >
             PICK DIFFERENT MEALS
             <small>swaps meals you have not bought or cooked yet</small>

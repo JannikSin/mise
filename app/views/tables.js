@@ -278,11 +278,13 @@ export function TablesView({
     // cook nights: all seven means "no rule", stored absent; named recipes:
     // only slots that are shared AND have a non-empty list are kept
     const everyNight = ALL_DAYS.every((d) => brigadeForm.cookDays.includes(d));
-    // ids the bank no longer holds (a renamed or deleted recipe) are dropped
-    // here rather than carried as a permanent "fails the screen" note
+    // every named id is KEPT, even one this phone's bank doesn't hold yet
+    // (audit 2026-10-18: SAVE while the bank was still loading silently
+    // deleted his breakfast and snack picks). A recipe that is truly gone
+    // costs a "not in the bank" note; a dropped one costs his week.
     const slotRecipes = Object.fromEntries(
       Object.entries(brigadeForm.slotRecipes)
-        .map(([slot, ids]) => [slot, (ids ?? []).filter((id) => byId.has(id))])
+        .map(([slot, ids]) => [slot, [...new Set((ids ?? []).filter((id) => typeof id === "string" && id))]])
         .filter(
           ([slot, ids]) =>
             brigadeForm.slots.includes(/** @type {string} */ (slot)) &&

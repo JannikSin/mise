@@ -79,7 +79,24 @@ export function upsertDay(daily, date, patch) {
  * @type {Record<string, string[]>}
  */
 export const ALLERGEN_TERMS = {
-  nuts: ["almond", "walnut", "cashew", "pecan", "pistachio", "hazelnut", "macadamia", "nut butter"],
+  // pine nut, pesto, marzipan, nutella added after the 2026-10-18 audit: the
+  // live bank had pesto and pine nuts passing a nut allergy
+  nuts: [
+    "almond",
+    "walnut",
+    "cashew",
+    "pecan",
+    "pistachio",
+    "hazelnut",
+    "macadamia",
+    "nut butter",
+    "pine nut",
+    "brazil nut",
+    "pesto",
+    "marzipan",
+    "praline",
+    "nutella",
+  ],
   peanuts: ["peanut"],
   gluten: [
     "wheat",
@@ -97,6 +114,14 @@ export const ALLERGEN_TERMS = {
     "panko",
     "seitan",
     "cracker",
+    // 2026-10-18 audit: potato gnocchi passed a gluten allergy
+    "gnocchi",
+    "semolina",
+    "spelt",
+    "rye",
+    "malt",
+    "tortilla",
+    "crouton",
   ],
   dairy: [
     "milk",
@@ -111,10 +136,47 @@ export const ALLERGEN_TERMS = {
     "parmesan",
     "kefir",
     "ghee",
+    // named cheeses and dairy sauces (2026-10-18 audit: mozzarella, cheddar,
+    // queso and pesto all passed a dairy allergy; "cheese" is only in some
+    // rows' names)
+    "mozzarella",
+    "cheddar",
+    "ricotta",
+    "queso",
+    "paneer",
+    "gruyere",
+    "pecorino",
+    "provolone",
+    "mascarpone",
+    "burrata",
+    "brie",
+    "gouda",
+    "cotija",
+    "monterey jack",
+    "pepper jack",
+    "labneh",
+    "pesto",
+    "alfredo",
+    "tzatziki",
+    "raita",
+    "custard",
   ],
-  eggs: ["egg"],
-  soy: ["soy", "tofu", "tempeh", "edamame", "miso"],
-  shellfish: ["shrimp", "prawn", "crab", "lobster", "scallop", "clam", "mussel", "oyster"],
+  // mayonnaise and aioli are egg (2026-10-18 audit: onigiri with mayo passed)
+  eggs: ["egg", "mayonnaise", "mayo", "aioli", "meringue"],
+  soy: ["soy", "tofu", "tempeh", "edamame", "miso", "tamari"],
+  shellfish: [
+    "shrimp",
+    "prawn",
+    "crab",
+    "lobster",
+    "scallop",
+    "clam",
+    "mussel",
+    "oyster",
+    "squid",
+    "calamari",
+    "octopus",
+  ],
   fish: [
     "salmon",
     "tuna",
@@ -127,6 +189,11 @@ export const ALLERGEN_TERMS = {
     "trout",
     "fish sauce",
     "dashi",
+    // worcestershire is made with anchovy (2026-10-18 audit: it is in the
+    // Wayne shepherd's pie, which passed a fish allergy)
+    "worcestershire",
+    "bonito",
+    "fish",
   ],
   sesame: ["sesame", "tahini"],
 };

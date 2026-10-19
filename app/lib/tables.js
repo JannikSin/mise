@@ -33,19 +33,34 @@ export const SERVINGS_MAX = 10;
  * @returns {HouseEvents}
  */
 export function normalizeEvents(raw) {
+  const brigades = Array.isArray(raw?.brigades) ? raw.brigades.filter(validBrigade) : [];
+  // ONE LIST WHEN COOKS TAKE TURNS (David, 2026-10-18: "The list is one
+  // entity and is bought altogether no matter who cooks"). planBrigadeWeek
+  // names the rule's shopper as buyer, but only when it re-plans; tables made
+  // before that carried no buyer and fell back to each night's cook, which
+  // split the week into two lists. Every read now fills the gap the same way.
+  // An explicit buyer, claimed by hand, still wins.
+  const shopperOf = new Map(
+    brigades
+      .filter((b) => b.rotateCooks && typeof b.cookId === "string" && b.cookId)
+      .map((b) => [b.id, /** @type {string} */ (b.cookId)]),
+  );
+  const tables = /** @type {TableEvent[]} */ (
+    Array.isArray(raw?.tables) ? raw.tables.filter(isPlainObject) : []
+  ).map((t) =>
+    !t.buyerId && t.fromBrigade && shopperOf.has(t.fromBrigade)
+      ? { ...t, buyerId: shopperOf.get(t.fromBrigade) }
+      : t,
+  );
   return {
-    tables: /** @type {TableEvent[]} */ (
-      Array.isArray(raw?.tables) ? raw.tables.filter(isPlainObject) : []
-    ),
+    tables,
     // brigades drive a WRITE loop (planBrigadeWeek, compose.js), so unlike
     // the old pass-through this is a real trust boundary: one bad brigade is
     // dropped on its own rather than throwing or, worse, materializing five
     // meals a day forever into the file all four devices read every load.
     ...(raw?.brigades !== undefined
       ? {
-          brigades: /** @type {Brigade[]} */ (
-            Array.isArray(raw.brigades) ? raw.brigades.filter(validBrigade) : []
-          ),
+          brigades: /** @type {Brigade[]} */ (brigades),
         }
       : {}),
   };

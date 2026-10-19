@@ -3114,6 +3114,23 @@ function cleanValue(v, depth) {
   return undefined;
 }
 
+/** Lists the hard allergy screen reads: kept whole, never cut at 40. */
+const SAFETY_LIST_KEYS = new Set(["avoidIngredients", "allergens", "avoidRecipes"]);
+export const SAFETY_LIST_MAX = 400;
+
+/**
+ * A safety list cleaned without losing an entry: strings only, each capped at
+ * 80 characters, at most SAFETY_LIST_MAX. null = too long or not a list of
+ * strings, and the caller refuses the claim (never a silent trim).
+ * @param {unknown} v
+ * @returns {string[] | null}
+ */
+function cleanSafetyList(v) {
+  if (!Array.isArray(v) || v.length > SAFETY_LIST_MAX) return null;
+  if (!v.every((x) => typeof x === "string")) return null;
+  return v.map((x) => x.slice(0, 80));
+}
+
 /**
  * The targets file a claim may write: whitelisted keys, cleaned values,
  * sane macros, under 24 KB. null = refuse the claim.
@@ -3126,6 +3143,16 @@ export function sanitizeInviteTargets(input) {
   const out = {};
   for (const [k, v] of Object.entries(input)) {
     if (!TARGET_KEYS.has(k)) continue;
+    // the safety lists are never trimmed (Tribunal Red Team + Engineer,
+    // 2026-10-18): cleanValue keeps 40 items, and nine allergen chips alone
+    // expand to more, so a guest's seafood allergy was silently dropped.
+    // Their own cap, and a list past it refuses the claim instead.
+    if (SAFETY_LIST_KEYS.has(k)) {
+      const list = cleanSafetyList(v);
+      if (list === null) return null;
+      out[k] = list;
+      continue;
+    }
     const c = cleanValue(v, 0);
     if (c !== undefined) out[k] = c;
   }

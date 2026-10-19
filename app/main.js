@@ -14,6 +14,7 @@ import {
   write,
   read,
   readCollection,
+  collectionFresh,
   readProfiles,
   activeProfile,
   getSyncStatus,
@@ -568,11 +569,17 @@ function App() {
   // For david the two reads are the same directory, so the merge is a no-op.
   const [bankRecipes, setBankRecipes] = useState(/** @type {Record<string, any>[]} */ ([]));
   const [ownRecipes, setOwnRecipes] = useState(/** @type {Record<string, any>[]} */ ([]));
+  // true once the bank has finished one full sync this launch: on a new or
+  // cleared phone the cache is partial for a while, and a week built from it
+  // came out with empty breakfasts and every day short (audit 2026-10-18)
+  const [bankReady, setBankReady] = useState(false);
   useEffect(() => {
     let alive = true;
     const load = () => {
       readCollection("recipes", { raw: true }).then((r) => {
-        if (alive) setBankRecipes(r);
+        if (!alive) return;
+        setBankRecipes(r);
+        setBankReady(collectionFresh("recipes", { raw: true }));
       });
       if (activeProfile() === "david") {
         setOwnRecipes([]);
@@ -4776,6 +4783,7 @@ function App() {
             ),
           )}
         onGenerateWeek=${handleGenerateWeek}
+        bankReady=${bankReady}
         brigade=${plannerBrigade}
         endedBrigade=${endedBrigade}
         brigadeRun=${brigadeRun}

@@ -130,3 +130,16 @@ test("sanitizeInviteTargets keeps the base section (v1.8, decision 0013)", () =>
   });
   assert.deepEqual(out?.base, { goal: { date: "2027-05-01" } });
 });
+
+test("Tribunal 2026-10-18: a claim keeps every allergy term (never cut at 40), and refuses a list past the cap", async () => {
+  const { ALLERGEN_TERMS, avoidTermsFromAllergens } = await import("../app/lib/targets.js");
+  const { SAFETY_LIST_MAX } = await import("../worker/src/lib.js");
+  const all = avoidTermsFromAllergens(Object.keys(ALLERGEN_TERMS), "");
+  assert.ok(all.length > 40, `every chip expands past 40 terms (${all.length})`);
+  const out = sanitizeInviteTargets({ macros: { calories: 2000, protein: 90 }, allergens: Object.keys(ALLERGEN_TERMS), avoidIngredients: all });
+  assert.deepEqual(out?.avoidIngredients, all, "nothing lost, order kept");
+  for (const t of ["shrimp", "salmon", "sesame", "tahini", "worcestershire"]) assert.ok(out?.avoidIngredients.includes(t), t);
+  const tooMany = Array.from({ length: SAFETY_LIST_MAX + 1 }, (_, i) => `food${i}`);
+  assert.equal(sanitizeInviteTargets({ macros: { calories: 2000, protein: 90 }, avoidIngredients: tooMany }), null, "refused, not trimmed");
+  assert.equal(sanitizeInviteTargets({ macros: { calories: 2000, protein: 90 }, avoidIngredients: [1, 2] }), null, "not strings: refused");
+});
