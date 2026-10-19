@@ -2287,7 +2287,7 @@ button.linktext {
   color: var(--text);
   padding: 0 10px;
   font-family: var(--sans);
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .tableform .row {
@@ -2776,4 +2776,108 @@ details.dayrow summary:focus-visible {
 .pin-input:focus {
   outline: none;
   border-color: var(--recover);
+}
+
+/* ---- phone audit fixes (2026-10-18) ---- */
+/* a wrapping chip row lets a long recipe name break instead of pushing the
+   page wider than the phone (the kitchen-rule form scrolled sideways and hid
+   the Fri and Sat cook nights) */
+.wrapchips .chip {
+  flex-shrink: 1;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+/* list cells wrap instead of cutting the amount or price to "1.04 lb weig…" */
+.checkrow.listcols .cols .c {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+
+/* a button's second line sits under its label ("PICK DIFFERENT MEALS" then
+   "swaps meals you have not bought or cooked yet"), never run into it */
+button.secondary small,
+button.primary small,
+.actions button small {
+  display: block;
+  font-weight: 400;
+  margin-top: 3px;
+  opacity: 0.8;
+}
+
+/* never below 16px in a text box: iOS Safari zooms the page on focus */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+:root select,
+:root textarea {
+  font-size: 16px;
+}
+
+/* the pantry's ENOUGH FOR THE WEEK rows: name above its detail, HOW MUCH? on
+   its own line, nothing past the right edge */
+.shelfrow {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.shelfrow > * {
+  min-width: 0;
+}
+
+/* a person row on People and on a guest's meals: label left, detail right */
+.personrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 8px 0;
+  cursor: pointer;
+}
+.personpanel {
+  padding: 8px 0 12px;
+}
+
+/* the Settings rows' dropdowns: styled, so the 16px floor holds (an unstyled
+   WebKit dropdown keeps its own 13px system font) */
+.row select {
+  font-size: 16px;
+  min-height: 44px;
+  max-width: 60%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+/* three boxes in one row (family, house, state) wrap instead of squeezing
+   each to 84px */
+.token-form {
+  flex-wrap: wrap;
+}
+.token-form input {
+  flex: 1 1 120px;
+}
+
+/* the buffer snack's minus and plus: a thumb-sized target, like the week
+   arrows (they were 23x18) */
+button.wk:not(.weeknav .wk) {
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.pin-input::placeholder {
+  letter-spacing: normal;
+  font-size: 16px;
 }

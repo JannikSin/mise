@@ -1204,7 +1204,7 @@ export function TablesView({
                   setBrigadeForm({ ...brigadeForm, name: e.currentTarget.value })}
               />
               <div class="sub">Who is in it</div>
-              <div class="chips">
+              <div class="chips wrapchips">
                 ${houseMates.map(
                   (p) => html`
                     <button
@@ -1223,7 +1223,7 @@ export function TablesView({
                 )}
               </div>
               <div class="sub">Which meals they share</div>
-              <div class="chips">
+              <div class="chips wrapchips">
                 ${SLOTS.filter(
                   // no smoothie category any more (2026-10-16), unless already chosen
                   ({ key }) => key !== "smoothie" || brigadeForm.slots.includes(key),
@@ -1251,7 +1251,7 @@ export function TablesView({
                 // night eats leftovers of the nearest pot that is still safe.
                 brigadeForm.slots.includes("dinner") &&
                 html`<div class="sub">Nights you cook dinner</div>
-                  <div class="chips">
+                  <div class="chips wrapchips">
                     ${ALL_DAYS.map(
                       (d) => html`
                         <button
@@ -1287,7 +1287,7 @@ export function TablesView({
                     brigadeForm.cookDays.includes(0) &&
                     brigadeForm.cookDays.length < 7 &&
                     html`<div class="sub">Sunday also cooks a batch for</div>
-                      <div class="chips">
+                      <div class="chips wrapchips">
                         ${ALL_DAYS.filter((d) => !brigadeForm.cookDays.includes(d)).map(
                           (d) => html`
                             <button
@@ -1330,7 +1330,7 @@ export function TablesView({
                       </label>
                       <p class="hint">Rough is fine; tune later. Plan shows the week's Sunday against it.</p>`
                   }
-                  <div class="chips">
+                  <div class="chips wrapchips">
                     <button
                       class=${brigadeForm.dinnerMeat ? "chip on" : "chip"}
                       aria-pressed=${brigadeForm.dinnerMeat}
@@ -1391,7 +1391,7 @@ export function TablesView({
                 })
               }
               <div class="sub">Who cooks and shops</div>
-              <div class="chips">
+              <div class="chips wrapchips">
                 <button
                   class=${brigadeForm.rotateCooks ? "chip on" : "chip"}
                   aria-pressed=${brigadeForm.rotateCooks}

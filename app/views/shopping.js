@@ -1382,7 +1382,7 @@ export function ShoppingView({
         accept="image/*"
         capture="environment"
         multiple
-        style="display:none"
+        hidden
         onChange=${onReceiptPicked}
       />
       ${

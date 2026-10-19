@@ -842,7 +842,7 @@ export function ProfileGateView({
             </p>
 
             <h2 class="block-title">leftovers</h2>
-            <div class="chips" role="group" aria-label="Leftover tolerance">
+            <div class="chips wrapchips" role="group" aria-label="Leftover tolerance">
               ${[
                 { label: "avoid them", v: "none" },
                 { label: "some are fine", v: "some" },
