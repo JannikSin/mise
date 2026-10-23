@@ -4132,8 +4132,8 @@ function App() {
       const budgetUsd =
         budgets.length > 0 ? budgets.reduce((a, b) => a + b, 0) / budgets.length : undefined;
       const bankById = recipesById(bankRecipesRef.current);
-      // a set table survives a plain SET only if its fresh food is in the
-      // kitchen or ticked on the list (David, 2026-09-06)
+      // `bought` (David, 2026-09-06) still decides PICK DIFFERENT MEALS and
+      // past pots; a plain SET keeps every set table via keepSet (2.0, I-01)
       const pantryNow = pantryRef.current;
       const listNow = shoppingRef.current;
       const { events, made, thin, report, swept, notes, nights } = planBrigadeWeek(cur, run, {

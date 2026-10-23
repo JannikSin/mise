@@ -5,8 +5,11 @@
 //
 // THE BOUNDARY IS IN THE APP, deliberately light ("not too much security,
 // just a little bit of a boundary"). Anyone holding the data token can read
-// the private repo directly, and the app downloads profiles.json and every
-// household's events, so devtools or the offline cache can still show them.
+// the private repo directly. Since 2.0 (A-03) a phone that is not the
+// admin's SYNCS only its own household, plus the targets of guests seated at
+// its tables (syncScopeFor here, the SYNC SCOPE in store.js); profiles.json
+// and the shared bank still reach every phone. A Worker or a split repo is
+// the full fix.
 // What this module guarantees is that no SCREEN shows a non-admin a profile
 // outside their own household (plus guests seated at their own tables), and
 // that a profile with a passkey (the admin's, and since v1.9 anyone's) cannot be

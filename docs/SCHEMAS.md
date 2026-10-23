@@ -55,6 +55,29 @@ profile is even chosen. `read`/`write`/`readCollection` accept `{ raw: true }`
 to skip scoping for the two cross-profile features below; everything else
 stays scoped.
 
+**Sync scope** (Mise 2.0, A-03; `app/lib/privacy.js` `syncScopeFor`, `app/lib/store.js`
+SYNC SCOPE). Separate from path scoping above: it decides which files a PHONE
+may sync at all. Set by `readProfiles` on every roster read, before any caller
+reads another profile.
+- **Unscoped (everything):** no profile is marked `admin` yet, or the admin on a
+  phone that verified him (`mise.verified.<id>`) or carries `mise.adminDevice`.
+- **Any other phone:** its own household's profiles (`profiles/<id>/**`) and
+  `households/<own house>/**`; David's root files (`plans/`, `fitness/`,
+  `profile/`, `health/`, `shopping.json`, `occasions.json`, `pantry.json`, the
+  `ROOT_PROFILE_FILES` list) only when David is in that house. Guests seated at
+  its tables from a week back to three weeks ahead are admitted through their
+  targets files only (`mise.scopeGuests` keeps them across launches).
+- **No profile chosen, an unverified admin, or a profile missing from the
+  roster:** nothing personal.
+- `guests.json` and `invites.json` are the admin's phone only.
+- Out of scope, `read`/`readMeta` return null and `readCollection` returns []
+  without asking GitHub. Clean cached files outside the scope are purged when
+  the scope changes; unsaved (dirty) ones are kept.
+- **A new root-level personal file must be added to `ROOT_PROFILE_FILES`,** or
+  every phone may read it.
+- The shared token can still reach every file by hand. A Worker or a split
+  repo is the full fix.
+
 **Recipe bank** (pilot): root `recipes/` is the SHARED bank every profile
 pulls from. A profile's working pool = bank recipes whose optional `phases`
 tag admits the profile's `targets.phase` (absent tag = everyone) AND that
@@ -1733,6 +1756,12 @@ Seeded from the FITNESS.md system; edited rarely.
   //   ("onion" also blocks "red onion"). The profile's
   //   OWN recipes are exempt (authored to its rules).
   //   Absent = no screening.
+  //   2.0 (I-02 / A-09): a typed word that names a family brings the family
+  //   ("cheese" -> every cheese term, "dairy"/"milk" -> the dairy chip's
+  //   terms; TYPED_FAMILIES and CHEESE_TERMS in app/lib/targets.js), at entry
+  //   (avoidTermsFromAllergens) and on every read (withCurrentAllergenTerms).
+  //   Expanded terms are only ever ADDED, and a write-back of targets
+  //   persists them.
   "avoidRecipes": ["office-lunch-box"],
   // ? recipe IDS banned outright for this profile (David 2026-08-01:
   //   "never wants to see the office lunch box again"). Exact-id filter in
@@ -1893,6 +1922,8 @@ Seeded from the FITNESS.md system; edited rarely.
   //   (David, 2026-09-25: Sunday was busy with meetings, the shop moved to
   //   Friday). ABSENT or invalid = 5 (Friday, dates.js DEFAULT_BUY_DAY). BUILD
   //   shops THE TRIP: the seven days opening on this day (tripDates/tripFor),
+  //   never starting in the past (2.0, I-05): a BUILD after the buy day shops
+  //   only the trip's days from the first day still to plan,
   //   reading both Sunday-to-Saturday plan files the trip spans. Plans and
   //   weeks still open on Sunday; only the buying moved. Set in SYS.
   "body": { "sex": "m", "age": 20, "heightIn": 73, "weightLb": 196, "activity": 3 },

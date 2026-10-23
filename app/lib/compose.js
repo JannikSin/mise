@@ -1014,9 +1014,13 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // fresh ingredients are in the kitchen or ticked on the list; an unbought,
   // uncooked table is composed again with the rest of the week, from today's
   // pantry. Absent = the old behaviour, so every existing caller is unchanged.
+  // Since 2.0 the app's SET passes `keepSet` (below), so this rule now decides
+  // only PICK DIFFERENT MEALS and past pots; the plain SET keeps set meals.
+  //
   // a PINNED table is a dish a person chose for that night by hand (David,
   // 2026-09-07: "switch the beef kofta with the lentil bolognese"): kept
-  // through every plain SET whatever the pantry says, and never cost-swept
+  // through every plain SET whatever the pantry says, and never cost-swept.
+  //
   // SET MY WEEK FILLS ONLY EMPTY MEALS (Mise 2.0, I-01; post-mortem 10/18:
   // a Saturday-night SET re-picked every unbought dinner the night he shopped).
   // With `keepSet`, every set table counts as kept on a plain SET: its dish

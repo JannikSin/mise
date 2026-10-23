@@ -529,7 +529,9 @@ export function setScopeGuests(ids) {
 
 /**
  * Cached-first read. Returns the local record immediately (null if never
- * fetched); kicks off a background refresh for clean files when online.
+ * fetched); kicks off a background refresh for clean files when online,
+ * at most once per file per 30 s (5 minutes for a missing file). A path
+ * outside this phone's SYNC SCOPE reads as null and is never fetched.
  * `raw: true` skips profile scoping — the path is used verbatim. Cross-profile
  * features (combined shopping list, the shared recipe bank) read other
  * profiles' files this way; everything else stays scoped.
@@ -575,6 +577,7 @@ export async function readMeta(path, opts) {
 const fileChecks = new Map();
 /** @type {Map<string, { at: number, missing: boolean }>} */
 const fileCheckedAt = new Map();
+// also the rest after a collection's full pass (revalidateCollection, I-03)
 const FILE_RECHECK_MS = 30_000;
 const MISSING_RECHECK_MS = 5 * 60_000;
 
