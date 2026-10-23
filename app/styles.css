@@ -2917,3 +2917,21 @@ input.pin-input {
   backdrop-filter: blur(10px);
   border-top: 1px solid var(--line);
 }
+
+/* the comma-separated boxes (anything else to avoid, eaten too much,
+   dislikes, stores) are full-width, thumb-height fields, never a bare
+   203 x 24 box: the avoid box is the one that matters most for safety
+   (Mise 2.0, A-04 / A-21) */
+input[aria-label$="comma separated"] {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 44px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+}
