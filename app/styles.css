@@ -2948,3 +2948,10 @@ input[aria-label$="comma separated"] {
   color: var(--text);
   padding: 12px 10px;
 }
+
+/* .token-form's display: flex outranks the hidden attribute, so a hidden
+   form row still showed (Mise 2.0, A-12: a guest was asked family, house
+   and state) */
+.token-form[hidden] {
+  display: none;
+}

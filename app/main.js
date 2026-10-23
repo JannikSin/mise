@@ -2852,13 +2852,13 @@ function App() {
     // so a cold phone told the kitchen's shopper "nothing here is yours to
     // buy" beside CLEAR LIST. The raw tables say who buys without the bank.
     const events = houseEvents.find((h) => h.house === house)?.events;
-    const rawBuys = (events?.tables ?? []).filter(
-      (t) =>
-        t.fromBrigade === active.id &&
-        t.date >= todayIso &&
-        effectiveBuyerOf(t, house, profilesById) === me,
-    ).length;
-    const iShop = myBuys.length > 0 || rawBuys > 0;
+    const upcoming = (events?.tables ?? []).filter(
+      (t) => t.fromBrigade === active.id && t.date >= todayIso,
+    );
+    const rawBuys = upcoming.filter((t) => effectiveBuyerOf(t, house, profilesById) === me).length;
+    // a week not planned yet has no tables: the rule's own shopper still shops
+    const iShop =
+      myBuys.length > 0 || rawBuys > 0 || (upcoming.length === 0 && active.cookId === me);
     const cookName = profilesById.get(active.cookId)?.name ?? "The cook";
     // THE DAYS SOMEONE ELSE BUYS, said out loud (Tribunal Realist, 2026-10-18):
     // on "take turns" the list and the cart hold only my nights, and nothing
