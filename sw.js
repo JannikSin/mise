@@ -179,12 +179,18 @@ async function cacheFirst(req) {
 
 /** @param {Request} req */
 async function networkFirst(req) {
+  const cached = () => caches.match(req, { ignoreSearch: req.mode === "navigate" });
   try {
     const res = await fetch(req);
     putInCache(req, res);
-    return res;
+    // a navigation's redirect arrives as an opaqueredirect with ok false and
+    // must pass through for the browser to follow
+    if (res.ok || res.type === "opaqueredirect") return res;
+    // fetch() resolves on a 404/500/503: a Pages hiccup or a captive network
+    // must not beat the last good copy (audit 2026-10-16, finding 3)
+    return (await cached()) ?? res;
   } catch {
-    const hit = await caches.match(req, { ignoreSearch: req.mode === "navigate" });
+    const hit = await cached();
     if (hit) return hit;
     throw new Error("offline and not cached: " + req.url);
   }
