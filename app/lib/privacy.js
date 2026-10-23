@@ -281,9 +281,11 @@ async function derive(pin, salt) {
 
 /**
  * What this phone may SYNC (Mise 2.0, A-03), as opposed to what its screens
- * show: null = everything (no admin set yet, or the admin's own profile);
- * otherwise its own household's profiles and that household's files. Guests
- * seated at its tables are added by the caller once the events load.
+ * show: null = everything (no admin set yet, or the admin on a phone that
+ * verified him or carries mise.adminDevice: `trustedAdmin`); an unverified
+ * admin or a chosen profile missing from the roster gets an empty scope
+ * (nothing personal); anyone else: their own household's profiles and files.
+ * Guests seated at their tables are added by setScopeGuests, targets only.
  * @param {Record<string, any>[]} profiles
  * @param {string} me
  * @param {boolean} [trustedAdmin] this phone verified the admin or is his device

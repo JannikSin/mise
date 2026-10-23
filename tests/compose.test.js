@@ -1410,6 +1410,19 @@ test("keepSet: an edited rule reaches a set week; a set meal the slot's list no 
   }
 });
 
+test("keepSet: a batch pot already cooked stays when the rule drops its dish (Tribunal Engineer, 2.0 loop 2)", () => {
+  const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+  const din = first.events.tables.find((t) => t.slot === "dinner");
+  const other = BANK.find((r) => r.mealType === "dinner" && r.id !== din.recipeId);
+  const prepped = {
+    ...first.events,
+    tables: first.events.tables.map((t) => (t.id === din.id ? { ...t, preparedOn: "2026-08-31" } : t)),
+  };
+  const edited = { ...BRIGADE, slotRecipes: { dinner: [other.id] } };
+  const re = planBrigadeWeek(prepped, edited, wayneCtx({ bought: () => false, keepSet: true }));
+  assert.equal(re.events.tables.find((t) => t.id === din.id)?.recipeId, din.recipeId, "the cooked pot stays");
+});
+
 test("keepSet: a kept meal someone at the table cannot eat is still swapped at the plate (fails closed)", () => {
   const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
   const din = first.events.tables.find((t) => t.slot === "dinner");

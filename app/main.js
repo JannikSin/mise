@@ -559,9 +559,11 @@ function App() {
         getSyncStatus().pending === 0 &&
         !getSyncStatus().flushing &&
         !document.querySelector('[data-unsaved="1"]');
+      let waitingSince = 0;
       const reloadWhenSafe = () => {
         if (reloaded) return;
         if (!safe()) {
+          waitingSince = waitingSince || Date.now();
           setTimeout(reloadWhenSafe, 2000);
           return;
         }
@@ -569,6 +571,23 @@ function App() {
         location.reload();
       };
       navigator.serviceWorker.addEventListener("controllerchange", reloadWhenSafe);
+      // a write that never drains (offline all session, a stuck push) must not
+      // hold the old code forever: queued writes live in IndexedDB and survive
+      // a reload, so after a minute of waiting the page reloads the next time
+      // it goes to the background, unless a form still has unsaved edits
+      // (Tribunal Engineer, 2.0 loop 2)
+      document.addEventListener("visibilitychange", () => {
+        if (
+          !reloaded &&
+          waitingSince > 0 &&
+          Date.now() - waitingSince > 60_000 &&
+          document.visibilityState === "hidden" &&
+          !document.querySelector('[data-unsaved="1"]')
+        ) {
+          reloaded = true;
+          location.reload();
+        }
+      });
     }
     navigator.serviceWorker
       .register("./sw.js")
@@ -785,7 +804,10 @@ function App() {
         // or the plate screen can touch (an old table never re-admits anyone)
         const from = localIsoDate(new Date(Date.now() - 7 * 86400000));
         const to = localIsoDate(new Date(Date.now() + 21 * 86400000));
-        await setScopeGuests(
+        // no events file read at all (offline, cold): keep the remembered
+        // guests rather than purge their targets (Tribunal Engineer, loop 2)
+        const anyEvents = loaded.some((h) => (h.events?.tables ?? []).length > 0);
+        if (anyEvents) await setScopeGuests(
           loaded
             .flatMap((h) =>
               (h.events?.tables ?? [])

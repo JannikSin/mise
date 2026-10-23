@@ -11,7 +11,7 @@ import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
 import { listDir, readFile, writeFile, dataBranch } from "./github.js";
 import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
-import { syncScopeFor, verifiedKey, ADMIN_DEVICE_KEY } from "./privacy.js";
+import { syncScopeFor, verifiedKey, ADMIN_DEVICE_KEY, keyOf, isAdmin } from "./privacy.js";
 
 const io = { read: readFile, write: writeFile };
 
@@ -275,10 +275,14 @@ export async function readProfiles(readFn = defaultProfilesRead) {
         // no profile chosen yet syncs nothing personal (activeProfile's
         // "david" default is the admin, which would sync everything)
         const chosen = localStorage.getItem("mise.activeProfile");
+        // v1.8 set mise.adminDevice with no check, so it counts only while the
+        // admin has no passkey; once he sets one, only a verified open does
+        // (Tribunal Red Team, 2.0 loop 2)
+        const adminHasKey = Boolean(keyOf(profiles.find(isAdmin)));
         const trusted =
           Boolean(chosen) &&
           (localStorage.getItem(verifiedKey(String(chosen))) === "1" ||
-            localStorage.getItem(ADMIN_DEVICE_KEY) === "1");
+            (!adminHasKey && localStorage.getItem(ADMIN_DEVICE_KEY) === "1"));
         await setSyncScope(
           chosen ? syncScopeFor(profiles, chosen, trusted) : { profileIds: [], houses: [] },
         );
@@ -407,9 +411,11 @@ export function initStore() {
 }
 
 // THE SYNC SCOPE (Mise 2.0, A-03; David, 2026-10-18: "Nobody in West
-// Lafayette should be able to see my family"). A phone that is not the
-// admin's syncs only its own household: a path under another household, or
-// under a profile outside its house and the guests at its tables, reads as
+// Lafayette should be able to see my family"). A phone that has not verified
+// the admin syncs only its own household: a path under another household, or
+// under a profile outside its house and the guests at its tables (guests:
+// their targets files only, GUEST_FILES; guests.json and invites.json: the
+// admin's phone only), reads as
 // missing without asking GitHub, is never cached, and is purged from the
 // phone when the scope is set. The shared GitHub key can still reach those
 // files from devtools; a Worker or a split repo is the full fix (2.1).

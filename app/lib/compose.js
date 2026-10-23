@@ -1032,6 +1032,10 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // that list (Tribunal Realist, 2.0 loop 1: an edited breakfast list never
   // reached a week already set)
   const fitsRuleNow = (/** @type {import("./tables.js").TableEvent} */ t) => {
+    // a batch pot already cooked (preparedOn today or earlier) is food that
+    // exists, whatever the rule now names (Tribunal Engineer, 2.0 loop 2)
+    const prep = /** @type {any} */ (t).preparedOn;
+    if (typeof prep === "string" && prep <= (ctx.calendarToday ?? ctx.today)) return true;
     const named = /** @type {any} */ (brigade).slotRecipes?.[t.slot];
     return !Array.isArray(named) || named.length === 0 || named.includes(t.recipeId);
   };
