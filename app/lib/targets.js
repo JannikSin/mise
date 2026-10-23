@@ -271,8 +271,11 @@ const TYPED_FAMILIES = {
 export function typedAvoidTerms(word) {
   const term = String(word ?? "").toLowerCase().trim();
   if (!term) return [];
-  const key = TYPED_FAMILIES[term] ? term : term.replace(/(es|s)$/, "");
-  const fam = TYPED_FAMILIES[key] ?? TYPED_FAMILIES[term.replace(/s$/, "")];
+  // own keys only: "constructor" or "__proto__" must not reach Object.prototype
+  // (Tribunal Red Team, 2.0 loop 1: it threw and stopped SET)
+  const famOf = (/** @type {string} */ k) =>
+    Object.hasOwn(TYPED_FAMILIES, k) ? TYPED_FAMILIES[k] : undefined;
+  const fam = famOf(term) ?? famOf(term.replace(/(es|s)$/, "")) ?? famOf(term.replace(/s$/, ""));
   if (!fam) return [term];
   const out = new Set([term]);
   for (const id of fam) {

@@ -283,12 +283,20 @@ async function derive(pin, salt) {
  * seated at its tables are added by the caller once the events load.
  * @param {Record<string, any>[]} profiles
  * @param {string} me
+ * @param {boolean} [trustedAdmin] this phone verified the admin or is his device
  * @returns {{ profileIds: string[], houses: string[] } | null}
  */
-export function syncScopeFor(profiles, me) {
+export function syncScopeFor(profiles, me, trustedAdmin = false) {
   const list = profiles ?? [];
+  if (!boundaryOn(list)) return null;
   const mine = list.find((p) => p.id === me);
-  if (!boundaryOn(list) || !mine || isAdmin(mine)) return null;
+  // a chosen profile missing from the roster syncs nothing personal, never
+  // everything (Tribunal Engineer, 2.0 loop 1)
+  if (!mine) return { profileIds: [], houses: [] };
+  // the admin syncs everything only on a phone that verified him or has been
+  // his before: the offline fallback row made any phone "David" with one tap,
+  // and David has no passkey (Tribunal Red Team BLOCK, 2.0 loop 1)
+  if (isAdmin(mine)) return trustedAdmin ? null : { profileIds: [], houses: [] };
   const house = houseOf(mine);
   return {
     profileIds: list.filter((p) => houseOf(p) === house).map((p) => String(p.id)),

@@ -1391,6 +1391,25 @@ test("keepSet: SET MY WEEK keeps every set meal, bought or not, and fills only t
   );
 });
 
+test("keepSet: an edited rule reaches a set week; a set meal the slot's list no longer names is replaced (Tribunal Realist, 2.0 loop 1)", () => {
+  const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+  const bfs = first.events.tables.filter((t) => t.slot === "breakfast");
+  assert.ok(bfs.length > 0);
+  const was = bfs[0].recipeId;
+  const other = BANK.find((r) => r.mealType === "breakfast" && r.id !== was);
+  assert.ok(other, "the fixture bank has a second breakfast");
+  // EDIT: breakfast now names only the other dish
+  const edited = { ...BRIGADE, slotRecipes: { breakfast: [other.id] } };
+  const re = planBrigadeWeek(first.events, edited, wayneCtx({ bought: () => false, keepSet: true }));
+  for (const t of re.events.tables.filter((x) => x.slot === "breakfast")) {
+    assert.equal(t.recipeId, other.id, `${t.id} follows the edited rule`);
+  }
+  // a slot the edit did not name keeps its set dinners
+  for (const t of first.events.tables.filter((x) => x.slot === "dinner")) {
+    assert.equal(re.events.tables.find((x) => x.id === t.id)?.recipeId, t.recipeId, `${t.id} kept`);
+  }
+});
+
 test("keepSet: a kept meal someone at the table cannot eat is still swapped at the plate (fails closed)", () => {
   const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
   const din = first.events.tables.find((t) => t.slot === "dinner");

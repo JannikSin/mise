@@ -725,7 +725,12 @@ function App() {
       const verified = localStorage.getItem(verifiedKey(me)) === "1";
       // a passkeyed profile this phone never opened through its passkey
       // (the offline fallback row, or an old session) asks for it now
-      if (keyOf(mine) && !verified) {
+      // ...and so does the admin row on a phone that was never his: David
+      // has no passkey yet, and the offline fallback row made any phone his
+      // with one tap (Tribunal Red Team BLOCK, 2.0 loop 1). His own phone
+      // carries ADMIN_DEVICE_KEY from v1.8, so he is never locked out.
+      const adminDevice = localStorage.getItem(ADMIN_DEVICE_KEY) === "1";
+      if ((keyOf(mine) || (mine.admin === true && !adminDevice)) && !verified) {
         localStorage.removeItem("mise.activeProfile");
         location.reload();
         return;
@@ -763,12 +768,20 @@ function App() {
         if (!alive) return;
         // the guests seated at this house's tables stay readable, or the
         // plate screen (fail closed) would skip them on this phone's SET
+        // only tables from a week back to three weeks ahead: the weeks a SET
+        // or the plate screen can touch (an old table never re-admits anyone)
+        const from = localIsoDate(new Date(Date.now() - 7 * 86400000));
+        const to = localIsoDate(new Date(Date.now() + 21 * 86400000));
         await setScopeGuests(
-          loaded.flatMap((h) =>
-            (h.events?.tables ?? []).flatMap((t) =>
-              (t?.seats ?? []).map((/** @type {any} */ st) => String(st?.id ?? "")),
-            ),
-          ).filter(Boolean),
+          loaded
+            .flatMap((h) =>
+              (h.events?.tables ?? [])
+                .filter((t) => t?.date >= from && t?.date <= to)
+                .flatMap((t) =>
+                  (t?.seats ?? []).map((/** @type {any} */ st) => String(st?.id ?? "")),
+                ),
+            )
+            .filter(Boolean),
         );
         if (alive) setHouseEvents(loaded);
       })();

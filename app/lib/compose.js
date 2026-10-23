@@ -1023,11 +1023,19 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // stays, its portions and cook re-solve, and the plate screen still swaps a
   // dish someone at the table cannot eat. PICK DIFFERENT MEALS (regenerate)
   // still re-rolls. Past pots keep the cooked-or-bought rule below.
+  // ...but only while the dish still fits the rule as it stands now: a slot
+  // that names its recipes (EDIT, then SET) replaces a set meal no longer on
+  // that list (Tribunal Realist, 2.0 loop 1: an edited breakfast list never
+  // reached a week already set)
+  const fitsRuleNow = (/** @type {import("./tables.js").TableEvent} */ t) => {
+    const named = /** @type {any} */ (brigade).slotRecipes?.[t.slot];
+    return !Array.isArray(named) || named.length === 0 || named.includes(t.recipeId);
+  };
   const boughtFor = (/** @type {import("./tables.js").TableEvent | undefined} */ t) =>
     !t ||
     Boolean(/** @type {any} */ (t).cookedAt) ||
     Boolean(/** @type {any} */ (t).pinned) ||
-    Boolean(ctx.keepSet && !ctx.regenerate) ||
+    Boolean(ctx.keepSet && !ctx.regenerate && fitsRuleNow(t)) ||
     !ctx.bought ||
     ctx.bought(t);
   // THE ONE SCREEN AT THE PLATE (Tribunal Red Team, 2026-10-16, rounds 1-2):

@@ -11,7 +11,7 @@ import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
 import { listDir, readFile, writeFile, dataBranch } from "./github.js";
 import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
-import { syncScopeFor } from "./privacy.js";
+import { syncScopeFor, verifiedKey, ADMIN_DEVICE_KEY } from "./privacy.js";
 
 const io = { read: readFile, write: writeFile };
 
@@ -275,8 +275,12 @@ export async function readProfiles(readFn = defaultProfilesRead) {
         // no profile chosen yet syncs nothing personal (activeProfile's
         // "david" default is the admin, which would sync everything)
         const chosen = localStorage.getItem("mise.activeProfile");
+        const trusted =
+          Boolean(chosen) &&
+          (localStorage.getItem(verifiedKey(String(chosen))) === "1" ||
+            localStorage.getItem(ADMIN_DEVICE_KEY) === "1");
         await setSyncScope(
-          chosen ? syncScopeFor(profiles, chosen) : { profileIds: [], houses: [] },
+          chosen ? syncScopeFor(profiles, chosen, trusted) : { profileIds: [], houses: [] },
         );
       }
       return /** @type {any} */ (remote).data;
@@ -413,12 +417,32 @@ export function initStore() {
 let syncScope = null;
 /** @type {{ profileIds: string[], houses: string[] } | null} */
 let scopeBase = null;
-/** @type {Set<string>} guests seated at this phone's own tables */
-let scopeGuests = new Set();
+// guests seated at this phone's own tables, kept across launches so a cold
+// start never purges their targets before the events load (Tribunal
+// Engineer, 2.0 loop 1: offline, SET then skipped Annie as unreadable)
+const SCOPE_GUESTS_KEY = "mise.scopeGuests";
+/** @type {Set<string>} */
+let scopeGuests = new Set(
+  (() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(SCOPE_GUESTS_KEY) ?? "[]");
+      return Array.isArray(v) ? v.map(String) : [];
+    } catch {
+      return [];
+    }
+  })(),
+);
 let scopeKey = "all";
 // David's own files sit at the data root (pathFor): they belong to the scope
 // only when he does. The shared bank, prices and the roster stay readable.
-const ROOT_PROFILE_FILES = /^(plans\/|fitness\/|profile\/|health\/|shopping\.json$|occasions\.json$)/;
+// Keep in step with pathFor and docs/SCHEMAS.md: an unlisted root file is
+// readable by every phone. `david` is hard-coded exactly as in pathFor.
+const ROOT_PROFILE_FILES = /^(plans\/|fitness\/|profile\/|health\/|shopping\.json$|occasions\.json$|pantry\.json$)/;
+// guest passkey hashes and live invite codes: the admin's phone only
+const ADMIN_ONLY_FILES = /^(guests\.json|invites\.json)$/;
+// a guest is in scope only through their targets: the plate screen needs
+// those, nothing else of theirs (Tribunal Red Team, 2.0 loop 1)
+const GUEST_FILES = /^profiles\/[^/]+\/(profile|fitness)\/targets\.json$/;
 
 /**
  * Is this path inside the phone's sync scope?
@@ -430,24 +454,36 @@ export function inSyncScope(path) {
 
 /** @returns {Promise<number>} cached files removed */
 async function applySyncScope() {
-  const ids = scopeBase ? [...new Set([...scopeBase.profileIds, ...scopeGuests])].sort() : [];
-  const key = scopeBase ? `${ids.join(",")}|${[...scopeBase.houses].sort().join(",")}` : "all";
+  const members = scopeBase ? [...new Set(scopeBase.profileIds)].sort() : [];
+  const guests = [...scopeGuests].filter((g) => !members.includes(g)).sort();
+  // "all" is the unscoped state (the admin's phone, or no admin yet)
+  const key = scopeBase
+    ? `${members.join(",")}|${guests.join(",")}|${[...scopeBase.houses].sort().join(",")}`
+    : "all";
   if (key === scopeKey) return 0;
   scopeKey = key;
   if (!scopeBase) {
     syncScope = null;
     return 0;
   }
-  const idSet = new Set(ids);
+  const idSet = new Set(members);
+  const guestSet = new Set(guests);
   const houses = new Set(scopeBase.houses);
   syncScope = (path) => {
+    if (ADMIN_ONLY_FILES.test(path)) return false;
     const pm = /^profiles\/([^/]+)\//.exec(path);
-    if (pm) return idSet.has(String(pm[1]));
+    if (pm) {
+      const id = String(pm[1]);
+      return idSet.has(id) || (guestSet.has(id) && GUEST_FILES.test(path));
+    }
     const hm = /^households\/([^/]+)\//.exec(path);
     if (hm) return houses.has(String(hm[1]));
     if (ROOT_PROFILE_FILES.test(path)) return idSet.has("david");
     return true;
   };
+  // no profile chosen yet: reads are blocked, but nothing is purged, so a
+  // phone that only switched profile keeps its cache for the next open
+  if (members.length === 0 && houses.size === 0) return 0;
   let removed = 0;
   try {
     for (const rec of await dbGetAll()) {
@@ -483,6 +519,11 @@ export function setSyncScope(scope) {
  */
 export function setScopeGuests(ids) {
   scopeGuests = new Set(ids);
+  try {
+    localStorage.setItem(SCOPE_GUESTS_KEY, JSON.stringify([...scopeGuests]));
+  } catch {
+    // storage refused: this launch still uses them
+  }
   return applySyncScope();
 }
 

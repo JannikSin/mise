@@ -358,7 +358,9 @@ export function TablesView({
         batches: /** @type {any} */ (rule).batches ?? undefined,
         dinnerMeat: /** @type {any} */ (rule).dinnerMeat ?? undefined,
       });
-      setBrigadeNote(["Saved. SET MY WEEK on the Plan tab applies the new rule."]);
+      setBrigadeNote([
+        "Saved. SET MY WEEK on the Plan tab fills empty meals from it and swaps any set meal the rule no longer allows.",
+      ]);
     } else {
       onCreateBrigade(rule);
     }

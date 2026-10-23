@@ -65,3 +65,10 @@ test("pensieve's 10/19 gaps are closed", () => {
   assert.ok(recipeConflicts(dish("d", ["semisweet chocolate chips"]), undefined, dairy).length > 0);
   assert.ok(recipeConflicts(dish("e", ["semisweet chocolate chips"]), undefined, soy).length > 0);
 });
+
+test("a typed word that names an Object property never throws (Tribunal Red Team, 2.0 loop 1)", () => {
+  for (const w of ["constructor", "constructors", "__proto__", "toString", "hasOwnProperty"]) {
+    assert.deepEqual(typedAvoidTerms(w), [w.toLowerCase()], w);
+  }
+  assert.ok(withCurrentAllergenTerms({ avoidIngredients: ["constructor"] }));
+});
