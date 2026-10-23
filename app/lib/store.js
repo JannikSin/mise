@@ -427,23 +427,61 @@ export async function readMeta(path, opts) {
   return { data: rec.data, sha: rec.sha ?? null, dirty: Boolean(rec.dirty) };
 }
 
+// ONE FETCH PER FILE, AND A MISSING FILE IS REMEMBERED (Mise 2.0, A-02 /
+// I-03: a new phone asked GitHub for Elliot's absent week plan 2,113 times,
+// because every emit re-reads and every read refetched, and a 404 left no
+// trace). A read joins the fetch already in flight; a file checked in the
+// last 30 s is not asked for again, a missing one not for 5 minutes. A local
+// write forgets the path, so the next read after it checks again.
+/** @type {Map<string, Promise<void>>} */
+const fileChecks = new Map();
+/** @type {Map<string, { at: number, missing: boolean }>} */
+const fileCheckedAt = new Map();
+const FILE_RECHECK_MS = 30_000;
+const MISSING_RECHECK_MS = 5 * 60_000;
+
 /**
  * @param {string} scopedPath already-final path (caller applied scoping)
  * @returns {Promise<void>}
  */
-async function revalidate(scopedPath) {
+function revalidate(scopedPath) {
+  const running = fileChecks.get(scopedPath);
+  if (running) return running;
+  const last = fileCheckedAt.get(scopedPath);
+  if (last && Date.now() - last.at < (last.missing ? MISSING_RECHECK_MS : FILE_RECHECK_MS)) {
+    return Promise.resolve();
+  }
+  const check = revalidateFile(scopedPath).finally(() => fileChecks.delete(scopedPath));
+  fileChecks.set(scopedPath, check);
+  return check;
+}
+
+/**
+ * @param {string} scopedPath
+ * @returns {Promise<void>}
+ */
+async function revalidateFile(scopedPath) {
   if (!navigator.onLine) return;
   const rec = await dbGet(scopedPath);
   if (rec?.dirty) return; // local edits win until flushed
   try {
     const remote = await readFile(scopedPath);
+    fileCheckedAt.set(scopedPath, { at: Date.now(), missing: !remote });
     if (!remote) return;
     if (rec && remote.sha === rec.sha) return;
     await cacheRemote(scopedPath, remote.data, remote.sha);
     emit();
   } catch {
-    // offline or no token — cache already served the read
+    // offline, no token or rate-limited: the cache already served the read,
+    // and nothing is remembered, so the next read tries again
   }
+}
+
+/** Forget every per-file check (tests; and a phone that switches data repo). */
+export function resetFileChecks() {
+  fileChecks.clear();
+  fileCheckedAt.clear();
+  passDoneAt.clear();
 }
 
 /**
@@ -505,6 +543,8 @@ const freshDirs = new Set();
 // store with no signal must still plan from it (Tribunal loop 1)
 /** @type {Set<string>} */
 const stalledDirs = new Set();
+/** @type {Map<string, number>} when each directory's last pass ended */
+const passDoneAt = new Map();
 
 /**
  * Has this collection finished at least one full sync on this launch?
@@ -533,7 +573,16 @@ export function collectionStalled(dir, opts) {
 function revalidateCollection(scopedDir) {
   const running = passes.get(scopedDir);
   if (running) return running;
-  const pass = revalidatePass(scopedDir).finally(() => passes.delete(scopedDir));
+  // a full pass in the last 30 s is current enough: each emit used to start
+  // another listing the moment the last one ended (2.0, I-03)
+  const done = passDoneAt.get(scopedDir);
+  if (done && freshDirs.has(scopedDir) && Date.now() - done < FILE_RECHECK_MS) {
+    return Promise.resolve();
+  }
+  const pass = revalidatePass(scopedDir).finally(() => {
+    passes.delete(scopedDir);
+    passDoneAt.set(scopedDir, Date.now());
+  });
   passes.set(scopedDir, pass);
   return pass;
 }
@@ -624,6 +673,7 @@ async function revalidatePass(scopedDir) {
  */
 export async function write(path, data, opts) {
   const scopedPath = opts?.raw ? path : scoped(path);
+  fileCheckedAt.delete(scopedPath);
   await dbUpdate(scopedPath, (cur) => ({
     path: scopedPath,
     data,

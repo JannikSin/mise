@@ -631,6 +631,21 @@ export function SystemView({
     dataRepoOverridden() ? `${DATA_REPO.owner}/${DATA_REPO.repo}` : "",
   );
   const applyDataRepo = () => {
+    // A-20 (2.0): an empty box on a phone already on the family repo used to
+    // wipe the key, profile and saved data with no question asked
+    const want = repoDraft.trim();
+    const now = dataRepoOverridden() ? `${DATA_REPO.owner}/${DATA_REPO.repo}` : "";
+    if (want === now) {
+      setProfileErr("this phone already uses that data repo; nothing changed");
+      return;
+    }
+    if (
+      !confirm(
+        "Switching the data repo signs this phone out: its GitHub key, profile and saved data are cleared and someone has to type the key in again. Switch?",
+      )
+    ) {
+      return;
+    }
     if (!setDataRepo(repoDraft)) {
       setProfileErr("data repo must look like owner/repo");
       return;
