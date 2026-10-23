@@ -1215,7 +1215,11 @@ export function TablesView({
                 <small>the standing arrangement — SET THIS WEEK then plans the whole week</small>
               </button>
             </div>`
-          : html`<div class="tile tableform" id="rule-form">
+          : html`<div
+              class="tile tableform"
+              id="rule-form"
+              data-unsaved=${JSON.stringify(brigadeForm) !== formStart ? "1" : "0"}
+            >
               <div class="k">
                 ${brigadeForm.editId ? "Change the standing rule" : "Set who cooks"}
               </div>

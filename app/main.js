@@ -551,11 +551,24 @@ function App() {
     // not the very first install) and only once.
     if (navigator.serviceWorker.controller) {
       let reloaded = false;
-      navigator.serviceWorker.addEventListener("controllerchange", () => {
+      // NEVER MID-EDIT (Tribunal Realist, 2.0 loop 1; plan: "if the update
+      // lands while you have the app open with a form half filled in, nothing
+      // is lost"): the reload waits while a write is still queued or a form
+      // on screen has unsaved changes (data-unsaved), checking every 2 s
+      const safe = () =>
+        getSyncStatus().pending === 0 &&
+        !getSyncStatus().flushing &&
+        !document.querySelector('[data-unsaved="1"]');
+      const reloadWhenSafe = () => {
         if (reloaded) return;
+        if (!safe()) {
+          setTimeout(reloadWhenSafe, 2000);
+          return;
+        }
         reloaded = true;
         location.reload();
-      });
+      };
+      navigator.serviceWorker.addEventListener("controllerchange", reloadWhenSafe);
     }
     navigator.serviceWorker
       .register("./sw.js")

@@ -8,6 +8,7 @@ import {
   setDataRepo,
   dataRepoOverridden,
   dataBranch,
+  readFile,
 } from "../lib/github.js";
 import { buyDayOf, formatSyncTime } from "../lib/dates.js";
 import {
@@ -485,10 +486,20 @@ export function SystemView({
     setHouseBusy(true);
     setHouseNote("");
     try {
-      const existing = await Promise.all([
-        read(householdPathFor(to), { raw: true }),
-        read(`households/${to}/pantry.json`, { raw: true }),
-      ]);
+      // asked of GitHub itself, not the cache: a cached-first read is blind to
+      // a house this phone never synced (Tribunal Engineer, 2.0 loop 1), and a
+      // rename over a real house would overwrite its files
+      /** @type {unknown[]} */
+      let existing;
+      try {
+        existing = await Promise.all([
+          readFile(householdPathFor(to)),
+          readFile(`households/${to}/pantry.json`),
+        ]);
+      } catch {
+        setHouseNote("can't check that name with GitHub right now; nothing changed, try again online");
+        return;
+      }
       if (existing.some(Boolean)) {
         setHouseNote(
           `a house called "${to}" already exists — pick another name, or move people into it one by one`,
