@@ -214,7 +214,7 @@ export function PlannerView({
   );
   const setOnTop = !(dates.includes(todayIso) && weekPlanned);
   const setBlock = html`
-      <div class="actions">
+      <div class="actions planacts">
         <button
           class="ask"
           aria-label="Set my week: fill what is missing, keep every meal already set"
@@ -229,7 +229,7 @@ export function PlannerView({
                 : firstLive == null
                 ? "this week is over, nothing left to plan"
                 : brigadeCovers
-                  ? `fills empty meals only · keeps every shared meal already set`
+                  ? `fills empty meals, keeps the ones already set`
                   : midWeek
                     ? firstLive === dates[6]
                       ? "plans today only · earlier days already eaten"
@@ -252,7 +252,7 @@ export function PlannerView({
             disabled=${recipes.length === 0 || !bankReady || firstLive == null || noTargets}
           >
             PICK DIFFERENT MEALS
-            <small>swaps meals you have not bought or cooked yet</small>
+            <small>replaces every meal not bought or cooked yet, even ones already set</small>
           </button>`
         }
         ${

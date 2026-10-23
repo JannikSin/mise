@@ -617,7 +617,7 @@ export function ProfileGateView({
             shop with right now, movable any time in Settings. State sets the List's grocery tax.
           </p>
 
-          <h2 class="block-title">about them</h2>
+          <h2 class="block-title">${guest || invite ? "about you" : "about them"}</h2>
           <div class="chips" role="group" aria-label="Sex (for calorie math)">
           <button
             class="chip ${sexPicked && sex === "f" ? "on" : ""}"
@@ -720,7 +720,7 @@ export function ProfileGateView({
             `
           }
 
-          <h2 class="block-title">what they eat</h2>
+          <h2 class="block-title">${guest || invite ? "what you eat" : "what they eat"}</h2>
           <div class="chips wrapchips" role="group" aria-label="Dietary pattern">
             ${["omnivore", "pescatarian", "vegetarian", "vegan"].map(
               (d) => html`
@@ -1098,8 +1098,9 @@ export function ProfileGateView({
             </p>`
           }
           <p class="hint">
-          calories and protein are computed from these answers (Mifflin-St Jeor); recipes come from
-          the shared bank matched to the goal. Everything is adjustable later in Settings.
+          ${guest || invite
+            ? "Calories and protein are worked out from your answers, and every plate is checked against your allergies."
+            : "calories and protein are computed from these answers (Mifflin-St Jeor); recipes come from the shared bank matched to the goal. Everything is adjustable later in Settings."}
           </p>
         </div>
       </details>
