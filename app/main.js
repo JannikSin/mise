@@ -186,6 +186,7 @@ import {
   updateBrigade,
   rolledRule,
   brigadeCovers,
+  brigadeDaysLeft,
   addSeat,
   removeSeat,
   brigadeTableId,
@@ -2043,7 +2044,7 @@ function App() {
               (b) =>
                 b.memberIds.includes(me) &&
                 (b.until ?? "") >= todayIso &&
-                weekDates.some((d) => brigadeCovers(b, d) && d >= todayIso),
+                brigadeDaysLeft(b, weekDates, planStartIso(new Date())).length > 0,
             )
             .sort((a, b) => (b.until ?? "").localeCompare(a.until ?? ""))[0] ?? null;
         if (active && runBrigadeRef.current) {

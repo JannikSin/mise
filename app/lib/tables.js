@@ -107,6 +107,20 @@ export function brigadeCovers(b, date) {
 }
 
 /**
+ * The days of a week a rule would still plan if run now. `fromIso` must be
+ * planStartIso(now), the day handleRunBrigade plans from, never the bare
+ * calendar date: after the 7:30 pm cutoff on a week's last day the calendar
+ * still shows a day left, the planner drops it, and the button set nothing
+ * and reported "already set" (audit 2026-10-16, finding 1).
+ * @param {{ from: string, until: string, breaks?: string }} b
+ * @param {string[]} weekDates
+ * @param {string} fromIso
+ */
+export function brigadeDaysLeft(b, weekDates, fromIso) {
+  return weekDates.filter((d) => brigadeCovers(b, d) && d >= fromIso);
+}
+
+/**
  * SUNDAY PREP, ROUGHLY (David, 2026-10-18: "There should be a time limit ...
  * It can be a little bit vague now and we can set it more later"). The
  * hands-on minutes of everything the kitchen cooks on Sunday: each distinct
