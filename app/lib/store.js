@@ -11,6 +11,7 @@ import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
 import { listDir, readFile, writeFile, dataBranch } from "./github.js";
 import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
+import { syncScopeFor } from "./privacy.js";
 
 const io = { read: readFile, write: writeFile };
 
@@ -268,6 +269,16 @@ export async function readProfiles(readFn = defaultProfilesRead) {
     const remote = await readFn("profiles.json");
     const profiles = /** @type {any} */ (remote)?.data?.profiles;
     if (Array.isArray(profiles) && profiles.length > 0) {
+      // the scope is set before any caller reads another profile's files
+      // (2.0, A-03); only the real roster sets it, never the fallback
+      if (readFn === defaultProfilesRead) {
+        // no profile chosen yet syncs nothing personal (activeProfile's
+        // "david" default is the admin, which would sync everything)
+        const chosen = localStorage.getItem("mise.activeProfile");
+        await setSyncScope(
+          chosen ? syncScopeFor(profiles, chosen) : { profileIds: [], houses: [] },
+        );
+      }
       return /** @type {any} */ (remote).data;
     }
   } catch {
@@ -391,6 +402,90 @@ export function initStore() {
   void flush();
 }
 
+// THE SYNC SCOPE (Mise 2.0, A-03; David, 2026-10-18: "Nobody in West
+// Lafayette should be able to see my family"). A phone that is not the
+// admin's syncs only its own household: a path under another household, or
+// under a profile outside its house and the guests at its tables, reads as
+// missing without asking GitHub, is never cached, and is purged from the
+// phone when the scope is set. The shared GitHub key can still reach those
+// files from devtools; a Worker or a split repo is the full fix (2.1).
+/** @type {((path: string) => boolean) | null} */
+let syncScope = null;
+/** @type {{ profileIds: string[], houses: string[] } | null} */
+let scopeBase = null;
+/** @type {Set<string>} guests seated at this phone's own tables */
+let scopeGuests = new Set();
+let scopeKey = "all";
+// David's own files sit at the data root (pathFor): they belong to the scope
+// only when he does. The shared bank, prices and the roster stay readable.
+const ROOT_PROFILE_FILES = /^(plans\/|fitness\/|profile\/|health\/|shopping\.json$|occasions\.json$)/;
+
+/**
+ * Is this path inside the phone's sync scope?
+ * @param {string} path
+ */
+export function inSyncScope(path) {
+  return syncScope === null || syncScope(path);
+}
+
+/** @returns {Promise<number>} cached files removed */
+async function applySyncScope() {
+  const ids = scopeBase ? [...new Set([...scopeBase.profileIds, ...scopeGuests])].sort() : [];
+  const key = scopeBase ? `${ids.join(",")}|${[...scopeBase.houses].sort().join(",")}` : "all";
+  if (key === scopeKey) return 0;
+  scopeKey = key;
+  if (!scopeBase) {
+    syncScope = null;
+    return 0;
+  }
+  const idSet = new Set(ids);
+  const houses = new Set(scopeBase.houses);
+  syncScope = (path) => {
+    const pm = /^profiles\/([^/]+)\//.exec(path);
+    if (pm) return idSet.has(String(pm[1]));
+    const hm = /^households\/([^/]+)\//.exec(path);
+    if (hm) return houses.has(String(hm[1]));
+    if (ROOT_PROFILE_FILES.test(path)) return idSet.has("david");
+    return true;
+  };
+  let removed = 0;
+  try {
+    for (const rec of await dbGetAll()) {
+      if (!syncScope(rec.path) && !rec.dirty) {
+        await dbDeleteIfClean(rec.path);
+        fileCheckedAt.delete(rec.path);
+        removed++;
+      }
+    }
+  } catch {
+    // storage unavailable: the scope still applies to every read below
+  }
+  if (removed > 0) emit();
+  return removed;
+}
+
+/**
+ * Limit this phone to some profiles and households and remove what it
+ * already holds outside them; `null` lifts the limit (the admin's phone, or
+ * a roster with no admin yet). Set by readProfiles on every read.
+ * @param {{ profileIds: string[], houses: string[] } | null} scope
+ * @returns {Promise<number>} how many cached files were removed
+ */
+export function setSyncScope(scope) {
+  scopeBase = scope;
+  return applySyncScope();
+}
+
+/**
+ * The guests seated at this phone's own tables: their targets must stay
+ * readable, or the plate screen (which fails closed) skips them.
+ * @param {string[]} ids
+ */
+export function setScopeGuests(ids) {
+  scopeGuests = new Set(ids);
+  return applySyncScope();
+}
+
 /**
  * Cached-first read. Returns the local record immediately (null if never
  * fetched); kicks off a background refresh for clean files when online.
@@ -403,6 +498,7 @@ export function initStore() {
  */
 export async function read(path, opts) {
   const finalPath = opts?.raw ? path : scoped(path);
+  if (!inSyncScope(finalPath)) return null;
   const rec = await dbGet(finalPath);
   void revalidate(finalPath);
   return rec ? rec.data : null;
@@ -421,6 +517,7 @@ export async function read(path, opts) {
  */
 export async function readMeta(path, opts) {
   const finalPath = opts?.raw ? path : scoped(path);
+  if (!inSyncScope(finalPath)) return { data: null, sha: null, dirty: false };
   const rec = await dbGet(finalPath);
   void revalidate(finalPath);
   if (!rec) return { data: null, sha: null, dirty: false };
@@ -461,7 +558,7 @@ function revalidate(scopedPath) {
  * @returns {Promise<void>}
  */
 async function revalidateFile(scopedPath) {
-  if (!navigator.onLine) return;
+  if (!navigator.onLine || !inSyncScope(scopedPath)) return;
   const rec = await dbGet(scopedPath);
   if (rec?.dirty) return; // local edits win until flushed
   try {
@@ -521,6 +618,7 @@ export async function readCollection(
   /** @type {{ raw?: boolean } | undefined} */ opts = undefined,
 ) {
   const scopedDir = opts?.raw ? dir : scoped(dir);
+  if (!inSyncScope(`${scopedDir}/`)) return [];
   const prefix = `${scopedDir}/`;
   const cached = (await dbGetAll())
     .filter((r) => r.path.startsWith(prefix))

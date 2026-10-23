@@ -275,3 +275,48 @@ async function derive(pin, salt) {
   );
   return hex(new Uint8Array(bits));
 }
+
+/**
+ * What this phone may SYNC (Mise 2.0, A-03), as opposed to what its screens
+ * show: null = everything (no admin set yet, or the admin's own profile);
+ * otherwise its own household's profiles and that household's files. Guests
+ * seated at its tables are added by the caller once the events load.
+ * @param {Record<string, any>[]} profiles
+ * @param {string} me
+ * @returns {{ profileIds: string[], houses: string[] } | null}
+ */
+export function syncScopeFor(profiles, me) {
+  const list = profiles ?? [];
+  const mine = list.find((p) => p.id === me);
+  if (!boundaryOn(list) || !mine || isAdmin(mine)) return null;
+  const house = houseOf(mine);
+  return {
+    profileIds: list.filter((p) => houseOf(p) === house).map((p) => String(p.id)),
+    houses: [house],
+  };
+}
+
+/**
+ * A recipe title never names someone this phone does not show (2.0, A-03:
+ * Elliot's Cookbook listed "Laurie's Mediterranean Herb Chicken"). Drops a
+ * leading "<Name>'s " for each hidden name; display only, the bank is
+ * untouched. Returns the same array when nothing changes.
+ * @param {Record<string, any>[]} recipes
+ * @param {string[]} hiddenNames
+ * @returns {Record<string, any>[]}
+ */
+export function withoutHiddenNames(recipes, hiddenNames) {
+  const names = hiddenNames.map((n) => String(n ?? "").trim()).filter(Boolean);
+  if (names.length === 0) return recipes;
+  const esc = (/** @type {string} */ x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const lead = new RegExp(`^(?:${names.map(esc).join("|")})['’]s\\s+`, "i");
+  let changed = false;
+  const out = recipes.map((r) => {
+    const name = String(r?.name ?? "");
+    if (!lead.test(name)) return r;
+    changed = true;
+    const rest = name.replace(lead, "");
+    return { ...r, name: rest.charAt(0).toUpperCase() + rest.slice(1) };
+  });
+  return changed ? out : recipes;
+}

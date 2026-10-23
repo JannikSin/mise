@@ -24,10 +24,13 @@ import {
   readTargetsMetaOf,
   writeTargetsOf,
   pathFor,
+  inSyncScope,
+  setScopeGuests,
 } from "./lib/store.js";
 import { initRouter, parseRoute } from "./lib/router.js";
 import {
   visibleProfilesFor,
+  withoutHiddenNames,
   visibleHouseEventsFor,
   visibleOccasionsFor,
   DEVICE_HOUSE_KEY,
@@ -699,6 +702,15 @@ function App() {
     () => visibleProfilesFor(allProfiles, me, houseEvents, localIsoDate(new Date())),
     [allProfiles, me, houseEvents],
   );
+  // names this phone does not show stay out of recipe titles (2.0, A-03)
+  const hiddenNames = useMemo(() => {
+    const shown = new Set(visibleProfiles.map((p) => p.id));
+    return allProfiles.filter((p) => !shown.has(p.id)).map((p) => String(p.name ?? ""));
+  }, [allProfiles, visibleProfiles]);
+  const cookbookRecipes = useMemo(
+    () => withoutHiddenNames(recipes, hiddenNames),
+    [recipes, hiddenNames],
+  );
   const visibleHouseEvents = useMemo(
     () => visibleHouseEventsFor(houseEvents, allProfiles, me),
     [houseEvents, allProfiles, me],
@@ -733,9 +745,11 @@ function App() {
         if (!alive) return;
         setAllProfiles(prof.profiles);
         setProfilesFallback(Boolean(/** @type {any} */ (prof).fallback));
+        // only the households this phone syncs (2.0, A-03): another
+        // household's events never reach a phone outside it
         const houses = [
           ...new Set(prof.profiles.map((p) => /** @type {string} */ (p.household ?? "home"))),
-        ];
+        ].filter((house) => inSyncScope(eventsPathFor(house)));
         const loaded = await Promise.all(
           houses.map(async (house) => ({
             house,
@@ -745,6 +759,16 @@ function App() {
               ),
             ),
           })),
+        );
+        if (!alive) return;
+        // the guests seated at this house's tables stay readable, or the
+        // plate screen (fail closed) would skip them on this phone's SET
+        await setScopeGuests(
+          loaded.flatMap((h) =>
+            (h.events?.tables ?? []).flatMap((t) =>
+              (t?.seats ?? []).map((/** @type {any} */ st) => String(st?.id ?? "")),
+            ),
+          ).filter(Boolean),
         );
         if (alive) setHouseEvents(loaded);
       })();
@@ -4787,7 +4811,7 @@ function App() {
     ${
       route.view === "cookbook" &&
       html`<${CookbookView}
-        recipes=${recipes}
+        recipes=${cookbookRecipes}
         hasToken=${hasToken}
         weekId=${weekId}
         onPlan=${handlePlanAdd}
