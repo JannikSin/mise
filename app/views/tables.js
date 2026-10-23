@@ -221,6 +221,8 @@ export function TablesView({
   // the run's result, one line per fact — a 7-day 2-person report as a single
   // semicolon-joined sentence was an unreadable wall on a phone (Final Gate)
   const [brigadeNote, setBrigadeNote] = useState(/** @type {string[]} */ ([]));
+  // the rule form as it opened, to tell an edited form from an untouched one
+  const [formStart, setFormStart] = useState("");
 
   /**
    * @param {Partial<import("../lib/tables.js").Brigade>} [seed] renew path: prefill from the ended record
@@ -236,7 +238,7 @@ export function TablesView({
     );
     const until = new Date(`${todayIso}T12:00:00`);
     until.setDate(until.getDate() + 27); // the lib caps a brigade at four weeks
-    setBrigadeForm({
+    const form = {
       editId: editing && seed?.id ? seed.id : null,
       name: seed?.name ?? "",
       memberIds:
@@ -258,8 +260,21 @@ export function TablesView({
       slotRecipes: { ...(seed?.slotRecipes ?? {}) },
       batchFeeds: [...(seed?.batches?.find((b) => b.cookDay === 0)?.feeds ?? [])],
       dinnerMeat: seed?.dinnerMeat === true,
-    });
+    };
+    setBrigadeForm(form);
+    setFormStart(JSON.stringify(form));
     setBrigadeNote([]);
+  };
+  // leaving the rule with unsaved changes asks first (2.0, I-07)
+  const cancelBrigadeForm = () => {
+    if (
+      brigadeForm &&
+      JSON.stringify(brigadeForm) !== formStart &&
+      !confirm("Leave without saving your changes to the rule?")
+    ) {
+      return;
+    }
+    setBrigadeForm(null);
   };
 
   const toggleIn = (/** @type {string[]} */ list, /** @type {string} */ value) =>
@@ -1466,8 +1481,8 @@ export function TablesView({
                   : "Without that box it runs up to four weeks, then you renew it."}
                 Portions come from each person's own targets, so one pot serves different plates.
               </p>
-              <div class="actions">
-                <button class="secondary" onClick=${() => setBrigadeForm(null)}>CANCEL</button>
+              <div class="actions sticky-save">
+                <button class="secondary" onClick=${cancelBrigadeForm}>CANCEL</button>
                 <button
                   class="primary"
                   disabled=${brigadeForm.slots.includes("dinner") && brigadeForm.cookDays.length === 0}

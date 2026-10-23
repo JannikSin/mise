@@ -2903,3 +2903,17 @@ input.pin-input {
 .checkrow.listcols .cols .c:nth-child(4) {
   white-space: nowrap;
 }
+
+/* the kitchen rule's CANCEL / SAVE stay on screen above the tab bar while
+   the form scrolls (Mise 2.0, A-13: SAVE sat 1,300 px down on an 844 px phone) */
+.sticky-save {
+  position: sticky;
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  z-index: 30;
+  margin: 12px -12px -12px;
+  padding: 10px 12px;
+  background: rgba(12, 15, 17, 0.92);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid var(--line);
+}

@@ -2821,7 +2821,17 @@ function App() {
       .filter((x) => /** @type {any} */ (x).buyerId === me && x.date >= todayIso)
       .map((x) => x.date)
       .sort();
-    const iShop = myBuys.length > 0;
+    // A-01 (2.0): the derived extras are empty until the recipe bank loads,
+    // so a cold phone told the kitchen's shopper "nothing here is yours to
+    // buy" beside CLEAR LIST. The raw tables say who buys without the bank.
+    const events = houseEvents.find((h) => h.house === house)?.events;
+    const rawBuys = (events?.tables ?? []).filter(
+      (t) =>
+        t.fromBrigade === active.id &&
+        t.date >= todayIso &&
+        effectiveBuyerOf(t, house, profilesById) === me,
+    ).length;
+    const iShop = myBuys.length > 0 || rawBuys > 0;
     const cookName = profilesById.get(active.cookId)?.name ?? "The cook";
     // THE DAYS SOMEONE ELSE BUYS, said out loud (Tribunal Realist, 2026-10-18):
     // on "take turns" the list and the cart hold only my nights, and nothing
