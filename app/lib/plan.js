@@ -458,7 +458,14 @@ export function tripFor(viewWeek, todayIso, startIso, buyDay) {
   if (!first) return null;
   const last = /** @type {string} */ (datesOfWeek(viewWeek)[6]);
   if (last < todayIso) return null;
-  return tripDates(first > startIso ? first : startIso, buyDay);
+  const from = first > startIso ? first : startIso;
+  const trip = tripDates(from, buyDay);
+  // A TRIP NEVER STARTS IN THE PAST (Mise 2.0, I-05; post-mortem 4: a Sunday
+  // BUILD with a Friday buy day shopped Fri to Thu and covered only Sun to
+  // Thu). Shopping after the buy day buys the seven days from the first day
+  // still to plan.
+  if ((trip[0] ?? startIso) < startIso) return tripDates(startIso, parseLocalIso(startIso).getDay());
+  return trip;
 }
 
 /**

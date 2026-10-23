@@ -69,13 +69,15 @@ test("the trip crosses a month and a DST change without skipping or doubling a d
 test("tripFor: current week anchors on the first day still to plan; future on its Sunday; past none", () => {
   // Fri 9/25 afternoon, W39 on screen: this Friday's trip
   assert.equal(tripFor("2026-W39", "2026-09-25", "2026-09-25", 5)?.[0], "2026-09-25");
-  // Wednesday 9/23 with W39 on screen: the trip that opened Fri 9/18
-  assert.equal(tripFor("2026-W39", "2026-09-23", "2026-09-23", 5)?.[0], "2026-09-18");
+  // Wednesday 9/23 with W39 on screen: seven days from today, never the trip
+  // that opened Fri 9/18 (Mise 2.0, I-05: a trip never starts in the past)
+  assert.equal(tripFor("2026-W39", "2026-09-23", "2026-09-23", 5)?.[0], "2026-09-23");
+  assert.equal(tripFor("2026-W39", "2026-09-23", "2026-09-23", 5)?.[6], "2026-09-29");
   // Thursday 10/1 after 7:30 pm (planning starts Friday): the NEXT trip
   assert.equal(tripFor("2026-W40", "2026-10-01", "2026-10-02", 5)?.[0], "2026-10-02");
-  // Saturday 9/26 after 7:30 pm, the ending week still on screen: the trip
-  // holding Sunday, never an empty build
-  assert.equal(tripFor("2026-W39", "2026-09-26", "2026-09-27", 5)?.[0], "2026-09-25");
+  // Saturday 9/26 after 7:30 pm, the ending week still on screen: seven days
+  // from Sunday, never an empty build (and never the Friday already past)
+  assert.equal(tripFor("2026-W39", "2026-09-26", "2026-09-27", 5)?.[0], "2026-09-27");
   // next week on screen: the trip holding its Sunday (the next shop it needs)
   assert.equal(tripFor("2026-W40", "2026-09-25", "2026-09-25", 5)?.[0], "2026-09-25");
   assert.equal(tripFor("2026-W41", "2026-09-25", "2026-09-25", 5)?.[0], "2026-10-02");

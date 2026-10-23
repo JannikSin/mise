@@ -40,7 +40,11 @@ test("a Sunday buy day shops Sun to Sat (David, 2026-10-18: \"It should be build
   assert.deepEqual(tripFor("2026-W43", "2026-10-18", "2026-10-18", 0), [
     "2026-10-18", "2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-24",
   ]);
-  assert.equal(tripFor("2026-W43", "2026-10-18", "2026-10-18", 5)?.[0], "2026-10-16", "Friday (the default) opens on the Friday before");
+  // Mise 2.0, I-05: a trip never starts in the past. The Friday default used
+  // to open on Fri 10/16 and cover only Sun to Thu.
+  assert.deepEqual(tripFor("2026-W43", "2026-10-18", "2026-10-18", 5), [
+    "2026-10-18", "2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-24",
+  ], "shopping after the buy day buys the seven days from today");
 });
 
 test("Anvil's day keys survive a Mise tap and a concurrent write (polaris, 2026-10-18)", async () => {
