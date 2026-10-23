@@ -4084,6 +4084,8 @@ function App() {
         bankById,
         regenerate,
         bought: (t) => recipeBought(bankById.get(t.recipeId), pantryNow, listNow),
+        // SET MY WEEK keeps every set meal and fills only the empty ones (2.0, I-01)
+        keepSet: true,
         ...(costOf ? { costOf } : {}),
         ...(tripItems ? { tripItems } : {}),
         ...(priceNeed ? { priceNeed } : {}),

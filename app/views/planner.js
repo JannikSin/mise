@@ -217,7 +217,7 @@ export function PlannerView({
       <div class="actions">
         <button
           class="ask"
-          aria-label="Set my week: fill what is missing, keep anything bought or cooked"
+          aria-label="Set my week: fill what is missing, keep every meal already set"
           onClick=${() => onGenerateWeek(false)}
           disabled=${recipes.length === 0 || !bankReady || firstLive == null || noTargets}
         >
@@ -229,7 +229,7 @@ export function PlannerView({
                 : firstLive == null
                 ? "this week is over, nothing left to plan"
                 : brigadeCovers
-                  ? `shared meals and your own · keeps anything bought or cooked`
+                  ? `fills empty meals only · keeps every shared meal already set`
                   : midWeek
                     ? firstLive === dates[6]
                       ? "plans today only · earlier days already eaten"

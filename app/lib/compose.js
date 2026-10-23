@@ -595,6 +595,7 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
  *   bankById: Map<string, any>,
  *   regenerate?: boolean,
  *   bought?: (t: import("./tables.js").TableEvent) => boolean,
+ *   keepSet?: boolean,
  *   costOf?: (recipeId: string) => number,
  *   tripItems?: (recipeId: string) => { key: string, cost: number, need?: { food: string, qty: number, unit: string }[] }[],
  *   priceNeed?: (food: string, qty: number, unit: string) => number,
@@ -1016,10 +1017,17 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // a PINNED table is a dish a person chose for that night by hand (David,
   // 2026-09-07: "switch the beef kofta with the lentil bolognese"): kept
   // through every plain SET whatever the pantry says, and never cost-swept
+  // SET MY WEEK FILLS ONLY EMPTY MEALS (Mise 2.0, I-01; post-mortem 10/18:
+  // a Saturday-night SET re-picked every unbought dinner the night he shopped).
+  // With `keepSet`, every set table counts as kept on a plain SET: its dish
+  // stays, its portions and cook re-solve, and the plate screen still swaps a
+  // dish someone at the table cannot eat. PICK DIFFERENT MEALS (regenerate)
+  // still re-rolls. Past pots keep the cooked-or-bought rule below.
   const boughtFor = (/** @type {import("./tables.js").TableEvent | undefined} */ t) =>
     !t ||
     Boolean(/** @type {any} */ (t).cookedAt) ||
     Boolean(/** @type {any} */ (t).pinned) ||
+    Boolean(ctx.keepSet && !ctx.regenerate) ||
     !ctx.bought ||
     ctx.bought(t);
   // THE ONE SCREEN AT THE PLATE (Tribunal Red Team, 2026-10-16, rounds 1-2):

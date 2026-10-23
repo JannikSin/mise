@@ -1359,6 +1359,56 @@ test("a set meal whose food was never bought is planned again on a plain SET; bo
   );
 });
 
+test("keepSet: SET MY WEEK keeps every set meal, bought or not, and fills only the empty ones (Mise 2.0, I-01)", () => {
+  const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+  const dinners = first.events.tables.filter((t) => t.slot === "dinner");
+  assert.ok(dinners.length >= 3);
+  // nothing is bought: before 2.0 this re-picked every table (the 10/18 Saturday)
+  const second = planBrigadeWeek(first.events, BRIGADE, wayneCtx({ bought: () => false, keepSet: true }));
+  for (const t of first.events.tables) {
+    assert.deepEqual(second.events.tables.find((x) => x.id === t.id), t, `${t.id} kept as set`);
+  }
+  assert.equal(second.made, 0, "a fully set week writes nothing");
+  assert.ok(!second.notes.some((n) => /planned again/.test(n)), "no re-plan is reported");
+  // an emptied night is filled, and only that night changes
+  const gap = dinners[1];
+  const holed = { ...first.events, tables: first.events.tables.filter((t) => t.id !== gap.id) };
+  const third = planBrigadeWeek(holed, BRIGADE, wayneCtx({ bought: () => false, keepSet: true }));
+  assert.ok(third.events.tables.some((t) => t.id === gap.id), "the empty night is planned");
+  for (const t of first.events.tables.filter((x) => x.date !== gap.date)) {
+    assert.equal(
+      third.events.tables.find((x) => x.id === t.id)?.recipeId,
+      t.recipeId,
+      `${t.id} keeps its dish`,
+    );
+  }
+  // PICK DIFFERENT MEALS still re-rolls
+  const salted = { ...BRIGADE, salt: 1 };
+  const rolled = planBrigadeWeek(first.events, salted, wayneCtx({ bought: () => false, keepSet: true, regenerate: true }));
+  assert.ok(
+    rolled.events.tables.some((t) => first.events.tables.find((x) => x.id === t.id)?.recipeId !== t.recipeId),
+    "a re-roll changes at least one meal",
+  );
+});
+
+test("keepSet: a kept meal someone at the table cannot eat is still swapped at the plate (fails closed)", () => {
+  const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
+  const din = first.events.tables.find((t) => t.slot === "dinner");
+  const elliotNo = { ...elliotTargets, avoidRecipes: [...(elliotTargets.avoidRecipes ?? []), din.recipeId] };
+  const ctx = wayneCtx({
+    bought: () => false,
+    keepSet: true,
+    targetsById: new Map([["david", davidTargets], ["elliot", elliotNo]]),
+  });
+  const re = planBrigadeWeek(first.events, BRIGADE, ctx);
+  const now = re.events.tables.find((t) => t.id === din.id);
+  const el = now.seats.find((st) => st.id === "elliot");
+  assert.ok(
+    now.recipeId !== din.recipeId || el?.status === "skipped",
+    "Elliot is never served a dish his avoid list refuses",
+  );
+});
+
 test("a PINNED table is kept through a plain SET whatever the pantry says (David, 2026-09-07)", () => {
   const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
   const dinners = first.events.tables.filter((t) => t.slot === "dinner");
