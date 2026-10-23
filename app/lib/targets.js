@@ -163,10 +163,13 @@ export const ALLERGEN_TERMS = {
     "tzatziki",
     "raita",
     "custard",
+    // semisweet chips are made with milkfat (pensieve, 10/19)
+    "chocolate chip",
   ],
   // mayonnaise and aioli are egg (2026-10-18 audit: onigiri with mayo passed)
   eggs: ["egg", "mayonnaise", "mayo", "aioli", "meringue"],
-  soy: ["soy", "tofu", "tempeh", "edamame", "miso", "tamari"],
+  // tvp and semisweet chocolate chips (soy lecithin) passed (pensieve, 10/19)
+  soy: ["soy", "tofu", "tempeh", "edamame", "miso", "tamari", "tvp", "textured vegetable", "chocolate chip"],
   shellfish: [
     "shrimp",
     "prawn",
@@ -198,13 +201,91 @@ export const ALLERGEN_TERMS = {
     "bonito",
     "fish",
   ],
-  sesame: ["sesame", "tahini"],
+  // hummus and everything bagel seasoning passed (pensieve, 10/19)
+  sesame: ["sesame", "tahini", "hummus", "everything bagel"],
 };
+
+/** Every cheese-like dairy term: what a typed "cheese" means. */
+const CHEESE_TERMS = [
+  "cheese",
+  "feta",
+  "halloumi",
+  "cottage",
+  "parmesan",
+  "mozzarella",
+  "cheddar",
+  "ricotta",
+  "queso",
+  "paneer",
+  "gruyere",
+  "pecorino",
+  "provolone",
+  "mascarpone",
+  "burrata",
+  "brie",
+  "gouda",
+  "cotija",
+  "monterey jack",
+  "pepper jack",
+  "labneh",
+  "pesto",
+  "alfredo",
+];
+
+/**
+ * A TYPED WORD THAT NAMES A FAMILY MEANS THE FAMILY (Mise 2.0, I-02 / A-09:
+ * a guest who typed "cheese" was served cheddar and parmesan, because the
+ * substring screen only saw rows whose name says "cheese"). Keys are typed
+ * words, singular; values are the preset ids, or "cheese" for the cheese
+ * list. Only ever adds terms the person asked for, so it can only refuse more.
+ * @type {Record<string, string[]>}
+ */
+const TYPED_FAMILIES = {
+  cheese: ["cheese"],
+  dairy: ["dairy"],
+  lactose: ["dairy"],
+  milk: ["dairy"],
+  casein: ["dairy"],
+  nut: ["nuts"],
+  "tree nut": ["nuts"],
+  peanut: ["peanuts"],
+  gluten: ["gluten"],
+  wheat: ["gluten"],
+  celiac: ["gluten"],
+  coeliac: ["gluten"],
+  egg: ["eggs"],
+  soy: ["soy"],
+  soya: ["soy"],
+  shellfish: ["shellfish"],
+  seafood: ["shellfish", "fish"],
+  fish: ["fish"],
+  sesame: ["sesame"],
+};
+
+/**
+ * The terms one typed avoid word stands for: itself, plus its family when it
+ * names one ("cheeses", "Tree nuts", "eggs" all count).
+ * @param {string} word
+ * @returns {string[]}
+ */
+export function typedAvoidTerms(word) {
+  const term = String(word ?? "").toLowerCase().trim();
+  if (!term) return [];
+  const key = TYPED_FAMILIES[term] ? term : term.replace(/(es|s)$/, "");
+  const fam = TYPED_FAMILIES[key] ?? TYPED_FAMILIES[term.replace(/s$/, "")];
+  if (!fam) return [term];
+  const out = new Set([term]);
+  for (const id of fam) {
+    for (const t of id === "cheese" ? CHEESE_TERMS : (ALLERGEN_TERMS[id] ?? [])) out.add(t);
+  }
+  return [...out];
+}
 
 /**
  * Expand chosen allergen preset ids plus a free-text "anything else" string
  * into a deduped avoidIngredients term list (survey-v2 Q10). Free-text terms
- * append verbatim (lowercased, trimmed).
+ * append lowercased and trimmed, and a word naming a family brings the family
+ * (typedAvoidTerms).
  * @param {string[]} [allergens] preset ids
  * @param {string} [freeText] comma-separated extra terms
  * @returns {string[]}
@@ -215,8 +296,7 @@ export function avoidTermsFromAllergens(allergens, freeText) {
     for (const term of ALLERGEN_TERMS[id] ?? []) out.add(term);
   }
   for (const t of (freeText ?? "").split(",")) {
-    const term = t.trim().toLowerCase();
-    if (term) out.add(term);
+    for (const term of typedAvoidTerms(t)) out.add(term);
   }
   return [...out];
 }

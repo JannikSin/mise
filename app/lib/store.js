@@ -10,7 +10,7 @@
 import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
 import { listDir, readFile, writeFile, dataBranch } from "./github.js";
 import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
-import { avoidTermsFromAllergens } from "./targets.js";
+import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
 
 const io = { read: readFile, write: writeFile };
 
@@ -138,12 +138,16 @@ export async function readTargetsOf(id, readFn = read) {
  * @returns {any}
  */
 export function withCurrentAllergenTerms(t) {
-  if (!t || typeof t !== "object" || !Array.isArray(t.allergens) || t.allergens.length === 0) {
-    return t;
-  }
+  if (!t || typeof t !== "object") return t;
   const have = Array.isArray(t.avoidIngredients) ? t.avoidIngredients : [];
+  const chips = Array.isArray(t.allergens) ? t.allergens : [];
+  if (chips.length === 0 && have.length === 0) return t;
   const seen = new Set(have.map((/** @type {unknown} */ x) => String(x).toLowerCase()));
-  const extra = avoidTermsFromAllergens(t.allergens, "").filter((x) => !seen.has(x));
+  // a stored typed word ("cheese") brings its family too (2.0, I-02 / A-09)
+  const typed = have.flatMap((/** @type {unknown} */ x) => typedAvoidTerms(String(x)));
+  const extra = [...new Set([...avoidTermsFromAllergens(chips, ""), ...typed])].filter(
+    (x) => !seen.has(x),
+  );
   return extra.length === 0 ? t : { ...t, avoidIngredients: [...have, ...extra] };
 }
 
