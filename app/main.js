@@ -5185,7 +5185,7 @@ function App() {
  * no address bar.
  *
  * So the escape hatch is a URL. Opening the app with ?fresh=1 unregisters
- * every worker, drops every cache, and reloads clean. It runs BEFORE the app
+ * Mise's worker, drops Mise's caches, and reloads clean. It runs BEFORE the app
  * renders, and it never touches localStorage, so the token, the profile and
  * every queued write survive.
  */
@@ -5205,13 +5205,19 @@ if (location.search.includes("notour")) {
   }
 }
 
-if (location.search.includes("fresh")) {
+if (new URLSearchParams(location.search).get("fresh") === "1") {
   const clean = location.href.split("?")[0] + location.hash;
   void (async () => {
     try {
+      // OWN registrations and caches only, the rule sw.js's activate already
+      // keeps: every PWA on janniksin.github.io shares this origin, and both
+      // calls return all of them (audit 2026-10-16, finding 2). Mise's scope
+      // is the directory it registers "./sw.js" from: /mise/ live, / on the
+      // sandbox host
+      const own = new URL("./", location.href).href;
       const regs = await navigator.serviceWorker?.getRegistrations?.();
-      for (const r of regs ?? []) await r.unregister();
-      for (const k of await caches.keys()) await caches.delete(k);
+      for (const r of regs ?? []) if (r.scope === own) await r.unregister();
+      for (const k of await caches.keys()) if (k.startsWith("mise-")) await caches.delete(k);
     } catch {
       // nothing to clear, or the browser refused: reload anyway
     }
