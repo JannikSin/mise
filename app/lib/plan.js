@@ -447,6 +447,8 @@ export function prepSundayOf(weekId) {
  * week needs. A PAST week has no trip (null): browsing back never shops.
  * (Saturday after 7:30 pm the current week is still on screen but its days
  * are done; its trip is then the one holding Sunday, never nothing.)
+ * The trip never starts before `startIso` (2.0, I-05): a trip already under
+ * way returns only its days from `startIso` on, so it can be shorter than 7.
  * @param {string} viewWeek
  * @param {string} todayIso YYYY-MM-DD, the calendar day
  * @param {string} startIso YYYY-MM-DD, the first day still to plan
@@ -461,11 +463,12 @@ export function tripFor(viewWeek, todayIso, startIso, buyDay) {
   const from = first > startIso ? first : startIso;
   const trip = tripDates(from, buyDay);
   // A TRIP NEVER STARTS IN THE PAST (Mise 2.0, I-05; post-mortem 4: a Sunday
-  // BUILD with a Friday buy day shopped Fri to Thu and covered only Sun to
-  // Thu). Shopping after the buy day buys the seven days from the first day
-  // still to plan.
-  if ((trip[0] ?? startIso) < startIso) return tripDates(startIso, parseLocalIso(startIso).getDay());
-  return trip;
+  // BUILD with a Friday buy day showed Fri to Thu). Shopping after the buy
+  // day buys what is left of that trip, from the first day still to plan to
+  // the day before the next buy day, so the next trip never buys a day twice
+  // (Tribunal Realist + Engineer, 2.0 loop 1: a seven-day window from today
+  // overlapped it by one to three days).
+  return trip.filter((d) => d >= startIso);
 }
 
 /**
