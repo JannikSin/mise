@@ -116,7 +116,7 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
       Pick any name you'll remember, like your first name and last initial. Then pick 4 digits.
       You'll type both to see your meals next time.
     </p>
-    <div class="token-form">
+    <div class="pin-form">
       <input
         aria-label="Login name"
         placeholder="your name, e.g. Sam K"
@@ -128,6 +128,7 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
         }}
       />
       <input
+        class="pin-input"
         aria-label="4-digit passkey"
         placeholder="4 digits you choose"
         inputmode="numeric"
@@ -323,6 +324,8 @@ export function WelcomeView({ code, member = false, notice = "", onSignedIn }) {
       const r = await guestLogin(name.trim(), pin);
       onSignedIn(r.session);
     } catch (e) {
+      // a wrong try clears the digits, so the next try starts clean (A-10)
+      setPin("");
       setNote(e instanceof Error ? e.message : "that did not work");
     } finally {
       setBusy(false);
@@ -358,7 +361,7 @@ export function WelcomeView({ code, member = false, notice = "", onSignedIn }) {
       mode === "login" &&
       html`<div class="tile">
         <div class="k">Log in</div>
-        <div class="token-form">
+        <div class="pin-form">
           <input
             aria-label="Login name"
             placeholder="login name"
@@ -367,9 +370,9 @@ export function WelcomeView({ code, member = false, notice = "", onSignedIn }) {
             onInput=${(/** @type {any} */ e) => setName(e.currentTarget.value)}
           />
           <input
+            class="pin-input"
             aria-label="4-digit passkey"
             placeholder="4-digit passkey"
-            type="password"
             inputmode="numeric"
             maxlength="4"
             autocomplete="current-password"
@@ -489,7 +492,14 @@ export function GuestHomeView({ session, onSignOut }) {
               }
               ${
                 recipe
-                  ? !isOpen && html`<p class="hint">tap for the recipe</p>`
+                  ? // a real button: the line itself is what a guest taps (A-11)
+                    html`<button
+                      class="secondary"
+                      aria-expanded=${isOpen}
+                      onClick=${() => setOpen(isOpen ? null : key)}
+                    >
+                      ${isOpen ? "hide the recipe" : "tap for the recipe"}
+                    </button>`
                   : html`<p class="hint">Recipe not added yet</p>`
               }
             </div>`;

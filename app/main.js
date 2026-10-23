@@ -2451,6 +2451,9 @@ function App() {
   useEffect(() => {
     let alive = true;
     const load = () => {
+      // before the roster loads, householdOf falls back to "home", which may be
+      // another family's kitchen (2.0, A-03): wait for the real list
+      if (allProfilesRef.current.length === 0) return;
       void read(householdPathFor(householdOf(allProfilesRef.current, me)), { raw: true }).then(
         (h) => {
           if (alive) setHousehold(normalizeHousehold(/** @type {any} */ (h)));

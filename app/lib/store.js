@@ -590,6 +590,8 @@ export function resetFileChecks() {
  * @returns {Promise<void>}
  */
 function cacheRemote(path, data, sha) {
+  // a fetch that started before the scope was set never lands (2.0, A-03)
+  if (!inSyncScope(path)) return Promise.resolve();
   return dbUpdate(path, (cur) =>
     cur?.dirty
       ? null

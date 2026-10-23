@@ -589,7 +589,7 @@ export function ProfileGateView({
               onInput=${(/** @type {any} */ e) => setEmoji(e.currentTarget.value)}
             />
           </div>
-          <div class="token-form" hidden=${guest || Boolean(edit)}>
+          <div class="token-form" hidden=${guest || Boolean(invite) || Boolean(edit)}>
             <input
               hidden=${!mayPlaceAnywhere}
               aria-label="Family this person belongs to"
@@ -612,7 +612,7 @@ export function ProfileGateView({
               onInput=${(/** @type {any} */ e) => setUsState(e.currentTarget.value.toUpperCase())}
             />
           </div>
-          <p class="hint">
+          <p class="hint" hidden=${guest || Boolean(invite) || Boolean(edit)}>
             family is who they ARE (the chooser groups by it); a house is the kitchen they cook and
             shop with right now, movable any time in Settings. State sets the List's grocery tax.
           </p>

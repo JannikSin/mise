@@ -2935,3 +2935,16 @@ input[aria-label$="comma separated"] {
   background: rgba(255, 255, 255, 0.06);
   color: inherit;
 }
+
+/* the guest's login name sits in the passkey column at full width
+   (Mise 2.0, A-05: "your name, e.g" was cut in a 160 px box) */
+.pin-form input:not(.pin-input) {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 12px 10px;
+}
