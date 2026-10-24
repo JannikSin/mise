@@ -1,6 +1,6 @@
 // Stress checks (2026-08-07): the app at family scale and against dirty data.
 // Scenarios: 500+ item pantries, 10+ profiles, cross-profile diet conflicts,
-// malformed/partial JSON from the data repo, and the Laurie-incident class
+// malformed/partial JSON from the data repo, and the Lena-incident class
 // (concurrent profile edits: id-targeted patch vs whole-array write).
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -188,7 +188,7 @@ const FOURTEEN = Array.from({ length: 14 }, (_, i) => ({
   phase: "maintain",
 }));
 
-test("stress: patchProfiles touches ONLY the targeted profile among 14 (Laurie-class)", async () => {
+test("stress: patchProfiles touches ONLY the targeted profile among 14 (Lena-class)", async () => {
   /** @type {Record<string, any> | null} */
   let written = null;
   const ok = await patchProfiles(
@@ -215,7 +215,7 @@ test("stress: concurrent profile edits on two devices merge without losing anyon
   // three changes and all 15 people.
   const base = { profiles: FOURTEEN };
   const local = {
-    profiles: FOURTEEN.map((p) => (p.id === "p3" ? { ...p, name: "Laurie" } : p)),
+    profiles: FOURTEEN.map((p) => (p.id === "p3" ? { ...p, name: "Lena" } : p)),
   };
   const remote = {
     profiles: [
@@ -241,7 +241,7 @@ test("stress: concurrent profile edits on two devices merge without losing anyon
   });
   const merged = /** @type {any} */ (pushed.data).profiles;
   assert.equal(merged.length, 15, "all 15 profiles survive the merge");
-  assert.equal(merged.find((/** @type {any} */ p) => p.id === "p3").name, "Laurie");
+  assert.equal(merged.find((/** @type {any} */ p) => p.id === "p3").name, "Lena");
   assert.equal(merged.find((/** @type {any} */ p) => p.id === "p7").phase, "gain");
   assert.ok(merged.some((/** @type {any} */ p) => p.id === "p14b"));
 });

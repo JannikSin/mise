@@ -7,7 +7,7 @@ import {
   parseLocalIso,
   tripDates,
 } from "../app/lib/dates.js";
-import { tripFor } from "../app/lib/plan.js";
+import { buildDays, pickableDays, tripFor } from "../app/lib/plan.js";
 import { deriveShoppingList, tripPlan } from "../app/lib/shopping.js";
 
 // THE BUY DAY (David, 2026-09-25): "sunday was not a good day to buy ... lets
@@ -173,4 +173,40 @@ test("BUILD after Friday dinner buys Saturday onward: the day already eaten is s
   const list = deriveShoppingList(tripPlan([W39, W40], trip), RECIPES, PANTRY, null, "2026-09-26");
   const yogurt = list.items.find((i) => i.food === "greek yogurt");
   assert.equal(yogurt?.qty, 200); // only Thursday's bowl is left to buy
+});
+
+// JUST SOME DAYS (David, 2026-10-23: "you should be able to select the days
+// that you want to buy and build for up to a week")
+test("the day chips offer the seven days from the first day still to plan", () => {
+  assert.deepEqual(pickableDays("2026-10-23"), [
+    "2026-10-23",
+    "2026-10-24",
+    "2026-10-25",
+    "2026-10-26",
+    "2026-10-27",
+    "2026-10-28",
+    "2026-10-29",
+  ]);
+});
+
+test("picked days replace the trip, even past the next buy day; none picked keeps the trip", () => {
+  const trip = ["2026-10-23", "2026-10-24"];
+  assert.deepEqual(buildDays(trip, undefined, "2026-10-23"), trip);
+  assert.deepEqual(buildDays(trip, [], "2026-10-23"), trip);
+  assert.deepEqual(buildDays(trip, ["2026-10-26", "2026-10-24", "2026-10-26"], "2026-10-23"), [
+    "2026-10-24",
+    "2026-10-26",
+  ]);
+});
+
+test("a picked day in the past or more than a week out is never bought", () => {
+  const trip = ["2026-10-23", "2026-10-24"];
+  assert.deepEqual(buildDays(trip, ["2026-10-22", "2026-10-30", "2026-10-25"], "2026-10-23"), [
+    "2026-10-25",
+  ]);
+  assert.deepEqual(buildDays(trip, ["2026-10-22"], "2026-10-23"), trip);
+});
+
+test("a past week (no trip) keeps its whole-week build", () => {
+  assert.equal(buildDays(null, ["2026-10-23"], "2026-10-23"), null);
 });

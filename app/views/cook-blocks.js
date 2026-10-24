@@ -131,7 +131,7 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
             html`<div class="d num redflag" key=${c.table.id}>
               ${c.table.name}
               (${parseLocalIso(c.table.date).toLocaleDateString([], { weekday: "short" })}):
-              ${c.reasons.join(", ")} — not added to your plan
+              ${c.reasons.join(", ")}, not added to your plan
             </div>`,
         )}
       </div>`

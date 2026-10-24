@@ -125,9 +125,60 @@ export const ALLERGEN_TERMS = {
     "malt",
     "tortilla",
     "crouton",
+    // 2026-10-23 (D-02): Japanese curry roux blocks are wheat flour and fat, so
+    // a gluten allergy passed the coconut curry while the food read "curry roux"
+    "roux",
+    // the same blocks sold under other words or brand names, none of which
+    // says "roux" (Tribunal Red Team, 10/24, F4)
+    "curry cube",
+    "curry block",
+    "curry sauce mix",
+    "golden curry",
+    "vermont curry",
+    "java curry",
+    "curry sauce block",
+    "curry sauce cube",
+    "curry brick",
+    "curry mix",
+    "japanese curry",
+    "house curry",
+    "kokumaro",
+    "japanese style curry",
+    "curry flake",
+    "instant curry",
+    "glico",
+    "house foods",
+    "s&b curry",
+    "kare roux",
   ],
   dairy: [
     "milk",
+    // Japanese curry roux blocks often carry milk solids; the label decides,
+    // so the screen refuses it for dairy and the cook can check (fails closed),
+    // under any of the words the blocks are sold by (Tribunal Red Team, 10/24,
+    // F4), and any roux at all, since a classic roux is butter and flour
+    "curry roux",
+    "roux",
+    "curry cube",
+    "curry block",
+    "curry sauce mix",
+    "golden curry",
+    "vermont curry",
+    "java curry",
+    "curry sauce block",
+    "curry sauce cube",
+    "curry brick",
+    "curry mix",
+    "japanese curry",
+    "house curry",
+    "kokumaro",
+    "japanese style curry",
+    "curry flake",
+    "instant curry",
+    "glico",
+    "house foods",
+    "s&b curry",
+    "kare roux",
     "yogurt",
     "cheese",
     "whey",
@@ -169,7 +220,39 @@ export const ALLERGEN_TERMS = {
   // mayonnaise and aioli are egg (2026-10-18 audit: onigiri with mayo passed)
   eggs: ["egg", "mayonnaise", "mayo", "aioli", "meringue"],
   // tvp and semisweet chocolate chips (soy lecithin) passed (pensieve, 10/19)
-  soy: ["soy", "tofu", "tempeh", "edamame", "miso", "tamari", "tvp", "textured vegetable", "chocolate chip"],
+  // curry blocks by every name they are sold under (Tribunal Red Team, 10/24, F4)
+  soy: [
+    "soy",
+    "tofu",
+    "tempeh",
+    "edamame",
+    "miso",
+    "tamari",
+    "tvp",
+    "textured vegetable",
+    "chocolate chip",
+    "curry roux",
+    "curry cube",
+    "curry block",
+    "curry sauce mix",
+    "golden curry",
+    "vermont curry",
+    "java curry",
+    "curry sauce block",
+    "curry sauce cube",
+    "curry brick",
+    "curry mix",
+    "japanese curry",
+    "house curry",
+    "kokumaro",
+    "japanese style curry",
+    "curry flake",
+    "instant curry",
+    "glico",
+    "house foods",
+    "s&b curry",
+    "kare roux",
+  ],
   shellfish: [
     "shrimp",
     "prawn",
@@ -264,13 +347,20 @@ const TYPED_FAMILIES = {
 
 /**
  * The terms one typed avoid word stands for: itself, plus its family when it
- * names one ("cheeses", "Tree nuts", "eggs" all count).
+ * names one ("cheeses", "Tree nuts", "eggs" all count), and each food of a
+ * typed pair ("celery and okra").
  * @param {string} word
  * @returns {string[]}
  */
 export function typedAvoidTerms(word) {
   const term = String(word ?? "").toLowerCase().trim();
   if (!term) return [];
+  // "celery and okra" is two foods, not one phrase no ingredient is named
+  // (Mise 2.0, D-01: a guest typed a pair like that on her guest form, 10/18,
+  // and as one term it matched nothing). Each part counts on its own, the whole
+  // phrase too, so it can only refuse more
+  const parts = term.split(/\s+(?:and|or)\s+|\s*[&/;+]\s*/).map((x) => x.trim()).filter(Boolean);
+  if (parts.length > 1) return [...new Set([term, ...parts.flatMap(typedAvoidTerms)])];
   // own keys only: "constructor" or "__proto__" must not reach Object.prototype
   // (Tribunal Red Team, 2.0 loop 1: it threw and stopped SET)
   const famOf = (/** @type {string} */ k) =>

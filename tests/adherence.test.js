@@ -76,11 +76,11 @@ test("rankScoreboard sorts by score desc, name as stable tiebreak", () => {
   const rows = [
     { name: "Mom", score: 80 },
     { name: "David", score: 95 },
-    { name: "Laurie", score: 80 },
+    { name: "Lena", score: 80 },
   ];
   assert.deepEqual(
     rankScoreboard(rows).map((r) => r.name),
-    ["David", "Laurie", "Mom"],
+    ["David", "Lena", "Mom"],
   );
 });
 

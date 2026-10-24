@@ -44,23 +44,23 @@ const BANK = new Map(
 );
 
 const PROFILES = new Map([
-  ["mom", { id: "mom", household: "taranowski" }],
-  ["laurie", { id: "laurie", household: "taranowski" }],
-  ["david", { id: "david", household: "taranowski" }],
+  ["mom", { id: "mom", household: "thornton" }],
+  ["lena", { id: "lena", household: "thornton" }],
+  ["david", { id: "david", household: "thornton" }],
   ["away", { id: "away", household: "elsewhere" }],
 ]);
 
 const TARGETS = new Map([
   ["mom", { macros: { calories: 1800 }, mealSlots: ["breakfast", "lunch", "dinner"] }],
-  ["laurie", { macros: { calories: 2000 }, mealSlots: ["breakfast", "lunch", "dinner"] }],
+  ["lena", { macros: { calories: 2000 }, mealSlots: ["breakfast", "lunch", "dinner"] }],
   ["david", { macros: { calories: 3700 }, mealSlots: ["breakfast", "lunch", "dinner"] }],
   ["away", { macros: { calories: 2000 }, mealSlots: ["breakfast", "lunch", "dinner"] }],
 ]);
 
 const BRIGADE = {
   id: "b1",
-  name: "Mom + Laurie",
-  memberIds: ["mom", "laurie"],
+  name: "Mom + Lena",
+  memberIds: ["mom", "lena"],
   slots: ["dinner"],
   cookId: "mom",
   from: "2026-07-27",
@@ -73,7 +73,7 @@ const TODAY = "2026-07-27";
 const ctx = (over = {}) => ({
   dates: WEEK,
   today: TODAY,
-  house: "taranowski",
+  house: "thornton",
   profilesById: PROFILES,
   targetsById: TARGETS,
   plansById: new Map(),
@@ -106,7 +106,7 @@ test("validBrigade requires an end date and a bounded span", () => {
 test("the pool is the INTERSECTION of every member's screen, never the union", () => {
   // Mom avoids onion. A meal she cannot eat must not become the meal everyone
   // eats, which is the whole risk of a shared plan.
-  const members = [{ id: "mom", avoid: ["onion"] }, { id: "laurie" }];
+  const members = [{ id: "mom", avoid: ["onion"] }, { id: "lena" }];
   const pool = brigadePool(BANK, members, "dinner");
   assert.ok(
     !pool.some((r) => r.id === "onion-stew"),
@@ -115,7 +115,7 @@ test("the pool is the INTERSECTION of every member's screen, never the union", (
   assert.equal(pool.length, 3);
   // and the same pool without her screen would have included it
   assert.ok(
-    brigadePool(BANK, [{ id: "laurie" }, { id: "david" }], "dinner").some(
+    brigadePool(BANK, [{ id: "lena" }, { id: "david" }], "dinner").some(
       (r) => r.id === "onion-stew",
     ),
   );
@@ -143,7 +143,7 @@ test("an unpromoted AI recipe is never auto-planned into a brigade", () => {
       }),
     ],
   ]);
-  const pool = brigadePool(bank, [{ id: "mom" }, { id: "laurie" }], "dinner");
+  const pool = brigadePool(bank, [{ id: "mom" }, { id: "lena" }], "dinner");
   assert.ok(
     !pool.some((r) => r.id === "ai"),
     "council 2026-07-23: AI at the table, not in the plan",
@@ -180,7 +180,7 @@ test("materialize sets one table per date and slot, seated for every member", ()
     assert.equal(t.cookId, "mom");
     assert.deepEqual(
       t.seats.map((s) => s.id),
-      ["mom", "laurie"],
+      ["mom", "lena"],
     );
   }
 });
@@ -222,7 +222,7 @@ test("THE PICK DOES NOT DEPEND ON THE RUN DAY (Tribunal H2)", () => {
   // compose.test.js owns the band assertions.
   const bandless = new Map([...TARGETS].map(([id]) => [id, {}]));
   const pure = planBrigadeWeek({ tables: [] }, BRIGADE, ctx({ targetsById: bandless })).events;
-  const pool = brigadePool(BANK, [{ id: "mom" }, { id: "laurie" }], "dinner");
+  const pool = brigadePool(BANK, [{ id: "mom" }, { id: "lena" }], "dinner");
   const seq = pure.tables.map((t) => t.recipeId);
   for (let i = 0; i + pool.length <= seq.length; i++) {
     assert.equal(new Set(seq.slice(i, i + pool.length)).size, pool.length, "no repeat in window");
@@ -240,7 +240,7 @@ test("REAL TARGETS: never the same dinner two nights running while an alternativ
   const seven = { ...BRIGADE, until: "2026-08-02" };
   const wide = new Map([
     ["mom", { macros: { calories: 1900 } }],
-    ["laurie", { macros: { calories: 1900 } }],
+    ["lena", { macros: { calories: 1900 } }],
   ]);
   const { events } = planBrigadeWeek({ tables: [] }, seven, ctx({ targetsById: wide }));
   const seq = events.tables
@@ -260,9 +260,9 @@ test("materialize is idempotent: running it again changes nothing", () => {
 });
 
 test("REGENERATION CARRIES SEATS FORWARD, so a decline is never reversed", () => {
-  // Laurie says she is out on Wednesday. David re-rolls on Tuesday. If the
+  // Lena says she is out on Wednesday. David re-rolls on Tuesday. If the
   // rebuild recreated seats from scratch her skip would vanish and the cook
-  // would shop and cook a portion nobody eats. That is the Laurie lesson.
+  // would shop and cook a portion nobody eats. That is the Lena lesson.
   const built = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
   const target = built.tables[1];
   const withSkip = {
@@ -272,7 +272,7 @@ test("REGENERATION CARRIES SEATS FORWARD, so a decline is never reversed", () =>
         ? {
             ...t,
             seats: t.seats.map((s) =>
-              s.id === "laurie" ? { ...s, status: "skipped", servings: 2, edited: true } : s,
+              s.id === "lena" ? { ...s, status: "skipped", servings: 2, edited: true } : s,
             ),
           }
         : t,
@@ -280,14 +280,14 @@ test("REGENERATION CARRIES SEATS FORWARD, so a decline is never reversed", () =>
   };
   const again = planBrigadeWeek(withSkip, BRIGADE, ctx({ regenerate: true })).events;
   const after = again.tables.find((t) => t.id === target.id);
-  const laurie = after.seats.find((s) => s.id === "laurie");
-  assert.equal(laurie.status, "skipped", "the skip survives a re-roll");
+  const lena = after.seats.find((s) => s.id === "lena");
+  assert.equal(lena.status, "skipped", "the skip survives a re-roll");
   // her EDITED portion (patchSeat stamps edited: true since 2026-08-30 —
   // intent is stamped, never inferred) carries while the dish is unchanged;
   // a swapped dish recomputes, because 2 servings of chili is not 2 of a
   // different pot
   if (after.recipeId === target.recipeId) {
-    assert.equal(laurie.servings, 2, "same dish: her edited portion carries");
+    assert.equal(lena.servings, 2, "same dish: her edited portion carries");
   }
 });
 
@@ -301,10 +301,10 @@ test("already-lived days are never touched", () => {
 });
 
 test("ONE HOUSE: a member who moved out stops being planned for", () => {
-  // Laurie goes back to her own apartment after the visit. Her seat has to
+  // Lena goes back to her own apartment after the visit. Her seat has to
   // stop riding the cook's shopping list, checked at materialize time rather
   // than trusted from when the brigade was created.
-  const moved = new Map([...PROFILES, ["laurie", { id: "laurie", household: "laurie-apt" }]]);
+  const moved = new Map([...PROFILES, ["lena", { id: "lena", household: "lena-apt" }]]);
   const { events, made } = planBrigadeWeek({ tables: [] }, BRIGADE, ctx({ profilesById: moved }));
   // since 2026-10-13 one person is a kitchen too: the cook who stays keeps
   // the week, and her seat is the only one (it used to stop at zero meals)
@@ -316,7 +316,7 @@ test("ONE HOUSE: a member who moved out stops being planned for", () => {
     );
 
   // with a third member still in the house it keeps running, minus her
-  const three = { ...BRIGADE, memberIds: ["mom", "laurie", "david"] };
+  const three = { ...BRIGADE, memberIds: ["mom", "lena", "david"] };
   const still = planBrigadeWeek({ tables: [] }, three, ctx({ profilesById: moved })).events;
   assert.deepEqual(
     still.tables[0].seats.map((s) => s.id),
@@ -382,21 +382,21 @@ test("an explicit cookId decides who shops, not seat array order", () => {
     date: "2026-07-27",
     slot: "dinner",
     recipeId: "chili",
-    cookId: "laurie",
+    cookId: "lena",
     seats: [
       { id: "mom", servings: 1 },
-      { id: "laurie", servings: 1 },
+      { id: "lena", servings: 1 },
     ],
   };
-  assert.equal(cookOf(t, "taranowski", PROFILES)?.id, "laurie");
+  assert.equal(cookOf(t, "thornton", PROFILES)?.id, "lena");
   // no cookId: the original first-seat rule still applies
-  assert.equal(cookOf({ ...t, cookId: undefined }, "taranowski", PROFILES)?.id, "mom");
+  assert.equal(cookOf({ ...t, cookId: undefined }, "thornton", PROFILES)?.id, "mom");
   // a cookId naming someone who is not seated falls back rather than voiding
-  assert.equal(cookOf({ ...t, cookId: "ghost" }, "taranowski", PROFILES)?.id, "mom");
+  assert.equal(cookOf({ ...t, cookId: "ghost" }, "thornton", PROFILES)?.id, "mom");
 });
 
 test("A HAND-SET TABLE BEATS THE BRIGADE'S, and the cook shops the meal once", () => {
-  // David sets a family dinner on a night Mom and Laurie's brigade also runs.
+  // David sets a family dinner on a night Mom and Lena's brigade also runs.
   // Setting one by hand is how you say "not the usual tonight": it must win,
   // and the cook must not end up buying both.
   const built = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
@@ -410,12 +410,12 @@ test("A HAND-SET TABLE BEATS THE BRIGADE'S, and the cook shops the meal once", (
     buyerId: "mom",
     seats: [
       { id: "mom", servings: 1 },
-      { id: "laurie", servings: 1 },
+      { id: "lena", servings: 1 },
     ],
   };
   const events = { ...built, tables: [...built.tables, handSet] };
 
-  const out = deriveTables([{ house: "taranowski", events }], {
+  const out = deriveTables([{ house: "thornton", events }], {
     profileId: "mom",
     bankById: BANK,
     ownEntries: [],
@@ -436,19 +436,19 @@ test("ROTATING COOKS cycle memberIds by calendar day, derived from the date", ()
   // David 2026-08-01: "each person is responsible for 1-2 dinners." The cook
   // must come from the DATE, never a loop counter, or regenerating mid-week
   // (past days skipped) would silently reassign the remaining nights.
-  const rot = { ...BRIGADE, memberIds: ["mom", "laurie", "david"], rotateCooks: true };
+  const rot = { ...BRIGADE, memberIds: ["mom", "lena", "david"], rotateCooks: true };
   const { events } = planBrigadeWeek({ tables: [] }, rot, ctx());
   const cooks = events.tables
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date))
     .map((t) => t.cookId);
-  assert.deepEqual(cooks, ["mom", "laurie", "david", "mom", "laurie"]);
+  assert.deepEqual(cooks, ["mom", "lena", "david", "mom", "lena"]);
 });
 
 test("rotation is stable when generation happens mid-week", () => {
   // Wednesday's device generates with Mon/Tue already lived: the surviving
   // nights keep the cooks the whole house already agreed to.
-  const rot = { ...BRIGADE, memberIds: ["mom", "laurie", "david"], rotateCooks: true };
+  const rot = { ...BRIGADE, memberIds: ["mom", "lena", "david"], rotateCooks: true };
   const full = planBrigadeWeek({ tables: [] }, rot, ctx()).events;
   const late = planBrigadeWeek({ tables: [] }, rot, ctx({ today: "2026-07-29" })).events;
   for (const t of late.tables) {
@@ -464,7 +464,7 @@ test("rotation is stable when generation happens mid-week", () => {
 
 test("regenerate onto a CHANGED bank recomputes servings; skips still carry (Tribunal H3)", () => {
   const first = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
-  // hand-edit mom's servings and skip laurie on the first night
+  // hand-edit mom's servings and skip lena on the first night
   const night = first.tables.slice().sort((a, b) => a.date.localeCompare(b.date))[0];
   night.seats = night.seats.map((s) =>
     s.id === "mom" ? { ...s, servings: 1.25 } : { ...s, status: "skipped" },
@@ -478,9 +478,9 @@ test("regenerate onto a CHANGED bank recomputes servings; skips still carry (Tri
   const mom = reNight.seats.find((s) => s.id === "mom");
   assert.notEqual(mom.servings, 1.25, "1.25 servings of chili is not 1.25 of an 1800-kcal dish");
   assert.equal(
-    reNight.seats.find((s) => s.id === "laurie").status,
+    reNight.seats.find((s) => s.id === "lena").status,
     "skipped",
-    "the Laurie lesson: a skip is a decision and always carries",
+    "the Lena lesson: a skip is a decision and always carries",
   );
 });
 
@@ -494,31 +494,31 @@ test("a SKIPPED named cook hands the role to the next present seat (David 2026-0
     date: "2026-07-28",
     slot: "dinner",
     recipeId: "chili",
-    cookId: "laurie",
+    cookId: "lena",
     seats: [
       { id: "mom", servings: 1 },
-      { id: "laurie", servings: 1, status: "skipped" },
+      { id: "lena", servings: 1, status: "skipped" },
     ],
   };
-  const cook = cookOf(table, "taranowski", PROFILES);
+  const cook = cookOf(table, "thornton", PROFILES);
   assert.equal(cook?.id, "mom", "skip = away — the role falls to the first present seat");
   // a present named cook keeps the role, of course
   const present = cookOf(
     { ...table, seats: table.seats.map((s) => ({ ...s, status: undefined })) },
-    "taranowski",
+    "thornton",
     PROFILES,
   );
-  assert.equal(present?.id, "laurie");
+  assert.equal(present?.id, "lena");
   // a cookId that is NOT of this house (or not a profile at all) still falls
   // through to the house rule: the named path must not void the cook
-  const away = cookOf({ ...table, cookId: "away" }, "taranowski", PROFILES);
+  const away = cookOf({ ...table, cookId: "away" }, "thornton", PROFILES);
   assert.equal(away?.id, "mom", "an out-of-house named cook falls back to the house rule");
-  const ghost = cookOf({ ...table, cookId: "nobody" }, "taranowski", PROFILES);
+  const ghost = cookOf({ ...table, cookId: "nobody" }, "thornton", PROFILES);
   assert.equal(ghost?.id, "mom", "an unknown cookId falls back too, never null");
 });
 
 test("a recipe any member banned outright (avoidRecipes) never reaches the shared pot", () => {
-  const members = [{ id: "mom", avoidRecipes: ["chili"] }, { id: "laurie" }];
+  const members = [{ id: "mom", avoidRecipes: ["chili"] }, { id: "lena" }];
   const pool = brigadePool(BANK, members, "dinner");
   assert.ok(!pool.some((r) => r.id === "chili"));
   assert.ok(
@@ -567,9 +567,9 @@ test("ONE LIST WHEN COOKS TAKE TURNS: the cooking rotates, the kitchen's shopper
   // nights": "taking turns on cooking should not be dependent or even affect
   // who buys the list ... there should only be one list compiled and one list
   // bought". The rule's named cook is the shopper; an explicit claim still wins.
-  const rot = { ...BRIGADE, memberIds: ["mom", "laurie", "david"], rotateCooks: true };
+  const rot = { ...BRIGADE, memberIds: ["mom", "lena", "david"], rotateCooks: true };
   const { events } = planBrigadeWeek({ tables: [] }, rot, ctx());
-  const d = deriveTables([{ house: "taranowski", events }], {
+  const d = deriveTables([{ house: "thornton", events }], {
     profileId: "mom",
     bankById: BANK,
     ownEntries: [],
@@ -578,7 +578,7 @@ test("ONE LIST WHEN COOKS TAKE TURNS: the cooking rotates, the kitchen's shopper
   });
   assert.equal(d.allCookExtras.length, WEEK.length, "every night has a batch");
   const cooks = new Set(events.tables.map((t) => t.cookId));
-  assert.ok(cooks.has("mom") && cooks.has("laurie") && cooks.has("david"), "the cooking rotates");
+  assert.ok(cooks.has("mom") && cooks.has("lena") && cooks.has("david"), "the cooking rotates");
   assert.deepEqual(
     d.cookExtras.map((x) => x.date).sort(),
     [...WEEK].sort(),
@@ -586,8 +586,8 @@ test("ONE LIST WHEN COOKS TAKE TURNS: the cooking rotates, the kitchen's shopper
   );
   for (const x of d.allCookExtras) assert.equal(/** @type {any} */ (x).buyerId, "mom");
   // nobody else is handed a list: every night bought exactly once
-  for (const who of ["laurie", "david"]) {
-    const view = deriveTables([{ house: "taranowski", events }], {
+  for (const who of ["lena", "david"]) {
+    const view = deriveTables([{ house: "thornton", events }], {
       profileId: who,
       bankById: BANK,
       ownEntries: [],
@@ -599,14 +599,14 @@ test("ONE LIST WHEN COOKS TAKE TURNS: the cooking rotates, the kitchen's shopper
   // an EXPLICIT claim still beats the shopper (a hand-claimed night)
   const claimed = {
     ...events,
-    tables: events.tables.map((t, i) => (i === 0 ? { ...t, buyerId: "laurie" } : t)),
+    tables: events.tables.map((t, i) => (i === 0 ? { ...t, buyerId: "lena" } : t)),
   };
   const replanned = planBrigadeWeek(claimed, rot, ctx()).events;
-  assert.equal(replanned.tables.find((t) => t.id === events.tables[0]?.id)?.buyerId, "laurie");
+  assert.equal(replanned.tables.find((t) => t.id === events.tables[0]?.id)?.buyerId, "lena");
 });
 
 test("a hand-set (non-brigade) table still rides NOBODY's list unclaimed", () => {
-  // the 2026-08-03 claims model is untouched outside brigades: taranowski's
+  // the 2026-08-03 claims model is untouched outside brigades: thornton's
   // hand-set dinners must not start auto-shopping for anyone
   const { events } = planBrigadeWeek({ tables: [] }, BRIGADE, ctx());
   const hand = {
@@ -622,12 +622,12 @@ test("a hand-set (non-brigade) table still rides NOBODY's list unclaimed", () =>
         cookId: "mom",
         seats: [
           { id: "mom", servings: 1 },
-          { id: "laurie", servings: 1 },
+          { id: "lena", servings: 1 },
         ],
       },
     ],
   };
-  const d = deriveTables([{ house: "taranowski", events: hand }], {
+  const d = deriveTables([{ house: "thornton", events: hand }], {
     profileId: "mom",
     bankById: BANK,
     ownEntries: [],
@@ -658,8 +658,8 @@ test("a SKIPPED named cook auto-buys nothing, and seat order cannot move the buy
         : { ...t, seats: [...t.seats].reverse() },
     ),
   };
-  for (const who of ["mom", "laurie"]) {
-    const view = deriveTables([{ house: "taranowski", events: skewed }], {
+  for (const who of ["mom", "lena"]) {
+    const view = deriveTables([{ house: "thornton", events: skewed }], {
       profileId: who,
       bankById: BANK,
       ownEntries: [],
@@ -674,8 +674,8 @@ test("a SKIPPED named cook auto-buys nothing, and seat order cannot move the buy
   }
   // reversing seats on the OTHER nights moved no buys (named cook only)
   const base = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
-  for (const who of ["mom", "laurie"]) {
-    const a = deriveTables([{ house: "taranowski", events: base }], {
+  for (const who of ["mom", "lena"]) {
+    const a = deriveTables([{ house: "thornton", events: base }], {
       profileId: who,
       bankById: BANK,
       ownEntries: [],
@@ -688,7 +688,7 @@ test("a SKIPPED named cook auto-buys nothing, and seat order cannot move the buy
       ...base,
       tables: base.tables.map((t) => ({ ...t, seats: [...t.seats].reverse() })),
     };
-    const b = deriveTables([{ house: "taranowski", events: rev }], {
+    const b = deriveTables([{ house: "thornton", events: rev }], {
       profileId: who,
       bankById: BANK,
       ownEntries: [],
@@ -707,7 +707,7 @@ test("the cook-buys rule is scoped to MY OWN household — no cross-house buying
   // starts buying his parents' dinners (measured, plan gate 2026-08-30).
   const { events } = planBrigadeWeek({ tables: [] }, BRIGADE, ctx());
   // "away" lives in ANOTHER house but views this house's tables
-  const view = deriveTables([{ house: "taranowski", events }], {
+  const view = deriveTables([{ house: "thornton", events }], {
     profileId: "away",
     bankById: BANK,
     ownEntries: [],
@@ -717,7 +717,7 @@ test("the cook-buys rule is scoped to MY OWN household — no cross-house buying
   assert.deepEqual(view.cookExtras, [], "an out-of-house viewer never auto-buys");
   // and even the COOK, if their own household is elsewhere, does not
   const movedCook = new Map([...PROFILES, ["mom", { id: "mom", household: "elsewhere" }]]);
-  const view2 = deriveTables([{ house: "taranowski", events }], {
+  const view2 = deriveTables([{ house: "thornton", events }], {
     profileId: "mom",
     bankById: BANK,
     ownEntries: [],
@@ -730,11 +730,11 @@ test("the cook-buys rule is scoped to MY OWN household — no cross-house buying
 test("a grocery claim survives brigade regeneration, like a skip does", () => {
   const first = planBrigadeWeek({ tables: [] }, BRIGADE, ctx()).events;
   const night = first.tables.slice().sort((a, b) => a.date.localeCompare(b.date))[0];
-  night.buyerId = "laurie";
+  night.buyerId = "lena";
   const re = planBrigadeWeek(first, BRIGADE, ctx({ regenerate: true })).events;
   assert.equal(
     re.tables.find((t) => t.id === night.id).buyerId,
-    "laurie",
+    "lena",
     '"I\'m buying Wednesday" is a decision, not a detail to rebuild away',
   );
 });
@@ -867,7 +867,7 @@ test("an open rule rolls its 28-day window forward, never ends, and keeps whose 
     until: "2026-11-09",
     open: true,
     rotateCooks: true,
-    memberIds: ["mom", "laurie"],
+    memberIds: ["mom", "lena"],
   };
   assert.equal(rolledRule(rule, "2026-10-18"), null, "still reaches three weeks out");
   const r = rolledRule(rule, "2026-10-25");
@@ -916,7 +916,7 @@ test("Tribunal loop 2: a Sunday batch is cooked by Sunday's cook, whoever's turn
     ...BRIGADE,
     from: "2026-10-25",
     until: "2026-11-21",
-    memberIds: ["mom", "laurie"],
+    memberIds: ["mom", "lena"],
     rotateCooks: true,
     cookDays: [0],
     batches: [{ cookDay: 0, feeds: [1, 2] }],
@@ -947,7 +947,7 @@ test("v1.9c: with no separate batch, Sunday's dinner pot covers Mon to Thu under
   );
   const targets = new Map([
     ["mom", { macros: { calories: 1800 }, mealSlots: ["breakfast", "lunch", "dinner"], avoidIngredients: ["peanut"] }],
-    ["laurie", { macros: { calories: 2000 }, mealSlots: ["breakfast", "lunch", "dinner"] }],
+    ["lena", { macros: { calories: 2000 }, mealSlots: ["breakfast", "lunch", "dinner"] }],
   ]);
   const WEEK5 = ["2026-10-25", "2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29"];
   const ok = new Set(["chili-pot", "lentil-stew", "turkey-bake"]);

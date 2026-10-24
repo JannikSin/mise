@@ -21,6 +21,8 @@ import {
   getSyncStatus,
   onSyncChange,
   readTargetsOf,
+  readNow,
+  readTargetsForSeat,
   readTargetsMetaOf,
   writeTargetsOf,
   pathFor,
@@ -48,7 +50,7 @@ import {
   planStartIso,
   statusDate,
 } from "./lib/dates.js";
-import { applyScanItems } from "./lib/scan.js";
+import { appendPantryNote, applyScanItems, markPantryOut } from "./lib/scan.js";
 import { dinerFacts } from "./lib/annotate.js";
 import {
   tailorTable,
@@ -89,6 +91,7 @@ import {
   pantryPathFor,
   inheritsLegacyPantry,
   ownItemToPantry,
+  withNeedIt,
   expirePerishables,
   mergeProfileLists,
   normalizePantry,
@@ -145,13 +148,13 @@ import {
   setPlanShopped,
   toggleEntryCooked,
   mergeRecipePool,
-  recipeConflicts,
   SLOT_KEYS,
-  SLOT_META,
   planSwipes,
   toggleSwipeEaten,
   settledEntryId,
   tripFor,
+  buildDays,
+  pickableDays,
 } from "./lib/plan.js";
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
 import { planBrigadeWeek } from "./lib/compose.js";
@@ -192,11 +195,12 @@ import {
   seatServingsFor,
   updateBrigade,
   rolledRule,
+  sundayBatchOn,
   brigadeCovers,
-  addSeat,
   removeSeat,
   brigadeTableId,
   seatScreen,
+  seatGuestOnDay,
   useRecipeOnTable,
 } from "./lib/tables.js";
 import {
@@ -349,7 +353,7 @@ function App() {
   const [krogerLinkNote, setKrogerLinkNote] = useState("");
   useEffect(() => {
     const r = krogerConsumeRedirect();
-    if (r === "linked") setKrogerLinkNote("Kroger account linked — SEND TO CART is ready on List.");
+    if (r === "linked") setKrogerLinkNote("Kroger account linked, SEND TO CART is ready on List.");
     else if (r === "error")
       setKrogerLinkNote("Kroger sign-in did not complete. Try LINK KROGER again.");
   }, []);
@@ -734,6 +738,9 @@ function App() {
     () => visibleProfilesFor(allProfiles, me, houseEvents, localIsoDate(new Date())),
     [allProfiles, me, houseEvents],
   );
+  // the seat read admits only these (Tribunal Red Team, 10/24, F5)
+  const visibleProfilesRef = useRef(visibleProfiles);
+  visibleProfilesRef.current = visibleProfiles;
   // names this phone does not show stay out of recipe titles (2.0, A-03)
   const hiddenNames = useMemo(() => {
     const shown = new Set(visibleProfiles.map((p) => p.id));
@@ -1189,7 +1196,7 @@ function App() {
       readProfiles().then((p) => {
         const self = p.profiles.find((pr) => pr.id === me);
         if (alive && self?.emoji) setOwnEmoji(self.emoji);
-        // same household only: Laurie's solo-apartment list never mixes
+        // same household only: Lena's solo-apartment list never mixes
         // into the home HOUSEHOLD trip (and vice versa)
         const others = householdOthers(p.profiles, me);
         if (others.length === 0) {
@@ -1364,7 +1371,7 @@ function App() {
         catChanged = true;
         void write("prices.json", /** @type {any} */ (next), { raw: true });
         priceNote =
-          ` — prices: ${applied.length} updated, ${added.length} new` +
+          `, prices: ${applied.length} updated, ${added.length} new` +
           (unmatched.length ? `, ${unmatched.length} unreadable` : "");
       }
       // name the blast radius and keep an exit: this tap edited other
@@ -1375,7 +1382,7 @@ function App() {
           message:
             (clearedNames.length > 0
               ? `receipt cleared ${clearedNames.join(", ")}'s list${clearedNames.length === 1 ? "" : "s"} too`
-              : "receipt applied — list, pantry and week updated") + priceNote,
+              : "receipt applied: list, pantry and week updated") + priceNote,
           restore: () => {
             updatePlan(prevPlan); // un-confirms shoppedAt — the receipt was a mistake
             updateShopping(prevShopping);
@@ -1682,7 +1689,13 @@ function App() {
       // THE BUY DAY (David, 2026-09-25): BUILD shops the seven days that open
       // on the buy day, Friday by default, reading both week plans the trip
       // spans. A past week (browsing back) keeps its whole-week derive.
-      const trip = tripFor(cur.week, localIsoDate(now), start, buyDayOf(targetsRef.current));
+      // JUST SOME DAYS (David, 2026-10-23): the picked days, up to a week from
+      // the first day still to plan, replace the trip when there are any
+      const trip = buildDays(
+        tripFor(cur.week, localIsoDate(now), start, buyDayOf(targetsRef.current)),
+        only?.dates,
+        start,
+      );
       let source = withCookExtras(cur);
       let fromDate = todayIfCurrentWeek(cur.week);
       if (trip) {
@@ -1692,7 +1705,7 @@ function App() {
             w === cur.week
               ? cur
               : normalizePlan(
-                  /** @type {any} */ (await read(`plans/${w}.json`).catch(() => null)),
+                  /** @type {any} */ (await readNow(`plans/${w}.json`).catch(() => null)),
                   w,
                 ),
           ),
@@ -1797,6 +1810,16 @@ function App() {
     [updateShopping, updatePantry],
   );
 
+  // NEED IT on a CHECK YOU HAVE THESE basic (Mise 2.0, I-10): the rows move
+  // into their aisle and the cart; the pantry is not touched, because he has
+  // said nothing about owning it
+  const handleNeedItem = useCallback(
+    (/** @type {string[]} */ ids) => {
+      updateShopping(withNeedIt(shoppingRef.current, ids));
+    },
+    [updateShopping],
+  );
+
   // ONE pantry (fix list 1.1): the LOW toggle became a three-state cycle.
   // PLENTY suppresses buying, LOW forces the item onto the list, OUT (no
   // state) means it buys whenever a recipe needs it — the garlic fix.
@@ -1859,7 +1882,7 @@ function App() {
       if (count === 0) return true;
       const house = householdOf(allProfilesRef.current, me);
       const ok = await askConfirm(
-        `Delete ${count} ${count === 1 ? "item" : "items"} from the ${house} kitchen record? Everyone in the house sees this. An UNDO button appears for a moment after — past that, rescanning the shelves is how it comes back.`,
+        `Delete ${count} ${count === 1 ? "item" : "items"} from the ${house} kitchen record? Everyone in the house sees this. An UNDO button appears for a few seconds. After that, only rescanning the shelves brings it back.`,
       );
       if (!ok) return false;
       updatePantry(emptyPantry(prev, keepStaples));
@@ -2010,7 +2033,7 @@ function App() {
     const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
     updatePlan(saveFallback(p, localIsoDate(new Date())));
     setUndoToast({
-      message: "plan saved as your shopped fallback — the week stays changeable",
+      message: "Saved what you are shopping for. You can still change the week.",
       restore: () => updatePlan(p),
     });
   }, [updatePlan]);
@@ -2116,7 +2139,7 @@ function App() {
         carriedFallback = p.fallback;
         if (p.shoppedAt || p.fallback) {
           const ok = await askConfirm(
-            "You've shopped for this week. Regenerating reshapes it — the bought food stays in your pantry, the shopped plan stays saved as your fallback, and the coverage check watches every perishable. Regenerate?",
+            "You've shopped for this week. Regenerating reshapes it, the bought food stays in your pantry, the shopped plan stays saved as your fallback, and the coverage check watches every perishable. Regenerate?",
           );
           if (!ok) return;
           if (!carriedFallback) {
@@ -2180,7 +2203,7 @@ function App() {
               thin: [],
               report: [],
               notes: [
-                `the shared meals could not be set: ${err instanceof Error ? err.message : "unknown error"} — your own slots were still planned`,
+                `the shared meals could not be set: ${err instanceof Error ? err.message : "unknown error"}, your own slots were still planned`,
               ],
             });
           }
@@ -2463,6 +2486,9 @@ function App() {
     /** @type {import("./lib/plan.js").Plan | null} */ (null),
   );
   const [wasteLog, setWasteLog] = useState(/** @type {Record<string, any> | null} */ (null));
+  // SAY WHAT YOU HAVE keeps his words (I-06): the house's saved notes,
+  // households/<h>/pantry-notes.json, newest last
+  const [pantryNotes, setPantryNotes] = useState(/** @type {Record<string, any> | null} */ (null));
 
   // THE SHELF CHECK (P6/P11, David 2026-09-06): confirm, correct or remove a
   // counted row before GENERATE reads the shelf. A downward correction and a
@@ -2482,6 +2508,36 @@ function App() {
       await write(wastePath, next, { raw: true });
     },
     [],
+  );
+  // A NOTE NEVER REMOVES (I-06, post-mortem 10/18): "out of X" in a pantry
+  // note is only a suggestion, and this is the tap that confirms it. Same
+  // undo toast as the ✕ on a pantry row.
+  const handleMarkOut = useCallback(
+    (/** @type {string} */ food) => {
+      const prev = pantryRef.current;
+      updatePantry(markPantryOut(prev, food));
+      setUndoToast({ message: `marked ${food} out`, restore: () => updatePantry(prev) });
+    },
+    [updatePantry],
+  );
+  // HIS WORDS ARE KEPT (I-06): each ADD from a note saves what he said beside
+  // what it saved, in the house's pantry-notes.json (sibling of pantry.json,
+  // the waste ledger's pattern)
+  const handlePantryNote = useCallback(
+    async (
+      /** @type {{ said: string, saved: Record<string, any>[], unsure: string[], outs: { name: string, marked: boolean }[] }} */ note,
+    ) => {
+      const pantryPath = pantryPathRef.current;
+      if (!pantryPath) return;
+      const notesPath = pantryPath.replace(/pantry\.json$/, "pantry-notes.json");
+      const prior = /** @type {Record<string, any> | null} */ (
+        await read(notesPath, { raw: true }).catch(() => null)
+      );
+      const next = appendPantryNote(prior, { ...note, by: me }, new Date());
+      setPantryNotes(next);
+      await write(notesPath, next, { raw: true });
+    },
+    [me],
   );
   // ENOUGH FOR THE WEEK? (David, 2026-09-07): the person states a count for a
   // food the generated week needs; a lower count than believed is a write-off.
@@ -2548,6 +2604,12 @@ function App() {
       );
       const w = /** @type {Record<string, any> | null} */ (await read(path, { raw: true }));
       if (alive) setWasteLog(w);
+      const notes = /** @type {Record<string, any> | null} */ (
+        await read(path.replace(/waste\.json$/, "pantry-notes.json"), { raw: true }).catch(
+          () => null,
+        )
+      );
+      if (alive) setPantryNotes(notes);
     })();
     return () => {
       alive = false;
@@ -2969,7 +3031,7 @@ function App() {
         ),
       dinners: tables.map(
         (t) =>
-          `${t.date} ${nameOf(t.recipeId)} — cook ${profName(t.cookId)}, groceries ${t.buyerId ? profName(t.buyerId) : "unclaimed"}${batchOf(t.recipeId) ? ` | batch prep: ${batchOf(t.recipeId)}` : ""}`,
+          `${t.date} ${nameOf(t.recipeId)}, cook ${profName(t.cookId)}, groceries ${t.buyerId ? profName(t.buyerId) : "unclaimed"}${batchOf(t.recipeId) ? ` | batch prep: ${batchOf(t.recipeId)}` : ""}`,
       ),
       kitchen: pantryItems(pantry)
         .filter(isDatedItem)
@@ -3494,7 +3556,9 @@ function App() {
       const known = new Set(allProfilesRef.current.map((p) => p.id));
       for (const s of t.seats ?? []) {
         if (!known.has(s.id) || s.status === "skipped") continue;
-        const tg = /** @type {any} */ (await readTargetsOf(s.id));
+        // waits for GitHub: a guest seated minutes ago is not cached yet,
+        // and her plate would read as unread until the next sync (D-01)
+        const tg = /** @type {any} */ (await readTargetsOf(s.id, readNow).catch(() => null));
         rules[s.id] = tg
           ? {
               diet: tg.diet,
@@ -3638,14 +3702,16 @@ function App() {
    */
   const handleScreenOccasion = useCallback(
     async (/** @type {string} */ profileId, /** @type {string[]} */ recipeIds) => {
-      const t = /** @type {any} */ (await readTargetsOf(profileId));
+      // waits for GitHub, and fails closed (schelkin, 10/23): an unread
+      // owner used to screen every recipe as clean
+      const t = /** @type {any} */ (await readTargetsOf(profileId, readNow).catch(() => null));
       const byId = recipesById([...bankRecipesRef.current, ...allRecipesRef.current]);
       /** @type {Record<string, string[]>} */
       const out = {};
       for (const id of new Set(recipeIds)) {
         const r = byId.get(id);
         if (!r) continue;
-        const reasons = recipeConflicts(r, t?.diet, t?.avoidIngredients, t?.avoidRecipes);
+        const reasons = seatScreen(r, t);
         if (reasons.length > 0) out[id] = reasons;
       }
       return out;
@@ -3691,7 +3757,7 @@ function App() {
           `Remove ${o.name}? ${dayCount === 1 ? "That day comes" : `Those ${dayCount} days come`} back EMPTY, not ` +
             `re-planned: clearing an occasion and planning the days again are two different ` +
             `acts, and doing both at once would silently rewrite a week. Seats already taken ` +
-            `off shared tables stay off — un-skipping them here could re-seat somebody who ` +
+            `off shared tables stay off, un-skipping them here could re-seat somebody who ` +
             `skipped for their own reasons.`,
         ))
       )
@@ -3928,62 +3994,37 @@ function App() {
         (cur?.brigades ?? []).find(
           (b) => b.memberIds.includes(me) && brigadeCovers(b, date),
         ) ?? null;
-      if (!cur || !active) return "No standing brigade covers that day.";
-      const targets = /** @type {any} */ (await readTargetsOf(profileId));
-      const bank = recipesById(bankRecipesRef.current);
-      const today = localIsoDate(new Date());
-      let next = cur;
-      /** @type {{ slot: string, name: string, kcal: number, madeOn?: string }[]} */
-      const added = [];
-      /** @type {string[]} */
-      const refused = [];
-      for (const slot of slots) {
-        const t = cur.tables.find((x) => x.id === brigadeTableId(active.id, date, slot));
-        if (!t) continue;
-        if ((t.seats ?? []).some((s) => s.id === profileId)) continue;
-        const recipe = bank.get(t.recipeId);
-        // the allergy screen, fail closed (Tribunal Red Team, 2026-10-16):
-        // a guest is never seated on a dish their profile refuses, and an
-        // unreadable profile seats nobody
-        const no = seatScreen(recipe, targets);
-        if (no.length > 0) {
-          refused.push(`${SLOT_META[slot]?.full ?? slot} (${recipe?.name ?? t.recipeId}: ${no.join(", ")})`);
-          continue;
-        }
-        const servings = seatServingsFor(targets ?? undefined, slot, recipe);
-        next = addSeat(next, t.id, { id: profileId, servings }, today);
-        // A POT ALREADY MADE CANNOT GROW (Tribunal Realist, 2026-10-18): a
-        // leftover or batch night eats a pot cooked earlier; once that day
-        // has passed, or the pot is marked cooked, the extra plate comes out
-        // of what is there, and the message must say so
-        const source = t.leftoverOf ? cur.tables.find((x) => x.id === t.leftoverOf) : t;
-        const madeOn = source?.preparedOn ?? source?.date ?? t.date;
-        added.push({
-          slot,
-          name: recipe?.name ?? t.recipeId,
-          kcal: Math.round((recipe?.nutrition?.calories ?? 0) * servings),
-          ...(source?.cookedAt || madeOn < today ? { madeOn } : {}),
-        });
-      }
-      const who0 = allProfilesRef.current.find((p) => p.id === profileId)?.name ?? profileId;
-      if (added.length === 0)
-        return refused.length > 0
-          ? `${who0} was not added: ${refused.join("; ")}.`
-          : "No shared meal is set for that day yet. SET MY WEEK on Plan first.";
-      writeHouseEvents(house, next);
-      const who = allProfilesRef.current.find((p) => p.id === profileId)?.name ?? profileId;
-      const what = added
-        .map(
-          (a) =>
-            `${SLOT_META[a.slot]?.full ?? a.slot} (${a.name}, about ${a.kcal} kcal${a.madeOn ? "" : " more to cook"})`,
-        )
-        .join(", ");
-      const made = added.filter((a) => a.madeOn);
-      const potLine =
-        made.length === added.length
-          ? `That pot was already made ${made.map((a) => parseLocalIso(/** @type {string} */ (a.madeOn)).toLocaleDateString([], { weekday: "long" })).join(", ")}, so their plate comes out of what is there; check there is enough.`
-          : `The cook's pot and the list grow by those plates.${made.length > 0 ? ` Already made, so not growing: ${made.map((a) => a.name).join(", ")}.` : ""}`;
-      return `${who} joins ${what}. ${potLine}${refused.length > 0 ? ` Not added to ${refused.join("; ")}.` : ""}`;
+      if (!cur || !active) return { note: "No standing brigade covers that day.", retry: false };
+      // only someone this phone already shows may be seated, so a stray id
+      // cannot pull another house's profile onto it (Tribunal Red Team,
+      // 10/24, F5); readTargetsForSeat refuses the same way
+      const mayShow = visibleProfilesRef.current.map((p) => String(p.id));
+      if (!mayShow.includes(profileId))
+        return { note: "Not added: that person is not on this phone's People list.", retry: false };
+      // waits for GitHub: a guest who signed up minutes ago is not cached on
+      // this phone yet, and a cached-first read refused her (D-01, 10/18)
+      const targets = /** @type {any} */ (await readTargetsForSeat(profileId, mayShow));
+      // the fresh copy: the read above waited on the network
+      const fresh = houseEventsRef.current.find((h) => h.house === house)?.events ?? cur;
+      const name = String(allProfilesRef.current.find((p) => p.id === profileId)?.name ?? profileId);
+      const r = seatGuestOnDay(
+        fresh,
+        active.id,
+        date,
+        slots,
+        { id: profileId, name },
+        targets,
+        recipesById(bankRecipesRef.current),
+        {
+          today: localIsoDate(new Date()),
+          bankLoading: !(
+            collectionFresh("recipes", { raw: true }) ||
+            collectionStalled("recipes", { raw: true })
+          ),
+        },
+      );
+      if (r.events) writeHouseEvents(house, r.events);
+      return { note: r.note, retry: r.retry };
     },
     [writeHouseEvents, me],
   );
@@ -4158,7 +4199,11 @@ function App() {
       // past pots; a plain SET keeps every set table via keepSet (2.0, I-01)
       const pantryNow = pantryRef.current;
       const listNow = shoppingRef.current;
-      const { events, made, thin, report, swept, notes, nights } = planBrigadeWeek(cur, run, {
+      // SUNDAY'S DINNER IS THE BATCH unless the rule saved it off (2.0,
+      // I-14): the default is applied to the copy the planner reads, never
+      // written into the rule, so "no saved value" stays no saved value
+      const planned = { ...run, sundayBatch: sundayBatchOn(run) };
+      const { events, made, thin, report, swept, notes, nights } = planBrigadeWeek(cur, planned, {
         dates: datesOfWeek(week),
         today,
         calendarToday: localIsoDate(new Date()),
@@ -4257,9 +4302,22 @@ function App() {
     const out = {};
     if (!recipe) return out;
     for (const p of allProfilesRef.current) {
-      const t = /** @type {any} */ (await readTargetsOf(p.id));
-      out[p.id] = recipeConflicts(recipe, t?.diet, t?.avoidIngredients, t?.avoidRecipes);
+      // fails closed (schelkin, 10/23): an unread profile used to screen as
+      // clean, and with the 2.0 sync scope an unseated guest always reads as
+      // unread. seatScreen names it, so the seat is refused, not waved on
+      const t = /** @type {any} */ (await readTargetsOf(p.id).catch(() => null));
+      out[p.id] = seatScreen(recipe, t);
     }
+    return out;
+  }, []);
+
+  // THE KITCHEN RULE'S PEOPLE (2.0, I-08): each member's targets for the
+  // rule form's plate screen; a read that fails is null, so the form says
+  // "not checked" instead of passing the recipe
+  const handleReadTargets = useCallback(async (/** @type {string[]} */ ids) => {
+    /** @type {Record<string, any>} */
+    const out = {};
+    for (const id of ids) out[id] = (await readTargetsOf(id).catch(() => null)) ?? null;
     return out;
   }, []);
 
@@ -4286,9 +4344,9 @@ function App() {
       const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
       const t = cur?.tables.find((x) => x.id === tableId);
       const recipe = t ? recipesById(bankRecipesRef.current).get(t.recipeId) : null;
-      if (!cur || !t || !recipe) throw new Error("table or recipe missing — sync first");
+      if (!cur || !t || !recipe) throw new Error("table or recipe missing, sync first");
       const live = (t.seats ?? []).filter((s) => s.status !== "skipped");
-      if (live.length === 0) throw new Error("everyone skipped this table — nothing to tailor");
+      if (live.length === 0) throw new Error("everyone skipped this table, nothing to tailor");
       const facts = await handleDinerFacts(live.map((s) => s.id));
       const today = localIsoDate(new Date());
       // A PER-PORTION DISH IS ARITHMETIC, NOT AI (David, 2026-09-13: "ai
@@ -4321,7 +4379,7 @@ function App() {
             recipe,
           );
       if (Object.keys(result.seats).length === 0)
-        throw new Error("no tailoring came back — try again");
+        throw new Error("no tailoring came back, try again");
       writeHouseEvents(house, setTableTailor(cur, tableId, { at: today, ...result }, today));
     },
     [writeHouseEvents, handleDinerFacts],
@@ -4825,7 +4883,7 @@ function App() {
     ${
       publicAlarm &&
       html`<div class="banner red">
-        ⚠ DATA REPO IS PUBLIC — ${DATA_REPO.owner}/${DATA_REPO.repo} is visible to anyone. Make it
+        ⚠ DATA REPO IS PUBLIC: ${DATA_REPO.owner}/${DATA_REPO.repo} is visible to anyone. Make it
         private on GitHub now: Settings → Danger Zone → Change visibility.
       </div>`
     }
@@ -5005,6 +5063,7 @@ function App() {
         onJustBought=${handleJustBought}
         onToggleLow=${handleCycleState}
         onOwnItem=${handleOwnItem}
+        onNeedItem=${handleNeedItem}
         onScanApprove=${handleScanApprove}
         onGoingShopping=${handleGoingShopping}
         others=${otherLists}
@@ -5017,6 +5076,7 @@ function App() {
         onClaimAllDinners=${handleClaimAllDinners}
         brigade=${listBrigade}
         trip=${listTrip}
+        pickDays=${listTrip ? pickableDays(planStartIso(new Date())) : null}
         buildNote=${buildNote}
         repriceNote=${repriceNote}
         dinnerClaims=${dinnerClaims}
@@ -5057,6 +5117,9 @@ function App() {
         )}
         onSetCount=${handleSetCount}
         onRemovePantry=${handleRemovePantry}
+        onMarkOut=${handleMarkOut}
+        onPantryNote=${handlePantryNote}
+        lastPantryNote=${pantryNotes?.notes?.at?.(-1) ?? null}
       />`
     }
     ${
@@ -5136,6 +5199,7 @@ function App() {
     ${
       route.view === "tables" &&
       html`<${TablesView}
+        askConfirm=${askConfirm}
         houseEvents=${visibleHouseEvents}
         profiles=${visibleProfiles}
         me=${me}
@@ -5168,6 +5232,7 @@ function App() {
         onRemoveFromDinner=${handleRemoveGuestSeat}
         onLinkRoommate=${handleLinkRoommate}
         onInviteLink=${hasToken ? handleInviteLink : undefined}
+        onReadTargets=${handleReadTargets}
       />`
     }
     ${
@@ -5203,6 +5268,7 @@ function App() {
     ${
       route.view === "system" &&
       html`<${SystemView}
+        askConfirm=${askConfirm}
         sw=${sw}
         sync=${sync}
         repo=${repo}

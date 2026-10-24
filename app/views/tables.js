@@ -11,12 +11,18 @@ import {
   resolveHead,
   brigadeCovers,
   breakOn,
+  namedSlotLine,
+  ruleRecipeCheck,
+  sundayBatchOn,
+  batchesOnSave,
 } from "../lib/tables.js";
 import { autoPlanEligible } from "../lib/plan.js";
 import { brigadeRunLines, cookDaysLabel } from "./brigade-lines.js";
 import { isParked } from "../lib/parked.js";
 import { PeopleSection } from "./people.js";
 
+/** How long SET TABLE waits on the allergy check before offering TRY AGAIN. */
+const SCREEN_TIMEOUT_MS = 15000;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
@@ -63,13 +69,17 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onRemoveBrigade: (id: string) => void,
  *   onRunBrigade: (id: string, week: string, regenerate?: boolean) => Promise<{ made: number, thin: { slot: string, available: number }[], report?: { date: string, seatId: string, kcal: number, protein: number, dayKcal: number, dayProtein: number, share?: number, status: string }[], swept?: { swaps: number, saved: number }, swiped?: { date: string, slot: string }[], assumed?: { id: string, slot: string }[] }>,
  *   showScoreboard?: boolean,
- *   onAddToDinner?: (date: string, profileId: string) => Promise<string | null>,
+ *   onAddToDinner?: (date: string, profileId: string) => Promise<{ note: string, retry: boolean }>,
  *   onRemoveFromDinner?: (date: string, profileId: string) => void,
  *   onLinkRoommate?: (profileId: string) => Promise<string>,
- *   onInviteLink?: (kind: "member" | "guest") => Promise<string>
- * }} props
+ *   onInviteLink?: (kind: "member" | "guest") => Promise<string>,
+ *   askConfirm?: (message: string) => Promise<boolean>,
+ *   onReadTargets?: (ids: string[]) => Promise<Record<string, any>>
+ * }} props `onReadTargets` (2.0, I-08): each id's targets, null when the file
+ *   could not be read, so the rule's recipe picks run the plate screen
  */
 export function TablesView({
+  askConfirm = async (/** @type {string} */ m) => window.confirm(m),
   houseEvents,
   profiles,
   me,
@@ -101,6 +111,7 @@ export function TablesView({
   onRemoveFromDinner = undefined,
   onLinkRoommate = undefined,
   onInviteLink = undefined,
+  onReadTargets = undefined,
 }) {
   const byId = recipesById(bankRecipes ?? []);
   const myHouse = /** @type {string} */ (
@@ -163,7 +174,7 @@ export function TablesView({
     } catch (err) {
       setTailorErr({
         ...tailorErr,
-        [tableId]: err instanceof Error ? err.message : "tailoring failed — try again",
+        [tableId]: err instanceof Error ? err.message : "tailoring failed, try again",
       });
     }
     setTailorBusy(null);
@@ -213,7 +224,7 @@ export function TablesView({
   const houseMates = (profiles ?? []).filter((p) => (p.household ?? "home") === myHouse);
   const myBrigades = (houseEvents ?? []).find((h) => h.house === myHouse)?.events?.brigades ?? [];
   const [brigadeForm, setBrigadeForm] = useState(
-    /** @type {null | { editId: string | null, name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string, open: boolean, sundayMinutes: string, cookDays: number[], slotRecipes: Record<string, string[]>, batchFeeds: number[], dinnerMeat: boolean }} */ (
+    /** @type {null | { editId: string | null, name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string, open: boolean, sundayMinutes: string, cookDays: number[], slotRecipes: Record<string, string[]>, batchFeeds: number[], keptBatches?: { cookDay: number, feeds: number[] }[], sundayBatch: boolean, dinnerMeat: boolean }} */ (
       null
     ),
   );
@@ -223,6 +234,26 @@ export function TablesView({
   const [brigadeNote, setBrigadeNote] = useState(/** @type {string[]} */ ([]));
   // the rule form as it opened, to tell an edited form from an untouched one
   const [formStart, setFormStart] = useState("");
+  // THE RULE'S PEOPLE, SCREENED (2.0, I-08): each member's targets while
+  // the form is open, so a named recipe someone cannot eat greys with the
+  // reason. Absent = still loading, null = could not be read; both leave the
+  // recipe "not checked", never passed.
+  const [ruleTargets, setRuleTargets] = useState(/** @type {Record<string, any>} */ ({}));
+  const ruleMemberKey = brigadeForm ? [...brigadeForm.memberIds].sort().join(",") : "";
+  useEffect(() => {
+    if (!ruleMemberKey || !onReadTargets) return;
+    let live = true;
+    void onReadTargets(ruleMemberKey.split(","))
+      .then((got) => {
+        if (live) setRuleTargets((cur) => ({ ...cur, ...got }));
+      })
+      .catch(() => {
+        // a failed read leaves everyone unchecked: fails closed
+      });
+    return () => {
+      live = false;
+    };
+  }, [ruleMemberKey]);
 
   /**
    * @param {Partial<import("../lib/tables.js").Brigade>} [seed] renew path: prefill from the ended record
@@ -258,7 +289,13 @@ export function TablesView({
           ? [...seed.cookDays]
           : [...ALL_DAYS],
       slotRecipes: { ...(seed?.slotRecipes ?? {}) },
+      // ON unless saved off (2.0, I-14); ON, there is no second Sunday pot
+      sundayBatch: sundayBatchOn(seed),
       batchFeeds: [...(seed?.batches?.find((b) => b.cookDay === 0)?.feeds ?? [])],
+      // a rule that opens ON keeps its saved batches through any save that
+      // leaves the setting alone (batchesOnSave): a rename is not an edit of
+      // his Sunday pot (Tribunal Final Gate 1.95)
+      ...(sundayBatchOn(seed) && Array.isArray(seed?.batches) ? { keptBatches: seed.batches } : {}),
       dinnerMeat: seed?.dinnerMeat === true,
     };
     setBrigadeForm(form);
@@ -266,11 +303,11 @@ export function TablesView({
     setBrigadeNote([]);
   };
   // leaving the rule with unsaved changes asks first (2.0, I-07)
-  const cancelBrigadeForm = () => {
+  const cancelBrigadeForm = async () => {
     if (
       brigadeForm &&
       JSON.stringify(brigadeForm) !== formStart &&
-      !confirm("Leave without saving your changes to the rule?")
+      !(await askConfirm("Leave without saving your changes to the rule?"))
     ) {
       return;
     }
@@ -314,9 +351,21 @@ export function TablesView({
         ),
     );
     const batchFeeds =
-      brigadeForm.slots.includes("dinner") && brigadeForm.cookDays.includes(0) && !everyNight
+      !brigadeForm.sundayBatch &&
+      brigadeForm.slots.includes("dinner") &&
+      brigadeForm.cookDays.includes(0) &&
+      !everyNight
         ? [...brigadeForm.batchFeeds].filter((d) => !brigadeForm.cookDays.includes(d)).sort()
         : [];
+    const batches = batchesOnSave(
+      {
+        sundayBatch: brigadeForm.sundayBatch,
+        kept: brigadeForm.keptBatches,
+        slots: brigadeForm.slots,
+        cookDays: brigadeForm.cookDays,
+      },
+      batchFeeds,
+    );
     const rule = {
       name: brigadeForm.name.trim() || "Brigade",
       memberIds: orderedMembers,
@@ -337,10 +386,12 @@ export function TablesView({
         : { cookDays: [...brigadeForm.cookDays].sort() }),
       ...(Object.keys(slotRecipes).length > 0 ? { slotRecipes } : {}),
       // the Sunday batch: only nights that are NOT cook nights can eat it
-      ...(batchFeeds.length > 0 ? { batches: [{ cookDay: 0, feeds: batchFeeds }] } : {}),
+      ...(batches ? { batches } : {}),
       ...(brigadeForm.dinnerMeat && brigadeForm.slots.includes("dinner")
         ? { dinnerMeat: true }
         : {}),
+      // only OFF is stored: absent is the default, ON (sundayBatchOn)
+      ...(brigadeForm.sundayBatch ? {} : { sundayBatch: false }),
     };
     if (brigadeForm.editId && onUpdateBrigade) {
       onUpdateBrigade(brigadeForm.editId, {
@@ -357,6 +408,7 @@ export function TablesView({
         slotRecipes: /** @type {any} */ (rule).slotRecipes ?? undefined,
         batches: /** @type {any} */ (rule).batches ?? undefined,
         dinnerMeat: /** @type {any} */ (rule).dinnerMeat ?? undefined,
+        sundayBatch: /** @type {any} */ (rule).sundayBatch ?? undefined,
       });
       setBrigadeNote([
         "Saved. SET MY WEEK on the Plan tab fills empty meals from it and swaps any set meal the rule no longer allows.",
@@ -388,7 +440,7 @@ export function TablesView({
       );
     } catch {
       setBrigadeNote([
-        "Could not set the week — something failed while composing it. Try again; if it keeps failing, check SYS for a sync problem.",
+        "Could not set the week, something failed while composing it. Try again; if it keeps failing, check SYS for a sync problem.",
       ]);
     }
     setBrigadeBusy(null);
@@ -439,16 +491,51 @@ export function TablesView({
       seats,
     });
   };
+  // the dish the warnings above were screened for: SET TABLE waits for it,
+  // and a seat the screen refused (an unread profile included) is left off
+  // (Mise 2.0, D-01 follow-up, schelkin 10/23: the warnings used to be
+  // advice only, and a tap before they loaded seated everyone unscreened)
+  const [screenedFor, setScreenedFor] = useState(/** @type {string | null} */ (null));
+  // the check failed or took over 15 seconds: SET TABLE stays shut (fail
+  // closed, nothing is seated unscreened) and TRY AGAIN runs the check anew
+  // (Tribunal Final Gate, Usability: the button hung on CHECKING ALLERGIES
+  // with no way out when the phone had no signal)
+  const [screenFailed, setScreenFailed] = useState(false);
+  const [screenTry, setScreenTry] = useState(0);
   useEffect(() => {
     if (!tableForm?.recipeId) return;
+    const id = tableForm.recipeId;
+    let alive = true;
     setSeatWarnings({});
-    void onSeatScreen(tableForm.recipeId).then(setSeatWarnings);
-  }, [tableForm?.recipeId]);
+    setScreenedFor(null);
+    setScreenFailed(false);
+    const timer = setTimeout(() => {
+      if (alive) setScreenFailed(true);
+    }, SCREEN_TIMEOUT_MS);
+    onSeatScreen(id)
+      .then((w) => {
+        if (!alive) return;
+        clearTimeout(timer);
+        setSeatWarnings(w);
+        setScreenedFor(id);
+        setScreenFailed(false);
+      })
+      .catch(() => {
+        if (!alive) return;
+        clearTimeout(timer);
+        setScreenFailed(true);
+      });
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [tableForm?.recipeId, screenTry]);
   const submitTable = () => {
     if (!tableForm || !tableForm.recipeId || !tableForm.date) return;
     if (tableForm.date < todayIso) return; // past tables can't be set
+    if (screenedFor !== tableForm.recipeId) return; // the allergy check has not finished
     const seats = Object.entries(tableForm.seats)
-      .filter(([, v]) => v.in)
+      .filter(([id, v]) => v.in && (seatWarnings[id] ?? []).length === 0)
       .map(([id, v]) => ({ id, servings: v.servings }));
     if (seats.length === 0) return;
     onCreateTable({
@@ -467,7 +554,7 @@ export function TablesView({
       tokenBlocked &&
       myTables.length > 0 &&
       html`<p class="hint">
-        ✨ plate tailoring needs the token —
+        ✨ plate tailoring needs the token,
         ${tokenBroken(repo?.auth) ? "fix it in Settings" : "connect it in Settings"}
       </p>`
     }
@@ -597,13 +684,13 @@ export function TablesView({
           ${
             conflicted &&
             html`<div class="d num redflag">
-              ⚠ conflicts with your diet list — not added to your plan
+              ⚠ conflicts with your diet list, not added to your plan
             </div>`
           }
           ${
             collisionIds.has(t.id) &&
             html`<div class="d num redflag">
-              your ${SLOT_META[t.slot]?.full ?? t.slot} that day is pinned or marked OUT — unpin or
+              your ${SLOT_META[t.slot]?.full ?? t.slot} that day is pinned or marked OUT, unpin or
               clear it to sit at this table
             </div>`
           }
@@ -631,7 +718,7 @@ export function TablesView({
           }
           ${
             t.sameForEveryone &&
-            html`<div class="d hint">🍲 everyone eats the same tonight — no per-person plates</div>`
+            html`<div class="d hint">🍲 everyone eats the same tonight, no per-person plates</div>`
           }
           <div class="actions wrap">
             ${
@@ -718,7 +805,7 @@ export function TablesView({
               t.buyerId === me &&
               onSetBuyer &&
               html`<button class="secondary" onClick=${() => onSetBuyer(house, t.id, null)}>
-                RELEASE — NOT BUYING
+                RELEASE, NOT BUYING
               </button>`
             }
             ${
@@ -788,7 +875,7 @@ export function TablesView({
 
       <div class="actions">
         <a class="secondary linkbtn" href="#/ask"
-          >💬 ask anything — cooking, the plan, the list →</a
+          >💬 ask anything, cooking, the plan, the list →</a
         >
       </div>
 
@@ -987,7 +1074,7 @@ export function TablesView({
                           ${
                             seat.in &&
                             warns.length > 0 &&
-                            html`<span class="usesoon">⚠ ${warns.join(", ")}</span>`
+                            html`<span class="usesoon">⚠ not seated: ${warns.join(", ")}</span>`
                           }
                         </label>
                         ${
@@ -1019,8 +1106,24 @@ export function TablesView({
               }
               <div class="actions">
                 <button class="secondary" onClick=${() => setTableForm(null)}>CANCEL</button>
-                <button class="primary" onClick=${submitTable}>SET TABLE</button>
+                <button
+                  class="primary"
+                  disabled=${screenedFor !== tableForm.recipeId && !screenFailed}
+                  onClick=${screenedFor === tableForm.recipeId ? submitTable : () => setScreenTry((n) => n + 1)}
+                >
+                  ${screenedFor === tableForm.recipeId ? "SET TABLE" : screenFailed ? "TRY AGAIN" : "CHECKING ALLERGIES…"}
+                </button>
               </div>
+              ${
+                screenedFor !== tableForm.recipeId &&
+                html`<p class="hint" role="status">
+                  ${
+                    screenFailed
+                      ? "Could not check allergies. Check the phone has signal, then TRY AGAIN."
+                      : "Checking everyone's allergies, a few seconds."
+                  }
+                </p>`
+              }
             </div>`
       }
       `
@@ -1073,8 +1176,8 @@ export function TablesView({
               <div class="sub">${names.join(" · ")}</div>
               <div class="sub">
                 ended
-                ${" "}${parseLocalIso(b.until).toLocaleDateString([], { month: "short", day: "numeric" })}
-                — renew it to keep planning shared weeks
+                ${" "}${parseLocalIso(b.until).toLocaleDateString([], { month: "short", day: "numeric" })},
+               renew it to keep planning shared weeks
               </div>
               <div class="actions">
                 <button class="primary" onClick=${() => openBrigadeForm(b)}>
@@ -1112,7 +1215,7 @@ export function TablesView({
           ? `${parseLocalIso([weekDates[0] ?? todayIso, todayIso, b.from].sort()[2] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })} – ${parseLocalIso(weekDates[6] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })}`
           : weekDates.some((d) => breakOn(b, d))
             ? `off this week: ${breakOn(b, weekDates.find((d) => breakOn(b, d)) ?? "")?.why ?? "school break"}`
-            : `starts ${parseLocalIso(b.from).toLocaleDateString([], { month: "short", day: "numeric" })} — flip Plan to that week`;
+            : `starts ${parseLocalIso(b.from).toLocaleDateString([], { month: "short", day: "numeric" })}, flip Plan to that week`;
         return html`
           <div class="tile" key=${b.id}>
             <div class="k">${b.name}</div>
@@ -1138,12 +1241,21 @@ export function TablesView({
               (cookDaysLabel(b.cookDays) || Object.keys(b.slotRecipes ?? {}).length > 0) &&
               html`<div class="sub">
                 ${cookDaysLabel(b.cookDays) && html`🍳 cook dinner ${cookDaysLabel(b.cookDays)} · the nights after eat that pot`}
-                ${(b.batches ?? []).map(
-                  (x, i) =>
-                    html`<span key=${`batch${i}`}>
-                      · 🥘 ${WEEKDAYS[x.cookDay]} batch for ${cookDaysLabel(x.feeds)}</span
-                    >`,
-                )}
+                ${
+                  // ON (the default), Sunday's own pot is the batch and a saved
+                  // second Sunday pot is not cooked (2.0, I-14)
+                  sundayBatchOn(b) && (b.cookDays ?? []).includes(0) && cookDaysLabel(b.cookDays)
+                    ? html`<span> · 🥘 Sunday dinner is the batch</span>`
+                    : ""
+                }
+                ${(b.batches ?? [])
+                  .filter((x) => !(sundayBatchOn(b) && x.cookDay === 0))
+                  .map(
+                    (x, i) =>
+                      html`<span key=${`batch${i}`}>
+                        · 🥘 ${WEEKDAYS[x.cookDay]} batch for ${cookDaysLabel(x.feeds)}</span
+                      >`,
+                  )}
                 ${Object.entries(b.slotRecipes ?? {}).map(
                   ([slot, ids]) =>
                     html`<span key=${slot}>
@@ -1212,7 +1324,7 @@ export function TablesView({
             html`<div class="actions">
               <button class="secondary" onClick=${() => openBrigadeForm()}>
                 + SET WHO COOKS
-                <small>the standing arrangement — SET THIS WEEK then plans the whole week</small>
+                <small>the standing arrangement, SET THIS WEEK then plans the whole week</small>
               </button>
             </div>`
           : html`<div
@@ -1225,7 +1337,7 @@ export function TablesView({
               </div>
               <input
                 aria-label="Brigade name"
-                placeholder="e.g. Mom + Laurie"
+                placeholder="e.g. Mom + Lena"
                 value=${brigadeForm.name}
                 onInput=${(/** @type {any} */ e) =>
                   setBrigadeForm({ ...brigadeForm, name: e.currentTarget.value })}
@@ -1308,39 +1420,77 @@ export function TablesView({
                     }
                   </p>
                   ${
-                    // THE SUNDAY BATCH (David, 2026-09-24): a second pot cooked
-                    // Sunday for named no-cook nights, so Mon eats Sunday's
-                    // dinner and Tue + Wed eat the batch
+                    // SUNDAY'S DINNER IS THE BATCH (David, 2026-10-18; 2.0,
+                    // I-14), ON unless the rule saved it off. Off, the
+                    // 2026-09-24 second pot is offered: Sunday cooks dinner
+                    // AND a batch for the nights ticked below.
                     brigadeForm.cookDays.includes(0) &&
                     brigadeForm.cookDays.length < 7 &&
-                    html`<div class="sub">Sunday also cooks a batch for</div>
-                      <div class="chips wrapchips">
-                        ${ALL_DAYS.filter((d) => !brigadeForm.cookDays.includes(d)).map(
-                          (d) => html`
-                            <button
-                              key=${d}
-                              class=${brigadeForm.batchFeeds.includes(d) ? "chip on" : "chip"}
-                              aria-pressed=${brigadeForm.batchFeeds.includes(d)}
-                              onClick=${() =>
-                                setBrigadeForm({
-                                  ...brigadeForm,
-                                  batchFeeds: brigadeForm.batchFeeds.includes(d)
-                                    ? brigadeForm.batchFeeds.filter((x) => x !== d)
-                                    : [...brigadeForm.batchFeeds, d],
-                                })}
-                            >
-                              ${WEEKDAYS[d]}
-                            </button>
-                          `,
-                        )}
+                    html`<div class="chips wrapchips">
+                        <button
+                          class=${brigadeForm.sundayBatch ? "chip on" : "chip"}
+                          aria-pressed=${brigadeForm.sundayBatch}
+                          onClick=${() =>
+                            setBrigadeForm(
+                              brigadeForm.sundayBatch
+                                ? { ...brigadeForm, sundayBatch: false }
+                                : {
+                                    ...brigadeForm,
+                                    sundayBatch: true,
+                                    // Mon to Thu eat the pot, so they do not cook
+                                    cookDays: brigadeForm.cookDays.filter((d) => d < 1 || d > 4),
+                                    batchFeeds: [],
+                                  },
+                            )}
+                        >
+                          Sunday dinner is the batch for Mon to Thu
+                        </button>
                       </div>
-                      <p class="hint">
-                        ${
-                          brigadeForm.batchFeeds.length === 0
-                            ? "Optional. Tap the nights that should eat a second Sunday pot instead of Sunday's dinner."
-                            : `Sunday cooks two dishes: dinner, and a batch for ${cookDaysLabel([...brigadeForm.batchFeeds].sort())} that keeps in the fridge until then. Sunday's dinner can be the batch: untick these and the Sunday pot covers the nights after it.`
-                        }
-                      </p>
+                      ${
+                        brigadeForm.sundayBatch
+                          ? html`<p class="hint">
+                              ${(() => {
+                                // the nights after Sunday that eat its pot: up
+                                // to Thursday, stopping at the first cook night
+                                /** @type {number[]} */
+                                const fed = [];
+                                for (let d = 1; d <= 4 && !brigadeForm.cookDays.includes(d); d++)
+                                  fed.push(d);
+                                const cooks = [1, 2, 3, 4].filter((d) => brigadeForm.cookDays.includes(d));
+                                return fed.length === 0
+                                  ? `Monday cooks, so Sunday's pot feeds no other night. Untick ${cookDaysLabel(cooks)} above for Sunday's dinner to be the batch.`
+                                  : `Sunday cooks one pot, a dish that keeps and reheats, and ${cookDaysLabel(fed)} eat it. No second dish on Sunday.${cooks.length > 0 ? ` ${cookDaysLabel(cooks)} cook, so the pot stops there.` : ""}`;
+                              })()}
+                            </p>`
+                          : html`<div class="sub">Sunday also cooks a batch for</div>
+                              <div class="chips wrapchips">
+                                ${ALL_DAYS.filter((d) => !brigadeForm.cookDays.includes(d)).map(
+                                  (d) => html`
+                                    <button
+                                      key=${d}
+                                      class=${brigadeForm.batchFeeds.includes(d) ? "chip on" : "chip"}
+                                      aria-pressed=${brigadeForm.batchFeeds.includes(d)}
+                                      onClick=${() =>
+                                        setBrigadeForm({
+                                          ...brigadeForm,
+                                          batchFeeds: brigadeForm.batchFeeds.includes(d)
+                                            ? brigadeForm.batchFeeds.filter((x) => x !== d)
+                                            : [...brigadeForm.batchFeeds, d],
+                                        })}
+                                    >
+                                      ${WEEKDAYS[d]}
+                                    </button>
+                                  `,
+                                )}
+                              </div>
+                              <p class="hint">
+                                ${
+                                  brigadeForm.batchFeeds.length === 0
+                                    ? "Optional. Tap the nights that should eat a second Sunday pot instead of Sunday's dinner."
+                                    : `Sunday cooks two dishes: dinner, and a batch for ${cookDaysLabel([...brigadeForm.batchFeeds].sort())} that keeps in the fridge until then.`
+                                }
+                              </p>`
+                      }
                       <label class="row">
                         <span>Sunday cooking: about</span>
                         <input
@@ -1386,6 +1536,14 @@ export function TablesView({
                   );
                   const chosen = brigadeForm.slotRecipes[slot] ?? [];
                   if (options.length === 0) return "";
+                  // the plate screen against everyone in the rule (I-08)
+                  const seated = brigadeForm.memberIds.map((id) => ({
+                    id,
+                    name: String((profiles ?? []).find((p) => p.id === id)?.name ?? id),
+                    targets: ruleTargets[id],
+                  }));
+                  const checkOf = (/** @type {Record<string, any>} */ r) => ruleRecipeCheck(r, seated);
+                  const slotLine = namedSlotLine(chosen, (id) => byId.get(id), checkOf);
                   return html`<details class="slotonly" key=${slot}>
                     <summary class="sub">
                       Only these ${SLOT_META[slot]?.full?.toLowerCase() ?? slot} recipes
@@ -1394,12 +1552,22 @@ export function TablesView({
                       </span>
                     </summary>
                     <div class="chips wrapchips">
-                      ${options.map(
-                        (r) => html`
+                      ${options.map((r) => {
+                        const c = checkOf(r);
+                        // greyed, never hidden: a pick already named can
+                        // still be unticked, and the reason is in view
+                        const why =
+                          c.blocked.length > 0
+                            ? c.blocked.join(" · ")
+                            : c.unchecked.length > 0
+                              ? `not checked: ${c.unchecked.join(", ")}`
+                              : "";
+                        return html`
                           <button
                             key=${r.id}
-                            class=${chosen.includes(r.id) ? "chip on" : "chip"}
+                            class=${`${chosen.includes(r.id) ? "chip on" : "chip"}${why ? " blocked" : ""}`}
                             aria-pressed=${chosen.includes(r.id)}
+                            aria-label=${why ? `${r.name}, ${why}` : undefined}
                             onClick=${() =>
                               setBrigadeForm({
                                 ...brigadeForm,
@@ -1409,12 +1577,17 @@ export function TablesView({
                                 },
                               })}
                           >
-                            ${r.name}
+                            ${r.name}${why && html`<small class="why">${why}</small>`}
                           </button>
-                        `,
-                      )}
+                        `;
+                      })}
                     </div>
-                  </details>`;
+                  </details>
+                  ${
+                    // outside the fold: one dish every day is said whether
+                    // or not the list is open
+                    slotLine && html`<p class="hint" role="note" key=${`${slot}-line`}>${slotLine}</p>`
+                  }`;
                 })
               }
               <div class="sub">Who cooks and shops</div>

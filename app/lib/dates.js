@@ -118,7 +118,7 @@ export function parseLocalIso(iso) {
  * @returns {string}
  */
 export function formatSyncTime(iso) {
-  if (!iso) return "—";
+  if (!iso) return "-";
   const d = new Date(iso);
   const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   return d.toDateString() === new Date().toDateString()

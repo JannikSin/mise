@@ -24,7 +24,7 @@ const PAIRS = [
   ["profiles/elliot/profile/targets.json", "profiles/elliot/fitness/targets.json"],
   ["profiles/mom/profile/targets.json", "profiles/mom/fitness/targets.json"],
   ["profiles/dad/profile/targets.json", "profiles/dad/fitness/targets.json"],
-  ["profiles/laurie/profile/targets.json", "profiles/laurie/fitness/targets.json"],
+  ["profiles/lena/profile/targets.json", "profiles/lena/fitness/targets.json"],
 ];
 
 test("canonical and legacy targets never diverge (the scorch 08-29 incident)", (t) => {

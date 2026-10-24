@@ -34,7 +34,7 @@ export function RemediesView({ recipes, hasToken, repo }) {
         error:
           err instanceof Error
             ? err.message
-            : "no answer — needs signal; the picker above always works",
+            : "no answer, needs signal; the picker above always works",
       });
     }
   };
@@ -93,7 +93,7 @@ export function RemediesView({ recipes, hasToken, repo }) {
         )}
       </div>
 
-      ${!protocol && html`<p class="hint">pick what applies — combinations merge.</p>`}
+      ${!protocol && html`<p class="hint">pick what applies, combinations merge.</p>`}
       ${
         protocol &&
         html`
@@ -124,8 +124,8 @@ export function RemediesView({ recipes, hasToken, repo }) {
             `
           }
           <p class="hint">
-            Home care, not medical advice — fever past 3 days, trouble breathing, or anything scary:
-            see a real doctor. Complex cases: ask Claude in Cowork.
+            Home care, not medical advice. See a doctor for fever past 3 days, trouble breathing, or anything scary.
+            Complex cases: ask Claude in Cowork.
           </p>
         `
       }
@@ -151,9 +151,9 @@ export function RemediesView({ recipes, hasToken, repo }) {
         ${
           tokenBlocked
             ? tokenBroken(repo?.auth)
-              ? "token needs fixing — Settings"
+              ? "token needs fixing, Settings"
               : "connect token in Settings to ask live"
-            : "fresh answer from Claude — needs signal; the picker above works offline."
+            : "fresh answer from Claude, needs signal; the picker above works offline."
         }
       </p>
       ${liveErr && html`<p class="hint scanerr" role="status">${liveErr}</p>`}

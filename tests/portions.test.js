@@ -175,3 +175,55 @@ test("THE LIVE YOGURT BOWL is per bowl, and its list scales with the seat", () =
   const yogurt = plan.ingredients.find((i) => /greek yogurt/i.test(i.food));
   assert.equal(yogurt.qty, 0.75);
 });
+
+// Mise 2.0, D-03 (David, Sun 10/18: he needed the curry for 4 and could not
+// tell how to scale it). The real recipe's shape: 4 portions, one skillet.
+const CURRY_D03 = {
+  id: "one-pot-coconut-curry-chicken",
+  servings: 4,
+  equipment: ["stovetop", "skillet"],
+  ingredients: [
+    { qty: 900, unit: "g", food: "chicken thigh" },
+    { qty: 2, unit: "tsp", food: "paprika" },
+    { qty: 1, unit: "each", food: "onion" },
+    { qty: 400, unit: "ml", food: "coconut milk" },
+  ],
+};
+
+test("cook this for N: the amounts follow the portion count, and grams stay grams", async () => {
+  const { cookFor } = await import("../app/lib/portions.js");
+  const four = cookFor(CURRY_D03, 4);
+  assert.equal(four.ratio, 1);
+  assert.deepEqual(four.ingredients, CURRY_D03.ingredients, "4 is the recipe as written");
+  const six = cookFor(CURRY_D03, 6);
+  assert.deepEqual(
+    six.ingredients.map((i) => `${i.qty} ${i.unit}`),
+    ["1350 g", "3 tsp", "1.5 each", "600 ml"],
+  );
+  const two = cookFor(CURRY_D03, 2);
+  assert.equal(two.ingredients[0]?.qty, 450);
+  assert.equal(two.ingredients[0]?.unit, "g");
+});
+
+test("cook this for N names the pan and the batches", async () => {
+  const { cookFor } = await import("../app/lib/portions.js");
+  assert.equal(
+    cookFor(CURRY_D03, 4).line,
+    "As written it makes 4 portions in one skillet. Cooking 4 portions: the recipe as written.",
+  );
+  assert.equal(
+    cookFor(CURRY_D03, 6).line,
+    "As written it makes 4 portions in one skillet. Cooking 6 portions: 1.5 times the recipe. If one skillet will not hold it, cook it in 2 batches.",
+  );
+  assert.match(cookFor(CURRY_D03, 2).line, /Cooking 2 portions: half the recipe\.$/);
+  assert.match(cookFor(CURRY_D03, 8).line, /double the recipe\. If one skillet will not hold it, cook it in 2 batches\./);
+  assert.equal(cookFor({ ...CURRY_D03, equipment: [] }, 4).asWritten, "As written it makes 4 portions.");
+  assert.doesNotMatch(cookFor(CURRY_D03, 6).line, /—/, "no em dashes");
+});
+
+test("cook this for N stays between 1 and 24 portions", async () => {
+  const { cookFor, COOK_FOR_MIN, COOK_FOR_MAX } = await import("../app/lib/portions.js");
+  assert.equal(cookFor(CURRY_D03, 0).portions, 4, "no number: the recipe as written");
+  assert.equal(cookFor(CURRY_D03, -3).portions, COOK_FOR_MIN);
+  assert.equal(cookFor(CURRY_D03, 99).portions, COOK_FOR_MAX);
+});

@@ -311,7 +311,7 @@ export function syncScopeFor(profiles, me, trustedAdmin = false) {
 
 /**
  * A recipe title never names someone this phone does not show (2.0, A-03:
- * Elliot's Cookbook listed "Laurie's Mediterranean Herb Chicken"). Drops a
+ * Elliot's Cookbook listed "Lena's Mediterranean Herb Chicken"). Drops a
  * leading "<Name>'s " for each hidden name; display only, the bank is
  * untouched. Returns the same array when nothing changes.
  * @param {Record<string, any>[]} recipes

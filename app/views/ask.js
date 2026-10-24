@@ -35,7 +35,7 @@ export function AskView({ context, hasToken, repo }) {
       const { reply } = await askTurn(messages, context);
       setChat([...messages, { role: "assistant", content: reply }]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "no answer — try again with signal");
+      setError(err instanceof Error ? err.message : "no answer, try again with signal");
     }
     setBusy(false);
   };
@@ -47,12 +47,12 @@ export function AskView({ context, hasToken, repo }) {
       <p class="hint">
         Questions about your food, answered with your live context: today's meals, the family
         dinners and who cooks and buys them, what's in the kitchen, your list. "How do I batch-cook
-        the chicken?" is exactly what this is for. It explains — it never changes anything.
+        the chicken?" is exactly what this is for. It explains, it never changes anything.
       </p>
       ${
         tokenBlocked &&
         html`<p class="hint">
-          ${tokenBroken(repo?.auth) ? "token needs fixing — Settings" : "connect token in Settings first"}
+          ${tokenBroken(repo?.auth) ? "token needs fixing, Settings" : "connect token in Settings first"}
         </p>`
       }
       ${chat.map(

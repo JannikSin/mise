@@ -94,7 +94,7 @@ export const PRESETS = [
     anchorLabel: "Procedure date",
     medical: true,
     disclaimer:
-      "This is the standard protocol. The letter from your GI office overrides every line of it — " +
+      "This is the standard protocol. The letter from your GI office overrides every line of it, " +
       "prep timing, the prep solution, and when to stop drinking are theirs to set, not this app's. " +
       "Nothing red, purple or blue on the clear-liquid day: the dye reads as blood on the camera.",
     days: [
@@ -123,7 +123,7 @@ export const PRESETS = [
       {
         offset: -1,
         label: "Clear liquids only",
-        note: "Nothing solid, all day. Nothing red, purple or blue. Drink more than feels necessary — the prep works better hydrated, and the day is long. Prep solution in the evening per your letter.",
+        note: "Nothing solid, all day. Nothing red, purple or blue. Drink more than feels necessary, the prep works better hydrated, and the day is long. Prep solution in the evening per your letter.",
         items: [
           { slot: "breakfast", recipeId: "clear-broth-mug", servings: 1 },
           { slot: "breakfast", recipeId: "plain-tea-or-black-coffee", servings: 1 },
@@ -134,7 +134,7 @@ export const PRESETS = [
           { slot: "dinner", recipeId: "lemon-ice-pop", servings: 1 },
           {
             slot: "snack",
-            freeText: "Bowel prep solution — timing and dose per your letter",
+            freeText: "Bowel prep solution, timing and dose per your letter",
             note: "Cold, through a straw, chased with a clear liquid. Not food, but it is the whole point of today.",
           },
         ],
@@ -146,7 +146,7 @@ export const PRESETS = [
         items: [
           {
             slot: "breakfast",
-            freeText: "Nothing by mouth — per your letter",
+            freeText: "Nothing by mouth, per your letter",
             note: "Usually 2 to 4 hours before. Their number wins.",
           },
           { slot: "dinner", recipeId: "clear-broth-mug", servings: 1, note: "Ease back in." },
@@ -218,7 +218,7 @@ export const PRESETS = [
     anchorLabel: "Surgery date",
     medical: true,
     disclaimer:
-      "No straws for a week — suction pulls the clot out and that is dry socket. Nothing hot the first day. " +
+      "No straws for a week, suction pulls the clot out and that is dry socket. Nothing hot the first day. " +
       "Your surgeon's instructions outrank this.",
     days: [
       {
@@ -281,7 +281,7 @@ export const PRESETS = [
         items: [
           {
             slot: "dinner",
-            freeText: "Last meal early — normal food, then water only",
+            freeText: "Last meal early, normal food, then water only",
             note: "Count back the hours your lab asked for from the appointment time.",
           },
         ],

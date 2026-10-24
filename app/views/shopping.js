@@ -1,6 +1,6 @@
 import { html } from "htm/preact";
 import { MoneyCard } from "./money.js";
-import { parsePantryDictation, frameTimes, mergeFridgeWalk } from "../lib/scan.js";
+import { readPantryNote, frameTimes, mergeFridgeWalk, outMatches } from "../lib/scan.js";
 import { Fragment } from "preact";
 import { tokenBroken } from "../lib/github.js";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -21,6 +21,8 @@ import {
   krogerPushLog,
   cartSendsFor,
   recordCartSend,
+  cartSentUpcsFor,
+  recordCartUpcs,
   krogerLinkExpiry,
 } from "../lib/worker.js";
 import {
@@ -51,12 +53,19 @@ import {
   sectionOf,
   tripOf,
   isStapleRow,
-  cartLines,
+  cartPlan,
+  checkFirstIds,
+  newCartLines,
+  notSentLines,
+  raisedCartLines,
+  moreThanSentLines,
+  alreadySentLines,
+  priceFlag,
 } from "../lib/shopping.js";
 import { AISLES } from "../lib/ingredients.js";
 import { isParked } from "../lib/parked.js";
 import { decodeReceiptLine, shopScore } from "../lib/receipt.js";
-import { localIsoDate, parseLocalIso } from "../lib/dates.js";
+import { formatSyncTime, localIsoDate, parseLocalIso } from "../lib/dates.js";
 import { datesOfWeek, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import {
   itemCost,
@@ -122,7 +131,7 @@ const FOOD_SAFETY = {
     {
       food: "Carrots, cabbage, apples, citrus, potatoes",
       fridge: "2-3 weeks",
-      freezer: "—",
+      freezer: "-",
       rule: "potatoes/onions prefer a cool pantry",
     },
     {
@@ -138,7 +147,7 @@ const FOOD_SAFETY = {
     "gray/green tint on meat, dull sunken eyes on fish = bin it",
     "mold on soft foods (berries, yogurt, bread, soft cheese) = bin the whole thing; hard cheese can be cut 1 inch around",
     "bulging or hissing cans/jars = bin, never taste",
-    "when in doubt, throw it out — no meal is worth 3 days of food poisoning",
+    "when in doubt, throw it out. No meal is worth 3 days of food poisoning",
   ],
 };
 
@@ -231,6 +240,7 @@ const FRESH_STEPS = [
  *   onJustBought: () => void,
  *   onToggleLow: (id: string) => void,
  *   onOwnItem: (id: string) => void,
+ *   onNeedItem?: (ids: string[]) => void,
  *   onScanApprove: (items: { name: string, kind: string, qty: string, state?: string }[], location?: string, mode?: "sweep" | "add") => void,
  *   onGoingShopping: () => void,
  *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList, plan?: import("../lib/plan.js").Plan | null }[],
@@ -255,6 +265,7 @@ const FRESH_STEPS = [
  *   storeSlug?: string,
  *   brigade?: { id: string, name: string, iShop: boolean, nights: number, seats: number, shopperName: string, othersBuy?: { date: string, name: string }[] } | null,
  *   trip?: string[] | null,
+ *   pickDays?: string[] | null,
  *   buildNote?: string,
  *   repriceNote?: string,
  *   onReceiptApprove?: (store: string, lines: { name: string, price: number, size: string }[]) => void,
@@ -268,7 +279,10 @@ const FRESH_STEPS = [
  *   substitutions?: { entryId: string, date: string, slot: string, fromId: string, fromName: string, toId: string, toName: string, drops: string[] }[],
  *   onSubstitute?: (swaps: { entryId: string, toId: string }[]) => void,
  *   weekNeeds?: ReturnType<typeof import("../lib/shelfcheck.js").weekNeedsCheck> | null,
- *   onSetCount?: (food: string, saidQty: string) => void
+ *   onSetCount?: (food: string, saidQty: string) => void,
+ *   onMarkOut?: (food: string) => void,
+ *   onPantryNote?: (note: { said: string, saved: Record<string, any>[], unsure: string[], outs: { name: string, marked: boolean }[] }) => void,
+ *   lastPantryNote?: Record<string, any> | null
  * }} props
  */
 export function ShoppingView({
@@ -286,6 +300,7 @@ export function ShoppingView({
   onJustBought,
   onToggleLow,
   onOwnItem,
+  onNeedItem = undefined,
   onScanApprove,
   onGoingShopping,
   others,
@@ -310,6 +325,7 @@ export function ShoppingView({
   storeSlug = "",
   brigade = null,
   trip = null,
+  pickDays = null,
   buildNote = "",
   repriceNote = "",
   onReceiptApprove = undefined,
@@ -324,6 +340,9 @@ export function ShoppingView({
   onSubstitute = undefined,
   weekNeeds = null,
   onSetCount = undefined,
+  onMarkOut = undefined,
+  onPantryNote = undefined,
+  lastPantryNote = null,
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry" | "combined"} */ ("list"));
   const [manual, setManual] = useState("");
@@ -345,9 +364,24 @@ export function ShoppingView({
   // on Sunday... have me updating it next week"): the card is one line until
   // opened, and never a gate on BUILD or GENERATE
   const [needOpen, setNeedOpen] = useState(false);
+  // the read-back of a note: the foods to save, the words it was not sure
+  // of, the "out of" suggestions (and which ones he tapped MARK OUT on), and
+  // his words exactly as said (I-06)
   const [heard, setHeard] = useState(
-    /** @type {null | ReturnType<typeof parsePantryDictation>} */ (null),
+    /** @type {null | (import("../lib/scan.js").PantryNote & { marked?: string[] })} */ (null),
   );
+  // every food name a note can be matched to: the pantry's own rows first,
+  // so "oats" updates "Rolled oats", then every bank ingredient (I-06)
+  const knownFoodNames = useMemo(() => {
+    /** @type {string[]} */
+    const names = pantryItems(pantry).map((it) => String(it.food ?? ""));
+    for (const r of recipeIndex?.values() ?? []) {
+      for (const i of Array.isArray(r?.ingredients) ? r.ingredients : []) {
+        if (i?.food) names.push(String(i.food));
+      }
+    }
+    return names;
+  }, [pantry, recipeIndex]);
   // WALK THE FRIDGE (David, 2026-10-18: "record a video, roll it past all
   // the shelves inside the fridge, and narrate everything"): the frames'
   // thumbnails, each frame's scanned items, progress, and what he said. Its
@@ -420,7 +454,7 @@ export function ShoppingView({
       setFresh(null);
       setScan({
         notice:
-          "kitchen scanned ✓ — now everyone taps GENERATE MY WEEK on Plan, then shop the HOUSEHOLD list once",
+          "kitchen scanned ✓, now everyone taps GENERATE MY WEEK on Plan, then shop the HOUSEHOLD list once",
       });
     }
   };
@@ -450,7 +484,7 @@ export function ShoppingView({
     try {
       const { store, items: lines } = await scanReceipt(shots);
       if (lines.length === 0) {
-        setReceipt({ notice: "no priced lines read — try a flatter, brighter shot" });
+        setReceipt({ notice: "no priced lines read, try a flatter, brighter shot" });
         return;
       }
       setShots([]);
@@ -481,7 +515,7 @@ export function ShoppingView({
     );
     if (chosen.length) onReceiptApprove(receipt.store, chosen);
     setReceipt({
-      notice: `${chosen.length} lines applied — those items left the list and are on the shelves now (PANTRY tab)`,
+      notice: `${chosen.length} lines applied, those items left the list and are on the shelves now (PANTRY tab)`,
     });
   };
 
@@ -562,7 +596,7 @@ export function ShoppingView({
       const items = await scanPhoto(file);
       setScan(
         items.length === 0
-          ? { notice: "no food recognized — try a closer, brighter shot" }
+          ? { notice: "no food recognized, try a closer, brighter shot" }
           : { items, kept: items.map(() => true) },
       );
     } catch (err) {
@@ -596,6 +630,11 @@ export function ShoppingView({
       ? keepTicked(subtractPantryFromTrip(items, pantry), (i) => i.checked)
       : null;
   const tripItems = soloTrip ? soloTrip.toBuy : items;
+  // CHECK YOU HAVE THESE (Mise 2.0, I-10): the basics the pantry does not
+  // mention are asked about, not bought. They stay on the list and in the
+  // total until he answers, so nothing leaves silently, and stay out of the
+  // cart until NEED IT. Only where the answer can be written (onNeedItem).
+  const checkIds = onNeedItem ? checkFirstIds(tripItems, pantry) : new Set();
 
   // price estimates (prices.json catalogue): chips per row at the profile's
   // own store, trip totals + grocery tax below the list, honest store ranking
@@ -706,12 +745,12 @@ export function ShoppingView({
     if (c) return c.size ? `1 × ${c.size}` : "1 pack";
     // unpriced rows fall back to packHint's table guess, which carries its
     // own ≈ so it keeps reading as a guess (ui-review F7)
-    return packHint(item.food, item.qty, item.unit, prices, homeStore) || "—";
+    return packHint(item.food, item.qty, item.unit, prices, homeStore) || "-";
   };
   const unitCell = (/** @type {any} */ item) => {
     if (!prices || !homeStore) return "";
     const sp = spFor(item);
-    if (!sp || rowCost(item) == null) return "—";
+    if (!sp || rowCost(item) == null) return "-";
     const perLb = String(sp.size ?? "")
       .toLowerCase()
       .includes("per lb");
@@ -725,7 +764,7 @@ export function ShoppingView({
     // "$?", which is the action button's name (reviewer catch 2026-08-19)
     if (!prices || !homeStore) return "";
     const c = rowCost(item);
-    if (!c) return "—";
+    if (!c) return "-";
     // ~ = estimate; † = a live price past its freshness window (fix list 3.5)
     const stale = isStalePrice(spFor(item), todayIso);
     return `$${c.cost.toFixed(2)}${c.estimate ? "~" : ""}${stale ? " †" : ""}`;
@@ -881,15 +920,44 @@ export function ShoppingView({
   // An unpriced row still falls back to one package, which is the old
   // behaviour and is flagged to the user as an estimate elsewhere.
   // the unticked rows the cart cannot carry (no product picked at this store
-  // yet), named so they are bought by hand, not discovered missing at pickup
-  const notSent = tripItems
-    .filter((i) => !i.checked && !pinFor(pins, i.food, homeStore)?.upc)
-    .map((i) => i.food);
-  const cartRows = cartLines(
+  // yet, or a basic still waiting on HAVE IT / NEED IT), each named with its
+  // reason so it is bought by hand, not discovered missing at pickup (the
+  // 10/25 rehearsal: ponzu was skipped and nothing said so)
+  const plannedCart = cartPlan(
     tripItems,
     (food) => pinFor(pins, food, homeStore)?.upc,
     (i) => itemCost(i, prices, homeStore)?.packs,
+    checkIds,
   );
+  const cartRows = plannedCart.lines;
+  const notSentNotes = notSentLines(plannedCart.notSent, STORE_NAMES[homeStore] ?? "Kroger");
+  // a send after the first carries only products not yet sent this week, so
+  // a basic answered NEED IT later is one new line, not a second copy of the
+  // week. No record (an older send) = no shortcut, the full re-arm stands.
+  const [sentUpcs, setSentUpcs] = useState(
+    /** @type {import("../lib/shopping.js").SentEntry[]} */ ([]),
+  );
+  useEffect(() => setSentUpcs(cartSentUpcsFor(cartWeek)), [cartWeek]);
+  // the food a cart line is for, to tell a re-pinned product from a new food
+  const foodForUpc = (/** @type {string} */ upc) =>
+    tripItems.find((i) => pinFor(pins, i.food, homeStore)?.upc === upc)?.food;
+  const haveSent = sentCount > 0 && sentUpcs.length > 0;
+  const freshRows = haveSent ? newCartLines(cartRows, sentUpcs, foodForUpc) : [];
+  // a food already sent under another product (a REFRESH or re-pin gave it a
+  // new UPC) is held back and named, never sent a second time
+  const heldBackNotes = haveSent ? alreadySentLines(cartRows, sentUpcs, foodForUpc) : [];
+  // a re-BUILD that raised a product already sent is never re-sent whole;
+  // the extra is named so it is added in the store app (Tribunal Final Gate).
+  // A product that matches no trip item is dropped, never a vague line.
+  const raisedNotes = haveSent
+    ? moreThanSentLines(
+        raisedCartLines(cartRows, sentUpcs).flatMap((r) => {
+          const food = foodForUpc(r.upc);
+          return food ? [{ food, more: r.more }] : [];
+        }),
+        STORE_NAMES[homeStore] ?? "Kroger",
+      )
+    : [];
 
   // A THREE-ITEM TEST PUSH (David, 2026-08-24: "push a few things onto the
   // payless cart so that i can check to see them... just a few test items and
@@ -909,15 +977,18 @@ export function ShoppingView({
     .slice(0, 3)
     .map((r) => ({ ...r, quantity: 1 }));
 
-  const sendToKrogerCart = async (/** @type {{ test?: boolean }} */ opts = {}) => {
-    const rows = opts.test === true ? testRows : cartRows;
+  const sendToKrogerCart = async (
+    /** @type {{ test?: boolean, fresh?: boolean }} */ opts = {},
+  ) => {
+    const rows = opts.test === true ? testRows : opts.fresh === true ? freshRows : cartRows;
     if (rows.length === 0) return;
-    // a test push is small and repeatable by design, so it skips the re-arm
-    // that protects the full list
-    if (opts.test !== true && sentCount > 0 && !cartArmed) {
+    // a test push is small and repeatable by design, and a fresh send holds
+    // only products never sent this week, so both skip the re-arm that
+    // protects the full list
+    if (opts.test !== true && opts.fresh !== true && sentCount > 0 && !cartArmed) {
       setCartArmed(true);
       setCartNote(
-        `already sent ${sentCount} time${sentCount === 1 ? "" : "s"} — sending again ADDS another copy to your Kroger cart. Tap once more only if you really want doubles.`,
+        `already sent ${sentCount} time${sentCount === 1 ? "" : "s"}. Sending again ADDS another copy to your ${STORE_NAMES[homeStore] ?? "Kroger"} cart. Tap once more only if you really want doubles.`,
       );
       return;
     }
@@ -931,8 +1002,16 @@ export function ShoppingView({
       }
       const sent = await krogerCartAdd(rows);
       if (opts.test !== true) {
-        setCartSent((n) => n + 1);
-        recordCartSend(cartWeek);
+        // a fresh send is part of the same week's cart, not another copy
+        if (opts.fresh !== true) {
+          setCartSent((n) => n + 1);
+          recordCartSend(cartWeek);
+        }
+        recordCartUpcs(
+          cartWeek,
+          rows.map((r) => ({ ...r, food: foodForUpc(r.upc) })),
+        );
+        setSentUpcs(cartSentUpcsFor(cartWeek));
       }
       recordKrogerPush({
         ok: true,
@@ -946,7 +1025,7 @@ export function ShoppingView({
       // so an HTTP 200 is the ONLY evidence there is. Overclaiming here is
       // how a missing item becomes a surprise at the pickup counter.
       setCartNote(
-        `sent ${sent} row${sent === 1 ? "" : "s"} to your Kroger cart — open the Pay Less app to check it and place the order`,
+        `sent ${sent} row${sent === 1 ? "" : "s"} to your ${STORE_NAMES[homeStore] ?? "Kroger"} cart. Open the ${STORE_NAMES[homeStore] ?? "Kroger"} app to check it and place the order.`,
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : "that did not work";
@@ -965,7 +1044,7 @@ export function ShoppingView({
       }
       if (/link expired|not linked/.test(msg)) {
         krogerUnlink();
-        setCartNote("that link expired — tap again to sign in to Kroger");
+        setCartNote("that link expired, tap again to sign in to Kroger");
         return;
       }
       setCartNote(msg);
@@ -1026,7 +1105,7 @@ export function ShoppingView({
       // without this line 29 of David's 89 pins silently read as refreshed
       const beyondCap = Math.max(0, upcs.length - requested);
       setRefreshNote(
-        `${updated} refreshed${repinned > 0 ? `, ${repinned} re-pinned (tap REVIEW to confirm)` : ""}${unpriceable > 0 ? `, ${unpriceable} gone from the store` : ""}${beyondCap > 0 ? `, ${beyondCap} over this call's cap — tap REFRESH again` : ""}`,
+        `${updated} refreshed${repinned > 0 ? `, ${repinned} re-pinned (tap REVIEW to confirm)` : ""}${unpriceable > 0 ? `, ${unpriceable} gone from the store` : ""}${beyondCap > 0 ? `, ${beyondCap} over this call's cap, tap REFRESH again` : ""}`,
       );
     } catch (err) {
       setRefreshNote(err instanceof Error ? err.message : "refresh failed");
@@ -1070,7 +1149,7 @@ export function ShoppingView({
             </button>
           </div>
           <p class="hint">
-            auto-picked as the cheapest match — confirming keeps it, or${" "}
+            auto-picked as the cheapest match. Confirming keeps it, or${" "}
             <button
               class="linktext"
               onClick=${() => openPricePick(pricePick.item, pricePick.fromTile)}
@@ -1081,7 +1160,7 @@ export function ShoppingView({
       }
       ${pricePick.busy && html`<p class="hint">searching the store…</p>`}
       ${pricePick.error && html`<p class="hint">⚠ ${pricePick.error}</p>`}
-      ${!pricePick.busy && !pricePick.error && !pricePick.confirm && pricePick.candidates.length === 0 && html`<p class="hint">nothing matched at this store — the row stays honestly unpriced.</p>`}
+      ${!pricePick.busy && !pricePick.error && !pricePick.confirm && pricePick.candidates.length === 0 && html`<p class="hint">nothing matched at this store, the row stays honestly unpriced.</p>`}
       ${pricePick.candidates.slice(0, 8).map((/** @type {any} */ c) => {
         const hits = allergenHits(c, avoid);
         return html`<div class="row" key=${c.upc}>
@@ -1094,7 +1173,7 @@ export function ShoppingView({
           ${hits.length > 0 ? html`<span class="status warn">contains ${hits.join(", ")}</span>` : html`<button class="linktext num" onClick=${() => choosePick(pricePick.item, c)}>$${c.price.regular.toFixed(2)} PIN</button>`}
         </div>`;
       })}
-      ${!pricePick.confirm && pricePick.candidates.length > 0 && html`<p class="hint">pinning maps ${pricePick.item.food} to this exact product here — priced by UPC from now on, never searched again.</p>`}
+      ${!pricePick.confirm && pricePick.candidates.length > 0 && html`<p class="hint">pinning maps ${pricePick.item.food} to this exact product here, priced by UPC from now on, never searched again.</p>`}
     </div>`;
 
   // the aisle walk order for the store actually being shopped
@@ -1103,7 +1182,9 @@ export function ShoppingView({
     .map((s) => ({
       section: s,
       label: aisles.labels[s] ?? "",
-      items: tripItems.filter((i) => i.section === s),
+      // a basic waiting on HAVE IT / NEED IT sits in its own group above
+      // the aisles, never in both places
+      items: tripItems.filter((i) => i.section === s && !checkIds.has(i.id)),
     }))
     .filter((g) => g.items.length > 0);
 
@@ -1137,17 +1218,40 @@ export function ShoppingView({
     const priced = costs.filter((c) => c != null);
     const total =
       priced.length === 0
-        ? "—"
+        ? "-"
         : `$${priced.reduce((s, c) => s + (c?.cost ?? 0), 0).toFixed(2)}${priced.some((c) => c?.estimate) || priced.length < members.length ? "~" : ""}`;
     // members priced off the SAME catalogue row share one unit price — show
     // it; only genuinely divergent members earn the dash
-    const units = new Set(members.map((m) => unitCell(m)).filter((u) => u && u !== "—"));
+    const units = new Set(members.map((m) => unitCell(m)).filter((u) => u && u !== "-"));
     return html`<span class="cols num">
       <span class="c">${members.map((m) => formatStoreQty(m.qty, m.unit)).join(" + ")}</span>
-      <span class="c">${members.map((m) => buyCell(m) || "—").join(" + ")}</span>
-      <span class="c">${units.size === 1 ? [...units][0] : "—"}</span>
+      <span class="c">${members.map((m) => buyCell(m) || "-").join(" + ")}</span>
+      <span class="c">${units.size === 1 ? [...units][0] : "-"}</span>
       <span class="c">${total}</span>
     </span>`;
+  };
+
+  // THE $15 FLAG (Mise 2.0, I-09): a line whose total passes $15 says so on
+  // its own row, in words, with what to check. Read off the same cost the
+  // TOTAL cell shows, estimated (~) and out of date (†) prices included.
+  const flagFor = (/** @type {any[]} */ members) => {
+    const costs = members.map((m) => rowCost(m));
+    const priced = costs.filter((c) => c != null);
+    if (priced.length === 0) return "";
+    return priceFlag(
+      {
+        cost: priced.reduce((sum, c) => sum + (c?.cost ?? 0), 0),
+        estimate: priced.some((c) => c?.estimate) || priced.length < members.length,
+      },
+      {
+        stale: members.some((m) => isStalePrice(spFor(m), todayIso)),
+        buy: members.map((m) => buyCell(m) || "-").join(" + "),
+      },
+    );
+  };
+  const flagLine = (/** @type {any[]} */ members) => {
+    const flag = flagFor(members);
+    return flag ? html`<p class="priceflag" role="note">${flag}</p>` : "";
   };
 
   // What a trip block adds up to at this store — shown beside the block
@@ -1344,11 +1448,11 @@ export function ShoppingView({
   const coveredBlock = (/** @type {any[]} */ covered) =>
     covered.length > 0 &&
     html`<div class="tile" role="note">
-      <div class="k">🧊 Already in the kitchen · ${covered.length} — not on this trip</div>
+      <div class="k">🧊 Already in the kitchen · ${covered.length}, not on this trip</div>
       ${covered.map(
         (i) => html`
           <div class="d num" key=${i.id}>
-            ${i.food} — ${formatStoreQty(i.qty, i.unit)} needed, the shelves cover it
+            ${i.food}, ${formatStoreQty(i.qty, i.unit)} needed, the shelves cover it
           </div>
         `,
       )}
@@ -1398,7 +1502,7 @@ export function ShoppingView({
             shots.length === 0
               ? "📷 update prices from a receipt"
               : shots.length >= MAX_SHOTS
-                ? `📷 ${MAX_SHOTS} photos — that's the limit`
+                ? `📷 ${MAX_SHOTS} photos, that's the limit`
                 : "📷 ANOTHER PHOTO further down"
           }
         </button>`
@@ -1415,7 +1519,7 @@ export function ShoppingView({
                 shots.length === 1 ? "photo" : "photos"
               }
               of this receipt, top to bottom. If the receipt is longer than the frame, take the next
-              one so it OVERLAPS a few lines with the last — the overlap is what stops a line being
+              one so it OVERLAPS a few lines with the last, the overlap is what stops a line being
               counted twice.
             </p>
             <div class="actions">
@@ -1432,7 +1536,7 @@ export function ShoppingView({
       ${
         receipt?.error &&
         html`<p class="hint">
-          ${receipt.error}${tokenBlocked ? "" : " (needs the app's AI key set — same as pantry scan)"}
+          ${receipt.error}${tokenBlocked ? "" : " (needs the app's AI key set, same as pantry scan)"}
         </p>`
       }
       ${
@@ -1457,7 +1561,7 @@ export function ShoppingView({
             </div>
             <p class="hint">
               tick the lines to save, then apply. Only lines that match a tracked item update. A
-              till abbreviation the scan read wrong is EDITABLE — fix the name and the price lands
+              till abbreviation the scan read wrong is EDITABLE, fix the name and the price lands
               on the right food.
             </p>
             <div class="slots">
@@ -1821,10 +1925,25 @@ export function ShoppingView({
                 says ${" "}${STORE_NAMES[homeStore] ?? homeStore}.
               </p>
               ${
-                notSent.length > 0 &&
-                html`<p class="hint">
-                  Not sent, add these yourself: ${notSent.join(", ")}.
-                </p>`
+                sentCount > 0 &&
+                freshRows.length > 0 &&
+                html`<div class="row">
+                    <span class="k"
+                      >${freshRows.length} new since you sent the cart</span
+                    >
+                    <button
+                      class="secondary"
+                      style="min-height: 44px"
+                      disabled=${cartNote === "sending…"}
+                      onClick=${() => sendToKrogerCart({ fresh: true })}
+                    >
+                      SEND ${freshRows.length} NEW ITEM${freshRows.length === 1 ? "" : "S"}
+                    </button>
+                  </div>
+                  <p class="hint">
+                    Sends only items added since your last send from this phone, for example a basic
+                    you just marked NEED IT. Nothing already in the cart is sent twice.
+                  </p>`
               }
               ${
                 testRows.length > 0 &&
@@ -1845,6 +1964,17 @@ export function ShoppingView({
           }
           ${canLive && cartNote && html`<p class="hint">${cartNote}</p>`}
           ${
+            // every row the cart will not carry, by name and why, under the
+            // send note itself so it is read right after a send (10/25
+            // rehearsal: ponzu skipped without a word). Live, so a NEED IT
+            // answer takes its line away at once.
+            canLive &&
+            !cartOff &&
+            [...new Set([...notSentNotes, ...heldBackNotes, ...raisedNotes])].map(
+              (line) => html`<p class="hint notsent" key=${line}>${line}</p>`,
+            )
+          }
+          ${
             // WHAT ACTUALLY HAPPENED (David, 2026-08-25: "I'm logged in
             // to my account on the Pay Less app, but I see nothing").
             // Kroger cannot be read back, so this shows what WE sent and
@@ -1856,13 +1986,13 @@ export function ShoppingView({
             html`<details class="pushlog">
               <summary>
                 kroger status ·
-                ${krogerLinked() ? "linked" : "NOT LINKED — that is why nothing arrives"}
+                ${krogerLinked() ? "linked" : "NOT LINKED, that is why nothing arrives"}
               </summary>
               ${
                 !krogerLinked() &&
                 html`<p class="hint">
                   Signing in to the Pay Less app is <b>not</b> the same as linking Mise. Tap LINK
-                  KROGER above, finish Kroger's sign-in page, and let it bounce you back here — the
+                  KROGER above, finish Kroger's sign-in page, and let it bounce you back here, the
                   link only exists once you land back in Mise.
                 </p>`
               }
@@ -1871,7 +2001,7 @@ export function ShoppingView({
                 html`<p class="hint">
                   link valid until
                   ${krogerLinkExpiry().slice(0, 16).replace("T", " ") || "unknown"}. Items land in
-                  whichever store your Kroger ACCOUNT has selected, and in its PICKUP basket — check
+                  whichever store your Kroger ACCOUNT has selected, and in its PICKUP basket, check
                   that it says ${" "}${STORE_NAMES[homeStore] ?? homeStore}, and look under Pickup
                   rather than Delivery.
                 </p>`
@@ -1911,8 +2041,8 @@ export function ShoppingView({
             canLive &&
             homeSummary.unpriced > 0 &&
             html`<p class="hint">
-              BUILD already searched the priciest rows; anything still unpriced carries a $? button
-              — one search, one tap, priced forever.
+              BUILD already searched the priciest rows; anything still unpriced carries a $? button,
+              one search, one tap, priced forever.
             </p>`
           }
         </div>
@@ -2064,7 +2194,7 @@ export function ShoppingView({
               !(brigade && !brigade.iShop) &&
               html`<button
                 class="secondary lockbtn ${/** @type {any} */ (plan)?.fallback ? "on" : ""}"
-                aria-label="Going to the store — save this week's plan as the fallback you can always return to"
+                aria-label="Going to the store, save this week's plan as the fallback you can always return to"
                 onClick=${onGoingShopping}
               >
                 ${/** @type {any} */ (plan)?.fallback ? "🛒 RE-SAVE SHOPPED PLAN" : "🛒 GOING TO THE STORE"}
@@ -2092,7 +2222,7 @@ export function ShoppingView({
                 is already full but you still want to eat to plan.
               </p>
               <div class="chips wrapchips" role="group" aria-label="Days to buy for">
-                ${(trip ?? datesOfWeek(weekId)).map((d) => {
+                ${(pickDays ?? trip ?? datesOfWeek(weekId)).map((d) => {
                   const on = buyDays.includes(d);
                   return html`<button
                     key=${d}
@@ -2101,7 +2231,7 @@ export function ShoppingView({
                     onClick=${() =>
                       setBuyDays(on ? buyDays.filter((x) => x !== d) : [...buyDays, d])}
                   >
-                    ${parseLocalIso(d).toLocaleDateString([], { weekday: "short" })}
+                    ${parseLocalIso(d).toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" })}
                   </button>`;
                 })}
               </div>
@@ -2120,7 +2250,7 @@ export function ShoppingView({
                 })}
               </div>
               <p class="hint">
-                Nothing picked = the whole trip. Days alone buys every meal on those days; adding
+                Nothing picked = the whole trip. Pick any days in the next week, up to 7. Days alone buys every meal on those days; adding
                 meals narrows it further. The weekly buffer snack sits out a partial shop, since it
                 is a week-long batch.
               </p>
@@ -2135,6 +2265,53 @@ export function ShoppingView({
             html`<p class="hint lockhint">Shopped plan saved ✓</p>`
           }
 
+          ${
+            // CHECK YOU HAVE THESE (Mise 2.0, I-10; post-mortem 7: a pantry
+            // without salt and olive oil bought both, every time). At the top,
+            // before the aisles. HAVE IT is the P+ write (the pantry says
+            // PLENTY, the row leaves, the next BUILD skips it); NEED IT moves
+            // the row into its aisle and the cart.
+            checkIds.size > 0 &&
+            onNeedItem &&
+            html`<div class="checkfirst">
+              <h2 class="block-title">CHECK YOU HAVE THESE</h2>
+              <p class="hint">
+                Long-lasting basics your pantry does not list. They count in the total, and none
+                goes to the cart until you answer. HAVE IT adds it to your pantry so the next BUILD
+                leaves it off.
+              </p>
+              ${colHead()}
+              <div class="slots">
+                ${rowGroups(tripItems.filter((i) => checkIds.has(i.id))).map((members) => {
+                  const i = members[0];
+                  const grouped = members.length > 1;
+                  return html`<div class="checkrow listcols checkfirstrow" key=${i.id}>
+                    <div class="tickarea">
+                      <span class="box" aria-hidden="true">?</span>
+                      <span class="food">${i.food}</span>
+                    </div>
+                    <div class="rowbtns">
+                      <button
+                        class="ownbtn"
+                        aria-label="Have ${i.food}, add it to the pantry and take it off the list"
+                        onClick=${() => members.forEach((m) => onOwnItem(m.id))}
+                      >
+                        HAVE IT
+                      </button>
+                      <button
+                        class="ownbtn"
+                        aria-label="Need ${i.food}, move it to its aisle to buy"
+                        onClick=${() => onNeedItem(members.map((m) => m.id))}
+                      >
+                        NEED IT
+                      </button>
+                    </div>
+                    ${grouped ? groupCells(members) : colCells(i)} ${flagLine(members)}
+                  </div>`;
+                })}
+              </div>
+            </div>`
+          }
           ${trips.map(
             (trip) => html`
               <div key=${trip.key}>
@@ -2196,7 +2373,7 @@ export function ShoppingView({
                                   }${
                                     members.some((m) => /** @type {any} */ (m).kitchenHas)
                                       ? html` <span class="tag"
-                                          >buy this much — kitchen has the rest</span
+                                          >buy this much, kitchen has the rest</span
                                         >`
                                       : ""
                                   }</span
@@ -2205,7 +2382,7 @@ export function ShoppingView({
                               <div class="rowbtns">
                                 <button
                                   class="ownbtn"
-                                  aria-label="Already have ${i.food}${grouped ? `, all ${members.length} forms` : ""} — move to pantry staples"
+                                  aria-label="Already have ${i.food}${grouped ? `, all ${members.length} forms` : ""}, move to pantry staples"
                                   onClick=${() => members.forEach((m) => onOwnItem(m.id))}
                                 >
                                   P+
@@ -2213,6 +2390,7 @@ export function ShoppingView({
                                 ${canLive && unpriced && html`<button class="ownbtn" aria-label="Find live price for ${i.food}" onClick=${() => openPricePick(unpriced)}>$?</button>`}
                               </div>
                               ${grouped ? groupCells(members) : colCells(i)}
+                              ${flagLine(members)}
                             </div>
                             ${members.some((m) => pricePick?.item?.id === m.id) && !pricePick.fromTile ? pickSheet() : ""}
                           <//>`;
@@ -2256,18 +2434,18 @@ export function ShoppingView({
             html`<div class="empty">
               ${
                 tokenBroken(repo?.auth)
-                  ? "token needs fixing — Settings"
+                  ? "token needs fixing, Settings"
                   : !hasToken
                     ? "connect token in Settings"
                     : loading
                       ? "loading…"
                       : houseShopped
-                        ? "the house has shopped this week ✓ — the receipt cleared this list and the food is on the PANTRY shelves. BUILD only if you add new meals."
+                        ? "the house has shopped this week ✓, the receipt cleared this list and the food is on the PANTRY shelves. BUILD only if you add new meals."
                         : brigade && !brigade.iShop
                           ? "nothing to buy ✓"
                           : trip
-                            ? `no list yet — BUILD makes the list for ${tripLabel(trip).toLowerCase()}`
-                            : "no list yet — build it from this week's plan"
+                            ? `no list yet, BUILD makes the list for ${tripLabel(trip).toLowerCase()}`
+                            : "no list yet, build it from this week's plan"
               }
             </div>`
           }
@@ -2450,7 +2628,7 @@ export function ShoppingView({
                     setScanLocation("fridge");
                   }}
                 >
-                  🧹 START FRESH — rescan the whole kitchen
+                  🧹 START FRESH: rescan the whole kitchen
                   <small>
                     empties every shelf and the staples registry, then walks you through
                     photographing the fridge, freezer, pantry and spice cabinet. What the camera
@@ -2460,12 +2638,12 @@ export function ShoppingView({
                 </button>`
               : html`<div class="tile scanreview" role="status">
                   <div class="k">
-                    FRESH START · ${/** @type {number} */ (fresh) + 1} of ${FRESH_STEPS.length} —
+                    FRESH START · ${/** @type {number} */ (fresh) + 1} of ${FRESH_STEPS.length},
                     ${freshStep?.label}
                   </div>
                   <p class="hint">
                     Photograph ${freshStep?.label}, approve what the camera reads, and take another
-                    photo if one shot didn't fit everything. Every photo ADDS here — nothing is
+                    photo if one shot didn't fit everything. Every photo ADDS here, nothing is
                     replaced. Then NEXT. SKIP records nothing for this shelf, so the list will shop
                     as if it were bare.
                   </p>
@@ -2488,12 +2666,12 @@ export function ShoppingView({
                     </button>
                   </div>
                   <p class="hint">
-                    STOP keeps the wipe and whatever is scanned so far — shelves you haven't
+                    STOP keeps the wipe and whatever is scanned so far, shelves you haven't
                     photographed stay empty until you scan them from the shelf chips below.
                   </p>
                   ${
                     scanPending &&
-                    html`<p class="hint">finish the photo below first — approve or cancel it</p>`
+                    html`<p class="hint">finish the photo below first, approve or cancel it</p>`
                   }
                 </div>`
           }
@@ -2562,7 +2740,7 @@ export function ShoppingView({
           ${
             tokenBlocked &&
             html`<p class="hint">
-              ${tokenBroken(repo?.auth) ? "token needs fixing — Settings" : "connect token in Settings"}
+              ${tokenBroken(repo?.auth) ? "token needs fixing, Settings" : "connect token in Settings"}
             </p>`
           }
           ${scan?.error && html`<p class="hint scanerr" role="status">${scan.error}</p>`}
@@ -2571,7 +2749,7 @@ export function ShoppingView({
             scan?.items &&
             html`
               <div class="tile scanreview">
-                <div class="k">Found ${scan.items.length} — untick what's wrong</div>
+                <div class="k">Found ${scan.items.length}: untick what's wrong</div>
                 ${scan.items.map(
                   (/** @type {any} */ it, /** @type {number} */ i) => html`
                     <label class="checkrow" key=${i}>
@@ -2720,7 +2898,12 @@ export function ShoppingView({
                 class="secondary"
                 disabled=${Boolean(walk?.busy) || (!walk?.items && !walkSaid.trim())}
                 onClick=${() => {
-                  setHeard(mergeFridgeWalk(walk?.items ?? [], walkSaid));
+                  // the narration's doubts and outs show beside the frames'
+                  // foods, and his words are kept with the note (I-06)
+                  setHeard({
+                    ...readPantryNote(walkSaid, knownFoodNames),
+                    items: mergeFridgeWalk(walk?.items ?? [], walkSaid, knownFoodNames),
+                  });
                   setWalkSaid("");
                 }}
               >
@@ -2758,20 +2941,20 @@ export function ShoppingView({
               <button
                 class="secondary"
                 disabled=${!said.trim()}
-                onClick=${() => setHeard(parsePantryDictation(said))}
+                onClick=${() => setHeard(readPantryNote(said, knownFoodNames))}
               >
                 READ IT BACK
               </button>
               ${
                 heard &&
-                heard.length > 0 &&
+                (heard.items.length > 0 || heard.said) &&
                 html`<button
                   class="primary"
                   onClick=${() => {
                     // one approve per shelf, exactly as a photo of that shelf
                     // would land; shelf-stable rows carry no shelf
                     const groups = new Map();
-                    for (const it of heard) {
+                    for (const it of heard.items) {
                       const loc = it.kind === "fresh" ? it.location : "unsorted";
                       if (!groups.has(loc)) groups.set(loc, []);
                       groups
@@ -2779,24 +2962,54 @@ export function ShoppingView({
                         .push({ name: it.name, kind: it.kind, qty: it.qty, state: it.state });
                     }
                     for (const [loc, items] of groups) onScanApprove(items, loc, "add");
+                    // HIS WORDS ARE KEPT (I-06): the note, beside what it saved
+                    onPantryNote?.({
+                      said: heard.said,
+                      saved: heard.items.map((it) => ({
+                        food: it.name,
+                        ...(it.state
+                          ? { state: it.state }
+                          : it.kind === "staple"
+                            ? { state: "plenty" }
+                            : {}),
+                        ...(it.qty ? { qty: it.qty } : {}),
+                        ...(it.kind === "fresh" ? { location: it.location } : {}),
+                      })),
+                      unsure: heard.unsure.map((u) => u.name),
+                      outs: heard.outs.map((o) => ({
+                        name: o.name,
+                        marked: (heard.marked ?? []).includes(o.name),
+                      })),
+                    });
                     setSaid("");
                     setHeard(null);
                   }}
                 >
-                  ADD ${heard.length} ${heard.length === 1 ? "ITEM" : "ITEMS"}
+                  ${
+                    heard.items.length === 0
+                      ? "SAVE NOTE"
+                      : `ADD ${heard.items.length} ${heard.items.length === 1 ? "ITEM" : "ITEMS"}`
+                  }
                 </button>`
               }
             </div>
             ${
               heard &&
-              heard.length === 0 &&
-              html`<p class="hint">nothing I could read as food in that — try one item per line</p>`
+              heard.said &&
+              html`<p class="hint saidwords">You said: <q>${heard.said}</q></p>`
             }
             ${
               heard &&
-              heard.length > 0 &&
+              heard.items.length === 0 &&
+              heard.unsure.length === 0 &&
+              heard.outs.length === 0 &&
+              html`<p class="hint">nothing I could read as food in that, try one item per line</p>`
+            }
+            ${
+              heard &&
+              heard.items.length > 0 &&
               html`<div class="slots">
-                  ${heard.map(
+                  ${heard.items.map(
                     (it, i) => html`
                       <div class="checkrow static" key=${`${it.name}-${i}`}>
                         <span class="food">
@@ -2814,7 +3027,8 @@ export function ShoppingView({
                         <button
                           class="secondary"
                           aria-label=${`Drop ${it.name} from the read-back`}
-                          onClick=${() => setHeard(heard.filter((_, j) => j !== i))}
+                          onClick=${() =>
+                            setHeard({ ...heard, items: heard.items.filter((_, j) => j !== i) })}
                         >
                           ✕
                         </button>
@@ -2824,8 +3038,137 @@ export function ShoppingView({
                 </div>
                 <p class="hint">
                   Chicken, fish, dairy and produce land on the fridge dated today ("frozen …" on the
-                  freezer); everything else is a shelf-stable state. "Low on …" marks it LOW so the
-                  next list buys it. Drop anything misheard, then ADD.
+                  freezer); everything else is a shelf-stable state. "Low on …" and "need more …"
+                  mark it LOW so the next list buys it. Drop anything misheard, then ADD.
+                </p>`
+            }
+            ${
+              heard &&
+              heard.unsure.length > 0 &&
+              html`<h3 class="block-title">
+                  Not sure (${heard.unsure.length})
+                  <span class="hint">left out unless you tap HAVE IT or LOW</span>
+                </h3>
+                <div class="slots">
+                  ${heard.unsure.map(
+                    (u, i) => html`
+                      <div class="checkrow static" key=${`unsure-${u.name}-${i}`}>
+                        <span class="food">
+                          ${u.name}${u.guess && html` <span class="hint">maybe ${u.guess}?</span>`}
+                        </span>
+                        ${
+                          u.guess &&
+                          html`<button
+                            class="secondary"
+                            aria-label=${`It was ${u.guess}`}
+                            onClick=${() =>
+                              setHeard({
+                                ...heard,
+                                unsure: heard.unsure.map((x, j) =>
+                                  j === i ? { name: /** @type {string} */ (u.guess) } : x,
+                                ),
+                              })}
+                          >
+                            IT WAS ${u.guess.toUpperCase()}
+                          </button>`
+                        }
+                        ${["plenty", "low"].map(
+                          (st) =>
+                            html`<button
+                              class="secondary"
+                              aria-label=${`${u.name}: ${st === "low" ? "running low" : "I have it"}`}
+                              onClick=${() =>
+                              setHeard({
+                                ...heard,
+                                unsure: heard.unsure.filter((_, j) => j !== i),
+                                items: [
+                                  ...heard.items,
+                                  {
+                                    name: u.name,
+                                    kind: "staple",
+                                    qty: "",
+                                    ...(st === "low"
+                                      ? { state: /** @type {"low"} */ ("low") }
+                                      : {}),
+                                    location: "unsorted",
+                                  },
+                                ],
+                              })}
+                            >
+                              ${st === "low" ? "LOW" : "HAVE IT"}
+                            </button>`,
+                        )}
+                        <button
+                          class="secondary"
+                          aria-label=${`Drop ${u.name}`}
+                          onClick=${() =>
+                            setHeard({ ...heard, unsure: heard.unsure.filter((_, j) => j !== i) })}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    `,
+                  )}
+                </div>`
+            }
+            ${
+              heard &&
+              heard.outs.length > 0 &&
+              html`<h3 class="block-title">
+                  Sounds like it's gone (${heard.outs.length})
+                  <span class="hint"
+                    >a note never takes anything off; tap MARK OUT if it's gone</span
+                  >
+                </h3>
+                <div class="slots">
+                  ${heard.outs.map((o) => {
+                    const marked = (heard.marked ?? []).includes(o.name);
+                    const can = outMatches(pantry, o.name);
+                    return html`
+                      <div class="checkrow static" key=${`out-${o.name}`}>
+                        <span class="food">
+                          ${o.name} ${" "}<span class="tag"
+                            >${marked ? "marked out" : can ? "tap MARK OUT" : "not in your pantry, nothing to mark"}</span
+                          >
+                        </span>
+                        ${
+                          can &&
+                          !marked &&
+                          onMarkOut &&
+                          html`<button
+                            class="secondary"
+                            aria-label=${`Mark ${o.name} out`}
+                            onClick=${() => {
+                              onMarkOut(o.name);
+                              setHeard({ ...heard, marked: [...(heard.marked ?? []), o.name] });
+                            }}
+                          >
+                            MARK OUT
+                          </button>`
+                        }
+                      </div>
+                    `;
+                  })}
+                </div>`
+            }
+            ${
+              !heard &&
+              lastPantryNote &&
+              typeof lastPantryNote.said === "string" &&
+              html`<p class="hint saidwords">
+                Last note, ${formatSyncTime(String(lastPantryNote.at ?? ""))}:
+                <q>${lastPantryNote.said || "(no words)"}</q>
+                ${" "}Saved:
+                ${
+                  (Array.isArray(lastPantryNote.saved) ? lastPantryNote.saved : [])
+                    .map((/** @type {any} */ r) => String(r?.food ?? ""))
+                    .filter(Boolean)
+                    .join(", ") || "nothing"
+                }.${
+                  Array.isArray(lastPantryNote.unsure) && lastPantryNote.unsure.length > 0
+                    ? ` Not saved: ${lastPantryNote.unsure.join(", ")}.`
+                    : ""
+                }
                 </p>`
             }
           </details>
@@ -2836,7 +3179,7 @@ export function ShoppingView({
               ${
                 stateRows.length === 0 &&
                 html`<div class="empty">
-                  nothing asserted yet — they arrive with your seed data
+                  nothing asserted yet, they arrive with your seed data
                 </div>`
               }
               <div class="slots">
@@ -2878,7 +3221,7 @@ export function ShoppingView({
               ${
                 shelf.length === 0 &&
                 html`<div class="empty">
-                  nothing recorded in the ${scanLocation} — food lands here when you scan a receipt,
+                  nothing recorded in the ${scanLocation}, food lands here when you scan a receipt,
                   tap ADD TO PANTRY, or photograph the shelf
                 </div>`
               }
@@ -2963,11 +3306,11 @@ export function ShoppingView({
         onClaimAllDinners &&
         html`
           <div class="tile" role="note">
-            <div class="k">🛒 Family dinner groceries — who's buying?</div>
+            <div class="k">🛒 Family dinner groceries: who's buying?</div>
             <p class="hint">
               A dinner's ingredients sit on NOBODY's list until someone claims the buy (each dinner
               card on Today has its own I'LL BUY THIS button). Claim them all below and they join
-              your own list as normal rows — ticks, receipt, and the who-owes-what ledger all follow
+              your own list as normal rows, ticks, receipt, and the who-owes-what ledger all follow
               the buyer.
               ${dinnerClaims ? html`<b>${dinnerClaims.unclaimed}</b> unclaimed · <b>${dinnerClaims.mine}</b> yours.` : ""}
             </p>
@@ -2980,7 +3323,7 @@ export function ShoppingView({
                     const n = onClaimAllDinners(true);
                     setDinnersNote(
                       n > 0
-                        ? `you're buying ${n} more dinner${n === 1 ? "" : "s"} ✓ — their groceries just joined your list`
+                        ? `you're buying ${n} more dinner${n === 1 ? "" : "s"} ✓, their groceries just joined your list`
                         : "nothing to claim",
                     );
                   }}
@@ -2996,7 +3339,7 @@ export function ShoppingView({
                     const n = onClaimAllDinners(false);
                     setDinnersNote(
                       n > 0
-                        ? `released ${n} dinner claim${n === 1 ? "" : "s"} — those groceries left your list`
+                        ? `released ${n} dinner claim${n === 1 ? "" : "s"}, those groceries left your list`
                         : "nothing to release",
                     );
                   }}
@@ -3012,8 +3355,8 @@ export function ShoppingView({
               (shopping.items ?? []).some((i) => String(i.id).endsWith("-famdinners")) &&
               onRemoveDinnerRows &&
               html`<p class="hint scanerr" role="status">
-                  ⚠ Old manually-added dinner rows are still on your list from before claims existed
-                  — they may double-count. Remove them; claimed dinners re-derive cleanly.
+                  ⚠ Old manually-added dinner rows are still on your list from before claims existed,
+                 they may double-count. Remove them; claimed dinners re-derive cleanly.
                 </p>
                 <div class="actions">
                   <button class="secondary" onClick=${onRemoveDinnerRows}>
@@ -3050,7 +3393,7 @@ export function ShoppingView({
             ${
               // EVERY profile not in this house is shown greyed with the
               // reason, family field or not (David, 2026-08-02: dad and
-              // laurie were simply invisible here while their household was
+              // lena were simply invisible here while their household was
               // stale, and invisible reads as broken — an explained absence
               // says exactly what to fix in Settings)
               (profiles ?? [])
@@ -3061,7 +3404,7 @@ export function ShoppingView({
                       key=${p.id}
                       class="chip"
                       disabled
-                      title="different house — move them in Settings to shop together"
+                      title="different house, move them in Settings to shop together"
                     >
                       ${p.emoji ?? ""} ${p.name} · different house
                     </button>
@@ -3105,7 +3448,7 @@ export function ShoppingView({
                 html`<div class="tile">
                   <div class="k">Buy for only some of someone's days</div>
                   <p class="hint">
-                    All days lit = their whole week. Un-light days to leave them out of this trip —
+                    All days lit = their whole week. Un-light days to leave them out of this trip,
                     their meals stay planned, just not bought yet. Picks are for this week only; a
                     new week starts whole again. To shop NONE of someone's days, toggle them off the
                     trip above.
@@ -3145,14 +3488,14 @@ export function ShoppingView({
                         ${
                           noPlan &&
                           html`<p class="hint scanerr" role="status">
-                            ⚠ No meal plan for this week for ${p.name} — their whole list rides
+                            ⚠ No meal plan for this week for ${p.name}, their whole list rides
                             along until they generate one.
                           </p>`
                         }
                         ${
                           noRecipes &&
                           html`<p class="hint scanerr" role="status">
-                            ⚠ Recipes are still loading — ${p.name}'s day picks apply once they
+                            ⚠ Recipes are still loading, ${p.name}'s day picks apply once they
                             arrive; until then their whole list rides along.
                           </p>`
                         }
@@ -3161,7 +3504,7 @@ export function ShoppingView({
                           html`<p class="hint scanerr" role="status">
                             ⚠ ${misses} of ${p.name}'s picked-day
                             ${misses === 1 ? "meal uses a recipe" : "meals use recipes"} this phone
-                            can't see — their whole list rides along instead of narrowing.
+                            can't see, their whole list rides along instead of narrowing.
                           </p>`
                         }
                       </div>
@@ -3230,13 +3573,13 @@ export function ShoppingView({
                   .map(
                     (c) => html`
                       <div class="d" key=${c.item.id}>
-                        ${emojiFor.get(c.item.sources[0]?.profileId ?? "") ?? "?"} ${c.item.food} —
+                        ${emojiFor.get(c.item.sources[0]?.profileId ?? "") ?? "?"} ${c.item.food},
                         others already buying: ${c.alreadyBuying.map((i) => i.food).join(", ")}
                       </div>
                     `,
                   )}
                 <div class="d hint">
-                  suggestions only — swap the recipe yourself if it makes sense
+                  suggestions only, swap the recipe yourself if it makes sense
                 </div>
               </div>
             `
@@ -3263,7 +3606,7 @@ export function ShoppingView({
                         aria-pressed=${allChecked}
                         aria-label=${
                           someChecked
-                            ? `${i.food} — partly bought, still needed for ${stillNeeds}`
+                            ? `${i.food}, partly bought, still needed for ${stillNeeds}`
                             : i.food
                         }
                         onClick=${() => onCombinedToggle(i.id, i.sources)}
@@ -3280,7 +3623,7 @@ export function ShoppingView({
                             someChecked && html` <span class="tag">still needs ${stillNeeds}</span>`
                           }${
                             i.kitchenHas
-                              ? html` <span class="tag">buy this much — kitchen has the rest</span>`
+                              ? html` <span class="tag">buy this much, kitchen has the rest</span>`
                               : ""
                           }
                         </span>

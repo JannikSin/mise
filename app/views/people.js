@@ -23,7 +23,7 @@ import { parseLocalIso } from "../lib/dates.js";
  *   nextWeekId: string,
  *   kitchenMemberIds: string[],
  *   dinnerGuests: Record<string, string[]>,
- *   onAddToDinner?: (date: string, profileId: string) => Promise<string | null>,
+ *   onAddToDinner?: (date: string, profileId: string) => Promise<{ note: string, retry: boolean }>,
  *   onRemoveFromDinner?: (date: string, profileId: string) => void,
  *   onLinkRoommate?: (profileId: string) => Promise<string>,
  *   onInviteLink?: (kind: "member" | "guest") => Promise<string>
@@ -46,6 +46,8 @@ export function PeopleSection({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [invite, setInvite] = useState(/** @type {string} */ (""));
+  // the add that could not run its allergy check (D-01, 10/18): one tap redoes it
+  const [retry, setRetry] = useState(/** @type {null | { id: string, dates: string[] }} */ (null));
   const myHouse = /** @type {string} */ (
     (profiles ?? []).find((p) => p.id === me)?.household ?? "home"
   );
@@ -69,6 +71,7 @@ export function PeopleSection({
   const run = async (/** @type {() => Promise<string | null>} */ fn) => {
     setBusy(true);
     setNote("");
+    setRetry(null);
     try {
       setNote((await fn()) ?? "");
     } catch (e) {
@@ -77,6 +80,21 @@ export function PeopleSection({
       setBusy(false);
     }
   };
+  // one at a time: each add runs the plate screen and its own write, and
+  // says why if a dinner refuses them
+  const seat = (/** @type {string} */ id, /** @type {string[]} */ dates) =>
+    run(async () => {
+      if (!onAddToDinner) return null;
+      const notes = [];
+      const again = [];
+      for (const d of dates) {
+        const r = await onAddToDinner(d, id);
+        notes.push(r.note);
+        if (r.retry) again.push(d);
+      }
+      if (again.length > 0) setRetry({ id, dates: again });
+      return notes.filter(Boolean).join(" · ");
+    });
   const share = async (/** @type {"member" | "guest"} */ kind) => {
     if (!onInviteLink) return;
     await run(async () => {
@@ -160,7 +178,7 @@ export function PeopleSection({
                                         onRemoveFromDinner?.(d, p.id);
                                         return `${p.name ?? p.id} is off ${dayLabel(d)}'s dinner`;
                                       })
-                                    : run(() => onAddToDinner(d, p.id))}
+                                    : seat(p.id, [d])}
                               >
                                 ${dayLabel(d)}
                               </button>`;
@@ -172,14 +190,7 @@ export function PeopleSection({
                               <button
                                 class="secondary"
                                 disabled=${busy}
-                                onClick=${() =>
-                                  run(async () => {
-                                    // one at a time: each add runs the plate screen and
-                                    // its own write, and says why if a dinner refuses them
-                                    const notes = [];
-                                    for (const d of asked) notes.push(await onAddToDinner(d, p.id));
-                                    return notes.filter(Boolean).join(" · ");
-                                  })}
+                                onClick=${() => seat(p.id, asked)}
                               >
                                 ADD THEM TO THEIR NIGHTS
                                 <small>${asked.map(dayLabel).join(", ")}</small>
@@ -221,6 +232,20 @@ export function PeopleSection({
                         </p>`
                       }
                       ${note && html`<p class="hint" role="status">${note}</p>`}
+                      ${
+                        retry &&
+                        retry.id === p.id &&
+                        html`<div class="actions">
+                          <button
+                            class="primary"
+                            disabled=${busy}
+                            onClick=${() => seat(p.id, retry.dates)}
+                          >
+                            TRY AGAIN
+                            <small>${retry.dates.map(dayLabel).join(", ")}</small>
+                          </button>
+                        </div>`
+                      }
                     </div>`
                   }
                 </div>

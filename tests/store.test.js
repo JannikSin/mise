@@ -88,9 +88,9 @@ test("readProfiles returns the file's profiles when present", async () => {
 });
 
 test("patchProfiles patches the REAL list, never the caller's snapshot", async () => {
-  // remote knows laurie; the caller's device might not — the patch must
+  // remote knows lena; the caller's device might not — the patch must
   // land on the full list (the 2026-07-20 clobber regression)
-  const real = { profiles: [{ id: "david" }, { id: "laurie" }] };
+  const real = { profiles: [{ id: "david" }, { id: "lena" }] };
   /** @type {any[]} */
   const writes = [];
   const ok = await patchProfiles((list) => [...list, { id: "mom" }], {
@@ -100,7 +100,7 @@ test("patchProfiles patches the REAL list, never the caller's snapshot", async (
   assert.equal(ok, true);
   assert.deepEqual(
     writes[0][1].profiles.map((/** @type {any} */ p) => p.id),
-    ["david", "laurie", "mom"],
+    ["david", "lena", "mom"],
   );
 });
 
@@ -192,7 +192,7 @@ test("the three states are genuinely distinct, so no two failures read alike", (
 // the table proof that collapsing them changed nothing: for every profile and
 // every document type, pathFor reproduces the rule that was open-coded.
 
-const PROFILES = ["david", "mom", "laurie", "dad"];
+const PROFILES = ["david", "mom", "lena", "dad"];
 const DOCS = [
   "profiles.json", "shopping.json", "pantry.json", "occasions.json",
   "meta.json", "pins.json", "prices.json",
@@ -225,7 +225,7 @@ test("scoped is exactly pathFor bound to the active profile", () => {
 test("hasOwnRecipes is false ONLY for david, and that is not an optimization", () => {
   assert.equal(hasOwnRecipes("david"), false);
   assert.equal(pathFor("david", "recipes"), "recipes", "which IS the shared bank root");
-  for (const id of ["mom", "laurie", "dad", "roommate"]) assert.equal(hasOwnRecipes(id), true);
+  for (const id of ["mom", "lena", "dad", "roommate"]) assert.equal(hasOwnRecipes(id), true);
 });
 
 // ---- the food profile leaves fitness/ (David, 2026-08-22) ----------------

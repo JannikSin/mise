@@ -99,7 +99,7 @@ test("SAVE writes both mirrored files identically", async () => {
   /** @type {Record<string, any>} */
   const written = {};
   const merged = mergeProfileAnswers(EXISTING, fresh(), { calories: 3700, protein: 190, todayIso: "2026-10-18" });
-  await writeTargetsOf("elliot", merged, async (path, data) => {
+  await writeTargetsOf("rowan", merged, async (path, data) => {
     written[path] = data;
   });
   const paths = Object.keys(written);

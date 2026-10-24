@@ -1456,7 +1456,7 @@ export function poolAdequacy(recipes, targets) {
     const need = needs[slot] ?? 1;
     if (pool.length < need) {
       warnings.push(
-        `only ${pool.length} ${slot} recipe${pool.length === 1 ? "" : "s"} fit this profile (wants ${need}+) — expect repeats until more are added`,
+        `only ${pool.length} ${slot} recipe${pool.length === 1 ? "" : "s"} fit this profile (wants ${need}+), expect repeats until more are added`,
       );
     }
   }
@@ -1473,11 +1473,11 @@ export function poolAdequacy(recipes, targets) {
       mealSlots.reduce((s, slot) => s + maxCal(slot) * 2, 0) + maxCal("snack") * 2 * 3;
     if (bestDay < caloriesTarget) {
       warnings.push(
-        `even the biggest possible day (~${Math.round(bestDay)} kcal) can't reach the ${caloriesTarget} kcal target — the bank needs bigger or more recipes for this phase`,
+        `even the biggest possible day (~${Math.round(bestDay)} kcal) can't reach the ${caloriesTarget} kcal target, the bank needs bigger or more recipes for this phase`,
       );
     } else if (bestDay < caloriesTarget * 1.2) {
       warnings.push(
-        `the ${caloriesTarget} kcal target is reachable but tight (best case ~${Math.round(bestDay)}) — most days will lean on portion bumps and snack stacking`,
+        `the ${caloriesTarget} kcal target is reachable but tight (best case ~${Math.round(bestDay)}), most days will lean on portion bumps and snack stacking`,
       );
     }
   }

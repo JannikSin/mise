@@ -267,7 +267,7 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
     mortonBand: [MORTON_LO, MORTON_HI],
     note: kg
       ? undefined
-      : "no bodyweight on file — g/kg unavailable, weigh in to arm the calibration signal",
+      : "no bodyweight on file, g/kg unavailable, weigh in to arm the calibration signal",
   };
 
   // floors carry their review date: a floor is trusted, so a stale floor is
@@ -289,7 +289,7 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
   subsystems.adherence = {
     cookedOverPlanned: total > 0 ? `${done}/${total}` : "0/0",
     weeksCounted: (recentPlans ?? []).filter((p) => p.plan).length,
-    note: total === 0 ? "no cooked confirmations recorded yet — tap COOKED on meals" : undefined,
+    note: total === 0 ? "no cooked confirmations recorded yet, tap COOKED on meals" : undefined,
   };
 
   return {
@@ -421,7 +421,7 @@ export function manifestLines(manifest, plan = null, todayIso = "") {
     let s = manifest?.subsystems?.[key];
     if (!s && key === "away" && plan && todayIso) s = awayBackfill(plan, todayIso);
     if (!s)
-      return { key, text: "REPORTED NOTHING — this is the dark-engine failure", missing: true };
+      return { key, text: "REPORTED NOTHING, this is the dark-engine failure", missing: true };
     return { key, text: lineFor(key, s), missing: false };
   });
 }
@@ -438,7 +438,7 @@ function lineFor(key, s) {
     case "useSoon":
       return s.matchedFoods > 0
         ? `${s.matchedFoods} expiring foods steered the committees (${s.datedPantryRows} dated pantry rows)`
-        : `matched 0 foods (${s.datedPantryRows} dated pantry rows — scan a shelf to arm it)`;
+        : `matched 0 foods (${s.datedPantryRows} dated pantry rows, scan a shelf to arm it)`;
     case "philosophy":
       return `${s.groupsTargeted} food groups targeted, ${s.weeklyGapsOpen} weekly gaps open`;
     case "macroTopUp":
@@ -450,8 +450,8 @@ function lineFor(key, s) {
       // week aimed at the REMAINING need; without, it says so plainly
       return (
         (s.slots > 0
-          ? `${s.slots} away slot${s.slots === 1 ? "" : "s"} (${s.swipeSlots} swipe) credit ${s.creditProtein} g protein / ${s.creditCalories} kcal — ${s.cookedNeedRatio != null ? `cooked week aims at the remaining need (density ${s.cookedNeedRatio} vs ${s.fullNeedRatio} full)` : "GENERATE again to aim the cooked week at the remaining need"}`
-          : "no away/swipe slots — cooked week aims at the full need") +
+          ? `${s.slots} away slot${s.slots === 1 ? "" : "s"} (${s.swipeSlots} swipe) credit ${s.creditProtein} g protein / ${s.creditCalories} kcal, ${s.cookedNeedRatio != null ? `cooked week aims at the remaining need (density ${s.cookedNeedRatio} vs ${s.fullNeedRatio} full)` : "GENERATE again to aim the cooked week at the remaining need"}`
+          : "no away/swipe slots, cooked week aims at the full need") +
         // council 2026-08-26: say when the density instrument is pinned at
         // its clamp rail instead of printing a plausible number silently
         (s.needRatioClamped ? " ⚠️ density CLAMPED at its rail (raw value out of range)" : "")
@@ -474,7 +474,7 @@ function lineFor(key, s) {
         // council 2026-08-26: the trim's give-up is never silent again
         (s.proteinAimG ? `; trim aims at ${s.proteinAimG} g bought` : "") +
         (s.trimResidualDays > 0
-          ? ` — COULD NOT REACH IT on ${s.trimResidualDays} day${s.trimResidualDays === 1 ? "" : "s"} (${(s.trimResiduals ?? []).map((/** @type {any} */ r) => `${r.date} +${r.residual}g`).join(", ")})`
+          ? `, COULD NOT REACH IT on ${s.trimResidualDays} day${s.trimResidualDays === 1 ? "" : "s"} (${(s.trimResiduals ?? []).map((/** @type {any} */ r) => `${r.date} +${r.residual}g`).join(", ")})`
           : "")
       );
     case "household":
@@ -527,10 +527,10 @@ function lineFor(key, s) {
       return (
         (s.declared === 0
           ? "no slot is fixed to one recipe"
-          : `${(s.applied ?? []).length ? `fixed daily: ${(s.applied ?? []).join(", ")}` : "declared but none applied"}${(s.misses ?? []).length ? `; FELL BACK to a committee — ${s.misses.join("; ")}` : ""}`) +
+          : `${(s.applied ?? []).length ? `fixed daily: ${(s.applied ?? []).join(", ")}` : "declared but none applied"}${(s.misses ?? []).length ? `; FELL BACK to a committee, ${s.misses.join("; ")}` : ""}`) +
         (s.snackPortable
           ? s.snackPortableRelaxed
-            ? "; portable-only snacks asked for but NO recipe carries portable: true — full pool used"
+            ? "; portable-only snacks asked for but NO recipe carries portable: true, full pool used"
             : "; snacks drawn from portable-only pool"
           : "") +
         (s.snackWeekly
@@ -540,7 +540,7 @@ function lineFor(key, s) {
           : "") +
         (s.dinnerAnchor
           ? s.dinnerAnchorRelaxed
-            ? "; anchored dinners asked for but the filter emptied the pool — relaxed"
+            ? "; anchored dinners asked for but the filter emptied the pool, relaxed"
             : "; solo-planned dinners always carry a protein anchor (shared tables screen separately)"
           : "")
       );
@@ -551,7 +551,7 @@ function lineFor(key, s) {
         ? `${s.verdict}: ${s.weighIns} weigh-ins on file${s.latest ? `, last ${s.latest.date} (${s.latest.weight} lb)` : ""}`
         : `${s.verdict}, ${s.lbPerWeek > 0 ? "+" : ""}${Math.round(s.lbPerWeek * 100) / 100} lb/week (7-day rolling)`;
     case "adherence":
-      return `cooked ${s.cookedOverPlanned} planned meals, last ${s.weeksCounted} weeks${s.note ? ` — ${s.note}` : ""}`;
+      return `cooked ${s.cookedOverPlanned} planned meals, last ${s.weeksCounted} weeks${s.note ? `, ${s.note}` : ""}`;
     case "protein": {
       const delivered =
         s.deliveredG != null
@@ -559,7 +559,7 @@ function lineFor(key, s) {
           : "";
       return s.gPerKg != null
         ? `target ${s.targetG} g = ${s.gPerKg} g/kg vs Morton band ${s.mortonBand[0]}–${s.mortonBand[1]}${delivered} (reviewed ${s.lastReviewed ?? "NEVER"})`
-        : `target ${s.targetG} g${delivered} (reviewed ${s.lastReviewed ?? "NEVER"}) — ${s.note}`;
+        : `target ${s.targetG} g${delivered} (reviewed ${s.lastReviewed ?? "NEVER"}), ${s.note}`;
     }
     default:
       return JSON.stringify(s);

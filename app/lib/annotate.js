@@ -67,6 +67,28 @@ const DERIVATIVES = {
     "gianduja",
   ],
   milk: [
+    "curry cube",
+    "curry block",
+    "curry sauce mix",
+    "golden curry",
+    "vermont curry",
+    "java curry",
+    "curry sauce block",
+    "curry sauce cube",
+    "curry brick",
+    "curry mix",
+    "japanese curry",
+    "house curry",
+    "kokumaro",
+    "japanese style curry",
+    "curry flake",
+    "instant curry",
+    "glico",
+    "house foods",
+    "s&b curry",
+    "kare roux",
+    "curry roux",
+    "roux",
     "butter",
     "ghee",
     "cream",
@@ -94,6 +116,27 @@ const DERIVATIVES = {
     "fresh pasta",
   ],
   wheat: [
+    "curry cube",
+    "curry block",
+    "curry sauce mix",
+    "golden curry",
+    "vermont curry",
+    "java curry",
+    "curry sauce block",
+    "curry sauce cube",
+    "curry brick",
+    "curry mix",
+    "japanese curry",
+    "house curry",
+    "kokumaro",
+    "japanese style curry",
+    "curry flake",
+    "instant curry",
+    "glico",
+    "house foods",
+    "s&b curry",
+    "kare roux",
+    "curry roux",
     "soy sauce",
     "worcestershire",
     "seitan",
@@ -109,6 +152,27 @@ const DERIVATIVES = {
     "malt",
   ],
   gluten: [
+    "curry cube",
+    "curry block",
+    "curry sauce mix",
+    "golden curry",
+    "vermont curry",
+    "java curry",
+    "curry sauce block",
+    "curry sauce cube",
+    "curry brick",
+    "curry mix",
+    "japanese curry",
+    "house curry",
+    "kokumaro",
+    "japanese style curry",
+    "curry flake",
+    "instant curry",
+    "glico",
+    "house foods",
+    "s&b curry",
+    "kare roux",
+    "curry roux",
     "soy sauce",
     "worcestershire",
     "seitan",
@@ -126,7 +190,36 @@ const DERIVATIVES = {
     "barley",
     "brewer's yeast",
   ],
-  soy: ["soy sauce", "tamari", "miso", "tofu", "edamame", "lecithin", "textured vegetable protein"],
+  soy: [
+    "curry cube",
+    "curry block",
+    "curry sauce mix",
+    "golden curry",
+    "vermont curry",
+    "java curry",
+    "curry sauce block",
+    "curry sauce cube",
+    "curry brick",
+    "curry mix",
+    "japanese curry",
+    "house curry",
+    "kokumaro",
+    "japanese style curry",
+    "curry flake",
+    "instant curry",
+    "glico",
+    "house foods",
+    "s&b curry",
+    "kare roux",
+    "curry roux",
+    "soy sauce",
+    "tamari",
+    "miso",
+    "tofu",
+    "edamame",
+    "lecithin",
+    "textured vegetable protein",
+  ],
   fish: [
     "worcestershire",
     "caesar dressing",
@@ -201,9 +294,13 @@ export function expandAvoid(avoid) {
  */
 export function screenTextForDiners(text, diners) {
   const t = String(text).toLowerCase();
+  // hyphens and repeated spaces folded too, so "japanese-style curry" is
+  // caught; only ever adds hits (Tribunal Red Team, 1.95 loop 3)
+  const fold = (/** @type {string} */ x) => x.replace(/[-_]+/g, " ").replace(/\s+/g, " ");
+  const ft = fold(t);
   const out = [];
   for (const d of diners ?? []) {
-    const hits = expandAvoid(d.avoid).filter((a) => t.includes(a));
+    const hits = expandAvoid(d.avoid).filter((a) => t.includes(a) || ft.includes(fold(a)));
     if (hits.length > 0) out.push(`${d.name}: ${hits.join(", ")}`);
   }
   return out;
@@ -239,7 +336,9 @@ export function screenMenuReport(report, diners) {
   return (report?.diners ?? []).map((d) => {
     const facts = (diners ?? []).find((f) => f.name === d.name || (f.id && f.id === d.id));
     const hitsFor = (/** @type {Record<string, any>} */ p) =>
-      facts ? screenTextForDiners(`${p.item ?? ""} ${p.why ?? ""}`, [/** @type {any} */ (facts)]) : [];
+      facts
+        ? screenTextForDiners(`${p.item ?? ""} ${p.why ?? ""}`, [/** @type {any} */ (facts)])
+        : [];
     /** @type {{ pick: Record<string, any>, hits: string[] }[]} */
     const flagged = [];
     /** @type {Record<string, any>[]} */

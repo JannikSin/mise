@@ -74,7 +74,7 @@ test("the medical-preset expansion catches a derivative in the scanned text", ()
 
 test("unconfirmedReason refuses the scan for an unread profile (C1), and only then", () => {
   const failed = dinerFacts("mom", "Mom", null);
-  const clean = dinerFacts("laurie", "Laurie", {});
+  const clean = dinerFacts("lena", "Lena", {});
   assert.ok(unconfirmedReason([failed, clean]).includes("Mom"));
   assert.equal(unconfirmedReason([clean]), "");
 });
@@ -113,4 +113,15 @@ test("expandAvoid pushes the canonical alias term: 'eggs' also screens 'egg'", (
   assert.ok(expandAvoid(["eggs"]).includes("egg"));
   assert.ok(expandAvoid(["dairy"]).includes("milk"));
   assert.ok(expandAvoid(["milk"]).includes("mozzarella"), "named cheeses are reachable");
+});
+
+test("a pasted menu with curry blocks under any name hard-stops gluten, soy and dairy (Tribunal Red Team, 1.95)", async () => {
+  const { screenTextForDiners } = await import("../app/lib/annotate.js");
+  for (const dish of ["golden curry with rice", "vermont curry blocks", "japanese curry cubes", "curry sauce mix stew", "java curry", "curry roux"]) {
+    for (const allergy of ["gluten", "soy", "dairy"]) {
+      const hits = screenTextForDiners(dish, [{ id: "r", name: "Rowan", avoid: [allergy] }]);
+      assert.ok(hits.length > 0, `${dish} must stop ${allergy}`);
+    }
+  }
+  assert.ok(screenTextForDiners("chicken with a butter roux", [{ id: "r", name: "Rowan", avoid: ["dairy"] }]).length > 0);
 });

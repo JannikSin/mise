@@ -960,7 +960,7 @@ export default {
       const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
       const weight = url.pathname === "/invite/status" ? 6 : 3;
       if (!allowRequest(rateState, `open:${ip}`, Date.now(), weight)) {
-        return json(429, { error: "slow down — try again in a few minutes" }, cors);
+        return json(429, { error: "slow down, try again in a few minutes" }, cors);
       }
       const originBranch = branchForOrigin(request.headers.get("origin"));
       if (!originBranch)
@@ -1284,7 +1284,7 @@ export default {
         503,
         {
           error:
-            "GitHub is rate-limiting right now (a burst of edits can do this) — wait two minutes and try again. Your token is fine.",
+            "GitHub is rate-limiting right now (a burst of edits can do this), wait two minutes and try again. Your token is fine.",
         },
         cors,
       );
@@ -1308,7 +1308,7 @@ export default {
             : 1,
       )
     ) {
-      return json(429, { error: "slow down — try again in a few minutes" }, cors);
+      return json(429, { error: "slow down, try again in a few minutes" }, cors);
     }
 
     // notification test (SYS button): reads with the PRESENTED token, sends
@@ -1422,7 +1422,7 @@ export default {
     try {
       const raw = await request.text();
       if (raw.length > MAX_BODY_BYTES) {
-        return json(413, { error: "photo too large — retake or lower quality" }, cors);
+        return json(413, { error: "photo too large, retake or lower quality" }, cors);
       }
       body = JSON.parse(raw);
     } catch {

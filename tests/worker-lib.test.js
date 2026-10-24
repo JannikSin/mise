@@ -739,9 +739,9 @@ test("specialAvoidHits refuses a special whose ingredients hit any participant's
   assert.deepEqual(
     specialAvoidHits(special, [
       { name: "David", avoid: [] },
-      { name: "Laurie", avoid: ["peanut"] },
+      { name: "Lena", avoid: ["peanut"] },
     ]),
-    ["Laurie: peanut"],
+    ["Lena: peanut"],
   );
   assert.deepEqual(specialAvoidHits(special, [{ name: "David", avoid: ["onion"] }]), []);
 });
@@ -935,7 +935,7 @@ test("/ask: request grounds in the sanitized snapshot, response is plain text", 
   const ctx = sanitizeAskContext({
     name: "David",
     targets: "3700 kcal / 210g protein daily",
-    dinners: ["2026-08-04 Baked salmon — cook Laurie, groceries David | batch prep: none"],
+    dinners: ["2026-08-04 Baked salmon — cook Lena, groceries David | batch prep: none"],
     kitchen: Array.from({ length: 100 }, (_, i) => `item ${i}`),
     junk: { nested: "dropped" },
     notes: 42,

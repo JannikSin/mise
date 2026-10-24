@@ -41,7 +41,22 @@ import {
   withCartSend,
   isStapleRow,
   recipeBought,
+  CHECK_BASICS,
+  isCheckBasic,
+  checkFirstIds,
+  withNeedIt,
+  priceFlag,
+  PRICE_FLAG_USD,
+  cartPlan,
+  notSentLines,
+  raisedCartLines,
+  moreThanSentLines,
+  withSentUpcs,
+  newCartLines,
+  alreadySentLines,
 } from "../app/lib/shopping.js";
+import { itemCost, tripTotal } from "../app/lib/prices.js";
+import { readFileSync } from "node:fs";
 
 test("tripOf: perishable sections are the fresh trip, shelf-stable the pantry trip", () => {
   assert.equal(tripOf("produce"), "fresh");
@@ -947,7 +962,7 @@ test("householdOthers merges only same-household profiles, absent household = ho
   const profiles = [
     { id: "david", name: "David" }, // no household -> "home"
     { id: "mom", name: "Mom" }, // no household -> "home"
-    { id: "laurie", name: "Laurie", household: "laurie" },
+    { id: "lena", name: "Lena", household: "lena" },
   ];
   // pre-household behavior preserved: david still sees mom, and only mom
   assert.deepEqual(
@@ -958,8 +973,8 @@ test("householdOthers merges only same-household profiles, absent household = ho
     householdOthers(profiles, "mom").map((p) => p.id),
     ["david"],
   );
-  // laurie is alone in her household -> no EVERYONE tab
-  assert.deepEqual(householdOthers(profiles, "laurie"), []);
+  // lena is alone in her household -> no EVERYONE tab
+  assert.deepEqual(householdOthers(profiles, "lena"), []);
   // an unknown active id defaults to "home" rather than crashing
   assert.deepEqual(
     householdOthers(profiles, "ghost").map((p) => p.id),
@@ -1114,12 +1129,12 @@ test("withAutoUseSoon flags perishables in their last 3 days, preserves manual f
 });
 
 test("householdOf and pantryPathFor: household keys the shared pantry (B2)", () => {
-  const profiles = [{ id: "david" }, { id: "mom" }, { id: "laurie", household: "laurie-apt" }];
+  const profiles = [{ id: "david" }, { id: "mom" }, { id: "lena", household: "lena-apt" }];
   assert.equal(householdOf(profiles, "david"), "home");
-  assert.equal(householdOf(profiles, "laurie"), "laurie-apt");
+  assert.equal(householdOf(profiles, "lena"), "lena-apt");
   assert.equal(householdOf(profiles, "ghost"), "home"); // unknown id = default
   assert.equal(pantryPathFor("home"), "households/home/pantry.json");
-  assert.equal(pantryPathFor("laurie-apt"), "households/laurie-apt/pantry.json");
+  assert.equal(pantryPathFor("lena-apt"), "households/lena-apt/pantry.json");
   assert.equal(pantryPathFor(""), "households/home/pantry.json");
   // one household = one file: david and mom resolve to the SAME pantry
   assert.equal(
@@ -1137,8 +1152,8 @@ test("a declared household starts with an EMPTY pantry, never the legacy one", (
   assert.equal(inheritsLegacyPantry("home"), true);
   assert.equal(inheritsLegacyPantry(""), true); // absent household field
   assert.equal(inheritsLegacyPantry("wayne"), false);
-  assert.equal(inheritsLegacyPantry("taranowski"), false);
-  assert.equal(inheritsLegacyPantry("laurie-apt"), false);
+  assert.equal(inheritsLegacyPantry("thornton"), false);
+  assert.equal(inheritsLegacyPantry("lena-apt"), false);
   const profiles = [{ id: "david", household: "wayne" }, { id: "mom" }];
   assert.equal(inheritsLegacyPantry(householdOf(profiles, "david")), false);
   assert.equal(inheritsLegacyPantry(householdOf(profiles, "mom")), true);
@@ -1800,7 +1815,7 @@ test("HOUSEHOLD REGRESSION (Red Team R1): the merged trip banks exactly what was
   // 4 profiles, 500 g chicken each = 2000 g summed; the shelf holds 500 g.
   // The FAMILY tab renders BUY 1500 g; the receipt must bank 1500 g — not 0,
   // not 2000. This is the 4-person topology the app actually ships into.
-  const lists = ["david", "laurie", "mom", "dad"].map((profileId) => ({
+  const lists = ["david", "lena", "mom", "dad"].map((profileId) => ({
     profileId,
     list: {
       generatedFrom: "2026-W32",
@@ -1873,7 +1888,7 @@ test("PER-SOURCE BOUGHT (Tribunal B2): a solo-tab tick banks one portion, not fo
   // David ticks his own 500 g row on his personal tab; the receipt reads only
   // eggs. Only HIS portion banks; the other three rows are neither banked nor
   // cleared. (mirrors main.js handleReceiptApprove's boughtOf + merge shape)
-  const lists = ["david", "laurie", "mom", "dad"].map((profileId) => ({
+  const lists = ["david", "lena", "mom", "dad"].map((profileId) => ({
     profileId,
     list: {
       items: [
@@ -2526,4 +2541,345 @@ test("a row counted in pieces with no pack size sends that many pieces (2026-10-
     [10, 4, 1],
     "pieces round up; a weighed unpriced row still sends one package",
   );
+});
+
+// ---- Mise 2.0, I-09: the $15 flag -------------------------------------------
+
+test("a list row over $15 carries a plain flag saying to check the size (I-09)", () => {
+  const flag = priceFlag({ cost: 17.96 }, { buy: "2 × 28 oz jar" });
+  assert.match(flag, /^over \$15: check the size\./);
+  assert.match(flag, /You are buying 2 × 28 oz jar\./, "it says what to check");
+  assert.doesNotMatch(flag, /—/, "no em dash on screen");
+  assert.doesNotMatch(flag, /\$\d+\.\d\d/, "the price itself stays in the TOTAL cell");
+  assert.equal(PRICE_FLAG_USD, 15);
+});
+
+test("the $15 flag works on an estimated or out-of-date price too (I-09)", () => {
+  assert.match(priceFlag({ cost: 18, estimate: true }), /This price is an estimate\./);
+  assert.match(priceFlag({ cost: 18 }, { stale: true }), /This price may be out of date\./);
+});
+
+test("a row at $15 or under, or unpriced, carries no flag (I-09)", () => {
+  assert.equal(priceFlag({ cost: 15 }), "");
+  assert.equal(priceFlag({ cost: 4.99 }), "");
+  assert.equal(priceFlag(null), "");
+});
+
+test("the cocoa balls week: 850 g of almond butter at about $25 is flagged (I-09, post-mortem 5)", () => {
+  const cat = {
+    stores: ["pay-less"],
+    items: [
+      { id: "almond-butter", name: "almond butter", prices: { "pay-less": { price: 8.49, size: "12 oz" } } },
+    ],
+  };
+  const c = itemCost({ food: "almond butter", qty: 850, unit: "g" }, cat, "pay-less");
+  assert.ok(c && c.cost > 15, `priced at ${c?.cost}`);
+  assert.match(priceFlag(c), /^over \$15: check the size/);
+});
+
+// ---- Mise 2.0, I-10: CHECK YOU HAVE THESE -----------------------------------
+
+test("the long-lasting basics list names salt, pepper, oils, vinegars, dried spices and herbs, baking soda and powder, soy sauce (I-10)", () => {
+  assert.deepEqual(
+    CHECK_BASICS.map(([name]) => name),
+    ["salt", "pepper", "cooking oil", "vinegar", "dried herbs", "dried spices", "baking basics", "bottled sauces"],
+  );
+  for (const f of [
+    "salt",
+    "kosher salt",
+    "black pepper",
+    "olive oil",
+    "extra-virgin olive oil",
+    "vegetable oil",
+    "toasted sesame oil",
+    "rice vinegar",
+    "apple cider vinegar",
+    "dried oregano",
+    "bay leaves",
+    "ground cumin",
+    "cinnamon",
+    "nutmeg",
+    "smoked paprika",
+    "garlic powder",
+    "red pepper flakes",
+    "baking soda",
+    "baking powder",
+    "all-purpose flour",
+    "soy sauce",
+    "fish sauce",
+    "honey",
+  ])
+    assert.ok(isCheckBasic(f), `${f} is a basic`);
+  for (const f of [
+    "fresh thyme",
+    "bell pepper",
+    "red bell peppers",
+    "tuna in olive oil",
+    "salted butter",
+    "salt pork",
+    "flour tortillas",
+    "salt and vinegar chips",
+    "sugar snap peas",
+    "honeydew melon",
+    "ponzu",
+    "chicken thighs",
+    "almond butter",
+  ])
+    assert.ok(!isCheckBasic(f), `${f} is not a basic`);
+});
+
+const basicsWeek = () => ({
+  recipes: new Map([
+    [
+      "thighs",
+      {
+        id: "thighs",
+        servings: 2,
+        ingredients: [
+          { food: "chicken thighs", qty: 600, unit: "g" },
+          { food: "olive oil", qty: 2, unit: "tbsp" },
+          { food: "salt", qty: 1, unit: "tsp" },
+          { food: "ground cumin", qty: 1, unit: "tsp" },
+        ],
+      },
+    ],
+  ]),
+  plan: {
+    week: "2026-W44",
+    entries: [{ id: "a", date: "2026-10-26", slot: "dinner", recipeId: "thighs", servings: 2 }],
+  },
+});
+
+test("with salt and olive oil missing from the pantry, BUILD asks about them under CHECK YOU HAVE THESE (I-10, post-mortem 7)", () => {
+  const { recipes, plan } = basicsWeek();
+  const list = deriveShoppingList(plan, recipes, { items: [] });
+  const ids = checkFirstIds(list.items, { items: [] });
+  const asked = list.items.filter((i) => ids.has(i.id)).map((i) => i.food).sort();
+  assert.deepEqual(asked, ["ground cumin", "olive oil", "salt"]);
+  assert.ok(!list.items.some((i) => ids.has(i.id) && /chicken/.test(i.food)), "chicken just buys");
+  // nothing is dropped: the asked rows are still list rows
+  assert.equal(list.items.length, 4);
+});
+
+test("a basic the pantry lists as low or out is bought, not asked about (I-10)", () => {
+  const { recipes, plan } = basicsWeek();
+  const pantry = { items: [{ id: "salt", food: "salt", state: "low" }, { id: "ground-cumin", food: "ground cumin" }] };
+  const list = deriveShoppingList(plan, recipes, pantry);
+  const ids = checkFirstIds(list.items, pantry);
+  const asked = list.items.filter((i) => ids.has(i.id)).map((i) => i.food);
+  assert.deepEqual(asked, ["olive oil"]);
+});
+
+test("a ticked or hand-added basic is not asked about (I-10)", () => {
+  const ids = checkFirstIds(
+    [
+      { id: "salt-x", food: "salt", manual: true },
+      { id: "olive-oil", food: "olive oil", checked: true },
+    ],
+    { items: [] },
+  );
+  assert.equal(ids.size, 0);
+});
+
+test("HAVE IT records the basic in the pantry and the next BUILD leaves it off while the pantry has it (I-10)", () => {
+  const { recipes, plan } = basicsWeek();
+  const list = deriveShoppingList(plan, recipes, { items: [] });
+  const salt = list.items.find((i) => i.food === "salt");
+  assert.ok(salt);
+  const after = ownItemToPantry(list, { items: [] }, salt.id);
+  assert.ok(!after.shopping.items.some((i) => i.food === "salt"), "the row leaves the list");
+  assert.ok(
+    pantryItems(after.pantry).some((it) => it.food === "salt" && it.state === "plenty"),
+    "the pantry says PLENTY of salt",
+  );
+  const rebuilt = deriveShoppingList(plan, recipes, after.pantry, after.shopping);
+  assert.ok(!rebuilt.items.some((i) => i.food === "salt"), "the next BUILD does not bring salt back");
+  assert.ok(rebuilt.items.some((i) => i.food === "olive oil"), "the unanswered basic is still there");
+});
+
+test("NEED IT moves a basic to its aisle and the cart, and a re-BUILD keeps the answer (I-10)", () => {
+  const { recipes, plan } = basicsWeek();
+  const pantry = { items: [] };
+  const list = deriveShoppingList(plan, recipes, pantry);
+  const oil = list.items.find((i) => i.food === "olive oil");
+  assert.ok(oil);
+  const answered = withNeedIt(list, [oil.id]);
+  assert.ok(!checkFirstIds(answered.items, pantry).has(oil.id), "no longer asked");
+  const rebuilt = deriveShoppingList(plan, recipes, pantry, answered);
+  assert.equal(rebuilt.items.find((i) => i.id === oil.id)?.needIt, true, "BUILD again keeps NEED IT");
+  assert.ok(!checkFirstIds(rebuilt.items, pantry).has(oil.id));
+  const upc = (/** @type {string} */ f) => `u-${f}`;
+  const plan2 = cartPlan(rebuilt.items, upc, () => 1, checkFirstIds(rebuilt.items, pantry));
+  assert.ok(plan2.lines.some((l) => l.upc === "u-olive oil"), "olive oil goes to the cart");
+  assert.ok(!plan2.lines.some((l) => l.upc === "u-salt"), "salt, still unanswered, does not");
+});
+
+test("an unanswered basic stays in the total but out of the cart, and the cart says why (I-10)", () => {
+  const items = [
+    { id: "salt", food: "salt", qty: 1, unit: "x" },
+    { id: "chicken-thighs", food: "chicken thighs", qty: 600, unit: "g" },
+  ];
+  const cat = {
+    stores: ["pay-less"],
+    items: [
+      { id: "salt", name: "salt", prices: { "pay-less": { price: 1.99, size: "26 oz" } } },
+      { id: "chicken-thighs", name: "chicken thighs", prices: { "pay-less": { price: 6.0, size: "1.5 lb" } } },
+    ],
+  };
+  const hold = checkFirstIds(items, { items: [] });
+  assert.ok(hold.has("salt"));
+  // the List prices tripItems whole: the held row is in it
+  assert.ok(tripTotal(items, cat, "pay-less").subtotal >= 1.99 + 6, "salt counts in the total");
+  const planned = cartPlan(items, (f) => `u-${f}`, () => 1, hold);
+  assert.deepEqual(planned.lines, [{ upc: "u-chicken thighs", quantity: 1 }]);
+  assert.deepEqual(planned.notSent, [{ food: "salt", why: "check" }]);
+  assert.match(notSentLines(planned.notSent, "Pay Less")[0], /^Not sent: salt, you have not said if you have it\./);
+});
+
+test("the List keeps unanswered basics in its total and asks before the aisles (I-10)", () => {
+  const src = readFileSync(new URL("../app/views/shopping.js", import.meta.url), "utf8");
+  assert.match(src, /tripTotal\(tripItems, prices, homeStore, region\)/, "the total prices every trip row");
+  assert.match(src, /i\.section === s && !checkIds\.has\(i\.id\)/, "an asked row is not also in its aisle");
+  assert.match(src, /CHECK YOU HAVE THESE/);
+  assert.match(src, />\s*HAVE IT\s*</);
+  assert.match(src, />\s*NEED IT\s*</);
+  assert.ok(
+    src.indexOf("CHECK YOU HAVE THESE</h2>") < src.indexOf("${trips.map("),
+    "the group sits above the aisles",
+  );
+});
+
+// ---- Mise 2.0: the cart names every row it did not send ---------------------
+
+test("a row with no store product is named after a send, with the reason in plain words (ponzu, 10/25 rehearsal)", () => {
+  const items = [
+    { id: "ponzu", food: "ponzu", qty: 1, unit: "x" },
+    { id: "rice", food: "jasmine rice", qty: 1, unit: "kg" },
+    { id: "milk", food: "milk", qty: 1, unit: "L", checked: true },
+  ];
+  const planned = cartPlan(items, (f) => (f === "ponzu" || f === "milk" ? null : `u-${f}`), () => 1);
+  assert.equal(planned.lines.length, 1);
+  assert.deepEqual(planned.notSent, [{ food: "ponzu", why: "product" }], "a ticked row is not named");
+  assert.deepEqual(notSentLines(planned.notSent, "Pay Less"), [
+    "Not sent: ponzu, no Pay Less product found. Add it in the Pay Less app.",
+  ]);
+});
+
+test("every unticked row either goes to the cart or is named, never skipped in silence", () => {
+  const items = [
+    { id: "a", food: "ponzu", qty: 1, unit: "x" },
+    { id: "b", food: "salt", qty: 1, unit: "x" },
+    { id: "c", food: "kosher salt", qty: 1, unit: "x" },
+    { id: "d", food: "broccoli", qty: 300, unit: "g" },
+    { id: "e", food: "frozen broccoli", qty: 300, unit: "g" },
+  ];
+  const upc = (/** @type {string} */ f) => (f === "ponzu" ? null : /broccoli/.test(f) ? "u-broc" : `u-${f}`);
+  const hold = checkFirstIds(items, { items: [] });
+  const planned = cartPlan(items, upc, () => 1, hold);
+  const named = new Set(planned.notSent.map((n) => n.food));
+  // two broccoli rows share one product: one line, two packages
+  assert.deepEqual(planned.lines, [{ upc: "u-broc", quantity: 2 }]);
+  assert.ok(named.has("ponzu"));
+  assert.ok(named.has("salt"), "salt and kosher salt are one jar, named once");
+  assert.equal(planned.notSent.length, 2);
+  // cartPlan with nothing held is exactly cartLines
+  assert.deepEqual(
+    cartPlan(items.slice(3), upc, () => 1).lines,
+    cartLines(items.slice(3), upc, () => 1),
+  );
+});
+
+test("a send after the first carries only products not yet in the cart, never a second copy", () => {
+  let book = withSentUpcs({}, "2026-W44", ["u-rice", "u-broc"]);
+  const lines = [
+    { upc: "u-rice", quantity: 1 },
+    { upc: "u-broc", quantity: 2 },
+    { upc: "u-salt", quantity: 1 },
+  ];
+  assert.deepEqual(newCartLines(lines, book["2026-W44"]), [{ upc: "u-salt", quantity: 1 }]);
+  book = withSentUpcs(book, "2026-W44", ["u-salt"]);
+  assert.deepEqual(newCartLines(lines, book["2026-W44"]), [], "nothing new after the salt went");
+  for (let w = 30; w < 42; w++) book = withSentUpcs(book, `2026-W${w}`, ["x"]);
+  assert.equal(Object.keys(book).length, 8, "only the 8 newest weeks are kept");
+  assert.ok(book["2026-W44"]);
+});
+
+test("a send of new items names a product whose quantity went up, and never sends it twice", () => {
+  // first send: 1 rice, 2 broccoli. A re-BUILD then wants 3 broccoli and a salt
+  let book = withSentUpcs({}, "2026-W44", [
+    { upc: "u-rice", quantity: 1 },
+    { upc: "u-broc", quantity: 2 },
+  ]);
+  const lines = [
+    { upc: "u-rice", quantity: 1 },
+    { upc: "u-broc", quantity: 3 },
+    { upc: "u-salt", quantity: 1 },
+  ];
+  const sent = book["2026-W44"];
+  assert.deepEqual(newCartLines(lines, sent), [{ upc: "u-salt", quantity: 1 }], "the whole broccoli is not re-sent");
+  assert.deepEqual(raisedCartLines(lines, sent), [{ upc: "u-broc", more: 1 }]);
+  assert.deepEqual(moreThanSentLines([{ food: "broccoli", more: 1 }], "Pay Less"), [
+    "broccoli: 1 more than you sent. Add it in the Pay Less app.",
+  ]);
+  // sending the salt keeps the broccoli count, so the extra is still named
+  book = withSentUpcs(book, "2026-W44", [{ upc: "u-salt", quantity: 1 }]);
+  assert.deepEqual(raisedCartLines(lines, book["2026-W44"]), [{ upc: "u-broc", more: 1 }]);
+  assert.deepEqual(newCartLines(lines, book["2026-W44"]), []);
+});
+
+test("the older sent record (plain UPC strings) still works and never names a raised quantity", () => {
+  const old = ["u-rice", "u-broc"];
+  const lines = [
+    { upc: "u-broc", quantity: 5 },
+    { upc: "u-salt", quantity: 1 },
+  ];
+  assert.deepEqual(newCartLines(lines, old), [{ upc: "u-salt", quantity: 1 }]);
+  assert.deepEqual(raisedCartLines(lines, old), [], "an unknown sent quantity is never guessed");
+  const merged = withSentUpcs({ "2026-W44": old }, "2026-W44", [{ upc: "u-salt", quantity: 2 }]);
+  assert.deepEqual(merged["2026-W44"], ["u-rice", "u-broc", { upc: "u-salt", quantity: 2 }]);
+});
+
+test("a food sent under one product is never sent again as a new product after a REFRESH, and is named", () => {
+  const book = withSentUpcs({}, "2026-W44", [
+    { upc: "u-rice-old", quantity: 1, food: "Rice" },
+    { upc: "u-broc", quantity: 2, food: "broccoli" },
+  ]);
+  const sent = book["2026-W44"];
+  assert.deepEqual(sent[0], { upc: "u-rice-old", quantity: 1, food: "Rice" }, "the food is recorded");
+  // REFRESH gave rice a new UPC; salt is genuinely new
+  const lines = [
+    { upc: "u-rice-new", quantity: 1 },
+    { upc: "u-broc", quantity: 2 },
+    { upc: "u-salt", quantity: 1 },
+  ];
+  const foodOf = (/** @type {string} */ u) => ({ "u-rice-new": "rice", "u-broc": "broccoli", "u-salt": "salt" })[u];
+  assert.deepEqual(newCartLines(lines, sent, foodOf), [{ upc: "u-salt", quantity: 1 }]);
+  assert.deepEqual(alreadySentLines(lines, sent, foodOf), ["rice was already sent as another product. Check your cart."]);
+  // an older record with no food still sends the new UPC, as before
+  assert.deepEqual(newCartLines(lines, ["u-rice-old", "u-broc"], foodOf).map((l) => l.upc), ["u-rice-new", "u-salt"]);
+});
+
+test("a product whose sent quantity was unknown stays unknown after later sends, so no 'more than you sent' is claimed", () => {
+  const book = withSentUpcs({ "2026-W44": ["u-broc"] }, "2026-W44", [{ upc: "u-broc", quantity: 2 }]);
+  assert.deepEqual(book["2026-W44"], ["u-broc"], "still unknown, not 2");
+  assert.deepEqual(raisedCartLines([{ upc: "u-broc", quantity: 5 }], book["2026-W44"]), []);
+  const withFood = withSentUpcs({ "2026-W44": ["u-broc"] }, "2026-W44", [{ upc: "u-broc", quantity: 2, food: "broccoli" }]);
+  assert.deepEqual(withFood["2026-W44"], [{ upc: "u-broc", food: "broccoli" }], "the food is learned, the quantity stays unknown");
+  assert.deepEqual(raisedCartLines([{ upc: "u-broc", quantity: 5 }], withFood["2026-W44"]), []);
+});
+
+test("a raised product that matches no trip item is dropped, never printed as 'an item'", () => {
+  const src = readFileSync(new URL("../app/views/shopping.js", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /"an item"/);
+  assert.match(src, /return food \? \[\{ food, more: r\.more \}\] : \[\]/);
+  assert.match(src, /STORE_NAMES\[homeStore\] \?\? "Kroger",\s*\)\s*: \[\];/, "the store name is passed");
+});
+
+test("SET TABLE can never pass without a finished allergy check, and offers TRY AGAIN when it fails", () => {
+  const src = readFileSync(new URL("../app/views/tables.js", import.meta.url), "utf8");
+  assert.match(src, /SCREEN_TIMEOUT_MS = 15000/);
+  assert.match(src, /\.catch\(\(\) => \{[\s\S]*?setScreenFailed\(true\)/, "a failed check shows the retry");
+  assert.match(src, /if \(screenedFor !== tableForm\.recipeId\) return;/, "submit still needs a passed check");
+  assert.match(src, /Could not check allergies\. Check the phone has signal, then TRY AGAIN\./);
+  assert.match(src, /Checking everyone's allergies, a few seconds\./);
 });

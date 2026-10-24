@@ -17,7 +17,7 @@ import {
 import { itemCost, matchPrice, parsePackSize, stem } from "./prices.js";
 
 /**
- * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, checked: boolean, manual: boolean, fromRecipes?: string[] }} ShoppingItem
+ * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, checked: boolean, manual: boolean, fromRecipes?: string[], needIt?: boolean }} ShoppingItem
  * @typedef {{ generatedFrom?: string, items: ShoppingItem[] }} ShoppingList
  */
 
@@ -67,6 +67,149 @@ export function isStapleRow(item, catalogue, store) {
   const c = catalogue && store ? itemCost(item, /** @type {any} */ (catalogue), store) : null;
   if (!c) return true;
   return c.cost > 0 && c.eaten < c.cost * 0.5;
+}
+
+/**
+ * THE LONG-LASTING BASICS a kitchen almost always has (Mise 2.0, I-10; the
+ * 10/18 post-mortem, failure 7: a pantry rewrite dropped salt, pepper, olive
+ * oil, soy sauce, cinnamon, cumin, flour and baking powder, and BUILD put
+ * every one of them on the list, about $168, because "BUILD treats every
+ * missing staple as something to buy").
+ *
+ * Matched on the food's own words, NOT on the aisle: the aisle table files
+ * vegetable oil and garlic powder under produce, nutmeg under other, and fresh
+ * thyme and green chilies under spices, so "the spices aisle" is both too
+ * wide and too narrow for the question "is this a jar he probably owns".
+ * Named, so a test can walk the list and a reader can see what is asked.
+ * @type {[string, RegExp][]}
+ */
+export const CHECK_BASICS = [
+  ["salt", /\bsalt\b/],
+  ["pepper", /\b(?:black|white) pepper\b|\bpeppercorns?\b/],
+  [
+    "cooking oil",
+    /\b(?:olive|vegetable|canola|avocado|sesame|coconut|sunflower|safflower|peanut|grapeseed|neutral|cooking|corn|rapeseed) oil\b|^oil$|\bcooking spray\b/,
+  ],
+  ["vinegar", /\bvinegar\b/],
+  [
+    "dried herbs",
+    /\bdried (?:[a-z]+ )?(?:herbs?|oregano|basil|thyme|rosemary|parsley|mint|dill|sage|tarragon|chives|marjoram)\b|\bbay lea(?:f|ves)\b|\bherbes de provence\b|\bseasoning\b/,
+  ],
+  [
+    "dried spices",
+    /\b(?:cumin|coriander|turmeric|cinnamon|nutmeg|allspice|cardamom|paprika|cayenne|garam masala|chill?[ie] powder|curry powder|five spice|za'?atar|sumac|red pepper flakes|chill?[ie] flakes|crushed red pepper)\b|\b(?:ground|whole) cloves\b|\b(?:garlic|onion|ginger|mustard) powder\b|\b(?:fennel|mustard|cumin|coriander) seeds?\b/,
+  ],
+  [
+    "baking basics",
+    /\bbaking (?:soda|powder)\b|\bvanilla extract\b|\bcorn ?starch\b|\bflour\b|\bsugar\b|\bhoney\b/,
+  ],
+  [
+    "bottled sauces",
+    /\bsoy sauce\b|\btamari\b|\bfish sauce\b|\bworcestershire\b|\bhot sauce\b|\bsriracha\b|\boyster sauce\b|\bmirin\b/,
+  ],
+];
+
+// what reads like a basic but is a fresh food or a different product: fresh
+// herbs and chilies wilt in a week, salt pork is meat, "tuna in olive oil" is
+// a tin of fish, a flour tortilla is bread, salt and vinegar chips are a
+// snack, a honeydew is a melon. A false "basic" asks a question; a false "not
+// basic" just buys it, so the fence errs toward buying.
+const NOT_BASIC =
+  /\bfresh\b|\bfrozen\b|\bsalt (?:pork|cod)\b|\bin (?:\w+ )?oil\b|\boil[- ]packed\b|\btortillas?\b|\bcrackers?\b|\bchips?\b|\bcrisps?\b|\bsugar snaps?\b|\bsugar[- ]free\b|\bhoneydew\b|\bhoney ?crisp\b/;
+
+/**
+ * Is this food one of the long-lasting basics (CHECK_BASICS)?
+ * @param {string} food
+ * @returns {boolean}
+ */
+export function isCheckBasic(food) {
+  const f = String(food ?? "")
+    .toLowerCase()
+    .trim();
+  if (!f || NOT_BASIC.test(f)) return false;
+  return CHECK_BASICS.some(([, re]) => re.test(f));
+}
+
+/**
+ * CHECK YOU HAVE THESE (Mise 2.0, I-10; plan: "a 'check you have these'
+ * group for salt, oil and spices"). The ids of the list rows to ask about
+ * instead of buying: a long-lasting basic the pantry does not mention at all.
+ *
+ * Any pantry row for the food takes it out of the question, whatever its
+ * state: PLENTY never reaches the list, LOW and OUT are him saying it needs
+ * buying, and a counted row subtracts by quantity. A row he ticked, added by
+ * hand, or already answered NEED IT is not asked again. HAVE IT goes through
+ * ownItemToPantry, the same write as P+, so the next BUILD finds the basic
+ * PLENTY and leaves it off.
+ * @param {{ id: string, food: string, checked?: boolean, manual?: boolean, needIt?: boolean }[]} items
+ * @param {Record<string, any> | null | undefined} pantry
+ * @returns {Set<string>}
+ */
+export function checkFirstIds(items, pantry) {
+  /** @type {Set<string>} */
+  const listed = new Set();
+  for (const it of pantryItems(pantry)) {
+    if (!it.food) continue;
+    listed.add(slug(it.food));
+    listed.add(canonicalFood(it.food));
+    listed.add(plentyKey(it.food));
+  }
+  /** @type {Set<string>} */
+  const ids = new Set();
+  for (const i of items ?? []) {
+    if (!i?.food || i.checked || i.manual || i.needIt) continue;
+    if (!isCheckBasic(i.food)) continue;
+    if (
+      listed.has(slug(i.food)) ||
+      listed.has(canonicalFood(i.food)) ||
+      listed.has(plentyKey(i.food))
+    )
+      continue;
+    ids.add(i.id);
+  }
+  return ids;
+}
+
+/**
+ * NEED IT on a basic: the rows join their aisle and the cart. Stored on the
+ * row (`needIt`) and carried across a re-BUILD like a tick, so the question
+ * is answered once per list.
+ * @param {ShoppingList} list
+ * @param {string[]} ids
+ * @returns {ShoppingList}
+ */
+export function withNeedIt(list, ids) {
+  const want = new Set(ids);
+  return {
+    ...list,
+    items: (list?.items ?? []).map((i) => (want.has(i.id) ? { ...i, needIt: true } : i)),
+  };
+}
+
+/** One list row over this many dollars is flagged (plan, Wed 10/21). */
+export const PRICE_FLAG_USD = 15;
+
+/**
+ * THE $15 FLAG (Mise 2.0, I-09; plan: "any single item over $15 is
+ * flagged"). The post-mortem's failure 5 was 850 g of almond butter, about
+ * $25, for cocoa balls every breakfast; the 10/25 rehearsal saw a $17.96 row
+ * pass with only a †, which says the PRICE may be old, not that the ROW is
+ * big. The flag reads the same cost the TOTAL column shows, so an estimated
+ * (~) or out-of-date (†) price is flagged too, and says so: an old price can
+ * hide a big row as easily as show one.
+ * @param {{ cost: number, estimate?: boolean } | null | undefined} cost the row's itemCost
+ * @param {{ stale?: boolean, buy?: string }} [opts] stale = the † price; buy = the BUY cell
+ * @returns {string} the flag line, or "" at or under the line
+ */
+export function priceFlag(cost, opts = {}) {
+  if (!cost || !(Number(cost.cost) > PRICE_FLAG_USD)) return "";
+  const what = opts.buy && opts.buy !== "-" ? `You are buying ${opts.buy}. ` : "";
+  const how = cost.estimate
+    ? " This price is an estimate."
+    : opts.stale
+      ? " This price may be out of date."
+      : "";
+  return `over $${PRICE_FLAG_USD}: check the size. ${what}Make sure the week needs that much, or pick a smaller pack.${how}`;
 }
 
 /**
@@ -327,9 +470,12 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
   for (const prev of previous?.items ?? []) {
     if (prev.manual) {
       if (!merged.has(prev.id)) merged.set(prev.id, prev);
-    } else if (prev.checked) {
+    } else if (prev.checked || prev.needIt) {
       const item = merged.get(prev.id) ?? [...merged.values()].find((i) => i.id === prev.id);
-      if (item) item.checked = true;
+      if (item && prev.checked) item.checked = true;
+      // a basic answered NEED IT stays answered (Mise 2.0, I-10): a re-BUILD
+      // must not ask about the salt again
+      if (item && prev.needIt) item.needIt = true;
     }
   }
 
@@ -427,6 +573,8 @@ export function normalizeShoppingList(list) {
     existing.unit = summed.unit;
     existing.checked = existing.checked && item.checked;
     existing.manual = existing.manual && item.manual;
+    // NEED IT on either form answers the merged row: both forms buy anyway
+    if (item.needIt) existing.needIt = true;
     if (item.fromRecipes?.length) {
       existing.fromRecipes = [...new Set([...(existing.fromRecipes ?? []), ...item.fromRecipes])];
     }
@@ -807,6 +955,206 @@ export function withCartSend(book, weekId) {
       .sort(([a], [b]) => b.localeCompare(a))
       .slice(0, 8),
   );
+}
+
+/**
+ * WHAT GOES TO THE CART, AND WHAT DOES NOT AND WHY (Mise 2.0; the 10/25
+ * rehearsal: ponzu had no store product, SEND TO PAY LESS CART skipped it and
+ * said nothing). Every unticked row either becomes a cart line or comes back
+ * named with its reason, so nothing is left behind in silence:
+ *  - "product": no product is picked for it at this store, so there is no UPC;
+ *  - "check": a basic still under CHECK YOU HAVE THESE. It stays out of the
+ *    cart until NEED IT (post-mortem 7: "They don't go to the cart until you
+ *    confirm"), which is also what stops it going in once now and again later.
+ * @param {{ id: string, food: string, qty: number, unit: string, checked?: boolean }[]} items
+ * @param {(food: string) => string | null | undefined} upcFor
+ * @param {(item: any) => number | null | undefined} packsFor
+ * @param {Set<string>} [holdIds] the CHECK YOU HAVE THESE rows
+ * @returns {{ lines: { upc: string, quantity: number }[], notSent: { food: string, why: "product" | "check" }[] }}
+ */
+export function cartPlan(items, upcFor, packsFor, holdIds = new Set()) {
+  /** @type {{ food: string, why: "product" | "check" }[]} */
+  const notSent = [];
+  /** @type {Set<string>} */
+  const named = new Set();
+  const send = [];
+  for (const i of items ?? []) {
+    if (!i || i.checked) continue;
+    /** @type {"product" | "check" | null} */
+    const why = holdIds.has(i.id) ? "check" : upcFor(i.food) ? null : "product";
+    if (!why) {
+      send.push(i);
+      continue;
+    }
+    // one food, one sentence: "salt" and "kosher salt" are one jar to him
+    const key = `${why}:${plentyKey(i.food)}`;
+    if (named.has(key)) continue;
+    named.add(key);
+    notSent.push({ food: i.food, why });
+  }
+  return { lines: cartLines(send, upcFor, packsFor), notSent };
+}
+
+/**
+ * The plain sentence for each row that did not go to the cart, shown after a
+ * send (and before it, so nothing is a surprise at pickup).
+ * @param {{ food: string, why: "product" | "check" }[]} notSent
+ * @param {string} storeName e.g. "Pay Less"
+ * @returns {string[]}
+ */
+export function notSentLines(notSent, storeName) {
+  return (notSent ?? []).map((n) =>
+    n.why === "check"
+      ? `Not sent: ${n.food}, you have not said if you have it. Tap NEED IT under CHECK YOU HAVE THESE to send it, or HAVE IT if you do.`
+      : `Not sent: ${n.food}, no ${storeName} product found. Add it in the ${storeName} app.`,
+  );
+}
+
+/**
+ * One product already sent: a bare UPC string (the oldest record, quantity
+ * unknown), the UPC with the quantity that went, or either with the food it
+ * was sent for. The food lets a re-pin or REFRESH, which gives a food a new
+ * UPC, be told apart from a food never sent.
+ * @typedef {string | { upc: string, quantity?: number | null, food?: string }} SentEntry
+ */
+
+/**
+ * @param {SentEntry} e
+ * @returns {{ upc: string, quantity: number | null, food: string | null } | null}
+ */
+function sentEntry(e) {
+  if (typeof e === "string") return { upc: e, quantity: null, food: null };
+  if (e && typeof e.upc === "string") {
+    const q = Number(e.quantity);
+    return {
+      upc: e.upc,
+      quantity: Number.isFinite(q) && q > 0 ? q : null,
+      food: typeof e.food === "string" && e.food.trim() ? e.food.trim() : null,
+    };
+  }
+  return null;
+}
+
+/** @param {string} food */
+const foodKey = (food) => food.trim().toLowerCase();
+
+/**
+ * The products already sent for a week, so a send AFTER the first carries
+ * only what is new: a basic answered NEED IT after the cart went out is one
+ * new line, never a second copy of the week (Kroger's cart is add-only and
+ * sums duplicates, the seven broccolis). Keeps the 8 newest weeks, like
+ * withCartSend. Each product keeps the quantity sent (summed over sends) and
+ * the food it was sent for, so a later BUILD that raises a quantity can be
+ * named (Tribunal Final Gate, Engineer and Realist). A quantity that is
+ * unknown stays unknown on later sends, so nothing is ever claimed against an
+ * amount nobody recorded. Still reads the older shapes.
+ * @param {Record<string, SentEntry[]>} book weekId -> products sent
+ * @param {string} weekId
+ * @param {(string | { upc: string, quantity?: number, food?: string })[]} sent UPCs, or UPCs with the quantity and food sent
+ * @returns {Record<string, SentEntry[]>}
+ */
+export function withSentUpcs(book, weekId, sent) {
+  const had = Array.isArray(book?.[weekId]) ? book[weekId] : [];
+  /** @type {Map<string, { quantity: number | null, food: string | null }>} */
+  const merged = new Map();
+  for (const e of [...had, ...sent.map((x) => (typeof x === "string" ? x : { ...x, quantity: x.quantity ?? 0 }))]) {
+    const n = sentEntry(/** @type {SentEntry} */ (e));
+    if (!n) continue;
+    const prev = merged.get(n.upc);
+    // an unknown quantity stays unknown once it is unknown: adding a known
+    // amount to an amount nobody recorded would be a guess
+    const quantity = !prev ? n.quantity : prev.quantity === null || n.quantity === null ? null : prev.quantity + n.quantity;
+    merged.set(n.upc, { quantity, food: n.food ?? prev?.food ?? null });
+  }
+  const entries = [...merged].map(([upc, m]) =>
+    m.quantity === null && m.food === null
+      ? upc
+      : { upc, ...(m.quantity === null ? {} : { quantity: m.quantity }), ...(m.food === null ? {} : { food: m.food }) },
+  );
+  const next = { ...(book ?? {}), [weekId]: entries };
+  return Object.fromEntries(
+    Object.entries(next)
+      .sort(([a], [b]) => b.localeCompare(a))
+      .slice(0, 8),
+  );
+}
+
+/**
+ * Foods whose new line is held back because that food already went to the
+ * cart this week under another product (a REFRESH or re-pin changed its UPC).
+ * Sending it would put the food in the cart twice.
+ * @param {{ upc: string, quantity: number }[]} lines
+ * @param {SentEntry[]} sent
+ * @param {((upc: string) => string | undefined) | undefined} foodOf the food a line is for
+ * @returns {Map<string, string>} upc -> food held back
+ */
+function heldBack(lines, sent, foodOf) {
+  const entries = (sent ?? []).map((e) => sentEntry(e)).filter((e) => e !== null);
+  const upcs = new Set(entries.map((e) => e.upc));
+  const foods = new Set(entries.flatMap((e) => (e.food ? [foodKey(e.food)] : [])));
+  /** @type {Map<string, string>} */
+  const out = new Map();
+  for (const l of lines ?? []) {
+    const food = upcs.has(l.upc) ? undefined : foodOf?.(l.upc);
+    if (food && foods.has(foodKey(food))) out.set(l.upc, food);
+  }
+  return out;
+}
+
+/**
+ * Cart lines whose product has not gone to the cart yet this week, leaving
+ * out a food that already went under another product (see heldBack).
+ * @param {{ upc: string, quantity: number }[]} lines
+ * @param {SentEntry[]} sent
+ * @param {(upc: string) => string | undefined} [foodOf]
+ * @returns {{ upc: string, quantity: number }[]}
+ */
+export function newCartLines(lines, sent, foodOf) {
+  const had = new Set((sent ?? []).map((e) => sentEntry(e)?.upc));
+  const held = heldBack(lines, sent, foodOf);
+  return (lines ?? []).filter((l) => !had.has(l.upc) && !held.has(l.upc));
+}
+
+/**
+ * The plain sentence for each food held back from a send of new items.
+ * @param {{ upc: string, quantity: number }[]} lines
+ * @param {SentEntry[]} sent
+ * @param {(upc: string) => string | undefined} foodOf
+ * @returns {string[]}
+ */
+export function alreadySentLines(lines, sent, foodOf) {
+  return [...heldBack(lines, sent, foodOf).values()].map(
+    (food) => `${food} was already sent as another product. Check your cart.`,
+  );
+}
+
+/**
+ * Products already sent whose quantity a later BUILD raised. A send of only
+ * new items never re-sends a whole product, so the extra is named for the
+ * store app instead. A product sent under the older record (quantity
+ * unknown) is never named.
+ * @param {{ upc: string, quantity: number }[]} lines
+ * @param {SentEntry[]} sent
+ * @returns {{ upc: string, more: number }[]}
+ */
+export function raisedCartLines(lines, sent) {
+  const was = new Map((sent ?? []).map((e) => sentEntry(e)).filter((e) => e && e.quantity !== null).map((e) => [e?.upc, e?.quantity]));
+  /** @type {{ upc: string, more: number }[]} */
+  const out = [];
+  for (const l of lines ?? []) {
+    const q = was.get(l.upc);
+    if (typeof q === "number" && l.quantity > q) out.push({ upc: l.upc, more: l.quantity - q });
+  }
+  return out;
+}
+
+/**
+ * @param {{ food: string, more: number }[]} raised
+ * @param {string} storeName e.g. "Pay Less", the same name notSentLines uses
+ * @returns {string[]}
+ */
+export function moreThanSentLines(raised, storeName) {
+  return raised.map((r) => `${r.food}: ${r.more} more than you sent. Add it in the ${storeName} app.`);
 }
 
 /**

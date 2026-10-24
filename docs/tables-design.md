@@ -38,7 +38,7 @@ solo half).
 
 1. **One source of truth, derived pins.** Tables and Brigades live ONLY in
    the house's `events.json`. No fan-out writes into other profiles' plan
-   files, ever (the Laurie lesson). Each profile's app, at plan load and at
+   files, ever (the Lena lesson). Each profile's app, at plan load and at
    GENERATE, derives VIRTUAL pinned entries from events addressed to it:
    same shape as a pinned plan entry, marked `table: <eventId>`, never
    persisted into the plan file itself. Cancel/edit = one file edit,
@@ -88,7 +88,7 @@ solo half).
     {
       "id": "b1",
       "name": "Apartment dinners",
-      "memberIds": ["david", "laurie"],
+      "memberIds": ["david", "lena"],
       "slots": ["dinner"],
       "from": "2026-07-27",
       "until": "2026-08-03",

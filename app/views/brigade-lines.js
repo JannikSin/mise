@@ -33,7 +33,7 @@ export function brigadeRunLines(result, { runWeek, todayIso, nameOf }) {
     parseLocalIso(iso).toLocaleDateString([], { weekday: "short" });
   if (outOfRange) {
     lines.push(
-      `This brigade runs ${from} to ${until}, and the Plan tab is on a different week. Flip Plan to a week inside that span, then set the week — nothing was set just now.`,
+      `This brigade runs ${from} to ${until}, and the Plan tab is on a different week. Flip Plan to a week inside that span, then set the week, nothing was set just now.`,
     );
     return lines;
   }
@@ -89,8 +89,8 @@ export function brigadeRunLines(result, { runWeek, todayIso, nameOf }) {
       : status === "over"
         ? "fed to their calorie floor, but over their protein ceiling (or the smallest plates overshoot)"
         : status === "no-targets"
-          ? "no targets on file — seated at standard portions"
-          : "short — the shared menu cannot reach their target";
+          ? "no targets on file, seated at standard portions"
+          : "short, the shared menu cannot reach their target";
   const SHOWN = 6;
   for (const r of offBand.slice(0, SHOWN)) {
     const scope = (r.share ?? 1) < 0.95 ? "planned brigade meals" : "planned";
@@ -110,7 +110,7 @@ export function brigadeRunLines(result, { runWeek, todayIso, nameOf }) {
   }
   for (const a of assumed ?? []) {
     lines.push(
-      `🎫 Assumes ${nameOf(a.id)}'s daily swipe ${a.slot} — their day lands once they run their own GENERATE, which places the swipes on their plan.`,
+      `🎫 Assumes ${nameOf(a.id)}'s daily swipe ${a.slot}, their day lands once they run their own GENERATE, which places the swipes on their plan.`,
     );
   }
   const tight = thin.filter((t) => t.available > 0);

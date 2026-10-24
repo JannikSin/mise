@@ -71,7 +71,7 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
       }));
       setPlate(await scanHallPlate(file, items));
     } catch (err) {
-      setPlateErr(err instanceof Error ? err.message : "that scan failed — try again");
+      setPlateErr(err instanceof Error ? err.message : "that scan failed, try again");
     }
     setPlateBusy(false);
   };
@@ -264,7 +264,7 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
         state === "loading" &&
         progress.total > 0 &&
         html`<p class="hint">
-          reading ${progress.done} of ${progress.total} dishes — each one's numbers are a separate
+          reading ${progress.done} of ${progress.total} dishes, each one's numbers are a separate
           lookup, which is why this is not instant
         </p>`
       }
@@ -340,7 +340,7 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
                 .slice(0, 25)
                 .map(
                   (/** @type {any} */ x) =>
-                    html`<li key=${x.name}>${x.name} — ${x.because.join(", ")}</li>`,
+                    html`<li key=${x.name}>${x.name}: ${x.because.join(", ")}</li>`,
                 )}
             </ul>
           </details>`
@@ -387,7 +387,7 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
             <h3>📷 your plate</h3>
             ${
               plate.picks.length === 0 && plate.extras.length === 0
-                ? html`<p class="hint">nothing on the photo matched — try a clearer shot</p>`
+                ? html`<p class="hint">nothing on the photo matched, try a clearer shot</p>`
                 : html`<ul class="tray">
                     ${plate.picks.map(
                       (/** @type {any} */ p) => html`<li key=${p.name}>
@@ -414,7 +414,7 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
             </div>
             ${plate.notes.map((/** @type {string} */ n, /** @type {number} */ i) => html`<p class="hint" key=${i}>${n}</p>`)}
             <p class="hint">
-              a court serving is whatever the server put on the plate — this is an estimate of an
+              a court serving is whatever the server put on the plate, this is an estimate of an
               estimate, honest about it.
             </p>
             ${

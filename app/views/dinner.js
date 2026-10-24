@@ -71,7 +71,7 @@ export function DinnerView({
       setChat(turn.reply ? [...messages, { role: "assistant", content: turn.reply }] : messages);
       if (turn.decision) setDecision(turn.decision);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "no answer — try again with signal");
+      setError(err instanceof Error ? err.message : "no answer, try again with signal");
     }
     setBusy(false);
   };
@@ -101,7 +101,7 @@ export function DinnerView({
       await onApplyDinner(decision, picked);
       setApplied(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "could not set the table — try again");
+      setError(err instanceof Error ? err.message : "could not set the table, try again");
     }
     setBusy(false);
   };
@@ -117,7 +117,7 @@ export function DinnerView({
       <a class="backlink" href="#/tables">← TODAY</a>
       <div class="hero"><h1>Tonight's dinner</h1></div>
       <p class="hint">
-        everyone gets a say — the mediator weighs each voice against their targets, then picks from
+        everyone gets a say, the mediator weighs each voice against their targets, then picks from
         the bank or invents one special meal. Applying it sets a real table for tonight.
       </p>
 
@@ -168,7 +168,7 @@ export function DinnerView({
           ${
             tokenBlocked &&
             html`<p class="hint">
-              ${tokenBroken(repo?.auth) ? "token needs fixing — Settings" : "connect token in Settings first"}
+              ${tokenBroken(repo?.auth) ? "token needs fixing, Settings" : "connect token in Settings first"}
             </p>`
           }
         `
@@ -211,7 +211,7 @@ export function DinnerView({
           ${
             applied &&
             html`<div class="d">
-              ✓ table set for tonight — it's on <a href="#/plan">Plan</a> and everyone's day replans
+              ✓ table set for tonight, it's on <a href="#/plan">Plan</a> and everyone's day replans
               around it.
             </div>`
           }

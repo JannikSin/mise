@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso, tripDates } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, leftoverOf?: string, leftoverDate?: string, cookId?: string, cookName?: string, estCalories?: number, estProtein?: number, cookedAt?: string, eatenAt?: string, cookSeconds?: number, cookComment?: string, preparedOn?: string, leftoverPrepared?: string, batchAlongside?: { name: string, date: string }, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean, useItUp?: boolean }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, leftoverOf?: string, leftoverDate?: string, cookId?: string, cookName?: string, estCalories?: number, estProtein?: number, cookedAt?: string, eatenAt?: string, cookSeconds?: number, cookComment?: string, preparedOn?: string, leftoverPrepared?: string, batchAlongside?: { name: string, date: string, cookId?: string, cookName?: string }, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean, useItUp?: boolean }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any>, fallback?: { savedAt: string, entries: PlanEntry[] }, spend?: { store: string, date: string, total: number }[], reviewNote?: string }} Plan
  */
@@ -66,6 +66,14 @@ export function cookLine(entry, me, dayName, perBowl = false) {
     return `🥘 ${dayName(e.leftoverPrepared)} batch, reheat${cooked}`;
   if (e.batchAlongside && who) {
     const lead = who === "you" ? "🍳 you cook" : `🍳 ${who} cooks`;
+    // the batch names its own cook when that is someone else (2.0, I-14,
+    // P3d): "plus the batch" credited it to tonight's cook on one phone while
+    // the batch's own row credited the other person on the other phone
+    const bc = e.batchAlongside.cookId;
+    if (bc && bc !== e.cookId) {
+      const bwho = bc === me ? "you cook" : `${String(e.batchAlongside.cookName ?? bc)} cooks`;
+      return `${lead} · ${bwho} the batch for ${dayName(e.batchAlongside.date)}: ${e.batchAlongside.name}`;
+    }
     return `${lead} · plus the batch for ${dayName(e.batchAlongside.date)}: ${e.batchAlongside.name}`;
   }
   if (e.leftoverOf) {
@@ -338,7 +346,11 @@ export function recipeConflicts(recipe, diet, avoid, avoidRecipes) {
   for (const ing of recipe.ingredients ?? []) {
     if (ing.optional) continue; // optional ingredients never trigger the avoid screen
     const food = String(ing.food ?? "").toLowerCase();
-    const hit = terms.find((t) => food.includes(t));
+    // "japanese-style curry" and "japanese  curry" are "japanese style curry":
+    // a folded match too, so a hyphen or a double space never hides a term
+    // (Tribunal Red Team, 1.95 loop 3). Only ever refuses more.
+    const fold = (/** @type {string} */ x) => x.replace(/[-_]+/g, " ").replace(/\s+/g, " ");
+    const hit = terms.find((t) => food.includes(t) || fold(food).includes(fold(t)));
     if (hit && !reasons.includes(`contains ${hit}`)) reasons.push(`contains ${hit}`);
   }
   return reasons;
@@ -469,6 +481,40 @@ export function tripFor(viewWeek, todayIso, startIso, buyDay) {
   // (Tribunal Realist + Engineer, 2.0 loop 1: a seven-day window from today
   // overlapped it by one to three days).
   return trip.filter((d) => d >= startIso);
+}
+
+/**
+ * The days BUILD's day chips offer (David, 2026-10-23: "you should be able to
+ * select the days that you want to buy and build for up to a week"): the
+ * seven days from the first day still to plan, whatever the buy day. Picking
+ * none still builds the trip (tripFor).
+ * @param {string} startIso YYYY-MM-DD, the first day still to plan
+ * @returns {string[]}
+ */
+export function pickableDays(startIso) {
+  const d = parseLocalIso(startIso);
+  const out = [];
+  for (let i = 0; i < 7; i++) {
+    out.push(localIsoDate(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+/**
+ * The days one BUILD shops: the picked days when there are any (kept to
+ * pickableDays, so never a past day and never more than a week), else the
+ * trip. A past week (trip null) keeps its whole-week build.
+ * @param {string[] | null} trip tripFor's answer
+ * @param {string[] | undefined} picked
+ * @param {string} startIso
+ * @returns {string[] | null}
+ */
+export function buildDays(trip, picked, startIso) {
+  if (!trip || !picked?.length) return trip;
+  const allowed = new Set(pickableDays(startIso));
+  const days = [...new Set(picked)].filter((d) => allowed.has(d)).sort();
+  return days.length > 0 ? days : trip;
 }
 
 /**
@@ -1192,7 +1238,7 @@ export function setPlanShopped(plan, dateIso, spend) {
  *
  * `houseShopped` is the whole reason this takes three arguments. `shoppedAt`
  * lives on a profile's OWN week plan, but a brigade has one cook and one
- * receipt: Mom, Dad and Laurie never scan anything, so keying the gate to
+ * receipt: Mom, Dad and Lena never scan anything, so keying the gate to
  * each person's own plan would hide every instruction from three of the four
  * of them permanently. The gate asks whether the HOUSE has shopped.
  * @param {Plan | null | undefined} plan
@@ -1343,6 +1389,43 @@ export function normalizePlan(raw, weekId) {
       }),
     ),
   };
+}
+
+/**
+ * THE SAME MEAL EVERY DAY (2.0, I-08; post-mortem 5, 10/18: cocoa almond
+ * balls every breakfast for a week, and nothing on the Plan tab said so).
+ * A slot whose every planned day this week is one and the same dish, planned
+ * on at least five days so a half-planned week does not cry wolf. Shared
+ * meals count by the dish they show (`viewRecipeId`); an eating-out or
+ * free-text meal is not a dish and breaks the run.
+ * @param {PlanEntry[]} entries the week's entries, derived table rows included
+ * @param {string[]} dates the week's seven dates
+ * @param {(id: string) => Record<string, any> | undefined} recipeOf
+ * @returns {{ slot: string, recipeId: string, name: string, days: number }[]}
+ */
+export function sameDishEveryDay(entries, dates, recipeOf) {
+  /** @type {{ slot: string, recipeId: string, name: string, days: number }[]} */
+  const out = [];
+  for (const slot of SLOT_KEYS) {
+    /** @type {Set<string>} */
+    const dishes = new Set();
+    let days = 0;
+    let broken = false;
+    for (const date of dates) {
+      const here = entriesAt(entries, date, slot);
+      if (here.length === 0) continue;
+      days++;
+      for (const e of here) {
+        const id = e.recipeId ?? e.viewRecipeId;
+        if (!id || e.out) broken = true;
+        else dishes.add(id);
+      }
+    }
+    if (broken || days < 5 || dishes.size !== 1) continue;
+    const id = /** @type {string} */ ([...dishes][0]);
+    out.push({ slot, recipeId: id, name: String(recipeOf(id)?.name ?? id), days });
+  }
+  return out;
 }
 
 /**

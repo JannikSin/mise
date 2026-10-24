@@ -41,7 +41,8 @@ test("mass share: every non-skipped seat gets a fraction, profiles.json order", 
       { id: "b", servings: 1 },
     ],
   });
-  const m = buildServe(t, RECIPE, PROFILES, {});
+  // every profile read and clear: an unread one gets no plate (below)
+  const m = buildServe(t, RECIPE, PROFILES, { a: {}, b: {}, c: {} });
   assert.deepEqual(
     m.rows.map((r) => r.id),
     ["a", "b", "c"],
@@ -143,14 +144,22 @@ test("family synonyms reach the soft tier only", () => {
 
 // Tribunal Realist, 2026-10-16 round 2: this used to degrade to a plain plate
 // line, which is fail-OPEN for an allergy. An unread profile now gets no
-// plating instruction; still loading (undefined) plates as before.
+// plating instruction. Since 10/23 (schelkin) rules still loading
+// (undefined) get none either: a guest outside the sync scope never loads.
 test("unreadable rules fail closed: no plating instruction for an unread profile", () => {
   const t = table({ seats: [{ id: "a", servings: 1 }] });
   const m = buildServe(t, RECIPE, PROFILES, { a: null });
   assert.equal(m.rows[0].kind, "aside");
   assert.equal(m.rows[0].note, "their profile could not be read");
-  const loading = buildServe(t, RECIPE, PROFILES, {});
-  assert.equal(loading.rows[0].kind, "plate");
+});
+
+test("a diner whose allergies could not be read is never plated, loading included", () => {
+  const t = table({ seats: [{ id: "a", servings: 1 }, { id: "b", servings: 1 }] });
+  const loading = buildServe(t, RECIPE, PROFILES, { b: {} });
+  const a = loading.rows.find((r) => r.id === "a");
+  assert.equal(a?.kind, "aside", "no plating instruction while their allergies load");
+  assert.equal(a?.note, "still loading their allergies");
+  assert.equal(loading.rows.find((r) => r.id === "b")?.kind, "plate", "a read, clear diner plates");
 });
 
 test("a seat the plate screen skipped reads as an allergy, never 'save it'", () => {

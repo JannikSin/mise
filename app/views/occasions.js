@@ -294,7 +294,7 @@ export function OccasionsView({
       ${
         draft &&
         html`
-          <h2 class="block-title">${draft.emoji} ${draft.name} — ${summarize(draft)}</h2>
+          <h2 class="block-title">${draft.emoji} ${draft.name}: ${summarize(draft)}</h2>
           <p class="hint">
             ${nameOf(draft.profileId)}. Every day below replaces whatever is planned. Change
             anything you want before you apply it: drop a line, add one from the same shelf.
@@ -396,8 +396,8 @@ export function OccasionsView({
                                   shelf
                                     ? html`Only ${SHELVES.find((s) => s.tag === shelf)?.label} show
                                       here. That is deliberate: this day has rules.`
-                                    : html`Anything in the cookbook. A custom occasion has no rules
-                                      — you are the rule.`
+                                    : html`Anything in the cookbook. A custom occasion has no rules,
+                                     you are the rule.`
                                 }
                               </p>
                             `

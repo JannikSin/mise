@@ -8,6 +8,13 @@ agent runs the full check before commits.
 Derived from MISE_BLUEPRINT.md §5 (local-only, gitignored) (Mealie/Tandoor/KitchenOwl research: structured
 ingredients, staple flags, slot-typed plans, derived shopping list; no stock ledgers).
 
+**Names in this repo:** this code repo is public. The guests and housemates named
+in test fixtures and doc examples (Mara, Rowan and the like) are made up and stand
+in for real people, with made-up numbers and allergies; comments say "a guest" or
+"a housemate" where a health detail is involved. Since 2026-10-24 (Tribunal Red
+Team), no real guest's name or health detail is written here; older commits may
+read differently.
+
 ## Conventions
 
 - **Files are small and per-domain** to minimize write-conflict surface.
@@ -157,12 +164,12 @@ app: a data-token holder can read this file directly.
     { "id": "david", "name": "David", "emoji": "🏋️", "phase": "gain" },
     { "id": "mom", "name": "Mom", "emoji": "🌿", "phase": "loss", "trainingEnabled": false },
     {
-      "id": "laurie",
-      "name": "Laurie",
+      "id": "lena",
+      "name": "Lena",
       "emoji": "🥑",
       "phase": "recomp",
       "trainingEnabled": false,
-      "household": "laurie",
+      "household": "lena",
     },
   ],
 }
@@ -181,7 +188,7 @@ app: a data-token holder can read this file directly.
   deliberately, zero data migration. Groups profiles into one grocery
   trip: the List view's HOUSEHOLD tab merges only profiles that share the
   active profile's household (`app/lib/shopping.js` `householdOthers`, wired
-  in `app/main.js`). A profile alone in its household (e.g. Laurie in her own
+  in `app/main.js`). A profile alone in its household (e.g. Lena in her own
   apartment) sees no HOUSEHOLD tab at all; absent-field profiles keep merging
   exactly as before the field existed. Not asked in the gate questionnaire —
   edited from the SYS App tile ("MOVE HOUSEHOLD", `app\views\system.js`),
@@ -951,6 +958,44 @@ Written by `appendWaste` (`app/lib/waste.js`) at the auto-expiry site in
 }
 ```
 
+## Pantry notes — `households/<h>/pantry-notes.json` (Mise 2.0, I-06)
+
+His words, kept. SAY WHAT YOU HAVE (and the narration of WALK THE FRIDGE) used
+to save the foods and throw the words away (post-mortem 10/18, failure 2).
+Now each ADD from a note appends one entry beside what it saved, and the
+Pantry tab shows the last one ("You said", and "Last note"). Sibling file of
+`pantry.json`, same raw-path pattern as `waste.json`; the 409 keyed-array merge
+keys on `id`. Written by `appendPantryNote` (`app/lib/scan.js`), newest last,
+only the newest 30 kept (`PANTRY_NOTES_KEPT`). A phone that has never saved a
+note simply has no file.
+
+What a note may do (`readPantryNote`): ADD or UPDATE foods. Nothing in it ever
+removes or zeroes a row. "Need more X", "low on X", "running low on X" save X
+as LOW. "Out of X" is only an `outs` suggestion, which changes the pantry only
+when he taps MARK OUT (`markPantryOut`). A piece that is not a known food is in
+`unsure`, never in `saved`.
+
+```jsonc
+{
+  "notes": [
+    {
+      "id": "2026-10-24T00:02:00.000Z|david", // unique per note: the merge key
+      "at": "2026-10-24T00:02:00.000Z", // when ADD was tapped (UTC)
+      "by": "david", // ? profile id of the phone
+      "said": "okay so there is pasta there's rice ...", // his words, exactly as typed or dictated
+      "saved": [
+        // what ADD saved, one per food
+        { "food": "pasta", "state": "plenty" },
+        { "food": "vanilla extract", "state": "low" },
+        { "food": "chicken thighs", "qty": "2 lbs", "location": "fridge" }, // a counted row has no state
+      ],
+      "unsure": ["flat seed", "zorblax"], // words not placed as a food, left out
+      "outs": [{ "name": "milk", "marked": false }], // "out of" suggestions, and whether he tapped MARK OUT
+    },
+  ],
+}
+```
+
 ## Tables (shared meals) — `households/<h>/events.json`
 
 One shared meal = a TABLE (docs/tables-design.md, Tribunal-gated). The file
@@ -1198,8 +1243,8 @@ path, and no brigade-specific behaviour anywhere downstream.
   "brigades": [
     {
       "id": "e5f6a7b8",
-      "name": "Mom + Laurie",
-      "memberIds": ["mom", "laurie"], // 2+, all in THIS house. ORDER MATTERS
+      "name": "Mom + Lena",
+      "memberIds": ["mom", "lena"], // 2+, all in THIS house. ORDER MATTERS
       //   when rotateCooks: the cook cycles through this array; the brigade
       //   form stores it in the picker's display order so the chips read as
       //   the rotation.
@@ -1237,6 +1282,16 @@ path, and no brigade-specific behaviour anywhere downstream.
       //   most-recent-pot rule; Tue + Wed eat the batch). The pot is the
       //   first fed night's table, stamped `preparedOn`; batch-style dishes
       //   only, never fish, never the prep day's own dinner. Absent = none.
+      //   Read only while `sundayBatch` is off, for a cookDay 0 entry.
+      "sundayBatch": false, // ? SUNDAY'S DINNER IS THE BATCH (David
+      //   2026-10-18, Mise 2.0 I-14): Sunday cooks ONE pot and the no-cook
+      //   nights after it (Mon to Thu with Sun Fri Sat cook nights) eat it
+      //   under the batch rules; no second Sunday dish is planned. Absent =
+      //   ON: the app applies the default (tables.js sundayBatchOn) to the
+      //   copy SET MY WEEK plans from and never writes it, so only `false`
+      //   is ever stored (People > EDIT "Sunday dinner is the batch for Mon
+      //   to Thu"). A second Sunday pot already set, cooked or bought for a
+      //   Sunday stays as it is. planBrigadeWeek itself reads only `true`.
       "dinnerMeat": true, // ? EVERY DINNER HAS MEAT (David 2026-09-25: "a
       //   dealbreaker with elliot so cauliflower is not a meal"): the dinner
       //   pool keeps only dishes whose anchor protein (foodclass.js
@@ -1260,7 +1315,10 @@ path, and no brigade-specific behaviour anywhere downstream.
 ```
 
 A materialized table carries two extra fields: `fromBrigade` (the brigade's
-id) and `cookId`. Both are normal stored fields, unlike the derived-only
+id) and `cookId`. `cookId` is the POT's cook (Mise 2.0, I-14): a batch
+(`preparedOn`) names its prep day's cook, and a leftover night names the cook
+of the table it eats from, so every row of one pot names one person on every
+phone; deriveTables reads a leftover night's cook from its pot either way. Both are normal stored fields, unlike the derived-only
 ones above. A no-cook night's table carries a third, `leftoverOf` (see the
 table schema): the id of the cook table whose pot it eats. Its seats size
 THAT pot's buy and cook total; it is never bought or cooked on its own.
@@ -1606,6 +1664,13 @@ verbatim.
       "checked": false,
       "manual": false, // true = David added by hand, survives regeneration
       "fromRecipes": ["chicken-bulgogi-bowl"], // ?
+      "needIt": true, // ? Mise 2.0, I-10: David answered NEED IT on this long-lasting
+      //   basic under CHECK YOU HAVE THESE, so it shops in its aisle and goes to
+      //   the cart. Absent = not answered: a basic the pantry does not list
+      //   (checkFirstIds) stays on the list and in the total but out of the
+      //   cart. Carried across a re-BUILD like `checked`. HAVE IT writes no row
+      //   field: it is the P+ path (ownItemToPantry), so the pantry says PLENTY
+      //   and the next BUILD leaves the basic off.
       "weekQty": 0, // ? HOUSEHOLD-trip narrowed tick (2026-08-09): when a
       //   day-narrowed household tick buys LESS than this row's week total,
       //   qty becomes the bought amount (so the receipt banks the truth) and
@@ -2236,6 +2301,27 @@ presets carry a `disclaimer` the UI shows with an explicit acknowledgement
 before it will apply, and the draft's food is screened against the OCCASION
 OWNER's `diet`/`avoidIngredients`/`avoidRecipes` — not the device owner's,
 whose allergens filtered the picker. A conflict blocks APPLY with no override.
+
+## Device-local Kroger cart records (localStorage, never synced)
+
+These live only in one phone's browser. They are not in the data repo, never
+sync, and a different phone starts with none.
+
+- `mise.kroger.sends`: `{ "<weekId>": <n> }`, how many full sends of that
+  week's list this phone made. It drives the "already sent" re-arm.
+- `mise.kroger.sentUpcs`: `{ "<weekId>": [ { "upc": "...", "quantity": 2, "food": "rice" } ] }`,
+  each product this phone sent, the total quantity sent (summed over sends)
+  and the food it was sent for. The older shapes are still read: a plain UPC
+  string, and `{ upc, quantity }` with no food. A missing quantity means it is
+  unknown and stays unknown on later sends, so a raised quantity is never
+  named for it. The food lets a REFRESH or re-pin, which gives a food a new
+  UPC, hold that food back from SEND N NEW ITEMS ("<food> was already sent as
+  another product. Check your cart.") instead of sending it twice. The 8 newest weeks are kept. A send of only new items skips any
+  product already here; if a re-BUILD wants more than was sent, the extra is
+  named ("N more than you sent. Add it in the <store> app.") and never re-sent.
+
+The kitchen rule's `onReadTargets` contract: a null result for an id means that
+profile is unread, and the check must refuse that person, never pass them.
 
 ## Meta — `meta.json`
 

@@ -81,7 +81,7 @@ test("five wrong tries lock a login for fifteen minutes, then the count starts a
 });
 
 test("a guest sees first names and a whitelisted recipe, nothing else", () => {
-  assert.equal(firstNameOf("David Taranowski"), "David");
+  assert.equal(firstNameOf("David Thornton"), "David");
   assert.equal(findGuestLogin({ logins: [{ nameKey: "sam" }] }, "sam")?.nameKey, "sam");
   assert.equal(findGuestLogin(null, "sam"), null);
   const r = guestRecipe({

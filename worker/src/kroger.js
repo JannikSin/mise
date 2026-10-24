@@ -262,7 +262,7 @@ export async function handleKroger(pathname, body, env, respond) {
         const items = normalizeCartItems(body.items);
         if (items.length === 0) return respond(400, { error: "no valid UPCs to send" });
         const r = await cartAdd(customer, items);
-        if (r.status === 401) return respond(401, { error: "Kroger link expired — link again" });
+        if (r.status === 401) return respond(401, { error: "Kroger link expired, link again" });
         if (!r.ok) return respond(502, { error: `Kroger refused the cart (${r.status})` });
         // ADD-ONLY: no read-back exists, so `sent` is the honest word and the
         // count is what WE sent, never what Kroger confirms it holds.

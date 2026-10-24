@@ -2,7 +2,7 @@
   "name": "Mise",
   "short_name": "Mise",
   "id": "./",
-  "description": "Everything in its place — cookbook, planner, pantry, fitness.",
+  "description": "Everything in its place: cookbook, planner, pantry, fitness.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

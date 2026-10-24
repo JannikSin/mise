@@ -2,7 +2,7 @@ import { html } from "htm/preact";
 import { rotateComponents, rotates, rotationNoun } from "../lib/rotate.js";
 import { localIsoDate } from "../lib/dates.js";
 import { useEffect, useState } from "preact/hooks";
-import { cookPlan, scaleQty } from "../lib/portions.js";
+import { cookFor, cookPlan, scaleQty, COOK_FOR_MAX, COOK_FOR_MIN } from "../lib/portions.js";
 import { formatRecipeQty } from "../lib/shopping.js";
 import { keepAwake } from "../lib/awake.js";
 import { untrustedForAutoPlan } from "../lib/plan.js";
@@ -128,7 +128,7 @@ function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
       ${!mine && html`<button class="primary" onClick=${start}>▶ START${timer != null ? " (replaces the running timer)" : ""}</button>`}
       ${running && html`<button onClick=${pause}>⏸ PAUSE</button>`}
       ${mine && !running && html`<button onClick=${resume}>▶ RESUME</button>`}
-      ${mine && html`<button class="primary" onClick=${end}>■ END — SERVED, MARK COOKED</button>`}
+      ${mine && html`<button class="primary" onClick=${end}>■ END: SERVED, MARK COOKED</button>`}
       ${
         // ONE TAP, VALID AFTER THE FACT (doctrine Article 1: 0 of 228
         // confirmations were ever recorded while the ONLY path was starting
@@ -174,6 +174,9 @@ export function RecipeView({
   const [promoting, setPromoting] = useState(
     /** @type {null | "busy" | "done" | "error"} */ (null),
   );
+  // COOK FOR N (D-03): null follows the plan or the table; a number is the
+  // cook's own choice, and only then do the amounts leave the plan's
+  const [cookN, setCookN] = useState(/** @type {number | null} */ (null));
   const origin = originOf(from);
   // the recipe page holds the screen as well as Cook mode. Reading the steps
   // off THIS page with full hands is exactly when it used to sleep, because
@@ -189,7 +192,7 @@ export function RecipeView({
   useEffect(() => keepAwake(setAwake), []);
   if (!recipe)
     return html`<div class="empty">
-      ${loading ? "loading…" : "recipe not found"} — <a href=${origin.hash}>go back</a>
+      ${loading ? "loading…" : "recipe not found"}, <a href=${origin.hash}>go back</a>
     </div>`;
   const n = recipe.nutrition ?? {};
   // portion-aware: cook exactly what the plan says to eat, not the whole
@@ -222,6 +225,19 @@ export function RecipeView({
       note: basePlan.mode === "batch" ? basePlan.note : "Amounts for tonight's table.",
     };
   })();
+  // COOK FOR N (Mise 2.0, D-03; David, Sun 10/18: he needed the curry for 4
+  // and could not tell how to scale it). Not for a per-bowl dish or a
+  // rotating one: those lists are one portion by design (isPerBowl).
+  const scalable = !rotates(recipe) && plan.mode !== "bowl";
+  const planned = Boolean(servings) || plan !== basePlan;
+  const makes = Math.max(1, Number(recipe.servings) || 1);
+  const baseN = planned ? Math.max(COOK_FOR_MIN, Math.round(plan.cookServings)) : makes;
+  const forN = scalable && cookN !== null ? cookFor(recipe, cookN) : null;
+  const shownN = forN ? forN.portions : baseN;
+  const forLine = scalable ? cookFor(recipe, shownN) : null;
+  const ingredients = forN ? forN.ingredients : plan.ingredients;
+  const step = (/** @type {number} */ by) =>
+    setCookN(Math.min(COOK_FOR_MAX, Math.max(COOK_FOR_MIN, shownN + by)));
   return html`
     <div class="view detail">
       <a class="backlink" href=${origin.hash}>${origin.label}</a>
@@ -236,7 +252,9 @@ export function RecipeView({
           // wrong reading ("am I eating three servings?"). The amounts listed
           // below are already scaled to whoever is cooking, so say WHOSE food
           // this is and let the ingredient list carry the quantity.
-          plan.mode === "bowl"
+          forN
+            ? html`cooking for ${forN.portions}`
+            : plan.mode === "bowl"
             ? html`one portion, yours`
             : plan.mode === "single"
               ? html`your plate`
@@ -330,7 +348,7 @@ export function RecipeView({
               avoidBusy
                 ? "SAVING…"
                 : avoided
-                  ? "ON YOUR NEVER-AGAIN LIST — TAP TO ALLOW IT BACK"
+                  ? "ON YOUR NEVER-AGAIN LIST, TAP TO ALLOW IT BACK"
                   : "NEVER SUGGEST THIS AGAIN"
             }
           </button>
@@ -364,18 +382,19 @@ export function RecipeView({
       </div>
 
       ${
+        !forN &&
         plan.note &&
         html`<div class="tile portion ${plan.mode}" role="note">
           <div class="k">
             ${
               plan.mode === "batch"
-                ? "🍲 batch — save the extra"
+                ? "🍲 batch, save the extra"
                 : plan.mode === "bowl"
-                  ? "🥣 one portion — yours"
+                  ? "🥣 one portion, yours"
                   : plan.mode === "single"
                     ? "🍽️ cooking your portion"
                     : plan.mode === "scaled"
-                      ? "👨‍🍳 family batch — amounts scaled up"
+                      ? "👨‍🍳 family batch, amounts scaled up"
                       : "portion"
             }
           </div>
@@ -399,7 +418,7 @@ export function RecipeView({
         html`<div class="tile serve">
           <div class="serve-title">SERVE</div>
           <p class="hint">
-            this table hasn't synced to this device yet — who-gets-what and the COOKED tap appear
+            this table hasn't synced to this device yet, who-gets-what and the COOKED tap appear
             once it loads (or on the device that set the table up).
           </p>
         </div>`
@@ -439,7 +458,7 @@ export function RecipeView({
               tableCooked
                 ? html`<span class="k">COOKED ✓</span>`
                 : html`<button class="primary" onClick=${() => onCookedTable(tableId)}>
-                    ■ SERVED — MARK THE TABLE COOKED
+                    ■ SERVED: MARK THE TABLE COOKED
                   </button>`
             }
           </div>
@@ -451,7 +470,7 @@ export function RecipeView({
           ${
             recipe.batchPrep.sundayComponent &&
             html`<div>
-              <div class="k">🍲 BATCH PREP — cook this AHEAD, the steps below assume it's done</div>
+              <div class="k">🍲 BATCH PREP: cook this AHEAD, the steps below assume it's done</div>
               <div class="d">${recipe.batchPrep.sundayComponent}</div>
             </div>`
           }
@@ -534,14 +553,62 @@ export function RecipeView({
         })()
       }
       ${
+        forLine &&
+        html`<div class="tile cookfor" role="group" aria-label="Cook for">
+          <div class="cookfor-row">
+            <span class="k">COOK FOR</span>
+            <button
+              class="cookfor-btn"
+              aria-label="One portion fewer"
+              disabled=${shownN <= COOK_FOR_MIN}
+              onClick=${() => step(-1)}
+            >
+              −
+            </button>
+            <span class="cookfor-n num" aria-live="polite"
+              >${!forN && planned && plan.cookServings !== baseN ? "about " : ""}${shownN}</span
+            >
+            <button
+              class="cookfor-btn"
+              aria-label="One portion more"
+              disabled=${shownN >= COOK_FOR_MAX}
+              onClick=${() => step(1)}
+            >
+              +
+            </button>
+            <span class="k">portion${shownN === 1 ? "" : "s"}</span>
+          </div>
+          <p class="hint">
+            ${
+              forN || !planned
+                ? forLine.line
+                : `${forLine.asWritten} The amounts below are what the plan cooks; tap + or − to cook a different number.`
+            }
+          </p>
+          ${
+            forN &&
+            html`<p class="hint">
+              The amounts below are scaled; the steps are written for the recipe as written.
+            </p>`
+          }
+          ${
+            forN &&
+            planned &&
+            html`<div class="actions">
+              <button class="secondary" onClick=${() => setCookN(null)}>BACK TO THE PLAN'S AMOUNTS</button>
+            </div>`
+          }
+        </div>`
+      }
+      ${
         !rotates(recipe) &&
         html`<h2 class="block-title">Ingredients</h2>
           <div>
-            ${plan.ingredients.map(
+            ${ingredients.map(
               (/** @type {Record<string, any>} */ i) => html`
                 <div class="ing ${i.staple ? "staple" : ""}">
                   <span>
-                    ${i.food}${i.note ? html` <span class="note">— ${i.note}</span>` : ""}
+                    ${i.food}${i.note ? html` <span class="note">(${i.note})</span>` : ""}
                     ${i.staple ? html` <span class="pantry-mark">pantry</span>` : ""}
                   </span>
                   <span class="q">${formatRecipeQty(i.qty, i.unit)}</span>

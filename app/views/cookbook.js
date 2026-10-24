@@ -77,7 +77,7 @@ export function CookbookView({ recipes, hasToken, weekId, onPlan }) {
               recipes.length === 0
                 ? hasToken
                   ? "loading recipes…"
-                  : "no recipes yet — connect your token in Settings"
+                  : "no recipes yet, connect your token in Settings"
                 : "nothing matches those filters"
             }
           </div>`

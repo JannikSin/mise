@@ -14,7 +14,7 @@ const table = (over = {}) => ({
   recipeId: "chili",
   seats: [
     { id: "david", servings: 1 },
-    { id: "elliot", servings: 0.75 },
+    { id: "rowan", servings: 0.75 },
   ],
 
   tailor: { seats: {}, cook: [] },
@@ -32,7 +32,7 @@ const curry = {
 };
 const targets = new Map([
   ["david", { diet: "omnivore", avoidIngredients: [] }],
-  ["elliot", { diet: "omnivore", avoidIngredients: ["peanut"] }],
+  ["rowan", { diet: "omnivore", avoidIngredients: ["peanut"] }],
 ]);
 const name = (/** @type {string} */ id) => id;
 
@@ -47,11 +47,11 @@ test("a linked recipe goes on the shared dinner only when everyone at the table 
 
   const no = useRecipeOnTable({ tables: [table()] }, table().id, satay, targets, name);
   assert.ok("refused" in no);
-  assert.match(no.refused.join(" "), /elliot/, "says who it is unsafe for");
+  assert.match(no.refused.join(" "), /rowan/, "says who it is unsafe for");
 });
 
 test("an unreadable profile refuses (fail closed), a cooked dinner is never swapped, a missing one says so", () => {
-  const blind = new Map([...targets, ["elliot", null]]);
+  const blind = new Map([...targets, ["rowan", null]]);
   assert.ok("refused" in useRecipeOnTable({ tables: [table()] }, table().id, curry, blind, name));
   assert.ok(
     "refused" in
@@ -64,22 +64,22 @@ test("a seat skipped at that dinner is not screened against the dish", () => {
   const skipped = table({
     seats: [
       { id: "david", servings: 1 },
-      { id: "elliot", servings: 0.75, status: "skipped" },
+      { id: "rowan", servings: 0.75, status: "skipped" },
     ],
   });
   assert.ok("events" in useRecipeOnTable({ tables: [skipped] }, skipped.id, satay, targets, name));
 });
 
 test("Tribunal v1.7b: the leftover nights that eat the pot are screened and rewritten with it", () => {
-  const cook = table({ seats: [{ id: "david", servings: 1 }, { id: "elliot", servings: 0.75, status: "skipped" }] });
+  const cook = table({ seats: [{ id: "david", servings: 1 }, { id: "rowan", servings: 0.75, status: "skipped" }] });
   const left = table({
     id: "b-k-2026-10-22-dinner",
     date: "2026-10-22",
     leftoverOf: cook.id,
-    seats: [{ id: "david", servings: 1 }, { id: "elliot", servings: 0.75 }],
+    seats: [{ id: "david", servings: 1 }, { id: "rowan", servings: 0.75 }],
   });
   const peanut = useRecipeOnTable({ tables: [cook, left] }, cook.id, satay, targets, name);
-  assert.ok("refused" in peanut, "elliot eats the pot on the leftover night, so a peanut pot is refused");
+  assert.ok("refused" in peanut, "rowan eats the pot on the leftover night, so a peanut pot is refused");
   const ok = useRecipeOnTable({ tables: [cook, left] }, cook.id, curry, targets, name);
   assert.ok(!("refused" in ok));
   const out = /** @type {any} */ (ok).events.tables;

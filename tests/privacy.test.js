@@ -17,8 +17,8 @@ import {
 const PROFILES = [
   { id: "david", name: "David", household: "wayne", admin: true },
   { id: "elliot", name: "Elliot", household: "wayne" },
-  { id: "mom", name: "Mom", household: "taranowski" },
-  { id: "dad", name: "Dad", household: "taranowski" },
+  { id: "mom", name: "Mom", household: "thornton" },
+  { id: "dad", name: "Dad", household: "thornton" },
   { id: "priya", name: "Priya", household: "guesthouse" },
   { id: "sam", name: "Sam", household: "guesthouse" },
 ];
@@ -31,7 +31,7 @@ const EVENTS = [
     },
   },
   {
-    house: "taranowski",
+    house: "thornton",
     events: {
       brigades: [{ id: "fam" }],
       tables: [
@@ -56,7 +56,7 @@ test("the admin sees everyone; before any admin is marked, nothing is hidden", (
 
 test("another house's events show only the tables you are seated at, and none of its rules", () => {
   const seen = visibleHouseEventsFor(EVENTS, PROFILES, "elliot");
-  const fam = seen.find((h) => h.house === "taranowski");
+  const fam = seen.find((h) => h.house === "thornton");
   assert.deepEqual(fam?.events.tables.map((t) => t.id), ["t3"]);
   assert.deepEqual(fam?.events.brigades, [], "an allow-list: nothing but your tables");
   assert.deepEqual(Object.keys(fam?.events ?? {}).sort(), ["brigades", "tables"]);
@@ -94,16 +94,16 @@ test("Red Team 2026-10-18: Elliot's phone cannot type its way into Mom, nor add 
   assert.equal(await maySwitchTo(mom, "2468", false, where), true, "the admin's passkey opens it");
   assert.equal(await maySwitchTo(withKey[1], "", false, where), true, "own house: no passkey");
   assert.deepEqual(profilesNamed(withKey, "david"), [], "the admin row is never found by name");
-  assert.equal(allowedNewHouse(withKey, "wayne", false, "taranowski"), "wayne", "a new profile joins the device's house");
-  assert.equal(allowedNewHouse(withKey, null, false, "taranowski"), "home");
-  assert.equal(allowedNewHouse(withKey, "wayne", true, "taranowski"), "taranowski", "the admin's device chooses");
+  assert.equal(allowedNewHouse(withKey, "wayne", false, "thornton"), "wayne", "a new profile joins the device's house");
+  assert.equal(allowedNewHouse(withKey, null, false, "thornton"), "home");
+  assert.equal(allowedNewHouse(withKey, "wayne", true, "thornton"), "thornton", "the admin's device chooses");
   const occ = [{ profileId: "mom" }, { profileId: "elliot" }, { profileId: "priya" }];
   const vis = visibleProfilesFor(withKey, "elliot", EVENTS, TODAY);
   assert.deepEqual(visibleOccasionsFor(occ, vis).map((o) => o.profileId), ["elliot", "priya"]);
 });
 
 test("Realist 2026-10-18: someone seated at your own table is visible, the admin included", () => {
-  const ev = [{ house: "taranowski", events: { tables: [{ id: "x", date: "2026-10-19", seats: [{ id: "mom" }, { id: "david" }] }] } }];
+  const ev = [{ house: "thornton", events: { tables: [{ id: "x", date: "2026-10-19", seats: [{ id: "mom" }, { id: "david" }] }] } }];
   assert.ok(visibleProfilesFor(PROFILES, "mom", ev, TODAY).some((p) => p.id === "david"));
 });
 
@@ -112,11 +112,11 @@ test("Tribunal loop 2: a household typed into the CHAT still lands in the device
   const profiles = [
     { id: "david", household: "wayne", admin: true },
     { id: "elliot", household: "wayne" },
-    { id: "mom", household: "taranowski" },
+    { id: "mom", household: "thornton" },
   ];
-  assert.equal(allowedNewHouse(profiles, "wayne", false, "taranowski"), "wayne");
-  assert.equal(allowedNewHouse(profiles, null, false, "taranowski"), "home");
-  assert.equal(allowedNewHouse(profiles, "wayne", true, "taranowski"), "taranowski", "the admin device may place anywhere");
+  assert.equal(allowedNewHouse(profiles, "wayne", false, "thornton"), "wayne");
+  assert.equal(allowedNewHouse(profiles, null, false, "thornton"), "home");
+  assert.equal(allowedNewHouse(profiles, "wayne", true, "thornton"), "thornton", "the admin device may place anywhere");
 });
 
 test("v1.9: everyone may have a passkey, and a profile with one opens only with it (David, 2026-10-18)", async () => {

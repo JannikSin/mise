@@ -303,7 +303,7 @@ export function ProfileGateView({
     const algs = Array.isArray(t.allergens) ? t.allergens : [];
     setAllergens(algs);
     // avoid terms the allergens do not already imply ride in the free text,
-    // so a re-save keeps them (Elliot's "tempeh, pesto")
+    // so a re-save keeps them (a housemate's typed "tempeh, pesto")
     const implied = new Set(avoidTermsFromAllergens(algs, ""));
     setAllergensFreeText(
       (Array.isArray(t.avoidIngredients) ? t.avoidIngredients : [])
@@ -910,7 +910,7 @@ export function ProfileGateView({
               value=${dislikes}
               onInput=${(/** @type {any} */ e) => setDislikes(e.currentTarget.value)}
             />
-            <p class="hint">softer than an allergy — these lose ties, never vanish entirely.</p>
+            <p class="hint">softer than an allergy, these lose ties, never vanish entirely.</p>
 
             <h2 class="block-title">cuisines (tap = love, tap again = avoid)</h2>
             <div class="chips wrapchips" role="group" aria-label="Cuisine preferences">
@@ -1118,7 +1118,7 @@ export function ProfileGateView({
               ? "Welcome to Mise. This is a guest link: make your profile once, here on your own phone, and every plate is sized for you and checked against your allergies."
               : "You've been invited to join a shared kitchen. Fill this in once, on your own phone."
             : guest
-              ? "guest profile — fill this in and the table sets your plate to your own numbers"
+              ? "guest profile, fill this in and the table sets your plate to your own numbers"
                 : "who's checking in?"
           }
         </div>

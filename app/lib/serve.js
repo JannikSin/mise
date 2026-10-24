@@ -121,14 +121,16 @@ export function buildServe(t, recipe, profilesOrder, rulesBySeat, synth) {
       continue;
     }
     // fails closed (Tribunal Realist, round 2): a profile that was read and
-    // came back empty (null) is an unread allergy, so no plating instruction;
-    // undefined only means the rules are still loading
+    // came back empty (null) is an unread allergy, so no plating instruction.
+    // Rules still loading (undefined) are not read yet either, so they get
+    // no plating instruction until they are (schelkin, 10/23: this used to
+    // plate them, and a guest outside the sync scope never stops loading)
     const hard =
       rules === null
         ? ["their profile could not be read"]
         : rules
           ? recipeConflicts(recipe, rules.diet, rules.avoidIngredients, rules.avoidRecipes)
-          : [];
+          : ["still loading their allergies"];
     if (hard.length > 0) {
       // never hand the cook an instruction to plate this seat (spec §5.5):
       // their food is still in the pan (they count in the denominator), so

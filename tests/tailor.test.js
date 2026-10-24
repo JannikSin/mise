@@ -10,7 +10,7 @@ const load = (id) => JSON.parse(readFileSync(new URL(`${id}.json`, BANK), "utf8"
 
 const SEATS = [
   { id: "david", servings: 0.75 },
-  { id: "elliot", servings: 0.75 },
+  { id: "rowan", servings: 0.75 },
   { id: "guest", servings: 1, status: "skipped" },
 ];
 
@@ -19,7 +19,7 @@ test("THE LIVE BOWL is tailored by arithmetic: each seat gets its own portion of
   const out = bowlTailor(bowl, SEATS, "2026-09-07");
   assert.deepEqual(
     Object.keys(out.seats).sort(),
-    ["david", "elliot"],
+    ["david", "rowan"],
     "skipped seats get no plate",
   );
   const d = out.seats.david;
@@ -99,7 +99,7 @@ test("screenTailorToDish drops powders, supplements and foods the pot does not h
           estCalories: 800,
           estProtein: 48,
         },
-        elliot: {
+        rowan: {
           portionGrams: 410,
           plate: ["Stir in 1 scoop whey", "Add 2 tbsp collagen peptides"],
           estCalories: 620,
@@ -126,7 +126,7 @@ test("screenTailorToDish drops powders, supplements and foods the pot does not h
     "Drizzle 1 tsp olive oil",
   ]);
   assert.equal(
-    out.seats.elliot,
+    out.seats.rowan,
     undefined,
     "a seat left with nothing is dropped, like the avoid screen",
   );

@@ -23,6 +23,7 @@ import {
   pruneTables,
   validBrigade,
   brigadeCovers,
+  plateRefusal,
 } from "./tables.js";
 import { buffetMacroEstimate, recipeConflicts, weekRunSwipes } from "./plan.js";
 import { recipeProteinClass } from "./foodclass.js";
@@ -774,8 +775,14 @@ export function planBrigadeWeek(events, brigade, ctx) {
       const kept = pool.filter((r) => keep.has(String(r.id)));
       if (kept.length > 0) {
         if (kept.length < keep.size) {
+          // one dish left is that dish EVERY DAY, said in those words (2.0,
+          // I-08; post-mortem 5: "1 is in rotation" hid a week of the same
+          // cocoa balls)
+          const only = kept.length === 1 ? kept[0] : undefined;
           notes.push(
-            `${slot}: ${keep.size - kept.length} of the ${keep.size} named recipes fail a member's screen or the auto-plan fence, so ${kept.length} ${kept.length === 1 ? "is" : "are"} in rotation`,
+            only
+              ? `${slot}: ${keep.size - 1} of the ${keep.size} named recipes fail${keep.size - 1 === 1 ? "s" : ""} someone's screen, so ${slot} is ${String(only.name ?? only.id)} every day. Add another in the kitchen rule to vary it`
+              : `${slot}: ${keep.size - kept.length} of the ${keep.size} named recipes fail a member's screen or the auto-plan fence, so ${kept.length} are in rotation`,
           );
         }
         pool = kept;
@@ -879,11 +886,35 @@ export function planBrigadeWeek(events, brigade, ctx) {
   const preparedOnMap = new Map();
   /** @type {Set<string>} */
   const batchNights = new Set();
+  // SUNDAY'S DINNER IS THE BATCH (David, 2026-10-18: "Sunday dinner is always
+  // the batch"; 2.0, I-14). With `sundayBatch` on, Sunday cooks ONE pot: no
+  // second Sunday dish is planned, and the no-cook nights after it eat
+  // Sunday's dinner by the most-recent-pot rule below, so with Sun Fri Sat
+  // cook nights the Sunday pot feeds Mon to Thu and gets the batch rules
+  // (keeps, reheats, never fish). The live rule said `batches: Sun for Mon to
+  // Thu` and Sunday was two dinners (P3a). A second pot ALREADY SET for a
+  // Sunday (kept by SET MY WEEK, cooked, or bought) stays exactly as it is.
+  // planBrigadeWeek reads only `true`; the app applies the default ON
+  // (sundayBatchOn) before it plans, so every rule here plans as written.
+  const sundayIsBatch =
+    /** @type {any} */ (brigade).sundayBatch === true && Boolean(cookDaySet?.has(0));
   if (liveSlots.some((s) => LEFTOVER_SLOTS.has(s)) && cookDaySet) {
-    const batches = (Array.isArray(brigade.batches) ? brigade.batches : []).filter(
+    const saved = (Array.isArray(brigade.batches) ? brigade.batches : []).filter(
       (b) =>
         b && Number.isInteger(Number(b.cookDay)) && Array.isArray(b.feeds) && b.feeds.length > 0,
     );
+    // a rule made after 1.95 with the setting ON saves no `batches`, so on
+    // Sunday night with Sunday unset nothing stood in for the Sunday pot and
+    // Mon to Thu came back uncovered (Tribunal Final Gate 1.95, loop 2). The
+    // planner reads an implicit Sunday batch for the nights after Sunday up
+    // to the next cook night, on this copy only, never written to his rule.
+    /** @type {number[]} */
+    const afterSunday = [];
+    for (let w = 1; w <= 6 && !cookDaySet.has(w); w++) afterSunday.push(w);
+    const batches =
+      saved.length === 0 && sundayIsBatch && afterSunday.length > 0
+        ? [{ cookDay: 0, feeds: afterSunday }]
+        : saved;
     for (const b of batches) {
       const feeds = new Set(b.feeds.map(Number));
       /** @type {Map<string, string[]>} prep date -> the fed dates in this run */
@@ -899,6 +930,27 @@ export function planBrigadeWeek(events, brigade, ctx) {
       for (const [prep, fed] of groups) {
         const head = /** @type {string} */ (fed[0]);
         const ex = byId.get(brigadeTableId(brigade.id, head, "dinner"));
+        // a Sunday OUTSIDE the run (SET MY WEEK after the 7:30 pm cutoff
+        // plans from Monday) with no dinner set for it has no pot for Mon to
+        // Thu to eat, so the old batch head stands in: Monday's dish, prepped
+        // Sunday (Tribunal Final Gate 1.95: Mon to Thu came back empty)
+        const sundayPotMissing =
+          prep < (dates[0] ?? ctx.today) &&
+          !byId.has(brigadeTableId(brigade.id, prep, "dinner"));
+        if (
+          sundayIsBatch &&
+          Number(b.cookDay) === 0 &&
+          !sundayPotMissing &&
+          !(
+            ex &&
+            /** @type {any} */ (ex).preparedOn === prep &&
+            (Boolean(/** @type {any} */ (ex).cookedAt) ||
+              Boolean(/** @type {any} */ (ex).pinned) ||
+              (Boolean(ctx.keepSet) && !ctx.regenerate) ||
+              Boolean(ctx.bought?.(ex)))
+          )
+        )
+          continue;
         const real =
           // the CALENDAR day, not the planning day: after the 7:30 pm cutoff
           // planning starts tomorrow, but a batch prepped tonight is still
@@ -919,6 +971,24 @@ export function planBrigadeWeek(events, brigade, ctx) {
   }
   if (liveSlots.some((s) => LEFTOVER_SLOTS.has(s)) && cookDaySet) {
     const cookNights = dates.filter(isCookDay);
+    // a cook night's dinner set BEFORE the run is a pot too, when it is
+    // tonight's (the calendar day) or was cooked or bought. PICK DIFFERENT
+    // MEALS on Sunday night plans from Monday and drops each night's old
+    // leftover link, so Sunday's set pot was missing from "newest pot first"
+    // and Mon to Thu came back as four cooked dinners (Tribunal Final Gate
+    // 1.95, loop 2). A past pot never feeds a night past a later cook night:
+    // that pot was sized for the nights before it and is gone (loop 3).
+    const runStart = dates[0] ?? ctx.today;
+    const pastPots = [...(cookedBySlot.dinner ?? new Map()).keys()].filter((c) => {
+      if (c >= runStart || !isCookDay(c)) return false;
+      const t = byId.get(brigadeTableId(brigade.id, c, "dinner"));
+      return (
+        Boolean(t) &&
+        (c >= (ctx.calendarToday ?? ctx.today) ||
+          Boolean(/** @type {any} */ (t).cookedAt) ||
+          Boolean(t && ctx.bought?.(t)))
+      );
+    });
     for (const d of dates) {
       if (isCookDay(d) || batchNights.has(d)) continue;
       const ex = byId.get(brigadeTableId(brigade.id, d, "dinner"));
@@ -929,7 +999,9 @@ export function planBrigadeWeek(events, brigade, ctx) {
       // 2026-09-24, a week whose shopping never happened)
       const potReal =
         exSrc &&
-        (exSrc.date >= ctx.today ||
+        // the CALENDAR day, as for the batch above: on Sunday night the
+        // planning day is Monday, but tonight's pot is still being cooked
+        (exSrc.date >= (ctx.calendarToday ?? ctx.today) ||
           Boolean(/** @type {any} */ (exSrc).cookedAt) ||
           !ctx.bought ||
           ctx.bought(exSrc));
@@ -944,7 +1016,11 @@ export function planBrigadeWeek(events, brigade, ctx) {
         leftoverPlan.set(d, exSrc.date); // an already-cooked pot this night was planned on
         continue;
       }
-      const cands = cookNights.filter(
+      const cookBetween = (/** @type {string} */ c) => {
+        for (let i = 1; shiftDate(c, i) < d; i++) if (isCookDay(shiftDate(c, i))) return true;
+        return false;
+      };
+      const cands = [...cookNights, ...pastPots.filter((c) => !cookBetween(c))].filter(
         (c) => c < d && dayOffset(d) - dayOffset(c) <= MAX_LEFTOVER_DAYS,
       );
       if (cands.length === 0) {
@@ -1066,10 +1142,8 @@ export function planBrigadeWeek(events, brigade, ctx) {
     let changed = false;
     for (const r of rows) {
       if (r.status === "skipped" && !r.auto) continue;
-      const tg = ctx.targetsById.get(r.id);
-      const no = tg
-        ? recipeConflicts(meal, tg.diet, tg.avoidIngredients, tg.avoidRecipes)
-        : ["their profile could not be read"];
+      // the ONE plate screen (tables.js), shared with the kitchen rule's picks
+      const no = plateRefusal(meal, ctx.targetsById.get(r.id));
       if (no.length === 0) {
         if (r.blocked) {
           delete r.blocked;
@@ -1224,13 +1298,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
             .filter((/** @type {any} */ st) => st.status !== "skipped")
             .map((/** @type {any} */ st) => String(st.id)),
         ]);
-        return [...ids].every((id) => {
-          const tg = ctx.targetsById.get(id);
-          return (
-            tg != null &&
-            recipeConflicts(dish, tg.diet, tg.avoidIngredients, tg.avoidRecipes).length === 0
-          );
-        });
+        return [...ids].every((id) => plateRefusal(dish, ctx.targetsById.get(id)).length === 0);
       };
       if (
         !ctx.regenerate &&
@@ -2041,9 +2109,27 @@ export function planBrigadeWeek(events, brigade, ctx) {
         });
       }
       plateScreen(seatRows, meal, date, slot);
+      // WHO COOKS THIS POT, one answer on every row it touches (2.0, I-14;
+      // P3d: the Sunday card said Elliot cooks "plus the batch", Monday's
+      // batch named David, and the leftover nights named whoever's turn the
+      // eating night was, so each phone told its owner "you cooked it"). A
+      // batch is cooked on its PREP day, so that day's cook owns it (Tribunal
+      // loop 2, 2026-10-18); a leftover night cooks nothing, so it names the
+      // cook of the pot it eats. The keep test below compares against this
+      // same answer: comparing against the eating night's turn kept a wrong
+      // cook forever.
+      const potCook = wantLeftoverOf ? byId.get(wantLeftoverOf)?.cookId : undefined;
+      const cookNow =
+        typeof potCook === "string" && memberIdSet.has(potCook)
+          ? potCook
+          : cookFor(
+              LEFTOVER_SLOTS.has(slot) && preparedOnMap.has(date)
+                ? /** @type {string} */ (preparedOnMap.get(date))
+                : date,
+            );
       if (
         keepIfSame &&
-        existing?.cookId === cookFor(date) &&
+        existing?.cookId === cookNow &&
         (existing?.seats ?? []).length === seatRows.length &&
         seatRows.every((r) => {
           const old = (existing?.seats ?? []).find((x) => x.id === r.id);
@@ -2063,14 +2149,9 @@ export function planBrigadeWeek(events, brigade, ctx) {
         slot,
         recipeId: meal.id,
         seats: seatRows,
-        // a batch is cooked on its PREP day, so that day's cook owns it, not
-        // the cook whose turn the eating night is (Tribunal loop 2, 2026-10-18:
-        // Sunday's chili was credited to Monday's cook)
-        cookId: cookFor(
-          LEFTOVER_SLOTS.has(slot) && preparedOnMap.has(date)
-            ? /** @type {string} */ (preparedOnMap.get(date))
-            : date,
-        ),
+        // the pot's cook (above): a batch's prep-day cook, a leftover
+        // night's pot cook, else the night's own turn
+        cookId: cookNow,
         // a no-cook night names the pot it eats from; its seats size that
         // pot's buy and nothing is bought or cooked twice
         ...(wantLeftoverOf ? { leftoverOf: wantLeftoverOf } : {}),

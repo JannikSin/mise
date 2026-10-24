@@ -97,7 +97,7 @@ const SEED = () => ({
     "invites.json": { invites: [invite()] },
     "profiles.json": {
       profiles: [
-        { id: "david", name: "David Taranowski", household: "wayne" },
+        { id: "david", name: "David Thornton", household: "wayne" },
         { id: "sam", name: "Sam Rivera", household: "guesthouse" },
       ],
     },
@@ -161,7 +161,7 @@ test("sign up stores the login with the host house and returns a session; the gu
     assert.equal(view.rows[0].cook, "your host", "never a housemate's name on a guest page (audit 2026-10-18)");
     assert.equal(view.rows[0].dish, "Coconut Curry");
     assert.deepEqual(view.recipes["coconut-curry"].steps, ["Sear the chicken."]);
-    for (const leak of ["Sam", "Rivera", "Taranowski", "wayne", "secret-dish", "audited", "nobody"]) {
+    for (const leak of ["Sam", "Rivera", "Thornton", "wayne", "secret-dish", "audited", "nobody"]) {
       assert.ok(!text.includes(leak), `no ${leak} in a guest's view`);
     }
   });

@@ -205,7 +205,7 @@ export function OnboardView({ survey = {}, hasToken }) {
         const { profiles } = await readProfiles();
         const made = await finalizeProfile(r.profile, profiles);
         if (!made) {
-          setError("that name is already taken by another profile — try a different one");
+          setError("that name is already taken by another profile, try a different one");
           setSaving(false);
           setBusy(false);
           return;
@@ -220,7 +220,7 @@ export function OnboardView({ survey = {}, hasToken }) {
               ? `All set, ${r.profile.name}. Your profile is saved and synced. Opening your Mise…`
               : `Saved on THIS DEVICE, ${r.profile.name}, but it has not reached the shared data repo yet` +
                 `${made.syncError ? ` (${made.syncError})` : ""}. ` +
-                `Nothing is lost and it will sync itself once that is fixed — but do NOT reinstall the app ` +
+                `Nothing is lost and it will sync itself once that is fixed, but do NOT reinstall the app ` +
                 `or change the data repo until it has, because this is the only copy. Opening your Mise…`,
           },
         ]);
@@ -249,7 +249,7 @@ export function OnboardView({ survey = {}, hasToken }) {
       ${
         !hasToken &&
         html`<div class="empty">
-          the chat setup needs the app's AI key — for now use
+          the chat setup needs the app's AI key, for now use
           <a href="#/">the survey on the profile screen</a>.
         </div>`
       }
@@ -277,7 +277,7 @@ export function OnboardView({ survey = {}, hasToken }) {
             </button>
           </div>
           <p class="hint">
-            answers you gave on the survey are already known — this just fills the gaps.
+            answers you gave on the survey are already known, this just fills the gaps.
           </p>
         `
       }

@@ -55,11 +55,11 @@ export function MenuView({ profiles, me, hasToken, repo, onDinerFacts }) {
       setScanned(diners);
       setScan(
         report.diners.length === 0
-          ? { error: "could not read the menu — try a flatter, brighter shot" }
+          ? { error: "could not read the menu, try a flatter, brighter shot" }
           : { report },
       );
     } catch (err) {
-      setScan({ error: err instanceof Error ? err.message : "scan failed — try again" });
+      setScan({ error: err instanceof Error ? err.message : "scan failed, try again" });
     }
   };
 
@@ -114,7 +114,7 @@ export function MenuView({ profiles, me, hasToken, repo, onDinerFacts }) {
       ${
         tokenBlocked &&
         html`<p class="hint">
-          ${tokenBroken(repo?.auth) ? "token needs fixing — Settings" : "connect token in Settings first"}
+          ${tokenBroken(repo?.auth) ? "token needs fixing, Settings" : "connect token in Settings first"}
         </p>`
       }
       ${scanErr && html`<p class="hint scanerr" role="status">${scanErr}</p>`}
@@ -124,7 +124,7 @@ export function MenuView({ profiles, me, hasToken, repo, onDinerFacts }) {
           ${screenMenuReport(/** @type {any} */ (report), /** @type {any} */ (scanned)).map(
             (d) => html`
               <div class="tile" key=${d.name}>
-                <div class="k">${d.name} — order</div>
+                <div class="k">${d.name}: order</div>
                 ${d.flagged.map(
                   (/** @type {any} */ f) => html`
                     <div class="d scanerr" key=${f.pick.item} role="alert">
@@ -178,7 +178,7 @@ export function MenuView({ profiles, me, hasToken, repo, onDinerFacts }) {
               ${report.notes.map((n) => html`<div class="d" key=${n}>${n}</div>`)}
             </div>`
           }
-          <p class="hint">estimates, not gospel — restaurant portions vary.</p>
+          <p class="hint">estimates, not gospel, restaurant portions vary.</p>
         </div>`
       }
     </div>

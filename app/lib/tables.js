@@ -4,7 +4,7 @@
 // cross-profile writes, ever. Cancel/edit = one file edit, propagates on
 // the next sync tick. Derived entries are NEVER persisted into a plan file
 // (main.js strips `e.table` before every plan write).
-import { autoPlanEligible, recipeConflicts, SLOT_KEYS } from "./plan.js";
+import { autoPlanEligible, recipeConflicts, SLOT_KEYS, SLOT_META } from "./plan.js";
 import { parsePot, solveSeat } from "./synth.js";
 
 /**
@@ -12,7 +12,7 @@ import { parsePot, solveSeat } from "./synth.js";
  * @typedef {{ portionGrams?: number, plate: string[], estCalories: number, estProtein: number }} TailorSeat scale-first: portionGrams = weighed grams of the finished dish on this plate (absent/0 on pre-scale tailors)
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
  * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, buyerFrom?: "rule", fromBrigade?: string, fromWeekRun?: boolean, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string, leftoverOf?: string, preparedOn?: string }} TableEvent `buyerFrom: "rule"` marks a buyer filled from a take-turns rule's shopper (it follows the rule; a hand claim carries no marker). `fromWeekRun` is LEGACY: written only by the retired AI week run; read solely by planBrigadeWeek's shadow sweep, which clears such tables from a brigade's span. `leftoverOf` names the COOK table this meal is eaten from (a no-cook night, David 2026-09-05): its seats size the pot, it is never bought or cooked on its own. `preparedOn` (2026-09-24) marks a BATCH pot: this night's dish is cooked on that earlier date (the Sunday batch) and its later nights eat it as leftovers; its safe window runs from that date.
- * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]>, batches?: { cookDay: number, feeds: number[] }[], dinnerMeat?: boolean, open?: boolean, breaks?: string, sundayMinutes?: number }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool. `batches` (David, 2026-09-24) = a second pot cooked on `cookDay` and eaten on the weekdays in `feeds` (the Sunday batch for Tue + Wed); absent = no batch. `dinnerMeat` (David, 2026-09-25) = every dinner the brigade plans is anchored on chicken, turkey, beef or pork; absent = any protein. `open` (David, 2026-10-18) = no end date: the 28-day record rolls forward (rolledRule). `breaks` = a SCHOOL_BREAKS key; the rule plans nothing on those dates. `sundayMinutes` (David, 2026-10-18) = his rough limit on Sunday cooking, shown against the estimate, never enforced.
+ * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]>, batches?: { cookDay: number, feeds: number[] }[], dinnerMeat?: boolean, open?: boolean, breaks?: string, sundayMinutes?: number, sundayBatch?: boolean }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool. `batches` (David, 2026-09-24) = a second pot cooked on `cookDay` and eaten on the weekdays in `feeds` (the Sunday batch for Tue + Wed); absent = no batch. `dinnerMeat` (David, 2026-09-25) = every dinner the brigade plans is anchored on chicken, turkey, beef or pork; absent = any protein. `open` (David, 2026-10-18) = no end date: the 28-day record rolls forward (rolledRule). `breaks` = a SCHOOL_BREAKS key; the rule plans nothing on those dates. `sundayMinutes` (David, 2026-10-18) = his rough limit on Sunday cooking, shown against the estimate, never enforced. `sundayBatch` (2.0, I-14) = Sunday's dinner is the batch for Mon to Thu: Sunday cooks one pot and no second dish; absent = ON, applied by the app through sundayBatchOn before it plans (planBrigadeWeek reads only `true`), false = off.
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
 
@@ -267,6 +267,7 @@ export function validBrigade(b) {
     }
   }
   if (b.dinnerMeat !== undefined && typeof b.dinnerMeat !== "boolean") return false;
+  if (b.sundayBatch !== undefined && typeof b.sundayBatch !== "boolean") return false;
   if (b.slotRecipes !== undefined) {
     if (!isPlainObject(b.slotRecipes)) return false;
     for (const [slot, ids] of Object.entries(b.slotRecipes)) {
@@ -701,11 +702,21 @@ export function deriveTables(houses, ctx) {
               x.id !== t.id,
           );
           const dish = alongside ? ctx.bankById?.get(alongside.recipeId) : undefined;
+          // the batch's OWN cook travels with it, so this row never credits
+          // the batch to tonight's cook when someone else makes it (P3d)
+          const batchCook =
+            alongside && ctx.profilesById ? cookOf(alongside, house, ctx.profilesById) : null;
           return alongside
             ? {
                 batchAlongside: {
                   name: String(dish?.name ?? alongside.recipeId),
                   date: alongside.date,
+                  ...(batchCook
+                    ? {
+                        cookId: batchCook.id,
+                        cookName: ctx.profilesById?.get(batchCook.id)?.name ?? batchCook.id,
+                      }
+                    : {}),
                 },
               }
             : {};
@@ -716,12 +727,22 @@ export function deriveTables(houses, ctx) {
         // WHO cooks tonight, resolved to a display name here so no view needs
         // the profiles list (Tribunal U1: with rotating cooks nobody could
         // see whose turn it was). Derived-only, stripped like the rest.
-        ...(cook
-          ? {
-              cookId: cook.id,
-              cookName: ctx.profilesById?.get(cook.id)?.name ?? cook.id,
-            }
-          : {}),
+        // A LEFTOVER NIGHT NAMES THE POT'S COOK (2.0, I-14; P3d): it cooks
+        // nothing, so it reads the cook of the table it eats from, the same
+        // answer on every phone. Tables written before the fix carried the
+        // eating night's turn, and David's phone said "you cooked it" on a
+        // pot Elliot made.
+        ...(() => {
+          const src = isLeftover ? tableById.get(String(t.leftoverOf)) : undefined;
+          const potCook = src && ctx.profilesById ? cookOf(src, house, ctx.profilesById) : null;
+          const shown = potCook ?? cook;
+          return shown
+            ? {
+                cookId: shown.id,
+                cookName: ctx.profilesById?.get(shown.id)?.name ?? shown.id,
+              }
+            : {};
+        })(),
         freeText: `🍽 ${t.name || recipe.name}`,
         servings,
         pinned: true,
@@ -1307,6 +1328,131 @@ export function useRecipeOnTable(events, tableId, recipe, targetsById, nameOf) {
   };
 }
 
+/** what the plate screen says when a person's targets could not be read */
+export const PROFILE_UNREAD = "their profile could not be read";
+
+/**
+ * THE PLATE SCREEN, one predicate (Tribunal Red Team 2026-10-16; 2.0, I-08).
+ * Why one person cannot eat one dish: their diet, their avoid terms (allergy
+ * chips already widened by readTargetsOf), their never-again list. It FAILS
+ * CLOSED: targets that could not be read refuse every dish. planBrigadeWeek
+ * screens every seat with this, and the kitchen rule's recipe picks grey with
+ * it, so the form can never promise a dish the planner then refuses.
+ * @param {Record<string, any>} meal
+ * @param {any} targets the person's targets; null or undefined = not read
+ * @returns {string[]} the reasons; empty = they can eat it
+ */
+export function plateRefusal(meal, targets) {
+  return targets
+    ? recipeConflicts(meal, targets.diet, targets.avoidIngredients, targets.avoidRecipes)
+    : [PROFILE_UNREAD];
+}
+
+/**
+ * ONE NAMED RECIPE AGAINST EVERYONE IN THE RULE (post-mortem 5, 10/18: the
+ * oats used peanut butter, a housemate has a peanut allergy, and nothing said
+ * so when the rule was set). Each member is screened with plateRefusal; the
+ * reason reads the way David would say it, "<name>: peanut". A member whose
+ * profile is still loading (`targets` undefined) or could not be read
+ * (null) is `unchecked`, never passed: the dish is not counted as usable.
+ * @param {Record<string, any>} recipe
+ * @param {{ id: string, name: string, targets: any }[]} seated
+ * @returns {{ blocked: string[], unchecked: string[] }}
+ */
+export function ruleRecipeCheck(recipe, seated) {
+  /** @type {string[]} */
+  const blocked = [];
+  /** @type {string[]} */
+  const unchecked = [];
+  for (const s of seated) {
+    if (!s.targets) {
+      unchecked.push(s.name);
+      continue;
+    }
+    const no = plateRefusal(recipe, s.targets);
+    if (no.length === 0) continue;
+    const short = no.map((r) =>
+      r.startsWith("contains ")
+        ? r.slice("contains ".length)
+        : r === "on their never-again list"
+          ? "never again"
+          : r,
+    );
+    blocked.push(`${s.name}: ${short.join(", ")}`);
+  }
+  return { blocked, unchecked };
+}
+
+/**
+ * The plain line under a slot's named recipes (2.0, I-08). One usable dish
+ * left means that dish every day, and it says so ("Overnight oats every day:
+ * add another to vary it"), never "1 is in rotation". Usable = named, in the
+ * bank, and checked clean for everyone; an unchecked one does not count.
+ * @param {string[]} chosen the named recipe ids
+ * @param {(id: string) => Record<string, any> | undefined} recipeOf
+ * @param {(r: Record<string, any>) => { blocked: string[], unchecked: string[] }} checkOf
+ * @returns {string} "" when there is nothing to say
+ */
+export function namedSlotLine(chosen, recipeOf, checkOf) {
+  if (chosen.length === 0) return "";
+  const checks = chosen
+    .map(recipeOf)
+    .filter((r) => r != null)
+    .map((r) => ({ r: /** @type {Record<string, any>} */ (r), c: checkOf(/** @type {any} */ (r)) }));
+  const usable = checks.filter(({ c }) => c.blocked.length === 0 && c.unchecked.length === 0);
+  const waiting = checks.some(({ c }) => c.blocked.length === 0 && c.unchecked.length > 0);
+  const only = usable[0]?.r;
+  if (usable.length === 1 && only) {
+    return `${String(only.name ?? only.id)} every day: add another to vary it.${waiting ? " Some picks are not checked yet." : ""}`;
+  }
+  if (usable.length === 0) {
+    return waiting
+      ? "Not checked yet: a profile at the table could not be read, so these picks are not counted. Check signal and reopen."
+      : "None of these passes everyone at the table, so SET MY WEEK uses all your recipes. Pick others, or leave it.";
+  }
+  return waiting ? "Some picks are not checked yet: a profile at the table could not be read." : "";
+}
+
+/**
+ * SUNDAY'S DINNER IS THE BATCH (David, 2026-10-18, post-mortem P3a; 2.0,
+ * I-14): one Sunday pot, eaten Mon to Thu, no second dish cooked beside it.
+ * ON unless the rule saved `sundayBatch: false`. The app applies this default
+ * where it plans (SET MY WEEK) and where it shows the rule, so a rule saved
+ * before the setting existed plans this way without anyone editing it.
+ * @param {Partial<Brigade> | null | undefined} b
+ * @returns {boolean}
+ */
+export function sundayBatchOn(b) {
+  return /** @type {any} */ (b)?.sundayBatch !== false;
+}
+
+/**
+ * The `batches` a kitchen-rule SAVE writes (Tribunal Final Gate 1.95,
+ * Engineer). A save is not a reason to change his saved Sunday pot: a rule
+ * that opened with the setting ON writes its saved `batches` back exactly as
+ * they were, so a rename keeps them. They are dropped only when he turns the
+ * setting ON in this edit (`kept` is then absent, the rule opened OFF) or, with
+ * it OFF, unticks every night. A rule that no longer cooks a Sunday dinner
+ * (dinner not shared, Sunday not a cook night, or every night a cook night)
+ * has no Sunday pot, so it saves none: a kept batch would bring back a
+ * Sunday-prepped pot the form no longer shows (Tribunal Final Gate 1.95,
+ * loop 2, Engineer).
+ * @param {{ sundayBatch: boolean, kept?: { cookDay: number, feeds: number[] }[], slots: string[], cookDays: number[] }} form
+ *   `kept` = the rule's saved batches, carried only when it opened ON;
+ *   `slots` and `cookDays` = the rule as this save writes it
+ * @param {number[]} feeds the ticked Sunday-batch nights, already cleaned
+ * @returns {{ cookDay: number, feeds: number[] }[] | undefined}
+ */
+export function batchesOnSave(form, feeds) {
+  const sundayPot =
+    form.slots.includes("dinner") &&
+    form.cookDays.includes(0) &&
+    ![0, 1, 2, 3, 4, 5, 6].every((d) => form.cookDays.includes(d));
+  if (!sundayPot) return undefined;
+  if (form.sundayBatch) return Array.isArray(form.kept) && form.kept.length > 0 ? form.kept : undefined;
+  return feeds.length > 0 ? [{ cookDay: 0, feeds }] : undefined;
+}
+
 /**
  * Recipes every member of the brigade can eat: the INTERSECTION of their
  * screens, never the union. This is what makes "we all eat the same meal"
@@ -1508,6 +1654,130 @@ export function addSeat(events, tableId, seat, today) {
         seats: [...(t.seats ?? []), { ...seat, servings: clampServings(seat.servings) }],
       };
     }),
+  };
+}
+
+/**
+ * SEAT A GUEST ON ONE DAY, and say what happened in plain words (Mise 2.0,
+ * D-01; David's live guest test, Sun 10/18 about 10 pm: a guest signed up,
+ * he added her to that night's curry from People, and "it doesn't work"). The
+ * People and Plan buttons call this through main.js. Pure: the caller reads
+ * the guest's targets first (readNow, so a profile made minutes ago is
+ * fetched, not guessed) and writes `events` when it is not null.
+ *
+ * The allergy screen fails closed, unchanged (Tribunal Red Team, 2026-10-16):
+ * a dish the profile refuses never seats them, and unreadable targets seat
+ * nobody. What changed is the telling: an unreadable profile, or a bank still
+ * loading, says so by name and sets `retry`, so the screen offers TRY AGAIN
+ * instead of a bare refusal; a guest already seated hears that, not "no shared
+ * meal is set". Tonight's dinner is seatable until it is marked cooked, and
+ * after that too, because the plate then comes out of what is in the pot.
+ * @param {HouseEvents} events
+ * @param {string} brigadeId
+ * @param {string} date
+ * @param {string[]} slots
+ * @param {{ id: string, name: string }} guest
+ * @param {Record<string, any> | null} targets null when they could not be read
+ * @param {Map<string, Record<string, any>>} bank
+ * @param {{ today: string, bankLoading?: boolean }} ctx
+ * @returns {{ events: HouseEvents | null, note: string, retry: boolean }}
+ */
+export function seatGuestOnDay(events, brigadeId, date, slots, guest, targets, bank, ctx) {
+  const { today } = ctx;
+  const who = guest.name || guest.id;
+  const dayName = (/** @type {string} */ iso) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(y ?? 0, (m ?? 1) - 1, d ?? 1).toLocaleDateString("en-US", { weekday: "long" });
+  };
+  const weekday = dayName(date);
+  const mealOf = (/** @type {string} */ slot) => {
+    const full = (SLOT_META[slot]?.full ?? slot).toLowerCase();
+    return date === today && slot === "dinner" ? "tonight's dinner" : `${weekday}'s ${full}`;
+  };
+  const tables = slots
+    .map((slot) => ({ slot, t: events.tables.find((x) => x.id === brigadeTableId(brigadeId, date, slot)) }))
+    .filter((x) => x.t);
+  if (tables.length === 0)
+    return {
+      events: null,
+      note: "No shared meal is set for that day yet. SET MY WEEK on Plan first.",
+      retry: false,
+    };
+  const open = tables.filter(({ t }) => !(t?.seats ?? []).some((s) => s.id === guest.id));
+  if (open.length === 0)
+    return {
+      events: null,
+      note: `${who} is already at ${tables.map(({ slot }) => mealOf(slot)).join(" and ")}.`,
+      retry: false,
+    };
+  if (!targets)
+    return {
+      events: null,
+      note:
+        `${who} was not added to ${open.map(({ slot }) => mealOf(slot)).join(" and ")}: ` +
+        `${who}'s profile could not be read on this phone just now, so the allergy check ` +
+        "could not run. Nothing was changed. Check the phone has signal, then TRY AGAIN.",
+      retry: true,
+    };
+  let next = events;
+  /** @type {{ slot: string, name: string, kcal: number, madeOn?: string, bought: boolean }[]} */
+  const added = [];
+  /** @type {string[]} */
+  const refused = [];
+  let loading = false;
+  for (const { slot, t } of open) {
+    const table = /** @type {TableEvent} */ (t);
+    const recipe = bank.get(table.recipeId);
+    if (!recipe && ctx.bankLoading) {
+      loading = true;
+      refused.push(`${mealOf(slot)} (the recipes are still loading on this phone)`);
+      continue;
+    }
+    // the allergy screen, fail closed (Tribunal Red Team, 2026-10-16):
+    // a guest is never seated on a dish their profile refuses
+    const no = seatScreen(recipe, targets);
+    if (no.length > 0) {
+      refused.push(`${mealOf(slot)} (${recipe?.name ?? table.recipeId}: ${no.join(", ")})`);
+      continue;
+    }
+    const servings = seatServingsFor(targets, slot, /** @type {Record<string, any>} */ (recipe));
+    next = addSeat(next, table.id, { id: guest.id, servings }, today);
+    // A POT ALREADY MADE CANNOT GROW (Tribunal Realist, 2026-10-18): a
+    // leftover or batch night eats a pot cooked earlier; once that day
+    // has passed, or the pot is marked cooked, the extra plate comes out
+    // of what is there, and the message must say so
+    const source = table.leftoverOf ? events.tables.find((x) => x.id === table.leftoverOf) : table;
+    const madeOn = source?.preparedOn ?? source?.date ?? table.date;
+    added.push({
+      slot,
+      name: recipe?.name ?? table.recipeId,
+      kcal: Math.round((recipe?.nutrition?.calories ?? 0) * servings),
+      ...(source?.cookedAt || madeOn < today ? { madeOn } : {}),
+      // a frozen pot is bought food: the list does not grow for them
+      bought: Boolean(source?.pot),
+    });
+  }
+  if (added.length === 0)
+    return {
+      events: null,
+      note: `${who} was not added: ${refused.join("; ")}.${loading ? " Nothing was changed. TRY AGAIN in a moment." : ""}`,
+      retry: loading,
+    };
+  const what = added
+    .map((a) => `${mealOf(a.slot)} (${a.name}, about ${a.kcal} kcal)`)
+    .join(", ");
+  const made = added.filter((a) => a.madeOn);
+  const bought = added.filter((a) => !a.madeOn && a.bought);
+  const potLine =
+    made.length === added.length
+      ? `That pot was already made ${[...new Set(made.map((a) => dayName(/** @type {string} */ (a.madeOn))))].join(", ")}, so ${who}'s plate comes out of what is there; check there is enough.`
+      : bought.length + made.length === added.length
+        ? `Its food is already bought, so the list does not grow; check there is enough for one more plate.`
+        : `The cook's pot and the list grow by ${who}'s plate.${made.length > 0 ? ` Already made, so not growing: ${made.map((a) => a.name).join(", ")}.` : ""}`;
+  return {
+    events: next,
+    note: `${who} joins ${what}. ${potLine}${refused.length > 0 ? ` Not added to ${refused.join("; ")}.` : ""}`,
+    retry: false,
   };
 }
 

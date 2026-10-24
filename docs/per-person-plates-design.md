@@ -1238,7 +1238,7 @@ macro numbers to a family member were reworded. HEAD was sanitized in the
 same pass (schema example, code comments, test fixtures) with all 531
 tests green. A pre-rewrite mirror backup exists locally. Residual: GitHub
 can retain unreachable old commits server-side until support is asked to
-purge them; no forks exist. Practical profile ids (mom, dad, laurie) stay
+purge them; no forks exist. Practical profile ids (mom, dad, lena) stay
 by David's explicit ruling; the scrub targeted health data, not names.
 
 ---

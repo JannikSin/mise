@@ -165,7 +165,7 @@ export function cookPlan(recipe, plannedServings) {
       extraServings: extra,
       ingredients, // cook the full batch on purpose
       note:
-        `Cook the whole batch. Eat your plate now and put the rest in the fridge — ` +
+        `Cook the whole batch. Eat your plate now and put the rest in the fridge, ` +
         `the plan has already scheduled it as leftovers, so don't eat the extra tonight.`,
     };
   }
@@ -182,6 +182,77 @@ export function cookPlan(recipe, plannedServings) {
       qty: scaleQty(Number(i.qty) || 0, i.unit, ratio),
     })),
     note: "Amounts below are YOUR plate. Cook only this much, so there is nothing extra to overeat.",
+  };
+}
+
+// the pan the recipe is cooked in, named on the COOK FOR line (D-03): the
+// first of these the recipe declares, by its equipment.js id
+const VESSELS = /** @type {[string, string][]} */ ([
+  ["dutch-oven", "Dutch oven"],
+  ["pot", "large pot"],
+  ["pressure-cooker", "pressure cooker"],
+  ["slow-cooker", "slow cooker"],
+  ["wok", "wok"],
+  ["skillet", "skillet"],
+  ["saucepan", "saucepan"],
+  ["sheet-pan", "sheet pan"],
+  ["baking-dish", "baking dish"],
+  ["loaf-pan", "loaf pan"],
+  ["muffin-tin", "muffin tin"],
+]);
+
+/** The COOK FOR control's bounds: one portion up to a big party. */
+export const COOK_FOR_MIN = 1;
+export const COOK_FOR_MAX = 24;
+
+/**
+ * COOK THIS FOR N (Mise 2.0, D-03; David's live guest test, Sun 10/18: he
+ * needed the coconut curry for 4 and could not tell how to scale it). The
+ * recipe page only ever showed amounts already scaled to a plan or a table,
+ * with the yield deliberately unprinted (NO SERVING COUNTS, 2026-08-10), so a
+ * cook choosing his own number had nothing to turn. This is that number: N
+ * portions, every amount multiplied by N over what the recipe makes (scaleQty,
+ * so grams stay grams and whole items round to a half), and the pan and the
+ * batch named, because "1.5 times the recipe" is a question about whether the
+ * skillet holds it. A portion here is one of the recipe's own (its macros are
+ * quoted per portion), which is also how the table's pot counts.
+ * @param {Record<string, any>} recipe
+ * @param {number} portions
+ * @returns {{ portions: number, makes: number, ratio: number, ingredients: Record<string, any>[], vessel: string | null, asWritten: string, line: string }}
+ */
+export function cookFor(recipe, portions) {
+  const makes = Math.max(1, Number(recipe?.servings) || 1);
+  const n = Math.min(COOK_FOR_MAX, Math.max(COOK_FOR_MIN, Math.round(Number(portions) || makes)));
+  const ratio = n / makes;
+  const equip = new Set(Array.isArray(recipe?.equipment) ? recipe.equipment : []);
+  const vessel = VESSELS.find(([id]) => equip.has(id))?.[1] ?? null;
+  const ingredients = (recipe?.ingredients ?? []).map((/** @type {Record<string, any>} */ i) =>
+    ratio === 1 ? i : { ...i, qty: scaleQty(Number(i.qty) || 0, i.unit, ratio) },
+  );
+  const plural = (/** @type {number} */ k) => `${k} portion${k === 1 ? "" : "s"}`;
+  const asWritten = `As written it makes ${plural(makes)}${vessel ? ` in one ${vessel}` : ""}.`;
+  const times = Math.round(ratio * 100) / 100;
+  const howMuch =
+    ratio === 1
+      ? "the recipe as written"
+      : ratio === 0.5
+        ? "half the recipe"
+        : ratio === 2
+          ? "double the recipe"
+          : `${times} times the recipe`;
+  const batches = Math.ceil(ratio - 1e-9);
+  const tooBig =
+    ratio > 1
+      ? ` If one ${vessel ?? "pan"} will not hold it, cook it in ${batches} batches.`
+      : "";
+  return {
+    portions: n,
+    makes,
+    ratio,
+    ingredients,
+    vessel,
+    asWritten,
+    line: `${asWritten} Cooking ${plural(n)}: ${howMuch}.${tooBig}`,
   };
 }
 

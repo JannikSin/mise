@@ -8,6 +8,7 @@ import {
   entriesAt,
   outEntryAt,
   recipesById,
+  sameDishEveryDay,
   SLOT_KEYS,
   SLOT_META,
 } from "../lib/plan.js";
@@ -109,7 +110,7 @@ function monthDay(isoDate) {
  *   } | null,
  *   brigadeRun?: Record<string, any> | null,
  *   endedBrigade?: import("../lib/tables.js").Brigade | null,
- *   onAddGuest?: (date: string, profileId: string, slots: string[]) => Promise<string | null>,
+ *   onAddGuest?: (date: string, profileId: string, slots: string[]) => Promise<{ note: string, retry: boolean }>,
  *   onRemoveGuest?: (date: string, profileId: string) => void,
  *   onNewGuestProfile?: () => void,
  *   profileId?: string,
@@ -298,7 +299,7 @@ export function PlannerView({
           <div class="k">⚠ bought food with no meal before it dies</div>
           <div class="d">
             ${coverageGaps.map((/** @type {any} */ g, /** @type {number} */ i) => html`<span key=${g.id}>${i > 0 ? " · " : ""}<b>${g.food}</b> <span class="num">(${g.daysLeft}d)</span></span>`)}
-            ${" "}— add a meal that uses it, move one earlier, or freeze it.
+            ${" "}Add a meal that uses it, move one earlier, or freeze it.
             ${onRestoreFallback && html`<button class="linktext" onClick=${onRestoreFallback}>↩ back to the shopped plan</button>`}
           </div>
         </div>`
@@ -321,8 +322,8 @@ export function PlannerView({
           <div class="k">⚠ target outside the computed band</div>
           <div class="d">
             Your ${kcalTarget} kcal target sits outside ${sanity.low}–${sanity.high} (computed
-            maintenance ≈ ${sanity.maintenance}). That can be deliberate — a fast, a weight-cut, a
-            training block — but it needs a written reason: add
+            maintenance ≈ ${sanity.maintenance}). That can be deliberate, a fast, a weight-cut, a
+            training block, but it needs a written reason: add
             <span class="num">targetReason</span> to your targets, or re-run the target setup.
             Nothing is blocked; the week still generates to your number.
           </div>
@@ -390,9 +391,23 @@ export function PlannerView({
         })()
       }
       ${
+        // THE SAME MEAL EVERY DAY, said plainly (2.0, I-08; post-mortem 5):
+        // a week of one breakfast was found at the store, not here
+        sameDishEveryDay(/** @type {any} */ (plan.entries), dates, (id) => byId.get(id)).map(
+          (r) =>
+            html`<p class="hint" role="note" key=${`same-${r.slot}`}>
+              ⚠ ${SLOT_META[r.slot]?.full ?? r.slot} is ${r.name}
+              ${r.days === dates.length ? "every day this week" : "every day it is planned this week"}.
+              ${brigade?.active?.slots?.includes(r.slot)
+                ? "To vary it, add another to the kitchen rule on the People tab."
+                : "To vary it, SWITCH one of the days."}
+            </p>`,
+        )
+      }
+      ${
         tableStale &&
         html`<p class="hint">
-          ⚠ a shared dinner landed after this week was set — SET MY WEEK again to plan around
+          ⚠ a shared dinner landed after this week was set, SET MY WEEK again to plan around
           it and rebuild the list.
         </p>`
       }
@@ -400,7 +415,7 @@ export function PlannerView({
         tableIssues > 0 &&
         html`<p class="hint">
           🍽 ${tableIssues} table ${tableIssues === 1 ? "issue" : "issues"} (diet conflict or a taken
-          slot) — details on the People tab.
+          slot), details on the People tab.
         </p>`
       }
       ${dates.map((date) => {
@@ -531,7 +546,7 @@ export function PlannerView({
                       <div class="slotrow" key=${key}>
                         <span class="t" aria-label=${full}>${label}</span>
                         ${outEntry && html`<span class="outslot">🍴 ate out</span>`}
-                        ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">—</span>`}
+                        ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">-</span>`}
                         ${
                           stacked.length > 0 &&
                           html`<div class="stack">
@@ -647,7 +662,7 @@ export function PlannerView({
                               }
                             </span>`
                       }
-                      ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">—</span>`}
+                      ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">-</span>`}
                       ${
                         // real entries render even next to a placeholder: a
                         // two-device merge can resurrect a meal into an out
@@ -769,7 +784,7 @@ export function PlannerView({
                           aria-label=${
                             outEntry
                               ? /** @type {any} */ (outEntry).currency
-                                ? `${full} ${monthDay(date)} is a dining swipe (buffet — load up on protein), tap to clear`
+                                ? `${full} ${monthDay(date)} is a dining swipe (buffet, load up on protein), tap to clear`
                                 : hasBuffet
                                   ? `${full} ${monthDay(date)} is eating out, tap to make it a dining swipe`
                                   : `${full} ${monthDay(date)} is eating out, tap to plan a meal again`
@@ -866,7 +881,7 @@ export function PlannerView({
                       `${parseLocalIso(s.date).toLocaleDateString([], { weekday: "short" })} ${s.protein}g`,
                   )
                   .join(" · ")}
-                / ${buildReport.proteinShortDays[0]?.target}g — stack a slot or add a snack
+                / ${buildReport.proteinShortDays[0]?.target}g, stack a slot or add a snack
               </div>`
             }
             ${
@@ -879,7 +894,7 @@ export function PlannerView({
                       `${parseLocalIso(s.date).toLocaleDateString([], { weekday: "short" })} ${s.calories}`,
                   )
                   .join(" · ")}
-                / ${buildReport.calorieShortDays[0]?.target} — stack a slot or add a snack
+                / ${buildReport.calorieShortDays[0]?.target}, stack a slot or add a snack
               </div>`
             }
             ${
@@ -895,7 +910,7 @@ export function PlannerView({
               buildReport.poolInsufficient.length > 0 &&
               html`<div class="d num redflag">
                 ⚠ recipe pool:${" "}
-                ${buildReport.poolInsufficient.map((p) => `${p.reason} — ${p.suggestion}`).join(" · ")}
+                ${buildReport.poolInsufficient.map((p) => `${p.reason}: ${p.suggestion}`).join(" · ")}
               </div>`
             }
             ${
@@ -973,7 +988,7 @@ export function PlannerView({
               // longer exists (PF.1; the fluid week makes edits normal)
               manifestDrifted(/** @type {any} */ (plan).manifest, plan) === true &&
               html`<div class="d num redflag">
-                <strong>drift</strong>: plan has CHANGED since this report was composed — its
+                <strong>drift</strong>: plan has CHANGED since this report was composed, its
                 numbers describe the plan as generated, not as it stands
               </div>`
             }

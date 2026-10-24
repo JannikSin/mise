@@ -17,12 +17,12 @@ const { setSyncScope, setScopeGuests, inSyncScope, read, readCollection } = awai
 );
 
 const ROSTER = [
-  { id: "david", name: "David", household: "wayne", family: "taranowski", admin: true },
-  { id: "mom", name: "Mom", household: "taranowski", family: "taranowski" },
-  { id: "laurie", name: "Laurie", household: "taranowski", family: "taranowski" },
-  { id: "dad", name: "Dad", household: "taranowski", family: "taranowski" },
+  { id: "david", name: "David", household: "wayne", family: "thornton", admin: true },
+  { id: "mom", name: "Mom", household: "thornton", family: "thornton" },
+  { id: "lena", name: "Lena", household: "thornton", family: "thornton" },
+  { id: "dad", name: "Dad", household: "thornton", family: "thornton" },
   { id: "elliot", name: "Elliot", household: "wayne" },
-  { id: "annie", name: "Annie", household: "guesthouse" },
+  { id: "mara", name: "Mara", household: "guesthouse" },
 ];
 
 test("Elliot's phone syncs Wayne only; David's phone syncs everything", () => {
@@ -53,11 +53,11 @@ test("Elliot's phone syncs Wayne only; David's phone syncs everything", () => {
 test("out of scope reads never reach GitHub or the cache", async () => {
   await setSyncScope(syncScopeFor(ROSTER, "elliot"));
   for (const p of [
-    "households/taranowski/events.json",
+    "households/thornton/events.json",
     "profiles/mom/profile/targets.json",
-    "profiles/laurie/plans/2026-W43.json",
+    "profiles/lena/plans/2026-W43.json",
     "profiles/dad/occasions.json",
-    "profiles/annie/profile/targets.json",
+    "profiles/mara/profile/targets.json",
   ]) {
     assert.equal(inSyncScope(p), false, p);
     assert.equal(await read(p, { raw: true }), null, `${p} reads as missing`);
@@ -78,20 +78,20 @@ test("out of scope reads never reach GitHub or the cache", async () => {
 
 test("a guest seated at Wayne's table stays readable, so the plate screen can check them", async () => {
   await setSyncScope(syncScopeFor(ROSTER, "elliot"));
-  await setScopeGuests(["annie"]);
-  assert.equal(inSyncScope("profiles/annie/profile/targets.json"), true);
-  assert.equal(inSyncScope("profiles/annie/fitness/targets.json"), true, "the legacy targets path");
+  await setScopeGuests(["mara"]);
+  assert.equal(inSyncScope("profiles/mara/profile/targets.json"), true);
+  assert.equal(inSyncScope("profiles/mara/fitness/targets.json"), true, "the legacy targets path");
   // only their targets (Tribunal Red Team, 2.0 loop 1): a seated Mom must not
   // bring her daily logs and plans with her
-  assert.equal(inSyncScope("profiles/annie/fitness/daily.json"), false);
-  assert.equal(inSyncScope("profiles/annie/plans/2026-W43.json"), false);
+  assert.equal(inSyncScope("profiles/mara/fitness/daily.json"), false);
+  assert.equal(inSyncScope("profiles/mara/plans/2026-W43.json"), false);
   assert.equal(inSyncScope("profiles/mom/profile/targets.json"), false);
   await setScopeGuests([]);
-  assert.equal(inSyncScope("profiles/annie/profile/targets.json"), false);
+  assert.equal(inSyncScope("profiles/mara/profile/targets.json"), false);
 });
 
 test("a phone outside David's house cannot read his root files; the shared bank stays", async () => {
-  await setSyncScope({ profileIds: ["annie"], houses: ["guesthouse"] });
+  await setSyncScope({ profileIds: ["mara"], houses: ["guesthouse"] });
   assert.equal(inSyncScope("plans/2026-W43.json"), false);
   assert.equal(inSyncScope("fitness/targets.json"), false);
   assert.equal(inSyncScope("shopping.json"), false);
@@ -102,12 +102,12 @@ test("a phone outside David's house cannot read his root files; the shared bank 
 
 test("recipe titles drop a hidden person's name", () => {
   const out = withoutHiddenNames(
-    [{ id: "a", name: "Laurie's Mediterranean Herb Chicken" }, { id: "b", name: "Chili" }],
-    ["Laurie", "Mom", "Dad"],
+    [{ id: "a", name: "Lena's Mediterranean Herb Chicken" }, { id: "b", name: "Chili" }],
+    ["Lena", "Mom", "Dad"],
   );
   assert.deepEqual(out.map((r) => r.name), ["Mediterranean Herb Chicken", "Chili"]);
   const same = [{ id: "b", name: "Chili" }];
-  assert.equal(withoutHiddenNames(same, ["Laurie"]), same);
+  assert.equal(withoutHiddenNames(same, ["Lena"]), same);
 });
 
 test("guest passkey hashes and invite codes are the admin's phone only", async () => {

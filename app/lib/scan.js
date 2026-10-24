@@ -10,8 +10,9 @@ import {
   packPantry,
   isDatedItem,
   looksPerishable,
+  plentyKey,
 } from "./shopping.js";
-import { canonicalFood } from "./ingredients.js";
+import { canonicalFood, knownFoods } from "./ingredients.js";
 
 /**
  * SAY WHAT YOU HAVE (David, 2026-09-06: "I can just voice type in what I
@@ -20,23 +21,42 @@ import { canonicalFood } from "./ingredients.js";
  * pasted run-through becomes pantry items, through the SAME apply path as an
  * approved photo scan, so nothing about how a row lands differs by door.
  *
- * Reading rules, all plain:
- *  - items split on commas, semicolons, newlines, " and ", " also ", " then "
- *  - leading filler is dropped: "I have", "we've got", "some", "a bunch of"…
+ * A NOTE ONLY ADDS OR UPDATES (Mise 2.0, I-06; post-mortem 10/18, failure
+ * 2). His 7:02 pm note saved "there is", "one", "other stuff" and "it's
+ * about it" as foods, "pasta there's rice there's flat seed" as one food,
+ * and "we need more vanilla extract" as PLENTY, then threw his words away.
+ * So, in plain terms:
+ *  - items split on commas, semicolons, newlines, sentence ends, " and ",
+ *    " also ", " then ", " plus ", and at "there's", "there is", "we have",
+ *    "I have", "I've got": a dictated list carries those, not commas
+ *  - every piece must name a REAL FOOD (the bank's foods, the pantry's own
+ *    foods, or the everyday foods below). Filler is dropped wherever it
+ *    sits ("um", "other stuff", "that's it in the fridge"); words that are
+ *    not filler and not a known food go to `unsure`, never to the pantry,
+ *    so a mishearing is never saved as PLENTY
+ *  - "low on X", "running low on X", "need more X", "we need X", "X is
+ *    almost gone" mark X LOW, never plenty
+ *  - "out of X", "no more X", "used up the X", "X is gone" never change
+ *    anything here: they become `outs`, a suggestion he confirms with a tap
+ *    (markPantryOut). A note never removes or zeroes a row by itself
  *  - a leading amount is kept as the row's qty ("2 lbs chicken thighs",
  *    "3 cans black beans", "a dozen eggs", "half a bag of rice")
- *  - "low on X", "running low on X", "almost out of X", "nearly out of X",
- *    "not much X" mark a shelf-stable item LOW instead of plenty; "out of X"
- *    and "no X" are dropped (nothing to add)
  *  - "frozen X" goes to the freezer; a perishable by the expiry table's own
  *    keywords goes to the fridge, dated today; everything else is a
  *    shelf-stable state (plenty, or low when said)
- * The result is a PREVIEW the person edits before it lands; the parser never
- * writes.
+ *  - `said` is his words exactly as they came in, kept with the saved note
+ * The result is a PREVIEW the person edits before it lands; the reader
+ * never writes.
  * @param {string} text
- * @returns {{ name: string, kind: "staple" | "fresh", qty: string, state?: "low", location: "fridge" | "freezer" | "pantry" | "unsorted" }[]}
+ * @param {Iterable<string>} [known] food names the app already knows (the
+ *   pantry's rows first, then the bank's ingredients). A piece that matches
+ *   one is saved under that name, so "oats" updates the pantry's "Rolled
+ *   oats" row instead of adding a second one.
+ * @returns {PantryNote}
  */
-export function parsePantryDictation(text) {
+export function readPantryNote(text, known = []) {
+  const said = String(text ?? "").trim();
+  const vocab = noteVocab(known);
   // RUN-ON PHRASES SPLIT AT THE NEXT QUANTITY (David's dictation, 2026-09-06:
   // "milk a huge thing of soy sauce about a container of basil pesto" landed
   // as ONE pantry row holding two gallons). A spoken list rarely carries the
@@ -45,17 +65,63 @@ export function parsePantryDictation(text) {
   // of", "a huge thing of", "about a tub of") starts a new item.
   const QTY_START =
     /(?<!\bhalf )(?<!\bof )\b(?=(?:about\s+|roughly\s+|like\s+)?(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|twelve|a couple of|a few|some|\d+(?:[./]\d+)?)\s+(?:(?:huge|big|large|giant|small|little|whole|new|full|half)\s+)?(?:things?|tubs?|cartons?|bricks?|blocks?|containers?|jars?|bottles?|bags?|box(?:es)?|cans?|packs?|packages?|jugs?|gallons?|quarts?|pints?|dozen|pounds?|lbs?|bunch(?:es)?|heads?|loa(?:f|ves)|sticks?|cups?|liters?|litres?)\b)/i;
-  const raw = String(text ?? "")
+  const raw = said
     .replace(/\r/g, "")
     .replace(/[’‘]/g, "'")
-    .split(/\n|[,;]|\.\s+|\.$|\band\b|\balso\b|\bthen\b|\bplus\b/i)
-    .flatMap((s) => s.split(QTY_START))
-    .map((s) => s.trim())
-    .filter(Boolean);
-  /** @type {ReturnType<typeof parsePantryDictation>} */
-  const out = [];
+    // A HEDGE MEANS UNSURE (Tribunal Final Gate, 1.95: "not sure about pnut
+    // butter" was saved PLENTY). Every spoken hedge is folded to "maybe" here,
+    // before the split below, because "I don't know if we have X" would
+    // otherwise be cut at "we have" and strand the hedge from its food.
+    .replace(
+      /\b(?:(?:i|we)(?:'m| am|'re| are)\s+)?(?:(?:i|we) (?:do not|don't|dont) know (?:if|whether)|(?:i'm|i am|we're|we are)? ?not (?:sure|certain) (?:about|if|whether)|(?:i'm|i am|we're|we are)? ?not (?:sure|certain)|maybe|unsure about)\s+(?:(?:(?:we|i)(?:'ve got|'ve| have| got)|there(?:'s| is| are))\s+)?/gi,
+      "maybe ",
+    )
+    // THE PHONE WRITES "there's pasta there's rice" (10/18): each "there's"
+    // or "I have" starts a new food, exactly like a comma would
+    .split(
+      /(\n|[,;]|\.\s+|\.$|\band\b|\bor\b|\bbut\b|\balso\b|\bthen\b|\bplus\b|\bthere(?:'s| is| are)\b|\b(?:i|we)(?:'ve got| have| got|'ve)\b(?!\s+(?:to|got to)\b))/i,
+    )
+    // each piece remembers the word that split it off, so "out of eggs and
+    // butter" keeps butter OUT (Tribunal Engineer, 1.95: butter was saved
+    // PLENTY). Only a list joiner carries the out on; a new sentence, "also",
+    // "there's", "I have", "but" or "then" ends it.
+    .flatMap((s, i, all) =>
+      i % 2 === 1
+        ? []
+        : s.split(QTY_START).map((t) => ({ text: t.trim(), joiner: i > 0 && /^(?:,|and|or|plus)$/i.test(String(all[i - 1]).trim()) })),
+    )
+    .filter((p) => p.text);
+  /** @type {PantryNote["items"]} */
+  const items = [];
+  /** @type {PantryNote["unsure"]} */
+  const unsure = [];
+  /** @type {PantryNote["outs"]} */
+  const outs = [];
   const seen = new Set();
-  for (let piece of raw) {
+  const seenUnsure = new Set();
+  const seenOut = new Set();
+  const doubt = (/** @type {string} */ words) => {
+    const name = words.replace(/\s+/g, " ").trim().toLowerCase();
+    if (name.length < 3 || seenUnsure.has(name)) return;
+    seenUnsure.add(name);
+    const guess = closestFood(name, vocab);
+    unsure.push(guess ? { name, guess } : { name });
+  };
+  let outCarry = false;
+  let hedgeCarry = false;
+  for (const { text: rawPiece, joiner } of raw) {
+    let piece = rawPiece;
+    if (!joiner) {
+      outCarry = false;
+      hedgeCarry = false;
+    }
+    // a hedged piece, and the foods joined to it ("maybe rice and beans"),
+    // are only ever doubts
+    /** @type {boolean} */
+    let hedged = hedgeCarry;
+    // said as a have ("and have eggs", "got milk"), read BEFORE the verb is
+    // peeled below, so a carried "out of" never takes it (Tribunal, loop 3)
+    const saidHave = /^(?:(?:i|we)(?:'ve)?\s+)?(?:still\s+|just\s+|also\s+)?(?:have|got(?!\s+rid\b)|picked up|bought|brought home|grabbed)\b/i.test(piece);
     // filler at the front, peeled until none is left: the way people
     // actually talk into a phone ("um so I have soy sauce")
     for (let prev = ""; prev !== piece;) {
@@ -66,12 +132,16 @@ export function parsePantryDictation(text) {
           "",
         )
         .replace(
-          /^(?:i|we)(?:'ve| have| got|'ve got| also have| still have| do have| know we have| think we have)\b\s*/i,
+          /^(?:i|we)(?:'ve| have| got(?!\s+rid\b)|'ve got| also have| still have| do have| know we have| think we have)\b(?!\s+(?:to|got to|rid)\b)\s*/i,
           "",
         )
         .replace(/^(?:there(?:'s| is| are))\s+/i, "")
         .replace(/^(?:what i think is|i think(?: it's| its| it is)?|i know)\s+/i, "")
-        .replace(/^(?:got|have|having)\s+/i, "")
+        .replace(/^(?:(?:i|we)\s+)?(?:just\s+)?(?:got(?!\s+rid\b)|have|having|picked up|bought|brought home|grabbed)(?:\s+|$)/i, "")
+        .replace(/^maybe\s+/i, () => {
+          hedged = true;
+          return "";
+        })
         // "a huge thing of X": an amount nobody can count, so it is X, no qty
         .replace(
           /^(?:a|an|one|\d+)\s+(?:(?:huge|big|large|giant|small|little|whole|new|full)\s+)?things?\s+of\s+/i,
@@ -84,13 +154,37 @@ export function parsePantryDictation(text) {
         )
         .trim();
     }
+    piece = piece.replace(/[.!?]+$/g, "").trim();
     if (!piece) continue;
-    // nothing to add
-    if (/^(?:no|out of|we're out of|i'm out of|zero|none of the|no more)\s+/i.test(piece)) continue;
+    // SOUNDS LIKE A REMOVAL: a suggestion he taps, never a change (I-06).
+    // Checked after LOW's "almost out of" and "running out of" below would
+    // be wrong, so those are excluded here by the anchor and the lookbehind.
+    const outM =
+      piece.match(
+        /^(?:(?:we're|we are|i'm|i am|we|i)\s+)?(?:all\s+)?(?:out of|ran out of|run out of|used(?: up)? all(?: of)?|used up|finished(?: off)?|ate all(?: of)?|threw (?:out|away)|tossed|got rid of|get rid of|remove|take off|don't have(?: any)?|do not have(?: any)?|no longer have|no more|none(?: of(?: the)?)?|zero|no)\s+(.+)$/i,
+      ) ??
+      piece.match(/^(.+?)(?:\s+(?:is|are)|'s)\s+(?:all\s+)?(?:gone|out|finished|used up|empty)$/i) ??
+      // "out of eggs and butter": butter shares the out, a suggestion only
+      (outCarry && !saidHave && !/^(?:(?:running |getting )?low on|(?:almost|nearly|running|getting) out of|(?:need|could use|buy|get)\b|plenty of|lots of|(?:still\s+)?(?:have|got)\b|\d|a dozen|two dozen|half\b|(?:a|an|one|some|a few|a couple of)\s|(?:two|three|four|five|six|seven|eight|nine|ten|twelve)\b)/i.test(piece) ? [piece, piece] : null);
+    if (outM) {
+      outCarry = true;
+      const name = cleanFood(/** @type {string} */ (outM[1]));
+      for (const food of segmentFoods(name, vocab).foods) {
+        const key = slug(food.name);
+        if (seenOut.has(key)) continue;
+        seenOut.add(key);
+        outs.push({ name: food.name });
+      }
+      continue;
+    }
     /** @type {"low" | undefined} */
     let state;
-    const lowM = piece.match(
-      /^(?:(?:running |getting )?low on|(?:almost|nearly|running|getting) out of|not (?:much|a lot of|many)|only a (?:little|bit of|few)|last of the|barely any)\s+(.+)$/i,
+    const lowM =
+      piece.match(
+        /^(?:(?:we're|we are|i'm|i am)\s+)?(?:(?:running |getting )?low on|(?:almost|nearly|running|getting) out of|not (?:much|a lot of|many)|only a (?:little|bit of|few)|last of the|barely any|(?:(?:we|i)(?:'ve)?\s+)?(?:really |still |definitely )?(?:need|needs|could use|(?:gotta|have to|got to|should|must) (?:get|buy|pick up))(?: to (?:get|buy))?(?: more| some| a new| another)?|(?:buy|get|pick up)(?: more| some)?)\s+(.+)$/i,
+      ) ??
+      piece.match(
+        /^(.+?)(?:\s+(?:is|are)|'s)\s+(?:running |getting )?(?:low|almost gone|nearly gone|almost out|almost empty|running out)$/i,
     );
     if (lowM) {
       state = "low";
@@ -98,20 +192,23 @@ export function parsePantryDictation(text) {
     } else {
       piece = piece.replace(/^(?:plenty of|lots of|loads of|a lot of|tons of|enough)\s+/i, "");
     }
-    piece = piece
-      .replace(/^(?:some|a few|a couple of|a couple|a bunch of|a bit of|the)\s+/i, "")
-      .replace(/[.!?]+$/g, "")
-      .trim();
+    piece = cleanFood(piece);
+    hedgeCarry = hedged;
     // a leading amount, kept as the row's qty
     let qty = "";
+    let zero = false;
     const qtyM = piece.match(
       /^((?:\d+(?:[./]\d+)?|half a|half an|half|a dozen|two dozen|a|an|one|two|three|four|five|six|eight|ten|twelve)\s*(?:lbs?|pounds?|oz|ounces?|kgs?|kilos?|grams?|g|liters?|litres?|l|ml|gallons?|quarts?|pints?|cups?|cans?|jars?|bottles?|bags?|boxes?|packs?|packages?|packets?|tubs?|cartons?|bunch(?:es)?|heads?|loaves|loaf|dozen|sticks?|blocks?|bricks?|jugs?|containers?)?)\s+(?:of\s+)?(.+)$/i,
     );
     if (qtyM) {
       const amount = /** @type {string} */ (qtyM[1]).trim().toLowerCase();
-      const rest = /** @type {string} */ (qtyM[2]).trim();
+      piece = /** @type {string} */ (qtyM[2]).trim();
+      // A COUNT OF ZERO IS AN OUT, NEVER A QTY (Tribunal Final Gate, 1.95:
+      // "I have 0 eggs" landed qty 0 and zeroed his eggs row). Like every
+      // other out it is a suggestion he confirms with MARK OUT (I-06).
+      zero = /^0+(?:\s|$)/.test(amount);
       // a bare article is not a quantity ("a spinach" is just spinach)
-      if (!/^(?:a|an|one)$/.test(amount)) {
+      if (!zero && !/^(?:a|an|one)$/.test(amount)) {
         qty = amount
           .replace(/^half an? /, "0.5 ")
           .replace(/^half$/, "0.5")
@@ -127,21 +224,50 @@ export function parsePantryDictation(text) {
           .replace(/^eight /, "8 ")
           .replace(/^ten /, "10 ")
           .replace(/^twelve /, "12 ");
-        piece = rest;
-      } else {
-        piece = rest;
       }
     }
     piece = piece.replace(/\s+/g, " ").trim();
-    // a two-letter fragment is a mishearing or a stranded pronoun ("we",
-    // "or"), never a food
-    if (!piece || piece.length < 3 || piece.length > 80) continue;
-    // what is left of "I've got" once the amount after it became its own item
-    if (/^(?:got|have|having|some|any|more|also|lots|stuff|things?|there)$/i.test(piece)) continue;
-    const name = piece.charAt(0).toLowerCase() + piece.slice(1);
+    if (!piece || piece.length > 80) {
+      if (piece) doubt(piece);
+      continue;
+    }
+    const { foods, leftover } = segmentFoods(piece, vocab);
+    for (const words of leftover) doubt(words);
+    if (zero) {
+      outCarry = true;
+      for (const food of foods) {
+        const key = slug(food.name);
+        if (seenOut.has(key)) continue;
+        seenOut.add(key);
+        outs.push({ name: food.name });
+      }
+      continue;
+    }
+    if (hedged) {
+      // unsure, with no guess: the food itself was heard, only the claim
+      // that he has it was hedged
+      for (const food of foods) {
+        const name = food.name.toLowerCase();
+        if (seenUnsure.has(name)) continue;
+        seenUnsure.add(name);
+        unsure.push({ name });
+      }
+      continue;
+    }
+    foods.forEach((food, at) => {
+      const name = food.name;
     const key = slug(name);
-    if (seen.has(key)) continue;
+      if (seen.has(key)) return;
     seen.add(key);
+      // the amount was said in front of the first food in the piece
+      const q = at === 0 ? qty : "";
+      // LOW IS A STATE, whatever the food (I-06): "running low on milk" used
+      // to land milk as a fresh row dated today, which told the list he had
+      // just bought it. LOW puts it on the next list, which is what he meant.
+      if (state === "low") {
+        items.push({ name, kind: "staple", qty: "", state, location: "unsorted" });
+        return;
+      }
     const frozen = /\bfrozen\b/i.test(name);
     // A COUNT IS INVENTORY (David, 2026-09-06: "it should know how many
     // lemons"). Anything said with an amount becomes a counted, dated row
@@ -149,19 +275,338 @@ export function parsePantryDictation(text) {
     // quantity at all and "5 lemons" would have landed as a bare PLENTY.
     // Cans and jars go to the pantry shelf whatever the food inside sounds
     // like: "6 cans of coconut milk" is not fridge food.
-    const canned = /\b(?:cans?|jars?|tins?)\b/i.test(qty) || /\bcanned\b/i.test(name);
+      const canned = /\b(?:cans?|jars?|tins?)\b/i.test(q) || /\bcanned\b/i.test(name);
     const perishable = !canned && looksPerishable(name);
-    const counted = Boolean(qty);
-    const fresh = frozen || perishable || counted;
-    out.push({
+      const fresh = frozen || perishable || Boolean(q);
+      items.push({
       name,
       kind: fresh ? "fresh" : "staple",
-      qty,
-      ...(state && !fresh ? { state } : {}),
+        qty: q,
       location: frozen ? "freezer" : perishable ? "fridge" : fresh ? "pantry" : "unsorted",
     });
+    });
   }
-  return out;
+  return { said, items, unsure, outs };
+}
+
+/**
+ * The read-back's rows alone, for callers that only land foods (the walk's
+ * merge, older tests). Same reader, so the same promises hold.
+ * @param {string} text
+ * @param {Iterable<string>} [known]
+ * @returns {PantryNote["items"]}
+ */
+export function parsePantryDictation(text, known) {
+  return readPantryNote(text, known).items;
+}
+
+/**
+ * @typedef {{
+ *   said: string,
+ *   items: { name: string, kind: "staple" | "fresh", qty: string, state?: "low", location: "fridge" | "freezer" | "pantry" | "unsorted" }[],
+ *   unsure: { name: string, guess?: string }[],
+ *   outs: { name: string }[],
+ * }} PantryNote
+ */
+
+/** "some", "the", trailing punctuation: never part of a food's name */
+function cleanFood(/** @type {string} */ s) {
+  return s
+    .replace(
+      /^(?:some|a few|a couple of|a couple|a bunch of|a bit of|any|the|my|our|all the)\s+/i,
+      "",
+    )
+    .replace(/[.!?]+$/g, "")
+    .trim();
+}
+
+// WORDS THAT ARE NEVER A FOOD on their own, wherever they sit in a piece
+// (10/18: "there is", "one", "other stuff", "it's about it", "that's it in
+// the fridge in the freezer" all became pantry rows). Compared with the
+// apostrophes taken out, so "that's" is "thats".
+const FILLER = new Set(
+  (
+    "um umm uh uhh er erm hmm so okay ok yeah yep yes no well oh like basically anyway " +
+    "i im ive id we were weve wed you youre it its itll that thats this these those " +
+    "there theres here is are was be been being have has had having got get gotten " +
+    "also and or then plus but more some any the a an of in on at to for from with " +
+    "other others another stuff thing things about think thought know guess maybe " +
+    "probably kind sort just really still actually lot lots one ones all too what whats " +
+    "else fridge freezer pantry cupboard cabinet counter shelf shelves door drawer " +
+    "my our me us left bit little few couple bunch enough plenty much many good fine " +
+    "pretty okay right now today also again both each every same different new old " +
+    "need want see look looks looking guess pretty"
+  ).split(" "),
+);
+
+// Words that describe a food without being one ("sharp cheddar", "dried
+// figs"): these ride along with the food that follows them, always.
+const DESCRIBES = new Set(
+  (
+    "fresh frozen canned sharp spicy sweet plain organic ground dried whole raw smoked " +
+    "salted unsalted large small baby red green white brown black yellow dark light " +
+    "extra virgin low fat free greek italian mild hot thick thin roasted toasted sliced " +
+    "shredded chopped diced crushed instant steel cut old fashioned"
+  ).split(" "),
+);
+
+// EVERYDAY FOODS a kitchen holds that the bank's own table may not name yet
+// (figs, dates and protein powder were in David's 10/18 note). The view adds
+// the pantry's foods and every bank ingredient on top of these.
+const COMMON_FOODS = (
+  "rice, white rice, jasmine rice, basmati rice, pasta, spaghetti, penne, macaroni, " +
+  "noodles, ramen, rice noodles, lasagna noodles, quinoa, couscous, oats, oatmeal, flour, " +
+  "sugar, brown sugar, powdered sugar, salt, pepper, olive oil, vegetable oil, canola " +
+  "oil, coconut oil, avocado oil, butter, ghee, milk, cream, heavy cream, sour cream, " +
+  "cream cheese, cheese, cheddar, mozzarella, parmesan, feta, ricotta, string cheese, " +
+  "yogurt, greek yogurt, kefir, eggs, bread, bagels, tortillas, pita, naan, english " +
+  "muffins, crackers, cereal, granola, chips, tortilla chips, popcorn, pretzels, nuts, " +
+  "almonds, walnuts, pecans, cashews, peanuts, pistachios, peanut butter, almond butter, " +
+  "jam, jelly, honey, maple syrup, syrup, vanilla, vanilla extract, baking soda, baking " +
+  "powder, yeast, cocoa powder, cocoa, chocolate, chocolate chips, cornstarch, vinegar, " +
+  "apple cider vinegar, balsamic vinegar, rice vinegar, soy sauce, hot sauce, ketchup, " +
+  "mustard, mayo, mayonnaise, salsa, pesto, basil pesto, sriracha, tahini, hummus, " +
+  "coconut milk, broth, stock, chicken broth, vegetable broth, tomato sauce, pasta sauce, " +
+  "marinara, tomato paste, canned tomatoes, diced tomatoes, crushed tomatoes, beans, " +
+  "black beans, pinto beans, kidney beans, chickpeas, lentils, tuna, salmon, shrimp, cod, " +
+  "tilapia, fish, chicken, chicken breast, chicken thighs, ground beef, beef, steak, " +
+  "pork, bacon, sausage, ham, turkey, ground turkey, tofu, tempeh, edamame, protein " +
+  "powder, whey, whey protein, protein bars, dates, figs, raisins, dried fruit, dried " +
+  "apricots, prunes, dried cranberries, flaxseed, flax seed, flax seeds, ground flaxseed, " +
+  "chia seeds, hemp seeds, hemp hearts, sunflower seeds, pumpkin seeds, sesame seeds, " +
+  "apples, bananas, oranges, lemons, limes, grapes, strawberries, blueberries, " +
+  "raspberries, blackberries, berries, mixed berries, cherries, mango, pineapple, " +
+  "peaches, pears, watermelon, melon, kiwi, avocado, tomatoes, cucumber, lettuce, " +
+  "spinach, kale, arugula, cabbage, broccoli, cauliflower, carrots, celery, onions, red " +
+  "onion, garlic, ginger, potatoes, sweet potatoes, peppers, bell peppers, jalapenos, " +
+  "mushrooms, zucchini, squash, corn, peas, green beans, asparagus, snap peas, bok choy, " +
+  "cilantro, parsley, basil, mint, dill, scallions, green onions, herbs, vegetables, " +
+  "mixed vegetables, frozen vegetables, fruit, ice cream, pizza, waffles, juice, orange " +
+  "juice, coffee, tea, sparkling water, soda, wine, beer, cinnamon, cumin, paprika, chili " +
+  "powder, oregano, thyme, rosemary, turmeric, garlic powder, onion powder, curry powder, " +
+  "red pepper flakes, nutmeg, bay leaves, spices, seasoning, italian seasoning, taco " +
+  "seasoning, oat milk, almond milk, soy milk, cottage cheese, deli meat, lunch meat, hot " +
+  "dogs, meatballs, dumplings, gnocchi, pancake mix, olives, pickles, capers, miso, " +
+  "gochujang, curry paste, fish sauce, oyster sauce, worcestershire sauce, teriyaki " +
+  "sauce, bbq sauce, ranch"
+).split(/\s*,\s*/);
+
+/**
+ * Every food name the note reader accepts, keyed both ways the pantry
+ * matches (canonical and plenty key, so "figs" is "fig"). A key maps to the
+ * name to save under when it came from the pantry or the bank, or to "" for
+ * the built-in lists (then his own word is kept).
+ * @param {Iterable<string>} known
+ * @returns {Map<string, string>}
+ */
+function noteVocab(known) {
+  /** @type {Map<string, string>} */
+  const m = new Map();
+  const add = (/** @type {string} */ food, /** @type {string} */ as) => {
+    const f = String(food ?? "").trim();
+    if (!f) return;
+    for (const k of [canonicalFood(f), plentyKey(f)]) {
+      if (k && (!m.has(k) || (as && !m.get(k)))) m.set(k, as);
+    }
+  };
+  for (const f of known ?? []) add(f, String(f ?? "").trim());
+  for (const f of knownFoods()) add(f.replace(/-/g, " "), "");
+  for (const f of COMMON_FOODS) add(f, "");
+  return m;
+}
+
+/**
+ * Split a piece into the foods it names. The longest known run of words
+ * wins; up to two unknown words right before a food are its describing words
+ * ("sharp cheddar cheese", "boy Scout popcorn"); filler is skipped; any other
+ * unknown run is leftover, which the reader shows as "not sure".
+ * @param {string} piece
+ * @param {Map<string, string>} vocab
+ * @returns {{ foods: { name: string }[], leftover: string[] }}
+ */
+function segmentFoods(piece, vocab) {
+  const words = piece.split(/\s+/).filter(Boolean);
+  const bare = (/** @type {string} */ w) => w.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const lookup = (/** @type {string} */ phrase) => {
+    for (const k of [canonicalFood(phrase), plentyKey(phrase)]) {
+      if (vocab.has(k)) return /** @type {string} */ (vocab.get(k));
+    }
+    return null;
+  };
+  /** @type {{ name: string }[]} */
+  const foods = [];
+  /** @type {string[]} */
+  const leftover = [];
+  /** @type {string[]} */
+  let pending = [];
+  const flush = () => {
+    if (pending.length) leftover.push(pending.join(" "));
+    pending = [];
+  };
+  for (let i = 0; i < words.length;) {
+    let hit = 0;
+    let as = "";
+    for (let n = Math.min(5, words.length - i); n >= 1; n--) {
+      const phrase = words.slice(i, i + n).join(" ");
+      const found = lookup(phrase);
+      if (found !== null) {
+        hit = n;
+        as = found;
+        break;
+      }
+    }
+    if (hit) {
+      if (pending.length > 2) flush();
+      if (pending.length && !pending.every((w) => DESCRIBES.has(bare(w)))) {
+        // UNKNOWN WORDS GLUED ONTO A KNOWN FOOD DO NOT RIDE ALONG WHEN THEY
+        // SOUND LIKE A FOOD (Tribunal Final Gate, 1.95: "flat seed rice" was
+        // one row, "pnut butter" a staple). The whole run close to a known
+        // food ("pnut butter" is "peanut butter") is one misheard food and
+        // saves nothing; words close to a known food on their own ("flat
+        // seed") are doubted and the food that follows is kept by itself.
+        const lead = pending.join(" ");
+        const food = words.slice(i, i + hit).join(" ");
+        if (closestFood(`${lead} ${food}`, vocab)) {
+          leftover.push(`${lead} ${food}`);
+          pending = [];
+          i += hit;
+          continue;
+        }
+        if (closestFood(lead, vocab)) {
+          flush();
+        }
+      }
+      const said = [...pending, ...words.slice(i, i + hit)].join(" ");
+      // his own word unless the pantry or bank already names this food, and
+      // only when nothing describes it ("oats" saves as the pantry's
+      // "Rolled oats"; "frozen berries" stays as said)
+      foods.push({
+        name: as && pending.length === 0 ? as : said.charAt(0).toLowerCase() + said.slice(1),
+      });
+      pending = [];
+      i += hit;
+      continue;
+    }
+    if (FILLER.has(bare(/** @type {string} */ (words[i])))) flush();
+    else pending.push(/** @type {string} */ (words[i]));
+    i++;
+  }
+  flush();
+  return { foods, leftover };
+}
+
+/**
+ * The known food a misheard phrase most likely was ("flat seed" is one
+ * letter from "flaxseed"), or undefined. Only close calls: two edits at most,
+ * on phrases of five letters or more, so a guess is a help and never a leap.
+ * @param {string} phrase
+ * @param {Map<string, string>} vocab
+ * @returns {string | undefined}
+ */
+function closestFood(phrase, vocab) {
+  const target = phrase.toLowerCase().replace(/[^a-z]/g, "");
+  if (target.length < 5) return undefined;
+  let best = /** @type {string | undefined} */ (undefined);
+  let bestD = 3;
+  for (const [key, as] of vocab) {
+    const cand = key.replace(/-/g, "");
+    if (Math.abs(cand.length - target.length) >= bestD) continue;
+    const d = editDistance(target, cand);
+    if (d < bestD) {
+      bestD = d;
+      best = as || key.replace(/-/g, " ");
+    }
+  }
+  return best;
+}
+
+/** Levenshtein distance, small strings only */
+function editDistance(/** @type {string} */ a, /** @type {string} */ b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(
+        /** @type {number} */ (prev[j]) + 1,
+        /** @type {number} */ (cur[j - 1]) + 1,
+        /** @type {number} */ (prev[j - 1]) + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    prev = cur;
+  }
+  return /** @type {number} */ (prev[b.length]);
+}
+
+/**
+ * Does MARK OUT have anything to change for this food? The read-back shows
+ * the button only when it would.
+ * @param {Record<string, any>} pantry
+ * @param {string} food
+ * @returns {boolean}
+ */
+export function outMatches(pantry, food) {
+  const key = plentyKey(food);
+  return pantryItems(pantry).some(
+    (it) => plentyKey(String(it.food)) === key && (isDatedItem(it) || Boolean(it.state)),
+  );
+}
+
+/**
+ * MARK OUT, the one tap that confirms an "out of X" from a note (I-06): a
+ * shelf-stable row of that food goes to OUT (no state, buys on need), and a
+ * counted row of it comes off the shelf. Only ever called from his tap.
+ * @param {Record<string, any>} pantry
+ * @param {string} food
+ * @returns {Record<string, any>} new pantry (input untouched)
+ */
+export function markPantryOut(pantry, food) {
+  const key = plentyKey(food);
+  /** @type {Record<string, any>[]} */
+  const next = [];
+  for (const it of pantryItems(pantry)) {
+    if (plentyKey(String(it.food)) !== key) {
+      next.push(it);
+      continue;
+    }
+    if (isDatedItem(it)) continue;
+    const rest = { ...it };
+    delete rest.state;
+    next.push(rest);
+  }
+  return packPantry(next);
+}
+
+/** the most notes kept: about two months of weekly Sunday notes, with room */
+export const PANTRY_NOTES_KEPT = 30;
+
+/**
+ * HIS WORDS ARE KEPT (I-06, post-mortem 10/18: "your original words weren't
+ * kept anywhere"). One note per ADD: what he said, word for word, beside
+ * what was saved from it, what the reader was not sure of, and the outs he
+ * was offered. Household sibling file to pantry.json, like waste.json:
+ * households/<h>/pantry-notes.json, shape { notes: [...] }, newest last.
+ * @param {Record<string, any> | null | undefined} existing the file as read
+ * @param {{ said: string, saved: Record<string, any>[], unsure: string[], outs: { name: string, marked: boolean }[], by?: string }} note
+ * @param {Date} now
+ * @returns {{ notes: Record<string, any>[] }}
+ */
+export function appendPantryNote(existing, note, now) {
+  const notes = Array.isArray(existing?.notes) ? existing.notes.slice() : [];
+  const at = now.toISOString();
+  // unique per note: the 409 keyed-array merge keys on `id`
+  const id = `${at}|${note.by ?? ""}`;
+  if (!notes.some((/** @type {any} */ n) => n?.id === id)) {
+    notes.push({
+      id,
+      at,
+      ...(note.by ? { by: note.by } : {}),
+      said: String(note.said ?? ""),
+      saved: note.saved,
+      unsure: note.unsure,
+      outs: note.outs,
+    });
+  }
+  return { notes: notes.slice(-PANTRY_NOTES_KEPT) };
 }
 
 /**
@@ -285,9 +730,10 @@ function leadingAmount(/** @type {string} */ qty) {
  * lands through the same READ IT BACK, drop, ADD path as SAY WHAT YOU HAVE.
  * @param {{ name: string, kind: string, qty: string }[][]} frames items per scanned frame
  * @param {string} narration what he said while filming (may be empty)
+ * @param {Iterable<string>} [known] food names the app knows (readPantryNote)
  * @returns {ReturnType<typeof parsePantryDictation>}
  */
-export function mergeFridgeWalk(frames, narration) {
+export function mergeFridgeWalk(frames, narration, known) {
   /** @type {Map<string, ReturnType<typeof parsePantryDictation>[number]>} */
   const byFood = new Map();
   for (const items of frames ?? []) {
@@ -315,7 +761,7 @@ export function mergeFridgeWalk(frames, narration) {
       }
     }
   }
-  for (const said of parsePantryDictation(narration)) {
+  for (const said of parsePantryDictation(narration, known)) {
     const key = canonicalFood(said.name);
     const had = byFood.get(key);
     // his words win: amount, low, and where it lives

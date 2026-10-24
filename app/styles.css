@@ -2112,6 +2112,36 @@ a.ask.linkbtn {
 .rotation .offshelf {
   margin-top: 8px;
 }
+/* COOK FOR N (Mise 2.0, D-03): the count and its buttons, thumb-sized */
+.tile.cookfor {
+  margin-top: 10px;
+}
+.cookfor-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cookfor-btn {
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: inherit;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.cookfor-btn:disabled {
+  opacity: 0.4;
+}
+.cookfor-n {
+  min-width: 2.5em;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 600;
+}
 /* List/pantry additions */
 .q.num.nopr {
   opacity: 0.4;
@@ -2790,6 +2820,20 @@ details.dayrow summary:focus-visible {
   text-align: left;
 }
 
+/* a named recipe someone at the table cannot eat, or that is not checked
+   yet (2.0, I-08): greyed with the reason under the name */
+.chip.blocked {
+  opacity: 0.55;
+  border-style: dashed;
+}
+.chip.blocked .why {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 /* list cells wrap instead of cutting the amount or price to "1.04 lb weig…" */
 .checkrow.listcols .cols .c {
   white-space: normal;
@@ -2972,4 +3016,36 @@ input[aria-label$="comma separated"] {
   font-weight: 400;
   margin-top: 3px;
   opacity: 0.8;
+}
+
+/* THE $15 FLAG (Mise 2.0, I-09): its own full-width line under the row's
+   columns, in words, so it reads at 390 px without a tap */
+.checkrow.listcols .priceflag {
+  grid-column: 1 / -1;
+  margin: 4px 0 0 39px;
+  padding: 4px 8px;
+  border-left: 3px solid var(--warn, #e0a34a);
+  border-radius: 6px;
+  background: rgba(224, 163, 74, 0.09);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* CHECK YOU HAVE THESE (Mise 2.0, I-10): two answer buttons side by side,
+   each a full 44 px target */
+.checkfirst {
+  margin-bottom: 12px;
+}
+.checkrow.listcols.checkfirstrow {
+  grid-template-columns: 1fr auto;
+  cursor: default;
+}
+.checkrow.listcols.checkfirstrow .rowbtns {
+  flex-wrap: nowrap;
+}
+.checkrow.listcols.checkfirstrow .ownbtn {
+  padding: 0 10px;
 }

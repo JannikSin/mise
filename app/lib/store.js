@@ -233,7 +233,7 @@ async function defaultProfilesRead(path) {
     // which fires `revalidate` on the way past. So a device that had cached
     // the list once kept serving that version forever. The symptom that found
     // it: David moved into the Wayne house and Elliot was added, both landing
-    // in profiles.json — and his laptop went on reporting him in "taranowski"
+    // in profiles.json — and his laptop went on reporting him in "thornton"
     // with no Elliot anywhere, which silently pointed the whole app (pantry,
     // ledger, events, the shopping trip) at the wrong kitchen and left the
     // "add housemate" picker with nobody to offer.
@@ -410,6 +410,14 @@ export function initStore() {
   void flush();
 }
 
+// when each file was last checked against GitHub (revalidateFile, I-03), and
+// when each directory's last full pass ended (revalidateCollection); declared
+// here because the sync scope's purge forgets the paths it removes
+/** @type {Map<string, { at: number, missing: boolean }>} */
+const fileCheckedAt = new Map();
+/** @type {Map<string, number>} */
+const passDoneAt = new Map();
+
 // THE SYNC SCOPE (Mise 2.0, A-03; David, 2026-10-18: "Nobody in West
 // Lafayette should be able to see my family"). A phone that has not verified
 // the admin syncs only its own household: a path under another household, or
@@ -425,7 +433,7 @@ let syncScope = null;
 let scopeBase = null;
 // guests seated at this phone's own tables, kept across launches so a cold
 // start never purges their targets before the events load (Tribunal
-// Engineer, 2.0 loop 1: offline, SET then skipped Annie as unreadable)
+// Engineer, 2.0 loop 1: offline, SET then skipped a guest as unreadable)
 const SCOPE_GUESTS_KEY = "mise.scopeGuests";
 /** @type {Set<string>} */
 let scopeGuests = new Set(
@@ -534,6 +542,36 @@ export function setScopeGuests(ids) {
 }
 
 /**
+ * The targets of the ONE person being seated, read for real before the plate
+ * screen runs (Mise 2.0, D-01, schelkin 10/23). A guest not yet seated is
+ * outside this phone's SYNC SCOPE, so every read of her answered null and the
+ * screen could only refuse her; seating is the deliberate act that admits
+ * her, so it admits her targets files (GUEST_FILES, nothing else of hers)
+ * first, then waits for GitHub (readNow). Not remembered across launches: the
+ * next setScopeGuests, from the house's tables, keeps her if she was seated
+ * and drops her again if she was not. The admin's phone has no scope, so
+ * this is only the wait.
+ *
+ * Only someone this phone may already show is admitted (Tribunal Red Team,
+ * 10/24, F5): an id from `mayShow` (the phone's visible profiles) or a guest
+ * already seated at this household's tables (scopeGuests). Any other id
+ * answers null before anything is fetched or the scope widens, so a typed or
+ * stale id cannot pull a stranger's allergies onto this phone; the caller
+ * fails closed on the null.
+ * @param {string} id
+ * @param {Iterable<string>} mayShow the profile ids this phone's screens show
+ * @returns {Promise<Record<string, unknown> | null>}
+ */
+export async function readTargetsForSeat(id, mayShow) {
+  if (!new Set(mayShow).has(id) && !scopeGuests.has(id)) return null;
+  if (syncScope !== null && !scopeGuests.has(id)) {
+    scopeGuests = new Set([...scopeGuests, id]);
+    await applySyncScope();
+  }
+  return readTargetsOf(id, readNow).catch(() => null);
+}
+
+/**
  * Cached-first read. Returns the local record immediately (null if never
  * fetched); kicks off a background refresh for clean files when online,
  * at most once per file per 30 s (5 minutes for a missing file). A path
@@ -550,6 +588,32 @@ export async function read(path, opts) {
   if (!inSyncScope(finalPath)) return null;
   const rec = await dbGet(finalPath);
   void revalidate(finalPath);
+  return rec ? rec.data : null;
+}
+
+/**
+ * A read that WAITS for GitHub before it answers, for a decision that cannot
+ * be taken on a guess. Seating a guest is one (Mise 2.0, D-01; David's live
+ * guest test, Sun 10/18 about 10 pm: a guest signed up and he added her to
+ * that night's curry from People, and "it doesn't work"). Her targets had just
+ * been written from her own phone, so his phone had never cached them: the
+ * cached-first read answered null, the plate screen refused her as
+ * unreadable, and only a second tap, after the background fetch had landed,
+ * seated her. Here the check runs first (joining one already in flight, and
+ * within the usual 30 s window answering from the cache); a file remembered
+ * as missing is asked for again when nothing is cached, because a profile
+ * made minutes ago is exactly the case. Offline, out of scope, or a failed
+ * fetch with nothing cached: null, and the caller fails closed.
+ * @param {string} path
+ * @param {{ raw?: boolean }} [opts]
+ * @returns {Promise<Record<string, unknown> | null>}
+ */
+export async function readNow(path, opts) {
+  const finalPath = opts?.raw ? path : scoped(path);
+  if (!inSyncScope(finalPath)) return null;
+  if (!(await dbGet(finalPath))) fileCheckedAt.delete(finalPath);
+  await revalidate(finalPath);
+  const rec = await dbGet(finalPath);
   return rec ? rec.data : null;
 }
 
@@ -581,8 +645,6 @@ export async function readMeta(path, opts) {
 // write forgets the path, so the next read after it checks again.
 /** @type {Map<string, Promise<void>>} */
 const fileChecks = new Map();
-/** @type {Map<string, { at: number, missing: boolean }>} */
-const fileCheckedAt = new Map();
 // also the rest after a collection's full pass (revalidateCollection, I-03)
 const FILE_RECHECK_MS = 30_000;
 const MISSING_RECHECK_MS = 5 * 60_000;
@@ -693,8 +755,6 @@ const freshDirs = new Set();
 // store with no signal must still plan from it (Tribunal loop 1)
 /** @type {Set<string>} */
 const stalledDirs = new Set();
-/** @type {Map<string, number>} when each directory's last pass ended */
-const passDoneAt = new Map();
 
 /**
  * Has this collection finished at least one full sync on this launch?
@@ -862,7 +922,7 @@ export function writeErrorMessage(msg) {
     return "the sandbox data branch is gone: re-seed it (tools/seed-sandbox-data.ps1)";
   }
   if (/HTTP 404/.test(msg)) {
-    return "this token can't see the data repo — check the token's repository access, and the data repo in SYS (do NOT create a new token)";
+    return "this token can't see the data repo, check the token's repository access, and the data repo in SYS (do NOT create a new token)";
   }
   if (/HTTP 40[13]/.test(msg)) {
     // GitHub answers a secondary rate limit with 403 and says so in the body,

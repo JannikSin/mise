@@ -1615,7 +1615,7 @@ const ASK_SYSTEM =
   "to batch-cook a component) deserve concrete, practical answers with " +
   "real times and temperatures. Keep answers short: a few sentences, or a " +
   "tight list of steps when asked how to cook something. Plain words, no " +
-  "headers. You never give medical or supplement-dosing advice — for " +
+  "headers. You never give medical or supplement-dosing advice, for " +
   "health questions, point at a clinician. You cannot change the app's " +
   "data; when asked to change something, say which button in the app does " +
   "it if the snapshot makes that clear.";
@@ -2973,7 +2973,7 @@ export function parseAskResponse(resp) {
     .map((/** @type {any} */ b) => b.text)
     .join("\n")
     .trim();
-  return { reply: text || "no answer came back — try asking again" };
+  return { reply: text || "no answer came back, try asking again" };
 }
 
 // ---- invites: join by link (guesthouse spec §8, 2026-09-14) -----------------

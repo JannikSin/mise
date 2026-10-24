@@ -5,7 +5,7 @@
 // change with it.
 
 import { getToken, DATA_REPO, dataRepoOverridden, dataBranch } from "./github.js";
-import { withCartSend } from "./shopping.js";
+import { withCartSend, withSentUpcs } from "./shopping.js";
 import { narrationWav } from "./scan.js";
 
 const WORKER_URL = "https://mise-worker.janniksin.workers.dev";
@@ -44,7 +44,7 @@ async function downscalePhoto(file) {
 async function post(path, body) {
   const token = getToken();
   if (!token) throw new Error("connect token in SYS first");
-  if (!navigator.onLine) throw new Error("no signal — the offline tools above still work");
+  if (!navigator.onLine) throw new Error("no signal, the offline tools above still work");
   let res;
   const startedAt = Date.now();
   try {
@@ -93,7 +93,7 @@ async function post(path, body) {
     }
     // fetch network failures are technical strings ("Failed to fetch") —
     // never show those to David
-    throw new Error("no connection — try again when you have signal", { cause: err });
+    throw new Error("no connection, try again when you have signal", { cause: err });
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -366,7 +366,7 @@ export async function scanHallPlate(file, items) {
  * @param {Record<string, any>} body
  */
 async function postOpen(path, body) {
-  if (!navigator.onLine) throw new Error("no signal — try again when you are online");
+  if (!navigator.onLine) throw new Error("no signal, try again when you are online");
   let res;
   try {
     res = await fetch(WORKER_URL + path, {
@@ -376,7 +376,7 @@ async function postOpen(path, body) {
       signal: AbortSignal.timeout(60000),
     });
   } catch (err) {
-    throw new Error("no connection — try again when you have signal", { cause: err });
+    throw new Error("no connection, try again when you have signal", { cause: err });
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok)
@@ -640,6 +640,7 @@ const KROGER_REFRESH = "mise.kroger.refresh";
 const KROGER_EXPIRES = "mise.kroger.expires";
 const KROGER_LOG = "mise.kroger.log";
 const KROGER_SENDS = "mise.kroger.sends";
+const KROGER_SENT_UPCS = "mise.kroger.sentUpcs";
 
 /**
  * A DURABLE RECORD OF WHAT WAS PUSHED (David, 2026-08-25: "I'm logged in to my
@@ -693,6 +694,41 @@ export function recordCartSend(weekId) {
     );
   } catch {
     // storage refused: the in-memory counter still guards this visit
+  }
+}
+
+/**
+ * The products this phone has sent to the cart for a week (see withSentUpcs:
+ * a send after the first carries only what is new). Each entry is a UPC
+ * string (oldest record), { upc, quantity } or { upc, quantity, food }.
+ * @param {string} weekId
+ * @returns {import("./shopping.js").SentEntry[]}
+ */
+export function cartSentUpcsFor(weekId) {
+  try {
+    const book = JSON.parse(localStorage.getItem(KROGER_SENT_UPCS) ?? "{}");
+    const upcs = book?.[weekId];
+    return Array.isArray(upcs)
+      ? upcs.filter((u) => typeof u === "string" || (u && typeof u.upc === "string"))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * @param {string} weekId
+ * @param {{ upc: string, quantity: number, food?: string }[]} rows the rows sent, with quantities and the food each is for
+ */
+export function recordCartUpcs(weekId, rows) {
+  try {
+    const book = JSON.parse(localStorage.getItem(KROGER_SENT_UPCS) ?? "{}");
+    localStorage.setItem(
+      KROGER_SENT_UPCS,
+      JSON.stringify(withSentUpcs(book && typeof book === "object" ? book : {}, weekId, rows)),
+    );
+  } catch {
+    // storage refused: a later send of new items falls back to the full re-arm
   }
 }
 

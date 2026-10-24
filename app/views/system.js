@@ -58,6 +58,7 @@ const BUY_DAY_NAMES = [
  * System status view: app health, sync queue, data-repo checks, token entry.
  * All state lives in the app shell; this view just renders and forwards events.
  * @param {{
+ *   askConfirm?: (message: string) => Promise<boolean>,
  *   sw: "installing" | "ready" | "failed",
  *   sync: Record<string, any>,
  *   repo: Record<string, any> | null,
@@ -80,6 +81,7 @@ const BUY_DAY_NAMES = [
  * }} props
  */
 export function SystemView({
+  askConfirm = async (/** @type {string} */ m) => window.confirm(m),
   sw,
   sync,
   repo,
@@ -235,7 +237,7 @@ export function SystemView({
     try {
       setNotifyResult(await notifyTest());
     } catch (err) {
-      setNotifyErr(err instanceof Error ? err.message : "test failed — needs signal + token");
+      setNotifyErr(err instanceof Error ? err.message : "test failed, needs signal + token");
     }
     setNotify("done");
   };
@@ -252,7 +254,7 @@ export function SystemView({
   // cache first and refreshes behind it, so the first answer on a device that
   // has been away is the OLD list. Without this subscription the refreshed
   // file lands in IndexedDB and never reaches the screen — which is how this
-  // view kept insisting David lived in "taranowski" days after he moved.
+  // view kept insisting David lived in "thornton" days after he moved.
   useEffect(() => {
     let alive = true;
     const load = () => {
@@ -305,7 +307,7 @@ export function SystemView({
 
   // household (profiles.json household, absent = "home"): which grocery trip
   // this profile's list merges into. Editable so a member can move for a week
-  // (Laurie visiting joins "home", then moves back to hers).
+  // (Lena visiting joins "home", then moves back to hers).
   //
   // MOVING IS A CHOICE FROM A LIST, NOT A SPELLING TEST (David, 2026-08-28).
   // This was a bare text box holding the raw slug, so moving into an existing
@@ -474,7 +476,7 @@ export function SystemView({
     if (!to || to === household || houseBusy) return;
     if (to === "home") {
       setHouseNote(
-        `"home" is the shared default house — renaming into it would mix this house's pantry and ledger into everyone else's`,
+        `"home" is the shared default house, renaming into it would mix this house's pantry and ledger into everyone else's`,
       );
       return;
     }
@@ -502,7 +504,7 @@ export function SystemView({
       }
       if (existing.some(Boolean)) {
         setHouseNote(
-          `a house called "${to}" already exists — pick another name, or move people into it one by one`,
+          `a house called "${to}" already exists, pick another name, or move people into it one by one`,
         );
         return;
       }
@@ -529,7 +531,7 @@ export function SystemView({
       );
       if (!ok) {
         setHouseNote(
-          "couldn't load the real profile list — nobody moved (the copied files are harmless)",
+          "couldn't load the real profile list, nobody moved (the copied files are harmless)",
         );
         return;
       }
@@ -538,9 +540,9 @@ export function SystemView({
       );
       setRenameDraft("");
       setHouseNote(
-        `renamed — everyone here now shops from "${to}" (carried ${carried.join(", ") || "nothing"}` +
+        `renamed, everyone here now shops from "${to}" (carried ${carried.join(", ") || "nothing"}` +
           (missing.length > 0
-            ? `; ${missing.join(", ")} not on this device — if they exist they stayed at "${household}", rename again from a synced device to carry them)`
+            ? `; ${missing.join(", ")} not on this device, if they exist they stayed at "${household}", rename again from a synced device to carry them)`
             : `)`),
       );
     } catch (e) {
@@ -583,7 +585,7 @@ export function SystemView({
         }),
       );
       if (!ok) {
-        setHouseNote("profile list unreachable — they are in household.json but not moved");
+        setHouseNote("profile list unreachable, they are in household.json but not moved");
         return;
       }
       setAllProfiles((cur) =>
@@ -598,7 +600,7 @@ export function SystemView({
       );
       setHouseDoc({ ...(raw ?? {}), members: res.household.members });
       setAddPick("");
-      setHouseNote(`added — they now share this house's pantry and trip`);
+      setHouseNote(`added, they now share this house's pantry and trip`);
     } catch (e) {
       setHouseNote(e instanceof Error ? e.message : "add failed");
     } finally {
@@ -641,7 +643,7 @@ export function SystemView({
   const [repoDraft, setRepoDraft] = useState(
     dataRepoOverridden() ? `${DATA_REPO.owner}/${DATA_REPO.repo}` : "",
   );
-  const applyDataRepo = () => {
+  const applyDataRepo = async () => {
     // A-20 (2.0): an empty box on a phone already on the family repo used to
     // wipe the key, profile and saved data with no question asked
     const want = repoDraft.trim();
@@ -651,9 +653,9 @@ export function SystemView({
       return;
     }
     if (
-      !confirm(
+      !(await askConfirm(
         "Switching the data repo signs this phone out: its GitHub key, profile and saved data are cleared and someone has to type the key in again. Switch?",
-      )
+      ))
     ) {
       return;
     }
@@ -871,7 +873,7 @@ export function SystemView({
                   onChange=${() => toggleGear(e.id)}
                 />
                 <span>
-                  ${e.label} ${e.note ? html`<small class="hint"> — ${e.note}</small>` : null}
+                  ${e.label} ${e.note ? html`<small class="hint">, ${e.note}</small>` : null}
                 </span>
               </label>`,
           )}
@@ -894,7 +896,7 @@ export function SystemView({
           dinnersNow === 0 && !undeclared
             ? html`<p class="hint">
                 ⚠️ Nothing in the bank is a dinner you can cook with this. A microwave alone cannot
-                make any of them, and an empty kitchen certainly cannot — you need at least a burner
+                make any of them, and an empty kitchen certainly cannot, you need at least a burner
                 and a pan.
               </p>`
             : null
@@ -1017,19 +1019,19 @@ export function SystemView({
         ${
           (repo?.auth === "invalid" || repo?.auth === "norepo") &&
           sync.pending > 0 &&
-          html`<p class="hint">Not syncing — your access token needs fixing (see below).</p>`
+          html`<p class="hint">Not syncing, your access token needs fixing (see below).</p>`
         }
         <div class="actions">
           <button class="secondary" onClick=${onExport}>⬇ EXPORT MY DATA</button>
         </div>
         <p class="hint">
           Downloads this profile's data (targets, pantry, list, plans, logs, own recipes) as one
-          JSON file — your offline backup, works from the local cache even without signal.
+          JSON file, your offline backup, works from the local cache even without signal.
         </p>
       </div>
 
       <div class="tile">
-        <h2 class="k">Data repo — ${DATA_REPO.owner}/${DATA_REPO.repo}</h2>
+        <h2 class="k">Data repo: ${DATA_REPO.owner}/${DATA_REPO.repo}</h2>
         <div class="row">
           <span class="k">Privacy</span>
           ${
@@ -1068,7 +1070,7 @@ export function SystemView({
         ${
           renewSoon &&
           html`<p class="hint">
-            ⚠ This token is nearly a year old — fine-grained tokens expire at 12 months. Create a
+            ⚠ This token is nearly a year old, fine-grained tokens expire at 12 months. Create a
             fresh one now (github.com → Settings → Developer settings → Fine-grained tokens) and
             paste it below before the old one dies mid-week.
           </p>`
@@ -1078,7 +1080,7 @@ export function SystemView({
           html`
             ${
               repo?.auth === "invalid" &&
-              html`<p class="hint">Your saved token stopped working — paste a new one.</p>`
+              html`<p class="hint">Your saved token stopped working, paste a new one.</p>`
             }
             ${
               repo?.auth === "norepo" &&
@@ -1331,7 +1333,7 @@ export function SystemView({
           <span class="k">Family</span>
           <input
             aria-label="Family this person belongs to"
-            placeholder="e.g. taranowski"
+            placeholder="e.g. thornton"
             value=${familyShown}
             onInput=${(/** @type {any} */ e) => setFamilyDraft(e.currentTarget.value)}
           />
@@ -1398,7 +1400,7 @@ export function SystemView({
         </div>
         <p class="hint">
           friend groups (B4): each group lives in its OWN private repo with its own token. Switching
-          wipes this device's local data, profile, and token, then reloads — you'll re-enter that
+          wipes this device's local data, profile, and token, then reloads, you'll re-enter that
           group's token. Blank + SWITCH returns to the family repo.
         </p>
         <h3>Tests</h3>
@@ -1406,7 +1408,7 @@ export function SystemView({
           <button class="primary" onClick=${onTestWrite}>TEST SYNC WRITE</button>
         </div>
         <p class="hint">
-          Writes a timestamp to meta.json in the data repo. Works offline — it queues and pushes
+          Writes a timestamp to meta.json in the data repo. Works offline, it queues and pushes
           when signal returns.
         </p>
         <div class="actions">
@@ -1423,7 +1425,7 @@ export function SystemView({
           notifyResult &&
           html`<div class="tile" role="status">
             <div class="k">
-              ${notifyResult.pinged ? "✓ ping sent — check your phone" : "no ping"} ·
+              ${notifyResult.pinged ? "✓ ping sent, check your phone" : "no ping"} ·
               ${
                 notifyResult.cronReady
                   ? "hourly cron LIVE"
@@ -1440,7 +1442,7 @@ export function SystemView({
                 : notifyResult.preview.map(
                     (n) =>
                       html`<div class="d" key=${n.title + n.body}>
-                        <b>${n.title}</b> — ${n.body}
+                        <b>${n.title}</b>: ${n.body}
                       </div>`,
                   )
             }

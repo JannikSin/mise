@@ -180,5 +180,5 @@ export function rotationNoun(recipe) {
 export function rotationLine(chosen) {
   const names = chosen.rotated.map((c) => c.food).join(", ");
   const m = `${Math.round(chosen.macros.calories)} kcal · ${Math.round(chosen.macros.protein)} g`;
-  return names ? `today: ${names} — ${m}` : m;
+  return names ? `today: ${names}, ${m}` : m;
 }

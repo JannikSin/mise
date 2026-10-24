@@ -379,7 +379,7 @@ test("extractRecipeFromHtml prefers JSON-LD Recipe, including @graph nesting", (
 test("screenSourceAvoid names the diner and the hit", () => {
   const hits = screenSourceAvoid(normalize("toss with peanut oil"), [
     { id: "m", name: "Mom", avoid: ["peanut"] },
-    { id: "l", name: "Laurie", avoid: [] },
+    { id: "l", name: "Lena", avoid: [] },
   ]);
   assert.deepEqual(hits, ["Mom: peanut"]);
 });

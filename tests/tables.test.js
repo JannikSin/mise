@@ -39,7 +39,7 @@ const BANK = new Map([[KEBAB.id, KEBAB]]);
 const PROFILES = new Map([
   ["david", { id: "david" }], // house "home"
   ["mom", { id: "mom" }],
-  ["laurie", { id: "laurie", household: "laurie" }],
+  ["lena", { id: "lena", household: "lena" }],
 ]);
 const TODAY = "2026-07-21";
 
@@ -95,7 +95,7 @@ test("a profile not seated derives nothing; a guest from another house never sho
           tables: [
             table({
               seats: [
-                { id: "laurie", servings: 1 },
+                { id: "lena", servings: 1 },
                 { id: "mom", servings: 1 },
               ],
             }),
@@ -103,10 +103,10 @@ test("a profile not seated derives nothing; a guest from another house never sho
         },
       },
     ],
-    ctx({ profileId: "laurie", myHouse: "laurie" }),
+    ctx({ profileId: "lena", myHouse: "lena" }),
   );
-  assert.equal(r.entries.length, 1); // laurie is seated
-  assert.deepEqual(r.cookExtras, []); // but mom (house "home") cooks, not laurie
+  assert.equal(r.entries.length, 1); // lena is seated
+  assert.deepEqual(r.cookExtras, []); // but mom (house "home") cooks, not lena
 });
 
 test("diet/avoid conflicts surface as banners, never as pins (the Red Team block)", () => {
@@ -366,7 +366,7 @@ test("normalizeEvents now VALIDATES brigades instead of passing them through", (
   const good = {
     id: "b1",
     name: "Family dinners",
-    memberIds: ["mom", "laurie"],
+    memberIds: ["mom", "lena"],
     slots: ["dinner"],
     from: "2026-07-27",
     until: "2026-08-02",
@@ -628,12 +628,12 @@ test("a table my plan has SETTLED derives nothing and is not a collision; cooked
 
 test("addSeat seats a person once, clamped; removeSeat takes them off", () => {
   let ev = { tables: [table()] };
-  ev = addSeat(ev, "t1", { id: "laurie", servings: 40 }, TODAY);
-  assert.deepEqual(ev.tables[0].seats.map((s) => s.id), ["david", "mom", "laurie"]);
+  ev = addSeat(ev, "t1", { id: "lena", servings: 40 }, TODAY);
+  assert.deepEqual(ev.tables[0].seats.map((s) => s.id), ["david", "mom", "lena"]);
   assert.equal(ev.tables[0].seats[2].servings, 10, "clamped to the table bound");
-  ev = addSeat(ev, "t1", { id: "laurie", servings: 1 }, TODAY);
+  ev = addSeat(ev, "t1", { id: "lena", servings: 1 }, TODAY);
   assert.equal(ev.tables[0].seats.length, 3, "seated once");
-  ev = removeSeat(ev, "t1", "laurie", TODAY);
+  ev = removeSeat(ev, "t1", "lena", TODAY);
   assert.deepEqual(ev.tables[0].seats.map((s) => s.id), ["david", "mom"]);
 });
 

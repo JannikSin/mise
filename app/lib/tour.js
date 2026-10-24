@@ -46,7 +46,7 @@ export const TOUR_STEPS = [
   {
     route: "#/tables",
     selector: ".tablecard",
-    title: "Tables — shared meals",
+    title: "Tables: shared meals",
     text: "One shared dish, everyone at their own portion. SET WHO COOKS creates the standing arrangement; SET THIS WEEK then fills every shared meal to each person's numbers. Or talk out tonight's dinner.",
   },
   {
@@ -95,7 +95,7 @@ export const TOUR_STEPS = [
     route: "#/list",
     selector: ".lockbtn",
     title: "Going to the store",
-    text: "Tap when you head out: it saves the shopped plan as a fallback you can always return to. The plan itself stays changeable — the app just watches that every bought perishable still gets cooked before it dies.",
+    text: "Tap when you head out: it saves the shopped plan as a fallback you can always return to. The plan itself stays changeable, the app just watches that every bought perishable still gets cooked before it dies.",
   },
   {
     route: "#/list",
