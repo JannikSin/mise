@@ -1091,6 +1091,13 @@ before every plan write).
       //   (the Sunday batch) and kept in the fridge; its later nights carry
       //   `leftoverOf` this table. Its safe window runs from `preparedOn`. A
       //   past prep date counts only if the pot was cooked or bought.
+      "proteinFresh": "once", // ? MEAL B (David 2026-10-25, two Sunday
+      //   pots): a batch pot prepped Sunday ALL BUT THE MEAT, from a dish
+      //   cadence.js freshProteinOk passes. "once" = this night cooks the
+      //   meat for every night the pot feeds; "daily" = each night cooks its
+      //   own share (brigade `meatDaily`). Written by planBrigadeWeek on the
+      //   batch's head table only; its leftover nights read it through
+      //   `leftoverOf`. Absent = the pot is cooked whole on its prep day.
       "cookedAt": "2026-07-24", // ? the serve step's COOKED confirmation
       //   (per-person-plates-design §7.2). Set once by setTableCooked, never
       //   cleared (you cannot un-cook food, same rule as a plan entry's
@@ -1292,6 +1299,18 @@ path, and no brigade-specific behaviour anywhere downstream.
       //   is ever stored (People > EDIT "Sunday dinner is the batch for Mon
       //   to Thu"). A second Sunday pot already set, cooked or bought for a
       //   Sunday stays as it is. planBrigadeWeek itself reads only `true`.
+      "sundayTwoPots": false, // ? SUNDAY COOKS TWO POTS (David 2026-10-25):
+      //   with the batch on and three or more no-cook nights after Sunday,
+      //   Sunday's dinner is meal A (Sun, and Mon by leftovers) and meal B is
+      //   prepped Sunday for the rest up to Thursday (tables.js twoPotSplit),
+      //   its meat cooked later (table `proteinFresh`). Saved Sunday
+      //   `batches` give way to it. Absent = ON (tables.js sundayTwoPotsOn,
+      //   applied by the app like sundayBatchOn); only `false`, the one pot
+      //   for Mon to Thu, is ever stored. planBrigadeWeek reads only `true`.
+      "meatDaily": true, // ? meal B's meat is cooked each night it is eaten
+      //   (raw meat for the later nights frozen Sunday). Absent = cooked once
+      //   on B's first night for all of them (David's latest, 2026-10-25:
+      //   "maybe make the ground beef ... on Tuesday").
       "dinnerMeat": true, // ? EVERY DINNER HAS MEAT (David 2026-09-25: "a
       //   dealbreaker with elliot so cauliflower is not a meal"): the dinner
       //   pool keeps only dishes whose anchor protein (foodclass.js

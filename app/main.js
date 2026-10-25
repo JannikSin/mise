@@ -196,6 +196,7 @@ import {
   updateBrigade,
   rolledRule,
   sundayBatchOn,
+  sundayTwoPotsOn,
   brigadeCovers,
   removeSeat,
   brigadeTableId,
@@ -4202,7 +4203,12 @@ function App() {
       // SUNDAY'S DINNER IS THE BATCH unless the rule saved it off (2.0,
       // I-14): the default is applied to the copy the planner reads, never
       // written into the rule, so "no saved value" stays no saved value
-      const planned = { ...run, sundayBatch: sundayBatchOn(run) };
+      const planned = {
+        ...run,
+        sundayBatch: sundayBatchOn(run),
+        // TWO SUNDAY POTS unless the rule saved one (David, 2026-10-25)
+        sundayTwoPots: sundayTwoPotsOn(run),
+      };
       const { events, made, thin, report, swept, notes, nights } = planBrigadeWeek(cur, planned, {
         dates: datesOfWeek(week),
         today,
