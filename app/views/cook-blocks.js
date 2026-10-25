@@ -78,7 +78,8 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
       sundayComponents.push({
         id: recipe.id,
         name: recipe.name,
-        text: `All but the meat${steps.length > 0 ? `: ${steps.join(" ")}` : "."}`,
+        text: "All but the meat:",
+        steps,
         lines: mealBSundayLines(/** @type {any} */ (entry), weekdayShort),
       });
       continue;
@@ -225,6 +226,12 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
                 ${todayBatched.includes(r.id) && html`<span class="usesoon cookedchip">✓ done</span>`}
               </div>
               ${r.text}
+              ${
+                (r.steps ?? []).length > 0 &&
+                html`<ol class="hint">
+                  ${(r.steps ?? []).map((st, i) => html`<li key=${i}>${st}</li>`)}
+                </ol>`
+              }
               ${(r.lines ?? []).map((l, i) => html`<div class="hint" key=${i}>🥩 ${l}</div>`)}
               <div class="actions">
                 <button class="secondary" onClick=${() => toggleBatched(r.id)}>

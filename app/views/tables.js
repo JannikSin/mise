@@ -26,6 +26,11 @@ import { PeopleSection } from "./people.js";
 /** How long SET TABLE waits on the allergy check before offering TRY AGAIN. */
 const SCREEN_TIMEOUT_MS = 15000;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/** [2, 3, 4] -> "Tue, Wed and Thu" */
+const dayList = (/** @type {number[] | undefined} */ ds) => {
+  const names = (ds ?? []).map((d) => WEEKDAYS[d] ?? "");
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : (names[0] ?? "");
+};
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
 /** @param {string} iso @param {number} n */
@@ -1257,10 +1262,7 @@ export function TablesView({
                   // second Sunday pot is not cooked (2.0, I-14)
                   sundayTwoPotsOn(b) && twoPotSplit(b.cookDays) && cookDaysLabel(b.cookDays)
                     ? html`<span>
-                        · 🥘 Sunday cooks two pots: one for Sun and
-                        ${cookDaysLabel(twoPotSplit(b.cookDays)?.a)}, one for
-                        ${cookDaysLabel(twoPotSplit(b.cookDays)?.b)} with the meat cooked
-                        ${/** @type {any} */ (b).meatDaily ? "each night" : `on ${WEEKDAYS[twoPotSplit(b.cookDays)?.b[0] ?? 2]}`}</span
+                        ${` · 🥘 Sunday cooks two pots: one for Sun and ${dayList(twoPotSplit(b.cookDays)?.a)}, one for ${dayList(twoPotSplit(b.cookDays)?.b)} with the meat cooked ${/** @type {any} */ (b).meatDaily ? "each night" : `on ${WEEKDAYS[twoPotSplit(b.cookDays)?.b[0] ?? 2]}`}`}</span
                       >`
                     : sundayBatchOn(b) && (b.cookDays ?? []).includes(0) && cookDaysLabel(b.cookDays)
                       ? html`<span> · 🥘 Sunday dinner is the batch</span>`
@@ -1482,10 +1484,7 @@ export function TablesView({
                       ${
                         brigadeForm.sundayBatch && brigadeForm.sundayTwoPots && twoPotSplit(brigadeForm.cookDays)
                           ? html`<p class="hint">
-                                Sunday cooks dinner for Sunday and
-                                ${cookDaysLabel(twoPotSplit(brigadeForm.cookDays)?.a)}, and preps a second dish
-                                for ${cookDaysLabel(twoPotSplit(brigadeForm.cookDays)?.b)}: everything except the
-                                meat.
+                                ${`Sunday cooks dinner for Sunday and ${dayList(twoPotSplit(brigadeForm.cookDays)?.a)}, and preps a second dish for ${dayList(twoPotSplit(brigadeForm.cookDays)?.b)}: everything except the meat.`}
                               </p>
                               <div class="sub">The second dish's meat</div>
                               <div class="chips wrapchips">
@@ -1507,7 +1506,7 @@ export function TablesView({
                                 ${
                                   brigadeForm.meatDaily
                                     ? "Each night cooks its own meat in about 15 minutes. The later nights' meat waits in the freezer."
-                                    : "That night cooks all of the meat in about 15 minutes; the next nights reheat it."
+                                    : "That night cooks all of the meat in about 15 to 20 minutes; the next nights reheat it."
                                 }
                               </p>`
                           : brigadeForm.sundayBatch

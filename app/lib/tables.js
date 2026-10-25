@@ -147,7 +147,8 @@ export function brigadeCovers(b, date) {
  * dish cooked that day (its dinner pot, a batch prepared that day, the day's
  * bake and breakfast) counted once, as prepTime plus at most fifteen minutes
  * of cookTime, because an oven or a simmer runs on its own. It does NOT scale
- * with portions, so it is shown as "about", never enforced. P7.
+ * with portions, so it is shown as "about", never enforced. A meal B pot
+ * (`proteinFresh`) counts fifteen minutes less: its meat is cooked later. P7.
  * @param {TableEvent[]} tables
  * @param {Map<string, Record<string, any>>} recipeById
  * @param {string} sundayIso
@@ -155,17 +156,21 @@ export function brigadeCovers(b, date) {
  */
 export function sundayPrepMinutes(tables, recipeById, sundayIso) {
   const ids = new Set();
+  /** meal B dishes: their meat is cooked on a later night, not Sunday */
+  const fresh = new Set();
   for (const t of tables ?? []) {
     if (t.leftoverOf) continue;
     const cooksSunday = t.preparedOn ? t.preparedOn === sundayIso : t.date === sundayIso;
     if (cooksSunday && t.recipeId) ids.add(t.recipeId);
+    if (cooksSunday && t.preparedOn && /** @type {any} */ (t).proteinFresh) fresh.add(t.recipeId);
   }
   let minutes = 0;
   for (const id of ids) {
     const r = recipeById.get(id);
     const prep = Number(r?.prepTime) > 0 ? Number(r?.prepTime) : 0;
     const cook = Number(r?.cookTime) > 0 ? Number(r?.cookTime) : 0;
-    minutes += prep + Math.min(cook, 15);
+    // meal B leaves its meat, about fifteen minutes, for the night (1.96)
+    minutes += Math.max(0, prep + Math.min(cook, 15) - (fresh.has(id) ? 15 : 0));
   }
   return { minutes: Math.round(minutes), dishes: ids.size };
 }

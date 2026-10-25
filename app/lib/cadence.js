@@ -129,12 +129,20 @@ export function meatPhrase(meat) {
 
 /**
  * Split the recipe's steps: Sunday does every step that does not touch the
- * meat; the night does the rest. A step naming a fresh row's food (its main
- * word, "beef" for "ground beef") is the night's.
+ * meat; the night does the rest. A recipe's own `freshSplit` ({ sunday,
+ * night }, lists of plain steps) wins; otherwise a step naming a fresh row's
+ * food (its main word, "beef" for "ground beef") is the night's.
  * @param {Record<string, any> | null | undefined} recipe
  * @returns {{ sunday: string[], night: string[] }}
  */
 export function splitSteps(recipe) {
+  // the recipe's own split wins (tagged by hand: a step that softens the
+  // onion and then browns the chicken is half Sunday's, half the night's)
+  const own = recipe?.freshSplit;
+  const strings = (/** @type {unknown} */ a) =>
+    Array.isArray(a) && a.every((x) => typeof x === "string" && x.trim() !== "");
+  if (own && strings(own.sunday) && strings(own.night) && own.night.length > 0)
+    return { sunday: [...own.sunday], night: [...own.night] };
   const rows = freshProteinRows(recipe) ?? [];
   const words = new Set(
     rows.flatMap((r) => [
@@ -294,4 +302,37 @@ export function mealBSundayLines(b, dayName) {
     (b.freshNights ?? []).map((d) => dayName(d)),
     b.proteinFresh === "once",
   );
+}
+
+/**
+ * The List's note for meal B (Mise 1.96): the meat on this trip is for the
+ * B nights, and where it goes when it gets home. One note per B pot still
+ * ahead, read from its first night's plan row.
+ * @param {Record<string, any>[]} entries the plan's entries (derived table rows included)
+ * @param {(iso: string) => string} dayName
+ * @param {(recipeId: string) => string} nameOf
+ * @param {string} today
+ * @returns {string[]}
+ */
+export function mealBShoppingLines(entries, dayName, nameOf, today) {
+  /** @type {string[]} */
+  const out = [];
+  for (const e of entries ?? []) {
+    const mode = e?.proteinFresh;
+    if ((mode !== "once" && mode !== "daily") || typeof e.preparedOn !== "string") continue;
+    const nights = (Array.isArray(e.freshNights) ? e.freshNights : [e.date]).map(
+      (/** @type {string} */ d) => dayName(d),
+    );
+    if ((e.freshNights?.[e.freshNights.length - 1] ?? e.date) < today) continue;
+    const first = nights[0] ?? "";
+    const later = nights.slice(1);
+    const meat = meatPhrase(Array.isArray(e.freshMeat) ? e.freshMeat : []);
+    const what = `${nameOf(String(e.viewRecipeId ?? e.recipeId ?? ""))}${meat && mode === "once" ? ` (${meat})` : ""}`;
+    out.push(
+      mode === "once" || later.length === 0
+        ? `The meat for ${what} is cooked ${first}. Buy it ${dayName(e.preparedOn)} and keep it in the fridge; raw ground meat keeps 1 to 2 days, so if you shop earlier, freeze it and move it to the fridge the night before.`
+        : `The meat for ${what} is cooked each night. At home, fridge ${first}'s share and freeze ${later.join(" and ")}'s; move each to the fridge the night before.`,
+    );
+  }
+  return out;
 }

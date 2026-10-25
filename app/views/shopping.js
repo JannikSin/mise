@@ -64,6 +64,7 @@ import {
 } from "../lib/shopping.js";
 import { AISLES } from "../lib/ingredients.js";
 import { isParked } from "../lib/parked.js";
+import { mealBShoppingLines } from "../lib/cadence.js";
 import { decodeReceiptLine, shopScore } from "../lib/receipt.js";
 import { formatSyncTime, localIsoDate, parseLocalIso } from "../lib/dates.js";
 import { datesOfWeek, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
@@ -2257,6 +2258,15 @@ export function ShoppingView({
             </div>`
           }
           ${buildNote && html`<p class="hint" role="status">${buildNote}</p>`}
+          ${
+            // MEAL B (Mise 1.96): the B nights' meat, and where it goes
+            mealBShoppingLines(
+              /** @type {any} */ (plan)?.entries ?? [],
+              (iso) => parseLocalIso(iso).toLocaleDateString([], { weekday: "short" }),
+              (id) => String(recipeIndex?.get(id)?.name ?? id),
+              localIsoDate(new Date()),
+            ).map((line, i) => html`<p class="hint" role="note" key=${`mb${i}`}>🥩 ${line}</p>`)
+          }
           ${
             // the saved-plan confirmation stays; the always-on explainers went
             // (David, 2026-10-16: "it's giving a lot of random data that i

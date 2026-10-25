@@ -279,3 +279,29 @@ test("the Plan rows read: Sunday preps B all but the meat, Tuesday cooks it, Wed
   assert.deepEqual(mealBLines(at("2026-11-02"), day), []);
   for (const e of entries) for (const l of mealBLines(e, day)) assert.ok(!l.includes("—"), l);
 });
+
+test("a recipe's own freshSplit wins over the word match; meal B's meat is not Sunday time", async () => {
+  const { sundayPrepMinutes } = await import("../app/lib/tables.js");
+  const r = dish("curry", "chicken thigh", {
+    note: "cubed",
+    freshSplit: { sunday: ["Soften the onion.", "Simmer the sauce."], night: ["Brown the chicken, add the sauce."] },
+  });
+  assert.deepEqual(splitSteps(r), { sunday: ["Soften the onion.", "Simmer the sauce."], night: ["Brown the chicken, add the sauce."] });
+  assert.equal(splitSteps({ ...r, freshSplit: { sunday: [], night: [] } }).night.length, 1, "an empty override is ignored");
+  const bank = new Map([["b", { prepTime: 20, cookTime: 30 }]]);
+  const t = { id: "x", date: "2026-11-03", slot: "dinner", recipeId: "b", seats: [], preparedOn: "2026-11-01" };
+  assert.equal(sundayPrepMinutes([t], bank, "2026-11-01").minutes, 35);
+  assert.equal(sundayPrepMinutes([{ ...t, proteinFresh: "once" }], bank, "2026-11-01").minutes, 20);
+});
+
+test("the List says where meal B's meat goes", async () => {
+  const { mealBShoppingLines } = await import("../app/lib/cadence.js");
+  const day = (iso) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(`${iso}T12:00:00`).getDay()];
+  const e = { date: "2026-11-03", preparedOn: "2026-11-01", viewRecipeId: "beef-bowl", freshNights: ["2026-11-03", "2026-11-04", "2026-11-05"], freshMeat: [{ food: "ground beef", qty: 900, unit: "g" }] };
+  const once = mealBShoppingLines([{ ...e, proteinFresh: "once" }], day, (id) => id, "2026-11-01").join(" ");
+  assert.match(once, /beef-bowl \(900 g ground beef\) is cooked Tue\. Buy it Sun/);
+  assert.match(once, /1 to 2 days/);
+  const daily = mealBShoppingLines([{ ...e, proteinFresh: "daily" }], day, (id) => id, "2026-11-01").join(" ");
+  assert.match(daily, /fridge Tue's share and freeze Wed and Thu's/);
+  assert.deepEqual(mealBShoppingLines([{ ...e, proteinFresh: "once" }], day, (id) => id, "2026-11-06"), [], "a past pot says nothing");
+});

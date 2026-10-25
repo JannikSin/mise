@@ -397,11 +397,17 @@ export function PlannerView({
         sameDishEveryDay(/** @type {any} */ (plan.entries), dates, (id) => byId.get(id)).map(
           (r) =>
             html`<p class="hint" role="note" key=${`same-${r.slot}`}>
-              ⚠ ${SLOT_META[r.slot]?.full ?? r.slot} is ${r.name}
-              ${r.days === dates.length ? "every day this week" : "every day it is planned this week"}.
-              ${brigade?.active?.slots?.includes(r.slot)
-                ? "To vary it, add another to the kitchen rule on the People tab."
-                : "To vary it, SWITCH one of the days."}
+              ${
+                // one string: htm drops the whitespace between a value and a
+                // line break, so "Muffins" ran into "every day" (1.95 too)
+                `⚠ ${SLOT_META[r.slot]?.full ?? r.slot} is ${r.name} ${
+                  r.days === dates.length ? "every day this week" : "every day it is planned this week"
+                }. ${
+                  brigade?.active?.slots?.includes(r.slot)
+                    ? "To vary it, add another to the kitchen rule on the People tab."
+                    : "To vary it, SWITCH one of the days."
+                }`
+              }
             </p>`,
         )
       }
