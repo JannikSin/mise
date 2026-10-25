@@ -4,7 +4,7 @@
 import { isoWeekId, localIsoDate, parseLocalIso, tripDates } from "./dates.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, leftoverOf?: string, leftoverDate?: string, cookId?: string, cookName?: string, estCalories?: number, estProtein?: number, cookedAt?: string, eatenAt?: string, cookSeconds?: number, cookComment?: string, preparedOn?: string, leftoverPrepared?: string, batchAlongside?: { name: string, date: string, cookId?: string, cookName?: string }, occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean, useItUp?: boolean }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, leftoverOf?: string, leftoverDate?: string, cookId?: string, cookName?: string, estCalories?: number, estProtein?: number, cookedAt?: string, eatenAt?: string, cookSeconds?: number, cookComment?: string, preparedOn?: string, leftoverPrepared?: string, batchAlongside?: { name: string, date: string, cookId?: string, cookName?: string, proteinFresh?: string, freshNights?: string[] }, proteinFresh?: string, freshNights?: string[], freshMeat?: { food: string, qty: number, unit: string }[], occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean, useItUp?: boolean }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any>, fallback?: { savedAt: string, entries: PlanEntry[] }, spend?: { store: string, date: string, total: number }[], reviewNote?: string }} Plan
  */
@@ -61,9 +61,19 @@ export function cookLine(entry, me, dayName, perBowl = false) {
   const who = e.cookId ? (e.cookId === me ? "you" : String(e.cookName ?? e.cookId)) : "";
   const cooked = who ? (who === "you" ? ", you cooked it" : `, ${who} cooked it`) : "";
   // THE SUNDAY BATCH (2026-09-24): the batch nights say where the food is
-  if (typeof e.preparedOn === "string") return `🥘 ${dayName(e.preparedOn)} batch, reheat${cooked}`;
+  // MEAL B (2026-10-25): prepped Sunday all but the meat, which is cooked
+  // tonight, or was cooked on the pot's first night
+  const fresh = e.proteinFresh === "once" || e.proteinFresh === "daily";
+  if (typeof e.preparedOn === "string")
+    return fresh
+      ? `🥘 ${dayName(e.preparedOn)} prep, cook the meat tonight${cooked}`
+      : `🥘 ${dayName(e.preparedOn)} batch, reheat${cooked}`;
   if (e.leftoverOf && typeof e.leftoverPrepared === "string")
-    return `🥘 ${dayName(e.leftoverPrepared)} batch, reheat${cooked}`;
+    return fresh
+      ? e.proteinFresh === "daily"
+        ? `🥘 ${dayName(e.leftoverPrepared)} prep, cook tonight's meat${cooked}`
+        : `🥘 ${dayName(e.leftoverPrepared)} prep and ${typeof e.leftoverDate === "string" ? `${dayName(e.leftoverDate)}'s` : "the"} meat, reheat${cooked}`
+      : `🥘 ${dayName(e.leftoverPrepared)} batch, reheat${cooked}`;
   if (e.batchAlongside && who) {
     const lead = who === "you" ? "🍳 you cook" : `🍳 ${who} cooks`;
     // the batch names its own cook when that is someone else (2.0, I-14,
@@ -74,7 +84,7 @@ export function cookLine(entry, me, dayName, perBowl = false) {
       const bwho = bc === me ? "you cook" : `${String(e.batchAlongside.cookName ?? bc)} cooks`;
       return `${lead} · ${bwho} the batch for ${dayName(e.batchAlongside.date)}: ${e.batchAlongside.name}`;
     }
-    return `${lead} · plus the batch for ${dayName(e.batchAlongside.date)}: ${e.batchAlongside.name}`;
+    return `${lead} · plus the batch for ${dayName(e.batchAlongside.date)}: ${e.batchAlongside.name}${e.batchAlongside.proteinFresh ? ", all but the meat" : ""}`;
   }
   if (e.leftoverOf) {
     const src =

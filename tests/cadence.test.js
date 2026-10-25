@@ -249,3 +249,33 @@ test("the derived plan rows carry meal B's meat for that night", () => {
   }
   assert.equal(byDate.get("2026-11-02").proteinFresh, undefined);
 });
+
+test("the Plan rows read: Sunday preps B all but the meat, Tuesday cooks it, Wed and Thu reheat", async () => {
+  const { cookLine } = await import("../app/lib/plan.js");
+  const { mealBLines, mealBSundayLines } = await import("../app/lib/cadence.js");
+  const day = (iso) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(`${iso}T12:00:00`).getDay()];
+  const { events } = planBrigadeWeek({ tables: [] }, asPlanned(LIVE), ctx());
+  const { entries } = deriveTables([{ house: "wayne", events }], {
+    profileId: "david",
+    ownEntries: [],
+    avoid: [],
+    avoidRecipes: [],
+    bankById: BANK,
+    today: "2026-11-01",
+    profilesById: PROFILES,
+  });
+  const at = (d) => entries.find((e) => e.slot === "dinner" && e.date === d);
+  const sun = at("2026-11-01");
+  assert.match(cookLine(sun, "david", day), /plus the batch for Tue: .*, all but the meat/);
+  const sunLines = mealBSundayLines(sun.batchAlongside, day).join(" ");
+  assert.match(sunLines, /keep it in the fridge for Tue/);
+  assert.match(sunLines, /Freeze Thu's rice or noodles/);
+  assert.match(cookLine(at("2026-11-03"), "david", day), /Sun prep, cook the meat tonight/);
+  const tue = mealBLines(at("2026-11-03"), day).join(" ");
+  assert.match(tue, /Cook all the meat tonight: \d+ g ground (beef|turkey)|Cook all the meat tonight: \d+ g chicken/);
+  assert.match(cookLine(at("2026-11-04"), "david", day), /Sun prep and Tue's meat, reheat/);
+  assert.match(mealBLines(at("2026-11-04"), day).join(" "), /move Thu's rice or noodles/);
+  assert.match(mealBLines(at("2026-11-05"), day).join(" "), /Reheat the meat and the rest/);
+  assert.deepEqual(mealBLines(at("2026-11-02"), day), []);
+  for (const e of entries) for (const l of mealBLines(e, day)) assert.ok(!l.includes("—"), l);
+});

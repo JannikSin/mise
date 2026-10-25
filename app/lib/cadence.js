@@ -32,7 +32,8 @@ import { partOf } from "./synth.js";
 import { proteinClassOf } from "./foodclass.js";
 
 /** protein-part foods that are "the rest", not the meat: cheese, yogurt and friends hold like the rest of the dish */
-const DAIRY = /\b(yogurt|cottage cheese|cheese|skyr|kefir|feta|mozzarella|halloumi|paneer|ricotta|parmesan|whey)\b/;
+const DAIRY =
+  /\b(yogurt|cottage cheese|cheese|skyr|kefir|feta|mozzarella|halloumi|paneer|ricotta|parmesan|whey)\b/;
 /** proteins that cook from raw in about 15 to 20 minutes whatever the cut */
 const FAST_ANY = /\b(ground|minced?|shrimp|prawns?|eggs?|tofu|tempeh|edamame)\b/;
 /** whole-muscle meat is fast only when cut small or thin */
@@ -40,9 +41,11 @@ const FAST_CUT = /\b(slic\w*|thin\w*|cub\w*|dic\w*|strips?|pieces?|chunks?|bite|
 /** never day-of: slow cuts, precooked meat, a whole bird, a fillet of fish */
 /** braising cuts: slow unless sliced thin (gyudon's chuck) */
 const SLOW_CUT = /\b(shoulder|butt|chuck|stew meat)\b/;
-const SLOW = /\b(left whole|whole bird|rotisserie|cheeks?|shank|brisket|roast|bone-in|poached|shredded|batch-cooked|sunday[- ]batch|cooked|fillets?)\b/;
+const SLOW =
+  /\b(left whole|whole bird|rotisserie|cheeks?|shank|brisket|roast|bone-in|poached|shredded|batch-cooked|sunday[- ]batch|cooked|fillets?)\b/;
 /** dishes where the meat cooks INTO the rest (baked, simmered for hours): there is no "rest" to prep without it */
-const BAKED_IN = /\b(dump-and-bake|casserole|sunday-bake|shepherd|lasagn\w*|bake|sheet-pan|slow[- ]cooker|braise\w*)\b/;
+const BAKED_IN =
+  /\b(dump-and-bake|casserole|sunday-bake|shepherd|lasagn\w*|bake|sheet-pan|slow[- ]cooker|braise\w*)\b/;
 
 /**
  * The meat rows meal B cooks fresh each night, or null when the dish cannot
@@ -136,11 +139,27 @@ export function splitSteps(recipe) {
   const words = new Set(
     rows.flatMap((r) => [
       // the class word too: "flank steak" steps say "beef"
-      ...(proteinClassOf(r.food) && proteinClassOf(r.food) !== "plant" ? [String(proteinClassOf(r.food))] : []),
+      ...(proteinClassOf(r.food) && proteinClassOf(r.food) !== "plant"
+        ? [String(proteinClassOf(r.food))]
+        : []),
       ...String(r.food ?? "")
         .toLowerCase()
         .split(/[^a-z]+/)
-        .filter((w) => w.length > 2 && !["ground", "raw", "lean", "boneless", "skinless", "large", "extra", "firm", "shelled"].includes(w)),
+        .filter(
+          (w) =>
+            w.length > 2 &&
+            ![
+              "ground",
+              "raw",
+              "lean",
+              "boneless",
+              "skinless",
+              "large",
+              "extra",
+              "firm",
+              "shelled",
+            ].includes(w),
+        ),
     ]),
   );
   /** @type {string[]} */
@@ -184,7 +203,9 @@ export function freshSundayLines(nightNames, once) {
       ? `Buy the meat today and keep it in the fridge for ${first}. If it was bought before Sunday, freeze it and move it to the fridge ${dayBefore(first)} night.`
       : `Buy the meat today. Fridge ${first}'s portion; freeze ${later.join(" and ")}'s now.`,
     "Cool it fast: in the fridge within 2 hours, rice within 1 hour, spread shallow.",
-    ...(nightNames.length >= 3 ? [`Freeze ${last}'s rice or noodles too; ${last} is day 4, the limit.`] : []),
+    ...(nightNames.length >= 3
+      ? [`Freeze ${last}'s rice or noodles too; ${last} is day 4, the limit.`]
+      : []),
   ];
 }
 
@@ -236,4 +257,41 @@ export function freshNightLines(o) {
     "Reheat the rest from Sunday until steaming hot, 165 F.",
     ...move,
   ];
+}
+
+/**
+ * The lines a meal B night's plan row prints (deriveTables stamps the entry
+ * with `proteinFresh`, `freshNights` and `freshMeat`). Empty for any other row.
+ * @param {Record<string, any>} entry
+ * @param {(iso: string) => string} dayName "2026-11-03" -> "Tue"
+ * @returns {string[]}
+ */
+export function mealBLines(entry, dayName) {
+  const mode = entry?.proteinFresh;
+  const nights = Array.isArray(entry?.freshNights) ? entry.freshNights : [];
+  const i = nights.indexOf(entry?.date);
+  if ((mode !== "once" && mode !== "daily") || i < 0) return [];
+  const names = nights.map((/** @type {string} */ d) => dayName(d));
+  return freshNightLines({
+    meat: Array.isArray(entry.freshMeat) ? entry.freshMeat : [],
+    once: mode === "once",
+    first: i === 0,
+    laterNames: names.slice(1),
+    tomorrow: names[i + 1] ?? null,
+    tomorrowIsLast: nights.length >= 3 && i + 1 === nights.length - 1,
+  });
+}
+
+/**
+ * Sunday's lines for the meal B it preps, from that pot's own plan row.
+ * @param {{ proteinFresh?: string, freshNights?: string[] } | null | undefined} b
+ * @param {(iso: string) => string} dayName
+ * @returns {string[]}
+ */
+export function mealBSundayLines(b, dayName) {
+  if (!b || (b.proteinFresh !== "once" && b.proteinFresh !== "daily")) return [];
+  return freshSundayLines(
+    (b.freshNights ?? []).map((d) => dayName(d)),
+    b.proteinFresh === "once",
+  );
 }

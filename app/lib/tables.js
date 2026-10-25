@@ -738,6 +738,19 @@ export function deriveTables(houses, ctx) {
                 batchAlongside: {
                   name: String(dish?.name ?? alongside.recipeId),
                   date: alongside.date,
+                  // meal B: Sunday preps it all but the meat (2026-10-25)
+                  ...(/** @type {any} */ (alongside).proteinFresh === "once" ||
+                  /** @type {any} */ (alongside).proteinFresh === "daily"
+                    ? {
+                        proteinFresh: /** @type {any} */ (alongside).proteinFresh,
+                        freshNights: [
+                          alongside.date,
+                          ...[...tableById.values()]
+                            .filter((x) => /** @type {any} */ (x).leftoverOf === alongside.id)
+                            .map((x) => x.date),
+                        ].sort(),
+                      }
+                    : {}),
                   ...(batchCook
                     ? {
                         cookId: batchCook.id,

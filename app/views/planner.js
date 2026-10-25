@@ -1,6 +1,7 @@
 import { html } from "htm/preact";
 import { useRef, useState } from "preact/hooks";
 import { targetsSanity } from "../lib/targets.js";
+import { mealBLines, mealBSundayLines } from "../lib/cadence.js";
 import {
   cookLine,
   datesOfWeek,
@@ -701,6 +702,22 @@ export function PlannerView({
                                         >`
                                       }
                                       ${entry.cookedAt && html` <span class="usesoon cookedchip">✓ ate it</span>`}
+                                      ${
+                                        // MEAL B (2026-10-25): Sunday's prep lines on
+                                        // Sunday's row, the night's meat on Tue to Thu
+                                        [
+                                          ...mealBSundayLines(
+                                            /** @type {any} */ (entry).batchAlongside,
+                                            weekdayShort,
+                                          ),
+                                          ...mealBLines(entry, weekdayShort),
+                                        ].map(
+                                          (line, i) =>
+                                            html`<span class="hint plateline" key=${`b${i}`}
+                                              >🥩 ${line}</span
+                                            >`,
+                                        )
+                                      }
                                       ${
                                         /** @type {any} */ (entry).plate &&
                                         html`<span class="hint plateline"

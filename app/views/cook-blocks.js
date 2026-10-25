@@ -3,6 +3,10 @@ import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 import { datesOfWeek, prepSundayOf, recipesById } from "../lib/plan.js";
 import { isDatedItem, pantryItems, perishableStatus } from "../lib/shopping.js";
 import { isParked } from "../lib/parked.js";
+import { mealBSundayLines, splitSteps } from "../lib/cadence.js";
+
+const weekdayShort = (/** @type {string} */ iso) =>
+  parseLocalIso(iso).toLocaleDateString([], { weekday: "short" });
 
 /**
  * The WEEK-level half of what used to be the Cook tab.
@@ -65,6 +69,20 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
     )
       continue;
     const recipe = byId.get(rid);
+    // MEAL B (2026-10-25): Sunday does every step that leaves the meat alone,
+    // read from the recipe itself; the meat waits for its night
+    const fresh = /** @type {any} */ (entry).proteinFresh;
+    if ((fresh === "once" || fresh === "daily") && recipe && !seenSunday.has(recipe.id)) {
+      seenSunday.add(recipe.id);
+      const steps = splitSteps(recipe).sunday;
+      sundayComponents.push({
+        id: recipe.id,
+        name: recipe.name,
+        text: `All but the meat${steps.length > 0 ? `: ${steps.join(" ")}` : "."}`,
+        lines: mealBSundayLines(/** @type {any} */ (entry), weekdayShort),
+      });
+      continue;
+    }
     const bp = recipe?.batchPrep;
     if (!bp) continue;
     if (bp.sundayComponent && !seenSunday.has(recipe.id)) {
@@ -207,6 +225,7 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
                 ${todayBatched.includes(r.id) && html`<span class="usesoon cookedchip">✓ done</span>`}
               </div>
               ${r.text}
+              ${(r.lines ?? []).map((l, i) => html`<div class="hint" key=${i}>🥩 ${l}</div>`)}
               <div class="actions">
                 <button class="secondary" onClick=${() => toggleBatched(r.id)}>
                   ${todayBatched.includes(r.id) ? "UNDO" : "✓ DONE"}

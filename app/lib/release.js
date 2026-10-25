@@ -28,6 +28,15 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
+    version: UNRELEASED,
+    date: "",
+    notes: [
+      "Sunday cooks two dinners: one for Sunday and Monday, and a second for Tuesday to Thursday, all prepped Sunday except the meat. Friday and Saturday each get their own dish. It is the new default when you cook Sunday, Friday and Saturday; in the kitchen rule, Sunday cooks can also be one pot for Mon to Thu, or nights you pick.",
+      "The second dish's meat is cooked once on Tuesday by default, or each night if you choose. Only dishes whose meat cooks in about 15 minutes are picked for it, like ground beef, sliced chicken, shrimp or tofu.",
+      "Plan says what to do each night: Sunday lists the prep and where the meat goes (fridge or freezer), Tuesday says how much meat to cook, and Wednesday and Thursday say reheat until steaming hot, 165 F, and what to move from the freezer the night before.",
+    ],
+  },
+  {
     version: "1.95",
     date: "2026-10-24",
     notes: [
