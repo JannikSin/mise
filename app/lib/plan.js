@@ -64,15 +64,17 @@ export function cookLine(entry, me, dayName, perBowl = false) {
   // MEAL B (2026-10-25): prepped Sunday all but the meat, which is cooked
   // tonight, or was cooked on the pot's first night
   const fresh = e.proteinFresh === "once" || e.proteinFresh === "daily";
+  // Sunday's cook PREPPED meal B; the meat is cooked on its night
+  const prepped = who ? (who === "you" ? ", you prepped it" : `, ${who} prepped it`) : "";
   if (typeof e.preparedOn === "string")
     return fresh
-      ? `🥘 ${dayName(e.preparedOn)} prep, cook the meat tonight${cooked}`
+      ? `🥘 ${dayName(e.preparedOn)} prep, cook the meat tonight${prepped}`
       : `🥘 ${dayName(e.preparedOn)} batch, reheat${cooked}`;
   if (e.leftoverOf && typeof e.leftoverPrepared === "string")
     return fresh
       ? e.proteinFresh === "daily"
-        ? `🥘 ${dayName(e.leftoverPrepared)} prep, cook tonight's meat${cooked}`
-        : `🥘 ${dayName(e.leftoverPrepared)} prep and ${typeof e.leftoverDate === "string" ? `${dayName(e.leftoverDate)}'s` : "the"} meat, reheat${cooked}`
+        ? `🥘 ${dayName(e.leftoverPrepared)} prep, cook tonight's meat${prepped}`
+        : `🥘 ${dayName(e.leftoverPrepared)} prep and ${typeof e.leftoverDate === "string" ? `${dayName(e.leftoverDate)}'s` : "the"} meat, reheat${prepped}`
       : `🥘 ${dayName(e.leftoverPrepared)} batch, reheat${cooked}`;
   if (e.batchAlongside && who) {
     const lead = who === "you" ? "🍳 you cook" : `🍳 ${who} cooks`;

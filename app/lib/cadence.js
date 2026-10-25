@@ -249,7 +249,7 @@ export function freshNightLines(o) {
   const later = o.laterNames ?? [];
   return [
     o.once && later.length > 0
-      ? `Cook all the meat tonight: ${meatPhrase(o.meat) || "the whole pack"}, for tonight, ${later.join(" and ")}, about 15 minutes.${done ? ` ${done}` : ""}`
+      ? `Cook all the meat tonight: ${meatPhrase(o.meat) || "the whole pack"}, for tonight, ${later.join(" and ")}, about 15 to 20 minutes.${done ? ` ${done}` : ""}`
       : `Cook the meat fresh: ${meatPhrase(o.meat) || "this night's portion"}, about 15 minutes.${done ? ` ${done}` : ""}`,
     ...(o.once && later.length > 0
       ? [`Fridge ${later.join(" and ")}'s share within 2 hours; cooked meat keeps 3 to 4 days.`]
