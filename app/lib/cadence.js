@@ -330,7 +330,7 @@ export function mealBShoppingLines(entries, dayName, nameOf, today) {
     const what = `${nameOf(String(e.viewRecipeId ?? e.recipeId ?? ""))}${meat && mode === "once" ? ` (${meat})` : ""}`;
     out.push(
       mode === "once" || later.length === 0
-        ? `The meat for ${what} is cooked ${first}. Buy it ${dayName(e.preparedOn)} and keep it in the fridge; raw ground meat keeps 1 to 2 days, so if you shop earlier, freeze it and move it to the fridge the night before.`
+        ? `The meat for ${what} is cooked ${first}. Buy it ${dayName(e.preparedOn)} and keep it in the fridge; raw meat keeps 1 to 2 days in the fridge, so if you shop earlier, freeze it and move it to the fridge the night before.`
         : `The meat for ${what} is cooked each night. At home, fridge ${first}'s share and freeze ${later.join(" and ")}'s; move each to the fridge the night before.`,
     );
   }

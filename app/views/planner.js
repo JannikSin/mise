@@ -709,22 +709,6 @@ export function PlannerView({
                                       }
                                       ${entry.cookedAt && html` <span class="usesoon cookedchip">✓ ate it</span>`}
                                       ${
-                                        // MEAL B (2026-10-25): Sunday's prep lines on
-                                        // Sunday's row, the night's meat on Tue to Thu
-                                        [
-                                          ...mealBSundayLines(
-                                            /** @type {any} */ (entry).batchAlongside,
-                                            weekdayShort,
-                                          ),
-                                          ...mealBLines(entry, weekdayShort),
-                                        ].map(
-                                          (line, i) =>
-                                            html`<span class="hint plateline" key=${`b${i}`}
-                                              >🥩 ${line}</span
-                                            >`,
-                                        )
-                                      }
-                                      ${
                                         /** @type {any} */ (entry).plate &&
                                         html`<span class="hint plateline"
                                           >✨ ${/** @type {any} */ (entry).plate.join(" · ")}</span
@@ -792,6 +776,18 @@ export function PlannerView({
                                   </button>`
                                 }
                               </div>
+                              ${
+                                // MEAL B (2026-10-25): Sunday's prep lines on Sunday's
+                                // row, the night's meat on Tue to Thu. Below the meal,
+                                // not inside it: the meal button clamps to two lines
+                                [
+                                  ...mealBSundayLines(/** @type {any} */ (entry).batchAlongside, weekdayShort),
+                                  ...mealBLines(entry, weekdayShort),
+                                ].map(
+                                  (line, i) =>
+                                    html`<p class="hint mealbline" key=${`${entry.id}-b${i}`}>🥩 ${line}</p>`,
+                                )
+                              }
                             `;
                           })}
                         </div>`

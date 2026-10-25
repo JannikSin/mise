@@ -3,10 +3,7 @@ import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 import { datesOfWeek, prepSundayOf, recipesById } from "../lib/plan.js";
 import { isDatedItem, pantryItems, perishableStatus } from "../lib/shopping.js";
 import { isParked } from "../lib/parked.js";
-import { mealBSundayLines, splitSteps } from "../lib/cadence.js";
-
-const weekdayShort = (/** @type {string} */ iso) =>
-  parseLocalIso(iso).toLocaleDateString([], { weekday: "short" });
+import { splitSteps } from "../lib/cadence.js";
 
 /**
  * The WEEK-level half of what used to be the Cook tab.
@@ -80,7 +77,6 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
         name: recipe.name,
         text: "All but the meat:",
         steps,
-        lines: mealBSundayLines(/** @type {any} */ (entry), weekdayShort),
       });
       continue;
     }
@@ -232,7 +228,6 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
                   ${(r.steps ?? []).map((st, i) => html`<li key=${i}>${st}</li>`)}
                 </ol>`
               }
-              ${(r.lines ?? []).map((l, i) => html`<div class="hint" key=${i}>🥩 ${l}</div>`)}
               <div class="actions">
                 <button class="secondary" onClick=${() => toggleBatched(r.id)}>
                   ${todayBatched.includes(r.id) ? "UNDO" : "✓ DONE"}

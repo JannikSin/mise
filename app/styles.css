@@ -3049,3 +3049,10 @@ input[aria-label$="comma separated"] {
 .checkrow.listcols.checkfirstrow .ownbtn {
   padding: 0 10px;
 }
+
+/* meal B's lines under the meal (Mise 1.96): what Sunday preps, and the
+   night's meat; outside the meal button, which clamps to two lines */
+.mealbline {
+  margin: 0 0 0 4px;
+  font-size: 11.5px;
+}
