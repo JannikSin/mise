@@ -49,6 +49,14 @@ export function RecipePeek({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // the card belongs to the screen it was opened from: a tab tap or Back
+  // changes the hash and the card used to stay, over the bottom bar
+  // (shrike 2026-10-25, UI 10)
+  useEffect(() => {
+    window.addEventListener("hashchange", onClose);
+    return () => window.removeEventListener("hashchange", onClose);
+  }, [onClose]);
+
   if (!recipe) return null;
   const plan = cookPlan(recipe, servings);
   // Cook Mode is gone (2026-08-19): both buttons land on the recipe page,

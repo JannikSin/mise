@@ -1173,6 +1173,8 @@ export function TablesView({
             d.setDate(d.getDate() + i);
             const iso = d.toISOString().slice(0, 10);
             if (!brigadeCovers(b, iso)) continue;
+            // a leftover night cooks nothing, so it names no cook (shrike 2026-10-25)
+            if ((b.cookDays ?? []).length > 0 && !(b.cookDays ?? []).includes(d.getDay())) continue;
             const off = Math.round((Date.parse(iso) - Date.parse(b.from)) / 86400000);
             const id =
               b.memberIds[((off % b.memberIds.length) + b.memberIds.length) % b.memberIds.length];

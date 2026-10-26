@@ -201,6 +201,7 @@ import {
   removeSeat,
   brigadeTableId,
   seatScreen,
+  plateRefusal,
   seatGuestOnDay,
   useRecipeOnTable,
 } from "./lib/tables.js";
@@ -354,7 +355,11 @@ function App() {
   const [krogerLinkNote, setKrogerLinkNote] = useState("");
   useEffect(() => {
     const r = krogerConsumeRedirect();
-    if (r === "linked") setKrogerLinkNote("Kroger account linked, SEND TO CART is ready on List.");
+    if (r === "linked") {
+      setKrogerLinkNote("Kroger account linked, SEND TO CART is ready on List.");
+      // land on the List the note points at, not on Plan
+      window.location.hash = "#/list";
+    }
     else if (r === "error")
       setKrogerLinkNote("Kroger sign-in did not complete. Try LINK KROGER again.");
   }, []);
@@ -4808,6 +4813,30 @@ function App() {
   // planned recipe — bans govern picking, not what an existing entry means
   const recipeById = (/** @type {string | undefined} */ id) => allRecipes.find((r) => r.id === id);
 
+  // WHO CANNOT EAT A PLANNED DINNER, per seat, for the Plan rows (shrike
+  // 2026-10-25: a housemate adds an allergy and the plan keeps the unsafe
+  // dinner with no warning). The kitchen rule's own screen (plateRefusal); a
+  // seat whose targets are not read yet shows nothing here, the Table tab
+  // still fails closed on it. Keyed by table id.
+  /** @type {Record<string, { name: string, reasons: string[] }[]>} */
+  const seatClashes = {};
+  for (const t of plannerBrigade?.tables ?? []) {
+    if (t.date < localIsoDate(new Date())) continue;
+    const dish = recipeById(t.recipeId);
+    if (!dish) continue;
+    for (const s of t.seats ?? []) {
+      if (/** @type {any} */ (s).status === "skipped") continue;
+      const own = houseTargets.get(s.id)?.data;
+      if (!own) continue;
+      const reasons = plateRefusal(dish, own);
+      if (reasons.length > 0)
+        (seatClashes[t.id] ??= []).push({
+          name: allProfiles.find((p) => p.id === s.id)?.name ?? s.id,
+          reasons,
+        });
+    }
+  }
+
   const loading = recipes.length === 0 && hasToken;
 
   // Cook Mode is gone (David 2026-08-19): the recipe page carries the timer
@@ -4963,6 +4992,7 @@ function App() {
         brigade=${plannerBrigade}
         endedBrigade=${endedBrigade}
         brigadeRun=${brigadeRun}
+        seatClashes=${seatClashes}
         onAddGuest=${handleAddGuestSeat}
         onRemoveGuest=${handleRemoveGuestSeat}
         onNewGuestProfile=${handleNewGuestProfile}

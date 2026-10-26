@@ -937,6 +937,9 @@ summary.block-title {
   cursor: pointer;
   list-style: none;
   padding: 8px 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
 }
 
 .slotrow .cooktap:focus-visible {
@@ -952,7 +955,7 @@ summary.block-title {
 }
 
 .slotrow .outbtn {
-  min-width: 40px;
+  min-width: 44px;
   min-height: 44px;
   flex-shrink: 0;
   border: none;
@@ -2913,8 +2916,8 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="
 /* the buffer snack's minus and plus: a thumb-sized target, like the week
    arrows (they were 23x18) */
 button.wk:not(.weeknav .wk) {
-  min-width: 40px;
-  min-height: 40px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--panel);
@@ -3055,4 +3058,9 @@ input[aria-label$="comma separated"] {
 .mealbline {
   margin: 0 0 0 4px;
   font-size: 11.5px;
+}
+
+/* a warning chip and the result of SET MY WEEK on the Plan tab (shrike 2026-10-25) */
+.seatclash {
+  color: var(--amber);
 }

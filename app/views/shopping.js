@@ -1854,7 +1854,7 @@ export function ShoppingView({
                 >${provisionalRows.length} price${provisionalRows.length === 1 ? "" : "s"}
                 auto-picked</span
               >
-              <button class="linktext" onClick=${() => openPinConfirm(provisionalRows[0], true)}>
+              <button class="secondary" onClick=${() => openPinConfirm(provisionalRows[0], true)}>
                 REVIEW
               </button>
             </div>`
@@ -1909,7 +1909,7 @@ export function ShoppingView({
                   >${STORE_NAMES[homeStore] ?? "Kroger"} cart · ${cartRows.length} items ready to send</span
                 >
                 <button
-                  class="linktext"
+                  class="primary"
                   disabled=${cartRows.length === 0 || cartNote === "sending…"}
                   onClick=${() => sendToKrogerCart()}
                 >
@@ -1951,7 +1951,7 @@ export function ShoppingView({
                 html`<div class="row">
                     <span class="k">test it first · ${testRows.length} cheap items, 1 each</span>
                     <button
-                      class="linktext"
+                      class="secondary"
                       disabled=${cartNote === "sending…"}
                       onClick=${() => sendToKrogerCart({ test: true })}
                     >
@@ -2180,7 +2180,15 @@ export function ShoppingView({
                 <button
                   class="secondary"
                   disabled=${!bankReady}
-                  onClick=${() => setShowPartial(!showPartial)}
+                  onClick=${() => {
+                    // WHOLE TRIP undoes JUST SOME DAYS: the picked days and
+                    // slots go too, or BUILD stays "FOR 2 DAYS" (shrike 2026-10-25)
+                    if (showPartial) {
+                      setBuyDays([]);
+                      setBuySlots([]);
+                    }
+                    setShowPartial(!showPartial);
+                  }}
                 >
                   ${showPartial ? "WHOLE TRIP" : "JUST SOME DAYS"}
                 </button>`

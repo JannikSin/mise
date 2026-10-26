@@ -38,6 +38,10 @@ export const RELEASES = [
       "Two dishes of the same kind, like two dump-and-bake feta pastas, no longer land in the same week when something else fits.",
       "SET MY WEEK in the middle of the week keeps the leftover nights already planned, even if the list was never ticked.",
       "Plan's every-day warning no longer runs two words together.",
+      "SET MY WEEK answers on Plan right away: what it set, and which nights cook and which eat leftovers. Sunday's row says which nights its pot makes and for how many.",
+      "Plan warns on a dinner when someone at the table cannot eat it, with their name and the reason.",
+      "WHOLE TRIP on List clears JUST SOME DAYS, so BUILD goes back to the whole trip. SEND TO CART is a full button, and linking Kroger brings you back to List.",
+      "The People card lists cooks only for the nights that cook. The recipe card closes when you change tabs or go Back, and the pencil button moved to the left so it no longer sits on top of the right-hand buttons. A snack left out of the rule says when the reason is the backpack setting.",
     ],
   },
   {

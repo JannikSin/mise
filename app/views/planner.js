@@ -54,6 +54,43 @@ function monthDay(isoDate) {
 }
 
 /**
+ * SUNDAY'S POT, said on Sunday's row (shrike 2026-10-25): which nights the pot
+ * cooked on this row feeds, for how many, and the nights of the second dish
+ * prepped alongside it. The wording is cadence.js's and the kitchen rule's:
+ * "Sun and Mon", "Tue, Wed and Thu". Empty for a pot that feeds one night, a
+ * leftover night, and a row that is not a shared pot.
+ * @param {Record<string, any>} entry
+ * @param {Record<string, any>[]} entries the week's plan entries
+ * @param {{ id: string, seats?: { status?: string }[], guests?: number }[]} tables the brigade's tables
+ * @param {(iso: string) => string} dayName
+ * @returns {string[]}
+ */
+function potLines(entry, entries, tables, dayName) {
+  if (!entry.table || entry.leftoverOf) return [];
+  const nights = [
+    entry.date,
+    ...entries.filter((e) => e.leftoverOf === entry.table).map((e) => e.date),
+  ].sort();
+  if (nights.length < 2) return [];
+  const list = (/** @type {string[]} */ ds) => {
+    const names = ds.map((d) => dayName(d));
+    return names.length > 1
+      ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
+      : (names[0] ?? "");
+  };
+  const t = tables.find((x) => x.id === entry.table);
+  const seats = (t?.seats ?? []).filter((s) => s.status !== "skipped").length + (Number(t?.guests) || 0);
+  const bNights = entry.batchAlongside?.freshNights;
+  return [
+    `Makes ${list(nights)} dinners${seats > 0 ? ` for ${seats}` : ""}.${
+      Array.isArray(bNights) && bNights.length > 1
+        ? ` The second dish is for ${list(bNights)}.`
+        : ""
+    }`,
+  ];
+}
+
+/**
  * The weekly plan (blueprint §6.3), rebuilt 2026-07-27 around what David
  * actually does with it.
  *
@@ -110,6 +147,7 @@ function monthDay(isoDate) {
  *     me: string,
  *   } | null,
  *   brigadeRun?: Record<string, any> | null,
+ *   seatClashes?: Record<string, { name: string, reasons: string[] }[]>,
  *   endedBrigade?: import("../lib/tables.js").Brigade | null,
  *   onAddGuest?: (date: string, profileId: string, slots: string[]) => Promise<{ note: string, retry: boolean }>,
  *   onRemoveGuest?: (date: string, profileId: string) => void,
@@ -151,6 +189,7 @@ export function PlannerView({
   lastWeekReview = null,
   brigade = null,
   brigadeRun = null,
+  seatClashes = {},
   endedBrigade = null,
   profileId = "",
 }) {
@@ -363,6 +402,30 @@ export function PlannerView({
             nameOf: (id) => brigade.profiles.find((p) => p.id === id)?.name ?? id,
           }).map((l, i) => html`<div class="d" key=${i}>${l}</div>`)}
         </div>`
+      }
+      ${
+        // THE ANSWER TO SET MY WEEK, above the fold (shrike 2026-10-25, UI 2):
+        // the tap used to change nothing on screen, because the result and the
+        // pot sentence lived inside the folded "how this week was built". A
+        // run that failed already has the banner above; this is the other
+        // case. The first line is the result, the cook-nights line is the pot.
+        (() => {
+          const run = /** @type {any} */ (brigadeRun);
+          if (!run || !brigade) return "";
+          const failed =
+            run.outOfRange ||
+            (run.made === 0 && (run.thin ?? []).some((/** @type {any} */ t) => t.available === 0));
+          if (failed) return "";
+          const lines = brigadeRunLines(run, {
+            runWeek: weekId,
+            todayIso,
+            nameOf: (id) => brigade.profiles.find((p) => p.id === id)?.name ?? id,
+          });
+          const shown = lines.filter((l, i) => i === 0 || l.startsWith("🍳 Cook"));
+          return html`<div class="tile buildreport setresult" role="status">
+            ${shown.map((l, i) => html`<div class="d" key=${i}>${l}</div>`)}
+          </div>`;
+        })()
       }
       ${
         // a pot bigger than one pan is a shopping and cooking fact, so it is
@@ -776,6 +839,10 @@ export function PlannerView({
                                   </button>`
                                 }
                               </div>
+                              ${potLines(entry, plan.entries, brigade?.tables ?? [], weekdayShort).map(
+                                (line, i) =>
+                                  html`<p class="hint mealbline" key=${`${entry.id}-p${i}`}>🥘 ${line}</p>`,
+                              )}
                               ${
                                 // MEAL B (2026-10-25): Sunday's prep lines on Sunday's
                                 // row, the night's meat on Tue to Thu. Below the meal,
@@ -786,6 +853,17 @@ export function PlannerView({
                                 ].map(
                                   (line, i) =>
                                     html`<p class="hint mealbline" key=${`${entry.id}-b${i}`}>🥩 ${line}</p>`,
+                                )
+                              }
+                              ${
+                                // WHO CANNOT EAT IT, one chip per seat (shrike
+                                // 2026-10-25): a housemate's new allergy used
+                                // to leave this dinner here with no warning
+                                (seatClashes[String(entry.table ?? "")] ?? []).map(
+                                  (c) =>
+                                    html`<p class="hint seatclash" role="note" key=${`${entry.id}-x${c.name}`}>
+                                      ⚠ ${c.name} cannot eat this: ${c.reasons.join(", ")}. SET MY WEEK plans around it.
+                                    </p>`,
                                 )
                               }
                             `;
