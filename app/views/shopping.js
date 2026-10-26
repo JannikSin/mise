@@ -2265,6 +2265,8 @@ export function ShoppingView({
               (iso) => parseLocalIso(iso).toLocaleDateString([], { weekday: "short" }),
               (id) => String(recipeIndex?.get(id)?.name ?? id),
               localIsoDate(new Date()),
+              // a housemate's List names the shopper instead of saying "buy it"
+              brigade && !brigade.iShop ? String(brigade.shopperName ?? "") : "",
             ).map((line, i) => html`<p class="hint" role="note" key=${`mb${i}`}>🥩 ${line}</p>`)
           }
           ${

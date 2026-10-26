@@ -312,9 +312,11 @@ export function mealBSundayLines(b, dayName) {
  * @param {(iso: string) => string} dayName
  * @param {(recipeId: string) => string} nameOf
  * @param {string} today
+ * @param {string} [buyer] the shopper's name when it is someone else (their
+ *   List says who buys it instead of telling this phone to)
  * @returns {string[]}
  */
-export function mealBShoppingLines(entries, dayName, nameOf, today) {
+export function mealBShoppingLines(entries, dayName, nameOf, today, buyer = "") {
   /** @type {string[]} */
   const out = [];
   for (const e of entries ?? []) {
@@ -330,7 +332,9 @@ export function mealBShoppingLines(entries, dayName, nameOf, today) {
     const what = `${nameOf(String(e.viewRecipeId ?? e.recipeId ?? ""))}${meat && mode === "once" ? ` (${meat})` : ""}`;
     out.push(
       mode === "once" || later.length === 0
-        ? `The meat for ${what} is cooked ${first}. Buy it ${dayName(e.preparedOn)} and keep it in the fridge; raw meat keeps 1 to 2 days in the fridge, so if you shop earlier, freeze it and move it to the fridge the night before.`
+        ? buyer
+          ? `The meat for ${what} is cooked ${first}. ${buyer} buys it ${dayName(e.preparedOn)}; it goes in the fridge, since raw meat keeps 1 to 2 days.`
+          : `The meat for ${what} is cooked ${first}. Buy it ${dayName(e.preparedOn)} and keep it in the fridge; raw meat keeps 1 to 2 days in the fridge, so if you shop earlier, freeze it and move it to the fridge the night before.`
         : `The meat for ${what} is cooked each night. At home, fridge ${first}'s share and freeze ${later.join(" and ")}'s; move each to the fridge the night before.`,
     );
   }

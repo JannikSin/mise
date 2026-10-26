@@ -304,6 +304,9 @@ test("the List says where meal B's meat goes", async () => {
   const daily = mealBShoppingLines([{ ...e, proteinFresh: "daily" }], day, (id) => id, "2026-11-01").join(" ");
   assert.match(daily, /fridge Tue's share and freeze Wed and Thu's/);
   assert.deepEqual(mealBShoppingLines([{ ...e, proteinFresh: "once" }], day, (id) => id, "2026-11-06"), [], "a past pot says nothing");
+  const housemate = mealBShoppingLines([{ ...e, proteinFresh: "once" }], day, (id) => id, "2026-11-01", "David").join(" ");
+  assert.match(housemate, /David buys it Sun/);
+  assert.doesNotMatch(housemate, /Buy it/);
 });
 
 test("a mid-week SET keeps Wed and Thu on Sunday's pot even when its list was never ticked (rehearsal 10/28)", () => {
