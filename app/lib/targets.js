@@ -99,8 +99,51 @@ export const ALLERGEN_TERMS = {
     "marzipan",
     "praline",
     "nutella",
+    // a mix is tree nuts whatever else is in it (2026-10-25)
+    "mixed nut",
+    "trail mix",
   ],
-  peanuts: ["peanut"],
+  // 2026-10-25 (shrike S-H3): "peanut" alone missed every other name the
+  // legume is sold by. "roux" is here because every roux row in the bank is a
+  // Japanese curry block, and the bank's own note says the blocks vary by brand
+  // and the allergen line has to be read for peanut: unknown is not safe, so it
+  // refuses. A plain roux is written as its flour and butter rows, which pass;
+  // a row that only says "roux" cannot say what is in it, so it refuses too,
+  // the same call the dairy list makes below
+  peanuts: [
+    "peanut",
+    "groundnut",
+    "arachis",
+    "pb2",
+    "pb&j",
+    "satay",
+    "monkey nut",
+    "goober",
+    "beer nut",
+    "mixed nut",
+    "trail mix",
+    "kung pao",
+    "roux",
+    "curry cube",
+    "curry block",
+    "curry sauce mix",
+    "golden curry",
+    "vermont curry",
+    "java curry",
+    "curry sauce block",
+    "curry sauce cube",
+    "curry brick",
+    "curry mix",
+    "japanese curry",
+    "house curry",
+    "kokumaro",
+    "japanese style curry",
+    "curry flake",
+    "instant curry",
+    "glico",
+    "house foods",
+    "s&b curry",
+  ],
   gluten: [
     "wheat",
     "pasta",
@@ -288,6 +331,35 @@ export const ALLERGEN_TERMS = {
   sesame: ["sesame", "tahini", "hummus", "everything bagel"],
 };
 
+/**
+ * CHECK THE LABEL (shrike audit 10/25, S-H3 and S-L2): packaged foods whose
+ * allergen status is the brand's, not the food's. Chocolate chips, granola and
+ * bars commonly carry peanut as an ingredient in one brand and a "may contain"
+ * line in the next, and no ingredient name says which box was bought. Keys are
+ * the avoid term that means the allergy (a seat whose avoid list holds a term
+ * containing it is flagged); values are SUBSTRING matches on the food name.
+ * These never refuse a dish on their own (the bank's chocolate-chip bakes and
+ * granola bowls would all go); they are never silent either: each match is a
+ * named "check the label for peanut" line on that seat's plate and serve step
+ * (plan.js labelChecks). A food the hard screen already refuses is not flagged.
+ * @type {Record<string, string[]>}
+ */
+export const CHECK_LABEL_TERMS = {
+  peanut: [
+    "chocolate",
+    "granola",
+    "muesli",
+    "nougat",
+    "mole sauce",
+    "mole poblano",
+    "mole paste",
+    "protein bar",
+    "energy bar",
+    "cereal",
+    "cookie",
+  ],
+};
+
 /** Every cheese-like dairy term: what a typed "cheese" means. */
 const CHEESE_TERMS = [
   "cheese",
@@ -329,9 +401,12 @@ const TYPED_FAMILIES = {
   lactose: ["dairy"],
   milk: ["dairy"],
   casein: ["dairy"],
-  nut: ["nuts"],
+  // a bare "nut" does not say which nuts, so it brings peanuts too (fails
+  // closed, 2026-10-25); "tree nut" is the person saying which
+  nut: ["nuts", "peanuts"],
   "tree nut": ["nuts"],
   peanut: ["peanuts"],
+  groundnut: ["peanuts"],
   gluten: ["gluten"],
   wheat: ["gluten"],
   celiac: ["gluten"],
@@ -346,9 +421,79 @@ const TYPED_FAMILIES = {
 };
 
 /**
+ * Words people wrap around the food they mean ("peanut allergy", "allergic to
+ * peanuts", "no nuts please", "dairy-free", "lactose intolerant", "Peanuts
+ * (severe)"). The shrike audit (10/25, S-B2) found every one of those stored
+ * as a single literal no ingredient is named, so the food was served. Stripped
+ * to find the food; the phrase as typed is always kept too.
+ */
+const ALLERGY_WRAPPERS = new RegExp(
+  "\\b(?:" +
+    [
+      "i'?m",
+      "i am",
+      "i have",
+      "has",
+      "have",
+      "an?",
+      "all",
+      "any",
+      "very",
+      "severe(?:ly)?",
+      "mild(?:ly)?",
+      "deathly",
+      "life threatening",
+      "anaphyla(?:xis|ctic)",
+      "allerg(?:y|ies|ic)(?: to)?",
+      "intoleran(?:t|ce|ces)(?: to)?",
+      "sensitiv(?:e|ity|ities)(?: to)?",
+      "disease",
+      "please",
+      "thanks?",
+      "avoid(?:s|ing)?",
+      "(?:can'?t|cannot|don'?t|do not) (?:eat|have)",
+      "nothing with",
+      "without",
+      "no",
+      "non",
+      "free",
+    ].join("|") +
+    ")\\b",
+  "g",
+);
+
+/**
+ * The food inside one typed phrase: wrapper words and punctuation stripped,
+ * a parenthetical read as a phrase of its own ("wheat allergy (celiac)").
+ * @param {string} term lowercase, trimmed
+ * @returns {string[]} the cores, each different from `term`; empty when the
+ *   phrase is already bare or is only wrapper words
+ */
+function typedCores(term) {
+  const inner = [...term.matchAll(/\(([^)]*)\)?/g)].map((m) => m[1] ?? "");
+  return [
+    ...new Set(
+      [term.replace(/\([^)]*\)?/g, " "), ...inner]
+        .map((p) =>
+          p
+            .replace(/[^a-z0-9&'_ ]+/g, " ")
+            .replace(ALLERGY_WRAPPERS, " ")
+            .replace(/'/g, "")
+            .replace(/\s+/g, " ")
+            .trim(),
+        )
+        // two letters is no food; the typed phrase stays as its own term
+        .filter((c) => c.length > 2 && c !== term),
+    ),
+  ];
+}
+
+/**
  * The terms one typed avoid word stands for: itself, plus its family when it
  * names one ("cheeses", "Tree nuts", "eggs" all count), and each food of a
- * typed pair ("celery and okra").
+ * typed pair ("celery and okra"), and the food inside a typed phrase
+ * ("peanut allergy", "no peanuts", "gluten-free"). Nothing typed is ever
+ * dropped: a phrase that names no family stays as its own substring term.
  * @param {string} word
  * @returns {string[]}
  */
@@ -366,7 +511,12 @@ export function typedAvoidTerms(word) {
   const famOf = (/** @type {string} */ k) =>
     Object.hasOwn(TYPED_FAMILIES, k) ? TYPED_FAMILIES[k] : undefined;
   const fam = famOf(term) ?? famOf(term.replace(/(es|s)$/, "")) ?? famOf(term.replace(/s$/, ""));
-  if (!fam) return [term];
+  if (!fam) {
+    // a phrase around a food: the food counts too, run through this same
+    // function so "allergic to peanuts and shellfish" brings both families
+    const cores = typedCores(term);
+    return cores.length > 0 ? [...new Set([term, ...cores.flatMap(typedAvoidTerms)])] : [term];
+  }
   const out = new Set([term]);
   for (const id of fam) {
     for (const t of id === "cheese" ? CHEESE_TERMS : (ALLERGEN_TERMS[id] ?? [])) out.add(t);

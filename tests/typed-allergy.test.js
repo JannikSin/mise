@@ -74,18 +74,21 @@ test("a typed word that names an Object property never throws (Tribunal Red Team
 });
 
 // D-02 (10/23): "japanese curry roux cubes" passed gluten and soy allergies
-test("curry roux is refused for gluten, soy and dairy allergies", () => {
+test("curry roux is refused for gluten, soy, dairy and peanut allergies", () => {
   const recipe = { id: "c", name: "Curry", ingredients: [{ food: "japanese curry roux cubes", g: 100 }] };
   for (const allergen of ["gluten", "soy", "dairy"]) {
     const terms = avoidTermsFromAllergens([allergen]);
     assert.ok(recipeConflicts(recipe, undefined, terms).length > 0, `${allergen} let curry roux through`);
   }
-  assert.equal(recipeConflicts(recipe, undefined, avoidTermsFromAllergens(["peanuts"])).length, 0);
+  // shrike S-H3 (10/25) reversed this: the blocks vary by brand and the bank's
+  // own note says to read the allergen line for peanut, so a peanut allergy
+  // refuses them too (fails closed)
+  assert.ok(recipeConflicts(recipe, undefined, avoidTermsFromAllergens(["peanuts"])).length > 0);
 });
 
 // F4 (Tribunal Red Team, 10/24): the blocks are sold as cubes, blocks, sauce
 // mix and by brand, and none of those says "roux"
-test("curry blocks under every name they are sold by are refused for gluten, soy and dairy", () => {
+test("curry blocks under every name they are sold by are refused for gluten, soy, dairy and peanut", () => {
   const names = [
     "japanese curry cubes",
     "curry block",
@@ -111,7 +114,7 @@ test("curry blocks under every name they are sold by are refused for gluten, soy
   ];
   for (const food of names) {
     const recipe = { id: "c", name: "Curry", ingredients: [{ food, g: 100 }] };
-    for (const allergen of ["gluten", "soy", "dairy"]) {
+    for (const allergen of ["gluten", "soy", "dairy", "peanuts"]) {
       const terms = avoidTermsFromAllergens([allergen]);
       assert.ok(recipeConflicts(recipe, undefined, terms).length > 0, `${allergen} let "${food}" through`);
     }

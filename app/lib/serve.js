@@ -14,7 +14,7 @@
 // or a named SET ASIDE block for a seat that must not be handed a plate
 // instruction (hard diet/avoid conflict). Plates + set-asides partition the
 // pot exactly once; nothing is ever redistributed.
-import { recipeConflicts, softAvoidMatches } from "./plan.js";
+import { labelChecks, recipeConflicts, softAvoidMatches } from "./plan.js";
 import { guestSeats } from "./tables.js";
 
 /**
@@ -150,6 +150,9 @@ export function buildServe(t, recipe, profilesOrder, rulesBySeat, synth) {
       continue;
     }
     const soft = rules ? softAvoidMatches(recipe, rules.avoidIngredients) : [];
+    // a packaged row whose allergen status is the brand's (shrike S-H3, 10/25)
+    const label = rules ? labelChecks(recipe, rules.avoidIngredients) : [];
+    const notes = [...(soft.length > 0 ? [`no ${soft.join(", no ")}`] : []), ...label];
     // SOLVED plates (spec §7.3): when the engine ran for this table, each
     // seat's line is their actual amounts — protein in grams to the nearest
     // 25 (a scale exists and David wants it used), starch in household
@@ -165,7 +168,7 @@ export function buildServe(t, recipe, profilesOrder, rulesBySeat, synth) {
       // than render an empty line (spec §7.3's unconfigured-seat rule)
       fraction: fraction || "a normal plate",
       ...(solvedLines && solvedLines.length > 0 ? { lines: solvedLines } : {}),
-      ...(soft.length > 0 ? { note: `no ${soft.join(", no ")}` } : {}),
+      ...(notes.length > 0 ? { note: notes.join(". ") } : {}),
     });
   }
   // GUEST PLATES, after the household in seat order, because they arrive

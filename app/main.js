@@ -4362,7 +4362,14 @@ function App() {
       // handed the whole pool as one pot. Each seat of a bowl is its own
       // portion of today's list; no model is asked.
       const result = isPerBowl(recipe)
-        ? bowlTailor(recipe, live, t.date ?? today)
+        ? // each seat's own avoid list, so an optional row they avoid is
+          // left off their plate; an unread list (null) gets no plate
+          bowlTailor(
+            recipe,
+            live,
+            t.date ?? today,
+            Object.fromEntries(facts.map((f) => [f.id, f.unconfirmed ? null : f.avoid])),
+          )
         : // a cooked dish: the model sees the WHOLE POT at the table's real
           // total and each seat's share of it, and every line it returns is
           // screened against the dish's own ingredients afterwards (code,
