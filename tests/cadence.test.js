@@ -376,3 +376,20 @@ test("shrike item 6: a batch whose dish cannot keep from its prep day is not off
   assert.ok(notes.some((n) => /no dish keeps the 4 days/.test(n)), notes.join(" | "));
   for (const t of d.filter((x) => x.date === "2026-11-04" || x.date === "2026-11-05")) assert.equal(t.leftoverOf, tue.id);
 });
+
+test("shrike item 7: swapping Sunday's pot refuses a dish that does not keep to its last night", async () => {
+  const { useRecipeOnTable } = await import("../app/lib/tables.js");
+  const { events } = planBrigadeWeek({ tables: [] }, asPlanned({ ...LIVE, sundayTwoPots: false }), ctx());
+  const sun = dinners(events)[0];
+  const targets = new Map([["david", TARGETS.get("david")], ["elliot", TARGETS.get("elliot")]]);
+  const oneDay = { ...dish("plate", "chicken breast"), safeDays: 1, name: "Chicken plate" };
+  const no = useRecipeOnTable(events, sun.id, oneDay, targets, (id) => id);
+  assert.ok("refused" in no && no.refused.some((r) => /keeps 1 day, and this pot is eaten for 4 days/.test(r)), JSON.stringify(no));
+  const ok = useRecipeOnTable(events, sun.id, { ...oneDay, safeDays: 4 }, targets, (id) => id);
+  assert.ok("events" in ok);
+  // meal B is counted from Sunday, its prep day, not from Tuesday
+  const two = planBrigadeWeek({ tables: [] }, asPlanned(LIVE), ctx());
+  const tue = dinners(two.events)[2];
+  const b = useRecipeOnTable(two.events, tue.id, { ...oneDay, safeDays: 3 }, targets, (id) => id);
+  assert.ok("refused" in b && b.refused.some((r) => /eaten for 4 days/.test(r)));
+});

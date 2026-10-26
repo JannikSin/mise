@@ -1347,6 +1347,20 @@ export function useRecipeOnTable(events, tableId, recipe, targetsById, nameOf) {
   const fed = (events.tables ?? []).filter((x) => x.leftoverOf === tableId && !x.cookedAt);
   /** @type {string[]} */
   const refused = [];
+  // THE NEW DISH HAS TO KEEP (shrike item 7, 10/25): the pot is eaten to its
+  // last night, counted from the day it is made, so a dish that keeps one day
+  // cannot become Sunday's pot for Mon to Thu. Same fallback as the planner
+  // (3 days when the recipe states none, USDA leftovers)
+  const madeOn = /** @type {any} */ (t).preparedOn ?? t.date;
+  const lastNight = [t.date, ...fed.map((x) => x.date)].sort().pop() ?? t.date;
+  const needDays = Math.round(
+    (Date.parse(`${lastNight}T12:00:00`) - Date.parse(`${madeOn}T12:00:00`)) / 86400000,
+  );
+  const keeps = Number(recipe?.safeDays) > 0 ? Number(recipe.safeDays) : 3;
+  if (needDays > keeps)
+    refused.push(
+      `${String(recipe?.name ?? recipe?.id)} keeps ${keeps} day${keeps === 1 ? "" : "s"}, and this pot is eaten for ${needDays} days after it is made. Pick a dish that keeps, or set it on a night closer to when it is eaten`,
+    );
   const screened = new Set();
   for (const table of [t, ...fed]) {
     for (const seat of table.seats ?? []) {
