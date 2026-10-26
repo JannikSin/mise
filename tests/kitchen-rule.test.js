@@ -18,6 +18,7 @@ import {
   plateRefusal,
   ruleRecipeCheck,
   sundayBatchOn,
+  sundayTwoPotsOn,
   batchesOnSave,
   brigadeTableId,
   validBrigade,
@@ -119,7 +120,16 @@ const ctx = (over = {}) => ({
   ...over,
 });
 // what SET MY WEEK hands the planner: the rule with its default applied
-const asTheAppPlans = (/** @type {any} */ rule) => ({ ...rule, sundayBatch: sundayBatchOn(rule) });
+// the app's defaulting step, as main.js handleRunBrigade does it (1.96: two
+// Sunday pots are the default too, shrike's inverted-test note)
+const asTheAppPlans = (/** @type {any} */ rule) => ({
+  ...rule,
+  sundayBatch: sundayBatchOn(rule),
+  sundayTwoPots: sundayTwoPotsOn(rule),
+});
+// the 1.95 one-pot week, now a choice in the rule (sundayTwoPots: false):
+// the I-14 edge cases below pin that choice; the two-pot ones are in cadence.test.js
+const asOnePot = (/** @type {any} */ rule) => asTheAppPlans({ ...rule, sundayTwoPots: false });
 const dinner = (/** @type {any} */ events, /** @type {string} */ date) =>
   events.tables.find((t) => t.slot === "dinner" && t.date === date);
 const phone = (/** @type {any} */ events, /** @type {string} */ me) =>
@@ -253,8 +263,24 @@ test("I-14: the setting is ON for a rule with no saved value, OFF only when save
   assert.equal(validBrigade({ ...LIVE, sundayBatch: "no" }), false);
 });
 
-test("I-14: SET MY WEEK on the live rule plans Sunday's dinner as the batch pot, and Mon to Thu eat it", () => {
+test("1.96: SET MY WEEK on the live rule plans two Sunday pots: A for Sun and Mon, B prepped Sunday for Tue to Thu", () => {
   const { events, nights } = planBrigadeWeek({ tables: [] }, asTheAppPlans(LIVE), ctx());
+  const sun = dinner(events, SUN);
+  assert.ok(sun && !sun.leftoverOf && !sun.preparedOn, "Sunday cooks meal A");
+  assert.equal(dinner(events, MON).leftoverOf, sun.id, "Monday eats meal A");
+  const tue = dinner(events, TUE);
+  assert.equal(tue.preparedOn, SUN, "meal B is prepped Sunday");
+  assert.notEqual(tue.recipeId, sun.recipeId, "two dishes on Sunday");
+  for (const d of [WED, THU]) assert.equal(dinner(events, d).leftoverOf, tue.id, `${d} eats meal B`);
+  assert.deepEqual(nights.uncovered, []);
+});
+
+test("I-14, now the one-pot choice: with two pots off, Sunday's dinner is the batch pot, and Mon to Thu eat it", () => {
+  const { events, nights } = planBrigadeWeek(
+    { tables: [] },
+    asTheAppPlans({ ...LIVE, sundayTwoPots: false }),
+    ctx(),
+  );
   const sun = dinner(events, SUN);
   assert.ok(sun && !sun.leftoverOf && !sun.preparedOn, "Sunday cooks its own dinner");
   for (const d of [MON, TUE, WED, THU]) {
@@ -287,7 +313,7 @@ test("I-14: a Sunday already set or bought is kept as it is when the setting tur
     ctx({ keepSet: true, bought: () => false }), // SET MY WEEK: set meals stay
     ctx({ bought: () => true }), // its food is in the kitchen
   ]) {
-    const after = planBrigadeWeek(before.events, asTheAppPlans(LIVE), run);
+    const after = planBrigadeWeek(before.events, asOnePot(LIVE), run);
     for (const d of [SUN, MON, TUE, WED, THU]) {
       const t = dinner(after.events, d);
       assert.equal(t.recipeId, was(d).recipeId, `${d} keeps its dish`);
@@ -298,7 +324,7 @@ test("I-14: a Sunday already set or bought is kept as it is when the setting tur
   // an unbought week re-rolled by PICK DIFFERENT MEALS takes the new shape
   const reroll = planBrigadeWeek(
     before.events,
-    asTheAppPlans({ ...LIVE, salt: 1 }),
+    asOnePot({ ...LIVE, salt: 1 }),
     ctx({ regenerate: true, bought: () => false }),
   );
   assert.ok(!reroll.events.tables.some((t) => t.preparedOn), "no second Sunday pot");
@@ -314,7 +340,7 @@ const linesOn = (/** @type {any} */ events, /** @type {string} */ me) =>
   Object.fromEntries(phone(events, me).map((e) => [e.date, cookLine(e, me, dayName)]));
 
 test("I-14: David's phone and Rowan's compute the same cook for Sunday's dinner pot on every night it feeds", () => {
-  for (const rule of [asTheAppPlans(LIVE), { ...LIVE, sundayBatch: false }]) {
+  for (const rule of [asOnePot(LIVE), { ...LIVE, sundayBatch: false }]) {
     const { events } = planBrigadeWeek({ tables: [] }, rule, ctx());
     const sunCook = dinner(events, SUN).cookId;
     assert.equal(sunCook, "rowan", "Sunday is Rowan's turn in this fixture");
@@ -378,7 +404,7 @@ test("I-14: tables written before the fix (each night credited to its own turn) 
 test("I-14: SET MY WEEK on Sunday night (after the cutoff, Sunday's dinner never set) still gives Mon to Thu a pot", () => {
   // after 7:30 pm the run plans from Monday; the calendar day is still Sunday
   const run = ctx({ dates: WEEK.slice(1), today: MON, calendarToday: SUN });
-  const { events, nights } = planBrigadeWeek({ tables: [] }, asTheAppPlans(LIVE), run);
+  const { events, nights } = planBrigadeWeek({ tables: [] }, asOnePot(LIVE), run);
   const mon = dinner(events, MON);
   assert.ok(mon && !mon.leftoverOf, "Monday is the pot");
   assert.equal(mon.preparedOn, SUN, "cooked tonight, Sunday, as the old batch was");
@@ -391,12 +417,12 @@ test("I-14: SET MY WEEK on Sunday night (after the cutoff, Sunday's dinner never
 });
 
 test("I-14: Sunday night with Sunday's dinner already set keeps Mon to Thu on that Sunday pot", () => {
-  const morning = planBrigadeWeek({ tables: [] }, asTheAppPlans(LIVE), ctx());
+  const morning = planBrigadeWeek({ tables: [] }, asOnePot(LIVE), ctx());
   const sun = dinner(morning.events, SUN);
   // bought or not: tonight's pot is being cooked tonight
   for (const bought of [() => true, () => false]) {
     const run = ctx({ dates: WEEK.slice(1), today: MON, calendarToday: SUN, keepSet: true, bought });
-    const { events, nights } = planBrigadeWeek(morning.events, asTheAppPlans(LIVE), run);
+    const { events, nights } = planBrigadeWeek(morning.events, asOnePot(LIVE), run);
     assert.ok(!events.tables.some((t) => t.preparedOn), "no second Sunday dish appears");
     for (const d of [MON, TUE, WED, THU]) assert.equal(dinner(events, d).leftoverOf, sun.id, `${d}`);
     assert.deepEqual(nights.uncovered, []);
@@ -405,7 +431,7 @@ test("I-14: Sunday night with Sunday's dinner already set keeps Mon to Thu on th
 
 test("I-14: SET MY WEEK on Sunday morning is unchanged by the Sunday-night fix", () => {
   for (const run of [ctx(), ctx({ calendarToday: SUN })]) {
-    const { events, nights } = planBrigadeWeek({ tables: [] }, asTheAppPlans(LIVE), run);
+    const { events, nights } = planBrigadeWeek({ tables: [] }, asOnePot(LIVE), run);
     const sun = dinner(events, SUN);
     assert.ok(sun && !sun.leftoverOf && !sun.preparedOn, "Sunday cooks its own dinner");
     assert.ok(!events.tables.some((t) => t.preparedOn), "no second dish on Sunday");
@@ -441,7 +467,7 @@ const sundayNight = (/** @type {any} */ over = {}) =>
   ctx({ dates: WEEK.slice(1), today: MON, calendarToday: SUN, ...over });
 /** only Sunday's dinner, as SET MY WEEK on Sunday morning left it */
 const sundayOnly = () => {
-  const morning = planBrigadeWeek({ tables: [] }, asTheAppPlans(LIVE), ctx());
+  const morning = planBrigadeWeek({ tables: [] }, asOnePot(LIVE), ctx());
   return {
     full: morning.events,
     sunOnly: {
@@ -457,7 +483,7 @@ test("I-14: PICK DIFFERENT MEALS on Sunday night with Sunday's dinner set keeps 
   for (const bought of [() => true, () => false]) {
     const { events, nights } = planBrigadeWeek(
       full,
-      asTheAppPlans({ ...LIVE, salt: 3 }),
+      asOnePot({ ...LIVE, salt: 3 }),
       sundayNight({ regenerate: true, bought }),
     );
     assert.ok(!events.tables.some((t) => t.preparedOn), "no second Sunday dish appears");
@@ -473,7 +499,7 @@ test("I-14: PICK DIFFERENT MEALS on Sunday night with Sunday's dinner set keeps 
 test("I-14: Sunday night with Sunday's dinner set and Mon to Thu not set yet gives them Sunday's pot", () => {
   const { sunOnly, sun } = sundayOnly();
   for (const over of [{}, { keepSet: true, bought: () => false }, { regenerate: true }]) {
-    const { events, nights } = planBrigadeWeek(sunOnly, asTheAppPlans(LIVE), sundayNight(over));
+    const { events, nights } = planBrigadeWeek(sunOnly, asOnePot(LIVE), sundayNight(over));
     for (const d of [MON, TUE, WED, THU]) assert.equal(dinner(events, d).leftoverOf, sun.id, `${d}`);
     assert.ok(!events.tables.some((t) => t.preparedOn), "no second Sunday dish appears");
     assert.deepEqual(nights.uncovered, []);
@@ -481,7 +507,7 @@ test("I-14: Sunday night with Sunday's dinner set and Mon to Thu not set yet giv
 });
 
 test("I-14: a rule saved with the setting ON and no batches still feeds Mon to Thu on Sunday night with Sunday unset", () => {
-  const rule = asTheAppPlans({ ...LIVE, batches: undefined });
+  const rule = asOnePot({ ...LIVE, batches: undefined });
   const before = JSON.stringify(rule);
   const { events, nights } = planBrigadeWeek({ tables: [] }, rule, sundayNight());
   const mon = dinner(events, MON);
@@ -501,20 +527,20 @@ test("I-14: a rule saved with the setting ON and no batches still feeds Mon to T
 test("I-14: Sunday morning and mid-week runs plan the same as before the loop 2 fix", () => {
   // Sunday morning, PICK DIFFERENT MEALS: Sunday is in the run and re-rolls
   const { full } = sundayOnly();
-  const reroll = planBrigadeWeek(full, asTheAppPlans({ ...LIVE, salt: 5 }), ctx({ regenerate: true }));
+  const reroll = planBrigadeWeek(full, asOnePot({ ...LIVE, salt: 5 }), ctx({ regenerate: true }));
   const sun = dinner(reroll.events, SUN);
   for (const d of [MON, TUE, WED, THU]) assert.equal(dinner(reroll.events, d).leftoverOf, sun.id, `${d}`);
   assert.deepEqual(reroll.nights.uncovered, []);
   // mid-week (Wednesday), the week as set: Wed and Thu keep Sunday's pot
   const wed = ctx({ dates: WEEK.slice(3), today: WED, keepSet: true, bought: () => true });
-  const mid = planBrigadeWeek(full, asTheAppPlans(LIVE), wed);
+  const mid = planBrigadeWeek(full, asOnePot(LIVE), wed);
   for (const d of [WED, THU]) assert.equal(dinner(mid.events, d).leftoverOf, dinner(full, SUN).id, `${d}`);
   assert.deepEqual(mid.nights.uncovered, []);
   // mid-week with a past Sunday nobody cooked or bought: not a pot, as before
   const { sunOnly } = sundayOnly();
   const unbought = planBrigadeWeek(
     sunOnly,
-    asTheAppPlans(LIVE),
+    asOnePot(LIVE),
     ctx({ dates: WEEK.slice(3), today: WED, bought: () => false }),
   );
   for (const d of [WED, THU])

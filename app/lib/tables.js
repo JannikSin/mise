@@ -580,7 +580,10 @@ export function deriveTables(houses, ctx) {
             cookExtras.push(
               /** @type {any} */ ({
                 recipeId: t.recipeId,
-                date: t.date,
+                // a batch is bought for the day it is MADE (shrike item 9,
+                // 10/25): JUST SOME DAYS on Sunday must buy meal B, prepped
+                // Sunday, though it is first eaten Tuesday
+                date: /** @type {any} */ (t).preparedOn ?? t.date,
                 // slot travels with the batch so JUST SOME DAYS' meal chips
                 // filter brigade buys too (they were inert on cookExtras —
                 // Final Gate Usability, 2026-08-30)

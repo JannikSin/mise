@@ -393,3 +393,41 @@ test("shrike item 7: swapping Sunday's pot refuses a dish that does not keep to 
   const b = useRecipeOnTable(two.events, tue.id, { ...oneDay, safeDays: 3 }, targets, (id) => id);
   assert.ok("refused" in b && b.refused.some((r) => /eaten for 4 days/.test(r)));
 });
+
+test("shrike item 9: meal B is bought on the day it is made, so JUST SOME DAYS on Sunday buys both pots", async () => {
+  const { deriveShoppingList } = await import("../app/lib/shopping.js");
+  const { events } = planBrigadeWeek({ tables: [] }, asPlanned(LIVE), ctx());
+  const d = deriveTables([{ house: "wayne", events }], {
+    profileId: "david",
+    ownEntries: [],
+    avoid: [],
+    avoidRecipes: [],
+    bankById: BANK,
+    today: "2026-11-01",
+    profilesById: PROFILES,
+  });
+  const din = d.cookExtras.filter((x) => x.slot === "dinner");
+  const [sunA, tueB] = [dinners(events)[0], dinners(events)[2]];
+  assert.deepEqual(
+    din.filter((x) => x.date === "2026-11-01").map((x) => x.recipeId).sort(),
+    [sunA.recipeId, tueB.recipeId].sort(),
+  );
+  const list = deriveShoppingList({ week: "x", entries: din.map((x) => ({ ...x })) }, BANK, {}, null, undefined, { dates: ["2026-11-01"] }, BANK);
+  const shopped = new Set(list.items.flatMap((i) => i.fromRecipes ?? []));
+  assert.ok(shopped.has(sunA.recipeId) && shopped.has(tueB.recipeId), [...shopped].join(", "));
+});
+
+test("Sunday night after the cutoff, Sunday's dinner set: Monday stays on meal A and meal B is still prepped tonight", () => {
+  const sunday = planBrigadeWeek({ tables: [] }, asPlanned(LIVE), ctx());
+  for (const regenerate of [false, true]) {
+    const night = planBrigadeWeek(
+      sunday.events,
+      asPlanned(LIVE),
+      ctx({ today: "2026-11-02", calendarToday: "2026-11-01", regenerate, bought: () => false }),
+    );
+    const d = dinners(night.events);
+    const sun = d.find((t) => t.date === "2026-11-01");
+    assert.equal(d.find((t) => t.date === "2026-11-02").leftoverOf, sun.id, `regenerate ${regenerate}: Monday eats A`);
+    assert.equal(d.find((t) => t.date === "2026-11-03").preparedOn, "2026-11-01", `regenerate ${regenerate}: B prepped tonight`);
+  }
+});
