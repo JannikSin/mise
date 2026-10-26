@@ -3098,3 +3098,6 @@ label.row input[type="number"],
   color: var(--text);
   padding: 0 10px;
 }
+:root select {
+  min-height: 44px;
+}
