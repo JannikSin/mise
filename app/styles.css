@@ -3064,3 +3064,36 @@ input[aria-label$="comma separated"] {
 .seatclash {
   color: var(--amber);
 }
+
+/* tap targets under 44px, found at phone width (shrike 2026-10-25): People
+   rows, the folded Settings and Plan summaries, the kitchen rule's own
+   selects and fields, the weekly budget box */
+.personrow {
+  min-height: 44px;
+}
+details.tile > summary.k,
+.engineinfo > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+.tableform select,
+.tableform input[type="date"],
+.tableform input[type="number"],
+label.row input[type="number"],
+label.row select,
+.tile input[type="number"] {
+  min-height: 44px;
+  box-sizing: border-box;
+  font-size: 16px;
+}
+.tableform input[type="number"],
+label.row input[type="number"],
+.tile input[type="number"] {
+  width: 84px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 0 10px;
+}
