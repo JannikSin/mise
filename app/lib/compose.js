@@ -1009,7 +1009,13 @@ export function planBrigadeWeek(events, brigade, ctx) {
           prep >= (ctx.calendarToday ?? ctx.today) ||
           (ex &&
             /** @type {any} */ (ex).preparedOn === prep &&
-            (Boolean(/** @type {any} */ (ex).cookedAt) || !ctx.bought || ctx.bought(ex)));
+            (Boolean(/** @type {any} */ (ex).cookedAt) ||
+              // a plain SET keeps a batch already set (2.0, I-01): a Monday
+              // SET turned meal B, prepped Sunday, into a Tuesday cook
+              // whenever its list was never ticked (shrike B1, 1.96 shape)
+              (Boolean(ctx.keepSet) && !ctx.regenerate) ||
+              !ctx.bought ||
+              ctx.bought(ex)));
         if (!real) continue;
         preparedOnMap.set(head, prep);
         if (b.fresh) freshHeads.add(head);
@@ -1417,7 +1423,24 @@ export function planBrigadeWeek(events, brigade, ctx) {
       }
       let pool = /** @type {Record<string, any>[]} */ (walksBySlot[slot]);
       const feeds = LEFTOVER_SLOTS.has(slot) ? (fedBy.get(date) ?? []) : [];
-      const prepDay = LEFTOVER_SLOTS.has(slot) ? preparedOnMap.get(date) : undefined;
+      let prepDay = LEFTOVER_SLOTS.has(slot) ? preparedOnMap.get(date) : undefined;
+      // A BATCH MUST KEEP (shrike H6/item 6, 10/25): counted from its prep
+      // day, a batch pot's dish has to keep to its last night. When nothing
+      // in the pool does, the batch is not offered: this night cooks its own
+      // pot, named in `nights.uncovered`, and its later nights eat that
+      if (prepDay) {
+        const fromPrep = prepDay;
+        const needPrep = Math.max(...[date, ...feeds].map((d) => dayOffset(d) - dayOffset(fromPrep)));
+        if (!pool.some((r) => safeDaysOf(r) >= needPrep)) {
+          notes.push(
+            `${slot} ${date}: no dish keeps the ${needPrep} days from ${fromPrep}, so it is cooked that night instead of prepped ahead.`,
+          );
+          preparedOnMap.delete(date);
+          freshHeads.delete(date);
+          nights.uncovered.push(date);
+          prepDay = undefined;
+        }
+      }
       if (feeds.length > 0 || prepDay) {
         const from = prepDay ?? date;
         const need = Math.max(...[date, ...feeds].map((d) => dayOffset(d) - dayOffset(from)));

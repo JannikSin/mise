@@ -347,3 +347,32 @@ test("dish families: two dump-and-bake feta pastas do not share a week while ano
     assert.ok(bakes.length <= 1, `salt ${salt}: ${cooked.map((t) => `${t.date} ${t.recipeId}`).join(", ")}`);
   }
 });
+
+test("shrike B1 on the 1.96 week: a plain SET on Monday and on Wednesday keeps BOTH Sunday pots, nothing ticked", () => {
+  const sunday = planBrigadeWeek({ tables: [] }, asPlanned(LIVE), ctx());
+  const shape = (events) =>
+    dinners(events).map((t) => [t.date, t.recipeId, t.leftoverOf ?? "", t.preparedOn ?? "", t.proteinFresh ?? ""]);
+  for (const today of ["2026-11-02", "2026-11-04"]) {
+    // bought: () => false is recipeBought on a kitchen that cooked the food
+    // (the ingredients are gone); nothing is tapped cooked
+    const out = planBrigadeWeek(sunday.events, asPlanned(LIVE), ctx({ today, calendarToday: today, bought: () => false }));
+    assert.deepEqual(shape(out.events), shape(sunday.events), `${today}: both pots as set`);
+    assert.equal(out.made, 0, `${today}: nothing rewritten`);
+    assert.deepEqual(out.nights.uncovered, []);
+  }
+});
+
+test("shrike item 6: a batch whose dish cannot keep from its prep day is not offered; that night cooks", () => {
+  const bank = new Map(
+    [dish("beef-bowl", "ground beef"), dish("turkey-bowl", "ground turkey"), dish("chicken-strips", "chicken breast", { note: "sliced thin" })].map(
+      (r) => [r.id, { ...r, safeDays: 3 }],
+    ),
+  );
+  const { events, nights, notes } = planBrigadeWeek({ tables: [] }, asPlanned(LIVE), ctx({ bankById: bank }));
+  const d = dinners(events);
+  const tue = d.find((t) => t.date === "2026-11-03");
+  assert.equal(tue.preparedOn, undefined, "Thursday is day 4 from Sunday; a 3-day dish is not prepped Sunday");
+  assert.ok(nights.uncovered.includes("2026-11-03"));
+  assert.ok(notes.some((n) => /no dish keeps the 4 days/.test(n)), notes.join(" | "));
+  for (const t of d.filter((x) => x.date === "2026-11-04" || x.date === "2026-11-05")) assert.equal(t.leftoverOf, tue.id);
+});
