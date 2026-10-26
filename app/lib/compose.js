@@ -813,9 +813,23 @@ export function planBrigadeWeek(events, brigade, ctx) {
           // I-08; post-mortem 5: "1 is in rotation" hid a week of the same
           // cocoa balls)
           const only = kept.length === 1 ? kept[0] : undefined;
+          // the real reason when it is the backpack rule, not an allergy or
+          // avoid screen (shrike 2026-10-25, M3: egg drop soup passed both
+          // screens and was dropped for not being marked portable)
+          const keptIds = new Set(kept.map((r) => String(r.id)));
+          const backpack =
+            slot === "snack" &&
+            members.some((m) => /** @type {any} */ (m).snackPortable) &&
+            [...keep]
+              .filter((id) => !keptIds.has(id))
+              .every((id) => ctx.bankById?.get(id) && ctx.bankById.get(id).portable !== true);
+          const gone = keep.size - 1;
+          const lead = backpack
+            ? `${gone} of the ${keep.size} named recipes ${gone === 1 ? "is" : "are"} not marked portable and someone takes snacks in a backpack`
+            : `${gone} of the ${keep.size} named recipes fail${gone === 1 ? "s" : ""} someone's screen`;
           notes.push(
             only
-              ? `${slot}: ${keep.size - 1} of the ${keep.size} named recipes fail${keep.size - 1 === 1 ? "s" : ""} someone's screen, so ${slot} is ${String(only.name ?? only.id)} every day. Add another in the kitchen rule to vary it`
+              ? `${slot}: ${lead}, so ${slot} is ${String(only.name ?? only.id)} every day. Add another in the kitchen rule to vary it`
               : `${slot}: ${keep.size - kept.length} of the ${keep.size} named recipes fail a member's screen or the auto-plan fence, so ${kept.length} are in rotation`,
           );
         }

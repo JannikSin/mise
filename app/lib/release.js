@@ -43,6 +43,10 @@ export const RELEASES = [
       "Plan's every-day warning no longer runs two words together.",
       "Allergies are checked against every food a recipe can put on a plate, including a smoothie's or bowl's rotating toppings, so peanut butter in a smoothie's topping list can no longer reach someone with a peanut allergy. An optional topping someone avoids is left off their plate, and the plate says so.",
       "Typed allergies are read the way people write them: peanut allergy, allergic to peanuts, no peanuts, peanut-free, gluten allergy and dairy free all count, and anything else typed is still checked word for word. Peanuts are also caught as groundnut, arachis oil, satay, PB2, mixed nuts, trail mix and Japanese curry roux, and chocolate chips and granola say to check the label for peanut.",
+      "SET MY WEEK answers on Plan right away: what it set, and which nights cook and which eat leftovers. Sunday's row says which nights its pot makes and for how many.",
+      "Plan warns on a dinner when someone at the table cannot eat it, with their name and the reason.",
+      "WHOLE TRIP on List clears JUST SOME DAYS, so BUILD goes back to the whole trip. SEND TO CART is a full button, and linking Kroger brings you back to List.",
+      "The People card lists cooks only for the nights that cook. The recipe card closes when you change tabs or go Back, and the pencil button moved to the left so it no longer sits on top of the right-hand buttons. A snack left out of the rule says when the reason is the backpack setting.",
     ],
   },
   {
