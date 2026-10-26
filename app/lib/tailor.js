@@ -13,6 +13,7 @@
 //     line that names a food the pot does not hold, powders and supplements
 //     first. Code enforces it after the model, the same shape as the avoid
 //     screen (council 2026-07-23): never an AI judgment.
+import { avoidMatcher, labelChecks } from "./plan.js";
 import { cookPlan, scaleQty } from "./portions.js";
 import { rotateComponents, rotates } from "./rotate.js";
 import { formatRecipeQty } from "./shopping.js";
@@ -34,12 +35,21 @@ const liveSeats = (/** @type {Seat[]} */ seats) =>
  * Per-seat plates for a dish everyone assembles for themselves: today's list
  * (the rotation's picks on a rotating recipe, the recipe as written
  * otherwise), scaled to the seat's own portion, macros to match.
+ *
+ * Each seat's plate is screened against that seat's own avoid list (shrike
+ * audit 10/25, S-H1: an optional peanut butter row was printed on a peanut
+ * seat's card, because "optional" never trips the hard screen). An optional
+ * row the seat avoids is LEFT OFF their plate and named, the plate form of the
+ * serve step's "no X" note. A required row they avoid, or an allergy list that
+ * could not be read (null), gets no plate at all: fails closed. A seat with no
+ * entry in `avoidBySeat` is plated as before (the caller did not screen).
  * @param {Record<string, any>} recipe
  * @param {Seat[]} seats
  * @param {string} dateIso the table's date, so the rotation is THAT day's
+ * @param {Record<string, string[] | null>} [avoidBySeat] seat id -> avoidIngredients
  * @returns {Tailor}
  */
-export function bowlTailor(recipe, seats, dateIso) {
+export function bowlTailor(recipe, seats, dateIso, avoidBySeat = {}) {
   const makes = Math.max(1, Number(recipe?.servings) || 1);
   const chosen = rotates(recipe) ? rotateComponents(recipe.rotation, dateIso) : null;
   const rows = chosen ? chosen.picks : (recipe?.ingredients ?? []);
@@ -49,17 +59,60 @@ export function bowlTailor(recipe, seats, dateIso) {
   const out = {};
   for (const s of liveSeats(seats)) {
     const ratio = servingsOf(s) / makes;
-    const line = rows
+    const screened = Object.hasOwn(avoidBySeat, s.id);
+    const avoid = screened ? avoidBySeat[s.id] : [];
+    if (avoid === null) {
+      out[s.id] = {
+        portionGrams: 0,
+        plate: [
+          "not plated: your allergies could not be read. Check the recipe before you make it.",
+        ],
+        estCalories: 0,
+        estProtein: 0,
+      };
+      continue;
+    }
+    const hitOf = avoidMatcher(avoid);
+    const blocked = rows.find((/** @type {any} */ c) => !c.optional && hitOf(c.food));
+    if (blocked) {
+      out[s.id] = {
+        portionGrams: 0,
+        plate: [`not for you: contains ${hitOf(blocked.food)}. Do not make this one.`],
+        estCalories: 0,
+        estProtein: 0,
+      };
+      continue;
+    }
+    const left = rows.filter((/** @type {any} */ c) => hitOf(c.food));
+    const mine = rows.filter((/** @type {any} */ c) => !left.includes(c));
+    const line = mine
       .map(
         (/** @type {any} */ c) =>
           `${formatRecipeQty(scaleQty(Number(c.qty) || 0, c.unit, ratio), c.unit)} ${c.food}`,
       )
       .join(" · ");
+    // a rotation component carries its own macros, so leaving it off is honest
+    // arithmetic; a plain ingredient row does not, and the estimate stands
+    const lessCal = left.reduce(
+      (/** @type {number} */ a, /** @type {any} */ c) => a + (Number(c.calories) || 0),
+      0,
+    );
+    const lessPro = left.reduce(
+      (/** @type {number} */ a, /** @type {any} */ c) => a + (Number(c.protein) || 0),
+      0,
+    );
+    const label = screened ? labelChecks({ ingredients: mine }, avoid) : [];
     out[s.id] = {
       portionGrams: 0,
-      plate: [`your own: ${line}`],
-      estCalories: Math.round(baseCal * ratio),
-      estProtein: Math.round(basePro * ratio),
+      plate: [
+        `your own: ${line}`,
+        ...(left.length > 0
+          ? [`left off for you: ${left.map((/** @type {any} */ c) => c.food).join(", ")}`]
+          : []),
+        ...label,
+      ],
+      estCalories: Math.round((baseCal - lessCal) * ratio),
+      estProtein: Math.round((basePro - lessPro) * ratio),
     };
   }
   return {

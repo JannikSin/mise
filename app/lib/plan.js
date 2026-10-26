@@ -2,6 +2,7 @@
 // the key mergeFieldWise prefers — so multiple entries may STACK in the same
 // date+slot and two devices editing the same week merge cleanly.
 import { isoWeekId, localIsoDate, parseLocalIso, tripDates } from "./dates.js";
+import { CHECK_LABEL_TERMS } from "./targets.js";
 
 /**
  * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, leftoverOf?: string, leftoverDate?: string, cookId?: string, cookName?: string, estCalories?: number, estProtein?: number, cookedAt?: string, eatenAt?: string, cookSeconds?: number, cookComment?: string, preparedOn?: string, leftoverPrepared?: string, batchAlongside?: { name: string, date: string, cookId?: string, cookName?: string, proteinFresh?: string, freshNights?: string[] }, proteinFresh?: string, freshNights?: string[], freshMeat?: { food: string, qty: number, unit: string }[], occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean, useItUp?: boolean }} PlanEntry
@@ -326,6 +327,50 @@ export function autoPlanEligible(recipe) {
 }
 
 /**
+ * Every row that can reach somebody's plate: the ingredients, plus a rotating
+ * recipe's `rotation.keep` and its WHOLE `rotation.pool`, because the plate
+ * and the recipe page print the day's rotation picks, not the ingredients
+ * (shrike audit 10/25, S-B1: the berry-greens smoothie's pool carried peanut
+ * butter, the screen read only `ingredients`, and Elliot's plate said "0.5 tbsp
+ * peanut butter" four days of seven). The whole pool, not today's picks: the
+ * screen has no date, and a pool row is on some day's plate, so it fails closed.
+ * @param {Record<string, any>} recipe
+ * @returns {Record<string, any>[]}
+ */
+export function plateRows(recipe) {
+  const rot = recipe?.rotation;
+  return [
+    ...(recipe?.ingredients ?? []),
+    ...(Array.isArray(rot?.keep) ? rot.keep : []),
+    ...(Array.isArray(rot?.pool) ? rot.pool : []),
+  ];
+}
+
+/**
+ * The hard screen's term match, shared so a plate that strips a row matches
+ * exactly what the screen would have refused.
+ * @param {string[] | undefined} avoid
+ * @returns {(food: unknown) => string | undefined} the avoid term a food name hits
+ */
+export function avoidMatcher(avoid) {
+  // a plural avoid also catches its singular (Tribunal, 2026-10-18: "peanuts"
+  // never matched "peanut butter"); stricter only, so it can never let a
+  // dish through that the plain term refused
+  const terms = (avoid ?? [])
+    .map((t) => String(t).toLowerCase().trim())
+    .filter(Boolean)
+    .flatMap((t) => (t.length > 3 && /s$/.test(t) ? [t, t.replace(/(es|s)$/, "")] : [t]));
+  // "japanese-style curry" and "japanese  curry" are "japanese style curry":
+  // a folded match too, so a hyphen or a double space never hides a term
+  // (Tribunal Red Team, 1.95 loop 3). Only ever refuses more.
+  const fold = (/** @type {string} */ x) => x.replace(/[-_]+/g, " ").replace(/\s+/g, " ");
+  return (raw) => {
+    const food = String(raw ?? "").toLowerCase();
+    return terms.find((t) => food.includes(t) || fold(food).includes(fold(t)));
+  };
+}
+
+/**
  * THE shared diet/avoid screen (Tribunal amendment 1): the same predicate
  * mergeRecipePool filters with, exported so table creation and derivation
  * can never bypass it. Returns human-readable conflict reasons, empty =
@@ -348,21 +393,10 @@ export function recipeConflicts(recipe, diet, avoid, avoidRecipes) {
       ? DIET_ADMITS[/** @type {keyof typeof DIET_ADMITS} */ (diet)]
       : null;
   if (admits && !admits.has(dietOf(recipe))) reasons.push(`not ${diet}`);
-  // a plural avoid also catches its singular (Tribunal, 2026-10-18: "peanuts"
-  // never matched "peanut butter"); stricter only, so it can never let a
-  // dish through that the plain term refused
-  const terms = (avoid ?? [])
-    .map((t) => t.toLowerCase().trim())
-    .filter(Boolean)
-    .flatMap((t) => (t.length > 3 && /s$/.test(t) ? [t, t.replace(/(es|s)$/, "")] : [t]));
-  for (const ing of recipe.ingredients ?? []) {
+  const hitOf = avoidMatcher(avoid);
+  for (const ing of plateRows(recipe)) {
     if (ing.optional) continue; // optional ingredients never trigger the avoid screen
-    const food = String(ing.food ?? "").toLowerCase();
-    // "japanese-style curry" and "japanese  curry" are "japanese style curry":
-    // a folded match too, so a hyphen or a double space never hides a term
-    // (Tribunal Red Team, 1.95 loop 3). Only ever refuses more.
-    const fold = (/** @type {string} */ x) => x.replace(/[-_]+/g, " ").replace(/\s+/g, " ");
-    const hit = terms.find((t) => food.includes(t) || fold(food).includes(fold(t)));
+    const hit = hitOf(ing.food);
     if (hit && !reasons.includes(`contains ${hit}`)) reasons.push(`contains ${hit}`);
   }
   return reasons;
@@ -409,19 +443,51 @@ export function expandAvoidTerms(avoid) {
  * @returns {string[]} matched ingredient food names, deduped
  */
 export function softAvoidMatches(recipe, avoid) {
-  const hard = (avoid ?? []).map((t) => String(t).toLowerCase()).filter(Boolean);
+  const hardOf = avoidMatcher(avoid);
   const soft = expandAvoidTerms(avoid);
   /** @type {string[]} */
   const out = [];
-  for (const ing of recipe.ingredients ?? []) {
+  for (const ing of plateRows(recipe)) {
     const food = String(ing.food ?? "").toLowerCase();
-    const hitsSoft = soft.some((t) => food.includes(t));
+    // the hard screen's own match counts too, so an optional "peanut butter"
+    // row is noted for an avoid stored as "peanuts"
+    const hitsHard = Boolean(hardOf(food));
+    const hitsSoft = hitsHard || soft.some((t) => food.includes(t));
     if (!hitsSoft) continue;
-    const hitsHard = hard.some((t) => food.includes(t));
     // non-optional hard hits already unseat via recipeConflicts; everything
     // else (optional rows, synonym-only matches) is the soft tier
     if (!ing.optional && hitsHard) continue;
     if (!out.includes(String(ing.food))) out.push(String(ing.food));
+  }
+  return out;
+}
+
+/**
+ * The "check the label" lines for one seat (targets.js CHECK_LABEL_TERMS):
+ * packaged rows whose allergen status the food name cannot tell, for a seat
+ * whose avoid list names that allergen. Rows the hard screen already refuses
+ * are skipped (that seat is not eating it). Every row that can reach a plate
+ * counts, optional and rotation rows too. Never unseats.
+ * @param {Record<string, any>} recipe
+ * @param {string[] | null | undefined} avoid
+ * @returns {string[]} e.g. ["check the label for peanut: semisweet chocolate chips, granola"]
+ */
+export function labelChecks(recipe, avoid) {
+  const mine = (avoid ?? []).map((t) => String(t).toLowerCase());
+  const hardOf = avoidMatcher(avoid ?? []);
+  /** @type {string[]} */
+  const out = [];
+  for (const [allergen, terms] of Object.entries(CHECK_LABEL_TERMS)) {
+    if (!mine.some((t) => t.includes(allergen))) continue;
+    /** @type {string[]} */
+    const foods = [];
+    for (const ing of plateRows(recipe)) {
+      const food = String(ing.food ?? "");
+      const low = food.toLowerCase();
+      if (hardOf(low) || !terms.some((t) => low.includes(t))) continue;
+      if (!foods.includes(food)) foods.push(food);
+    }
+    if (foods.length > 0) out.push(`check the label for ${allergen}: ${foods.join(", ")}`);
   }
   return out;
 }
