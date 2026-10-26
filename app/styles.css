@@ -3082,6 +3082,7 @@ details.tile > summary.k,
 .tableform input[type="number"],
 label.row input[type="number"],
 label.row select,
+.tile select,
 .tile input[type="number"] {
   min-height: 44px;
   box-sizing: border-box;
