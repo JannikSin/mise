@@ -24,6 +24,7 @@ import {
   readNow,
   readTargetsForSeat,
   readTargetsMetaOf,
+  withCurrentAllergenTerms,
   writeTargetsOf,
   pathFor,
   inSyncScope,
@@ -5071,6 +5072,12 @@ function App() {
         serve=${routeServe}
         tableCooked=${Boolean(routeTable?.cookedAt)}
         onCookedTable=${handleMarkTableCooked}
+        avoid=${
+          // the viewer's own list; before it loads, nothing is left off here
+          // (the plan and the table screen already fail closed on an unread
+          // profile, and a blank card on every launch would teach nothing)
+          targets?.avoidIngredients ?? []
+        }
       />`
     }
     ${
@@ -5131,6 +5138,18 @@ function App() {
         onSavePins=${handleSavePins}
         onSavePrices=${handleSavePrices}
         avoid=${targets?.avoidIngredients ?? []}
+        labelSeats=${
+          // everyone in my house, for the List's "check the label" rows
+          allProfiles
+            .filter((p) => (p.household ?? "home") === myHouseOf())
+            .map((p) => ({
+              name: p.id === me ? "you" : String(p.name ?? p.id),
+              avoid: /** @type {string[]} */ (
+                withCurrentAllergenTerms(houseTargets.get(p.id)?.data ?? null)?.avoidIngredients ?? []
+              ),
+            }))
+            .filter((x) => x.avoid.length > 0)
+        }
         weeklyBudgetUsd=${targets?.weeklyBudgetUsd}
         region=${targets?.region}
         storeSlug=${storeSlugOf(targets?.stores?.[0])}

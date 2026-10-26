@@ -1,11 +1,12 @@
 import { html } from "htm/preact";
 import { rotateComponents, rotates, rotationNoun } from "../lib/rotate.js";
+import { leftOffFor } from "../lib/tailor.js";
 import { localIsoDate } from "../lib/dates.js";
 import { useEffect, useState } from "preact/hooks";
 import { cookFor, cookPlan, scaleQty, COOK_FOR_MAX, COOK_FOR_MIN } from "../lib/portions.js";
 import { formatRecipeQty } from "../lib/shopping.js";
 import { keepAwake } from "../lib/awake.js";
-import { untrustedForAutoPlan } from "../lib/plan.js";
+import { labelChecks, untrustedForAutoPlan } from "../lib/plan.js";
 
 // ?from=<key> in the recipe hash → where the backlink returns; unknown or
 // absent keys fall back to the cookbook (the historical behavior)
@@ -148,7 +149,7 @@ function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
 }
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, date?: string, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, date?: string, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void, avoid?: string[] | null }} props `avoid` = the viewer's avoid list (null = unread); picks they avoid are left off
  */
 export function RecipeView({
   recipe,
@@ -163,6 +164,7 @@ export function RecipeView({
   onPromote,
   avoided = false,
   onAvoid = undefined,
+  avoid = [],
   entry = undefined,
   onCooked = undefined,
   onCookComment = undefined,
@@ -501,6 +503,10 @@ export function RecipeView({
           const rotationDate = entry?.date ?? date ?? localIsoDate(new Date());
           const noun = rotationNoun(recipe);
           const chosen = rotateComponents(recipe.rotation, rotationDate);
+          // a pick the viewer avoids is left off and named (shrike item 3)
+          const kept = leftOffFor(chosen.kept, avoid);
+          const rot = leftOffFor(chosen.rotated, avoid);
+          const leftOff = [...kept.left, ...rot.left];
           const ratio = plan.eatServings / Math.max(1, Number(recipe.servings) || 1);
           const q = (/** @type {any} */ c) =>
             formatRecipeQty(scaleQty(Number(c.qty) || 0, c.unit, ratio), c.unit);
@@ -514,14 +520,14 @@ export function RecipeView({
               ${`${chosen.rotated.length} of ${recipe.rotation.pool.length} toppings, chosen for ${rotationDate}. Same day, same ${noun}. Put in exactly these, at these amounts.`}
             </p>
             <div>
-              ${chosen.kept.map(
+              ${kept.mine.map(
                 (/** @type {any} */ c) =>
                   html`<div class="ing staple" key=${c.food}>
                     <span>${c.food} <span class="pantry-mark">every day</span></span>
                     <span class="q">${q(c)}</span>
                   </div>`,
               )}
-              ${chosen.rotated.map(
+              ${rot.mine.map(
                 (/** @type {any} */ c) =>
                   html`<div class="ing" key=${c.food}>
                     <span>${c.food}</span>
@@ -544,6 +550,14 @@ export function RecipeView({
                   </p>`
             }
             ${
+              leftOff.length > 0 &&
+              html`<p class="hint redflag" role="note">
+                ${avoid === null
+                  ? "Not checked: your profile could not be read, so nothing is listed. Check signal and reopen."
+                  : `Left off for you: ${leftOff.map((/** @type {any} */ c) => c.food).join(", ")}.`}
+              </p>`
+            }
+            ${
               offShelf.length > 0 &&
               html`<p class="hint offshelf">
                 ${`Not in today's ${noun}, keep them on the shelf for other days: ${offShelf.join(" · ")}`}
@@ -551,6 +565,16 @@ export function RecipeView({
             }
           </div>`;
         })()
+      }
+      ${
+        // CHECK THE LABEL (shrike item 8): a packaged food whose allergen
+        // status is the brand's, for the viewer who avoids that allergen
+        labelChecks(recipe, avoid ?? []).map(
+          (line, i) =>
+            html`<p class="hint redflag" role="note" key=${`lbl${i}`}>
+              ${line.replace(/^check/, "Check")}.
+            </p>`,
+        )
       }
       ${
         forLine &&

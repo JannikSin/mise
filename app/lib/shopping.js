@@ -15,6 +15,7 @@ import {
   normalizeQty,
 } from "./ingredients.js";
 import { itemCost, matchPrice, parsePackSize, stem } from "./prices.js";
+import { labelChecks } from "./plan.js";
 
 /**
  * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, checked: boolean, manual: boolean, fromRecipes?: string[], needIt?: boolean }} ShoppingItem
@@ -2486,4 +2487,28 @@ export function substitutionPlan(combined, meId, myEntries, myPool, recipesById,
   // biggest saving first, and never more than a handful: this is a suggestion
   // to read, not a rewrite of the week
   return out.sort((a, b) => b.drops.length - a.drops.length).slice(0, 5);
+}
+
+/**
+ * CHECK THE LABEL on a List row (shrike item 8, 10/25): a packaged food whose
+ * allergen status is the brand's (chocolate chips, granola, curry roux) is
+ * named for each person in the house who avoids that allergen. One line per
+ * allergen, the people in brackets; "" when nothing applies.
+ * @param {string[]} foods the row's foods (a grouped row has several forms)
+ * @param {{ name: string, avoid: string[] }[]} seats
+ * @returns {string}
+ */
+export function labelLineFor(foods, seats) {
+  const unique = [...new Set((foods ?? []).filter(Boolean))];
+  /** @type {Map<string, string[]>} allergen line -> names */
+  const by = new Map();
+  for (const seat of seats ?? []) {
+    for (const line of labelChecks({ ingredients: unique.map((food) => ({ food })) }, seat.avoid)) {
+      const head = line.replace(/:.*$/, "");
+      by.set(head, [...(by.get(head) ?? []), seat.name]);
+    }
+  }
+  return [...by]
+    .map(([head, names]) => `${head.replace(/^check/, "Check")} (${names.join(", ")})`)
+    .join(". ");
 }

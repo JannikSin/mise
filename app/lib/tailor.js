@@ -302,3 +302,19 @@ export function screenTailorToDish(tailor, recipe) {
   }
   return { seats, cook: (tailor?.cook ?? []).filter(clean) };
 }
+
+/**
+ * A rotating recipe's picks for ONE viewer (shrike item 3, 10/25): the rows
+ * they avoid are left off and named, the same rule bowlTailor applies per
+ * seat. An unread avoid list (null) refuses every row: an unread profile is an
+ * unread allergy.
+ * @param {Record<string, any>[]} rows today's kept and rotated components
+ * @param {string[] | null | undefined} avoid
+ * @returns {{ mine: Record<string, any>[], left: Record<string, any>[] }}
+ */
+export function leftOffFor(rows, avoid) {
+  if (avoid === null) return { mine: [], left: [...rows] };
+  const hit = avoidMatcher(avoid ?? []);
+  const left = rows.filter((c) => hit(String(c?.food ?? "").toLowerCase()));
+  return { mine: rows.filter((c) => !left.includes(c)), left };
+}

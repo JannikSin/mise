@@ -61,6 +61,7 @@ import {
   moreThanSentLines,
   alreadySentLines,
   priceFlag,
+  labelLineFor,
 } from "../lib/shopping.js";
 import { AISLES } from "../lib/ingredients.js";
 import { isParked } from "../lib/parked.js";
@@ -269,6 +270,7 @@ const FRESH_STEPS = [
  *   pickDays?: string[] | null,
  *   buildNote?: string,
  *   repriceNote?: string,
+ *   labelSeats?: { name: string, avoid: string[] }[],
  *   onReceiptApprove?: (store: string, lines: { name: string, price: number, size: string }[]) => void,
  *   onClearList?: () => void,
  *   onRemovePantry?: (kind: "staple" | "perishable", key: string) => void,
@@ -329,6 +331,7 @@ export function ShoppingView({
   pickDays = null,
   buildNote = "",
   repriceNote = "",
+  labelSeats = [],
   onReceiptApprove = undefined,
   onClearList = undefined,
   onRemovePantry = undefined,
@@ -1250,9 +1253,18 @@ export function ShoppingView({
       },
     );
   };
+  // CHECK THE LABEL (shrike item 8, 10/25): shopping.js labelLineFor
+  const labelLine = (/** @type {any[]} */ members) =>
+    labelLineFor(
+      members.map((m) => String(m?.food ?? "")),
+      labelSeats ?? [],
+    );
   const flagLine = (/** @type {any[]} */ members) => {
     const flag = flagFor(members);
-    return flag ? html`<p class="priceflag" role="note">${flag}</p>` : "";
+    const label = labelLine(members);
+    return html`${flag ? html`<p class="priceflag" role="note">${flag}</p>` : ""}${
+      label ? html`<p class="priceflag labelflag" role="note">${label}</p>` : ""
+    }`;
   };
 
   // What a trip block adds up to at this store — shown beside the block
