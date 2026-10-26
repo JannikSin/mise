@@ -3671,6 +3671,11 @@ export function ShoppingView({
                         </span>
                       </button>
                       ${colCells(i)}
+                      ${(() => {
+                        // the house list says check the label too (shrike item 8)
+                        const l = labelLine([i]);
+                        return l ? html`<p class="priceflag labelflag" role="note">${l}</p>` : "";
+                      })()}
                     </div>
                   `;
                 })}
