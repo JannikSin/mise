@@ -1194,11 +1194,34 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // that names its recipes (EDIT, then SET) replaces a set meal no longer on
   // that list (Tribunal Realist, 2.0 loop 1: an edited breakfast list never
   // reached a week already set)
+  // A NAMED LIST THAT GREW (shrike item 15, 10/25): "add another breakfast
+  // to vary it" did nothing, because every set breakfast was still on the
+  // list. A breakfast or snack slot whose named recipes (those that pass
+  // everyone, so a snack the backpack rule drops never counts) include one no
+  // set meal of the run uses is re-planned where it is not bought. Dinners
+  // never take this path.
+  const runDates = new Set(dates);
+  /** @type {Set<string>} */
+  const grownSlots = new Set();
+  for (const slot of liveSlots) {
+    if (LEFTOVER_SLOTS.has(slot)) continue;
+    const named = /** @type {any} */ (brigade).slotRecipes?.[slot];
+    if (!Array.isArray(named) || named.length < 2) continue;
+    const usable = new Set((poolsBySlot[slot] ?? []).map((r) => String(r.id)));
+    const used = new Set(
+      [...byId.values()]
+        .filter((t) => t.fromBrigade === brigade.id && t.slot === slot && runDates.has(t.date))
+        .map((t) => t.recipeId),
+    );
+    if (used.size > 0 && named.some((id) => usable.has(String(id)) && !used.has(String(id))))
+      grownSlots.add(slot);
+  }
   const fitsRuleNow = (/** @type {import("./tables.js").TableEvent} */ t) => {
     // a batch pot already cooked (preparedOn today or earlier) is food that
     // exists, whatever the rule now names (Tribunal Engineer, 2.0 loop 2)
     const prep = /** @type {any} */ (t).preparedOn;
     if (typeof prep === "string" && prep <= (ctx.calendarToday ?? ctx.today)) return true;
+    if (grownSlots.has(t.slot)) return false;
     const named = /** @type {any} */ (brigade).slotRecipes?.[t.slot];
     return !Array.isArray(named) || named.length === 0 || named.includes(t.recipeId);
   };
