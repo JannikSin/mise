@@ -34,6 +34,10 @@ export const RELEASES = [
       "Sunday cooks two dinners: one for Sunday and Monday, and a second for Tuesday to Thursday, all prepped Sunday except the meat. Friday and Saturday each get their own dish. It is the new default when you cook Sunday, Friday and Saturday; in the kitchen rule, Sunday cooks can also be one pot for Mon to Thu, or nights you pick.",
       "The second dish's meat is cooked once on Tuesday by default, or each night if you choose. Only dishes whose meat cooks in about 15 minutes are picked for it, like ground beef, sliced chicken, shrimp or tofu.",
       "Plan says what to do each night: Sunday lists the prep and where the meat goes (fridge or freezer), Tuesday says how much meat to cook, and Wednesday and Thursday say reheat until steaming hot, 165 F, and what to move from the freezer the night before.",
+      "List says where the second dish's meat goes when it gets home, and Sunday's prep minutes leave out the meat cooked later.",
+      "Two dishes of the same kind, like two dump-and-bake feta pastas, no longer land in the same week when something else fits.",
+      "SET MY WEEK in the middle of the week keeps the leftover nights already planned, even if the list was never ticked.",
+      "Plan's every-day warning no longer runs two words together.",
     ],
   },
   {
