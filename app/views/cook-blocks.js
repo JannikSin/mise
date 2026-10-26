@@ -20,7 +20,8 @@ const andList = (/** @type {string[]} */ names) =>
  * @returns {string}
  */
 export function potFeeds(entry, entries, tables) {
-  if (!entry?.table || entry.leftoverOf) return "";
+  // dinner pots only: a breakfast or snack batch is not "Sun dinner"
+  if (!entry?.table || entry.leftoverOf || entry.slot !== "dinner") return "";
   const dayOf = (/** @type {string} */ iso) => DAY_SHORT[parseLocalIso(iso).getDay()] ?? "";
   const nights = (
     Array.isArray(entry.freshNights)
