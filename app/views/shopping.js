@@ -1918,7 +1918,17 @@ export function ShoppingView({
             !cartOff &&
             html`<div class="row">
                 <span class="k"
-                  >${STORE_NAMES[homeStore] ?? "Kroger"} cart · ${cartRows.length} items ready to send</span
+                  >${
+                    // after a send the header says what was sent and what is
+                    // new, never "12 items ready to send" again (shrike UI 14)
+                    `${STORE_NAMES[homeStore] ?? "Kroger"} cart · ${
+                      sentCount === 0
+                        ? `${cartRows.length} items ready to send`
+                        : haveSent && freshRows.length > 0
+                          ? `sent, ${freshRows.length} new to send`
+                          : `sent${sentCount > 1 ? ` ${sentCount} times` : ""} this week`
+                    }`
+                  }</span
                 >
                 <button
                   class="primary"
