@@ -3099,5 +3099,5 @@ label.row input[type="number"],
   padding: 0 10px;
 }
 :root select {
-  min-height: 44px;
+  min-height: 44px !important;
 }
