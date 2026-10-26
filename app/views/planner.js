@@ -642,23 +642,19 @@ export function PlannerView({
                                           html` <span class="usesoon cookedchip">✓ ate it</span>`
                                         }
                                         ${
-                                          cookLine(
-                                            entry,
-                                            profileId,
-                                            weekdayShort,
-                                            isPerBowl(recipe),
-                                          ) &&
-                                          html` <span class="usesoon"
-                                            >${cookLine(entry, profileId, weekdayShort, isPerBowl(recipe))}</span
-                                          >`
-                                        }
-                                        ${
                                           toppingsLine(recipe, date) &&
                                           html`<span class="hint plateline"
                                             >🥣 ${toppingsLine(recipe, date)}</span
                                           >`
                                         }
                                       </span>
+                                      ${
+                                        // who cooks, under the name, not clipped by its two-line clamp (shrike item 19)
+                                        cookLine(entry, profileId, weekdayShort, isPerBowl(recipe)) &&
+                                        html`<span class="usesoon cookchip"
+                                          >${cookLine(entry, profileId, weekdayShort, isPerBowl(recipe))}</span
+                                        >`
+                                      }
                                       ${
                                         recipe &&
                                         html`<span class="m num"
@@ -759,17 +755,6 @@ export function PlannerView({
                                   <span class="chipbody">
                                     <span class="n">
                                       ${name}
-                                      ${
-                                        cookLine(
-                                          entry,
-                                          profileId,
-                                          weekdayShort,
-                                          isPerBowl(recipe),
-                                        ) &&
-                                        html` <span class="usesoon"
-                                          >${cookLine(entry, profileId, weekdayShort, isPerBowl(recipe))}</span
-                                        >`
-                                      }
                                       ${entry.cookedAt && html` <span class="usesoon cookedchip">✓ ate it</span>`}
                                       ${
                                         /** @type {any} */ (entry).plate &&
@@ -784,6 +769,13 @@ export function PlannerView({
                                         >`
                                       }
                                     </span>
+                                    ${
+                                      // who cooks, under the name, not clipped by its two-line clamp (shrike item 19)
+                                      cookLine(entry, profileId, weekdayShort, isPerBowl(recipe)) &&
+                                      html`<span class="usesoon cookchip"
+                                        >${cookLine(entry, profileId, weekdayShort, isPerBowl(recipe))}</span
+                                      >`
+                                    }
                                     ${
                                       recipe &&
                                       html`<span class="m num"

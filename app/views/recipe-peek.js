@@ -121,7 +121,7 @@ export function RecipePeek({
           unshopped &&
           html`<p class="hint peekreceipt">
             No receipt scanned for this week yet, so nothing here is confirmed bought. Cook it
-            anyway if you already have the food. <a href="#/list">scan the receipt →</a>
+            anyway if you already have the food. <a class="secondary linkbtn receiptbtn" href="#/list">SCAN THE RECEIPT →</a>
           </p>`
         }
         <h3 class="block-title">${rotating ? `Ingredients · today's ${noun}` : "Ingredients"}</h3>

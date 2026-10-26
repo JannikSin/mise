@@ -40,7 +40,7 @@ export function CookbookView({ recipes, hasToken, weekId, onPlan }) {
           <small>URL or photo in, annotated and plan-fitted out</small>
         </a>
       </div>
-      <div class="chips" role="group" aria-label="Filter by purpose">
+      <div class="chips wrapchips" role="group" aria-label="Filter by purpose">
         ${PURPOSES.map(
           (p) => html`
             <button
@@ -53,7 +53,7 @@ export function CookbookView({ recipes, hasToken, weekId, onPlan }) {
           `,
         )}
       </div>
-      <div class="chips" role="group" aria-label="Filter by time">
+      <div class="chips wrapchips" role="group" aria-label="Filter by time">
         ${TIMES.map(
           (x) => html`
             <button

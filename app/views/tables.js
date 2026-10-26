@@ -1688,7 +1688,7 @@ export function TablesView({
                   </option>`;
                 })}
               </select>
-              <label class="row">
+              <label class="row checkline">
                 <input
                   type="checkbox"
                   checked=${brigadeForm.open}

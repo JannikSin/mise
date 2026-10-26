@@ -664,7 +664,7 @@ export function RecipeView({
         unshopped &&
         html`<p class="hint receiptnote">
           No receipt scanned for this week yet, so nothing here is confirmed bought. Cook it anyway
-          if you already have the food. <a href="#/list">scan the receipt →</a>
+          if you already have the food. <a class="secondary linkbtn receiptbtn" href="#/list">SCAN THE RECEIPT →</a>
         </p>`
       }
       <ol class="steps">

@@ -3102,3 +3102,44 @@ label.row input[type="number"],
   min-height: 44px;
   height: 44px;
 }
+
+/* shrike item 19 (10/25), the rest */
+/* the peek's amounts wrap instead of cutting off ("4.82 lb (2187.5 ...") */
+.checkrow.static .q {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  text-align: right;
+  max-width: 48%;
+  overflow-wrap: anywhere;
+}
+/* who cooks, on its own line under the meal name, never clipped by the
+   name's two-line clamp */
+.chipbody .cookchip {
+  font-size: 10.5px;
+  align-self: flex-start;
+  white-space: normal;
+}
+/* a plain text box in a row (Settings: Family) is a 44px target */
+.row > input:not([type="checkbox"]):not([type="radio"]):not([type="date"]):not([type="number"]) {
+  min-height: 44px;
+  box-sizing: border-box;
+  font-size: 16px;
+}
+/* a checkbox's whole label is the target */
+label.checkline {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+label.checkline input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+/* "scan the receipt" is a button, not a 14px link */
+.receiptbtn {
+  margin-top: 6px;
+}
