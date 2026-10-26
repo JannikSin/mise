@@ -1023,6 +1023,10 @@ export function planBrigadeWeek(events, brigade, ctx) {
         // planning day is Monday, but tonight's pot is still being cooked
         (exSrc.date >= (ctx.calendarToday ?? ctx.today) ||
           Boolean(/** @type {any} */ (exSrc).cookedAt) ||
+          // SET MY WEEK keeps set meals (2.0, I-01), leftover nights too: a
+          // Wednesday SET re-picked Wed and Thu off Sunday's pot whenever its
+          // list was never ticked (rehearsal 10/28, in 1.95 as well)
+          (Boolean(ctx.keepSet) && !ctx.regenerate) ||
           !ctx.bought ||
           ctx.bought(exSrc));
       if (

@@ -305,3 +305,21 @@ test("the List says where meal B's meat goes", async () => {
   assert.match(daily, /fridge Tue's share and freeze Wed and Thu's/);
   assert.deepEqual(mealBShoppingLines([{ ...e, proteinFresh: "once" }], day, (id) => id, "2026-11-06"), [], "a past pot says nothing");
 });
+
+test("a mid-week SET keeps Wed and Thu on Sunday's pot even when its list was never ticked (rehearsal 10/28)", () => {
+  // the week was set on 1.95: one Sunday pot for Mon to Thu
+  const one = planBrigadeWeek({ tables: [] }, asPlanned({ ...LIVE, sundayTwoPots: false }), ctx());
+  const before = dinners(one.events);
+  // Wednesday, nothing ticked as bought, the rule now two pots
+  const wed = planBrigadeWeek(one.events, asPlanned(LIVE), ctx({ today: "2026-11-04", calendarToday: "2026-11-04", bought: () => false }));
+  const after = dinners(wed.events);
+  for (const d of ["2026-11-04", "2026-11-05"]) {
+    const b = before.find((t) => t.date === d);
+    const a = after.find((t) => t.date === d);
+    assert.equal(a.recipeId, b.recipeId, `${d} kept`);
+    assert.equal(a.leftoverOf, b.leftoverOf, `${d} still eats Sunday's pot`);
+  }
+  // PICK DIFFERENT MEALS still re-rolls those nights by the bought rule
+  const regen = planBrigadeWeek(one.events, asPlanned(LIVE), ctx({ today: "2026-11-04", calendarToday: "2026-11-04", bought: () => false, regenerate: true }));
+  assert.ok(dinners(regen.events).some((t) => t.date === "2026-11-04" && !t.leftoverOf), "regenerate is not blocked");
+});
