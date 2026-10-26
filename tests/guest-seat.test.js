@@ -158,7 +158,8 @@ test("a guest the dish is unsafe for is refused with the reason, and no retry is
   const r = seatMara(wayne(), peanut);
   assert.equal(r.events, null);
   assert.equal(r.retry, false, "trying again cannot make an unsafe dish safe");
-  assert.match(r.note, /Mara was not added: tonight's dinner \(One-Pot Creamy Coconut Curry Chicken: contains curry roux\)\./);
+  // 1.96 (shrike item 20): the dish, the food, then the meal
+  assert.match(r.note, /Mara was not added: One-Pot Creamy Coconut Curry Chicken has curry roux \(tonight's dinner\)\./);
 });
 
 test("a guest already at the dinner hears that, not 'no shared meal is set'", () => {
@@ -227,7 +228,7 @@ test("a dinner holding either food of her typed pair refuses her seat", async ()
     });
     assert.equal(r.events, null, `${food}: nothing is written`);
     assert.equal(r.retry, false);
-    assert.match(r.note, new RegExp(`Mara was not added: .*contains ${food}`), r.note);
+    assert.match(r.note, new RegExp(`Mara was not added: .* has ${food}`), r.note);
   }
 });
 
@@ -412,4 +413,14 @@ test("seating a guest outside the sync scope reads her targets for real, and onl
   await setScopeGuests([]);
   assert.equal(inSyncScope("profiles/mara/profile/targets.json"), false);
   await setSyncScope(null);
+});
+
+test("1.96 (shrike item 20): a refusal names the allergen family, not just the food", async () => {
+  const { avoidTermsFromAllergens } = await import("../app/lib/targets.js");
+  const dairy = { ...MARA_TARGETS, avoidIngredients: avoidTermsFromAllergens(["dairy"], "") };
+  const r = seatMara(wayne(), dairy);
+  assert.equal(r.events, null);
+  assert.match(r.note, /curry roux, which has dairy/, r.note);
+  assert.match(r.note, /\(tonight's dinner\)\.$/);
+  assert.doesNotMatch(r.note, /\u2014/);
 });

@@ -3143,3 +3143,8 @@ label.checkline input[type="checkbox"] {
 .receiptbtn {
   margin-top: 6px;
 }
+/* a guest's own requested nights on the Add to a dinner chips (shrike item 20) */
+.chip.asked {
+  border-style: dashed;
+  border-color: var(--signal);
+}

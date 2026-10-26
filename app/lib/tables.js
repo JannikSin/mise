@@ -7,6 +7,7 @@
 import { autoPlanEligible, recipeConflicts, SLOT_KEYS, SLOT_META } from "./plan.js";
 import { parsePot, solveSeat } from "./synth.js";
 import { freshMeatFor } from "./cadence.js";
+import { allergenFamilyOf } from "./targets.js";
 
 /**
  * @typedef {{ id: string, servings: number, rawServings?: number, status?: "in" | "skipped", auto?: boolean, edited?: boolean, blocked?: string }} Seat seat id = profileId; `auto: true` marks a MACHINE-stamped skip (recomputed every run, unlike a human decline which carries); `blocked` (2026-10-16) is the reason the allergy/diet screen skipped this seat on this dish (always with auto: true); `edited: true` marks a HUMAN servings edit (patchSeat) that binds the composer while the dish is unchanged
@@ -1831,7 +1832,22 @@ export function seatGuestOnDay(events, brigadeId, date, slots, guest, targets, b
     // a guest is never seated on a dish their profile refuses
     const no = seatScreen(recipe, targets);
     if (no.length > 0) {
-      refused.push(`${mealOf(slot)} (${recipe?.name ?? table.recipeId}: ${no.join(", ")})`);
+      // NAME THE ALLERGEN (shrike item 20, 10/25): "Japanese Chicken Curry
+      // has curry roux, which has dairy (Sunday's dinner)"
+      const dish = String(recipe?.name ?? table.recipeId);
+      const why = no
+        .map((r) => {
+          const food = r.replace(/^contains /, "");
+          if (food === r) return r;
+          const fam = allergenFamilyOf(food, targets.avoidIngredients);
+          return fam && fam !== food ? `${food}, which has ${fam}` : food;
+        })
+        .join("; ");
+      refused.push(
+        no.every((r) => r.startsWith("contains "))
+          ? `${dish} has ${why} (${mealOf(slot)})`
+          : `${mealOf(slot)} (${dish}: ${why})`,
+      );
       continue;
     }
     const servings = seatServingsFor(targets, slot, /** @type {Record<string, any>} */ (recipe));

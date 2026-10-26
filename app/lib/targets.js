@@ -890,3 +890,36 @@ export function mergeProfileAnswers(existing, fresh, stated) {
   }
   return out;
 }
+
+/** how a refusal names an allergen family (seatGuestOnDay, shrike item 20) */
+const FAMILY_WORDS = {
+  nuts: "tree nuts",
+  peanuts: "peanut",
+  dairy: "dairy",
+  gluten: "gluten",
+  eggs: "egg",
+  soy: "soy",
+  fish: "fish",
+  shellfish: "shellfish",
+  sesame: "sesame",
+};
+
+/**
+ * The allergen family a matched avoid term belongs to, for the person whose
+ * avoid list it is ("curry roux" for someone avoiding dairy is "dairy"). A
+ * family counts when the person's list carries at least two of its terms, or
+ * its own name. Null when the term is their own typed word and no family.
+ * @param {string} term the avoid term that matched (recipeConflicts "contains <term>")
+ * @param {string[] | undefined} avoid
+ * @returns {string | null}
+ */
+export function allergenFamilyOf(term, avoid) {
+  const t = String(term ?? "").toLowerCase();
+  const mine = new Set((avoid ?? []).map((x) => String(x).toLowerCase()));
+  for (const [family, terms] of Object.entries(ALLERGEN_TERMS)) {
+    if (!terms.includes(t)) continue;
+    const held = terms.filter((x) => mine.has(x)).length;
+    if (held >= 2 || mine.has(family)) return FAMILY_WORDS[/** @type {keyof typeof FAMILY_WORDS} */ (family)] ?? family;
+  }
+  return null;
+}
