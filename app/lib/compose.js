@@ -54,6 +54,28 @@ const BATCH_TAGS = new Set([
 const PROTEIN_WINDOW_DAYS = 6;
 /** how a same-class repeat weighs against a same-recipe repeat (1/gap) in the variety tie-break */
 const PROTEIN_REPEAT_COST = 0.5;
+/**
+ * DISH FAMILIES (Mise 1.96, 10/25 rehearsal: Sunday's dump-and-bake feta
+ * turkey meatball pasta and Saturday's dump-and-bake feta chicken pasta in one
+ * week). Bank tags that name a dish's SHAPE rather than its protein; a cook
+ * night sharing one with another cook night inside PROTEIN_WINDOW_DAYS costs
+ * the same as a protein repeat. Broad tags (rice-bowl, pasta, one-pot) are
+ * left out on purpose: a third of the dinners carry them.
+ */
+const FAMILY_TAGS = new Set([
+  "dump-and-bake",
+  "baked-feta",
+  "casserole",
+  "soup",
+  "stew",
+  "curry",
+  "sheet-pan",
+  "egg-drop",
+  "donburi",
+]);
+/** a recipe's family tags */
+const familiesOf = (/** @type {Record<string, any> | undefined} */ r) =>
+  (r?.tags ?? []).filter((/** @type {string} */ t) => FAMILY_TAGS.has(t));
 
 /** serving grids: quarter steps; light slots may halve, meals start at 0.75 */
 const MEAL_STEPS = [0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -292,6 +314,7 @@ export function solveSeatDay(dishes, bands, sigma, fixed = {}) {
  *   }[],
  *   recentBySlot?: Record<string, Map<string, number>>,
  *   recentClassBySlot?: Record<string, Set<string>>,
+ *   recentFamilyBySlot?: Record<string, Set<string>>,
  * }} day seats may exclude slots they do not eat from the pot (their own
  *   pinned entry or a carried skip covers them there instead). A seat's
  *   `fixed` binds ONLY while that slot's pick IS the named recipe — a
@@ -326,6 +349,14 @@ export function composeDay(day) {
   if (slots.length === 0 || day.seats.length === 0) return null;
   const recent = (/** @type {string} */ slot) => day.recentBySlot?.[slot];
   const recentClass = (/** @type {string} */ slot) => day.recentClassBySlot?.[slot];
+  // a dish FAMILY repeated on a nearby cook night (FAMILY_TAGS) costs like a protein repeat
+  const familyRepeats = (
+    /** @type {string} */ slot,
+    /** @type {Record<string, any> | undefined} */ r,
+  ) => {
+    const set = day.recentFamilyBySlot?.[slot];
+    return Boolean(set) && familiesOf(r).some((/** @type {string} */ t) => set?.has(t));
+  };
   const classRepeats = (
     /** @type {string} */ slot,
     /** @type {Record<string, any> | undefined} */ r,
@@ -377,6 +408,7 @@ export function composeDay(day) {
       const gap = recent(s)?.get(picks[s]?.id);
       if (gap !== undefined && gap > 0) repeats += 1 / gap;
       if (classRepeats(s, picks[s])) repeats += PROTEIN_REPEAT_COST;
+      if (familyRepeats(s, picks[s])) repeats += PROTEIN_REPEAT_COST;
     }
     return { picks, seats: seatsOut, considered, inBand, floors, repeats, score };
   };
@@ -1073,6 +1105,17 @@ export function planBrigadeWeek(events, brigade, ctx) {
     }
     return out;
   };
+  /** dish families the slot cooked on nearby nights, both sides of `date` (FAMILY_TAGS) */
+  const recentFamilyFor = (/** @type {string} */ slot, /** @type {string} */ date) => {
+    /** @type {Set<string>} */
+    const out = new Set();
+    for (const [d, rid] of cookedBySlot[slot] ?? []) {
+      if (d === date) continue;
+      if (Math.abs(dayOffset(date) - dayOffset(d)) > PROTEIN_WINDOW_DAYS) continue;
+      for (const t of familiesOf(ctx.bankById.get(rid))) out.add(String(t));
+    }
+    return out;
+  };
   const recentFor = (/** @type {string} */ slot, /** @type {string} */ date) => {
     const walk = walksBySlot[slot] ?? [];
     const windowDays = Math.max(0, walk.length - 1);
@@ -1683,6 +1726,11 @@ export function planBrigadeWeek(events, brigade, ctx) {
                 .filter((s) => LEFTOVER_SLOTS.has(s) && !leftoverBySlot[s])
                 .map((s) => [s, recentClassFor(s, date)]),
             ),
+            recentFamilyBySlot: Object.fromEntries(
+              liveSlots
+                .filter((s) => LEFTOVER_SLOTS.has(s) && !leftoverBySlot[s])
+                .map((s) => [s, recentFamilyFor(s, date)]),
+            ),
             seats: eating.map((s) => ({
               id: s.id,
               targets: s.targets,
@@ -1798,6 +1846,27 @@ export function planBrigadeWeek(events, brigade, ctx) {
       });
     const windowOf = (/** @type {string} */ slot) =>
       Math.max(0, (walksBySlot[slot]?.length ?? 1) - 1);
+    // how many nearby COOK nights share a dish family with `r` (FAMILY_TAGS):
+    // a cheaper swap may not add one, the same contract as a recipe repeat
+    const familyClashes = (
+      /** @type {string} */ slot,
+      /** @type {any} */ cd,
+      /** @type {Record<string, any>} */ r,
+    ) => {
+      const fams = familiesOf(r);
+      if (!LEFTOVER_SLOTS.has(slot) || fams.length === 0) return 0;
+      const cooked = new Map(cookedBySlot[slot] ?? []);
+      for (const d of composedDays) {
+        if (d.leftoverBySlot?.[slot]) cooked.delete(d.date);
+        else if (d.picks?.[slot]) cooked.set(d.date, String(d.picks[slot].id));
+      }
+      let n = 0;
+      for (const [d, rid] of cooked) {
+        if (d === cd.date || Math.abs(dayOffset(d) - dayOffset(cd.date)) > PROTEIN_WINDOW_DAYS) continue;
+        if (familiesOf(ctx.bankById.get(rid)).some((/** @type {string} */ t) => fams.includes(t))) n++;
+      }
+      return n;
+    };
     // The slot's repeat pressure, in the composer's own units (Σ 1/gap over
     // same-recipe pairs inside the window). The sweep's variety contract is
     // NOT "never repeat" — a 7-day week over a 6-dish pool must repeat once,
@@ -1979,6 +2048,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
                 repeatMetric(slot, nextServed) > repeatMetric(slot, served) + 1e-9
               )
                 continue;
+              if (familyClashes(slot, cd, alt) > familyClashes(slot, cd, cur)) continue;
               const nextPicks = { ...cd.picks, [slot]: alt };
               const re = resolve(cd, nextPicks);
               if (!re) continue;

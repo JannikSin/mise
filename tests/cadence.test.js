@@ -323,3 +323,24 @@ test("a mid-week SET keeps Wed and Thu on Sunday's pot even when its list was ne
   const regen = planBrigadeWeek(one.events, asPlanned(LIVE), ctx({ today: "2026-11-04", calendarToday: "2026-11-04", bought: () => false, regenerate: true }));
   assert.ok(dinners(regen.events).some((t) => t.date === "2026-11-04" && !t.leftoverOf), "regenerate is not blocked");
 });
+
+test("dish families: two dump-and-bake feta pastas do not share a week while another dish lands", () => {
+  const bake = (id, food) =>
+    dish(id, food, { tags: ["dump-and-bake", "baked-feta", "batch-friendly"], note: "left whole" });
+  const bank = new Map(
+    [
+      bake("feta-turkey-pasta", "ground turkey"),
+      bake("feta-chicken-pasta", "chicken thighs"),
+      dish("beef-bowl", "ground beef"),
+      dish("pork-bowl", "ground pork"),
+      dish("chicken-strips", "chicken breast", { note: "sliced thin" }),
+      dish("turkey-bowl", "ground turkey"),
+    ].map((r) => [r.id, r]),
+  );
+  for (let salt = 0; salt < 10; salt++) {
+    const { events } = planBrigadeWeek({ tables: [] }, asPlanned({ ...LIVE, salt }), ctx({ bankById: bank }));
+    const cooked = dinners(events).filter((t) => !t.leftoverOf);
+    const bakes = cooked.filter((t) => t.recipeId.startsWith("feta-"));
+    assert.ok(bakes.length <= 1, `salt ${salt}: ${cooked.map((t) => `${t.date} ${t.recipeId}`).join(", ")}`);
+  }
+});
