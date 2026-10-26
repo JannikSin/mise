@@ -5072,6 +5072,7 @@ function App() {
         serve=${routeServe}
         tableCooked=${Boolean(routeTable?.cookedAt)}
         onCookedTable=${handleMarkTableCooked}
+        cookNight=${Boolean(routeTable && !routeTable.leftoverOf && !(/** @type {any} */ (routeTable).preparedOn))}
         avoid=${
           // the viewer's own list; before it loads, nothing is left off here
           // (the plan and the table screen already fail closed on an unread

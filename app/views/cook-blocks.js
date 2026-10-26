@@ -5,6 +5,44 @@ import { isDatedItem, pantryItems, perishableStatus } from "../lib/shopping.js";
 import { isParked } from "../lib/parked.js";
 import { splitSteps } from "../lib/cadence.js";
 
+const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/** ["Sun", "Mon"] -> "Sun and Mon" */
+const andList = (/** @type {string[]} */ names) =>
+  names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : (names[0] ?? "");
+
+/**
+ * WHAT A SUNDAY POT FEEDS, on BATCH PREP (shrike item 13, 10/25): "For Sun and
+ * Mon dinners, 2 people"; meal B adds when its meat is cooked. "" for a
+ * component that is not a shared pot.
+ * @param {Record<string, any>} entry
+ * @param {Record<string, any>[]} entries the week's plan entries
+ * @param {{ id: string, seats?: { status?: string }[], guests?: number }[]} tables
+ * @returns {string}
+ */
+export function potFeeds(entry, entries, tables) {
+  if (!entry?.table || entry.leftoverOf) return "";
+  const dayOf = (/** @type {string} */ iso) => DAY_SHORT[parseLocalIso(iso).getDay()] ?? "";
+  const nights = (
+    Array.isArray(entry.freshNights)
+      ? entry.freshNights
+      : [entry.date, ...entries.filter((e) => e.leftoverOf === entry.table).map((e) => e.date)]
+  )
+    .slice()
+    .sort();
+  const t = tables.find((x) => x.id === entry.table);
+  const people =
+    (t?.seats ?? []).filter((s) => s.status !== "skipped").length + (Number(t?.guests) || 0);
+  const meat =
+    entry.proteinFresh === "once"
+      ? `, meat cooked ${dayOf(String(nights[0]))}`
+      : entry.proteinFresh === "daily"
+        ? ", meat cooked each night"
+        : "";
+  return `For ${andList(nights.map(dayOf))} dinner${nights.length > 1 ? "s" : ""}${
+    people > 0 ? `, ${people} ${people === 1 ? "person" : "people"}` : ""
+  }${meat}.`;
+}
+
 /**
  * The WEEK-level half of what used to be the Cook tab.
  *
@@ -23,10 +61,11 @@ import { splitSteps } from "../lib/cadence.js";
  *   tableConflicts: { table: import("../lib/tables.js").TableEvent, reasons: string[] }[],
  *   daily: { days?: Record<string, any>[] },
  *   pantry: Record<string, any>,
- *   onPatchDay: (patch: Record<string, any>) => void
- * }} props
+ *   onPatchDay: (patch: Record<string, any>) => void,
+ *   tables?: { id: string, seats?: { status?: string }[], guests?: number }[]
+ * }} props `tables` = the kitchen's tables, so each pot names how many it feeds
  */
-export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPatchDay }) {
+export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPatchDay, tables = [] }) {
   const byId = recipesById(recipes);
   const today = localIsoDate(new Date());
   const weekDates = datesOfWeek(plan.week);
@@ -66,6 +105,7 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
     )
       continue;
     const recipe = byId.get(rid);
+    const feeds = potFeeds(/** @type {any} */ (entry), batchEntries, tables);
     // MEAL B (2026-10-25): Sunday does every step that leaves the meat alone,
     // read from the recipe itself; the meat waits for its night
     const fresh = /** @type {any} */ (entry).proteinFresh;
@@ -77,6 +117,7 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
         name: recipe.name,
         text: "All but the meat:",
         steps,
+        feeds,
       });
       continue;
     }
@@ -84,7 +125,7 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
     if (!bp) continue;
     if (bp.sundayComponent && !seenSunday.has(recipe.id)) {
       seenSunday.add(recipe.id);
-      sundayComponents.push({ id: recipe.id, name: recipe.name, text: bp.sundayComponent });
+      sundayComponents.push({ id: recipe.id, name: recipe.name, text: bp.sundayComponent, feeds });
     }
   }
   const hasBatchPrep = sundayComponents.length > 0;
@@ -221,6 +262,7 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
                 ${catchUp ? "Catch-up" : "Sunday"} · ${r.name}
                 ${todayBatched.includes(r.id) && html`<span class="usesoon cookedchip">✓ done</span>`}
               </div>
+              ${r.feeds && html`<div class="hint potfeeds">${r.feeds}</div>`}
               ${r.text}
               ${
                 (r.steps ?? []).length > 0 &&

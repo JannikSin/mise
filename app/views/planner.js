@@ -928,6 +928,7 @@ export function PlannerView({
         daily=${daily}
         pantry=${pantry}
         onPatchDay=${onPatchDay}
+        tables=${brigade?.tables ?? []}
       />
       ${
         // HOW THE WEEK WAS BUILT, folded away (David, 2026-10-16: "I don't

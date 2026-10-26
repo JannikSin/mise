@@ -149,7 +149,7 @@ function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
 }
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, date?: string, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void, avoid?: string[] | null }} props `avoid` = the viewer's avoid list (null = unread); picks they avoid are left off
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, date?: string, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void, avoid?: string[] | null, cookNight?: boolean }} props `cookNight` = this page is the shared pot's own cook night; `avoid` = the viewer's avoid list (null = unread); picks they avoid are left off
  */
 export function RecipeView({
   recipe,
@@ -165,6 +165,7 @@ export function RecipeView({
   avoided = false,
   onAvoid = undefined,
   avoid = [],
+  cookNight = false,
   entry = undefined,
   onCooked = undefined,
   onCookComment = undefined,
@@ -472,14 +473,23 @@ export function RecipeView({
           ${
             recipe.batchPrep.sundayComponent &&
             html`<div>
-              <div class="k">🍲 BATCH PREP: cook this AHEAD, the steps below assume it's done</div>
+              <div class="k">
+                ${
+                  // ON THE NIGHT THE POT IS COOKED the steps below ARE the cook
+                  // (shrike item 13): telling him they assume it was done ahead
+                  // was wrong on exactly the night he makes it
+                  cookNight
+                    ? "🍲 Tonight you make the whole pot: follow every step below"
+                    : "🍲 BATCH PREP: cook this AHEAD, the steps below assume it's done"
+                }
+              </div>
               <div class="d">${recipe.batchPrep.sundayComponent}</div>
             </div>`
           }
           ${
             recipe.batchPrep.weekdayAssembly &&
             html`<div>
-              <div class="k">Day-of assembly</div>
+              <div class="k">${cookNight ? "The nights after, from the fridge" : "Day-of assembly"}</div>
               <div class="d">${recipe.batchPrep.weekdayAssembly}</div>
             </div>`
           }
