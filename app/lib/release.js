@@ -38,6 +38,8 @@ export const RELEASES = [
       "Two dishes of the same kind, like two dump-and-bake feta pastas, no longer land in the same week when something else fits.",
       "SET MY WEEK in the middle of the week keeps the leftover nights already planned, even if the list was never ticked.",
       "Plan's every-day warning no longer runs two words together.",
+      "Allergies are checked against every food a recipe can put on a plate, including a smoothie's or bowl's rotating toppings, so peanut butter in a smoothie's topping list can no longer reach someone with a peanut allergy. An optional topping someone avoids is left off their plate, and the plate says so.",
+      "Typed allergies are read the way people write them: peanut allergy, allergic to peanuts, no peanuts, peanut-free, gluten allergy and dairy free all count, and anything else typed is still checked word for word. Peanuts are also caught as groundnut, arachis oil, satay, PB2, mixed nuts, trail mix and Japanese curry roux, and chocolate chips and granola say to check the label for peanut.",
     ],
   },
   {
