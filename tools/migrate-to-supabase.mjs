@@ -46,15 +46,15 @@ import { PLATE_FIELDS } from "../app/lib/plate-fields.js";
 /** @typedef {{ query: (sql: string, params?: unknown[]) => Promise<{ rows: any[], affectedRows?: number }> }} Client */
 
 /** Files the migration leaves behind, by rule (plan section 6, step 4). */
-const SKIP_RULES = /** @type {[string, RegExp][]} */ ([
+export const SKIP_RULES = /** @type {[string, RegExp][]} */ ([
   ["server-only", /^(meta|invites|guests)\.json$/],
   ["github-lane", /^(fitness|health)\//],
   ["workouts-activities", /^profiles\/[^/]+\/fitness\/(workouts|activities)\.json$/],
   ["health-files", /^profiles\/[^/]+\/health\//],
 ]);
-const BANK = /^(recipes|recipes-staging)\/([a-z0-9][a-z0-9-]{0,150})\.json$/;
-const ROOT_SHARED = /^(prices|pins)\.json$/;
-const DISPLAY_DROPPED = ["id", "household", "family", "admin", "passkey", "adminKey"];
+export const BANK = /^(recipes|recipes-staging)\/([a-z0-9][a-z0-9-]{0,150})\.json$/;
+export const ROOT_SHARED = /^(prices|pins)\.json$/;
+export const DISPLAY_DROPPED = ["id", "household", "family", "admin", "passkey", "adminKey"];
 
 /** @param {unknown} v @returns {unknown} keys sorted, for a stable hash */
 function canonical(v) {
@@ -92,7 +92,7 @@ export function guardHits(data, terms) {
 }
 
 /** @param {string} dir @param {string} [base] @returns {string[]} repo-relative POSIX paths */
-function walk(dir, base = dir) {
+export function walk(dir, base = dir) {
   /** @type {string[]} */
   const out = [];
   for (const name of readdirSync(dir)) {
@@ -188,7 +188,7 @@ export function planMigration(snapshotDir, people, opts = {}) {
   // classify every file
   /** @type {{ id: string, staging: boolean, data: any, sha: string, path: string }[]} */
   const recipes = [];
-  /** @type {{ path: string, kind: string, data: any, sha: string, profile: string | null, household: string | null }[]} */
+  /** @type {{ path: string, kind: string, data: any, sha: string, profile: string | null, household: string | null, copy?: boolean }[]} */
   const docs = [];
   /** @type {Record<string, number>} */
   const skipped = {};
@@ -223,7 +223,7 @@ export function planMigration(snapshotDir, people, opts = {}) {
       // per-house prices and pins: each house without its own file gets a copy
       for (const h of houses) {
         const p = `households/${h}/${f}`;
-        if (!read.has(p)) docs.push({ path: p, kind: f.replace(".json", ""), data: entry.data, sha: gitBlobSha(entry.bytes), profile: null, household: h });
+        if (!read.has(p)) docs.push({ path: p, kind: f.replace(".json", ""), data: entry.data, sha: gitBlobSha(entry.bytes), profile: null, household: h, copy: true });
       }
       continue;
     }
@@ -309,6 +309,10 @@ export async function runMigration(client, plan, opts = {}) {
     if (strangers > 0) throw new GateError("people", `${strangers} profile(s) in the database are not in people.local.json`);
 
     await q("insert into private.settings values ('root_profile', $1), ('admin_profile', $2) on conflict (key) do update set value = excluded.value", [people.rootProfile, people.admin]);
+    // G2: which house rows are copies of a root file, so the reverse export
+    // (tools/export-from-supabase.mjs) can put the root file back
+    const copies = plan.docs.filter((d) => d.copy).map((d) => d.path);
+    await q("insert into private.settings values ('root_copies', $1) on conflict (key) do update set value = excluded.value", [JSON.stringify(copies)]);
 
     // step 2: houses, profiles, memberships, grants
     for (const h of people.houses) await q("insert into public.households (slug) values ($1) on conflict (slug) do nothing", [h]);

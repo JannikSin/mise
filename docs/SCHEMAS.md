@@ -2347,7 +2347,7 @@ JSON inside it keeps exactly the shape this document describes above.
 | `public.plates` | person | the cook-facing projection of their targets (see Plate card below), made only by the server |
 | `public.profiles`, `public.memberships`, `public.households`, `public.admins` | person, membership, house, admin | no client grant; read through `roster()` |
 | `public.guest_grants`, `public.invites`, `public.guest_logins`, `public.ai_usage` | | Worker only (through `svc`) |
-| `private.settings` | `root_profile` = the slug whose files sat at the repo root; `admin_profile` = the admin's slug | written by the migration, not the SQL |
+| `private.settings` | `root_profile` = the slug whose files sat at the repo root; `admin_profile` = the admin's slug; `root_copies` = JSON list of the house `prices`/`pins` rows the migration copied from a root file (the reverse export folds them back) | written by the migration, not the SQL |
 | `private.guard_terms` | (term, house it is hidden from) | the name guard |
 | `private.pending_links` | invite email (lowercase) to profile | when an invite creates the auth user, the `link_pending` trigger on `auth.users` sets `profiles.user_id`, and adds `admins` for `admin_profile` |
 
