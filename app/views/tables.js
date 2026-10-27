@@ -20,6 +20,7 @@ import { autoPlanEligible } from "../lib/plan.js";
 import { brigadeRunLines, cookDaysLabel } from "./brigade-lines.js";
 import { isParked } from "../lib/parked.js";
 import { PeopleSection } from "./people.js";
+import { houseDishName } from "../lib/house-recipes.js";
 
 /** How long SET TABLE waits on the allergy check before offering TRY AGAIN. */
 const SCREEN_TIMEOUT_MS = 15000;
@@ -622,7 +623,7 @@ export function TablesView({
               month: "short",
               day: "numeric",
             })} ${SLOT_META[t.slot]?.label ?? t.slot}`}
-            · ${byId.get(t.recipeId)?.name ?? t.recipeId}
+            · ${byId.get(t.recipeId)?.name ?? houseDishName(t.recipeId) ?? t.recipeId}
             ${house !== myHouse && html` · at ${house}`}
           </div>
           ${
