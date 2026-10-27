@@ -25,7 +25,7 @@ for (const [file, type] of [
       .replace("{{ .TokenHash }}", "pkce_0123456789abcdef0123");
     const hash = sent.slice(sent.indexOf("#"));
     assert.deepEqual(authLinkFrom(hash), { tokenHash: "pkce_0123456789abcdef0123", type });
-    assert.equal(authGateWanted({ backend: "supabase", hash, storage: null }), "setpw");
+    assert.equal(authGateWanted({ backend: "supabase", hash, storage: null, ref: null }), "setpw");
     assert.equal(/\u2014/.test(body), false);
   });
 }

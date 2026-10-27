@@ -66,7 +66,8 @@ import {
 } from "./lib/worker.js";
 import { repriceList, reapplyOps } from "./lib/repricer.js";
 import { ProfileGateView } from "./views/profile-gate.js";
-import { AuthGateRoot, authGateWanted, shellBackend } from "./views/auth-gate.js";
+import { AuthGateRoot, authGateWanted, shellBackend, projectRef } from "./views/auth-gate.js";
+import { supabaseProject } from "./lib/backend/config.js";
 import { JoinView, StatusView, WelcomeView, GuestHomeView } from "./views/join.js";
 import { CookbookView } from "./views/cookbook.js";
 import { RecipeView } from "./views/recipe.js";
@@ -5515,6 +5516,7 @@ if (root) {
   const gate = authGateWanted({
     backend: shellBackend(),
     hash: location.hash,
+    ref: projectRef(supabaseProject()?.url),
     storage: (() => {
       try {
         return localStorage;

@@ -116,28 +116,52 @@ export function verifiedHash(type) {
  * E5, the offline predicate: a persisted supabase-js session object counts as
  * signed in, so a phone with no signal still opens its cached week. Only the
  * shape is checked here; the Worker and the database check the token.
- * @param {{ length: number, key(i: number): string | null, getItem(k: string): string | null } | null} storage
+ * Only THIS project's key counts (fix loop 1, E15): the origin is shared by
+ * several apps, and another app's Supabase session must not skip the gate.
+ * @param {{ getItem(k: string): string | null } | null} storage
+ * @param {string | null} ref this project's ref (projectRef), null = none
  */
-export function hasPersistedSession(storage) {
-  if (!storage) return false;
+export function hasPersistedSession(storage, ref) {
+  if (!storage || !ref || !/^[a-z0-9]+$/.test(ref)) return false;
   try {
-    for (let i = 0; i < storage.length; i++) {
-      const k = storage.key(i) ?? "";
-      if (!/^sb-[a-z0-9]+-auth-token$/.test(k)) continue;
-      const v = JSON.parse(storage.getItem(k) ?? "null");
-      if (v && (typeof v.refresh_token === "string" || typeof v.access_token === "string"))
-        return true;
-    }
+    const v = JSON.parse(storage.getItem(`sb-${ref}-auth-token`) ?? "null");
+    return Boolean(
+      v && (typeof v.refresh_token === "string" || typeof v.access_token === "string"),
+    );
   } catch {
     return false;
   }
-  return false;
+}
+
+/**
+ * The project ref from its URL (`https://<ref>.supabase.co`), the part
+ * supabase-js puts in its storage key; null for a placeholder or anything else.
+ * @param {string | null | undefined} url
+ */
+export function projectRef(url) {
+  const m = String(url ?? "").match(/^https:\/\/([a-z0-9]{6,40})\.supabase\.co\/?$/);
+  return m ? /** @type {string} */ (m[1]) : null;
+}
+
+/**
+ * What the boot's answer means for the screen (fix loop 1, E5): a stored
+ * session that turns out dead ("signed-out": supabase-js could not refresh
+ * it; "expired": the database refused it) or a removed account goes back to
+ * SIGN IN; the cache is kept. "offline" (no signal) and "signed-in" stay in
+ * the app.
+ * @param {"signed-in" | "signed-out" | "expired" | "revoked" | "offline"} result
+ * @returns {null | { start: "signin", reason: "signed-out" | "expired" | "removed" }}
+ */
+export function gateAfterBoot(result) {
+  if (result === "signed-out" || result === "expired") return { start: "signin", reason: result };
+  if (result === "revoked") return { start: "signin", reason: "removed" };
+  return null;
 }
 
 /**
  * Should the gate render instead of the app, and on which screen?
  * null = boot as before (always on the GitHub backend).
- * @param {{ backend: "github" | "supabase", hash: string, storage: any }} a
+ * @param {{ backend: "github" | "supabase", hash: string, storage: any, ref: string | null }} a
  * @returns {null | "setpw" | "signin"}
  */
 export function authGateWanted(a) {
@@ -145,10 +169,10 @@ export function authGateWanted(a) {
   if (authLinkFrom(a.hash)) return "setpw";
   // the token was spent on this phone, the password is not saved yet: back to
   // the password step while the session lasts, else sign in
-  if (verifiedLinkFrom(a.hash)) return hasPersistedSession(a.storage) ? "setpw" : "signin";
+  if (verifiedLinkFrom(a.hash)) return hasPersistedSession(a.storage, a.ref) ? "setpw" : "signin";
   // guest pages are the Worker's name-and-passkey flow, not an account
   if (/^#\/(join|status|me)(\/|\?|$)/.test(String(a.hash ?? ""))) return null;
-  return hasPersistedSession(a.storage) ? null : "signin";
+  return hasPersistedSession(a.storage, a.ref) ? null : "signin";
 }
 
 /**

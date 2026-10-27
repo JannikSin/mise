@@ -175,11 +175,13 @@ test("the admin (root profile) gets the composite lane and may switch profile", 
   assert.equal(canSwitchHere(), true);
 });
 
-test("an auth error or no signal never purges: locked, queue kept", async () => {
-  for (const whoami of [
-    { data: null, error: { status: 401, code: "PGRST301" } },
-    () => Promise.reject(new TypeError("Failed to fetch")),
-  ]) {
+test("an auth error or no signal never purges: locked, queue kept (a 401 or 403 is 'expired', E5)", async () => {
+  for (const [whoami, want] of /** @type {const} */ ([
+    [{ data: null, error: { status: 401, code: "PGRST301" } }, "expired"],
+    [{ data: null, error: { status: 403, code: "42501" } }, "expired"],
+    [{ data: null, error: { status: 503, message: "upstream" } }, "offline"],
+    [() => Promise.reject(new TypeError("Failed to fetch")), "offline"],
+  ])) {
     const { seam, log } = fakeSeam();
     const r = await createSessionBoot({
       client: fakeClient({ session: SESSION, whoami }),
@@ -187,7 +189,7 @@ test("an auth error or no signal never purges: locked, queue kept", async () => 
       project: PROJECT,
       storage: mem({ "mise.signedInSlug": "housemate-1" }),
     }).boot();
-    assert.equal(r, "offline");
+    assert.equal(r, want);
     assert.equal(log.includes("PURGE"), false);
     assert.equal(log.includes("flush"), false);
     assert.equal(log.at(-2), "install:locked");

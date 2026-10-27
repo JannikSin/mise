@@ -171,7 +171,7 @@ export function createSessionBoot({
   /**
    * Turn a session into a store. Returns what happened.
    * @param {any} session supabase-js session
-   * @returns {Promise<"signed-in" | "revoked" | "offline">}
+   * @returns {Promise<"signed-in" | "revoked" | "offline" | "expired">}
    */
   const adopt = async (session) => {
     const r = await Promise.resolve(client.rpc("whoami")).catch((/** @type {any} */ e) => ({
@@ -180,9 +180,12 @@ export function createSessionBoot({
     }));
     if (r?.error) {
       // an auth error, an expired token or no signal: keep the queue and the
-      // cache, stay locked, never purge
+      // cache, stay locked, never purge. A 401 or 403 means the stored
+      // session is dead (fix loop 1, E5): "expired" sends the phone back to
+      // SIGN IN; anything else is no signal and the app stays on its cache.
       await lock();
-      return "offline";
+      const status = Number(r.error?.status ?? r.error?.code ?? 0);
+      return status === 401 || status === 403 ? "expired" : "offline";
     }
     const me = r?.data;
     if (!me || typeof me.slug !== "string" || !me.slug) {
@@ -250,7 +253,7 @@ export function createSessionBoot({
   /**
    * Boot: locked first, then the persisted session if there is one, and
    * follow later changes (another tab signing out, a refreshed token).
-   * @returns {Promise<"signed-in" | "signed-out" | "revoked" | "offline">}
+   * @returns {Promise<"signed-in" | "signed-out" | "revoked" | "offline" | "expired">}
    */
   const boot = async () => {
     await lock();

@@ -17,6 +17,8 @@ import {
   setPasswordStep,
   verifiedLinkFrom,
   verifiedHash,
+  projectRef,
+  gateAfterBoot,
 } from "../app/views/auth-gate.js";
 
 /** @param {Record<string, string>} o */
@@ -28,6 +30,7 @@ const store = (o) => {
     getItem: (/** @type {string} */ k) => o[k] ?? null,
   };
 };
+const REF = "placeholderref01";
 const SESSION = store({
   "sb-placeholderref01-auth-token": JSON.stringify({ access_token: "a", refresh_token: "r" }),
 });
@@ -39,23 +42,23 @@ test("the GitHub backend never shows the gate, whatever the hash or storage", ()
     "#/set-password?token_hash=abcdef0123&type=invite",
     "#/join/x",
   ]) {
-    assert.equal(authGateWanted({ backend: "github", hash, storage: store({}) }), null);
-    assert.equal(authGateWanted({ backend: "github", hash, storage: null }), null);
+    assert.equal(authGateWanted({ backend: "github", hash, storage: store({}), ref: REF }), null);
+    assert.equal(authGateWanted({ backend: "github", hash, storage: null, ref: REF }), null);
   }
 });
 
 test("on Supabase: no session signs in, a persisted session boots (E5, offline too)", () => {
   assert.equal(
-    authGateWanted({ backend: "supabase", hash: "#/plan", storage: store({}) }),
+    authGateWanted({ backend: "supabase", hash: "#/plan", storage: store({}), ref: REF }),
     "signin",
   );
-  assert.equal(authGateWanted({ backend: "supabase", hash: "#/plan", storage: SESSION }), null);
-  assert.equal(authGateWanted({ backend: "supabase", hash: "", storage: null }), "signin");
+  assert.equal(authGateWanted({ backend: "supabase", hash: "#/plan", storage: SESSION, ref: REF }), null);
+  assert.equal(authGateWanted({ backend: "supabase", hash: "", storage: null, ref: REF }), "signin");
 });
 
 test("an invite or reset link opens SET PASSWORD even when a session exists", () => {
   const hash = "#/set-password?token_hash=pkce_0123456789abcdef&type=recovery";
-  assert.equal(authGateWanted({ backend: "supabase", hash, storage: SESSION }), "setpw");
+  assert.equal(authGateWanted({ backend: "supabase", hash, storage: SESSION, ref: REF }), "setpw");
 });
 
 test("guest pages stay on the guest flow, never the account gate", () => {
@@ -65,7 +68,7 @@ test("guest pages stay on the guest flow, never the account gate", () => {
     "#/me",
     "#/join?member=1",
   ]) {
-    assert.equal(authGateWanted({ backend: "supabase", hash, storage: store({}) }), null, hash);
+    assert.equal(authGateWanted({ backend: "supabase", hash, storage: store({}), ref: REF }), null, hash);
   }
 });
 
@@ -81,15 +84,15 @@ test("authLinkFrom takes only a well-formed token and the two known types", () =
 });
 
 test("hasPersistedSession reads only supabase-js session keys with a token", () => {
-  assert.equal(hasPersistedSession(SESSION), true);
-  assert.equal(hasPersistedSession(store({ "sb-x-auth-token": "null" })), false);
-  assert.equal(hasPersistedSession(store({ "sb-x-auth-token": "{bad json" })), false);
+  assert.equal(hasPersistedSession(SESSION, REF), true);
+  assert.equal(hasPersistedSession(store({ "sb-x-auth-token": "null" }), "x"), false);
+  assert.equal(hasPersistedSession(store({ "sb-x-auth-token": "{bad json" }), "x"), false);
   assert.equal(
-    hasPersistedSession(store({ "mise.token": "github_pat_x" })),
+    hasPersistedSession(store({ "mise.token": "github_pat_x" }), REF),
     false,
     "a PAT is not a session",
   );
-  assert.equal(hasPersistedSession(null), false);
+  assert.equal(hasPersistedSession(null, REF), false);
 });
 
 test("passwordProblem: length, edge spaces, mismatch", () => {
@@ -249,9 +252,28 @@ test("R4/U1: a reload after verify shows the password step while the session las
   const hash = verifiedHash("invite");
   assert.deepEqual(verifiedLinkFrom(hash), { type: "invite" });
   assert.equal(authLinkFrom(hash), null, "no token in the bar");
-  assert.equal(authGateWanted({ backend: "supabase", hash, storage: SESSION }), "setpw");
-  assert.equal(authGateWanted({ backend: "supabase", hash, storage: store({}) }), "signin");
-  assert.equal(authGateWanted({ backend: "github", hash, storage: SESSION }), null);
+  assert.equal(authGateWanted({ backend: "supabase", hash, storage: SESSION, ref: REF }), "setpw");
+  assert.equal(authGateWanted({ backend: "supabase", hash, storage: store({}), ref: REF }), "signin");
+  assert.equal(authGateWanted({ backend: "github", hash, storage: SESSION, ref: REF }), null);
   assert.equal(verifiedLinkFrom("#/set-password?verified=1&type=invite&token_hash=abcdef0123"), null);
   assert.equal(verifiedLinkFrom("#/set-password?verified=1&type=signup"), null);
+});
+
+// ---- fix loop 1, item 7 (Engineer F5, F15)
+test("E15: only THIS project's sb-<ref>-auth-token counts; another app's session on the shared origin does not", () => {
+  const other = store({ "sb-someotherapp01-auth-token": JSON.stringify({ access_token: "a", refresh_token: "r" }) });
+  assert.equal(hasPersistedSession(other, REF), false);
+  assert.equal(authGateWanted({ backend: "supabase", hash: "#/plan", storage: other, ref: REF }), "signin");
+  assert.equal(hasPersistedSession(SESSION, null), false, "no project, no session");
+  assert.equal(projectRef("https://placeholderref01.supabase.co"), REF);
+  assert.equal(projectRef("https://YOUR-PROJECT.supabase.co"), null);
+  assert.equal(projectRef("https://placeholderref01.supabase.co.evil.test"), null);
+});
+
+test("E5: a stored session that is dead, or a removed account, goes back to SIGN IN; no signal stays in the app", () => {
+  assert.deepEqual(gateAfterBoot("signed-out"), { start: "signin", reason: "signed-out" });
+  assert.deepEqual(gateAfterBoot("expired"), { start: "signin", reason: "expired" });
+  assert.deepEqual(gateAfterBoot("revoked"), { start: "signin", reason: "removed" });
+  assert.equal(gateAfterBoot("offline"), null);
+  assert.equal(gateAfterBoot("signed-in"), null);
 });
