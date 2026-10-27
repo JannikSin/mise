@@ -120,7 +120,7 @@ export async function aiTake(project, a, fetchImpl) {
 }
 
 /**
- * [NEEDED] svc.whoami(p_sub uuid) returns jsonb
+ * [db fix1, 20261031100000] svc.whoami(p_sub uuid) returns jsonb
  * { slug text, admin boolean, houses text[] } for the caller's profile, or null.
  * @param {SvcProject} project @param {string} sub @param {FetchImpl} [fetchImpl]
  * @returns {Promise<{ slug: string, admin: boolean, houses: string[] } | null>}
@@ -166,7 +166,7 @@ export async function recipeNames(project, house, ids, fetchImpl) {
 }
 
 /**
- * [NEEDED] svc.cron_inputs(p_week text, p_with_shopping boolean) returns jsonb
+ * [db fix1, 20261031100000] svc.cron_inputs(p_week text, p_with_shopping boolean) returns jsonb
  * The root profile's (private.settings root_profile) inputs to the hourly
  * notifications: { profile text, house text|null, plan jsonb|null,
  * events jsonb|null, shopping jsonb|null }. `house` is the root profile's
@@ -200,7 +200,7 @@ export async function slugFree(project, slug, fetchImpl) {
 }
 
 /**
- * [NEEDED] svc.mint_invite(p_sub uuid, p_code_hash text, p_host_house text, p_expires_at timestamptz) returns text
+ * [db fix1, 20261031100000] svc.mint_invite(p_sub uuid, p_code_hash text, p_host_house text, p_expires_at timestamptz) returns text
  * Inserts a guest invite for p_host_house when the caller is an entitled
  * member of that house (or the admin): 'ok', else 'forbidden'.
  * @param {SvcProject} project
@@ -223,7 +223,7 @@ export async function mintInvite(project, a, fetchImpl) {
 }
 
 /**
- * [NEEDED] svc.invite_get(p_code_hash text) returns jsonb
+ * [db fix1, 20261031100000] svc.invite_get(p_code_hash text) returns jsonb
  * { host_house text, expires_at text, used_at text|null, claimed text|null
  * (the claimed profile's slug), status_until text|null } or null.
  * @param {SvcProject} project @param {string} codeHash @param {FetchImpl} [fetchImpl]
@@ -246,10 +246,13 @@ export async function inviteGet(project, codeHash, fetchImpl) {
  * guest profile (kind 'guest'), its grant to the invite's host house until
  * p_until, and BOTH targets docs rows (the plate trigger fires on them).
  * Raises P0403 when the invite is invalid and P0409 when the slug is taken.
+ * Fix loop 1, E11: 23505 (a slug inserted by a racing claim) is a taken slug
+ * too, and P0422 (the guest's own entry trips the host house's name guard)
+ * is "guarded", which the route answers in plain words.
  * @param {SvcProject} project
  * @param {{ codeHash: string, slug: string, roster: Record<string, unknown>, targets: Record<string, unknown>, until: string }} a
  * @param {FetchImpl} [fetchImpl]
- * @returns {Promise<{ status: "ok" | "invalid" | "slug_taken", profileId: string }>}
+ * @returns {Promise<{ status: "ok" | "invalid" | "slug_taken" | "guarded", profileId: string }>}
  */
 export async function claimGuest(project, a, fetchImpl) {
   try {
@@ -267,14 +270,16 @@ export async function claimGuest(project, a, fetchImpl) {
     );
     return { status: "ok", profileId: String(r ?? "") };
   } catch (e) {
-    if (e instanceof SvcError && e.code === "P0409") return { status: "slug_taken", profileId: "" };
+    if (e instanceof SvcError && (e.code === "P0409" || e.code === "23505"))
+      return { status: "slug_taken", profileId: "" };
+    if (e instanceof SvcError && e.code === "P0422") return { status: "guarded", profileId: "" };
     if (e instanceof SvcError && e.code === "P0403") return { status: "invalid", profileId: "" };
     throw e;
   }
 }
 
 /**
- * [NEEDED] svc.guest_login_add(p_profile uuid, p_name_key text, p_salt text, p_hash text) returns boolean
+ * [db fix1, 20261031100000] svc.guest_login_add(p_profile uuid, p_name_key text, p_salt text, p_hash text) returns boolean
  * Inserts the guest_logins row; false (nothing written) when the name_key is taken.
  * @param {SvcProject} project
  * @param {{ profileId: string, nameKey: string, salt: string, hash: string }} a
@@ -291,7 +296,7 @@ export async function guestLoginAdd(project, a, fetchImpl) {
 }
 
 /**
- * [NEEDED] svc.guest_login_row(p_name_key text) returns jsonb
+ * [db fix1, 20261031100000] svc.guest_login_row(p_name_key text) returns jsonb
  * { slug text, salt text, hash text } or null.
  * @param {SvcProject} project @param {string} nameKey @param {FetchImpl} [fetchImpl]
  */
@@ -302,7 +307,7 @@ export async function guestLoginRow(project, nameKey, fetchImpl) {
 }
 
 /**
- * [NEEDED] svc.guest_view(p_slug text) returns jsonb
+ * [db fix1, 20261031100000] svc.guest_view(p_slug text) returns jsonb
  * For a guest profile with a LIVE grant (until >= current_date):
  * { profile_id uuid, name text, has_login boolean, host_house text,
  *   tables jsonb (the host house's events.json "tables"),

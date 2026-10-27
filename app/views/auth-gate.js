@@ -188,6 +188,22 @@ export function passwordProblem(pw, again) {
 }
 
 /**
+ * Did the request never reach the server (fix loop 1, E16)? supabase-js
+ * names that AuthRetryableFetchError; a raw fetch failure is a TypeError. A
+ * status of 0 alone, or an error with nothing in it, is NOT no signal.
+ * @param {any} error
+ */
+export function isNetworkError(error) {
+  const name = String(error?.name ?? "");
+  if (name === "AuthRetryableFetchError") return true;
+  if (error instanceof TypeError || name === "TypeError") return /fetch|network|load failed/i.test(String(error?.message ?? ""));
+  return false;
+}
+
+/** the words for no signal, on every screen */
+export const NO_SIGNAL = "Can't reach Mise. Check your connection and try again.";
+
+/**
  * A supabase-js error as one plain sentence. Never echoes the server's text,
  * which can name the account or the project.
  * @param {any} error
@@ -196,10 +212,7 @@ export function passwordProblem(pw, again) {
 export function authErrorText(error, where) {
   const status = Number(error?.status ?? 0);
   const code = String(error?.code ?? "");
-  const msg = String(error?.message ?? "");
-  if (/fetch|network|offline/i.test(msg) || status === 0) {
-    return "No signal. Signing in needs a connection the first time.";
-  }
+  if (isNetworkError(error)) return NO_SIGNAL;
   if (
     status === 429 ||
     code === "over_request_rate_limit" ||
@@ -254,10 +267,11 @@ export async function setPasswordStep(a) {
   }
   const u = await settle(a.auth.updateUser({ password: a.password }));
   if (u?.error) {
-    const t = authErrorText(u.error, "password");
     return {
       verified,
-      note: /^No signal/.test(t) ? "No signal. You are still signed in on this phone. Try again." : t,
+      note: isNetworkError(u.error)
+        ? "Can't reach Mise. You are still signed in on this phone; try again."
+        : authErrorText(u.error, "password"),
       done: false,
     };
   }
@@ -432,7 +446,7 @@ export function AuthGateView({
         .catch((/** @type {any} */ e) => /** @type {{ data?: any, error?: any }} */ ({ error: e }));
       if (r?.error || !r?.data?.session) {
         setPassword("");
-        setNote(authErrorText(r?.error ?? {}, "signin"));
+        setNote(authErrorText(r?.error ?? { status: 400 }, "signin"));
         return;
       }
       onSignedIn();

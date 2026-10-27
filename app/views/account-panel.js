@@ -41,7 +41,12 @@ export function reachSummary(rows, me) {
     ),
   ].sort();
   const others = list.filter((r) => r?.id && r.id !== me);
-  const guests = others.filter((r) => r?.roster?.guest === true || r?.household === "guesthouse");
+  // 2.0 roster() rows carry no kind (fix loop 1, E14): a guest is a row whose
+  // house this phone cannot see (household null), or the guest house itself
+  // on the admin's phone; the 1.95 flag still counts
+  const guests = others.filter(
+    (r) => r?.roster?.guest === true || r?.household === "guesthouse" || r?.household == null,
+  );
   return {
     houses: /** @type {string[]} */ (houses),
     plateCards: others.length,

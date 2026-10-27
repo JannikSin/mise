@@ -19,6 +19,7 @@ import {
   verifiedHash,
   projectRef,
   gateAfterBoot,
+  isNetworkError,
 } from "../app/views/auth-gate.js";
 
 /** @param {Record<string, string>} o */
@@ -111,7 +112,7 @@ test("error text is plain and never echoes the server's words", () => {
   assert.equal(t.includes("example.test"), false);
   assert.equal(t.includes("placeholderref01"), false);
   assert.match(authErrorText({ status: 429 }, "signin"), /Too many tries/);
-  assert.match(authErrorText({ message: "Failed to fetch" }, "signin"), /No signal/);
+  assert.match(authErrorText(new TypeError("Failed to fetch"), "signin"), /Can't reach Mise/);
   assert.match(
     authErrorText({ status: 403, code: "otp_expired" }, "link"),
     /expired or was already used/,
@@ -276,4 +277,18 @@ test("E5: a stored session that is dead, or a removed account, goes back to SIGN
   assert.deepEqual(gateAfterBoot("revoked"), { start: "signin", reason: "removed" });
   assert.equal(gateAfterBoot("offline"), null);
   assert.equal(gateAfterBoot("signed-in"), null);
+});
+
+// ---- fix loop 1, item 11 (Engineer F16): "can't reach" only for a request
+// that never reached the server
+test("E16: only a real network failure reads as no signal", () => {
+  const net = Object.assign(new Error("x"), { name: "AuthRetryableFetchError", status: 0 });
+  assert.equal(isNetworkError(net), true);
+  assert.equal(isNetworkError(new TypeError("Load failed")), true);
+  assert.equal(isNetworkError({ status: 0 }), false, "status 0 alone is not no signal");
+  assert.equal(isNetworkError({}), false);
+  assert.equal(isNetworkError({ status: 400, message: "network policy" }), false);
+  assert.match(authErrorText(net, "password"), /Can't reach Mise/);
+  assert.doesNotMatch(authErrorText({ status: 0 }, "signin"), /reach|signal/i);
+  assert.doesNotMatch(authErrorText({}, "link"), /reach|signal/i);
 });
