@@ -1,0 +1,11 @@
+<!-- Mise 2.0, Supabase Auth > Emails > Invite user. Paste this whole file as the body.
+     Subject: You are invited to a Mise kitchen
+     The link carries the token HASH and opens the app's SET PASSWORD screen, which spends
+     the token only when the person taps the button. Never use {{ .ConfirmationURL }} here:
+     a mail scanner that opens it would spend the invite before the person sees it. -->
+<h2>You are invited to a Mise kitchen</h2>
+<p>Someone who cooks with you set up an account for you on Mise, the kitchen planner.</p>
+<p>Open this link on your phone and choose a password:</p>
+<p><a href="{{ .SiteURL }}#/set-password?token_hash={{ .TokenHash }}&type=invite">Set up my account</a></p>
+<p>The link works once. If it has stopped working, ask the person who invited you to send a new one.</p>
+<p>If you did not expect this, you can ignore it. Nothing happens until the link is used.</p>

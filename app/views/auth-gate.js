@@ -590,6 +590,16 @@ export function AuthGateView({
 }
 
 /**
+ * The reset request's redirectTo: the page the app was opened on, without a
+ * trailing index.html, so it is exactly the one URL on the project's redirect
+ * allowlist (supabase/email-templates/README.md).
+ * @param {string} origin @param {string} pathname
+ */
+export function resetRedirect(origin, pathname) {
+  return `${origin}${String(pathname).replace(/index\.html$/, "")}`;
+}
+
+/**
  * The boot's entry point on a Supabase shell (main.js).
  * @param {{ start: "signin" | "setpw" }} props
  */
@@ -599,6 +609,6 @@ export function AuthGateRoot({ start }) {
     auth=${authClient()}
     start=${start}
     link=${authLinkFrom(location.hash) ?? (spent && { type: spent.type, verified: true })}
-    redirectTo=${`${location.origin}${location.pathname}`}
+    redirectTo=${resetRedirect(location.origin, location.pathname)}
   />`;
 }
