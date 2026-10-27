@@ -296,3 +296,53 @@ test("the hourly cron with nothing switched is 1.95: GitHub, no svc", async () =
   assert.equal(w.sb.calls.length, 0);
   assert.ok(w.github.length > 0);
 });
+
+test("F8: house and profile for recipe_for, recipe_names and guest_summary come from the verified session, never the body", async () => {
+  const w = await world();
+  // a second house with its own special and another guest's targets the body tries to reach
+  w.db.st.docs["households/house-f/recipes/house-ffffffffffff.json"] = { id: "house-ffffffffffff", name: "Other House Dish" };
+  w.db.st.docs["profiles/guest-b/profile/targets.json"] = { diet: "vegan", allergens: ["sesame"] };
+  const hostile = {
+    hostHouse: "house-f",
+    house: "house-f",
+    p_house: "house-f",
+    profile: "guest-b",
+    profileId: "a0000000-0000-4000-8000-000000000004",
+    p_profile: "a0000000-0000-4000-8000-000000000004",
+    recipeId: "house-ffffffffffff",
+    ids: ["house-ffffffffffff"],
+  };
+  await withFetch(w.sb.fetchImpl, async () => {
+    const session = await signGuestSessionV2({ p: "guest-a", b: "sandbox" }, KEY, Date.now());
+    const r = await worker.fetch(workerReq("/guest/me", { session, ...hostile }), ENV);
+    assert.equal(r.status, 200);
+    const body = JSON.stringify(await r.json());
+    assert.equal(body.includes("Other House Dish"), false);
+    assert.equal(body.includes("sesame"), false);
+    // a forged session naming the other guest is refused outright
+    const forged = await signGuestSessionV2({ p: "guest-b", b: "sandbox" }, "not-the-key-PLACEHOLDER", Date.now());
+    assert.equal((await worker.fetch(workerReq("/guest/me", { session: forged, ...hostile }), ENV)).status, 401);
+    // the status page takes its house from the stored invite, not the body
+    const jwt = await signJwt(w.key, { sub: USER_B });
+    const { code } = await (await worker.fetch(workerReq("/invite/new", { hostHouse: "house-w" }, { auth: jwt }), ENV)).json();
+    await worker.fetch(workerReq("/invite/status", { code, ...hostile }, { ip: "4.4.4.4" }), ENV);
+  });
+  const calls = w.sb.calls.filter((c) => ["recipe_for", "recipe_names", "guest_summary"].includes(String(c.fn)));
+  assert.ok(calls.length > 0);
+  for (const c of calls) {
+    if ("p_house" in c.args) assert.equal(c.args.p_house, "house-w", `${c.fn} house from the session`);
+    if ("p_profile" in c.args) assert.equal(c.args.p_profile, "a0000000-0000-4000-8000-000000000003", `${c.fn} profile from the session`);
+    if ("p_id" in c.args) assert.notEqual(c.args.p_id, "house-ffffffffffff");
+  }
+});
+
+test("F8: invite/new names a house in the body, but the database checks it against the caller's own sub", async () => {
+  const w = await world();
+  await withFetch(w.sb.fetchImpl, async () => {
+    const jwt = await signJwt(w.key, { sub: USER_B });
+    const r = await worker.fetch(workerReq("/invite/new", { hostHouse: "house-f", p_sub: USER_A, by: "host-1" }, { auth: jwt }), ENV);
+    assert.equal(r.status, 403);
+  });
+  const mint = w.sb.calls.find((c) => c.fn === "mint_invite");
+  assert.equal(mint?.args.p_sub, USER_B, "the sub is the verified token's, never the body's");
+});
