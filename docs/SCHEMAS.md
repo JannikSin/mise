@@ -2499,3 +2499,16 @@ turns a snapshot back into the mise-data file layout (the rollback).
 mise-data root, `{ "frozen": true, "at": "<ISO time>", "by": "<slug>" }`. The
 migration's `--final` refuses without it and never migrates it; the reverse
 export's `--merge-into` refuses without it and never writes or deletes it.
+
+**Operator tools** (G2; dry runs by default; none connects to a database).
+`tools/add-member.mjs` (a member from `person.local.json`; never an admin;
+refuses a taken slug, an unknown house, a pending email, a guarded display
+name, a new guard term that already appears), `tools/delete-member.mjs` (the
+person, their account and every row they own; never the admin, the root
+profile or a house's rows) and `tools/make-probe.mjs` (`probe-<6 hex>`, kind
+`probe`, one house or none; its account is created confirmed through the Auth
+admin API and its email and password go only into the Worker secrets
+`PROBE_EMAIL`/`PROBE_PASSWORD` or `PROBE_SANDBOX_EMAIL`/`PROBE_SANDBOX_PASSWORD`)
+each write one SQL transaction for David to run with psql.
+`tools/export-person.mjs` writes one person's own rows, `account.json` and
+`plate.json` from a snapshot.
