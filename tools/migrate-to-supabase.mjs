@@ -41,7 +41,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { docScope, audienceOf, BadPathError } from "../app/lib/doc-scope.js";
 import { plateOf } from "../app/lib/plate-of.js";
-import { PLATE_FIELDS } from "../app/lib/plate-fields.js";
+import { PLATE_FIELDS, PLATE_SAFETY_FIELDS } from "../app/lib/plate-fields.js";
+import { guardHits as nameGuardHits, guardPath } from "./name-guard.mjs";
 
 /** @typedef {{ query: (sql: string, params?: unknown[]) => Promise<{ rows: any[], affectedRows?: number }> }} Client */
 
@@ -78,17 +79,13 @@ export function gitBlobSha(bytes) {
 }
 
 /**
- * Whole-word, case-blind, the same test as private.guard_hit.
- * @param {unknown} data @param {string[]} terms @returns {number} hits
+ * The name guard, the same test as private.guard_hit (tools/name-guard.mjs:
+ * decoded strings and keys, folded, plurals; fix loop 1 F1).
+ * @param {unknown} data @param {string[]} terms @param {string | null} [extra] a path or an id
+ * @returns {number} hits
  */
-export function guardHits(data, terms) {
-  const text = JSON.stringify(data).toLowerCase();
-  let n = 0;
-  for (const t of terms) {
-    const re = new RegExp(`(^|[^a-z0-9])${t.replace(/[^a-z0-9-]/g, "")}([^a-z0-9]|$)`, "g");
-    n += (text.match(re) ?? []).length;
-  }
-  return n;
+export function guardHits(data, terms, extra = null) {
+  return nameGuardHits(data, terms, extra);
 }
 
 /** @param {string} dir @param {string} [base] @returns {string[]} repo-relative POSIX paths */
@@ -259,9 +256,9 @@ export function planMigration(snapshotDir, people, opts = {}) {
       .flatMap((p) => /** @type {string[]} */ (p.names ?? []))
       .map((n) => String(n).toLowerCase()),
   ];
-  const named = recipes.filter((r) => guardHits(r.data, scrubTerms) > 0);
+  const named = recipes.filter((r) => guardHits(r.data, scrubTerms, r.id) > 0);
   if (named.length) {
-    const hits = named.reduce((a, r) => a + guardHits(r.data, scrubTerms), 0);
+    const hits = named.reduce((a, r) => a + guardHits(r.data, scrubTerms, r.id), 0);
     throw new GateError("scrub", `${named.length} bank recipe(s) carry a person's name (${hits} hit(s)); run the bank scrub first`, named.map((r) => r.path));
   }
 
@@ -271,10 +268,28 @@ export function planMigration(snapshotDir, people, opts = {}) {
   const guarded = [];
   for (const d of kept) {
     const aud = d.kind === "global" ? null : audienceOf(d, housesOf);
-    if ((aud !== null || d.kind === "global") && guardHits(d.data, termsFor(aud)) > 0) guarded.push(d.path);
+    if ((aud !== null || d.kind === "global") && guardHits(d.data, termsFor(aud), guardPath(d.path)) > 0) guarded.push(d.path);
     if (d.kind === "targets" && d.profile && guardHits(plateOf(d.data), termsFor(plateHouses(d.profile))) > 0) guarded.push(d.path);
   }
+  // F5: the roster's display fields reach every house that can see the row
+  for (const r of roster.profiles) {
+    const display = Object.fromEntries(Object.entries(r).filter(([k]) => !DISPLAY_DROPPED.includes(k)));
+    if (guardHits(display, termsFor(plateHouses(String(r.id)))) > 0) guarded.push("profiles.json");
+  }
   if (guarded.length) throw new GateError("name-guard", `${guarded.length} file(s) would show a name to a house it is hidden from`, guarded);
+
+  // F2: a mirror that disagrees with its canonical file on a safety key is a
+  // stale copy; the plate follows the canonical file, but refuse so David
+  // looks (counts only)
+  /** @type {string[]} */
+  const split = [];
+  for (const c of kept.filter((d) => d.kind === "targets" && d.path.endsWith("profile/targets.json"))) {
+    const m = kept.find((d) => d.kind === "targets" && d.profile === c.profile && d.path.endsWith("fitness/targets.json"));
+    if (!m) continue;
+    const pick = (/** @type {any} */ t) => Object.fromEntries(PLATE_SAFETY_FIELDS.map((k) => [k, t?.[k] ?? null]));
+    if (contentHash(pick(c.data)) !== contentHash(pick(m.data))) split.push(m.path);
+  }
+  if (split.length) throw new GateError("targets-mirror", `${split.length} person(s) have a fitness/targets.json mirror that disagrees with profile/targets.json on a safety key (diet, allergies, avoids)`, split);
 
   // canonical targets before the mirror, so the plate carries the canonical sha
   kept.sort((a, b) => Number(/fitness\/targets\.json$/.test(a.path)) - Number(/fitness\/targets\.json$/.test(b.path)));
@@ -353,7 +368,7 @@ export async function runMigration(client, plan, opts = {}) {
       if (p.email) await q("insert into private.pending_links values (lower($1), $2)", [p.email, profileId.get(p.slug)]);
     }
     await q(`update public.profiles pr set user_id = u.id from private.pending_links l join auth.users u on lower(u.email) = l.email
-             where pr.id = l.profile_id and pr.user_id is distinct from u.id`);
+             where pr.id = l.profile_id and pr.user_id is distinct from u.id and u.email_confirmed_at is not null`);
     await q("delete from public.admins");
     await q("insert into public.admins select user_id from public.profiles where slug = $1 and user_id is not null", [people.admin]);
     await q("update public.roster_rev set rev = rev + 1");
@@ -428,6 +443,14 @@ export async function verify(client, plan) {
     return canon ? p.legacy_sha !== canon.sha : false;
   }).length;
   add("plate sha is the canonical file's", shaBad, "");
+  // F2: every plate is plateOf(the canonical file), or of the mirror when the
+  // person has no canonical file
+  const plateBad = plates.filter((p) => {
+    const mine = plan.docs.filter((d) => d.kind === "targets" && d.profile === p.slug);
+    const src = mine.find((d) => d.path.endsWith("profile/targets.json")) ?? mine[0];
+    return !src || contentHash(p.data) !== contentHash(plateOf(src.data));
+  }).length;
+  add("plate equals plateOf(canonical)", plateBad, "");
   return out;
 }
 

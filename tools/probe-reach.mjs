@@ -17,6 +17,7 @@
 //   no-house probe: only the bank, global rows and its own rows
 //   family-house probe: zero rows of the other house, plates only for housemates
 import { PLATE_FIELDS } from "../app/lib/plate-fields.js";
+import { guardHits } from "./name-guard.mjs";
 
 const PEOPLE_TABLES = ["profiles", "households", "memberships", "admins", "roster_rev", "guest_grants", "invites", "guest_logins", "ai_usage"];
 
@@ -28,10 +29,9 @@ const PEOPLE_TABLES = ["profiles", "households", "memberships", "admins", "roste
  * }} ProbeExpect ids are uuids; terms lowercase
  */
 
-/** @param {unknown} data @param {string[]} terms */
+/** The name guard's own reading (tools/name-guard.mjs, fix loop 1 F1). @param {unknown} data @param {string[]} terms */
 function hit(data, terms) {
-  const text = JSON.stringify(data).toLowerCase();
-  return terms.some((t) => new RegExp(`(^|[^a-z0-9])${t.replace(/[^a-z0-9-]/g, "")}([^a-z0-9]|$)`).test(text));
+  return guardHits(data, terms) > 0;
 }
 
 /**
