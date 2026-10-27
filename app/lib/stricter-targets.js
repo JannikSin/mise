@@ -9,7 +9,9 @@
 // ingredients, never-again recipes, and the stricter of the two diets. It can
 // only refuse more, never less.
 
-const UNION_FIELDS = /** @type {const} */ (["allergens", "avoidIngredients", "avoidRecipes"]);
+import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
+
+const UNION_FIELDS =/** @type {const} */ (["allergens", "avoidIngredients", "avoidRecipes"]);
 // strictest last; each admits a subset of the one before (plan.js DIET_ADMITS)
 const DIET_LADDER = ["omnivore", "pescatarian", "vegetarian", "vegan"];
 
@@ -41,15 +43,16 @@ function stricterDiet(server, local) {
   return l > s ? local : server;
 }
 
-/** @param {string} text the typed allergy text, split at commas, semicolons and lines */
-const terms = (text) =>
+/**
+ * The typed allergy text in the pieces the allergy screen reads it in:
+ * split at commas only, as avoidTermsFromAllergens does (loop 3, item 7).
+ * @param {string} text
+ */
+const screenPieces = (text) =>
   text
-    .split(/[,;\n]/)
+    .split(",")
     .map((t) => t.trim())
     .filter(Boolean);
-
-/** @param {string} t */
-const normTerm = (t) => t.toLowerCase().replace(/\s+/g, " ");
 
 /**
  * @param {Record<string, unknown> | null} server the server copy (null when none came down)
@@ -64,19 +67,23 @@ export function stricterTargets(server, local) {
     const v = unionList(server?.[k], local[k]);
     if (v !== undefined) out[k] = v;
   }
-  // the typed allergy text is merged by WHOLE terms (loop 2 item 9, Red Team
-  // 2 L1): a local "apple" is kept beside a server "pineapple", never dropped
-  // as a substring of it
+  // the typed allergy text is merged by what the ALLERGY SCREEN reads in it
+  // (loop 3 item 7, Red Team 3 L-a; whole terms since loop 2 item 9): a
+  // local piece is kept unless every term the screen draws from it is
+  // already drawn from the server text, and pieces are joined with the comma
+  // the screen splits at. So the merged text screens all the server text
+  // screens plus all the local edit screens: "kiwi" survives a server
+  // "apple\nkiwi" (one term to the screen), "apple" a server "pineapple".
   const sText = String(server?.allergensFreeText ?? "").trim();
-  const have = new Set(terms(sText).map(normTerm));
-  const extra = terms(String(local.allergensFreeText ?? "")).filter((t) => {
-    const n = normTerm(t);
-    if (have.has(n)) return false;
-    have.add(n);
+  const have = new Set(avoidTermsFromAllergens([], sText));
+  const extra = screenPieces(String(local.allergensFreeText ?? "")).filter((piece) => {
+    const drawn = typedAvoidTerms(piece);
+    if (drawn.every((t) => have.has(t))) return false;
+    for (const t of drawn) have.add(t);
     return true;
   });
   if (extra.length > 0) {
-    out.allergensFreeText = [...(sText ? [sText] : []), ...extra].join("; ");
+    out.allergensFreeText = [...(sText ? [sText] : []), ...extra].join(", ");
   }
   const diet = stricterDiet(server?.diet, local.diet);
   if (diet !== undefined) out.diet = diet;

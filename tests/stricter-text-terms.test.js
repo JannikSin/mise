@@ -11,17 +11,17 @@ const merged = (server, local) =>
   stricterTargets({ allergensFreeText: server }, { allergensFreeText: local })?.allergensFreeText;
 
 test("apple is kept beside pineapple, in both directions", () => {
-  assert.equal(merged("pineapple", "apple"), "pineapple; apple");
-  assert.equal(merged("apple", "pineapple"), "apple; pineapple");
-  assert.equal(merged("peanut", "nut"), "peanut; nut");
+  assert.equal(merged("pineapple", "apple"), "pineapple, apple");
+  assert.equal(merged("apple", "pineapple"), "apple, pineapple");
+  assert.equal(merged("peanut", "nut"), "peanut, nut");
 });
 
-test("a term already there, in any case or spacing, is not added twice", () => {
+test("a term already there, in any case, is not added twice", () => {
   assert.equal(merged("Kiwi, sesame", "kiwi"), "Kiwi, sesame");
-  assert.equal(merged("tree  nuts", "Tree nuts; mango"), "tree  nuts; mango");
+  assert.equal(merged("tree nuts", "Tree nuts, mango"), "tree nuts, mango");
 });
 
 test("several new terms each arrive once, and an empty server takes the local list", () => {
-  assert.equal(merged("kiwi", "mango, kiwi, mango; lime"), "kiwi; mango; lime");
+  assert.equal(merged("kiwi", "mango, kiwi, mango; lime"), "kiwi, mango, mango; lime");
   assert.equal(merged("", "mango"), "mango");
 });
