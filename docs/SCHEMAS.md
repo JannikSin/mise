@@ -2588,3 +2588,11 @@ admin API and its email and password go only into the Worker secrets
 each write one SQL transaction for David to run with psql.
 `tools/export-person.mjs` writes one person's own rows, `account.json` and
 `plate.json` from a snapshot.
+
+**Live gate** (fix loop 3, E5; runbook `tools/live-gate.md`). Before the live
+run, on the local Docker stack or the sandbox (never live): the migrations,
+`tools/live-gate-seed.sql`, `node tools/live-gate.mjs --url <url>` with
+`MISE_GATE_SECRET_KEY` and `MISE_GATE_PUBLISHABLE_KEY` set for that run only,
+then `tools/live-gate-teardown.sql`. Its 17 checks cover the `auth.users`
+trigger and its abort, `svc` exposure, the global execute revoke, the writer's
+codes as `error.code`, the direct-insert revoke and `plate_for`.
