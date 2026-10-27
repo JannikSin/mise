@@ -14,6 +14,9 @@ import {
   authErrorText,
   shellBackend,
   MIN_PASSWORD,
+  setPasswordStep,
+  verifiedLinkFrom,
+  verifiedHash,
 } from "../app/views/auth-gate.js";
 
 /** @param {Record<string, string>} o */
@@ -134,8 +137,13 @@ test("the SET PASSWORD screen spends the token only inside the tap handler (E6)"
   const calls = [...src.matchAll(/\.verifyOtp\(/g)].length;
   assert.equal(calls, 1);
   const at = src.indexOf(".verifyOtp(");
-  const handler = src.lastIndexOf("const setNewPassword = () =>", at);
-  assert.ok(handler > 0 && at - handler < 800, "verifyOtp lives in the SET PASSWORD tap handler");
+  const step = src.lastIndexOf("export async function setPasswordStep(", at);
+  assert.ok(step > 0 && at - step < 1600, "verifyOtp lives in setPasswordStep");
+  const uses = [...src.matchAll(/setPasswordStep\(/g)].length;
+  assert.equal(uses, 2, "defined once, called once");
+  const call = src.lastIndexOf("setPasswordStep({");
+  const handler = src.lastIndexOf("const setNewPassword = () =>", call);
+  assert.ok(handler > 0 && call - handler < 400, "called only from the SET PASSWORD tap handler");
   assert.equal(/useEffect/.test(src), false, "no effect runs on load");
 });
 
@@ -163,3 +171,87 @@ test(
     }
   },
 );
+
+// ---- fix loop 1, item 4 (Red Team R4, Engineer F3, Usability 1): the token
+// is spent at most once; a retry after a refused password calls only
+// updateUser; the token leaves the address bar right after verify; a reload
+// then lands on the signed-in password step, never "expired".
+
+/** a fake client.auth: verifyOtp works once per token, updateUser answers from a queue */
+function fakeAuth(/** @type {any[]} */ updateAnswers) {
+  /** @type {string[]} */
+  const calls = [];
+  const spent = new Set();
+  return {
+    calls,
+    async signInWithPassword() {
+      return { error: { status: 400 } };
+    },
+    async verifyOtp(/** @type {any} */ a) {
+      calls.push("verifyOtp");
+      if (spent.has(a.token_hash)) return { error: { status: 403, code: "otp_expired" } };
+      spent.add(a.token_hash);
+      return { data: { session: { access_token: "x" } } };
+    },
+    async updateUser() {
+      calls.push("updateUser");
+      const next = updateAnswers.shift();
+      if (next instanceof Error) throw next;
+      return next ?? { data: { user: {} } };
+    },
+    async resetPasswordForEmail() {
+      return {};
+    },
+  };
+}
+
+test("R4 probe: a refused password then a retry calls verifyOtp once and lands done", async () => {
+  const auth = fakeAuth([{ error: { status: 422, code: "weak_password" } }, { data: {} }]);
+  /** @type {string[]} */
+  const hashes = [];
+  const link = { tokenHash: "pkce_0123456789abcdef", type: /** @type {const} */ ("invite") };
+  const one = await setPasswordStep({ auth, link, password: "long-enough-1", verified: false, replaceHash: (h) => hashes.push(h) });
+  assert.equal(one.done, false);
+  assert.equal(one.verified, true);
+  assert.match(one.note, /too easy/);
+  assert.deepEqual(hashes, ["#/set-password?verified=1&type=invite"], "the token left the bar right after verify");
+  const two = await setPasswordStep({ auth, link, password: "longer-and-better-2", verified: one.verified, replaceHash: (h) => hashes.push(h) });
+  assert.equal(two.done, true);
+  assert.deepEqual(auth.calls, ["verifyOtp", "updateUser", "updateUser"]);
+  assert.equal(hashes.at(-1), "#/plan");
+});
+
+test("R4: no signal on updateUser after a good verify says the person is still signed in", async () => {
+  const auth = fakeAuth([new TypeError("Failed to fetch")]);
+  const r = await setPasswordStep({
+    auth,
+    link: { tokenHash: "pkce_0123456789abcdef", type: "recovery" },
+    password: "long-enough-1",
+    verified: false,
+    replaceHash: () => {},
+  });
+  assert.equal(r.verified, true);
+  assert.match(r.note, /still signed in/);
+});
+
+test("R4: a spent link never reaches updateUser", async () => {
+  const auth = fakeAuth([]);
+  const link = { tokenHash: "pkce_0123456789abcdef", type: /** @type {const} */ ("invite") };
+  await auth.verifyOtp({ token_hash: link.tokenHash });
+  auth.calls.length = 0;
+  const r = await setPasswordStep({ auth, link, password: "long-enough-1", verified: false, replaceHash: () => assert.fail("no hash change") });
+  assert.equal(r.verified, false);
+  assert.match(r.note, /expired|no longer works/i);
+  assert.deepEqual(auth.calls, ["verifyOtp"]);
+});
+
+test("R4/U1: a reload after verify shows the password step while the session lasts, sign-in after", () => {
+  const hash = verifiedHash("invite");
+  assert.deepEqual(verifiedLinkFrom(hash), { type: "invite" });
+  assert.equal(authLinkFrom(hash), null, "no token in the bar");
+  assert.equal(authGateWanted({ backend: "supabase", hash, storage: SESSION }), "setpw");
+  assert.equal(authGateWanted({ backend: "supabase", hash, storage: store({}) }), "signin");
+  assert.equal(authGateWanted({ backend: "github", hash, storage: SESSION }), null);
+  assert.equal(verifiedLinkFrom("#/set-password?verified=1&type=invite&token_hash=abcdef0123"), null);
+  assert.equal(verifiedLinkFrom("#/set-password?verified=1&type=signup"), null);
+});

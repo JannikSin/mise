@@ -90,6 +90,29 @@ export function authLinkFrom(hash) {
 }
 
 /**
+ * After the link's token is spent (fix loop 1, R4, E3, U1) the address bar
+ * holds `#/set-password?verified=1&type=...` instead: no token, so a reload
+ * or a shared screenshot carries nothing usable, and the phone (which holds
+ * the session verifyOtp made) comes back to the password step, signed in.
+ * @param {string} hash
+ * @returns {{ type: "invite" | "recovery" } | null}
+ */
+export function verifiedLinkFrom(hash) {
+  const m = String(hash ?? "").match(/^#\/set-password\?(.*)$/);
+  if (!m) return null;
+  const q = new URLSearchParams(m[1]);
+  const type = q.get("type");
+  if (q.get("verified") !== "1" || q.has("token_hash")) return null;
+  if (type !== "invite" && type !== "recovery") return null;
+  return { type };
+}
+
+/** the hash that replaces a spent link @param {"invite" | "recovery"} type */
+export function verifiedHash(type) {
+  return `#/set-password?verified=1&type=${type}`;
+}
+
+/**
  * E5, the offline predicate: a persisted supabase-js session object counts as
  * signed in, so a phone with no signal still opens its cached week. Only the
  * shape is checked here; the Worker and the database check the token.
@@ -120,6 +143,9 @@ export function hasPersistedSession(storage) {
 export function authGateWanted(a) {
   if (a.backend !== "supabase") return null;
   if (authLinkFrom(a.hash)) return "setpw";
+  // the token was spent on this phone, the password is not saved yet: back to
+  // the password step while the session lasts, else sign in
+  if (verifiedLinkFrom(a.hash)) return hasPersistedSession(a.storage) ? "setpw" : "signin";
   // guest pages are the Worker's name-and-passkey flow, not an account
   if (/^#\/(join|status|me)(\/|\?|$)/.test(String(a.hash ?? ""))) return null;
   return hasPersistedSession(a.storage) ? null : "signin";
@@ -170,6 +196,58 @@ export function authErrorText(error, where) {
     return "The password was not saved. Try again.";
   }
   return "The reset email could not be sent. Try again in a few minutes.";
+}
+
+/**
+ * SET PASSWORD's tap, as a pure step the tests drive (fix loop 1, R4, E3, U1).
+ * The token is spent at most ONCE: after a good verifyOtp the caller keeps
+ * `verified` and the token leaves the address bar at once, so a retry after a
+ * refused or unsent password calls only updateUser.
+ * @param {{
+ *   auth: AuthLike,
+ *   link: { tokenHash?: string, type: "invite" | "recovery" } | null,
+ *   password: string,
+ *   verified: boolean,
+ *   replaceHash: (hash: string) => void,
+ * }} a
+ * @returns {Promise<{ verified: boolean, note: string, done: boolean }>}
+ */
+export async function setPasswordStep(a) {
+  /** @param {Promise<any>} p */
+  const settle = (p) =>
+    p.catch((/** @type {any} */ e) => /** @type {{ data?: any, error?: any }} */ ({ error: e }));
+  let verified = a.verified;
+  if (!verified) {
+    if (!a.link?.tokenHash) return { verified, note: authErrorText({ status: 400 }, "link"), done: false };
+    // E6: the token is spent HERE, on the tap, never on page load
+    const v = await settle(a.auth.verifyOtp({ token_hash: a.link.tokenHash, type: a.link.type }));
+    if (v?.error || !v?.data?.session) {
+      return { verified, note: authErrorText(v?.error ?? { status: 400 }, "link"), done: false };
+    }
+    verified = true;
+    // the token is spent: out of the address bar and history NOW, not at the end
+    a.replaceHash(verifiedHash(a.link.type));
+  }
+  const u = await settle(a.auth.updateUser({ password: a.password }));
+  if (u?.error) {
+    const t = authErrorText(u.error, "password");
+    return {
+      verified,
+      note: /^No signal/.test(t) ? "No signal. You are still signed in on this phone. Try again." : t,
+      done: false,
+    };
+  }
+  a.replaceHash("#/plan");
+  return { verified, note: "", done: true };
+}
+
+/** @param {string} hash */
+function replaceHashInHistory(hash) {
+  try {
+    history.replaceState(null, "", `${location.pathname}${location.search}${hash}`);
+  } catch {
+    // no history API: nothing to replace
+  }
 }
 
 /** @returns {Storage | null} */
@@ -242,10 +320,11 @@ export function DataNotice({ onDone, again = false }) {
  * @param {{
  *   auth: AuthLike | null,
  *   start: "signin" | "setpw",
- *   link?: { tokenHash: string, type: "invite" | "recovery" } | null,
+ *   link?: { tokenHash?: string, type: "invite" | "recovery", verified?: boolean } | null,
  *   onSignedIn?: () => void,
  *   storage?: any,
  *   redirectTo?: string,
+ *   replaceHash?: (hash: string) => void,
  * }} props
  */
 export function AuthGateView({
@@ -255,6 +334,7 @@ export function AuthGateView({
   onSignedIn = () => location.reload(),
   storage = safeStorage(),
   redirectTo = undefined,
+  replaceHash = replaceHashInHistory,
 }) {
   const [screen, setScreen] = useState(
     /** @type {"notice" | "signin" | "setpw" | "reset" | "done"} */ (
@@ -267,6 +347,7 @@ export function AuthGateView({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [showNotice, setShowNotice] = useState(false);
+  const [verified, setVerified] = useState(Boolean(link?.verified));
 
   const head = html`<div class="hero">
     <h1>Mise<span>.</span></h1>
@@ -340,32 +421,10 @@ export function AuthGateView({
         setNote(problem);
         return;
       }
-      if (!link) {
-        setNote(authErrorText({ status: 400 }, "link"));
-        return;
-      }
-      // E6: the token is spent HERE, on the tap, never on page load
-      const v = await auth
-        .verifyOtp({ token_hash: link.tokenHash, type: link.type })
-        .catch((/** @type {any} */ e) => /** @type {{ data?: any, error?: any }} */ ({ error: e }));
-      if (v?.error || !v?.data?.session) {
-        setNote(authErrorText(v?.error ?? { status: 400 }, "link"));
-        return;
-      }
-      const u = await auth
-        .updateUser({ password })
-        .catch((/** @type {any} */ e) => /** @type {{ data?: any, error?: any }} */ ({ error: e }));
-      if (u?.error) {
-        setNote(authErrorText(u.error, "password"));
-        return;
-      }
-      // the link is spent: take it out of the address bar and history
-      try {
-        history.replaceState(null, "", `${location.pathname}${location.search}#/plan`);
-      } catch {
-        // no history API: the reload below still lands signed in
-      }
-      setScreen("done");
+      const r = await setPasswordStep({ auth, link, password, verified, replaceHash });
+      setVerified(r.verified);
+      if (r.done) setScreen("done");
+      else setNote(r.note);
     });
 
   const sendReset = () =>
@@ -535,10 +594,11 @@ export function AuthGateView({
  * @param {{ start: "signin" | "setpw" }} props
  */
 export function AuthGateRoot({ start }) {
+  const spent = verifiedLinkFrom(location.hash);
   return html`<${AuthGateView}
     auth=${authClient()}
     start=${start}
-    link=${authLinkFrom(location.hash)}
+    link=${authLinkFrom(location.hash) ?? (spent && { type: spent.type, verified: true })}
     redirectTo=${`${location.origin}${location.pathname}`}
   />`;
 }
