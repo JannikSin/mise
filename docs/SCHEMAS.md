@@ -2476,7 +2476,9 @@ expires_at, used_at, claimed, status_until }`; `svc.guest_login_add(p_profile,
 p_name_key, p_salt, p_hash)` boolean; `svc.guest_login_row(p_name_key)` `{ slug,
 salt, hash }`; `svc.guest_view(p_slug)` for a live grant only, `{ profile_id,
 name, has_login, host_house, tables, names }` where `names` covers only the
-people seated at the guest's own tables.
+people seated at the guest's own tables whom the host house can already see:
+its members and the guests it holds a live grant for (fix loop 2, C2; a seat
+naming anyone else is left out).
 
 **Migration** (`tools/migrate-to-supabase.mjs`, G1). Reads a local mise-data
 snapshot and `people.local.json` (shape in the tool's header) and writes one

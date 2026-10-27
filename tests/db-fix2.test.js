@@ -5,7 +5,8 @@
 // apostrophe, a diaeresis, mixed scripts), not anyone in the app.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { freshDb, errorOf, SKIP } from "./_pglite.js";
+import { freshDb, errorOf, asUser, asRole, SKIP } from "./_pglite.js";
+import { world } from "./_world.js";
 import { PEOPLE, writeSnapshot } from "./_snapshot.js";
 import { planMigration, runMigration, GateError } from "../tools/migrate-to-supabase.mjs";
 import { fold, guardHits, termWords, TermError } from "../tools/name-guard.mjs";
@@ -121,5 +122,31 @@ test("C1 (SQL): the database folds a guard term on the way in and refuses one th
     assert.equal(sql, guardHits({ n: text }, [name]) > 0, name);
     assert.equal(sql, true, name);
   }
+  await db.close();
+});
+
+// ---- item 2 (C2, N2): guest_view names only people the host house can see
+
+/** Run a svc function as service_role. @param {any} db @param {string} sql */
+async function svcOne(db, sql) {
+  return asRole(db, "service_role", async () => (await db.query(sql)).rows[0]);
+}
+
+test("C2 probe V: a house-w member seats a family-house member at a guest's table; guest_view does not name them", { skip: SKIP }, async () => {
+  const { db, uid } = await world();
+  const p = "households/house-w/events.json";
+  const rev = (await db.query("select rev from public.docs where path = $1", [p])).rows[0].rev;
+  const ev = { tables: [{ id: "t-a", seats: [{ id: "guest-1" }, { id: "mate-1" }, { id: "kin-1" }, { id: "guest-2" }, { id: "owner-1" }] }] };
+  const e = await errorOf(() => asUser(db, uid["mate-1"], () => db.query("select public.write_doc($1, $2::jsonb, $3)", [p, JSON.stringify(ev), rev])));
+  assert.equal(e, null, "the write itself is allowed (a seat is a slug)");
+  const names = (await svcOne(db, "select svc.guest_view('guest-1') v")).v.names;
+  // members of house-w and the guest it holds a live grant for; not kin-1
+  // (house-f only), not guest-2 (a lapsed grant, and to house-f)
+  assert.deepEqual(names, { "guest-1": "Guest A", "mate-1": "Mate", "owner-1": "Owner" });
+  const seen = (await asUser(db, uid["mate-1"], () => db.query("select public.roster() r"))).rows[0].r.profiles.map((/** @type {any} */ r) => r.id);
+  for (const slug of Object.keys(names)) assert.ok(seen.includes(slug), `${slug} is in mate-1's roster too`);
+  // a second guest with a LIVE grant to house-w is named
+  await db.exec(`insert into public.guest_grants select p.id, h.id, '2999-01-01' from public.profiles p, public.households h where p.slug = 'guest-2' and h.slug = 'house-w'`);
+  assert.equal((await svcOne(db, "select svc.guest_view('guest-1') v")).v.names["guest-2"], "Guest B");
   await db.close();
 });
