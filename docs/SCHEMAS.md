@@ -2439,6 +2439,18 @@ write to them is refused (P0403) and a read finds nothing. Writing
 visible row for the admin. New rows, house moves, families and admin flags are
 refused (P0403).
 
+**Deploy gates** (fix loop 1, F4, F6; David's step 6 in every project):
+sign-ups OFF, anonymous sign-ins OFF, Confirm email ON; exposed schemas are
+`public` and `svc` only, never `private`. An invite links its profile only once
+the email is confirmed (`link_pending` fires on insert and on update of
+`email_confirmed_at`, and acts only when it is set). authenticated may execute
+only `private.my_profile`, `is_admin`, `my_households`, `housemates`,
+`visible_guests`, `can_write`, `patch_roster` and `canonical_path`; every `svc`
+function is granted to service_role by name. Roster display fields pass the
+name guard for every house that can see the row (`patch_roster`,
+`svc.claim_guest`, the migration's preflight), and `svc.guard_hits()` counts
+roster rows too.
+
 **Worker and app RPCs** (fix loop 1, item 9; contract in `worker/src/svc.js`).
 `public.whoami()` (signed in): `{ slug, admin, home }` or null when the account
 has no profile. service_role only: `svc.whoami(p_sub)` `{ slug, admin, houses }`;

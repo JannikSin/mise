@@ -131,6 +131,8 @@ select jsonb_build_object(
 from g, t $$;
 
 revoke execute on all functions in schema svc from public, anon, authenticated;
-grant execute on all functions in schema svc to service_role;
+grant execute on function svc.whoami(uuid), svc.cron_inputs(text, boolean), svc.mint_invite(uuid, text, text, timestamptz),
+  svc.invite_get(text), svc.guest_login_add(uuid, text, text, text), svc.guest_login_row(text), svc.guest_view(text)
+  to service_role;
 revoke execute on function public.whoami() from public, anon;
 grant execute on function public.whoami() to authenticated;

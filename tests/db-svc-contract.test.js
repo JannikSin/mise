@@ -108,3 +108,20 @@ test("the new svc functions are service_role only", { skip: SKIP }, async () => 
   }
   await db.close();
 });
+
+test("negative control: a mint_invite without the house check, and a guest_view without the expiry, fail these checks", { skip: SKIP }, async () => {
+  const { db, uid } = await world();
+  await db.exec(`create or replace function svc.mint_invite(p_sub uuid, p_code_hash text, p_host_house text, p_expires_at timestamptz) returns text
+    language sql volatile security definer set search_path = '' as $$
+    insert into public.invites (code_hash, host_household, created_by, expires_at)
+      select p_code_hash, h.id, p.id, p_expires_at from public.households h, public.profiles p where h.slug = p_host_house and p.user_id = p_sub
+    returning 'ok' $$;
+    create or replace function svc.guest_view(p_slug text) returns jsonb language sql stable security definer set search_path = '' as $$
+    select jsonb_build_object('host_house', h.slug) from public.profiles p join public.guest_grants g on g.guest_profile = p.id
+      join public.households h on h.id = g.host_household where p.slug = p_slug limit 1 $$;
+    grant execute on all functions in schema svc to service_role;`);
+  const r = (await svc(db, "select svc.mint_invite($1, 'n1', 'house-f', now() + interval '1 day') r", [uid["mate-1"]])).r;
+  assert.notEqual(r, "forbidden", "the broken version lets a member of another house invite");
+  assert.notEqual((await svc(db, "select svc.guest_view('guest-2') v")).v, null, "the broken version shows a lapsed guest");
+  await db.close();
+});
