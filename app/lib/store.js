@@ -830,11 +830,17 @@ async function revalidatePass(scopedDir) {
     let failed = 0;
     const worker = async () => {
       while (next < todo.length) {
-        const entry = /** @type {{ path: string, sha: string }} */ (todo[next++]);
+        const entry = /** @type {{ path: string, sha: string, data?: Record<string, unknown> }} */ (
+          todo[next++]
+        );
         /** @type {Awaited<ReturnType<ReturnType<typeof backend>["read"]>>} */
         let remote;
         try {
-          remote = await backend().read(entry.path);
+          // a listing that carries the rows (Supabase, ENG 10) needs no
+          // second fetch per file; the GitHub listing never does
+          remote = entry.data
+            ? { data: entry.data, sha: entry.sha }
+            : await backend().read(entry.path);
         } catch {
           failed++;
           continue; // one unreadable/corrupt file must not sink the whole collection
