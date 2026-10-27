@@ -14,6 +14,7 @@ import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
 import { syncScopeFor, verifiedKey, ADMIN_DEVICE_KEY, keyOf, isAdmin } from "./privacy.js";
 import { stricterTargets } from "./stricter-targets.js";
+import { holdWrite, FREEZE_PATH } from "./freeze.js";
 
 const io = {
   /** @param {string} path */
@@ -26,6 +27,20 @@ const io = {
 // or a push that started before the purge finds it moved and stores nothing,
 // so revoked data can never land back on the phone after it was wiped.
 let epoch = 0;
+
+// ONE PHONE, MORE THAN ONE ACCOUNT (2.0, seam fixes 1, 14 and 15; Red Team 1,
+// ENG F3; worker gate E4). The sign-in side (session-boot.js) calls
+// onSessionChange(prev, next) on every account change and holds the store
+// lock (acquireStoreLock) across the switch, so no push that started under
+// one account is still in flight when the next one's session goes in.
+const ACCOUNT_KEY = "mise.storeAccount";
+// how many holders keep the queue from flushing (acquireStoreLock)
+let storeLocks = 0;
+
+/** @returns {string | null} the signed-in slug, when the backend knows one */
+function accountNow() {
+  return backend().session()?.slug ?? null;
+}
 
 /** Fallback the app boots into when profiles.json is missing (fresh
  *  install) or unreachable — a legacy/pre-multi-profile install still opens
@@ -430,7 +445,7 @@ function emit() {
 async function recount() {
   const all = await dbGetAll();
   status.pending = all.filter((r) => r.dirty).length;
-  status.refused = all.filter((r) => r.dirty && r.refused).length;
+  status.refused = all.filter((r) => r.dirty && (r.refused || fromAnotherAccount(r))).length;
   status.loading = false;
   emit();
 }
@@ -639,11 +654,26 @@ export async function read(path, opts) {
  * @returns {Record<string, unknown> | null}
  */
 function localView(rec) {
+  // another account's queued write: nothing of it reads on this session,
+  // not even its base, which that account could see and this one may not
+  if (fromAnotherAccount(rec)) return null;
   if (!rec.refused) return rec.data;
   // the person's own targets keep every restriction of the refused edit
   // (2.0, Red Team 5): stricter only, never looser
   if (isOwnTargetsPath(rec.path)) return stricterTargets(rec.base, rec.data);
   return rec.base;
+}
+
+/**
+ * A queued write made under a different signed-in account than the one on
+ * the phone now (2.0, seam fix 1, Red Team 1 / ENG F3). It is held: never
+ * pushed under this session, never read, listed as refused "made by another
+ * account" with DISCARD. On GitHub no record carries an account, so never.
+ * @param {import("./db.js").FileRecord} rec
+ */
+function fromAnotherAccount(rec) {
+  if (!rec.dirty || typeof rec.account !== "string") return false;
+  return rec.account !== accountNow();
 }
 
 /** @param {string} path */
@@ -694,7 +724,7 @@ export async function readMeta(path, opts) {
   if (!inSyncScope(finalPath)) return { data: null, sha: null, dirty: false };
   const rec = await dbGet(finalPath);
   void revalidate(finalPath);
-  if (!rec) return { data: null, sha: null, dirty: false };
+  if (!rec || fromAnotherAccount(rec)) return { data: null, sha: null, dirty: false };
   if (rec.refused) {
     return { data: localView(rec), sha: rec.fingerprint ?? rec.sha ?? null, dirty: false };
   }
@@ -1004,6 +1034,8 @@ export async function write(path, data, opts) {
     // the plate fingerprint rides along (2.0, ENG F1); a dirty record reads
     // as dirty anyway, so a stale value is never reported
     ...(cur && "fingerprint" in cur ? { fingerprint: cur.fingerprint } : {}),
+    // who made it (seam fix 1): a later account on this phone holds it
+    ...(accountNow() ? { account: /** @type {string} */ (accountNow()) } : {}),
   }));
   await recount();
   void flush();
@@ -1091,7 +1123,7 @@ export async function flushNow({ timeoutMs = 20000 } = {}) {
  * @returns {Promise<void>}
  */
 async function flush() {
-  if (status.flushing || !navigator.onLine) return;
+  if (status.flushing || storeLocks > 0 || !navigator.onLine) return;
   // a Supabase build before sign-in can only fail every push, and must not
   // tell a phone that never signed in that it was signed out (2.0, ENG F2)
   if (backend().name === "supabase" && !backend().session()) return;
@@ -1105,6 +1137,14 @@ async function flush() {
     const here = stampHere();
     const started = epoch;
     status.mismatched = 0;
+    // THE MOVE FREEZE (seam fix 13): while the kitchen's store is frozen for
+    // the migration, every queued change waits on the phone, except the
+    // freeze file itself (UNFREEZE must land). Read from the store the
+    // kitchen is still on; a missing or malformed file never holds anything.
+    const freeze =
+      backend().name === "github"
+        ? await readNow(FREEZE_PATH, { raw: true }).catch(() => null)
+        : null;
     // a failure stops its LANE, not the pass (2.0 composite: a GitHub outage
     // must not hold back the Supabase queue); with one lane this is the
     // 1.95 stop-on-first-error exactly
@@ -1112,7 +1152,8 @@ async function flush() {
     const stopped = new Set();
     for (const rec of queued) {
       const lane = backend().laneOf(rec.path);
-      if (stopped.has(lane) || rec.refused) continue;
+      if (stopped.has(lane) || rec.refused || fromAnotherAccount(rec)) continue;
+      if (holdWrite(freeze, rec.path)) continue;
       // BRANCH GUARD (release train). A record with no stamp predates the
       // train: it was written on this install, so it belongs to this install's
       // branch, and is stamped on the way past (a read-time heal, never a
@@ -1273,17 +1314,23 @@ export async function purgeEverything() {
 export const REFUSED_REASON = {
   forbidden: "not allowed",
   name: "would show a name to another house",
+  account: "made by another account",
 };
 
 /**
- * Every queued write the server refused, for the Settings list.
- * @returns {Promise<{ path: string, reason: "forbidden" | "name", at: number }[]>}
+ * Every queued write the server refused, and every one another account made
+ * on this phone (seam fix 1), for the Settings list.
+ * @returns {Promise<{ path: string, reason: "forbidden" | "name" | "account", at: number }[]>}
  */
 export async function refusedRecords() {
-  /** @type {{ path: string, reason: "forbidden" | "name", at: number }[]} */
+  /** @type {{ path: string, reason: "forbidden" | "name" | "account", at: number }[]} */
   const out = [];
   for (const r of await dbGetAll()) {
-    if (r.dirty && r.refused) out.push({ path: r.path, reason: r.refused.reason, at: r.refused.at });
+    if (r.dirty && fromAnotherAccount(r)) {
+      out.push({ path: r.path, reason: "account", at: r.queuedAt ?? 0 });
+    } else if (r.dirty && r.refused) {
+      out.push({ path: r.path, reason: r.refused.reason, at: r.refused.at });
+    }
   }
   return out.sort((a, b) => a.path.localeCompare(b.path));
 }
@@ -1296,9 +1343,73 @@ export async function refusedRecords() {
  */
 export async function discardRefused(path) {
   const rec = await dbGet(path);
-  if (!rec?.dirty || !rec.refused) return false;
+  if (!rec?.dirty || !(rec.refused || fromAnotherAccount(rec))) return false;
   await dbDelete(path);
   fileCheckedAt.delete(path);
   await recount();
   return true;
+}
+
+/** @returns {string | null} the account this phone's cache last belonged to */
+function rememberedAccount() {
+  try {
+    return localStorage.getItem(ACCOUNT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The phone changed account (a sign-in as someone else, or a sign-out).
+ * Every clean cached record goes, so nothing the last account could read
+ * serves this one; every queued write stays, held as "made by another
+ * account" until that account signs in again or the person DISCARDs it.
+ * (purgeEverything is the confirmed-revoke purge and would delete the queue
+ * this must keep.) The slug is remembered in the store too, so a change is
+ * seen even when the caller's own memory was lost. No change: nothing done.
+ * @param {string | null} prevSlug
+ * @param {string | null} nextSlug
+ * @returns {Promise<number>} cached records removed
+ */
+export async function onSessionChange(prevSlug, nextSlug) {
+  const remembered = rememberedAccount();
+  try {
+    if (nextSlug) localStorage.setItem(ACCOUNT_KEY, nextSlug);
+    else localStorage.removeItem(ACCOUNT_KEY);
+  } catch {
+    // storage refused: the caller's prev still decides
+  }
+  const changed =
+    (prevSlug ?? null) !== (nextSlug ?? null) ||
+    (remembered !== null && remembered !== (nextSlug ?? null));
+  if (!changed) return 0;
+  epoch++;
+  let removed = 0;
+  for (const rec of await dbGetAll()) {
+    if (rec.dirty) continue;
+    await dbDeleteIfClean(rec.path);
+    removed++;
+  }
+  resetFileChecks();
+  freshDirs.clear();
+  stalledDirs.clear();
+  await recount();
+  return removed;
+}
+
+/**
+ * Hold the queue: no new flush starts until the returned release is called,
+ * and this resolves only once a flush already in flight has finished. The
+ * sign-in side takes it before an account switch (worker gate E4).
+ * @returns {Promise<() => void>} release (idempotent)
+ */
+export async function acquireStoreLock() {
+  storeLocks++;
+  while (status.flushing) await new Promise((r) => setTimeout(r, 25));
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    storeLocks--;
+  };
 }

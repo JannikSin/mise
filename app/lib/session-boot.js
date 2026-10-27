@@ -41,6 +41,7 @@
  *   refusedRecords?: () => Promise<{ path: string, reason: string, at: number }[]>,
  *   discardRefused?: (path: string) => Promise<boolean>,
  *   canSwitchProfile?: () => boolean,
+ *   acquireStoreLock?: () => Promise<() => void>,
  * }} Seam
  */
 
@@ -126,11 +127,22 @@ export function createSessionBoot({
     }
   };
 
-  /** @param {any} b */
-  const install = async (b) => {
-    seam.installBackend(b);
-    seam.resetFileChecks();
-    await seam.flushNow();
+  // THE STORE LOCK (worker gate E4, seam fix 15): every account switch runs
+  // holding it, so a push that started under one account has finished
+  // before the next account's session goes in, and none starts mid-switch.
+  // The flush after an install runs once the lock is released.
+  /**
+   * @template T
+   * @param {() => Promise<T>} fn
+   * @returns {Promise<T>}
+   */
+  const switching = async (fn) => {
+    const release = seam.acquireStoreLock ? await seam.acquireStoreLock() : () => {};
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
   };
 
   const lock = async () => {
@@ -138,16 +150,17 @@ export function createSessionBoot({
     seam.resetFileChecks();
   };
 
-  const dropSession = async () => {
-    const prev = lastSlug();
-    who = null;
-    token = "";
-    await lock();
-    await seam.onSessionChange(prev, null);
-    rememberSlug(null);
-    setAccountSource(null);
-    switchRule = () => false;
-  };
+  const dropSession = () =>
+    switching(async () => {
+      const prev = lastSlug();
+      who = null;
+      token = "";
+      await lock();
+      await seam.onSessionChange(prev, null);
+      rememberSlug(null);
+      setAccountSource(null);
+      switchRule = () => false;
+    });
 
   /** sign out: the server session ends, the store goes back to locked */
   const signOut = async () => {
@@ -174,25 +187,21 @@ export function createSessionBoot({
     const me = r?.data;
     if (!me || typeof me.slug !== "string" || !me.slug) {
       // signed in, but the account no longer has a profile: a CONFIRMED revoke
-      const prev = lastSlug();
-      await lock();
-      await seam.purgeEverything();
-      await seam.onSessionChange(prev, null);
-      rememberSlug(null);
-      who = null;
-      return "revoked";
+      return switching(async () => {
+        const prev = lastSlug();
+        await lock();
+        await seam.purgeEverything();
+        await seam.onSessionChange(prev, null);
+        rememberSlug(null);
+        who = null;
+        return /** @type {const} */ ("revoked");
+      });
     }
     const next = {
       slug: me.slug,
       admin: me.admin === true,
       home: typeof me.home === "string" ? me.home : null,
     };
-    const prev = lastSlug();
-    if (prev !== next.slug) await seam.onSessionChange(prev, next.slug);
-    rememberSlug(next.slug);
-    who = next;
-    email = String(session?.user?.email ?? "");
-    token = String(session?.access_token ?? "");
     const primary = seam.createSupabaseAdapter({
       client,
       session: () => who,
@@ -209,7 +218,17 @@ export function createSessionBoot({
           )(),
         })
       : primary;
-    await install(backend);
+    await switching(async () => {
+      const prev = lastSlug();
+      if (prev !== next.slug) await seam.onSessionChange(prev, next.slug);
+      rememberSlug(next.slug);
+      who = next;
+      email = String(session?.user?.email ?? "");
+      token = String(session?.access_token ?? "");
+      seam.installBackend(backend);
+      seam.resetFileChecks();
+    });
+    await seam.flushNow();
     switchRule = seam.canSwitchProfile ?? (() => next.admin);
     setAccountSource(() =>
       who
