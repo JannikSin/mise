@@ -1,0 +1,90 @@
+# Mise 2.0 G2: the keep-alive (plan section 3: "Free projects are paused after
+# 1 week of inactivity"; Historian: a real authenticated read, more than once
+# a day). The nightly backup (mise-backup.yml) is the second keep-alive.
+#
+# Twice a day, for each project (live and sandbox), as two separate jobs:
+#   - a real authenticated database read as the read-only `mise_backup` role
+#     (prints nothing but ok);
+#   - when the project's URL and publishable key are set as repository
+#     variables, a request to its Auth health endpoint (the public API).
+# On any failure, one ntfy push with no data in it.
+#
+# Like the backup, this runs ONLY in the private repo JannikSin/mise-backup
+# (guarded on the repository name); in the public mise repo it is skipped.
+#
+# Secrets (names only): MISE_BACKUP_DB_URL (live), MISE_SANDBOX_DB_URL
+# (sandbox), NTFY_TOPIC (optional).
+# Variables (public values, optional): MISE_LIVE_URL, MISE_LIVE_PUBLISHABLE_KEY,
+# MISE_SANDBOX_URL, MISE_SANDBOX_PUBLISHABLE_KEY.
+name: mise-keepalive
+
+on:
+  schedule:
+    - cron: "41 1,13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    if: github.repository == 'JannikSin/mise-backup'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null
+      - name: An authenticated read
+        env:
+          DB_URL: ${{ secrets.MISE_BACKUP_DB_URL }}
+        run: |
+          set -euo pipefail
+          test -n "${DB_URL}"
+          test "$(psql "${DB_URL}" -X -q -At -v ON_ERROR_STOP=1 -c 'select count(*) > 0 from public.recipes')" = "t"
+          echo ok
+      - name: The public API
+        env:
+          URL: ${{ vars.MISE_LIVE_URL }}
+          KEY: ${{ vars.MISE_LIVE_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -n "${URL}" ] && [ -n "${KEY}" ]; then curl -fsS -o /dev/null -H "apikey: ${KEY}" "${URL}/auth/v1/health"; echo ok; fi
+      - name: Alert the phone (no data in the message)
+        if: failure()
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          if [ -n "${NTFY_TOPIC}" ]; then
+            curl -fsS -o /dev/null -H "Title: Mise keep-alive failed (live)" -d "Run ${GITHUB_RUN_ID}. The live project may pause." "https://ntfy.sh/${NTFY_TOPIC}"
+          fi
+
+  sandbox:
+    if: github.repository == 'JannikSin/mise-backup'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null
+      - name: An authenticated read
+        env:
+          DB_URL: ${{ secrets.MISE_SANDBOX_DB_URL }}
+        run: |
+          set -euo pipefail
+          test -n "${DB_URL}"
+          test "$(psql "${DB_URL}" -X -q -At -v ON_ERROR_STOP=1 -c 'select count(*) >= 0 from public.recipes')" = "t"
+          echo ok
+      - name: The public API
+        env:
+          URL: ${{ vars.MISE_SANDBOX_URL }}
+          KEY: ${{ vars.MISE_SANDBOX_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -n "${URL}" ] && [ -n "${KEY}" ]; then curl -fsS -o /dev/null -H "apikey: ${KEY}" "${URL}/auth/v1/health"; echo ok; fi
+      - name: Alert the phone (no data in the message)
+        if: failure()
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          if [ -n "${NTFY_TOPIC}" ]; then
+            curl -fsS -o /dev/null -H "Title: Mise keep-alive failed (sandbox)" -d "Run ${GITHUB_RUN_ID}. The sandbox project may pause." "https://ntfy.sh/${NTFY_TOPIC}"
+          fi

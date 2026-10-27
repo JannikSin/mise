@@ -149,8 +149,10 @@ begin
 end $$;
 
 -- One person's plate card by slug, under exactly plates_read's rules; null
--- when the caller may not see it (or there is none). Clients never see
--- profile uuids, so the seam lane reads plates through this.
+-- when the caller may not see it (or there is none). The seam lane reads
+-- plates through this by slug. (Fix loop 1, F9: clients DO see profile and
+-- household uuids on the docs rows they may read; this RPC exists so the app
+-- never has to map a slug to a uuid, not because uuids are hidden.)
 create function public.plate_for(p_slug text) returns jsonb language sql stable security definer set search_path = '' as $$
 select jsonb_build_object('data', pl.data, 'rev', pl.rev, 'content_hash', pl.content_hash, 'legacy_sha', pl.legacy_sha)
 from public.plates pl join public.profiles p on p.id = pl.profile_id

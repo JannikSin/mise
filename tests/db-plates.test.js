@@ -32,8 +32,11 @@ test("the migration's insert makes a plate carrying the canonical file's git sha
   await db.close();
 });
 
-test("mirror-only write refreshes the plate", { skip: SKIP }, async () => {
+test("mirror-only write refreshes the plate (a person with no canonical row)", { skip: SKIP }, async () => {
   const { db, uid, pid } = await world();
+  // fix loop 1 F2: the plate follows the canonical row when there is one, so
+  // item 13 holds for a person whose only targets row is the mirror
+  await db.query("delete from public.docs where path = 'profiles/kin-1/profile/targets.json'");
   const t = targetsFor("kin-1", { diet: "vegan" });
   await asUser(db, uid["kin-1"], () => db.query("select public.write_doc('profiles/kin-1/fitness/targets.json', $1::jsonb, 1)", [JSON.stringify(t)]));
   const p = await plate(db, pid["kin-1"]);
