@@ -38,9 +38,18 @@ const ACCOUNT_KEY = "mise.storeAccount";
 // how many holders keep the queue from flushing (acquireStoreLock)
 let storeLocks = 0;
 
-/** @returns {string | null} the signed-in slug, when the backend knows one */
+/**
+ * Whose phone this is, for the hold (2.0, seam fix loop 2, item 2; ENG 2 N2):
+ * the account the STORE remembers (onSessionChange writes it), never the live
+ * session, which is null on an offline reload while the locked backend is in
+ * and for one whoami round trip on every boot. The live session counts only
+ * when the store has never been told an account. On GitHub: null, 1.95.
+ * @returns {string | null}
+ */
 function accountNow() {
-  return backend().session()?.slug ?? null;
+  const b = backend();
+  if (b.name !== "supabase") return null;
+  return rememberedAccount() ?? b.session()?.slug ?? null;
 }
 
 // HELD RECORDS (2.0, seam fix loop 2, item 1; Red Team 2 N1, ENG 2 N1). On an
@@ -1179,6 +1188,9 @@ async function flush() {
     for (const rec of queued) {
       const lane = backend().laneOf(rec.path);
       if (stopped.has(lane) || rec.refused || fromAnotherAccount(rec)) continue;
+      // and only ever under its own account's session: the store's memory
+      // decides what is held, the live session decides what may be sent
+      if (typeof rec.account === "string" && rec.account !== backend().session()?.slug) continue;
       if (holdWrite(freeze, rec.path)) continue;
       // BRANCH GUARD (release train). A record with no stamp predates the
       // train: it was written on this install, so it belongs to this install's
