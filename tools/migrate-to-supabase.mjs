@@ -397,10 +397,21 @@ export async function runMigration(client, plan, opts = {}) {
   const list = /** @type {any[]} */ (people.people);
   await q("begin");
   try {
-    // a re-run after phones have written would erase their work
-    const edited = (await q("select (select count(*) from public.docs where rev > 1) + (select count(*) from public.recipes where rev > 1) as n")).rows[0].n;
-    if (Number(edited) > 0 && !opts.overwriteEdits) {
-      throw new GateError("edited", `${edited} row(s) were edited after the last migration; refusing to overwrite them`);
+    // a re-run after phones have written would erase their work. fix loop 3
+    // E2: a row the migration did not write (a phone's new file at rev 1 has
+    // updated_by set; a server-made one, such as a claimed guest's, has no
+    // legacy_sha) counts as well as an edited one, and so does a roster edit
+    // (profiles.roster is not a doc): roster_rev as this tool left it
+    // is kept in private.settings and must not have moved.
+    const seen = (
+      await q(`select (select count(*) from public.docs where rev > 1 or updated_by is not null or legacy_sha is null)
+                    + (select count(*) from public.recipes where rev > 1 or updated_by is not null or legacy_sha is null) as n,
+                      (select value from private.settings where key = 'roster_rev') as stored,
+                      (select rev::text from public.roster_rev) as roster`)
+    ).rows[0];
+    const rosterMoved = seen.stored != null && seen.stored !== seen.roster;
+    if ((Number(seen.n) > 0 || rosterMoved) && !opts.overwriteEdits) {
+      throw new GateError("edited", `${seen.n} row(s) were written after the last migration${rosterMoved ? " and the roster was edited" : ""}; refusing to overwrite them`);
     }
     const strangers = (await q("select count(*)::int as n from public.profiles where kind <> 'probe' and not (slug = any ($1::text[]))", [list.map((p) => p.slug)])).rows[0].n;
     if (strangers > 0) throw new GateError("people", `${strangers} profile(s) in the database are not in people.local.json`);
@@ -454,6 +465,7 @@ export async function runMigration(client, plan, opts = {}) {
     await q("delete from public.admins");
     await q("insert into public.admins select user_id from public.profiles where slug = $1 and user_id is not null", [people.admin]);
     await q("update public.roster_rev set rev = rev + 1");
+    await q("insert into private.settings select 'roster_rev', rev::text from public.roster_rev on conflict (key) do update set value = excluded.value");
 
     // step 3: guard terms
     await q("delete from private.guard_terms");

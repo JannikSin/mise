@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, mkdtempSync, rmSync, unlinkSync, mkdirSync
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { freshDb, SKIP } from "./_pglite.js";
+import { freshDb, asUser, SKIP } from "./_pglite.js";
 import { PEOPLE, writeSnapshot } from "./_snapshot.js";
 import { planMigration, runMigration, GateError, gitBlobSha, committedBlobs } from "../tools/migrate-to-supabase.mjs";
 
@@ -110,6 +110,99 @@ test("E1: verify compares every row with the committed blob sha, not the plan's 
   await runMigration(db, plan);
   const row = (await db.query("select legacy_sha from public.docs where path = 'shopping.json'")).rows[0];
   assert.equal(row.legacy_sha, git(dir, "rev-parse", "HEAD:shopping.json").trim());
+  await db.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// ---- item 2 (E2): a re-run refuses after any phone or server write, not only rev > 1
+
+/** A migrated stand-in where mate-1 has signed in. */
+async function migratedWithMate() {
+  const dir = writeSnapshot();
+  const plan = planMigration(dir, PEOPLE);
+  const db = await freshDb();
+  await runMigration(db, plan);
+  await db.exec("insert into auth.users (email, email_confirmed_at) values ('mate-1@example.invalid', now())");
+  const mate = (await db.query("select user_id from public.profiles where slug = 'mate-1'")).rows[0].user_id;
+  return { db, plan, mate, dir };
+}
+
+/** @param {any} db @param {any} plan */
+async function refusesRerun(db, plan) {
+  await assert.rejects(
+    () => runMigration(db, plan),
+    (e) => e instanceof GateError && e.gate === "edited",
+  );
+}
+
+test("E2 probe P3: a plan a phone created at rev 1 stops a re-run, and survives it", { skip: SKIP }, async () => {
+  const { db, plan, mate, dir } = await migratedWithMate();
+  const p = "profiles/mate-1/plans/2026-W44.json";
+  const rev = (await asUser(db, mate, () => db.query("select public.write_doc($1, $2::jsonb, null) r", [p, JSON.stringify({ week: "2026-W44", entries: [] })]))).rows[0].r;
+  assert.equal(Number(rev), 1, "a new file is rev 1, which the old gate did not count");
+  await refusesRerun(db, plan);
+  assert.equal((await db.query("select count(*)::int n from public.docs where path = $1", [p])).rows[0].n, 1, "the phone's file is still there");
+  // told to overwrite, the re-run goes on (and the file is gone, as asked)
+  await runMigration(db, plan, { overwriteEdits: true });
+  assert.equal((await db.query("select count(*)::int n from public.docs where path = $1", [p])).rows[0].n, 0);
+  // and a clean re-run after that is allowed again
+  assert.equal((await runMigration(db, plan)).committed, true);
+  await db.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("E2: a row the server wrote (no legacy_sha, no writer, rev 1) stops a re-run", { skip: SKIP }, async () => {
+  const { db, plan, dir } = await migratedWithMate();
+  // the shape svc.claim_guest leaves: inserted by service code, auth.uid() null
+  await db.query("insert into public.docs (path, data) values ('profiles/mate-1/plans/2026-W45.json', '{}'::jsonb)");
+  const row = (await db.query("select rev, updated_by, legacy_sha from public.docs where path = 'profiles/mate-1/plans/2026-W45.json'")).rows[0];
+  assert.deepEqual([Number(row.rev), row.updated_by, row.legacy_sha], [1, null, null]);
+  await refusesRerun(db, plan);
+  await db.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+for (const [table, key] of [["recipes", "id"], ["docs", "path"]]) {
+  test(`E2: a ${table} row at rev 1 with a legacy_sha but a writer stops a re-run`, { skip: SKIP }, async () => {
+    const { db, plan, dir } = await migratedWithMate();
+    // rev 1 and a legacy_sha, so only updated_by marks it. The triggers never
+    // leave this shape (an update bumps rev, an insert pins the sha), so the
+    // clause is a second lock: reach it with the triggers off (a bulk load, a
+    // restore) to prove it holds on its own.
+    await db.exec(`alter table public.${table} disable trigger user`);
+    await db.query(`update public.${table} set updated_by = gen_random_uuid() where ${key} = (select min(${key}) from public.${table})`);
+    await db.exec(`alter table public.${table} enable trigger user`);
+    const row = (await db.query(`select rev, legacy_sha, updated_by from public.${table} where updated_by is not null`)).rows[0];
+    assert.equal(Number(row.rev), 1);
+    assert.ok(row.legacy_sha && row.updated_by, "the row carries both");
+    await refusesRerun(db, plan);
+    await db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+}
+
+test("E2: a bank recipe edited on the server (rev 2) stops a re-run", { skip: SKIP }, async () => {
+  const { db, plan, dir } = await migratedWithMate();
+  await db.query("update public.recipes set data = data || '{\"note\":\"x\"}' where id = (select min(id) from public.recipes)");
+  assert.equal((await db.query("select max(rev)::int r from public.recipes")).rows[0].r, 2);
+  await refusesRerun(db, plan);
+  await db.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("E2 probe P3: a roster rename by a member stops a re-run, and the name survives", { skip: SKIP }, async () => {
+  const { db, plan, mate, dir } = await migratedWithMate();
+  assert.equal((await db.query("select value from private.settings where key = 'roster_rev'")).rows[0].value, String((await db.query("select rev from public.roster_rev")).rows[0].rev), "the migration stores roster_rev");
+  const cur = (await asUser(db, mate, () => db.query("select public.roster() r"))).rows[0].r;
+  const mine = cur.profiles.find((/** @type {any} */ x) => x.id === "mate-1");
+  const next = { profiles: [{ id: "mate-1", ...mine.roster, name: "Mate Renamed", household: mine.household, family: mine.family, admin: mine.admin }] };
+  await asUser(db, mate, () => db.query("select public.write_doc('profiles.json', $1::jsonb, $2)", [JSON.stringify(next), cur.rev]));
+  // no doc or recipe row moved: only the roster did
+  assert.equal((await db.query("select count(*)::int n from public.docs where rev > 1 or updated_by is not null or legacy_sha is null")).rows[0].n, 0);
+  await refusesRerun(db, plan);
+  assert.equal((await db.query("select roster->>'name' n from public.profiles where slug = 'mate-1'")).rows[0].n, "Mate Renamed");
+  await runMigration(db, plan, { overwriteEdits: true });
+  assert.equal((await db.query("select roster->>'name' n from public.profiles where slug = 'mate-1'")).rows[0].n, "Mate");
   await db.close();
   rmSync(dir, { recursive: true, force: true });
 });

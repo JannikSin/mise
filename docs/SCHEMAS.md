@@ -2522,6 +2522,11 @@ a clean tree whose HEAD is `origin/main` (gate `git`): the file list and every
 `legacy_sha` come from `git ls-tree -r HEAD`, the committed blob sha GitHub
 gives the phones, never from the working-tree bytes, which `core.autocrlf`
 rewrites; verify compares each row with that blob sha (fix loop 3, E1).
+A re-run refuses (gate `edited`, unless told to overwrite) when any `docs` or
+`recipes` row has `rev > 1`, `updated_by` set or no `legacy_sha` (a phone's
+new file at rev 1, a claimed guest's rows), or when `public.roster_rev` has
+moved from the value the last run stored as `private.settings` `roster_rev` (a
+roster edit; fix loop 3, E2).
 
 **Backup, restore and rollback** (G2). One snapshot format, `mise-backup/1`
 (`tools/db-snapshot.mjs`): a single JSON document `{ format, taken_at,
