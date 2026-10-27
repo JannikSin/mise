@@ -13,6 +13,7 @@ import { freshDb, asUser, asRole, errorOf, SKIP } from "./_pglite.js";
 import { world } from "./_world.js";
 import { PEOPLE, writeSnapshot } from "./_snapshot.js";
 import { planMigration, runMigration, GateError, gitBlobSha, committedBlobs, checkConnection } from "../tools/migrate-to-supabase.mjs";
+import { checkPerson } from "../tools/add-member.mjs";
 
 /** @param {string} dir @param {...string} args */
 const git = (dir, ...args) => execFileSync("git", ["-C", dir, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", ...args], { encoding: "utf8", stdio: "pipe" });
@@ -464,4 +465,19 @@ test("E7: every column list the adapter selects is granted, none names a uuid co
     assert.equal(e, null, `${t}: ${cols}`);
   }
   await db.close();
+});
+
+// ---- item 8 (Red Team I3): add-member refuses a family that is not one of the person's houses
+
+test("I3: add-member's family must be one of the person's houses; the error names the field, never the value", () => {
+  const base = { slug: "mate-2", email: "mate-2@example.invalid", houses: ["house-w"], roster: { name: "Mate Two" } };
+  assert.equal(checkPerson(base).family, null);
+  assert.equal(checkPerson({ ...base, family: null }).family, null);
+  assert.equal(checkPerson({ ...base, houses: ["house-w", "house-f"], family: "house-f" }).family, "house-f");
+  for (const family of ["house-f", "house-zz"]) {
+    assert.throws(
+      () => checkPerson({ ...base, family }),
+      (e) => e instanceof Error && /^family: must be one of houses/.test(e.message) && !e.message.includes(family),
+    );
+  }
 });

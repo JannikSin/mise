@@ -2584,7 +2584,8 @@ export's `--merge-into` refuses without it and never writes or deletes it.
 
 **Operator tools** (G2; dry runs by default; none connects to a database).
 `tools/add-member.mjs` (a member from `person.local.json`; never an admin;
-refuses a taken slug, an unknown house, a pending email, a guarded display
+refuses a taken slug, an unknown house, a `family` that is not one of the
+person's houses (fix loop 3, Red Team I3), a pending email, a guarded display
 name, a new guard term that already appears), `tools/delete-member.mjs` (the
 person, their account and every row they own; never the admin, the root
 profile or a house's rows) and `tools/make-probe.mjs` (`probe-<6 hex>`, kind

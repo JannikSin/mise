@@ -40,6 +40,8 @@ export function checkPerson(p) {
   const home = p.home ?? houses[0];
   if (!houses.includes(home)) throw new Error("home: must be one of houses");
   if (p.family != null && !SLUG.test(String(p.family))) throw new Error("family: a slug or null");
+  // fix loop 3, Red Team I3: family names one of the person's own houses
+  if (p.family != null && !houses.includes(p.family)) throw new Error("family: must be one of houses, or null");
   const roster = p.roster ?? {};
   if (!roster || typeof roster !== "object" || Array.isArray(roster)) throw new Error("roster: an object of display fields");
   if (Object.keys(roster).some((k) => DISPLAY_DROPPED.includes(k))) throw new Error(`roster: may not carry ${DISPLAY_DROPPED.join(", ")}`);
