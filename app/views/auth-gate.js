@@ -181,10 +181,25 @@ export function authGateWanted(a) {
  * @param {string} again
  */
 export function passwordProblem(pw, again) {
-  if (pw.length < MIN_PASSWORD) return `Use at least ${MIN_PASSWORD} characters.`;
+  if (pw.length < MIN_PASSWORD) return `${MIN_PASSWORD} characters or more. So far: ${pw.length}.`;
   if (pw.trim() !== pw) return "Leave out spaces at the start and end.";
-  if (pw !== again) return "The two passwords are not the same.";
+  if (pw !== again) return "The two passwords are different. Type the same one in both boxes.";
   return "";
+}
+
+/**
+ * What to show UNDER the fields while typing (Usability 7): the length rule
+ * as soon as anything is typed, the mismatch once the second box has
+ * something in it. "" when there is nothing to say yet, or nothing wrong.
+ * @param {string} pw
+ * @param {string} again
+ */
+export function livePasswordHint(pw, again) {
+  if (!pw && !again) return "";
+  const problem = passwordProblem(pw, again);
+  if (!problem) return "";
+  if (pw.length >= MIN_PASSWORD && pw.trim() === pw && again.length === 0) return "";
+  return problem;
 }
 
 /**
@@ -220,12 +235,15 @@ export function authErrorText(error, where) {
   ) {
     return "Too many tries. Wait a few minutes, then try again.";
   }
+  if (code === "user_banned" || code === "user_not_found") {
+    return "This account is turned off. Ask the person who invited you.";
+  }
   if (where === "signin") {
     if (code === "email_not_confirmed") return "Open the invite email first and set your password.";
-    return "That email and password don't match. Check them, or reset your password below.";
+    return "That email and password don't match. Check them, or tap Forgot password.";
   }
   if (where === "link") {
-    return "This link has expired or was already used. Ask for a new one.";
+    return "This link no longer works. Links work once.";
   }
   if (where === "password") {
     if (code === "weak_password") return "That password is too easy to guess. Try a longer one.";
@@ -247,7 +265,9 @@ export function authErrorText(error, where) {
  *   verified: boolean,
  *   replaceHash: (hash: string) => void,
  * }} a
- * @returns {Promise<{ verified: boolean, note: string, done: boolean }>}
+ * `dead` is true when the link itself no longer works (the gate then shows
+ * the way forward instead of the form, Usability 2).
+ * @returns {Promise<{ verified: boolean, note: string, done: boolean, dead?: boolean }>}
  */
 export async function setPasswordStep(a) {
   /** @param {Promise<any>} p */
@@ -255,11 +275,19 @@ export async function setPasswordStep(a) {
     p.catch((/** @type {any} */ e) => /** @type {{ data?: any, error?: any }} */ ({ error: e }));
   let verified = a.verified;
   if (!verified) {
-    if (!a.link?.tokenHash) return { verified, note: authErrorText({ status: 400 }, "link"), done: false };
+    if (!a.link?.tokenHash) {
+      return { verified, note: authErrorText({ status: 400 }, "link"), done: false, dead: true };
+    }
     // E6: the token is spent HERE, on the tap, never on page load
     const v = await settle(a.auth.verifyOtp({ token_hash: a.link.tokenHash, type: a.link.type }));
     if (v?.error || !v?.data?.session) {
-      return { verified, note: authErrorText(v?.error ?? { status: 400 }, "link"), done: false };
+      const network = isNetworkError(v?.error);
+      return {
+        verified,
+        note: authErrorText(v?.error ?? { status: 400 }, "link"),
+        done: false,
+        dead: !network,
+      };
     }
     verified = true;
     // the token is spent: out of the address bar and history NOW, not at the end
@@ -315,7 +343,8 @@ function markNoticeSeen(storage = safeStorage()) {
 }
 
 /**
- * WHERE YOUR DATA LIVES. Plain words, no names (the code is public).
+ * WHERE YOUR DATA LIVES. Plain words, no names (the code is public), four
+ * points and a short paragraph (fix loop 1, Usability 5 and 6).
  * @param {{ onDone: () => void, again?: boolean }} props
  */
 export function DataNotice({ onDone, again = false }) {
@@ -323,79 +352,98 @@ export function DataNotice({ onDone, again = false }) {
     <div class="k">Where your data lives</div>
     <ul class="auth-points">
       <li>
-        Your account and your Mise data are kept in a private database run for this kitchen by its
-        admin, on Supabase, a hosted database service.
+        Your account and Mise data are kept in a private online database. The admin runs it for
+        this kitchen.
       </li>
       <li>
-        <b>People you cook with see your plate card</b>: your diet, allergies, the foods and dishes
-        you avoid, your meal times, and your calorie and protein targets. They need it to cook for
-        you and keep a dish safe for you. Those numbers hint at your size and goals.
+        <b>People you cook with see your plate card.</b> That is your diet, allergies, foods you
+        avoid, meal times, and how much you eat at a meal. It is how they cook something safe for
+        you.
       </li>
       <li>
-        <b>Only you and the admin see your full profile</b>: weight, height, age, goals,
-        supplements, stores and anything else you enter about yourself.
-      </li>
-      <li>Your plans, shopping list and occasions are shared with your household.</li>
-      <li>
-        When you use a scan or ask a question, the photo or text goes to an AI service to be
-        answered. Mise does not keep it unless you save the result.
+        <b>They never see your weight, height, age or goals.</b> Only you and the admin can see
+        those.
       </li>
       <li>
-        Ask the admin any time to export or delete your data. A guest's access ends when their
-        host's invitation does.
+        When you scan a photo or ask a question, it is sent to an AI to answer. Mise only keeps it
+        if you save the answer.
       </li>
-      <li>An allergy check helps; it does not replace reading the label.</li>
     </ul>
+    <p class="hint">
+      Ask the admin any time to export or delete your data. A guest's access ends when their host's
+      invitation does. An allergy check helps. Always read the label too.
+    </p>
     <div class="actions">
-      <button class="ask" onClick=${onDone}>${again ? "BACK" : "I UNDERSTAND"}</button>
+      <button type="button" class="ask" onClick=${onDone}>${again ? "BACK" : "OK, CONTINUE"}</button>
     </div>
   </div>`;
 }
 
+/** what the sign-in screen says when the boot sent the phone back to it */
+const REASON_NOTE = /** @type {Record<string, string>} */ ({
+  removed: "This account is turned off. Ask the person who invited you.",
+  expired: "You were signed out on this phone. Sign in again to keep going.",
+  "signed-out": "You were signed out on this phone. Sign in again to keep going.",
+});
+
+/** how long SEND RESET LINK rests after a send, so the rate limit is not hit */
+const RESET_COOLDOWN_MS = 30_000;
+
 /**
  * The gate. `start` is authGateWanted()'s answer; `auth` the client (null
  * means this build has no sign-in wired, said plainly rather than a blank).
+ * Every screen is a real <form> with a submit button, so the keyboard's Go
+ * key works and iOS offers to save the password (Usability 3).
  * @param {{
  *   auth: AuthLike | null,
  *   start: "signin" | "setpw",
  *   link?: { tokenHash?: string, type: "invite" | "recovery", verified?: boolean } | null,
+ *   reason?: string | null,
  *   onSignedIn?: () => void,
  *   storage?: any,
  *   redirectTo?: string,
  *   replaceHash?: (hash: string) => void,
+ *   nowMs?: () => number,
  * }} props
  */
 export function AuthGateView({
   auth,
   start,
   link = null,
+  reason = null,
   onSignedIn = () => location.reload(),
   storage = safeStorage(),
   redirectTo = undefined,
   replaceHash = replaceHashInHistory,
+  nowMs = () => Date.now(),
 }) {
   const [screen, setScreen] = useState(
-    /** @type {"notice" | "signin" | "setpw" | "reset" | "done"} */ (
+    /** @type {"notice" | "signin" | "setpw" | "dead" | "reset" | "done"} */ (
       noticeSeen(storage) ? start : "notice"
     ),
   );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(reason ? (REASON_NOTE[reason] ?? "") : "");
+  const [sent, setSent] = useState("");
   const [busy, setBusy] = useState(false);
+  const [show, setShow] = useState(false);
   const [showNotice, setShowNotice] = useState(false);
   const [verified, setVerified] = useState(Boolean(link?.verified));
+  const [restUntil, setRestUntil] = useState(0);
 
   const head = html`<div class="hero">
     <h1>Mise<span>.</span></h1>
     <div class="sub">
       ${
-        start !== "setpw"
-          ? "Sign in to your kitchen"
-          : link?.type === "recovery"
-            ? "Reset your password"
-            : "Set up your account"
+        screen === "notice"
+          ? "Before you start"
+          : start !== "setpw"
+            ? "Sign in to your kitchen"
+            : link?.type === "recovery"
+              ? "Reset your password"
+              : "Set up your account"
       }
     </div>
   </div>`;
@@ -432,11 +480,22 @@ export function AuthGateView({
   const run = async (fn) => {
     setBusy(true);
     setNote("");
+    setSent("");
     try {
       await fn();
     } finally {
       setBusy(false);
     }
+  };
+  /** a form's submit, never a page load @param {() => void} fn */
+  const submit = (fn) => (/** @type {any} */ e) => {
+    e.preventDefault();
+    fn();
+  };
+  const go = (/** @type {"signin" | "reset"} */ s) => {
+    setNote("");
+    setSent("");
+    setScreen(s);
   };
 
   const signIn = () =>
@@ -462,6 +521,7 @@ export function AuthGateView({
       const r = await setPasswordStep({ auth, link, password, verified, replaceHash });
       setVerified(r.verified);
       if (r.done) setScreen("done");
+      else if (r.dead) setScreen("dead");
       else setNote(r.note);
     });
 
@@ -475,13 +535,29 @@ export function AuthGateView({
         return;
       }
       // the same words whether or not the address has an account
-      setNote("If that email has an account, a reset link is on its way. It works once.");
+      setSent(
+        "Check your email. If that address has an account, a link is on its way. Open it on this phone. It can take a few minutes, so look in spam too.",
+      );
+      const until = nowMs() + RESET_COOLDOWN_MS;
+      setRestUntil(until);
+      setTimeout(() => setRestUntil(0), RESET_COOLDOWN_MS);
     });
 
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const notice = html`<p class="hint">
-    <button class="linktext" onClick=${() => setShowNotice(true)}>Where your data lives</button>
+    <button type="button" class="linktext" onClick=${() => setShowNotice(true)}>
+      Where your data lives
+    </button>
   </p>`;
+  const showToggle = html`<label class="auth-show">
+    <input
+      type="checkbox"
+      checked=${show}
+      onChange=${(/** @type {any} */ e) => setShow(e.currentTarget.checked)}
+    />
+    Show password
+  </label>`;
+  const errorNote = note && html`<p class="hint auth-note" role="alert">${note}</p>`;
 
   if (screen === "done") {
     return html`<div class="view auth-gate">
@@ -492,62 +568,91 @@ export function AuthGateView({
           You are signed in on this phone. Next time, sign in with your email and this password.
         </p>
         <div class="actions">
-          <button class="ask" onClick=${onSignedIn}>OPEN MISE</button>
+          <button type="button" class="ask" onClick=${onSignedIn}>OPEN MISE</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  if (screen === "dead") {
+    const recovery = link?.type === "recovery";
+    return html`<div class="view auth-gate">
+      ${head}
+      <div class="tile">
+        <div class="k">This link no longer works</div>
+        <p class="hint" role="status">
+          ${
+            recovery
+              ? "Links work once. Tap the button to get a new one."
+              : "Links work once, and some email apps open them for you first. Ask the person who invited you to send a new one. If you already set a password, sign in instead."
+          }
+        </p>
+        <div class="actions">
+          ${
+            recovery &&
+            html`<button type="button" class="ask" onClick=${() => go("reset")}>
+              SEND ME A NEW LINK
+            </button>`
+          }
+          <button type="button" class=${recovery ? "secondary" : "ask"} onClick=${() => go("signin")}>
+            SIGN IN
+          </button>
         </div>
       </div>
     </div>`;
   }
 
   if (screen === "setpw") {
-    const problem = password || again ? passwordProblem(password, again) : "";
+    const live = livePasswordHint(password, again);
+    const blocked = busy || Boolean(passwordProblem(password, again));
     return html`<div class="view auth-gate">
       ${head}
-      <div class="tile">
+      <form class="tile" onSubmit=${submit(() => !blocked && void setNewPassword())}>
         <div class="k">
           ${link?.type === "recovery" ? "Choose a new password" : "Choose your password"}
         </div>
         <p class="hint">
-          At least ${MIN_PASSWORD} characters. You will use it with your email to sign in.
+          ${MIN_PASSWORD} characters or more. You will use it with your email to sign in.
         </p>
         <div class="pin-form">
           <input
-            type="password"
+            type=${show ? "text" : "password"}
             aria-label="New password"
             placeholder="new password"
             autocomplete="new-password"
+            enterkeyhint="next"
             value=${password}
             onInput=${(/** @type {any} */ e) => setPassword(e.currentTarget.value)}
           />
           <input
-            type="password"
+            type=${show ? "text" : "password"}
             aria-label="New password again"
             placeholder="the same password again"
             autocomplete="new-password"
+            enterkeyhint="go"
             value=${again}
             onInput=${(/** @type {any} */ e) => setAgain(e.currentTarget.value)}
           />
         </div>
-        ${problem && password.length > 0 && again.length > 0 && html`<p class="hint">${problem}</p>`}
-        ${note && html`<p class="hint auth-note" role="alert">${note}</p>`}
+        ${showToggle}
+        ${live && html`<p class="hint auth-live" role="status">${live}</p>`}
+        ${errorNote}
         <div class="actions">
-          <button
-            class="ask"
-            disabled=${busy || Boolean(passwordProblem(password, again))}
-            onClick=${setNewPassword}
-          >
+          <button type="submit" class="ask" disabled=${blocked}>
             ${busy ? "SAVING…" : "SET PASSWORD"}
           </button>
         </div>
         ${!link && html`<p class="hint">This page opens from the link in your invite or reset email.</p>`}
-      </div>
+      </form>
       ${notice}
     </div>`;
   }
 
   if (screen === "reset") {
+    const resting = restUntil > 0;
     return html`<div class="view auth-gate">
       ${head}
-      <div class="tile">
+      <form class="tile" onSubmit=${submit(() => emailOk && !busy && !resting && void sendReset())}>
         <div class="k">Reset your password</div>
         <p class="hint">We email you a link. Open it on this phone to choose a new password.</p>
         <div class="pin-form">
@@ -557,32 +662,28 @@ export function AuthGateView({
             placeholder="email"
             autocomplete="email"
             inputmode="email"
+            enterkeyhint="go"
             value=${email}
             onInput=${(/** @type {any} */ e) => setEmail(e.currentTarget.value)}
           />
         </div>
-        ${note && html`<p class="hint auth-note" role="status">${note}</p>`}
+        ${sent && html`<p class="hint auth-sent" role="status">${sent}</p>`}
+        ${errorNote}
         <div class="actions">
-          <button class="ask" disabled=${busy || !emailOk} onClick=${sendReset}>
+          <button type="submit" class="ask" disabled=${busy || !emailOk || resting}>
             ${busy ? "SENDING…" : "SEND RESET LINK"}
           </button>
-          <button
-            class="secondary"
-            onClick=${() => {
-              setNote("");
-              setScreen("signin");
-            }}
-          >
-            BACK
-          </button>
         </div>
-      </div>
+        <button type="button" class="linktext auth-link" onClick=${() => go("signin")}>
+          Back to sign in
+        </button>
+      </form>
     </div>`;
   }
 
   return html`<div class="view auth-gate">
     ${head}
-    <div class="tile">
+    <form class="tile" onSubmit=${submit(() => emailOk && password && !busy && void signIn())}>
       <div class="k">Sign in</div>
       <div class="pin-form">
         <input
@@ -591,38 +692,35 @@ export function AuthGateView({
           placeholder="email"
           autocomplete="username"
           inputmode="email"
+          enterkeyhint="next"
           value=${email}
           onInput=${(/** @type {any} */ e) => setEmail(e.currentTarget.value)}
         />
         <input
-          type="password"
+          type=${show ? "text" : "password"}
           aria-label="Password"
           placeholder="password"
           autocomplete="current-password"
+          enterkeyhint="go"
           value=${password}
           onInput=${(/** @type {any} */ e) => setPassword(e.currentTarget.value)}
-          onKeyDown=${(/** @type {any} */ e) => {
-            if (e.key === "Enter" && emailOk && password && !busy) void signIn();
-          }}
         />
       </div>
-      ${note && html`<p class="hint auth-note" role="alert">${note}</p>`}
+      ${showToggle}
+      <button type="button" class="linktext auth-link" onClick=${() => go("reset")}>
+        Forgot password?
+      </button>
+      ${errorNote}
       <div class="actions">
-        <button class="ask" disabled=${busy || !emailOk || !password} onClick=${signIn}>
+        <button type="submit" class="ask" disabled=${busy || !emailOk || !password}>
           ${busy ? "SIGNING IN…" : "SIGN IN"}
         </button>
-        <button
-          class="secondary"
-          onClick=${() => {
-            setNote("");
-            setScreen("reset");
-          }}
-        >
-          FORGOT PASSWORD
-        </button>
       </div>
-      <p class="hint">New here? Open the invite email the admin sent you to set your password.</p>
-    </div>
+      <p class="hint">
+        New here? Open the invite email the admin sent you to set your password. Still stuck after
+        a reset? Ask the person who invited you.
+      </p>
+    </form>
     ${notice}
   </div>`;
 }
@@ -639,13 +737,14 @@ export function resetRedirect(origin, pathname) {
 
 /**
  * The boot's entry point on a Supabase shell (main.js).
- * @param {{ start: "signin" | "setpw" }} props
+ * @param {{ start: "signin" | "setpw", reason?: string | null }} props
  */
-export function AuthGateRoot({ start }) {
+export function AuthGateRoot({ start, reason = null }) {
   const spent = verifiedLinkFrom(location.hash);
   return html`<${AuthGateView}
     auth=${authClient()}
     start=${start}
+    reason=${reason}
     link=${authLinkFrom(location.hash) ?? (spent && { type: spent.type, verified: true })}
     redirectTo=${resetRedirect(location.origin, location.pathname)}
   />`;

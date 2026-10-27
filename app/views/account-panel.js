@@ -54,20 +54,55 @@ export function reachSummary(rows, me) {
   };
 }
 
-/** the seam's REFUSED_REASON words (store.js), plus the held-account case */
-const REASON_TEXT = /** @type {Record<string, string>} */ ({
-  forbidden: "not allowed",
-  name: "would show a name to another house",
-  account: "made by another account",
+/**
+ * The seam's REFUSED_REASON keys (store.js) in words for a member (fix loop
+ * 1, Usability 13; presignin from the seam's loop 2).
+ */
+export const REASON_TEXT = /** @type {Record<string, string>} */ ({
+  forbidden: "Not allowed for your account",
+  name: "Would show a name in another household",
+  account: "Made while someone else was signed in",
+  presignin: "Made before sign-in",
 });
 
 /**
+ * A file path as a person reads it: never a path or a slug (Usability 13).
+ * @param {string} path
+ * @param {string} me the signed-in slug
+ */
+export function friendlyPath(path, me) {
+  const p = String(path ?? "");
+  const own = p.match(/^profiles\/([^/]+)\/(.*)$/);
+  if (own && own[1] !== me) return "A profile you do not own";
+  const rest = own ? String(own[2]) : p.replace(/^households\/[^/]+\//, "");
+  const week = rest.match(/^plans\/\d{4}-W(\d{2})\.json$/);
+  if (week) return `Week ${Number(week[1])} plan`;
+  if (/(^|\/)targets\.json$/.test(rest)) return "Your targets";
+  /** @type {Record<string, string>} */
+  const named = {
+    "shopping.json": "Shopping list",
+    "pantry.json": "Pantry",
+    "pantry-notes.json": "Pantry notes",
+    "events.json": "Shared meals",
+    "occasions.json": "Occasions",
+    "household.json": "Household settings",
+    "ledger.json": "Money ledger",
+    "waste.json": "Waste log",
+    "profiles.json": "The people list",
+  };
+  const base = rest.split("/").pop() ?? "";
+  if (named[rest]) return named[rest];
+  if (/^recipes\//.test(rest) || /\/recipes\//.test(p)) return "A recipe";
+  return named[base] ?? "A saved change";
+}
+
+/**
  * @param {{
- *   account: { email: string, slug: string, admin: boolean, project: "live" | "sandbox" } | null,
+ *   account: { email: string, slug: string, admin: boolean, project: "live" | "sandbox", name?: string } | null,
  *   reach: { houses: string[], plateCards: number, guests: number, bank: boolean } | null,
  *   freeze: { frozen: boolean, at: string, by: string } | null,
- *   refused?: { path: string, reason: string, at: number }[],
- *   onDiscard?: (path: string) => Promise<boolean>,
+ *   refused?: { path: string, id?: string, reason: string, at: number }[],
+ *   onDiscard?: (id: string) => Promise<boolean>,
  *   showFreeze?: boolean,
  *   onSignOut?: () => void | Promise<void>,
  *   onFreeze?: (frozen: boolean) => Promise<void>,
@@ -118,8 +153,8 @@ export function AccountPanel({
         <dl class="account-facts">
           <dt>Signed in as</dt>
           <dd>${account.email || "this phone's account"}</dd>
-          <dt>Profile</dt>
-          <dd>${account.slug}${account.admin ? " (admin)" : ""}</dd>
+          ${account.name && html`<dt>Name</dt><dd>${account.name}</dd>`}
+          ${account.admin && html`<dt>Role</dt><dd>Admin</dd>`}
           <dt>Kitchen</dt>
           <dd>${account.project === "sandbox" ? "Mise NEXT (the test kitchen)" : "Mise"}</dd>
         </dl>
@@ -153,11 +188,10 @@ export function AccountPanel({
           <li>
             ${
               reach.houses.length === 0
-                ? "No house's files."
+                ? "No household's plans or lists."
                 : reach.houses.length === 1
-                  ? html`The files of one house: <b>${reach.houses[0]}</b>.`
-                  : html`The files of ${reach.houses.length}
-                    houses:${" "}<b>${reach.houses.join(", ")}</b>.`
+                  ? "Your household's plans and lists."
+                  : `The plans and lists of ${reach.houses.length} households.`
             }
           </li>
           <li>
@@ -173,23 +207,23 @@ export function AccountPanel({
           </li>
           ${reach.bank && html`<li>The shared recipe bank (no one's name is in it).</li>`}
         </ul>
-        <p class="hint">This is what the database sent this phone, not what the phone assumes.</p>
+        <p class="hint">This is what your phone received from Mise.</p>
       </div>`
     }
     ${
       refused.length > 0 &&
       html`<div class="tile warn">
-        <div class="k">Changes the server refused</div>
+        <div class="k">Changes that didn't save</div>
         <p class="hint">
-          These were saved on this phone but the kitchen's database would not take them. The phone
-          now shows the server's copy. Discard each one once you have checked it.
+          These changes were made on this phone but Mise could not save them. The saved version is
+          showing. Tap REMOVE once you have looked.
         </p>
         <ul class="refused-list">
           ${refused.map(
             (r) =>
-              html`<li key=${r.path} class="refused-row">
-                <span class="refused-path num">${r.path}</span>
-                <span class="refused-why">${REASON_TEXT[r.reason] ?? "not accepted"}</span>
+              html`<li key=${r.id ?? r.path} class="refused-row">
+                <span class="refused-path">${friendlyPath(r.path, account?.slug ?? "")}</span>
+                <span class="refused-why">${REASON_TEXT[r.reason] ?? "Not saved"}</span>
                 ${
                 onDiscard &&
                 html`<button
@@ -198,19 +232,19 @@ export function AccountPanel({
                   onClick=${async () => {
                   if (
                     !(await askConfirm(
-                      `Discard your unsent change to ${r.path}? The server's copy stays.`,
+                      `Remove your unsaved change to ${friendlyPath(r.path, account?.slug ?? "").toLowerCase()}? The saved version stays.`,
                     ))
                   )
                     return;
                   setBusy(true);
                   try {
-                    await onDiscard(r.path);
+                    await onDiscard(r.id ?? r.path);
                   } finally {
                     setBusy(false);
                   }
                 }}
                 >
-                  DISCARD
+                  REMOVE
                 </button>`
               }
               </li>`,
@@ -225,7 +259,7 @@ export function AccountPanel({
         <p class="hint" role="status">
           ${
             frozen
-              ? `Frozen since ${formatSyncTime(freeze?.at ?? "")}. Every phone holds its changes; nothing is sent to the old store.`
+              ? `Frozen since ${formatSyncTime(freeze?.at ?? "")}. Every phone holds its changes; nothing is sent to the old database.`
               : "Not frozen. On the move morning, freeze before the copy is taken, then wait 10 minutes."
           }
         </p>
@@ -271,8 +305,9 @@ export function AccountSection({ me, isAdmin, askConfirm = undefined }) {
     ),
   );
   const [refused, setRefused] = useState(
-    /** @type {{ path: string, reason: string, at: number }[]} */ ([]),
+    /** @type {{ path: string, id?: string, reason: string, at: number }[]} */ ([]),
   );
+  const [myName, setMyName] = useState("");
   const [freeze, setFreeze] = useState(/** @type {any} */ (null));
   const [tick, setTick] = useState(0);
   const admin = src ? src.account.admin : isAdmin;
@@ -283,7 +318,11 @@ export function AccountSection({ me, isAdmin, askConfirm = undefined }) {
     void (async () => {
       if (src) {
         const rows = await src.roster().catch(() => null);
-        if (alive && rows) setReach({ ...reachSummary(rows, src.account.slug), bank: true });
+        if (alive && rows) {
+          setReach({ ...reachSummary(rows, src.account.slug), bank: true });
+          const mine = rows.find((/** @type {any} */ r) => r?.id === src.account.slug);
+          setMyName(typeof mine?.roster?.name === "string" ? mine.roster.name : "");
+        }
         const ref = await src.refused().catch(() => []);
         if (alive) setRefused(ref);
       }
@@ -298,7 +337,7 @@ export function AccountSection({ me, isAdmin, askConfirm = undefined }) {
   }, [tick, freezeShown]);
   if (!src && !freezeShown) return null;
   return html`<${AccountPanel}
-    account=${src?.account ?? null}
+    account=${src ? { ...src.account, name: myName } : null}
     reach=${reach}
     freeze=${freeze}
     refused=${refused}
@@ -314,8 +353,8 @@ export function AccountSection({ me, isAdmin, askConfirm = undefined }) {
     }
     onDiscard=${
       src
-        ? async (/** @type {string} */ path) => {
-            const ok = await src.discard(path);
+        ? async (/** @type {string} */ id) => {
+            const ok = await src.discard(id);
             setTick((t) => t + 1);
             return ok;
           }

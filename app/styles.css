@@ -3109,3 +3109,51 @@ input[aria-label$="comma separated"] {
 .refused-row button {
   min-height: 44px;
 }
+
+/* THE ACCOUNT GATE, fix loop 1 (Usability 7 to 12): errors and hints big
+   enough to read on the move, inputs at 16 px so iOS does not zoom, a
+   disabled button that looks disabled, a calm reset-sent note, and the
+   forgot-password way out as a plain green link */
+.auth-gate .hint {
+  font-size: 14px;
+}
+.auth-gate .auth-note {
+  font-size: 15px;
+  font-weight: 600;
+}
+.auth-gate .auth-sent,
+.auth-gate .auth-live {
+  color: var(--text);
+}
+.auth-gate input {
+  font-size: 16px;
+}
+.auth-gate button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.auth-gate button.auth-link {
+  display: block;
+  min-height: 44px;
+  font-size: 15px;
+  color: var(--signal);
+  text-decoration: underline;
+}
+.auth-gate .auth-show {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 15px;
+  color: var(--dim);
+}
+.auth-gate .auth-show input {
+  width: 20px;
+  height: 20px;
+}
+.account-panel .refused-why {
+  font-size: 14px;
+}
+.account-panel .refused-path {
+  font-size: 15px;
+}

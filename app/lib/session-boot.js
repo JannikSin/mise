@@ -38,8 +38,8 @@
  *   resetFileChecks: () => void,
  *   flushNow: () => Promise<unknown>,
  *   purgeEverything: () => Promise<unknown>,
- *   refusedRecords?: () => Promise<{ path: string, reason: string, at: number }[]>,
- *   discardRefused?: (path: string) => Promise<boolean>,
+ *   refusedRecords?: () => Promise<{ path: string, id?: string, reason: string, at: number }[]>,
+ *   discardRefused?: (id: string) => Promise<boolean>,
  *   canSwitchProfile?: () => boolean,
  *   acquireStoreLock?: () => Promise<() => void>,
  * }} Seam
@@ -55,8 +55,8 @@ let source = null;
  * @returns {null | {
  *   account: { email: string, slug: string, admin: boolean, project: "live" | "sandbox" },
  *   roster: () => Promise<any[]>,
- *   refused: () => Promise<{ path: string, reason: string, at: number }[]>,
- *   discard: (path: string) => Promise<boolean>,
+ *   refused: () => Promise<{ path: string, id?: string, reason: string, at: number }[]>,
+ *   discard: (id: string) => Promise<boolean>,
  *   signOut: () => Promise<void>,
  * }}
  */

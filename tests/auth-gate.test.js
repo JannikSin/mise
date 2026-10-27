@@ -99,7 +99,7 @@ test("hasPersistedSession reads only supabase-js session keys with a token", () 
 test("passwordProblem: length, edge spaces, mismatch", () => {
   assert.match(passwordProblem("short", "short"), new RegExp(`${MIN_PASSWORD} characters`));
   assert.match(passwordProblem(" padded-password ", " padded-password "), /spaces/);
-  assert.match(passwordProblem("long-enough-1", "long-enough-2"), /not the same/);
+  assert.match(passwordProblem("long-enough-1", "long-enough-2"), /different/);
   assert.equal(passwordProblem("long-enough-1", "long-enough-1"), "");
 });
 
@@ -115,7 +115,7 @@ test("error text is plain and never echoes the server's words", () => {
   assert.match(authErrorText(new TypeError("Failed to fetch"), "signin"), /Can't reach Mise/);
   assert.match(
     authErrorText({ status: 403, code: "otp_expired" }, "link"),
-    /expired or was already used/,
+    /no longer works/,
   );
   assert.match(authErrorText({ status: 422, code: "weak_password" }, "password"), /too easy/);
 });
