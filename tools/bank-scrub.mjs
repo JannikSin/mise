@@ -10,7 +10,7 @@
 // family) and its profiles/ folders. The admin's own profile is left out by
 // default (admin: true), as is any slug passed with --exclude.
 //
-//   node tools/bank-scrub.mjs <mise-data dir> --out <dir outside this repo> [--exclude <slug>]... [--apply]
+//   node tools/bank-scrub.mjs <mise-data dir> --out <dir outside this repo> [--people <people.local.json>] [--exclude <slug>]... [--apply]
 //
 // - DRY RUN BY DEFAULT: writes a private report (report.md, hits.json) and
 //   the proposed recipe files (proposed/<path>) into --out. Nothing in the

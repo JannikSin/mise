@@ -384,3 +384,13 @@ test("R3: --out is refused inside ANY git working copy, not only this repo", () 
     rmSync(other, { recursive: true, force: true });
   }
 });
+
+test("E19: the header's command is the usage the tool prints, and the old plan command applies nothing", () => {
+  const src = readFileSync(new URL("../tools/bank-scrub.mjs", import.meta.url), "utf8");
+  const header = /^\/\/ {3}(node tools\/bank-scrub\.mjs .*)$/m.exec(src)?.[1];
+  /** @type {string[]} */
+  const said = [];
+  assert.equal(main(["--apply"], { log: (s) => said.push(s), repoRoot: REPO }), 2);
+  assert.equal(said[0], `usage: ${header}`);
+  assert.match(String(header), /<mise-data dir> --out <dir outside this repo> \[--people <people\.local\.json>\]/);
+});
