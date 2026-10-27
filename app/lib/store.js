@@ -43,6 +43,23 @@ function accountNow() {
   return backend().session()?.slug ?? null;
 }
 
+// HELD RECORDS (2.0, seam fix loop 2, item 1; Red Team 2 N1, ENG 2 N1). On an
+// account change the last account's queued writes MOVE out of their path's
+// slot to a held key, so the path is free: the next account reads,
+// revalidates and writes from its own server copy, never on top of a write
+// it cannot see. The held key never starts like a real data path, so no
+// read, collection or flush ever lists it. Its `branch` is set to one no
+// build replays, so even a rollback to 1.95 counts it as mismatched and
+// never pushes it. When its account signs in again it moves back, and the
+// flush pushes it through the normal conflict path.
+const HELD_PREFIX = "#held/";
+const HELD_BRANCH = "held";
+
+/** @param {{ path: string }} rec */
+function isHeld(rec) {
+  return rec.path.startsWith(HELD_PREFIX);
+}
+
 /** Fallback the app boots into when profiles.json is missing (fresh
  *  install) or unreachable — a legacy/pre-multi-profile install still opens
  *  straight into David's data at the root, unscoped. */
@@ -673,7 +690,9 @@ function localView(rec) {
  * @param {import("./db.js").FileRecord} rec
  */
 function fromAnotherAccount(rec) {
-  if (!rec.dirty || typeof rec.account !== "string") return false;
+  if (!rec.dirty) return false;
+  if (isHeld(rec)) return true;
+  if (typeof rec.account !== "string") return false;
   return rec.account !== accountNow();
 }
 
@@ -1259,6 +1278,8 @@ export async function discardMismatched() {
   let n = 0;
   for (const rec of all) {
     if (!rec.dirty || rec.branch === undefined || replaysHere(rec.branch, here)) continue;
+    // a held write is another account's, discarded only from its own row
+    if (isHeld(rec)) continue;
     await dbDelete(rec.path);
     n++;
   }
@@ -1325,34 +1346,49 @@ export const REFUSED_REASON = {
 };
 
 /**
+ * @typedef {{ path: string, id: string, reason: "forbidden" | "name" | "account", at: number }} RefusedRow
+ *   `path` is the file, for the person to read; `id` is what discardRefused
+ *   takes to drop exactly this row (a held write's key differs from its path)
+ */
+
+/**
  * Every queued write the server refused, and every one another account made
- * on this phone (seam fix 1), for the Settings list.
- * @returns {Promise<{ path: string, reason: "forbidden" | "name" | "account", at: number }[]>}
+ * on this phone (seam fix 1, held since loop 2 item 1), for the Settings list.
+ * @returns {Promise<RefusedRow[]>}
  */
 export async function refusedRecords() {
-  /** @type {{ path: string, reason: "forbidden" | "name" | "account", at: number }[]} */
+  /** @type {RefusedRow[]} */
   const out = [];
   for (const r of await dbGetAll()) {
     if (r.dirty && fromAnotherAccount(r)) {
-      out.push({ path: r.path, reason: "account", at: r.queuedAt ?? 0 });
+      const path = r.held ? r.held.path : r.path;
+      out.push({ path, id: r.path, reason: "account", at: r.queuedAt ?? 0 });
     } else if (r.dirty && r.refused) {
-      out.push({ path: r.path, reason: r.refused.reason, at: r.refused.at });
+      out.push({ path: r.path, id: r.path, reason: r.refused.reason, at: r.refused.at });
     }
   }
-  return out.sort((a, b) => a.path.localeCompare(b.path));
+  return out.sort((a, b) => a.path.localeCompare(b.path) || a.id.localeCompare(b.id));
 }
 
 /**
  * DISCARD: drop one refused write, on the person's word. The file then reads
- * as the server has it, fetched fresh.
- * @param {string} path
- * @returns {Promise<boolean>} false when the record was not a refused one
+ * as the server has it, fetched fresh. Takes a row's `id`; a file path also
+ * works, and drops that file's refused write, or else its first held one.
+ * @param {string} idOrPath
+ * @returns {Promise<boolean>} false when nothing refused matched
  */
-export async function discardRefused(path) {
-  const rec = await dbGet(path);
-  if (!rec?.dirty || !(rec.refused || fromAnotherAccount(rec))) return false;
-  await dbDelete(path);
-  fileCheckedAt.delete(path);
+export async function discardRefused(idOrPath) {
+  const rec = await dbGet(idOrPath);
+  let key = rec?.dirty && (rec.refused || fromAnotherAccount(rec)) ? idOrPath : null;
+  if (!key) {
+    const held = (await dbGetAll())
+      .filter((r) => r.dirty && isHeld(r) && r.held?.path === idOrPath)
+      .sort((a, b) => a.path.localeCompare(b.path));
+    key = held[0]?.path ?? null;
+  }
+  if (!key) return false;
+  await dbDelete(key);
+  fileCheckedAt.delete(idOrPath);
   await recount();
   return true;
 }
@@ -1422,19 +1458,81 @@ export async function onSessionChange(prevSlug, nextSlug) {
   const changed =
     (prevSlug ?? null) !== (nextSlug ?? null) ||
     (remembered !== null && remembered !== (nextSlug ?? null));
-  if (!changed) return 0;
-  epoch++;
   let removed = 0;
-  for (const rec of await dbGetAll()) {
-    if (rec.dirty) continue;
-    await dbDeleteIfClean(rec.path);
-    removed++;
+  if (changed) {
+    epoch++;
+    for (const rec of await dbGetAll()) {
+      if (rec.dirty) continue;
+      await dbDeleteIfClean(rec.path);
+      removed++;
+    }
   }
-  resetFileChecks();
-  freshDirs.clear();
-  stalledDirs.clear();
-  await recount();
+  // the hold runs on every call, so a queue is never left in a path's slot
+  // under the wrong account, even when the caller's memory said no change
+  const moved = await holdAndRestore(nextSlug ?? null);
+  if (changed || moved > 0) {
+    resetFileChecks();
+    freshDirs.clear();
+    stalledDirs.clear();
+    await recount();
+  }
   return removed;
+}
+
+/**
+ * Move every queued write made by an account other than `next` out to a held
+ * key, then move `next`'s own held writes back into their slots (item 1). A
+ * record with no account (a 1.95 queue) stays where it is and replays under
+ * the first account, as plan section 5 says. A held write whose slot is
+ * taken stays held, listed, until the slot is free or it is discarded.
+ * @param {string | null} next
+ * @returns {Promise<number>} records moved either way
+ */
+async function holdAndRestore(next) {
+  let moved = 0;
+  for (const rec of await dbGetAll()) {
+    if (!rec.dirty || isHeld(rec) || typeof rec.account !== "string") continue;
+    if (rec.account === next) continue;
+    const key = `${HELD_PREFIX}${rec.account}/${rec.queuedAt ?? 0}/${rec.path}`;
+    /** @type {import("./db.js").FileRecord} */
+    const held = {
+      ...rec,
+      path: key,
+      branch: HELD_BRANCH,
+      held: {
+        path: rec.path,
+        account: rec.account,
+        ...(rec.branch !== undefined ? { branch: rec.branch } : {}),
+      },
+    };
+    await dbUpdate(key, () => held);
+    await dbDelete(rec.path);
+    fileCheckedAt.delete(rec.path);
+    moved++;
+  }
+  if (next === null) return moved;
+  const mine = (await dbGetAll())
+    .filter((r) => r.dirty && isHeld(r) && r.held?.account === next)
+    .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
+  for (const rec of mine) {
+    const h = /** @type {NonNullable<typeof rec.held>} */ (rec.held);
+    /** @type {import("./db.js").FileRecord} */
+    const back = { ...rec, path: h.path };
+    delete back.held;
+    delete back.branch;
+    if (h.branch !== undefined) back.branch = h.branch;
+    let put = false;
+    await dbUpdate(h.path, (cur) => {
+      if (cur) return null;
+      put = true;
+      return back;
+    });
+    if (!put) continue;
+    await dbDelete(rec.path);
+    fileCheckedAt.delete(h.path);
+    moved++;
+  }
+  return moved;
 }
 
 /**
