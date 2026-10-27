@@ -2378,3 +2378,39 @@ any row a member of its `hidden_from` house can read: house rows of that house;
 plan, shopping, occasions, pantry and own recipes of anyone in that house; the
 plate of anyone in it or granted to it as a guest. The bank and `global` rows
 refuse every term.
+
+**Plate card** (`public.plates.data`, made by `private.plate_of`; lists in
+`app/lib/plate-fields.js`, JS port `app/lib/plate-of.js`). Exactly the targets
+keys in `PLATE_FIELDS` (diet, allergens, allergensFreeText, avoidIngredients,
+avoidRecipes, dislikeIngredients, cuisinePrefs, fixedSlots, skipSlots,
+mealSlots, slotAvoid, breakfastStyle, snackStyle, snackPortable, dinnerAnchor,
+phase, weeklyBudgetUsd, macros, currencies), with `macros.waterLiters` dropped,
+each `currencies` item cut to id, unit, perWeek, expires, venue, toGo and
+preferredSlot, and `note`/`notes` removed from object items of `mealSlots`.
+Every other targets key is in `OWNER_ONLY_FIELDS`. A new targets key must be
+added to one of the two lists (`tests/plate-allowlist.test.js` fails
+otherwise).
+
+**Who reads what** (decision 1: plate cards for everyone, the family house
+included; full profiles for the admin only):
+
+| Rows | Readable by |
+|---|---|
+| `targets`, `health` | the owner and the admin, in every house |
+| `plates` | the admin, the owner, everyone sharing a house with them, the houses holding a live guest grant for them |
+| `plan`, `shopping`, `occasions`, `pantry`, `own_recipe` | the admin, the owner, everyone sharing a house with them |
+| house rows | the admin and that house's members |
+| `global` | everyone signed in |
+| bank `recipes` | everyone signed in; `staging` rows the admin only |
+
+**Writes** go through `public.write_doc(path, data, expected_rev)`; it returns
+the new `rev`. `expected_rev` null = create. Errors: `P0409` conflict (stale
+rev, or a create over an existing row), `P0403` forbidden (the same answer for a
+hidden row, a missing row and a bad path), `P0422` name guard. `profiles.json`
+goes to the roster: `public.roster()` returns `{ profiles: [...], rev }` in the
+old profiles.json order, each row `{ id, ...display fields, household, family,
+admin? }`; `household` and `family` are JSON `null` when hidden from the caller
+(null is NOT "home"); passkey hashes are never stored or returned. Writing
+`profiles.json` may change display fields only: the caller's own row, or any
+visible row for the admin. New rows, house moves, families and admin flags are
+refused (P0403).
