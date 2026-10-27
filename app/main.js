@@ -63,6 +63,7 @@ import {
 } from "./lib/worker.js";
 import { repriceList, reapplyOps } from "./lib/repricer.js";
 import { ProfileGateView } from "./views/profile-gate.js";
+import { AuthGateRoot, authGateWanted, shellBackend } from "./views/auth-gate.js";
 import { JoinView, StatusView, WelcomeView, GuestHomeView } from "./views/join.js";
 import { CookbookView } from "./views/cookbook.js";
 import { RecipeView } from "./views/recipe.js";
@@ -5497,13 +5498,28 @@ if (root) {
   // a guest who signed in before opens straight to their meals (v1.6)
   const guestLink =
     first === "join" || first === "status" || first === "me" || guestSession() !== "";
+  // 2.0 D1: a Supabase shell with no session signs in first; a GitHub shell
+  // (every 1.9x shell) gets null here and boots exactly as before
+  const gate = authGateWanted({
+    backend: shellBackend(),
+    hash: location.hash,
+    storage: (() => {
+      try {
+        return localStorage;
+      } catch {
+        return null;
+      }
+    })(),
+  });
   try {
     render(
-      localStorage.getItem("mise.activeProfile")
-        ? html`<${App} />`
-        : guestLink
-          ? html`<${GuestLinkRoot} />`
-          : html`<${ProfileGateView} />`,
+      gate
+        ? html`<${AuthGateRoot} start=${gate} />`
+        : localStorage.getItem("mise.activeProfile")
+          ? html`<${App} />`
+          : guestLink
+            ? html`<${GuestLinkRoot} />`
+            : html`<${ProfileGateView} />`,
       root,
     );
   } catch (err) {

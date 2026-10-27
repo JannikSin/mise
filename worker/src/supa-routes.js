@@ -135,7 +135,11 @@ export async function supaGuestRoute(pathname, body, branch, env, ctx) {
       if (guestLocked(fails, ctx.nowMs)) return paused();
       if (!good || !row) {
         if (nameKey) {
-          await ctx.cachePut(failKey, guestAfterFail(fails, ctx.nowMs), Math.ceil(GUEST_LOCK_MS / 1000));
+          await ctx.cachePut(
+            failKey,
+            guestAfterFail(fails, ctx.nowMs),
+            Math.ceil(GUEST_LOCK_MS / 1000),
+          );
         }
         return nope();
       }
@@ -271,7 +275,9 @@ export async function supaInviteRoute(pathname, body, code, branch, env, ctx) {
     if (body?.login !== undefined) {
       const nameKey = guestNameKey(body.login?.name);
       if (!nameKey || !validGuestPin(body.login?.pin)) {
-        return ctx.json(400, { error: "pick a login name of 2 to 30 letters and a 4-digit passkey" });
+        return ctx.json(400, {
+          error: "pick a login name of 2 to 30 letters and a 4-digit passkey",
+        });
       }
       const { salt, hash } = await hashGuestPin(String(body.login.pin));
       login = { name_key: nameKey, salt, hash };
@@ -308,7 +314,8 @@ export async function supaInviteRoute(pathname, body, code, branch, env, ctx) {
       if (r.status === "invalid") return ctx.json(410, { error: "this invite was already used" });
       // from here the code is SPENT: a later failure must not invite a retry
       // that can only answer 410
-      if (!login) return ctx.json(200, { ok: true, id: slug, name: entry.name, house: "guesthouse" });
+      if (!login)
+        return ctx.json(200, { ok: true, id: slug, name: entry.name, house: "guesthouse" });
       const added = await guestLoginAdd(
         project,
         { profileId: r.profileId, nameKey: login.name_key, salt: login.salt, hash: login.hash },
@@ -316,10 +323,14 @@ export async function supaInviteRoute(pathname, body, code, branch, env, ctx) {
       ).catch(() => false);
       if (!added) {
         console.log("invite claim: login not saved after the claim");
-        return ctx.json(502, { error: "something went wrong saving your login; ask for a new link" });
+        return ctx.json(502, {
+          error: "something went wrong saving your login; ask for a new link",
+        });
       }
       const secret = guestSessionSecret(env);
-      const session = secret ? await signGuestSessionV2({ p: slug, b: branch }, secret, ctx.nowMs) : "";
+      const session = secret
+        ? await signGuestSessionV2({ p: slug, b: branch }, secret, ctx.nowMs)
+        : "";
       return ctx.json(200, { ok: true, id: slug, name: entry.name, house: "guesthouse", session });
     }
     return ctx.json(409, { error: "could not find a free name, try a different one" });
@@ -389,7 +400,13 @@ export function supabaseCronSource(project, fetchImpl) {
   return {
     async read(weekId, wantsShopping) {
       const r = await cronInputs(project, weekId, wantsShopping, fetchImpl);
-      return { me: r.profile, house: r.house, plan: r.plan, events: r.events, shopping: r.shopping };
+      return {
+        me: r.profile,
+        house: r.house,
+        plan: r.plan,
+        events: r.events,
+        shopping: r.shopping,
+      };
     },
     async names(house, ids) {
       return recipeNames(project, house, ids, fetchImpl);
@@ -420,7 +437,8 @@ export async function supaAnnotateSave(who, id, recipe, ctx) {
       }
       if (e.code === "P0422") {
         return ctx.json(422, {
-          error: "the recipe names a person, so it cannot go where others read it; take the name out",
+          error:
+            "the recipe names a person, so it cannot go where others read it; take the name out",
         });
       }
       if (e.code === "P0403") return ctx.json(403, { error: "you cannot save to the cookbook" });

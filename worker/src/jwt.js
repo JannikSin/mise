@@ -195,5 +195,7 @@ export async function verifySupabaseJwt(token, project, opts = {}) {
  * @param {string | null} token
  */
 export function looksLikeJwt(token) {
-  return typeof token === "string" && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token);
+  return (
+    typeof token === "string" && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)
+  );
 }

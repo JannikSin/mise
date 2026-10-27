@@ -1,0 +1,102 @@
+<!doctype html>
+<!--
+  DEV HARNESS ONLY (Mise 2.0 D1/D2). Serves the real account gate and the
+  real account panel with a FAKE auth client and a fake session, so every
+  screen can be driven at phone width with no Supabase project at all.
+  Never deployed: tools/sandbox-deploy.ps1 copies only the app shell.
+  Open: http://127.0.0.1:8091/tests/e2e/auth-gate.html?screen=signin
+  screens: signin | setpw | notice | account | account-admin | nolink
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Mise account gate harness</title>
+    <link rel="stylesheet" href="../../app/styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "preact": "../../vendor/preact/preact.module.js",
+          "preact/hooks": "../../vendor/preact/hooks.module.js",
+          "htm": "../../vendor/htm/htm.module.js",
+          "htm/preact": "../../vendor/htm/preact.module.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { html, render } from "htm/preact";
+      import { AuthGateView } from "../../app/views/auth-gate.js";
+
+      const q = new URLSearchParams(location.search);
+      const screen = q.get("screen") ?? "signin";
+      if (screen !== "notice") localStorage.setItem("mise.dataNotice.v1", "yes");
+      else localStorage.removeItem("mise.dataNotice.v1");
+
+      // the fake: one account, password "correct-horse-1"; every call counted
+      window.authCalls = [];
+      const wait = () => new Promise((r) => setTimeout(r, 250));
+      const auth = {
+        async signInWithPassword(a) {
+          window.authCalls.push(["signInWithPassword", a.email]);
+          await wait();
+          if (a.email === "guest-a@example.test" && a.password === "correct-horse-1") {
+            return { data: { session: { access_token: "fake" } }, error: null };
+          }
+          return { data: {}, error: { status: 400, code: "invalid_credentials", message: "Invalid login credentials" } };
+        },
+        async verifyOtp(a) {
+          window.authCalls.push(["verifyOtp", a.type]);
+          await wait();
+          if (a.token_hash === "spent-token-0") {
+            return { data: {}, error: { status: 403, code: "otp_expired", message: "expired" } };
+          }
+          return { data: { session: { access_token: "fake" } }, error: null };
+        },
+        async updateUser() {
+          window.authCalls.push(["updateUser"]);
+          await wait();
+          return { data: {}, error: null };
+        },
+        async resetPasswordForEmail(email) {
+          window.authCalls.push(["resetPasswordForEmail"]);
+          await wait();
+          return { data: {}, error: null };
+        },
+      };
+
+      const done = () => {
+        document.getElementById("app").innerHTML = '<div class="view"><p class="hint" id="signed-in">SIGNED IN (harness)</p></div>';
+      };
+      const root = document.getElementById("app");
+      if (screen === "account" || screen === "account-admin") {
+        const { AccountPanel } = await import("../../app/views/account-panel.js");
+        const admin = screen === "account-admin";
+        render(
+          html`<div class="view"><${AccountPanel}
+            account=${{ email: admin ? "host-1@example.test" : "housemate-1@example.test", slug: admin ? "host-1" : "housemate-1", admin, project: "sandbox" }}
+            reach=${{
+              houses: admin ? ["house-w", "house-f"] : ["house-w"],
+              plateCards: admin ? 6 : 1,
+              guests: 1,
+              bank: true,
+            }}
+            freeze=${window.__freeze ?? null}
+            onSignOut=${() => window.authCalls.push(["signOut"])}
+            onFreeze=${async (on) => { window.authCalls.push(["freeze", on]); }}
+          /></div>`,
+          root,
+        );
+      } else {
+        const link =
+          screen === "setpw"
+            ? { tokenHash: q.get("token") ?? "fresh-token-1", type: q.get("type") ?? "invite" }
+            : null;
+        const start = screen === "setpw" || screen === "nolink" ? "setpw" : "signin";
+        render(html`<${AuthGateView} auth=${auth} start=${start} link=${link} onSignedIn=${done} />`, root);
+      }
+    </script>
+  </body>
+</html>

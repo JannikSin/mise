@@ -110,7 +110,9 @@ export async function whoami(project, sub, fetchImpl) {
   return {
     slug: r.slug,
     admin: r.admin === true,
-    houses: Array.isArray(r.houses) ? r.houses.filter((/** @type {unknown} */ h) => typeof h === "string") : [],
+    houses: Array.isArray(r.houses)
+      ? r.houses.filter((/** @type {unknown} */ h) => typeof h === "string")
+      : [],
   };
 }
 
@@ -233,7 +235,13 @@ export async function claimGuest(project, a, fetchImpl) {
     const r = await rpc(
       project,
       "claim_guest",
-      { p_code_hash: a.codeHash, p_slug: a.slug, p_roster: a.roster, p_targets: a.targets, p_until: a.until },
+      {
+        p_code_hash: a.codeHash,
+        p_slug: a.slug,
+        p_roster: a.roster,
+        p_targets: a.targets,
+        p_until: a.until,
+      },
       { fetchImpl },
     );
     return { status: "ok", profileId: String(r ?? "") };

@@ -3049,3 +3049,23 @@ input[aria-label$="comma separated"] {
 .checkrow.listcols.checkfirstrow .ownbtn {
   padding: 0 10px;
 }
+
+/* THE ACCOUNT GATE (Mise 2.0, D1): the data notice reads as a short list,
+   and an error under the form stands out from the hints around it */
+.auth-points {
+  margin: 8px 0 4px;
+  padding-left: 18px;
+  line-height: 1.45;
+}
+.auth-points li {
+  margin-bottom: 8px;
+}
+.auth-gate .auth-note {
+  color: var(--amber);
+}
+.auth-gate .actions {
+  flex-wrap: wrap;
+}
+.auth-gate button.linktext {
+  min-height: 44px;
+}

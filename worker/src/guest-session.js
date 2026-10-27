@@ -61,7 +61,11 @@ export async function signGuestSessionV2(who, secret, nowMs) {
       }),
     ),
   );
-  const sig = await crypto.subtle.sign("HMAC", await hmacKey(secret), new TextEncoder().encode(body));
+  const sig = await crypto.subtle.sign(
+    "HMAC",
+    await hmacKey(secret),
+    new TextEncoder().encode(body),
+  );
   return `${body}.${b64url(new Uint8Array(sig))}`;
 }
 

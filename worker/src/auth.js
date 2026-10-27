@@ -135,7 +135,8 @@ export async function authenticate(a) {
       alg: pinnedAlg(a.env),
     });
     if (!v.ok) {
-      if (v.reason === "jwks") return fail(503, "could not check your sign-in, try again in a minute");
+      if (v.reason === "jwks")
+        return fail(503, "could not check your sign-in, try again in a minute");
       return fail(401, "unauthorized");
     }
     const key = `${project.ref}|${v.sub}`;
@@ -151,7 +152,10 @@ export async function authenticate(a) {
       entitledCache.set(key, hit);
     }
     if (!hit.value) return fail(403, "this account is not switched on");
-    return { ok: true, who: { kind: "jwt", sub: v.sub, jwt: /** @type {string} */ (a.token), project } };
+    return {
+      ok: true,
+      who: { kind: "jwt", sub: v.sub, jwt: /** @type {string} */ (a.token), project },
+    };
   }
 
   if (switched) {
@@ -210,7 +214,11 @@ export async function takeAiQuota(a) {
       if (all > globalCap) r = "global";
     }
   } catch {
-    return { ok: false, status: 503, error: "could not check today's AI allowance, try again in a minute" };
+    return {
+      ok: false,
+      status: 503,
+      error: "could not check today's AI allowance, try again in a minute",
+    };
   }
   if (r === "ok") return { ok: true };
   return {

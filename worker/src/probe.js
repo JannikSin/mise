@@ -184,8 +184,16 @@ export async function weeklyProbes(env, post, fetchImpl) {
     }
     await post(
       r.ok
-        ? { title: `Mise privacy probe passed (${label})`, body: "Every check came back clean.", priority: "low" }
-        : { title: `Mise privacy probe FAILED (${label})`, body: r.fails.join("; "), priority: "high" },
+        ? {
+            title: `Mise privacy probe passed (${label})`,
+            body: "Every check came back clean.",
+            priority: "low",
+          }
+        : {
+            title: `Mise privacy probe FAILED (${label})`,
+            body: r.fails.join("; "),
+            priority: "high",
+          },
     );
     out.push({ branch, ...r });
   }
