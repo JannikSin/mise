@@ -3,14 +3,16 @@
 // Made-up people and words only.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdtempSync, rmSync, unlinkSync, mkdirSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync, mkdtempSync, rmSync, unlinkSync, mkdirSync, existsSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { freshDb, asUser, errorOf, SKIP } from "./_pglite.js";
 import { world } from "./_world.js";
 import { PEOPLE, writeSnapshot } from "./_snapshot.js";
-import { planMigration, runMigration, GateError, gitBlobSha, committedBlobs } from "../tools/migrate-to-supabase.mjs";
+import { planMigration, runMigration, GateError, gitBlobSha, committedBlobs, checkConnection } from "../tools/migrate-to-supabase.mjs";
 
 /** @param {string} dir @param {...string} args */
 const git = (dir, ...args) => execFileSync("git", ["-C", dir, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", ...args], { encoding: "utf8", stdio: "pipe" });
@@ -270,4 +272,124 @@ test("E3 probe P1, shape 2: should the grant come back, docs_before answers P040
   assert.equal((await errorOf(() => db.query("insert into public.docs (path, data) values ($1, $2)", [P1[0][0], JSON.stringify(P1[0][1])])))?.code, "P0422");
   assert.match((await errorOf(() => db.query("insert into public.docs (path, data) values ($1, $2)", [P1[2][0], JSON.stringify(P1[2][1])])))?.message ?? "", /mise_bad_path/);
   await db.close();
+});
+
+// ---- item 4 (E4): one connection from begin to commit; rehearse with --rollback first
+
+const TOOL = fileURLToPath(new URL("../tools/migrate-to-supabase.mjs", import.meta.url));
+
+test("E4: only the direct connection or the session pooler (port 5432); never 6543 or a pgbouncer URL; never echoed", () => {
+  const ok = [
+    "postgresql://postgres:secret-pw@db.abcdefgh.supabase.co:5432/postgres",
+    "postgres://postgres.abcdefgh:secret-pw@aws-0-us-east-1.pooler.supabase.com:5432/postgres",
+    "postgresql://postgres:secret-pw@db.abcdefgh.supabase.co/postgres",
+  ];
+  for (const u of ok) assert.equal(checkConnection(u).port, 5432, u);
+  const bad = [
+    ["postgres://postgres.abcdefgh:secret-pw@aws-0-us-east-1.pooler.supabase.com:6543/postgres", /transaction pooler/],
+    ["postgresql://postgres:secret-pw@db.abcdefgh.supabase.co:5432/postgres?pgbouncer=true", /pgbouncer/],
+    ["postgresql://postgres:secret-pw@localhost:6432/postgres", /port 6432/],
+    ["https://abcdefgh.supabase.co", /not a postgres/],
+    ["not a url", /not a URL/],
+  ];
+  for (const [u, msg] of bad) {
+    refuses(() => checkConnection(/** @type {string} */ (u)), "connection", /** @type {RegExp} */ (msg));
+    try {
+      checkConnection(/** @type {string} */ (u));
+    } catch (e) {
+      assert.equal(String(/** @type {Error} */ (e).message).includes("secret-pw"), false, "the password is never echoed");
+    }
+  }
+});
+
+test("E4: a pool is refused before any statement", { skip: SKIP }, async () => {
+  const plan = planMigration(writeSnapshot(), PEOPLE);
+  /** @type {string[]} */
+  const sent = [];
+  class Pool {
+    totalCount = 0;
+    /** @param {string} sql */
+    async query(sql) {
+      sent.push(sql);
+      return { rows: [] };
+    }
+  }
+  await assert.rejects(() => runMigration(/** @type {any} */ (new Pool()), plan), (e) => e instanceof GateError && e.gate === "connection" && /pool/.test(e.message));
+  // the pg.Pool counters alone are enough
+  await assert.rejects(() => runMigration(/** @type {any} */ ({ idleCount: 0, query: async () => ({ rows: [] }) }), plan), (e) => e instanceof GateError && e.gate === "connection");
+  assert.deepEqual(sent, [], "not even begin was sent");
+});
+
+test("E4: statements that leave the transaction's connection are caught by its txid, and nothing commits", { skip: SKIP }, async () => {
+  const dir = writeSnapshot();
+  const plan = planMigration(dir, PEOPLE);
+  const db = await freshDb();
+  // a client whose later statements land on another connection: its
+  // transaction id differs from the one begin opened
+  let calls = 0;
+  const hopping = {
+    /** @param {string} sql @param {unknown[]} [params] */
+    query: async (sql, params) => {
+      if (/txid_current/.test(sql) && ++calls > 1) return { rows: [{ t: "999999999" }] };
+      return db.query(sql, params);
+    },
+  };
+  await assert.rejects(
+    () => runMigration(hopping, plan),
+    (e) => e instanceof GateError && e.gate === "connection" && /transaction id changed/.test(e.message),
+  );
+  assert.equal((await db.query("select count(*)::int n from public.docs")).rows[0].n, 0, "rolled back");
+  assert.equal((await db.query("select count(*)::int n from public.profiles")).rows[0].n, 0);
+  // the same run on one connection commits, and the txid was read twice
+  calls = 0;
+  const steady = { query: (/** @type {string} */ sql, /** @type {unknown[]} */ params) => (/txid_current/.test(sql) && calls++, db.query(sql, params)) };
+  assert.equal((await runMigration(steady, plan)).committed, true);
+  assert.equal(calls, 2);
+  await db.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("E4: --rollback rehearses every step and check and leaves nothing behind", { skip: SKIP }, async () => {
+  const dir = writeSnapshot();
+  const plan = planMigration(dir, PEOPLE);
+  const db = await freshDb();
+  const out = await runMigration(db, plan, { rollback: true });
+  assert.equal(out.committed, false);
+  assert.ok(out.checks.length >= 8 && out.checks.every((c) => c.ok), "every verify check ran and passed");
+  for (const t of ["public.docs", "public.recipes", "public.plates", "public.profiles", "public.households", "private.guard_terms", "private.settings"]) {
+    assert.equal((await db.query(`select count(*)::int n from ${t}`)).rows[0].n, 0, t);
+  }
+  await db.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("E4 CLI: the help says rehearse with --rollback first; a real target needs MISE_DB_URL on 5432 and the pg package; nothing is contacted", () => {
+  const env = { ...process.env };
+  delete env.MISE_DB_URL;
+  const help = spawnSync(process.execPath, [TOOL, "--help"], { encoding: "utf8", env });
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /Rehearse with --rollback first/);
+  assert.match(help.stdout, /MISE_DB_URL/);
+  const dir = writeSnapshot();
+  const tmp = mkdtempSync(path.join(tmpdir(), "mise-people-"));
+  const peopleFile = path.join(tmp, "people.local.json");
+  writeFileSync(peopleFile, JSON.stringify(PEOPLE));
+  const run = (/** @type {Record<string, string | undefined>} */ e, /** @type {string[]} */ extra = []) =>
+    spawnSync(process.execPath, [TOOL, "--snapshot", dir, "--people", peopleFile, "--target", "sandbox", "--rollback", ...extra], { encoding: "utf8", env: { ...env, ...e } });
+  const none = run({});
+  assert.equal(none.status, 2);
+  assert.match(none.stderr, /needs MISE_DB_URL/);
+  const pooler = run({ MISE_DB_URL: "postgres://postgres.abcdefgh:secret-pw@aws-0-us-east-1.pooler.supabase.com:6543/postgres" });
+  assert.equal(pooler.status, 2);
+  assert.match(pooler.stderr, /transaction pooler/);
+  assert.equal((pooler.stdout + pooler.stderr).includes("secret-pw"), false);
+  // with a good URL the pg client is the next door; it is not installed tonight
+  // (if it ever is, this case would connect, so it only runs while pg is absent)
+  if (!existsSync(fileURLToPath(new URL("../node_modules/pg/package.json", import.meta.url)))) {
+    const nopg = run({ MISE_DB_URL: "postgresql://postgres:secret-pw@db.abcdefgh.supabase.co:5432/postgres" });
+    assert.equal(nopg.status, 2);
+    assert.match(nopg.stderr, /pg package is not installed/);
+  }
+  rmSync(tmp, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
 });

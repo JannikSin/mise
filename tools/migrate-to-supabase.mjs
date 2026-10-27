@@ -36,10 +36,17 @@
 // Output is counts only unless --show-paths: a path can carry a slug, and
 // slugs are names.
 //
-// Targets: `--target pglite` runs into a fresh in-memory PGlite stand-in (the
-// local rehearsal, no network). `sandbox` and `live` are not wired yet: the
-// database client for them is the owner's call (see NEEDS DAVID in the fleet
-// notes). `runMigration` takes any client with `query(sql, params)`.
+// Targets: `--target pglite` (the default) runs into a fresh in-memory PGlite
+// stand-in (the local rehearsal, no network). `--target sandbox` and
+// `--target live` read the connection string from the MISE_DB_URL environment
+// variable (never an argument: it holds the database password) and need the
+// `pg` package, which is not a dependency yet (NEEDS DAVID). Fix loop 3, E4:
+// the run is one transaction, so it must hold ONE connection from begin to
+// commit: one pg.Client (never a pg.Pool) on the direct connection or the
+// session pooler, port 5432. The transaction pooler (6543) and pgbouncer URLs
+// are refused, and the run checks that its transaction id never changes.
+// Rehearse with --rollback first: it runs every step and every check, then
+// rolls back.
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync, existsSync, writeFileSync } from "node:fs";
@@ -156,6 +163,41 @@ export function walk(dir, base = dir) {
     else out.push(path.relative(base, p).split(path.sep).join("/"));
   }
   return out.sort();
+}
+
+/**
+ * fix loop 3 E4: a connection string the migration may use. One session from
+ * begin to commit: the direct connection or the session pooler on port 5432.
+ * Refuses the transaction pooler (6543), a pgbouncer URL and any other port.
+ * Never echoes the string (it holds the password).
+ * @param {string} url
+ * @returns {{ host: string, port: number }}
+ */
+export function checkConnection(url) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new GateError("connection", "MISE_DB_URL is not a URL");
+  }
+  if (u.protocol !== "postgres:" && u.protocol !== "postgresql:") throw new GateError("connection", "MISE_DB_URL is not a postgres:// URL");
+  const port = u.port === "" ? 5432 : Number(u.port);
+  if (port === 6543) throw new GateError("connection", "port 6543 is the transaction pooler: one transaction would run over several connections; use the direct connection or the session pooler (port 5432)");
+  if ([...u.searchParams.keys()].some((k) => k.toLowerCase() === "pgbouncer")) throw new GateError("connection", "a pgbouncer URL is a pool; use the direct connection or the session pooler (port 5432)");
+  if (port !== 5432) throw new GateError("connection", `port ${port} is not the direct connection or the session pooler (5432)`);
+  return { host: u.hostname, port };
+}
+
+/**
+ * fix loop 3 E4: refuse a pool (pg.Pool, or anything shaped like one): each
+ * query could land on another connection, so begin, the writes, verify and
+ * commit would not be one transaction.
+ * @param {any} client
+ */
+export function requireSingleClient(client) {
+  if (!client || typeof client.query !== "function") throw new GateError("connection", "the client has no query()");
+  const pooled = ["totalCount", "idleCount", "waitingCount"].some((k) => k in client) || /pool/i.test(String(client.constructor?.name ?? ""));
+  if (pooled) throw new GateError("connection", "the client is a pool; pass one pg.Client, connected, on port 5432");
 }
 
 /**
@@ -395,8 +437,12 @@ export async function runMigration(client, plan, opts = {}) {
   const q = (/** @type {string} */ sql, /** @type {unknown[]} */ params = []) => client.query(sql, params);
   const { people } = plan;
   const list = /** @type {any[]} */ (people.people);
+  requireSingleClient(client);
   await q("begin");
   try {
+    // E4: the transaction id, taken now and again before commit; a change
+    // means the statements did not all run on one connection
+    const txid = (await q("select txid_current()::text as t")).rows[0].t;
     // a re-run after phones have written would erase their work. fix loop 3
     // E2: a row the migration did not write (a phone's new file at rev 1 has
     // updated_by set; a server-made one, such as a claimed guest's, has no
@@ -488,6 +534,9 @@ export async function runMigration(client, plan, opts = {}) {
     const checks = await verify(client, plan);
     const failed = checks.filter((c) => !c.ok);
     if (failed.length) throw new GateError("verify", `${failed.length} check(s) failed: ${failed.map((c) => c.check).join(", ")}`);
+    if ((await q("select txid_current()::text as t")).rows[0].t !== txid) {
+      throw new GateError("connection", "the transaction id changed during the run: the statements were not all on one connection; nothing is committed");
+    }
     await q(opts.rollback ? "rollback" : "commit");
     return { committed: !opts.rollback, checks };
   } catch (e) {
@@ -565,11 +614,19 @@ function parseArgs(argv) {
   return a;
 }
 
+export const USAGE = `usage: node tools/migrate-to-supabase.mjs --snapshot <mise-data clone> --people <people.local.json>
+         [--dry-run] [--final] [--reviewed-term-load] [--target pglite|sandbox|live] [--rollback] [--show-paths] [--manifest <out.json>]
+  --target pglite (default)  a fresh in-memory stand-in, discarded on exit
+  --target sandbox|live      the connection string comes from the MISE_DB_URL environment variable:
+                             the direct connection or the session pooler, port 5432 (never 6543)
+  --rollback                 run every step and check, then roll back
+Rehearse with --rollback first: run each real target once with --rollback, read the checks, then run it for real.`;
+
 async function main() {
   const a = parseArgs(process.argv.slice(2));
   if (!a.snapshot || !a.people) {
-    console.log("usage: node tools/migrate-to-supabase.mjs --snapshot <mise-data dir> --people <people.local.json> [--dry-run] [--final] [--reviewed-term-load] [--target pglite] [--rollback] [--show-paths] [--manifest <out.json>]");
-    process.exit(2);
+    console.log(USAGE);
+    process.exit(a.help ? 0 : 2);
   }
   const snapshot = String(a.snapshot);
   if (!existsSync(snapshot)) throw new Error("the snapshot directory does not exist");
@@ -596,17 +653,44 @@ async function main() {
   console.log(`  skipped: ${Object.entries(plan.skipped).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`);
   if (typeof a.manifest === "string") writeFileSync(a.manifest, JSON.stringify(plan.sha256, null, 2));
   if (a["dry-run"]) return;
-  const target = a.target ?? "pglite";
-  if (target !== "pglite") {
-    console.error(`target ${target} is not wired yet: the owner chooses the database client for the real projects`);
+  const target = String(a.target ?? "pglite");
+  /** @type {any} */
+  let db;
+  if (target === "pglite") {
+    const { openStandin } = await import("./pglite-standin.mjs");
+    db = await openStandin();
+  } else if (target === "sandbox" || target === "live") {
+    const url = process.env.MISE_DB_URL;
+    if (!url) {
+      console.error(`REFUSED target ${target} needs MISE_DB_URL in the environment (the direct or session pooler connection string, port 5432)`);
+      process.exit(2);
+    }
+    try {
+      checkConnection(url);
+    } catch (e) {
+      console.error(`REFUSED ${/** @type {Error} */ (e).message}`);
+      process.exit(2);
+    }
+    /** @type {any} */
+    let pg;
+    try {
+      const name = "pg";
+      pg = (await import(name)).default;
+    } catch {
+      console.error("REFUSED the pg package is not installed (a dev dependency the owner has not added yet)");
+      process.exit(2);
+    }
+    db = new pg.Client({ connectionString: url });
+    await db.connect();
+    db.close = () => db.end();
+  } else {
+    console.error(`REFUSED unknown target ${target}`);
     process.exit(2);
   }
-  const { openStandin } = await import("./pglite-standin.mjs");
-  const db = await openStandin();
   try {
     const out = await runMigration(db, plan, { rollback: a.rollback === true });
     for (const c of out.checks) console.log(`  ${c.ok ? "ok  " : "FAIL"} ${c.check}${c.detail ? `: ${c.detail}` : ""}`);
-    console.log(out.committed ? "migrated into the local PGlite stand-in (discarded on exit)" : "rehearsed and rolled back");
+    console.log(out.committed ? (target === "pglite" ? "migrated into the local PGlite stand-in (discarded on exit)" : `migrated into ${target}`) : "rehearsed and rolled back");
   } catch (e) {
     if (e instanceof GateError) {
       console.error(`REFUSED ${e.message}`);

@@ -2531,7 +2531,12 @@ A re-run refuses (gate `edited`, unless told to overwrite) when any `docs` or
 `recipes` row has `rev > 1`, `updated_by` set or no `legacy_sha` (a phone's
 new file at rev 1, a claimed guest's rows), or when `public.roster_rev` has
 moved from the value the last run stored as `private.settings` `roster_rev` (a
-roster edit; fix loop 3, E2).
+roster edit; fix loop 3, E2). The run is one transaction on ONE connection
+(fix loop 3, E4): a pool is refused, a real target (`--target sandbox|live`)
+reads its connection string from `MISE_DB_URL` and accepts only the direct
+connection or the session pooler on port 5432 (never 6543 or a pgbouncer
+URL), and the transaction id is checked again before commit. Rehearse each
+real target with `--rollback` first.
 
 **Backup, restore and rollback** (G2). One snapshot format, `mise-backup/1`
 (`tools/db-snapshot.mjs`): a single JSON document `{ format, taken_at,
