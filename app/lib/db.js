@@ -130,3 +130,48 @@ export async function dbUpdate(path, updater) {
     };
   });
 }
+
+/**
+ * Move a record between two keys in ONE transaction (2.0, seam fix loop 3,
+ * items 2 and 5; ENG 3 N5 and N6): the hold and the restore of an account's
+ * queued write. A phone that dies halfway leaves the record at one key or
+ * the other, never at both, so no stale duplicate can replay later. `decide`
+ * sees both current records and says what to put at `toKey` and whether to
+ * delete `fromKey`; null leaves both untouched.
+ * @param {string} fromKey
+ * @param {string} toKey
+ * @param {(from: FileRecord | undefined, to: FileRecord | undefined) =>
+ *   { put?: FileRecord, deleteFrom?: boolean } | null} decide
+ * @returns {Promise<boolean>} whether anything was written
+ */
+export async function dbMove(fromKey, toKey, decide) {
+  const db = await open();
+  const store = db.transaction("files", "readwrite").objectStore("files");
+  return new Promise((resolve, reject) => {
+    const fromReq = store.get(fromKey);
+    fromReq.onerror = () => reject(fromReq.error);
+    fromReq.onsuccess = () => {
+      const toReq = store.get(toKey);
+      toReq.onerror = () => reject(toReq.error);
+      toReq.onsuccess = () => {
+        const plan = decide(fromReq.result, toReq.result);
+        if (!plan || (!plan.put && !plan.deleteFrom)) return resolve(false);
+        // both requests go into this one transaction before either settles
+        let left = (plan.put ? 1 : 0) + (plan.deleteFrom ? 1 : 0);
+        const done = () => {
+          if (--left === 0) resolve(true);
+        };
+        if (plan.put) {
+          const putReq = store.put(plan.put);
+          putReq.onsuccess = done;
+          putReq.onerror = () => reject(putReq.error);
+        }
+        if (plan.deleteFrom) {
+          const delReq = store.delete(fromKey);
+          delReq.onsuccess = done;
+          delReq.onerror = () => reject(delReq.error);
+        }
+      };
+    };
+  });
+}

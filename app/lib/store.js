@@ -7,7 +7,7 @@
 //          pushes queued files in order — with sha, merging on conflict —
 //          whenever we're online. Offline writes simply stay queued.
 
-import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
+import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete, dbMove } from "./db.js";
 import { backend, stampHere, replaysHere, installBackend, lockedBackend } from "./backend.js";
 import { ForbiddenError, NameGuardError } from "./backend/errors.js";
 import { pushFile, afterPushRecord, ConflictError, PushAborted } from "./sync.js";
@@ -37,6 +37,11 @@ let epoch = 0;
 const ACCOUNT_KEY = "mise.storeAccount";
 // how many holders keep the queue from flushing (acquireStoreLock)
 let storeLocks = 0;
+// THE SWITCH GATE (loop 3, item 2; ENG 3 N5): an account change in progress.
+// read, readNow, readMeta, readCollection and write wait for it, so nothing
+// reads a half-purged cache or builds on the outgoing account's record.
+/** @type {Promise<void>} */
+let switching = Promise.resolve();
 
 /**
  * Whose phone this is, for the hold (2.0, seam fix loop 2, item 2; ENG 2 N2):
@@ -672,6 +677,7 @@ export async function readTargetsForSeat(id, mayShow) {
  * @returns {Promise<Record<string, unknown> | null>}
  */
 export async function read(path, opts) {
+  await switching;
   const finalPath = opts?.raw ? path : scoped(path);
   if (!inSyncScope(finalPath)) return null;
   const rec = await dbGet(finalPath);
@@ -735,6 +741,7 @@ function isOwnTargetsPath(path) {
  * @returns {Promise<Record<string, unknown> | null>}
  */
 export async function readNow(path, opts) {
+  await switching;
   const finalPath = opts?.raw ? path : scoped(path);
   if (!inSyncScope(finalPath)) return null;
   if (!(await dbGet(finalPath))) fileCheckedAt.delete(finalPath);
@@ -755,6 +762,7 @@ export async function readNow(path, opts) {
  * @returns {Promise<{ data: Record<string, unknown> | null, sha: string | null, dirty: boolean }>}
  */
 export async function readMeta(path, opts) {
+  await switching;
   const finalPath = opts?.raw ? path : scoped(path);
   if (!inSyncScope(finalPath)) return { data: null, sha: null, dirty: false };
   const rec = await dbGet(finalPath);
@@ -893,6 +901,7 @@ export async function readCollection(
   dir,
   /** @type {{ raw?: boolean } | undefined} */ opts = undefined,
 ) {
+  await switching;
   const scopedDir = opts?.raw ? dir : scoped(dir);
   if (!inSyncScope(`${scopedDir}/`)) return [];
   const prefix = `${scopedDir}/`;
@@ -1053,9 +1062,63 @@ async function revalidatePass(scopedDir) {
  * @returns {Promise<void>}
  */
 export async function write(path, data, opts) {
+  await switching;
   const scopedPath = opts?.raw ? path : scoped(path);
   fileCheckedAt.delete(scopedPath);
-  await dbUpdate(scopedPath, (cur) => ({
+  // NEVER ON ANOTHER ACCOUNT'S RECORD (loop 3, item 2; ENG 3 N5): a queued
+  // write in this slot made by someone else is held first, then this one is
+  // built on nothing of it (not its data, base, sha or queue time). The
+  // updater re-checks inside its transaction, so a switch that slipped in
+  // between is caught too.
+  const me = writeAccount();
+  for (let tries = 0; ; tries++) {
+    /** @type {import("./db.js").FileRecord | null} */
+    let foreign = null;
+    await dbUpdate(scopedPath, (cur) => {
+      if (cur && isOtherAccounts(cur, me)) {
+        foreign = cur;
+        return null;
+      }
+      return buildWrite(scopedPath, data, cur, me);
+    });
+    if (!foreign) break;
+    if (tries >= 3) throw new Error(`could not save ${scopedPath}: another account's write is in the way`);
+    await holdRecord(foreign);
+  }
+  await recount();
+  void flush();
+}
+
+/**
+ * Who a write made now is stamped as: the account, "before sign-in" on a
+ * Supabase build with none, nobody on GitHub (1.95).
+ * @returns {string | undefined}
+ */
+function writeAccount() {
+  const a = accountNow();
+  if (a) return a;
+  return backend().name === "supabase" ? PRE_SIGN_IN : undefined;
+}
+
+/**
+ * A queued write stamped with an account other than `me` (loop 3, item 2).
+ * @param {import("./db.js").FileRecord} rec
+ * @param {string | undefined} me
+ */
+function isOtherAccounts(rec, me) {
+  return rec.dirty && typeof rec.account === "string" && rec.account !== me;
+}
+
+/**
+ * The record a write leaves in its slot.
+ * @param {string} scopedPath
+ * @param {Record<string, unknown>} data
+ * @param {import("./db.js").FileRecord | undefined} cur
+ * @param {string | undefined} me
+ * @returns {import("./db.js").FileRecord}
+ */
+function buildWrite(scopedPath, data, cur, me) {
+  return {
     path: scopedPath,
     data,
     base: cur?.base ?? null,
@@ -1071,14 +1134,8 @@ export async function write(path, data, opts) {
     ...(cur && "fingerprint" in cur ? { fingerprint: cur.fingerprint } : {}),
     // who made it (seam fix 1): a later account on this phone holds it
     // with no account at all on a Supabase build, it was made before sign-in
-    ...(accountNow()
-      ? { account: /** @type {string} */ (accountNow()) }
-      : backend().name === "supabase"
-      ? { account: PRE_SIGN_IN }
-      : {}),
-  }));
-  await recount();
-  void flush();
+    ...(me !== undefined ? { account: me } : {}),
+  };
 }
 
 /**
@@ -1568,12 +1625,31 @@ function rememberedAccount() {
  * account" until that account signs in again or the person DISCARDs it.
  * (purgeEverything is the confirmed-revoke purge and would delete the queue
  * this must keep.) The slug is remembered in the store too, so a change is
- * seen even when the caller's own memory was lost. No change: nothing done.
+ * seen even when the caller's own memory was lost. No change: nothing purged,
+ * but the hold and the restore still run (loop 3, item 9).
+ *
+ * While it runs, reads and writes wait (loop 3, item 2; ENG 3 N5), and the
+ * outgoing account's queue is held BEFORE the purge, so its slots are free
+ * as early as possible. Calls are serialized.
  * @param {string | null} prevSlug
  * @param {string | null} nextSlug
  * @returns {Promise<number>} cached records removed
  */
-export async function onSessionChange(prevSlug, nextSlug) {
+export function onSessionChange(prevSlug, nextSlug) {
+  const run = switching.then(() => changeAccount(prevSlug, nextSlug));
+  switching = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+/**
+ * @param {string | null} prevSlug
+ * @param {string | null} nextSlug
+ * @returns {Promise<number>}
+ */
+async function changeAccount(prevSlug, nextSlug) {
   const remembered = rememberedAccount();
   try {
     if (nextSlug) localStorage.setItem(ACCOUNT_KEY, nextSlug);
@@ -1584,18 +1660,21 @@ export async function onSessionChange(prevSlug, nextSlug) {
   const changed =
     (prevSlug ?? null) !== (nextSlug ?? null) ||
     (remembered !== null && remembered !== (nextSlug ?? null));
+  if (changed) epoch++;
+  // signed out, the slots belong to "before sign-in" (item 3)
+  const who = nextSlug ?? PRE_SIGN_IN;
+  // the hold runs on every call, so a queue is never left in a path's slot
+  // under the wrong account, even when the caller's memory said no change
+  let moved = await holdOthers(who);
   let removed = 0;
   if (changed) {
-    epoch++;
     for (const rec of await dbGetAll()) {
       if (rec.dirty) continue;
       await dbDeleteIfClean(rec.path);
       removed++;
     }
   }
-  // the hold runs on every call, so a queue is never left in a path's slot
-  // under the wrong account, even when the caller's memory said no change
-  const moved = await holdAndRestore(nextSlug ?? null);
+  moved += await restoreMine(who);
   if (changed || moved > 0) {
     resetFileChecks();
     freshDirs.clear();
@@ -1606,39 +1685,60 @@ export async function onSessionChange(prevSlug, nextSlug) {
 }
 
 /**
- * Move every queued write made by an account other than `next` out to a held
- * key, then move `next`'s own held writes back into their slots (item 1). A
- * record with no account (a 1.95 queue) stays where it is and replays under
- * the first account, as plan section 5 says. A held write whose slot is
- * taken stays held, listed, until the slot is free or it is discarded.
- * `next` null (signed out) counts as "before sign-in" (item 3).
- * @param {string | null} next
- * @returns {Promise<number>} records moved either way
+ * Move one queued write out of its path's slot to its held key, in one
+ * transaction, and only while the slot still holds a write by that account.
+ * @param {import("./db.js").FileRecord} rec
+ * @returns {Promise<boolean>} moved
  */
-async function holdAndRestore(next) {
-  // signed out, the slots belong to "before sign-in" (item 3)
-  const who = next ?? PRE_SIGN_IN;
+async function holdRecord(rec) {
+  if (typeof rec.account !== "string" || isHeld(rec)) return false;
+  const key = `${HELD_PREFIX}${rec.account}/${rec.queuedAt ?? 0}/${rec.path}`;
+  const moved = await dbMove(rec.path, key, (cur) => {
+    // whatever version of that account's write is there now is the one held
+    if (!cur || !cur.dirty || cur.account !== rec.account) return null;
+    /** @type {import("./db.js").FileRecord} */
+    const held = {
+      ...cur,
+      path: key,
+      branch: HELD_BRANCH,
+      held: {
+        path: cur.path,
+        account: /** @type {string} */ (cur.account),
+        ...(cur.branch !== undefined ? { branch: cur.branch } : {}),
+      },
+    };
+    return { put: held, deleteFrom: true };
+  });
+  if (moved) fileCheckedAt.delete(rec.path);
+  return moved;
+}
+
+/**
+ * Move every queued write made by an account other than `who` out to a held
+ * key (item 1). A record with no account (a 1.95 queue) stays where it is
+ * and replays under the first account, as plan section 5 says.
+ * @param {string} who
+ * @returns {Promise<number>} records held
+ */
+async function holdOthers(who) {
   let moved = 0;
   for (const rec of await dbGetAll()) {
     if (!rec.dirty || isHeld(rec) || typeof rec.account !== "string") continue;
     if (rec.account === who) continue;
-    const key = `${HELD_PREFIX}${rec.account}/${rec.queuedAt ?? 0}/${rec.path}`;
-    /** @type {import("./db.js").FileRecord} */
-    const held = {
-      ...rec,
-      path: key,
-      branch: HELD_BRANCH,
-      held: {
-        path: rec.path,
-        account: rec.account,
-        ...(rec.branch !== undefined ? { branch: rec.branch } : {}),
-      },
-    };
-    await dbUpdate(key, () => held);
-    await dbDelete(rec.path);
-    fileCheckedAt.delete(rec.path);
-    moved++;
+    if (await holdRecord(rec)) moved++;
   }
+  return moved;
+}
+
+/**
+ * Move `who`'s own held writes back into their slots. A held write whose
+ * slot is taken stays held, listed, until the slot is free or it is
+ * discarded.
+ * @param {string} who
+ * @returns {Promise<number>} records restored
+ */
+async function restoreMine(who) {
+  let moved = 0;
   const mine = (await dbGetAll())
     .filter((r) => r.dirty && isHeld(r) && r.held?.account === who)
     .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
