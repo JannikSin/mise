@@ -722,7 +722,7 @@ missing, because knowing where a thing sits is useful without a price.
 }
 ```
 
-### House specials — `households/<h>/recipes/house-<12 hex>.json` (Mise 2.0, E1 and E2, Supabase only)
+### House specials: `households/<h>/recipes/house-<12 hex>.json` (Mise 2.0, E1 and E2, Supabase only)
 
 On Supabase an AI dinner special is its inventing house's, not the bank's. Same
 shape as a bank recipe, with `id` equal to the opaque file name (`house-` plus 12
