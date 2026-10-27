@@ -25,7 +25,7 @@
 // failed quota check fails CLOSED: no count, no model call.
 
 import { looksLikeJwt, verifySupabaseJwt, pinnedAlg } from "./jwt.js";
-import { onSupabase, projectFor } from "./supabase-env.js";
+import { onSupabase, projectFor, effectiveBranch } from "./supabase-env.js";
 import { entitled, aiCount } from "./svc.js";
 
 /** the routes that spend model money (or Workers AI) */
@@ -158,7 +158,9 @@ export async function authenticate(a) {
     };
   }
 
-  if (switched) {
+  // a PAT from an origin with no branch is judged as switched once any branch
+  // is (Red Team R1), so the cutoff and the AI-only rule cannot be skipped
+  if (onSupabase(effectiveBranch(a.branch, a.env), a.env)) {
     if (!AI_ROUTES.has(a.pathname)) {
       return fail(401, "sign in to your account: the old key no longer works for this");
     }
@@ -192,8 +194,10 @@ export async function authenticate(a) {
  */
 export async function takeAiQuota(a) {
   if (!AI_ROUTES.has(a.pathname)) return { ok: true };
-  if (a.who.kind === "pat" && !onSupabase(a.branch, a.env)) return { ok: true };
-  const project = a.who.kind === "jwt" ? a.who.project : projectFor(a.branch, a.env);
+  // a PAT from an origin with no branch is metered like one from main (R1)
+  const patBranch = effectiveBranch(a.branch, a.env);
+  if (a.who.kind === "pat" && !onSupabase(patBranch, a.env)) return { ok: true };
+  const project = a.who.kind === "jwt" ? a.who.project : projectFor(patBranch, a.env);
   if (!project) return { ok: false, status: 503, error: "sign-in is not set up on the server yet" };
   const user = a.who.kind === "jwt" ? a.who.sub : PAT_QUOTA_USER;
   const userCap = posInt(a.env?.AI_DAILY_PER_USER, AI_DAILY_PER_USER_DEFAULT);

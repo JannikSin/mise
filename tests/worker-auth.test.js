@@ -269,3 +269,98 @@ test("rate limiting for a JWT is keyed by the person, not the token string", asy
     assert.equal(last, 429);
   });
 });
+
+// ---- fix loop 1, item 1 (Red Team R1): the local dev origin owns no branch,
+// and it is no way around the PAT cutoff or the quota. Probes P1 and P1b.
+const LOCAL = "http://127.0.0.1:8378";
+const BOTH_PAST = {
+  ...SCAN_ENV,
+  SUPABASE_BACKEND: "sandbox,main",
+  SUPABASE_URL: PROJECT_URL,
+  SUPABASE_SECRET_KEY: "sb_secret_PLACEHOLDER_LIVE",
+  SUPABASE_PUBLISHABLE_KEY: "sb_publishable_PLACEHOLDER",
+  PAT_AUTH_UNTIL: "2020-01-01",
+};
+
+test("R1 P1: past the cutoff, the local dev origin is refused like the live one (deployed, no ALLOW_DEV_ORIGIN)", async () => {
+  const { sb } = await world();
+  await withFetch(sb.fetchImpl, async () => {
+    const live = await worker.fetch(workerReq("/scan", {}, { auth: PAT, origin: LIVE }), BOTH_PAST);
+    assert.equal(live.status, 401);
+    const local = await worker.fetch(workerReq("/scan", {}, { auth: PAT, origin: LOCAL }), BOTH_PAST);
+    assert.equal(local.status, 403, "the deployed Worker refuses an origin with no branch once switched");
+  });
+  assert.equal(sb.calls.filter((c) => c.fn).length, 0);
+});
+
+test("R1 P1, with ALLOW_DEV_ORIGIN: the local origin's PAT still meets the cutoff", async () => {
+  const { sb } = await world();
+  const env = { ...BOTH_PAST, ALLOW_DEV_ORIGIN: "1" };
+  await withFetch(sb.fetchImpl, async () => {
+    const local = await worker.fetch(workerReq("/scan", {}, { auth: PAT, origin: LOCAL }), env);
+    assert.equal(local.status, 401, "after PAT_AUTH_UNTIL, whatever the origin");
+  });
+});
+
+test("R1 P1b: the local origin's PAT is AI-only once switched (annotate-save refused)", async () => {
+  const { sb } = await world();
+  const env = { ...BOTH_PAST, PAT_AUTH_UNTIL: "2099-01-01", ALLOW_DEV_ORIGIN: "1" };
+  await withFetch(sb.fetchImpl, async () => {
+    const r = await worker.fetch(workerReq("/annotate-save", {}, { auth: PAT, origin: LOCAL }), env);
+    assert.equal(r.status, 401);
+    assert.match((await r.json()).error, /sign in to your account/);
+  });
+});
+
+test("R1: the local origin's PAT on an AI route is metered on main's shared and global rows", async () => {
+  const { sb, takes } = await world();
+  const env = { ...BOTH_PAST, PAT_AUTH_UNTIL: "2099-01-01", ALLOW_DEV_ORIGIN: "1" };
+  await withFetch(sb.fetchImpl, async () => {
+    const r = await worker.fetch(workerReq("/scan", {}, { auth: PAT, origin: LOCAL }), env);
+    assert.equal(r.status, 400, "past auth and quota, at body validation");
+  });
+  assert.deepEqual(
+    takes.map((t) => t.p_sub),
+    [PAT_QUOTA_USER, GLOBAL_QUOTA_USER],
+  );
+  const hosts = sb.calls.filter((c) => c.fn === "ai_count").map((c) => new URL(c.url).host.split(".")[0]);
+  assert.ok(hosts.length === 2 && hosts.every((h) => h === PROJECT_REF), `metered on main: ${hosts}`);
+});
+
+test("R1: sandbox-only switch meters the local origin's PAT on the sandbox; nothing switched is 1.95", async () => {
+  const q = await takeAiQuota({
+    who: { kind: "pat", token: PAT },
+    branch: null,
+    pathname: "/scan",
+    env: { SUPABASE_BACKEND: "" },
+  });
+  assert.deepEqual(q, { ok: true }, "nothing switched: no quota");
+  const { sb, takes } = await world();
+  await withFetch(sb.fetchImpl, async () => {
+    const r = await worker.fetch(
+      workerReq("/scan", {}, { auth: PAT, origin: LOCAL }),
+      { ...SCAN_ENV, ALLOW_DEV_ORIGIN: "1" },
+    );
+    assert.equal(r.status, 400);
+  });
+  assert.equal(takes.length, 2);
+  assert.ok(sb.calls.filter((c) => c.fn === "ai_count").every((c) => new URL(c.url).host.startsWith(SANDBOX_REF + ".")));
+  // nothing switched: the local origin is 1.95, no refusal, no Supabase call
+  const w2 = await world();
+  await withFetch(w2.sb.fetchImpl, async () => {
+    const r = await worker.fetch(workerReq("/scan", {}, { auth: PAT, origin: LOCAL }), { ANTHROPIC_API_KEY: "x" });
+    assert.equal(r.status, 400);
+  });
+  assert.equal(w2.sb.calls.filter((c) => c.fn).length, 0);
+});
+
+test("R1: authenticate judges a branchless PAT as switched once any branch is", async () => {
+  const r = await authenticate({
+    token: PAT,
+    branch: null,
+    pathname: "/annotate-save",
+    env: { SUPABASE_BACKEND: "sandbox" },
+    patCheck: async () => "ok",
+  });
+  assert.equal(r.ok, false);
+});

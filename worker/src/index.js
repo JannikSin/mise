@@ -88,7 +88,7 @@ import { handleKroger, handleKrogerCallback } from "./kroger.js";
 import { handleHall } from "./hall.js";
 import { authenticate, takeAiQuota } from "./auth.js";
 import { githubCronSource } from "./cron-source.js";
-import { onSupabase, projectFor } from "./supabase-env.js";
+import { onSupabase, projectFor, devOriginRefused } from "./supabase-env.js";
 import {
   supaGuestRoute,
   supaInviteRoute,
@@ -813,6 +813,11 @@ export default {
     }
 
     if (!cors) return json(403, { error: "origin not allowed" }, {});
+    // 2.0 (Red Team R1): the local dev origin owns no branch; once anything is
+    // switched it is refused unless ALLOW_DEV_ORIGIN=1 (local wrangler dev)
+    if (devOriginRefused(branchForOrigin(request.headers.get("origin")), env)) {
+      return json(403, { error: "origin not allowed" }, cors);
+    }
 
     if (
       request.method !== "POST" ||
