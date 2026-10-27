@@ -62,6 +62,17 @@ export function resetAuthCachesForTests() {
 }
 
 /**
+ * The credential in `x-mise-auth`, with an optional "Bearer " prefix taken
+ * off (fix loop 1, E7). null stays null.
+ * @param {string | null} v
+ * @returns {string | null}
+ */
+export function bareAuth(v) {
+  if (v == null) return null;
+  return v.replace(/^Bearer\s+/i, "");
+}
+
+/**
  * The request weight on the quota: the same weights the per-token rate
  * limiter has always used (annotate is a transcribe plus up to two annotates).
  * @param {string} pathname

@@ -86,7 +86,7 @@ import {
 import { callModel, providerConfigured } from "./provider.js";
 import { handleKroger, handleKrogerCallback } from "./kroger.js";
 import { handleHall } from "./hall.js";
-import { authenticate, takeAiQuota } from "./auth.js";
+import { authenticate, takeAiQuota, bareAuth } from "./auth.js";
 import { githubCronSource } from "./cron-source.js";
 import { onSupabase, projectFor, devOriginRefused } from "./supabase-env.js";
 import {
@@ -1350,7 +1350,9 @@ export default {
       }
     }
 
-    const token = request.headers.get("x-mise-auth");
+    // 2.0 (fix loop 1, E7): an optional "Bearer " prefix is taken off, so the
+    // app's Authorization-style value and the bare credential both work
+    const token = bareAuth(request.headers.get("x-mise-auth"));
     // 2.0 (plan section 1 B1, E4): the PAT or the Supabase session JWT; see auth.js
     const reqBranch = branchForOrigin(request.headers.get("origin"));
     const authed = await authenticate({

@@ -5,6 +5,8 @@
 // change with it.
 
 import { getToken, DATA_REPO, dataRepoOverridden, dataBranch } from "./backend/github-adapter.js";
+import { backend } from "./backend.js";
+import { backendChoice } from "./backend/config.js";
 import { withCartSend, withSentUpcs } from "./shopping.js";
 import { narrationWav } from "./scan.js";
 
@@ -38,12 +40,32 @@ async function downscalePhoto(file) {
 }
 
 /**
+ * The credential the Worker reads from `x-mise-auth` (fix loop 1, E7): on a
+ * GitHub shell the PAT, exactly as 1.95; on a Supabase shell the signed-in
+ * session's access token, BARE (the backend's authHeader is an Authorization
+ * value, "Bearer <jwt>"; the prefix is taken off here). null = not signed in.
+ * @returns {Promise<string | null>}
+ */
+export async function workerAuth() {
+  if (backendChoice() !== "supabase") return getToken() || null;
+  const header = await backend()
+    .authHeader()
+    .catch(() => null);
+  const bare = String(header ?? "").replace(/^Bearer\s+/i, "").trim();
+  return bare || null;
+}
+
+/**
  * @param {string} path
  * @param {Record<string, any>} body
  */
 async function post(path, body) {
-  const token = getToken();
-  if (!token) throw new Error("connect token in SYS first");
+  const token = await workerAuth();
+  if (!token) {
+    throw new Error(
+      backendChoice() === "supabase" ? "sign in first" : "connect token in SYS first",
+    );
+  }
   if (!navigator.onLine) throw new Error("no signal, the offline tools above still work");
   let res;
   const startedAt = Date.now();
