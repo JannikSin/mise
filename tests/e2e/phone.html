@@ -1,0 +1,25 @@
+<!doctype html>
+<!--
+  DEV HARNESS ONLY: a 390 x 844 phone frame, because a desktop Chrome window
+  cannot be made narrower than about 500 px. The page inside gets a true
+  390 px viewport, so media queries and wrapping behave as on an iPhone.
+  Open: http://127.0.0.1:8091/tests/e2e/phone.html?u=<url-encoded path>
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>phone frame</title>
+    <style>
+      body { margin: 0; background: #444; }
+      iframe { display: block; width: 390px; height: 844px; border: 0; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <iframe id="phone" title="phone"></iframe>
+    <script type="module">
+      const u = new URLSearchParams(location.search).get("u") ?? "/";
+      // same origin only: this frame never loads anything off the local server
+      document.getElementById("phone").src = new URL(u, location.origin).pathname + (new URL(u, location.origin).search) + (new URL(u, location.origin).hash);
+    </script>
+  </body>
+</html>

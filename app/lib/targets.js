@@ -682,7 +682,7 @@ export const SURVEY_OWNED = [
 ];
 
 /** Body numbers the survey owns inside `body`; other body keys are kept. */
-const BODY_OWNED = ["sex", "age", "heightIn", "weightLb", "activity", "goalWeightLb"];
+export const BODY_OWNED = ["sex", "age", "heightIn", "weightLb", "activity", "goalWeightLb"];
 
 /**
  * A stated calorie target outside this band, against Mise's own

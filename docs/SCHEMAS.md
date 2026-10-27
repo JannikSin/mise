@@ -2345,3 +2345,104 @@ profile is unread, and the check must refuse that person, never pass them.
   "lastWrite": { "device": "iphone", "at": "2026-07-06T18:20:11Z" }, // ? debugging aid
 }
 ```
+
+## Mise 2.0 database (Supabase): `supabase/migrations/*.sql`
+
+Mise 2.0 moves the data out of `mise-data` into a Supabase Postgres database
+(plan: the fleet's `schelkin-2.0-plan.md`, revision 3, section 4). The files in
+`supabase/migrations/` are applied in name order; the PGlite suite applies the
+same files (`tests/_pglite.js`). Every former JSON file becomes one row; the
+JSON inside it keeps exactly the shape this document describes above.
+
+| Table | One row per | Notes |
+|---|---|---|
+| `public.docs` | former file (`path` is the old repo path) | `kind`, `profile_id`, `household_id` are set by the server from the path; `rev` bumps on every write; `legacy_sha` is the git blob sha at migration |
+| `public.recipes` | bank recipe (`recipes/` and `recipes-staging/`, `staging` flag) | admin writes only; refuses any guarded name |
+| `public.plates` | person | the cook-facing projection of their targets (see Plate card below), made only by the server |
+| `public.profiles`, `public.memberships`, `public.households`, `public.admins` | person, membership, house, admin | no client grant; read through `roster()` |
+| `public.guest_grants`, `public.invites`, `public.guest_logins`, `public.ai_usage` | | Worker only (through `svc`) |
+| `private.settings` | `root_profile` = the slug whose files sat at the repo root; `admin_profile` = the admin's slug | written by the migration, not the SQL |
+| `private.guard_terms` | (term, house it is hidden from) | the name guard |
+| `private.pending_links` | invite email (lowercase) to profile | when an invite creates the auth user, the `link_pending` trigger on `auth.users` sets `profiles.user_id`, and adds `admins` for `admin_profile` |
+
+**Path to row** (`private.doc_scope`, mirrored by `app/lib/doc-scope.js`):
+
+| Path | kind | Owner |
+|---|---|---|
+| `households/<h>/{events,ledger,pantry,pantry-notes,waste,household,prices,pins}.json` | the file name | house `<h>` |
+| `households/<h>/recipes/house-<12 hex>.json` | `house_recipe` | house `<h>` |
+| `philosophies/<id>.json` | `global` | everyone |
+| `profiles/<p>/profile/targets.json`, `profiles/<p>/fitness/targets.json` | `targets` | person `<p>` |
+| `profiles/<p>/fitness/*`, `profiles/<p>/health/*` (other files) | `health` | person `<p>` |
+| `profiles/<p>/plans/<YYYY-Www>.json`, `shopping.json`, `occasions.json`, `pantry.json`, `recipes/<id>.json` | `plan`, `shopping`, `occasions`, `pantry`, `own_recipe` | person `<p>` |
+| root `plans/`, `profile/`, `shopping.json`, `occasions.json`, `pantry.json` | as above | the root profile |
+| root `fitness/*`, `health/*` | refused | stay on GitHub (daily log, Anvil) |
+| anything else | refused (`mise_bad_path`) | |
+
+**Triggers.** `docs_before` derives the scope on insert and pins `path`,
+`doc_id`, `kind`, owner and `legacy_sha` on update; it refuses a signed-in
+non-owner's targets write that drops a stored key (ENG L2-2, P0403), and runs
+the name guard (P0422). `recipes_before` and `plates_before` bump `rev` and pin
+`doc_id` and `legacy_sha`. `targets_after` rebuilds the plate from either
+targets path and leaves the plate's `rev` alone when the projection did not
+change.
+
+**Name guard.** A guard term may not appear, as a whole word, case-blind, in
+any row a member of its `hidden_from` house can read: house rows of that house;
+plan, shopping, occasions, pantry and own recipes of anyone in that house; the
+plate of anyone in it or granted to it as a guest. The bank and `global` rows
+refuse every term.
+
+**Plate card** (`public.plates.data`, made by `private.plate_of`; lists in
+`app/lib/plate-fields.js`, JS port `app/lib/plate-of.js`). Exactly the targets
+keys in `PLATE_FIELDS` (diet, allergens, allergensFreeText, avoidIngredients,
+avoidRecipes, dislikeIngredients, cuisinePrefs, fixedSlots, skipSlots,
+mealSlots, slotAvoid, breakfastStyle, snackStyle, snackPortable, dinnerAnchor,
+phase, weeklyBudgetUsd, macros, currencies), with `macros.waterLiters` dropped,
+each `currencies` item cut to id, unit, perWeek, expires, venue, toGo,
+preferredSlot, estCalories and estProtein, and `note`/`notes` removed from object items of `mealSlots`.
+Every other targets key is in `OWNER_ONLY_FIELDS`. A new targets key must be
+added to one of the two lists (`tests/plate-allowlist.test.js` fails
+otherwise).
+
+**Who reads what** (decision 1: plate cards for everyone, the family house
+included; full profiles for the admin only):
+
+| Rows | Readable by |
+|---|---|
+| `targets`, `health` | the owner and the admin, in every house |
+| `plates` | the admin, the owner, everyone sharing a house with them, the houses holding a live guest grant for them |
+| `plan`, `shopping`, `occasions`, `pantry`, `own_recipe` | the admin, the owner, everyone sharing a house with them |
+| house rows | the admin and that house's members |
+| `global` | everyone signed in |
+| bank `recipes` | everyone signed in; `staging` rows the admin only |
+
+**Writes** go through `public.write_doc(path, data, expected_rev)`; it returns
+the new `rev`. `expected_rev` null = create. Errors: `P0409` conflict (stale
+rev, or a create over an existing row), `P0403` forbidden (the same answer for a
+hidden row, a missing row and a bad path), `P0422` name guard. `profiles.json`
+goes to the roster: `public.roster()` returns `{ profiles: [...], rev }` in the
+old profiles.json order, each row `{ id, roster, household, family, admin }`
+(`roster` = the display fields; `admin` a boolean); `household` and `family` are
+JSON `null` when hidden from the caller (null is NOT "home"); passkey hashes are
+never stored or returned. `public.plate_for(slug)` returns one person's plate
+as `{ data, rev, content_hash, legacy_sha }`, or null when the caller may not
+see it. `meta.json`, `guests.json` and `invites.json` have no row: a client
+write to them is refused (P0403) and a read finds nothing. Writing
+`profiles.json` may change display fields only: the caller's own row, or any
+visible row for the admin. New rows, house moves, families and admin flags are
+refused (P0403).
+
+**Migration** (`tools/migrate-to-supabase.mjs`, G1). Reads a local mise-data
+snapshot and `people.local.json` (shape in the tool's header) and writes one
+transaction that is rolled back unless every verify check passes. Not
+migrated: `meta.json`, `invites.json`, `guests.json`, root `fitness/*` and
+`health/*`, `profiles/<p>/fitness/{workouts,activities}.json`,
+`profiles/<p>/health/*`, non-JSON files, and own recipes identical to the bank
+copy of the same id (the shadow duplicates). Root `prices.json` and `pins.json`
+are copied to each house that has no file of its own. Passkey hashes are not
+imported. Gates, each refusing before any write: every file classified, the
+admin flag in profiles.json equal to people.local.json's admin, no guarded
+term or listed person name in any bank or staging recipe (the scrub), no
+guarded term in a file or plate a hidden-from house can read, and the freeze
+marker (`freeze.json`) on `--final`.
