@@ -5,11 +5,16 @@
 // apostrophe, a diaeresis, mixed scripts), not anyone in the app.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { freshDb, errorOf, asUser, asRole, SKIP } from "./_pglite.js";
 import { world } from "./_world.js";
 import { PEOPLE, writeSnapshot } from "./_snapshot.js";
 import { planMigration, runMigration, GateError } from "../tools/migrate-to-supabase.mjs";
 import { fold, guardHits, termWords, TermError } from "../tools/name-guard.mjs";
+import { takeSnapshot, SNAPSHOT_TABLES } from "../tools/db-snapshot.mjs";
 
 // ---- item 1 (C1, N1): a term folds exactly as the text does
 
@@ -149,4 +154,101 @@ test("C2 probe V: a house-w member seats a family-house member at a guest's tabl
   await db.exec(`insert into public.guest_grants select p.id, h.id, '2999-01-01' from public.profiles p, public.households h where p.slug = 'guest-2' and h.slug = 'house-w'`);
   assert.equal((await svcOne(db, "select svc.guest_view('guest-1') v")).v.names["guest-2"], "Guest B");
   await db.close();
+});
+
+// ---- item 3 (C3, N6): the backup workflow pins the code and keeps secrets out of its steps
+
+const WORKFLOW = readFileSync(new URL("../.github/workflows/mise-backup.yml", import.meta.url), "utf8");
+/** The workflow's steps: [name, body]. @param {string} y */
+function stepsOf(y) {
+  return y
+    .split(/^ {6}- name: /m)
+    .slice(1)
+    .map((b) => /** @type {[string, string]} */ ([b.slice(0, b.indexOf("\n")), b]));
+}
+
+test("C3: the public code is pinned to a full commit SHA, refused when absent, never a branch default", () => {
+  assert.doesNotMatch(WORKFLOW, /\|\|\s*'main'/, "no default branch");
+  assert.match(WORKFLOW, /\[\[ "\$\{CODE_SHA\}" =~ \^\[0-9a-f\]\{40\}\$ \]\]/);
+  assert.match(WORKFLOW, /ref: \$\{\{ steps\.pin\.outputs\.sha \}\}/);
+  // every action is pinned by commit SHA
+  const uses = [...WORKFLOW.matchAll(/uses: (\S+)/g)].map((m) => m[1]);
+  assert.ok(uses.length >= 1);
+  for (const u of uses) assert.match(String(u), /@[0-9a-f]{40}$/, u);
+  // the pin step's check refuses what it should (run the same test in bash)
+  const check = (/** @type {string} */ v) => spawnSync("bash", ["-c", `CODE_SHA="${v}"; [[ "\${CODE_SHA}" =~ ^[0-9a-f]{40}$ ]]`]).status;
+  assert.equal(check("0123456789abcdef0123456789abcdef01234567"), 0);
+  for (const bad of ["", "main", "v2.0", "0123456789abcdef", "0123456789ABCDEF0123456789ABCDEF01234567"]) assert.notEqual(check(bad), 0, bad);
+});
+
+test("C3: only the dump step sees the database URL; public code runs only before it, with no secret, and is removed", () => {
+  const steps = stepsOf(WORKFLOW);
+  const withUrl = steps.filter(([, b]) => b.includes("MISE_BACKUP_DB_URL")).map(([n]) => n);
+  assert.deepEqual(withUrl, ["Dump (the only step with the database URL)"]);
+  const dump = steps.findIndex(([n]) => n.startsWith("Dump"));
+  const withSecrets = steps.filter(([, b]) => /secrets\./.test(b)).map(([n]) => n);
+  assert.deepEqual(withSecrets, ["Dump (the only step with the database URL)", "Encrypt, then shred the plaintext", "Alert the phone (no data in the message)"]);
+  steps.forEach(([n, b], i) => {
+    if (/node mise\/|uses: actions\/checkout/.test(b)) {
+      assert.ok(i < dump, `${n} runs before the dump`);
+      assert.doesNotMatch(b, /secrets\./, n);
+    }
+  });
+  assert.ok(steps.slice(0, dump).some(([, b]) => b.includes("rm -rf mise")), "the public code is deleted before the URL appears");
+  assert.ok(steps.slice(dump).every(([, b]) => !/node mise\//.test(b)), "no public code after the dump");
+  assert.doesNotMatch(WORKFLOW, /^ {4}env:/m, "no job-level env");
+});
+
+test("C3: the plaintext lives only on tmpfs and is shredded, also after a failure", () => {
+  const plain = [...WORKFLOW.matchAll(/(\S*)plain\.json/g)].map((m) => m[1]);
+  assert.ok(plain.length >= 3);
+  for (const p of plain) assert.match(String(p), /^(-o )?\/dev\/shm\/mise-backup\/$/, p);
+  assert.match(WORKFLOW, /test "\$\(findmnt -n -o FSTYPE --target \/dev\/shm\)" = "tmpfs"/);
+  const steps = stepsOf(WORKFLOW);
+  const enc = steps.find(([n]) => n.startsWith("Encrypt"))?.[1] ?? "";
+  assert.ok(enc.indexOf("age -r") < enc.indexOf("shred -u /dev/shm/mise-backup/plain.json"));
+  const last = steps.find(([n]) => n.startsWith("Shred any plaintext"))?.[1] ?? "";
+  assert.match(last, /if: always\(\)/);
+  assert.match(last, /shred -u/);
+});
+
+/** The workflow's own counts check, as a python program. */
+function checkScript() {
+  const lines = WORKFLOW.split("\n");
+  const a = lines.findIndex((l) => l.includes("# mise-backup check: begin"));
+  const b = lines.findIndex((l) => l.includes("# mise-backup check: end"));
+  const indent = /** @type {string} */ (lines[a]).match(/^ */)?.[0].length ?? 0;
+  return lines
+    .slice(a, b + 1)
+    .map((l) => l.slice(indent))
+    .join("\n");
+}
+const PY = ["python3", "python"].find((p) => spawnSync(p, ["-c", "import json"]).status === 0) ?? null;
+
+test("C3: the workflow's own check passes a real snapshot, prints counts only, and refuses a broken one", { skip: SKIP || (PY ? false : "no python here") }, async () => {
+  const db = await freshDb();
+  await runMigration(db, planMigration(writeSnapshot(), PEOPLE));
+  const snap = await takeSnapshot(db);
+  await db.close();
+  const dir = mkdtempSync(path.join(tmpdir(), "mise-c3-"));
+  const tables = path.join(dir, "tables.txt");
+  writeFileSync(tables, SNAPSHOT_TABLES.map(([t]) => `${t}\n`).join(""));
+  const script = path.join(dir, "check.py");
+  writeFileSync(script, checkScript());
+  const run = (/** @type {unknown} */ s) => {
+    const f = path.join(dir, "plain.json");
+    writeFileSync(f, typeof s === "string" ? s : JSON.stringify(s));
+    return spawnSync(/** @type {string} */ (PY), [script, tables, f], { encoding: "utf8" });
+  };
+  const ok = run(snap);
+  assert.equal(ok.status, 0, ok.stderr);
+  const lines = ok.stdout.trim().split(/\r?\n/);
+  assert.equal(lines.length, SNAPSHOT_TABLES.length);
+  for (const l of lines) assert.match(l, /^[a-z_]+\.[a-z_]+ \d+$/, "counts only");
+  const noDocs = structuredClone(snap);
+  noDocs.tables["public.docs"] = [];
+  const noTable = structuredClone(snap);
+  delete noTable.tables["private.guard_terms"];
+  for (const bad of ["not json", { ...snap, format: "other" }, noDocs, noTable]) assert.notEqual(run(bad).status, 0);
+  rmSync(dir, { recursive: true, force: true });
 });

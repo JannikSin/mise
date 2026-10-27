@@ -88,9 +88,9 @@ test("the backup workflow: the same snapshot SQL, counts-only check, age, plaint
   for (const step of [
     'test "$(gh api "repos/${GITHUB_REPOSITORY}" --jq .private)" = "true"',
     "node mise/tools/db-snapshot.mjs sql",
-    "node mise/tools/db-snapshot.mjs check",
+    "node mise/tools/db-snapshot.mjs tables",
     'age -r "${AGE_RECIPIENT}"',
-    'shred -u "${RUNNER_TEMP}/plain.json"',
+    "shred -u /dev/shm/mise-backup/plain.json",
     "git ls-remote --exit-code --heads origin backups",
     "date -u -d '30 days ago'",
   ]) {

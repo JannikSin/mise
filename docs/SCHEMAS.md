@@ -2503,8 +2503,17 @@ itself is `supabase/migrations/`, not the snapshot. The nightly backup
 (`.github/workflows/mise-backup.yml`, runs only in the private `mise-backup`
 repo) takes it as the read-only `mise_backup` role (login off until step 10,
 `tools/backup-setup.mjs`; a select policy on every RLS table, no write grant),
-encrypts it with age and keeps 30 nights on one orphan branch;
-`mise-keepalive.yml` reads each project twice a day. `tools/restore-backup.mjs`
+encrypts it with age and keeps 30 nights on one orphan branch. The workflow
+(fix loop 2, C3) pins the public code to one full commit SHA (the variable
+`MISE_CODE_REF` or the `code_sha` input, refused when absent; no branch
+default) and `actions/checkout` by SHA; the checkout and the public code
+(`db-snapshot.mjs sql` and `tables`) run in steps with no secret and the
+checkout is deleted before the dump; only the dump step holds the database
+URL, only the encrypt step the age recipient; the counts check is the
+workflow's own inline script, never public code. The plaintext exists only
+under `/dev/shm/mise-backup` (the run refuses when that is not tmpfs), is
+shredded right after the encrypt, and an `always()` step shreds any left by a
+failed step. `mise-keepalive.yml` reads each project twice a day. `tools/restore-backup.mjs`
 turns a snapshot into one transaction that checks the target's columns,
 refuses a non-empty target without `--wipe`, inserts with triggers off (revs,
 doc ids and shas exact), clears account links the target lacks (they relink on

@@ -144,6 +144,13 @@ async function main(argv) {
     process.stdout.write(snapshotSql());
     return;
   }
+  if (cmd === "tables") {
+    // the table names, one per line, for the Action's own counts check (fix
+    // loop 2 C3: the plaintext is never read by public code)
+    process.stdout.write(SNAPSHOT_TABLES.map(([t]) => `${t}
+`).join(""));
+    return;
+  }
   if (cmd === "check") {
     // reads a snapshot on stdin, prints counts only (the Action's sanity step)
     const chunks = [];
@@ -154,7 +161,7 @@ async function main(argv) {
     for (const [k, n] of Object.entries(counts)) console.log(`${k} ${n}`);
     return;
   }
-  console.log("usage: node tools/db-snapshot.mjs sql | check < snapshot.json");
+  console.log("usage: node tools/db-snapshot.mjs sql | tables | check < snapshot.json");
   process.exit(2);
 }
 
