@@ -2377,7 +2377,27 @@ change.
 any row a member of its `hidden_from` house can read: house rows of that house;
 plan, shopping, occasions, pantry and own recipes of anyone in that house; the
 plate of anyone in it or granted to it as a guest. The bank and `global` rows
-refuse every term.
+refuse every term. The guard reads every decoded string and object key (never
+the serialized JSON), each pair of adjacent strings in an array joined, and
+the path without its `profiles/<p>/` or `households/<h>/` segment (a bank
+recipe's id); each folded (NFKD, combining marks and zero-width characters
+dropped, common Cyrillic and Greek lookalikes mapped to ASCII, lower case). A
+term matches as a whole word with an optional plural (`s`, `es`) and trailing
+digits (fix loop 1, F1; SQL `private.guard_fold`/`guard_text`/`guard_hit`, JS
+twin `tools/name-guard.mjs`, one corpus through both in
+`tests/name-guard.test.js`).
+
+**Plate source and safety keys** (fix loop 1, F2, F7). The plate is made from
+the person's CANONICAL row (`.../profile/targets.json`) whenever one exists,
+from the mirror only when there is none. The root profile's slug-form paths
+(`profiles/<root>/profile/targets.json`, `.../plans/...`, `shopping.json`,
+`occasions.json`, `pantry.json`) resolve to the root row
+(`private.canonical_path`). A signed-in writer who is not the owner, the admin
+included, may not drop a targets key or loosen a plate safety key
+(`PLATE_SAFETY_FIELDS`: diet, allergens, allergensFreeText, avoidIngredients,
+avoidRecipes, dislikeIngredients, slotAvoid) on an update or an insert: a diet
+may only get stricter (omnivore, pescatarian, vegetarian, vegan), a list may
+only gain items, the free text may only gain words (P0403).
 
 **Plate card** (`public.plates.data`, made by `private.plate_of`; lists in
 `app/lib/plate-fields.js`, JS port `app/lib/plate-of.js`). Exactly the targets
@@ -2418,6 +2438,19 @@ write to them is refused (P0403) and a read finds nothing. Writing
 `profiles.json` may change display fields only: the caller's own row, or any
 visible row for the admin. New rows, house moves, families and admin flags are
 refused (P0403).
+
+**Worker and app RPCs** (fix loop 1, item 9; contract in `worker/src/svc.js`).
+`public.whoami()` (signed in): `{ slug, admin, home }` or null when the account
+has no profile. service_role only: `svc.whoami(p_sub)` `{ slug, admin, houses }`;
+`svc.cron_inputs(p_week, p_with_shopping)` `{ profile, house, plan, events,
+shopping }` for the root profile; `svc.mint_invite(p_sub, p_code_hash,
+p_host_house, p_expires_at)` `'ok'` for the admin or an entitled member of that
+house, else `'forbidden'`; `svc.invite_get(p_code_hash)` `{ host_house,
+expires_at, used_at, claimed, status_until }`; `svc.guest_login_add(p_profile,
+p_name_key, p_salt, p_hash)` boolean; `svc.guest_login_row(p_name_key)` `{ slug,
+salt, hash }`; `svc.guest_view(p_slug)` for a live grant only, `{ profile_id,
+name, has_login, host_house, tables, names }` where `names` covers only the
+people seated at the guest's own tables.
 
 **Migration** (`tools/migrate-to-supabase.mjs`, G1). Reads a local mise-data
 snapshot and `people.local.json` (shape in the tool's header) and writes one
