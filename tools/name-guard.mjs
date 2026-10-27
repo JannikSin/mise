@@ -32,7 +32,12 @@ export const LOOKALIKES = Object.freeze({
   æ: "ae", Æ: "ae", œ: "oe", Œ: "oe", þ: "th", Þ: "th", ð: "d", Ð: "d",
 });
 
-const DROP = /[\u0300-\u036f\u200b-\u200d\u2060\ufeff\u00ad]/g;
+// fix loop 2 N3: every combining block, the bidi controls (LRM, RLM,
+// embeddings, isolates), invisible operators, variation selectors and tag
+// characters too; the SQL twin drops the same set.
+// The class lists combining RANGES to delete, not a combined character.
+// eslint-disable-next-line no-misleading-character-class
+const DROP = /[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\u180e\ufe00-\ufe0f\ufeff\u00ad\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu;
 const MAP = new Map(Object.entries(LOOKALIKES));
 
 /** @param {string} s */

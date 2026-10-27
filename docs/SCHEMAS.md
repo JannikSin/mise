@@ -2380,8 +2380,9 @@ plate of anyone in it or granted to it as a guest. The bank and `global` rows
 refuse every term. The guard reads every decoded string and object key (never
 the serialized JSON), each pair of adjacent strings in an array joined, and
 the path without its `profiles/<p>/` or `households/<h>/` segment (a bank
-recipe's id); each folded (NFKD, combining marks and zero-width characters
-dropped, common Cyrillic and Greek lookalikes mapped to ASCII, lower case). A
+recipe's id); each folded (NFKD, combining marks of every combining block,
+zero-width characters, bidi controls such as LRM and RLM, invisible
+operators, variation selectors and tag characters dropped (fix loop 2, N3), common Cyrillic and Greek lookalikes mapped to ASCII, lower case). A
 term matches as a whole word with an optional plural (`s`, `es`) and trailing
 digits (fix loop 1, F1; SQL `private.guard_fold`/`guard_text`/`guard_hit`, JS
 twin `tools/name-guard.mjs`, one corpus through both in
