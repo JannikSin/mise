@@ -32,6 +32,7 @@ import {
 import { initRouter, parseRoute } from "./lib/router.js";
 import { backend } from "./lib/backend.js";
 import { specialTarget } from "./lib/house-special.js";
+import { houseRecipeDirs, withHouseRecipes, mayPromote } from "./lib/house-recipes.js";
 import {
   visibleProfilesFor,
   withoutHiddenNames,
@@ -83,6 +84,7 @@ import { AnnotateView } from "./views/annotate.js";
 import { DinnerView } from "./views/dinner.js";
 import { AskView } from "./views/ask.js";
 import { TablesView } from "./views/tables.js";
+import { screenSeats, screenOccasion } from "./lib/screen-seats.js";
 import { ConfirmModal } from "./views/confirm-modal.js";
 import { upsertDay, mergeProfileAnswers } from "./lib/targets.js";
 import {
@@ -621,9 +623,18 @@ function App() {
   useEffect(() => {
     let alive = true;
     const load = () => {
-      readCollection("recipes", { raw: true }).then((r) => {
+      readCollection("recipes", { raw: true }).then(async (r) => {
         if (!alive) return;
-        setBankRecipes(r);
+        // the bank plus every house of mine (2.0 E2): on Supabase a special
+        // is its house's; on GitHub there are no house dirs to read
+        const dirs = houseRecipeDirs(
+          backend().name,
+          backend().name === "supabase" ? (await readProfiles()).profiles : [],
+          activeProfile(),
+        );
+        const houses = await Promise.all(dirs.map((d) => readCollection(d, { raw: true })));
+        if (!alive) return;
+        setBankRecipes(withHouseRecipes(r, houses));
         // ready once the bank fully synced, or, when this launch cannot sync
         // (offline, rate-limited), from a cache that is not empty
         setBankReady(
@@ -3708,16 +3719,9 @@ function App() {
       // waits for GitHub, and fails closed (schelkin, 10/23): an unread
       // owner used to screen every recipe as clean
       const t = /** @type {any} */ (await readTargetsOf(profileId, readNow).catch(() => null));
+      // a dish this phone cannot resolve is never clean (screen-seats.js)
       const byId = recipesById([...bankRecipesRef.current, ...allRecipesRef.current]);
-      /** @type {Record<string, string[]>} */
-      const out = {};
-      for (const id of new Set(recipeIds)) {
-        const r = byId.get(id);
-        if (!r) continue;
-        const reasons = seatScreen(r, t);
-        if (reasons.length > 0) out[id] = reasons;
-      }
-      return out;
+      return screenOccasion(recipeIds, byId, t);
     },
     [],
   );
@@ -4301,17 +4305,13 @@ function App() {
   // seat, reading each profile's own targets (raw paths per SCHEMAS.md)
   const handleSeatScreen = useCallback(async (/** @type {string} */ recipeId) => {
     const recipe = recipesById(bankRecipesRef.current).get(recipeId);
-    /** @type {Record<string, string[]>} */
-    const out = {};
-    if (!recipe) return out;
-    for (const p of allProfilesRef.current) {
-      // fails closed (schelkin, 10/23): an unread profile used to screen as
-      // clean, and with the 2.0 sync scope an unseated guest always reads as
-      // unread. seatScreen names it, so the seat is refused, not waved on
-      const t = /** @type {any} */ (await readTargetsOf(p.id).catch(() => null));
-      out[p.id] = seatScreen(recipe, t);
-    }
-    return out;
+    // fails closed (schelkin, 10/23): an unread profile used to screen as
+    // clean, and with the 2.0 sync scope an unseated guest always reads as
+    // unread. seatScreen names it, so the seat is refused, not waved on.
+    // A dish not in the bank refuses every seat too (terrigen, 10/27)
+    return screenSeats(recipe, allProfilesRef.current, (id) =>
+      readTargetsOf(id).catch(() => null),
+    );
   }, []);
 
   // THE KITCHEN RULE'S PEOPLE (2.0, I-08): each member's targets for the
@@ -4392,6 +4392,9 @@ function App() {
   // on an AI-written bank recipe (hbp-annotated / ai-special), letting the
   // week generator and brigades use it. Writing the flag IS the audit.
   const handlePromoteRecipe = useCallback(async (/** @type {Record<string, any>} */ recipe) => {
+    // the admin's alone on Supabase (2.0 E2); the bank path below means the
+    // server's admin check and bank name guard both apply
+    if (!mayPromote(backend())) throw new Error("only the admin can promote a recipe");
     const promoted = { ...recipe, promoted: true };
     await write(`recipes/${recipe.id}.json`, /** @type {any} */ (promoted), { raw: true });
     setBankRecipes([...bankRecipesRef.current.filter((r) => r.id !== recipe.id), promoted]);

@@ -11,10 +11,11 @@ const { dataBranch, tokenBroken: githubTokenBroken } = await import("../app/lib/
 const { write, flushNow, discardMismatched, getSyncStatus } = await import("../app/lib/store.js");
 
 /**
- * A recording backend standing in for Supabase.
+ * A recording backend standing in for Supabase, signed in unless told not to.
  * @param {string} stamp
+ * @param {{ fail?: boolean, signedIn?: boolean }} [opts]
  */
-function fakeBackend(stamp) {
+function fakeBackend(stamp, opts = {}) {
   /** @type {{ path: string, sha: string | null | undefined }[]} */
   const writes = [];
   /** @type {import("../app/lib/backend.js").Backend} */
@@ -23,6 +24,7 @@ function fakeBackend(stamp) {
     read: async () => null,
     write: async (path, _data, sha) => {
       writes.push({ path, sha });
+      if (opts.fail) throw new Error("network down");
       return { sha: "pg:2" };
     },
     list: async () => [],
@@ -32,7 +34,8 @@ function fakeBackend(stamp) {
     authBroken: (s) => s === "invalid",
     stamp: () => stamp,
     laneOf: () => "supabase",
-    session: () => null,
+    session: () =>
+      opts.signedIn === false ? null : { slug: "housemate-1", admin: false, home: "house-a" },
   };
   return { b, writes };
 }
@@ -100,5 +103,32 @@ test("a 1.95 queue replays into the project that took over its branch, restamped
   assert.equal(res.pending, 1);
   assert.equal(await discardMismatched(), 1);
   assert.equal(idb.has("plans/2026-W44.json"), false);
+  installBackend(null);
+});
+
+test("a replayed 1.95 record is stamped only once it lands (ENG F2)", async () => {
+  idb.clear();
+  const { b, writes } = fakeBackend("supabase", { fail: true });
+  installBackend(b);
+  idb.set(
+    "shopping.json",
+    queued("shopping.json", { items: [] }, { branch: "main", sha: "abc123" }),
+  );
+  await flushNow({ timeoutMs: 2000 });
+  assert.equal(writes.length, 1, "it was tried");
+  assert.equal(idb.get("shopping.json")?.dirty, true);
+  assert.equal(idb.get("shopping.json")?.branch, "main", "a failed push keeps its GitHub stamp");
+  installBackend(null);
+});
+
+test("a Supabase build with no session pushes nothing and claims no sign-out (ENG F2)", async () => {
+  idb.clear();
+  const { b, writes } = fakeBackend("supabase", { signedIn: false });
+  installBackend(b);
+  idb.set("shopping.json", queued("shopping.json", { items: [] }, { branch: "main" }));
+  const res = await flushNow({ timeoutMs: 2000 });
+  assert.deepEqual(writes, []);
+  assert.doesNotMatch(String(res.error), /signed out/);
+  assert.equal(idb.get("shopping.json")?.branch, "main");
   installBackend(null);
 });

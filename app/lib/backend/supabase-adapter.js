@@ -57,9 +57,13 @@ export function classifyPath(path) {
   const bank = BANK.exec(path);
   if (bank) return { kind: "bank", id: String(bank[2]), staging: bank[1] === "recipes-staging" };
   if (path === "profiles.json") return { kind: "roster" };
-  // root profile/targets.json is the root profile's; root fitness/targets.json
-  // is not stored here at all (the GitHub lane keeps it for Anvil)
-  if (path === "profile/targets.json") return { kind: "targets", owner: ROOT_PROFILE };
+  // root profile/targets.json is the root profile's, and so is the legacy
+  // root fitness/targets.json (Red Team 6): on the admin's phone the GitHub
+  // lane keeps that one for Anvil, but any other phone asking for it here
+  // gets the plate, never the full row
+  if (path === "profile/targets.json" || path === "fitness/targets.json") {
+    return { kind: "targets", owner: ROOT_PROFILE };
+  }
   const own = OWN_TARGETS.exec(path);
   if (own) return { kind: "targets", owner: String(own[1]) };
   return { kind: "doc" };
@@ -168,6 +172,16 @@ export function createSupabaseAdapter({
   };
 
   /**
+   * The owner, or the admin, reads a targets row in full; anyone else reads
+   * the plate (ENG L2-2), decided by who is asking.
+   * @param {string} owner
+   */
+  const mayReadFull = (owner) => {
+    const me = asker();
+    return me.admin || me.slug === owner;
+  };
+
+  /**
    * The row a path's sha is checked against, for the legacy mapping.
    * @param {string} path
    * @returns {Promise<{ legacy_sha?: string | null } | null>}
@@ -180,6 +194,13 @@ export function createSupabaseAdapter({
   };
 
   /**
+   * A home-house file's sha, tied to the asker's home house (ENG F5):
+   * `pg:N@<home>`, so a change of house is a change of sha.
+   * @param {string} sha
+   */
+  const houseSha = (sha) => `${sha}@${asker().home}`;
+
+  /**
    * The rev write_doc should expect for a write carrying `sha`.
    * @param {string} path
    * @param {string | null | undefined} sha
@@ -187,6 +208,15 @@ export function createSupabaseAdapter({
    */
   const expectedRev = async (path, sha) => {
     if (!sha) return null;
+    // a home-house file's sha names its house (ENG F5): one cached or queued
+    // under another house is a create, which conflicts and merges, never an
+    // edit of this house's row that happens to sit at the same rev
+    const house = /^households\/([^/]+)\/(?:prices|pins)\.json$/.exec(path);
+    if (house) {
+      const tied = /^(.*)@([^@]+)$/.exec(sha);
+      if (!tied || tied[2] !== house[1]) return null;
+      sha = String(tied[1]);
+    }
     const pg = /^pg:(\d+)$/.exec(sha);
     if (pg) return Number(pg[1]);
     const row = await legacyOf(path);
@@ -212,6 +242,10 @@ export function createSupabaseAdapter({
   async function read(phonePath) {
     const path = serverPath(phonePath);
     if (path === null) return null;
+    if (HOUSE_FILES.test(phonePath)) {
+      const row = await docRow(path);
+      return row ? { data: row.data, sha: houseSha(shaOf(row)) } : null;
+    }
     const c = classifyPath(path);
     if (c.kind === "bank") {
       const row = await bankRow(c.id, path);
@@ -224,8 +258,7 @@ export function createSupabaseAdapter({
       return { data: { profiles: got.profiles.map(rosterEntry) }, sha: `pg:${got.rev}` };
     }
     if (c.kind === "targets") {
-      const me = asker();
-      if (!(me.admin || me.slug === c.owner)) {
+      if (!mayReadFull(c.owner)) {
         const plate = await plateRow(c.owner, path);
         if (!plate) return null;
         const sha = plateShaOf(plate);
@@ -257,7 +290,8 @@ export function createSupabaseAdapter({
       if (typeof rev !== "number" && typeof rev !== "string") {
         throw new Error(`supabase ${path}: write_doc returned no rev`);
       }
-      return { sha: `pg:${Number(rev)}` };
+      const next = `pg:${Number(rev)}`;
+      return { sha: HOUSE_FILES.test(phonePath) ? houseSha(next) : next };
     },
     async list(dir) {
       const bank = /^(recipes|recipes-staging)$/.exec(dir);
@@ -279,26 +313,56 @@ export function createSupabaseAdapter({
         }));
       }
       const pattern = `${dir.replace(/[\\%_]/g, (m) => `\\${m}`)}/%`;
+      // a directory that can hold someone else's targets is listed WITHOUT
+      // the rows (loop 2 item 10, Red Team 2 L2): the full targets never
+      // cross the wire to a non-owner, even if a policy were wrong. Its
+      // other files are then fetched one by one, and its targets as the plate.
+      const t = classifyPath(`${dir}/targets.json`);
+      const blind = t.kind === "targets" && !mayReadFull(t.owner);
       /** @type {(DocRow & { path: string })[]} */
       const rows =
         (await run(
-          client.from("docs").select("path,data,rev,legacy_sha").like("path", pattern),
+          client
+            .from("docs")
+            .select(blind ? "path,rev,legacy_sha" : "path,data,rev,legacy_sha")
+            .like("path", pattern),
           dir,
         )) ?? [];
       const prefix = `${dir}/`;
       // the Contents API lists one level of JSON files; so does this
-      return rows
+      const files = rows
         .filter((r) => {
           const rest = r.path.slice(prefix.length);
           return r.path.startsWith(prefix) && !rest.includes("/") && rest.endsWith(".json");
         })
-        .sort((a, b) => a.path.localeCompare(b.path))
-        .map((r) => ({
-          name: r.path.slice(prefix.length),
-          path: r.path,
-          sha: shaOf(r),
-          data: r.data,
-        }));
+        .sort((a, b) => a.path.localeCompare(b.path));
+      /** @type {{ name: string, path: string, sha: string, data?: Record<string, unknown> }[]} */
+      const out = [];
+      for (const r of files) {
+        const c = classifyPath(r.path);
+        // the plate rule holds for listings too (Red Team 6): someone else's
+        // targets list as their plate, or not at all
+        if (c.kind === "targets" && !mayReadFull(c.owner)) {
+          const plate = await plateRow(c.owner, r.path);
+          if (plate) {
+            out.push({
+              name: r.path.slice(prefix.length),
+              path: r.path,
+              sha: plateShaOf(plate),
+              data: plate.data,
+            });
+          }
+          continue;
+        }
+        const name = r.path.slice(prefix.length);
+        // listed blind, the store fetches the file itself (backend read)
+        out.push(
+          blind
+            ? { name, path: r.path, sha: shaOf(r) }
+            : { name, path: r.path, sha: shaOf(r), data: r.data },
+        );
+      }
+      return out;
     },
     async readMeta(path) {
       const got = await read(path);

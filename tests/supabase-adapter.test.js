@@ -30,10 +30,11 @@ test("paths are classified the way doc_scope stores them", () => {
     kind: "targets",
     owner: "guest-a",
   });
+  // fix loop 1, Red Team 6: the legacy root targets is the root profile's
   assert.equal(
     classifyPath("fitness/targets.json").kind,
-    "doc",
-    "root fitness is not a plate read",
+    "targets",
+    "root fitness targets reads by the owner-or-plate rule",
   );
   assert.equal(classifyPath("households/house-a/events.json").kind, "doc");
 });

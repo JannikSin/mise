@@ -18,7 +18,10 @@ const DB_VERSION = 1;
  *   dirty: boolean,
  *   queuedAt: number | null,
  *   rev: number
- * , branch?: string | null, fingerprint?: string | null,
+ * , branch?: string | null, fingerprint?: string | null, fingerprintStale?: boolean,
+ *   account?: string,
+ *   held?: { path: string, account: string, branch?: string | null },
+ *   rehome?: { id: string, path: string },
  *   refused?: { reason: "forbidden" | "name", at: number } }} FileRecord
  */
 
