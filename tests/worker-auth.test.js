@@ -49,20 +49,30 @@ async function world(o = {}) {
   const takes = [];
   /** @type {Record<string, number>} */
   const counts = {};
+  /** @type {any[]} */
+  const calls = [];
   const sb = fakeSupabase({
     jwks: { [SANDBOX_REF]: [key.jwk], [PROJECT_REF]: [key.jwk] },
     rpc: {
       entitled: () => o.entitled ?? true,
-      ai_count: (a) => {
-        takes.push(a);
+      // svc.ai_take as the SQL does it: the person's row, then the global
+      // row unless the person is over; `takes` records each row touched
+      ai_take: (a) => {
         if (o.fail) return Response.json({ message: "boom" }, { status: 500 });
-        counts[a.p_sub] = (counts[a.p_sub] ?? 0) + 1;
-        return counts[a.p_sub] + (o.offset?.[a.p_sub] ?? 0);
+        calls.push(a);
+        const bump = (/** @type {string} */ sub) => {
+          takes.push({ p_sub: sub, n: a.p_n });
+          counts[sub] = (counts[sub] ?? 0) + a.p_n;
+          return counts[sub] + (o.offset?.[sub] ?? 0);
+        };
+        if (bump(a.p_sub) > a.p_user_cap) return "user";
+        if (bump(GLOBAL_QUOTA_USER) > a.p_global_cap) return "global";
+        return "ok";
       },
     },
     other: github,
   });
-  return { key, sb, takes };
+  return { key, sb, takes, calls };
 }
 
 const SCAN_ENV = { ...SANDBOX_ENV, ANTHROPIC_API_KEY: "sk-PLACEHOLDER" };
@@ -92,7 +102,7 @@ test("a JWT on a switched branch reaches the AI route after entitlement and quot
     "one slot on the person's row, then one on the global row",
   );
   // the secret key goes to svc, in the svc schema
-  const call = sb.calls.find((c) => c.fn === "ai_count");
+  const call = sb.calls.find((c) => c.fn === "ai_take");
   assert.equal(call?.headers.get("content-profile"), "svc");
   assert.equal(call?.headers.get("apikey"), "sb_secret_PLACEHOLDER");
 });
@@ -107,7 +117,7 @@ test("entitlement: false is 403, and the answer is cached for 5 minutes", async 
     assert.equal(b.status, 403);
   });
   assert.equal(sb.calls.filter((c) => c.fn === "entitled").length, 1);
-  assert.equal(sb.calls.filter((c) => c.fn === "ai_count").length, 0, "no quota for the unentitled");
+  assert.equal(sb.calls.filter((c) => c.fn === "ai_take").length, 0, "no quota for the unentitled");
 });
 
 test("entitlement cache expires after 5 minutes", async () => {
@@ -170,7 +180,7 @@ test("quota weights: annotate 4, transcribe 2; caps come from env", async () => 
     const r = await takeAiQuota({ who, branch: "sandbox", pathname, env, fetchImpl: sb.fetchImpl });
     assert.equal(r.ok, true, pathname);
   }
-  const mine = takes.filter((t) => t.p_sub === USER_A).length;
+  const mine = takes.filter((t) => t.p_sub === USER_A).reduce((n, t) => n + t.n, 0);
   assert.equal(mine, 4 + 2 + 1, "non-AI routes are not metered");
   // the 11th slot passes the per-person cap of 10
   const over = await takeAiQuota({ who, branch: "sandbox", pathname: "/annotate", env, fetchImpl: sb.fetchImpl });
@@ -323,8 +333,8 @@ test("R1: the local origin's PAT on an AI route is metered on main's shared and 
     takes.map((t) => t.p_sub),
     [PAT_QUOTA_USER, GLOBAL_QUOTA_USER],
   );
-  const hosts = sb.calls.filter((c) => c.fn === "ai_count").map((c) => new URL(c.url).host.split(".")[0]);
-  assert.ok(hosts.length === 2 && hosts.every((h) => h === PROJECT_REF), `metered on main: ${hosts}`);
+  const hosts = sb.calls.filter((c) => c.fn === "ai_take").map((c) => new URL(c.url).host.split(".")[0]);
+  assert.ok(hosts.length === 1 && hosts.every((h) => h === PROJECT_REF), `metered on main: ${hosts}`);
 });
 
 test("R1: sandbox-only switch meters the local origin's PAT on the sandbox; nothing switched is 1.95", async () => {
@@ -344,7 +354,7 @@ test("R1: sandbox-only switch meters the local origin's PAT on the sandbox; noth
     assert.equal(r.status, 400);
   });
   assert.equal(takes.length, 2);
-  assert.ok(sb.calls.filter((c) => c.fn === "ai_count").every((c) => new URL(c.url).host.startsWith(SANDBOX_REF + ".")));
+  assert.ok(sb.calls.filter((c) => c.fn === "ai_take").every((c) => new URL(c.url).host.startsWith(SANDBOX_REF + ".")));
   // nothing switched: the local origin is 1.95, no refusal, no Supabase call
   const w2 = await world();
   await withFetch(w2.sb.fetchImpl, async () => {
@@ -363,4 +373,26 @@ test("R1: authenticate judges a branchless PAT as switched once any branch is", 
     patCheck: async () => "ok",
   });
   assert.equal(r.ok, false);
+});
+
+// ---- fix loop 1, item 10 (Engineer F9): ONE svc call per AI request, the
+// weight in it, David's Chicago day, the caps from env; and the 429 says the
+// truth about when it resets.
+test("E9: /annotate costs one quota round trip carrying weight 4 and the Chicago day", async () => {
+  const { key, sb, calls } = await world();
+  const env = { ...SCAN_ENV, AI_DAILY_PER_USER: "12", AI_DAILY_GLOBAL: "70" };
+  const nowMs = Date.UTC(2026, 9, 28, 2, 30); // 9:30 pm Chicago on 10/27, already 10/28 in UTC
+  const who = /** @type {any} */ ({ kind: "jwt", sub: USER_A, jwt: await signJwt(key), project: { url: `https://${SANDBOX_REF}.supabase.co`, secret: "s", ref: SANDBOX_REF } });
+  const r = await takeAiQuota({ who, branch: "sandbox", pathname: "/annotate", env, fetchImpl: sb.fetchImpl, nowMs });
+  assert.equal(r.ok, true);
+  assert.equal(sb.calls.filter((c) => c.fn === "ai_take").length, 1);
+  assert.deepEqual(calls[0], { p_sub: USER_A, p_n: 4, p_day: "2026-10-27", p_user_cap: 12, p_global_cap: 70 });
+});
+
+test("E9: the allowance message names midnight, never overnight", async () => {
+  const { key, sb } = await world({ offset: { [USER_A]: 80 } });
+  const who = /** @type {any} */ ({ kind: "jwt", sub: USER_A, jwt: await signJwt(key), project: { url: `https://${SANDBOX_REF}.supabase.co`, secret: "s", ref: SANDBOX_REF } });
+  const r = await takeAiQuota({ who, branch: "sandbox", pathname: "/scan", env: SCAN_ENV, fetchImpl: sb.fetchImpl });
+  assert.equal(r.ok, false);
+  assert.match(!r.ok ? r.error : "", /resets at midnight$/);
 });

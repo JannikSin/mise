@@ -99,6 +99,27 @@ export async function aiCount(project, sub, fetchImpl) {
 }
 
 /**
+ * svc.ai_take(p_sub uuid, p_n int, p_day date, p_user_cap int, p_global_cap int)
+ * returns text (fix loop 1, E9; supabase/migrations/20261104100000_worker_ai_take.sql):
+ * adds p_n to the person's row and, unless that row is over its cap, to the
+ * global row, for David's day, in ONE call. 'ok' | 'user' | 'global'.
+ * @param {SvcProject} project
+ * @param {{ sub: string, n: number, day: string, userCap: number, globalCap: number }} a
+ * @param {FetchImpl} [fetchImpl]
+ * @returns {Promise<"ok" | "user" | "global">}
+ */
+export async function aiTake(project, a, fetchImpl) {
+  const r = await rpc(
+    project,
+    "ai_take",
+    { p_sub: a.sub, p_n: a.n, p_day: a.day, p_user_cap: a.userCap, p_global_cap: a.globalCap },
+    { fetchImpl },
+  );
+  if (r !== "ok" && r !== "user" && r !== "global") throw new SvcError("ai_take returned no answer", 502);
+  return r;
+}
+
+/**
  * [NEEDED] svc.whoami(p_sub uuid) returns jsonb
  * { slug text, admin boolean, houses text[] } for the caller's profile, or null.
  * @param {SvcProject} project @param {string} sub @param {FetchImpl} [fetchImpl]

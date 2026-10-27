@@ -65,7 +65,7 @@ test("Supabase shell end to end: what post() sends is what the Worker verifies",
   resetGuestCachesForTests();
   const key = await makeKey("kid-1");
   const jwt = await signJwt(key);
-  const sb = fakeSupabase({ jwks: { [SANDBOX_REF]: [key.jwk] }, rpc: { entitled: () => true, ai_count: () => 1 } });
+  const sb = fakeSupabase({ jwks: { [SANDBOX_REF]: [key.jwk] }, rpc: { entitled: () => true, ai_take: () => "ok" } });
   const done = shell("supabase");
   /** @type {string | null} */
   let sent = null;

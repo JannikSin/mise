@@ -18,15 +18,17 @@
 //
 // AI QUOTA. Every AI call by a JWT holder, and every AI call by a PAT on a
 // switched branch, takes from a per-person daily allowance AND a global daily
-// ceiling, counted in public.ai_usage through svc.ai_count (one atomic
-// increment per call slot, the database's own current_date). Two reserved
-// rows sit beside each person's: one shared by every PAT caller and one for
-// the global total. A refused call still counts (the conservative side). A
-// failed quota check fails CLOSED: no count, no model call.
+// ceiling, counted in public.ai_usage through svc.ai_take: ONE call per
+// request that adds the request's weight to the person's row and then the
+// global row (fix loop 1, E9), on David's day in America/Chicago, so the
+// allowance resets at midnight Chicago. Two reserved rows sit beside each
+// person's: one shared by every PAT caller and one for the global total. A
+// refused call still counts (the conservative side). A failed quota check
+// fails CLOSED: no count, no model call.
 
 import { looksLikeJwt, verifySupabaseJwt, pinnedAlg } from "./jwt.js";
 import { onSupabase, projectFor, effectiveBranch } from "./supabase-env.js";
-import { entitled, aiCount } from "./svc.js";
+import { entitled, aiTake } from "./svc.js";
 
 /** the routes that spend model money (or Workers AI) */
 export const AI_ROUTES = new Set([
@@ -214,20 +216,21 @@ export async function takeAiQuota(a) {
   const userCap = posInt(a.env?.AI_DAILY_PER_USER, AI_DAILY_PER_USER_DEFAULT);
   const globalCap = posInt(a.env?.AI_DAILY_GLOBAL, AI_DAILY_GLOBAL_DEFAULT);
   /** @type {"ok" | "user" | "global"} */
-  let r = "ok";
+  let r;
   try {
-    // one increment per weight slot; the person's row first, so a person
-    // over their own allowance never spends the global one
-    let mine = 0;
-    for (let i = 0; i < aiWeight(a.pathname); i++) mine = await aiCount(project, user, a.fetchImpl);
-    if (mine > userCap) r = "user";
-    else {
-      let all = 0;
-      for (let i = 0; i < aiWeight(a.pathname); i++) {
-        all = await aiCount(project, GLOBAL_QUOTA_USER, a.fetchImpl);
-      }
-      if (all > globalCap) r = "global";
-    }
+    // one call: the person's row first, so a person over their own allowance
+    // never spends the global one (the SQL keeps that order)
+    r = await aiTake(
+      project,
+      {
+        sub: user,
+        n: aiWeight(a.pathname),
+        day: chicagoDate(a.nowMs ?? Date.now()),
+        userCap,
+        globalCap,
+      },
+      a.fetchImpl,
+    );
   } catch {
     return {
       ok: false,
@@ -241,7 +244,7 @@ export async function takeAiQuota(a) {
     status: 429,
     error:
       r === "user"
-        ? "you have used today's AI allowance; it resets overnight"
-        : "the kitchen's AI allowance for today is used up; it resets overnight",
+        ? "you have used today's AI allowance; it resets at midnight"
+        : "the kitchen's AI allowance for today is used up; it resets at midnight",
   };
 }

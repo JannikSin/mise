@@ -2500,6 +2500,15 @@ people seated at the guest's own tables whom the host house can already see:
 its members and the guests it holds a live grant for (fix loop 2, C2; a seat
 naming anyone else is left out).
 
+**AI allowance** (worker fix loop 1, item 10; `20261104100000_worker_ai_take.sql`).
+`svc.ai_take(p_sub, p_n, p_day, p_user_cap, p_global_cap)` returns `'ok'`, `'user'`
+or `'global'`: ONE call per AI request adds the request's weight `p_n` (1 to 10) to
+the person's `public.ai_usage` row for `p_day` and, unless that row is now over
+`p_user_cap`, to the global row (`ffffffff-ffff-4fff-8fff-ffffffffffff`). `p_day` is
+David's date in America/Chicago, sent by the Worker, and must be within one day of
+the server's date, so the allowance resets at midnight Chicago. A refused call still
+counts. service_role only. `svc.ai_count` stays for the migration's tooling.
+
 **Migration** (`tools/migrate-to-supabase.mjs`, G1). Reads a local mise-data
 snapshot and `people.local.json` (shape in the tool's header) and writes one
 transaction that is rolled back unless every verify check passes. Not
