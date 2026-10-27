@@ -63,6 +63,12 @@ function accountNow() {
 // flush pushes it through the normal conflict path.
 const HELD_PREFIX = "#held/";
 const HELD_BRANCH = "held";
+// WRITES BEFORE ANY SIGN-IN (item 3, Red Team 2 N2): a Supabase build with no
+// account remembered stamps them with this, which no slug can equal. They
+// read on the phone while nobody is signed in, are never pushed, and are
+// held (listed "made before sign-in", with DISCARD) once anyone signs in,
+// so they never go out under whoever happens to sign in first.
+const PRE_SIGN_IN = "#before-sign-in";
 
 /** @param {{ path: string }} rec */
 function isHeld(rec) {
@@ -702,7 +708,7 @@ function fromAnotherAccount(rec) {
   if (!rec.dirty) return false;
   if (isHeld(rec)) return true;
   if (typeof rec.account !== "string") return false;
-  return rec.account !== accountNow();
+  return rec.account !== (accountNow() ?? PRE_SIGN_IN);
 }
 
 /** @param {string} path */
@@ -1064,7 +1070,12 @@ export async function write(path, data, opts) {
     // as dirty anyway, so a stale value is never reported
     ...(cur && "fingerprint" in cur ? { fingerprint: cur.fingerprint } : {}),
     // who made it (seam fix 1): a later account on this phone holds it
-    ...(accountNow() ? { account: /** @type {string} */ (accountNow()) } : {}),
+    // with no account at all on a Supabase build, it was made before sign-in
+    ...(accountNow()
+      ? { account: /** @type {string} */ (accountNow()) }
+      : backend().name === "supabase"
+      ? { account: PRE_SIGN_IN }
+      : {}),
   }));
   await recount();
   void flush();
@@ -1355,10 +1366,11 @@ export const REFUSED_REASON = {
   forbidden: "not allowed",
   name: "would show a name to another house",
   account: "made by another account",
+  presignin: "made before sign-in",
 };
 
 /**
- * @typedef {{ path: string, id: string, reason: "forbidden" | "name" | "account", at: number }} RefusedRow
+ * @typedef {{ path: string, id: string, reason: "forbidden" | "name" | "account" | "presignin", at: number }} RefusedRow
  *   `path` is the file, for the person to read; `id` is what discardRefused
  *   takes to drop exactly this row (a held write's key differs from its path)
  */
@@ -1374,7 +1386,9 @@ export async function refusedRecords() {
   for (const r of await dbGetAll()) {
     if (r.dirty && fromAnotherAccount(r)) {
       const path = r.held ? r.held.path : r.path;
-      out.push({ path, id: r.path, reason: "account", at: r.queuedAt ?? 0 });
+      const by = r.held ? r.held.account : r.account;
+      const reason = by === PRE_SIGN_IN ? "presignin" : "account";
+      out.push({ path, id: r.path, reason, at: r.queuedAt ?? 0 });
     } else if (r.dirty && r.refused) {
       out.push({ path: r.path, id: r.path, reason: r.refused.reason, at: r.refused.at });
     }
@@ -1497,14 +1511,17 @@ export async function onSessionChange(prevSlug, nextSlug) {
  * record with no account (a 1.95 queue) stays where it is and replays under
  * the first account, as plan section 5 says. A held write whose slot is
  * taken stays held, listed, until the slot is free or it is discarded.
+ * `next` null (signed out) counts as "before sign-in" (item 3).
  * @param {string | null} next
  * @returns {Promise<number>} records moved either way
  */
 async function holdAndRestore(next) {
+  // signed out, the slots belong to "before sign-in" (item 3)
+  const who = next ?? PRE_SIGN_IN;
   let moved = 0;
   for (const rec of await dbGetAll()) {
     if (!rec.dirty || isHeld(rec) || typeof rec.account !== "string") continue;
-    if (rec.account === next) continue;
+    if (rec.account === who) continue;
     const key = `${HELD_PREFIX}${rec.account}/${rec.queuedAt ?? 0}/${rec.path}`;
     /** @type {import("./db.js").FileRecord} */
     const held = {
@@ -1522,9 +1539,8 @@ async function holdAndRestore(next) {
     fileCheckedAt.delete(rec.path);
     moved++;
   }
-  if (next === null) return moved;
   const mine = (await dbGetAll())
-    .filter((r) => r.dirty && isHeld(r) && r.held?.account === next)
+    .filter((r) => r.dirty && isHeld(r) && r.held?.account === who)
     .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
   for (const rec of mine) {
     const h = /** @type {NonNullable<typeof rec.held>} */ (rec.held);
