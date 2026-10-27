@@ -9,6 +9,7 @@ export const PLATE_KEYS = Object.freeze([
   "diet",
   "allergens",
   "allergensFreeText",
+  "allergenExceptions",
   "avoidIngredients",
   "avoidRecipes",
   "dislikeIngredients",

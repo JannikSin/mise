@@ -210,7 +210,9 @@ export async function readTargetsOf(id, readFn = read) {
  * saved before the chip learned "mozzarella" never got it. Every read adds
  * the current terms for its stored `allergens` ids. Only ever ADDS terms
  * (stricter), keeps the stored order first, and returns the input untouched
- * when there is nothing to add.
+ * when there is nothing to add. The person's own `allergenExceptions` are
+ * honoured (David 2026-10-27, P8): a term they cleared from a chip is not
+ * re-added by that chip, while a term already in the stored list stays.
  * @param {any} t
  * @returns {any}
  */
@@ -221,8 +223,9 @@ export function withCurrentAllergenTerms(t) {
   if (chips.length === 0 && have.length === 0) return t;
   const seen = new Set(have.map((/** @type {unknown} */ x) => String(x).toLowerCase()));
   // a stored typed word ("cheese") brings its family too (2.0, I-02 / A-09)
-  const typed = have.flatMap((/** @type {unknown} */ x) => typedAvoidTerms(String(x)));
-  const extra = [...new Set([...avoidTermsFromAllergens(chips, ""), ...typed])].filter(
+  const exc = t.allergenExceptions;
+  const typed = have.flatMap((/** @type {unknown} */ x) => typedAvoidTerms(String(x), exc));
+  const extra = [...new Set([...avoidTermsFromAllergens(chips, "", exc), ...typed])].filter(
     (x) => !seen.has(x),
   );
   return extra.length === 0 ? t : { ...t, avoidIngredients: [...have, ...extra] };

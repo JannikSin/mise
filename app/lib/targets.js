@@ -50,6 +50,7 @@ export function upsertDay(daily, date, patch) {
  *   diet?: "omnivore" | "pescatarian" | "vegetarian" | "vegan",
  *   allergens?: string[],
  *   allergensFreeText?: string,
+ *   allergenExceptions?: Record<string, string[]>,
  *   skipBreakfast?: boolean,
  *   smoothie?: boolean,
  *   snackAppetite?: "grazer" | "meals",
@@ -288,6 +289,54 @@ export const ALLERGEN_TERMS = {
   sesame: ["sesame", "tahini", "hummus", "everything bagel"],
 };
 
+/**
+ * The ONLY terms a person may clear from an allergy chip for themselves
+ * (P8 plates, P3 knows-you; David's ruling 2026-10-27 for a housemate who is
+ * off tree nuts but eats pine nuts and pesto with no nuts but pine nuts in
+ * it). Keyed by preset id. Default stays conservative: with no exception
+ * stored, the chip refuses every term it lists. An exception removes a term
+ * only from what THIS chip (or a typed word naming its family) added; the
+ * same term from another chip (dairy also lists "pesto") or a word the person
+ * typed stays. "peanut" is never here, and a dish whose ingredient names a
+ * tree nut ("walnut pesto", "cashew pesto") is still refused by that nut.
+ * @type {Readonly<Record<string, readonly string[]>>}
+ */
+export const ALLERGEN_EXCEPTIONS = Object.freeze({
+  nuts: Object.freeze(["pine nut", "pesto"]),
+});
+
+/**
+ * A stored `allergenExceptions` value, read tolerantly: only preset ids and
+ * terms listed in ALLERGEN_EXCEPTIONS survive, anything else (a typo, an
+ * unknown chip, "peanut") is dropped, so the field can only ever clear what
+ * the table allows. Absent or malformed = no exceptions.
+ * @param {unknown} raw
+ * @returns {Record<string, string[]>}
+ */
+export function allergenExceptionsOf(raw) {
+  /** @type {Record<string, string[]>} */
+  const out = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  for (const [id, allowed] of Object.entries(ALLERGEN_EXCEPTIONS)) {
+    const v = /** @type {Record<string, unknown>} */ (raw)[id];
+    if (!Array.isArray(v)) continue;
+    const terms = allowed.filter((t) => v.some((x) => String(x).toLowerCase().trim() === t));
+    if (terms.length) out[id] = terms;
+  }
+  return out;
+}
+
+/**
+ * One chip's terms with the person's own exceptions for that chip taken out.
+ * @param {string} id preset id
+ * @param {Record<string, string[]>} exc from allergenExceptionsOf
+ * @returns {string[]}
+ */
+function presetTerms(id, exc) {
+  const off = (Object.hasOwn(exc, id) ? exc[id] : undefined) ?? [];
+  return (ALLERGEN_TERMS[id] ?? []).filter((t) => !off.includes(t));
+}
+
 /** Every cheese-like dairy term: what a typed "cheese" means. */
 const CHEESE_TERMS = [
   "cheese",
@@ -349,10 +398,13 @@ const TYPED_FAMILIES = {
  * The terms one typed avoid word stands for: itself, plus its family when it
  * names one ("cheeses", "Tree nuts", "eggs" all count), and each food of a
  * typed pair ("celery and okra").
+ * The person's allergenExceptions apply to a family only, never to the word
+ * itself: a typed "pesto" stays "pesto".
  * @param {string} word
+ * @param {unknown} [exceptions] targets.allergenExceptions
  * @returns {string[]}
  */
-export function typedAvoidTerms(word) {
+export function typedAvoidTerms(word, exceptions) {
   const term = String(word ?? "").toLowerCase().trim();
   if (!term) return [];
   // "celery and okra" is two foods, not one phrase no ingredient is named
@@ -360,7 +412,9 @@ export function typedAvoidTerms(word) {
   // and as one term it matched nothing). Each part counts on its own, the whole
   // phrase too, so it can only refuse more
   const parts = term.split(/\s+(?:and|or)\s+|\s*[&/;+]\s*/).map((x) => x.trim()).filter(Boolean);
-  if (parts.length > 1) return [...new Set([term, ...parts.flatMap(typedAvoidTerms)])];
+  if (parts.length > 1) {
+    return [...new Set([term, ...parts.flatMap((p) => typedAvoidTerms(p, exceptions))])];
+  }
   // own keys only: "constructor" or "__proto__" must not reach Object.prototype
   // (Tribunal Red Team, 2.0 loop 1: it threw and stopped SET)
   const famOf = (/** @type {string} */ k) =>
@@ -368,8 +422,9 @@ export function typedAvoidTerms(word) {
   const fam = famOf(term) ?? famOf(term.replace(/(es|s)$/, "")) ?? famOf(term.replace(/s$/, ""));
   if (!fam) return [term];
   const out = new Set([term]);
+  const exc = allergenExceptionsOf(exceptions);
   for (const id of fam) {
-    for (const t of id === "cheese" ? CHEESE_TERMS : (ALLERGEN_TERMS[id] ?? [])) out.add(t);
+    for (const t of id === "cheese" ? CHEESE_TERMS : presetTerms(id, exc)) out.add(t);
   }
   return [...out];
 }
@@ -378,18 +433,21 @@ export function typedAvoidTerms(word) {
  * Expand chosen allergen preset ids plus a free-text "anything else" string
  * into a deduped avoidIngredients term list (survey-v2 Q10). Free-text terms
  * append lowercased and trimmed, and a word naming a family brings the family
- * (typedAvoidTerms).
+ * (typedAvoidTerms). The person's own exceptions (ALLERGEN_EXCEPTIONS) come
+ * out of their chip's terms only.
  * @param {string[]} [allergens] preset ids
  * @param {string} [freeText] comma-separated extra terms
+ * @param {unknown} [exceptions] targets.allergenExceptions
  * @returns {string[]}
  */
-export function avoidTermsFromAllergens(allergens, freeText) {
+export function avoidTermsFromAllergens(allergens, freeText, exceptions) {
   const out = new Set();
+  const exc = allergenExceptionsOf(exceptions);
   for (const id of allergens ?? []) {
-    for (const term of ALLERGEN_TERMS[id] ?? []) out.add(term);
+    for (const term of presetTerms(id, exc)) out.add(term);
   }
   for (const t of (freeText ?? "").split(",")) {
-    for (const term of typedAvoidTerms(t)) out.add(term);
+    for (const term of typedAvoidTerms(t, exc)) out.add(term);
   }
   return [...out];
 }
@@ -566,7 +624,17 @@ export function targetsFromQuestionnaire(q, todayIso, prefs = {}) {
     .filter((s) => !(s === "breakfast" && prefs.skipBreakfast))
     .concat(wantSmoothie && hasBlender ? ["smoothie"] : []);
 
-  const avoidIngredients = avoidTermsFromAllergens(prefs.allergens, prefs.allergensFreeText);
+  // exceptions only for a chip the person picked (P8, David 2026-10-27)
+  const exceptions = Object.fromEntries(
+    Object.entries(allergenExceptionsOf(prefs.allergenExceptions)).filter(([id]) =>
+      (prefs.allergens ?? []).includes(id),
+    ),
+  );
+  const avoidIngredients = avoidTermsFromAllergens(
+    prefs.allergens,
+    prefs.allergensFreeText,
+    exceptions,
+  );
   const cuisineLoved = prefs.cuisinePrefs?.loved ?? [];
   const cuisineAvoided = prefs.cuisinePrefs?.avoided ?? [];
 
@@ -592,6 +660,7 @@ export function targetsFromQuestionnaire(q, todayIso, prefs = {}) {
     ...(prefs.diet && prefs.diet !== "omnivore" ? { diet: prefs.diet } : {}),
     ...(prefs.allergens?.length ? { allergens: prefs.allergens } : {}),
     ...(avoidIngredients.length ? { avoidIngredients } : {}),
+    ...(Object.keys(exceptions).length ? { allergenExceptions: exceptions } : {}),
     ...(prefs.snackAppetite === "meals" ? { snackAppetite: "meals" } : {}),
     ...(prefs.maxWeeknightMinutes ? { maxWeeknightMinutes: prefs.maxWeeknightMinutes } : {}),
     ...(prefs.dislikeIngredients?.length ? { dislikeIngredients: prefs.dislikeIngredients } : {}),
@@ -662,6 +731,7 @@ export const SURVEY_OWNED = [
   "goalWeightLb",
   "diet",
   "allergens",
+  "allergenExceptions",
   "avoidIngredients",
   "snackAppetite",
   "maxWeeknightMinutes",

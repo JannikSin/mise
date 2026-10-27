@@ -12,7 +12,7 @@ import { PLATE_KEYS } from "../worker/src/plate-keys.js";
 const SOURCE = fileURLToPath(new URL("../app/lib/plate-fields.js", import.meta.url));
 
 test("the mirror matches the plan's PLATE_FIELDS list (section 4.1)", () => {
-  assert.equal(PLATE_KEYS.length, 19);
+  assert.equal(PLATE_KEYS.length, 20); // 19 + allergenExceptions (2026-10-27)
   assert.equal(new Set(PLATE_KEYS).size, PLATE_KEYS.length);
   for (const owner of ["body", "goalWeightLb", "supplementPlan", "stores", "equipment"]) {
     assert.equal(PLATE_KEYS.includes(owner), false, `${owner} is owner-only`);

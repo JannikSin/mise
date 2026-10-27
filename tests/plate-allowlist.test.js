@@ -101,7 +101,9 @@ test("the SQL plate_of names exactly PLATE_FIELDS and the same trims", () => {
   const sql = migrationFiles()
     .map((m) => m.sql)
     .join("\n");
-  const fn = sql.slice(sql.indexOf("create function private.plate_of"));
+  // the LAST definition is the one that runs (a later migration may
+  // `create or replace` it: allergen exceptions, 2026-10-27)
+  const fn = sql.slice(sql.search(/create (or replace )?function private\.plate_of(?![\s\S]*create (or replace )?function private\.plate_of)/));
   const block = /-- PLATE_FIELDS\n([\s\S]*?)-- end PLATE_FIELDS/.exec(fn);
   assert.ok(block, "PLATE_FIELDS block in plate_of");
   const named = [...String(block[1]).matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]);

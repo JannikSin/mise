@@ -15,6 +15,7 @@ export const PLATE_FIELDS = Object.freeze([
   "diet",
   "allergens",
   "allergensFreeText",
+  "allergenExceptions",
   "avoidIngredients",
   "avoidRecipes",
   "dislikeIngredients",
@@ -39,11 +40,15 @@ export const PLATE_FIELDS = Object.freeze([
  * stricter, an item added. Enforced by private.safety_loosened in
  * supabase/migrations/20261031090000_fix1_guard_plates.sql, and the migration
  * refuses a snapshot whose mirror disagrees with its canonical file on any.
+ * `allergenExceptions` runs the other way (an exception added LOOSENS), so a
+ * non-owner may only remove one (supabase/migrations/
+ * 20261104090000_allergen_exceptions.sql).
  */
 export const PLATE_SAFETY_FIELDS = Object.freeze([
   "diet",
   "allergens",
   "allergensFreeText",
+  "allergenExceptions",
   "avoidIngredients",
   "avoidRecipes",
   "dislikeIngredients",

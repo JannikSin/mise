@@ -1956,6 +1956,21 @@ Seeded from the FITNESS.md system; edited rarely.
   //   avoidIngredients; kept so SYS re-renders the chips. Preset
   //   ids: nuts | peanuts | gluten | dairy | eggs | soy |
   //   shellfish | fish | sesame (ALLERGEN_TERMS in targets.js).
+  "allergenExceptions": { "nuts": ["pine nut", "pesto"] },
+  // ? terms this person cleared from a chip FOR THEMSELVES (P8, P3; David's
+  //   ruling 2026-10-27: off tree nuts, but pine nuts and pesto with no nuts
+  //   but pine nuts are fine). ABSENT = none, the conservative default.
+  //   Only the pairs in ALLERGEN_EXCEPTIONS (targets.js) are honoured, today
+  //   nuts -> "pine nut", "pesto"; anything else is dropped on read
+  //   (allergenExceptionsOf), so "peanut" can never be cleared. Kept only for
+  //   a chip in `allergens`. A cleared term is left out of what THAT chip (or
+  //   a typed word naming its family, "tree nuts") adds, at entry
+  //   (avoidTermsFromAllergens) and on every read (withCurrentAllergenTerms);
+  //   the same term from another chip (dairy lists "pesto") or typed by the
+  //   person stays, and a row naming a tree nut ("walnut pesto", "cashew
+  //   pesto") is still refused by that nut. Plate card key and plate safety
+  //   key, reversed: an exception ADDED loosens, so a non-owner (the admin
+  //   included) may only remove one (P0403). Set in SYS > your profile.
   "snackAppetite": "meals", // ? enum grazer | meals. ABSENT = grazer.
   //   Caps macroTopUp snack stacking per day: grazer 3 (today's
   //   behavior), meals 1 (portion bumps do more of the work).
@@ -2427,14 +2442,16 @@ from the mirror only when there is none. The root profile's slug-form paths
 `occasions.json`, `pantry.json`) resolve to the root row
 (`private.canonical_path`). A signed-in writer who is not the owner, the admin
 included, may not drop a targets key or loosen a plate safety key
-(`PLATE_SAFETY_FIELDS`: diet, allergens, allergensFreeText, avoidIngredients,
-avoidRecipes, dislikeIngredients, slotAvoid) on an update or an insert: a diet
-may only get stricter (omnivore, pescatarian, vegetarian, vegan), a list may
-only gain items, the free text may only gain words (P0403).
+(`PLATE_SAFETY_FIELDS`: diet, allergens, allergensFreeText, allergenExceptions,
+avoidIngredients, avoidRecipes, dislikeIngredients, slotAvoid) on an update or
+an insert: a diet may only get stricter (omnivore, pescatarian, vegetarian,
+vegan), a list may only gain items, the free text may only gain words, and
+allergenExceptions may only lose terms (P0403; the last since
+`20261104090000_allergen_exceptions.sql`).
 
 **Plate card** (`public.plates.data`, made by `private.plate_of`; lists in
 `app/lib/plate-fields.js`, JS port `app/lib/plate-of.js`). Exactly the targets
-keys in `PLATE_FIELDS` (diet, allergens, allergensFreeText, avoidIngredients,
+keys in `PLATE_FIELDS` (diet, allergens, allergensFreeText, allergenExceptions, avoidIngredients,
 avoidRecipes, dislikeIngredients, cuisinePrefs, fixedSlots, skipSlots,
 mealSlots, slotAvoid, breakfastStyle, snackStyle, snackPortable, dinnerAnchor,
 phase, weeklyBudgetUsd, macros, currencies), with `macros.waterLiters` dropped,
