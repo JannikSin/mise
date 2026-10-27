@@ -491,7 +491,8 @@ const status = {
   loading: true,
   pending: 0,
   // queued writes the server refused for good (2.0, ENG L2-8): still counted
-  // in pending, listed by refusedRecords(), gone only on DISCARD
+  // in pending, listed by refusedRecords(), gone only on DISCARD; another
+  // account's held writes count here and NOT in pending (loop 3, item 8)
   refused: 0,
   conflicts: 0,
   mismatched: 0,
@@ -521,7 +522,10 @@ function emit() {
 
 async function recount() {
   const all = await dbGetAll();
-  status.pending = all.filter((r) => r.dirty).length;
+  // another account's held write (and one made before sign-in) is not this
+  // account's to send, so it counts under refused only, never as pending
+  // (loop 3, item 8; ENG 3 L1): Sync does not warn forever over it
+  status.pending = all.filter((r) => r.dirty && !fromAnotherAccount(r)).length;
   status.refused = all.filter((r) => r.dirty && (r.refused || fromAnotherAccount(r))).length;
   status.loading = false;
   emit();
