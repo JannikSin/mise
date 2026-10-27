@@ -1079,6 +1079,9 @@ export async function flushNow({ timeoutMs = 20000 } = {}) {
  */
 async function flush() {
   if (status.flushing || !navigator.onLine) return;
+  // a Supabase build before sign-in can only fail every push, and must not
+  // tell a phone that never signed in that it was signed out (2.0, ENG F2)
+  if (backend().name === "supabase" && !backend().session()) return;
   status.flushing = true;
   status.conflicts = 0;
   emit();
@@ -1111,9 +1114,10 @@ async function flush() {
           continue;
         }
         // a 1.95 record on the build that took over its branch (2.0, plan
-        // section 5): restamped, then replayed through the conflict path
-        rec.branch = here;
-        await dbUpdate(rec.path, (cur) => (cur ? { ...cur, branch: here } : null));
+        // section 5): replayed through the conflict path, and stamped with
+        // this install only once it has landed (ENG F2), so a record that
+        // fails, conflicts or is refused stays a GitHub-era write and a
+        // rollback still pushes it
       }
       try {
         const pushed = await pushFile(io, {
@@ -1125,7 +1129,8 @@ async function flush() {
         // atomic: an edit that landed while the push was in flight stays
         // dirty; only base/sha advance (afterPushRecord decides)
         await dbUpdate(rec.path, (cur) => {
-          const next = afterPushRecord(cur ?? rec, pushed, rec.rev);
+          const landed = afterPushRecord(cur ?? rec, pushed, rec.rev);
+          const next = rec.branch === here ? landed : { ...landed, branch: here };
           // a targets push may have moved the plate: the old fingerprint is
           // kept but marked stale, and reads as dirty until the next fetch
           // brings the plate's (2.0, ENG F1 / Red Team 7)
