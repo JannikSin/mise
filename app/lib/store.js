@@ -693,7 +693,11 @@ export async function readMeta(path, opts) {
     return { data: localView(rec), sha: rec.fingerprint ?? rec.sha ?? null, dirty: false };
   }
   // a targets file on Supabase fingerprints by its plate (2.0, ENG L2-3)
-  return { data: rec.data, sha: rec.fingerprint ?? rec.sha ?? null, dirty: Boolean(rec.dirty) };
+  return {
+    data: rec.data,
+    sha: rec.fingerprint ?? rec.sha ?? null,
+    dirty: Boolean(rec.dirty || rec.fingerprintStale),
+  };
 }
 
 // ONE FETCH PER FILE, AND A MISSING FILE IS REMEMBERED (Mise 2.0, A-02 /
@@ -746,7 +750,14 @@ async function revalidateFile(scopedPath) {
       }
       return;
     }
-    if (rec && remote.sha === rec.sha && rec.fingerprint === remote.fingerprint) return;
+    if (
+      rec &&
+      remote.sha === rec.sha &&
+      rec.fingerprint === remote.fingerprint &&
+      !rec.fingerprintStale
+    ) {
+      return;
+    }
     await cacheRemote(scopedPath, remote.data, remote.sha, remote.fingerprint);
     emit();
   } catch {
@@ -778,7 +789,7 @@ function cacheRemote(path, data, sha, fingerprint) {
   return dbUpdate(path, (cur) =>
     cur?.dirty
       ? cur.refused
-        ? { ...cur, base: data, sha }
+        ? { ...cur, base: data, sha, ...(fingerprint !== undefined ? { fingerprint } : {}) }
         : null
       : {
           path,
@@ -977,6 +988,9 @@ export async function write(path, data, opts) {
     // stamped with the branch it was written under (release train): a queued
     // sandbox edit must never be pushed to main, and vice versa
     branch: cur?.dirty && cur.branch !== undefined ? cur.branch : stampHere(),
+    // the plate fingerprint rides along (2.0, ENG F1); a dirty record reads
+    // as dirty anyway, so a stale value is never reported
+    ...(cur && "fingerprint" in cur ? { fingerprint: cur.fingerprint } : {}),
   }));
   await recount();
   void flush();
@@ -1110,7 +1124,16 @@ async function flush() {
         });
         // atomic: an edit that landed while the push was in flight stays
         // dirty; only base/sha advance (afterPushRecord decides)
-        await dbUpdate(rec.path, (cur) => afterPushRecord(cur ?? rec, pushed, rec.rev));
+        await dbUpdate(rec.path, (cur) => {
+          const next = afterPushRecord(cur ?? rec, pushed, rec.rev);
+          // a targets push may have moved the plate: the old fingerprint is
+          // kept but marked stale, and reads as dirty until the next fetch
+          // brings the plate's (2.0, ENG F1 / Red Team 7)
+          return cur && "fingerprint" in cur
+            ? { ...next, fingerprint: cur.fingerprint, fingerprintStale: true }
+            : next;
+        });
+        fileCheckedAt.delete(rec.path);
         status.lastSyncAt = new Date().toISOString();
         if (stopped.size === 0) status.lastError = null;
       } catch (e) {
