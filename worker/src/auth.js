@@ -18,12 +18,15 @@
 //
 // AI QUOTA. Every AI call by a JWT holder, and every AI call by a PAT on a
 // switched branch, takes from a per-person daily allowance AND a global daily
-// ceiling, atomically in the database (svc.ai_take). A failed quota check
-// fails CLOSED: no allowance read, no model call.
+// ceiling, counted in public.ai_usage through svc.ai_count (one atomic
+// increment per call slot, the database's own current_date). Two reserved
+// rows sit beside each person's: one shared by every PAT caller and one for
+// the global total. A refused call still counts (the conservative side). A
+// failed quota check fails CLOSED: no count, no model call.
 
 import { looksLikeJwt, verifySupabaseJwt, pinnedAlg } from "./jwt.js";
 import { onSupabase, projectFor } from "./supabase-env.js";
-import { entitled, aiTake } from "./svc.js";
+import { entitled, aiCount } from "./svc.js";
 
 /** the routes that spend model money (or Workers AI) */
 export const AI_ROUTES = new Set([
@@ -44,6 +47,8 @@ export const AI_ROUTES = new Set([
 export const PAT_AUTH_UNTIL_DEFAULT = "2026-11-22";
 /** the shared quota row for every PAT caller */
 export const PAT_QUOTA_USER = "00000000-0000-0000-0000-000000000000";
+/** the global ceiling's row */
+export const GLOBAL_QUOTA_USER = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 export const AI_DAILY_PER_USER_DEFAULT = 80;
 export const AI_DAILY_GLOBAL_DEFAULT = 600;
 const ENTITLED_TTL_MS = 5 * 60 * 1000;
@@ -186,19 +191,24 @@ export async function takeAiQuota(a) {
   if (a.who.kind === "pat" && !onSupabase(a.branch, a.env)) return { ok: true };
   const project = a.who.kind === "jwt" ? a.who.project : projectFor(a.branch, a.env);
   if (!project) return { ok: false, status: 503, error: "sign-in is not set up on the server yet" };
-  let r;
+  const user = a.who.kind === "jwt" ? a.who.sub : PAT_QUOTA_USER;
+  const userCap = posInt(a.env?.AI_DAILY_PER_USER, AI_DAILY_PER_USER_DEFAULT);
+  const globalCap = posInt(a.env?.AI_DAILY_GLOBAL, AI_DAILY_GLOBAL_DEFAULT);
+  /** @type {"ok" | "user" | "global"} */
+  let r = "ok";
   try {
-    r = await aiTake(
-      project,
-      {
-        user: a.who.kind === "jwt" ? a.who.sub : PAT_QUOTA_USER,
-        day: chicagoDate(a.nowMs ?? Date.now()),
-        weight: aiWeight(a.pathname),
-        userCap: posInt(a.env?.AI_DAILY_PER_USER, AI_DAILY_PER_USER_DEFAULT),
-        globalCap: posInt(a.env?.AI_DAILY_GLOBAL, AI_DAILY_GLOBAL_DEFAULT),
-      },
-      a.fetchImpl,
-    );
+    // one increment per weight slot; the person's row first, so a person
+    // over their own allowance never spends the global one
+    let mine = 0;
+    for (let i = 0; i < aiWeight(a.pathname); i++) mine = await aiCount(project, user, a.fetchImpl);
+    if (mine > userCap) r = "user";
+    else {
+      let all = 0;
+      for (let i = 0; i < aiWeight(a.pathname); i++) {
+        all = await aiCount(project, GLOBAL_QUOTA_USER, a.fetchImpl);
+      }
+      if (all > globalCap) r = "global";
+    }
   } catch {
     return { ok: false, status: 503, error: "could not check today's AI allowance, try again in a minute" };
   }
@@ -208,7 +218,7 @@ export async function takeAiQuota(a) {
     status: 429,
     error:
       r === "user"
-        ? "you have used today's AI allowance; it resets at midnight"
-        : "the kitchen's AI allowance for today is used up; it resets at midnight",
+        ? "you have used today's AI allowance; it resets overnight"
+        : "the kitchen's AI allowance for today is used up; it resets overnight",
   };
 }

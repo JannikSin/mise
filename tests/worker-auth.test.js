@@ -8,6 +8,7 @@ import { resetJwksCacheForTests } from "../worker/src/jwt.js";
 import {
   resetAuthCachesForTests,
   PAT_QUOTA_USER,
+  GLOBAL_QUOTA_USER,
   authenticate,
   takeAiQuota,
 } from "../worker/src/auth.js";
@@ -37,7 +38,7 @@ const github = async (/** @type {any} */ input) => {
 };
 
 /**
- * @param {{ entitled?: boolean, take?: string | ((a: any) => any) }} [o]
+ * @param {{ entitled?: boolean, offset?: Record<string, number>, fail?: boolean }} [o]
  */
 async function world(o = {}) {
   resetJwksCacheForTests();
@@ -46,13 +47,17 @@ async function world(o = {}) {
   const key = await makeKey("kid-1");
   /** @type {any[]} */
   const takes = [];
+  /** @type {Record<string, number>} */
+  const counts = {};
   const sb = fakeSupabase({
     jwks: { [SANDBOX_REF]: [key.jwk], [PROJECT_REF]: [key.jwk] },
     rpc: {
       entitled: () => o.entitled ?? true,
-      ai_take: (a) => {
+      ai_count: (a) => {
         takes.push(a);
-        return typeof o.take === "function" ? o.take(a) : (o.take ?? "ok");
+        if (o.fail) return Response.json({ message: "boom" }, { status: 500 });
+        counts[a.p_sub] = (counts[a.p_sub] ?? 0) + 1;
+        return counts[a.p_sub] + (o.offset?.[a.p_sub] ?? 0);
       },
     },
     other: github,
@@ -81,13 +86,13 @@ test("a JWT on a switched branch reaches the AI route after entitlement and quot
     const r = await worker.fetch(workerReq("/scan", {}, { auth: await signJwt(key) }), SCAN_ENV);
     assert.equal(r.status, 400, "past auth and quota, refused only for the missing image");
   });
-  assert.equal(takes.length, 1);
-  assert.equal(takes[0].p_user, USER_A);
-  assert.equal(takes[0].p_weight, 1);
-  assert.equal(takes[0].p_user_cap, 80);
-  assert.equal(takes[0].p_global_cap, 600);
+  assert.deepEqual(
+    takes.map((t) => t.p_sub),
+    [USER_A, GLOBAL_QUOTA_USER],
+    "one slot on the person's row, then one on the global row",
+  );
   // the secret key goes to svc, in the svc schema
-  const call = sb.calls.find((c) => c.fn === "ai_take");
+  const call = sb.calls.find((c) => c.fn === "ai_count");
   assert.equal(call?.headers.get("content-profile"), "svc");
   assert.equal(call?.headers.get("apikey"), "sb_secret_PLACEHOLDER");
 });
@@ -102,7 +107,7 @@ test("entitlement: false is 403, and the answer is cached for 5 minutes", async 
     assert.equal(b.status, 403);
   });
   assert.equal(sb.calls.filter((c) => c.fn === "entitled").length, 1);
-  assert.equal(sb.calls.filter((c) => c.fn === "ai_take").length, 0, "no quota for the unentitled");
+  assert.equal(sb.calls.filter((c) => c.fn === "ai_count").length, 0, "no quota for the unentitled");
 });
 
 test("entitlement cache expires after 5 minutes", async () => {
@@ -120,7 +125,9 @@ test("entitlement cache expires after 5 minutes", async () => {
 
 test("quota: a spent personal or global allowance is 429 with no model call", async () => {
   for (const which of ["user", "global"]) {
-    const { key, sb } = await world({ take: which });
+    const { key, sb, takes } = await world({
+      offset: which === "user" ? { [USER_A]: 80 } : { [GLOBAL_QUOTA_USER]: 600 },
+    });
     let modelCalls = 0;
     const f = async (/** @type {any} */ i, /** @type {any} */ n) => {
       if (String(i).includes("anthropic")) modelCalls++;
@@ -136,13 +143,14 @@ test("quota: a spent personal or global allowance is 429 with no model call", as
       assert.match(body.error, which === "user" ? /you have used/ : /kitchen's AI allowance/);
     });
     assert.equal(modelCalls, 0);
+    if (which === "user") {
+      assert.equal(takes.some((t) => t.p_sub === GLOBAL_QUOTA_USER), false, "over your own: the global row is not spent");
+    }
   }
 });
 
 test("quota: an unreachable allowance fails CLOSED", async () => {
-  const { key, sb } = await world({
-    take: () => Response.json({ message: "boom" }, { status: 500 }),
-  });
+  const { key, sb } = await world({ fail: true });
   await withFetch(sb.fetchImpl, async () => {
     const r = await worker.fetch(workerReq("/scan", {}, { auth: await signJwt(key) }), SCAN_ENV);
     assert.equal(r.status, 503);
@@ -150,7 +158,7 @@ test("quota: an unreachable allowance fails CLOSED", async () => {
 });
 
 test("quota weights: annotate 4, transcribe 2; caps come from env", async () => {
-  const { key, sb, takes } = await world();
+  const { key, sb, takes } = await world({ offset: { [USER_A]: 0 } });
   const env = { ...SCAN_ENV, AI_DAILY_PER_USER: "10", AI_DAILY_GLOBAL: "50" };
   const who = /** @type {any} */ ({
     kind: "jwt",
@@ -160,15 +168,14 @@ test("quota weights: annotate 4, transcribe 2; caps come from env", async () => 
   });
   for (const pathname of ["/annotate", "/transcribe", "/dinner", "/kroger/search", "/invite/new"]) {
     const r = await takeAiQuota({ who, branch: "sandbox", pathname, env, fetchImpl: sb.fetchImpl });
-    assert.equal(r.ok, true);
+    assert.equal(r.ok, true, pathname);
   }
-  assert.deepEqual(
-    takes.map((t) => t.p_weight),
-    [4, 2, 1],
-    "non-AI routes are not metered",
-  );
-  assert.equal(takes[0].p_user_cap, 10);
-  assert.equal(takes[0].p_global_cap, 50);
+  const mine = takes.filter((t) => t.p_sub === USER_A).length;
+  assert.equal(mine, 4 + 2 + 1, "non-AI routes are not metered");
+  // the 11th slot passes the per-person cap of 10
+  const over = await takeAiQuota({ who, branch: "sandbox", pathname: "/annotate", env, fetchImpl: sb.fetchImpl });
+  assert.equal(over.ok, false);
+  assert.equal(!over.ok && over.status, 429);
 });
 
 test("PAT on a switched branch: AI routes only, under the one shared quota", async () => {
@@ -182,8 +189,10 @@ test("PAT on a switched branch: AI routes only, under the one shared quota", asy
       assert.match((await r.json()).error, /sign in to your account/);
     }
   });
-  assert.equal(takes.length, 1);
-  assert.equal(takes[0].p_user, PAT_QUOTA_USER);
+  assert.deepEqual(
+    takes.map((t) => t.p_sub),
+    [PAT_QUOTA_USER, GLOBAL_QUOTA_USER],
+  );
 });
 
 test("PAT on a switched branch stops after PAT_AUTH_UNTIL", async () => {

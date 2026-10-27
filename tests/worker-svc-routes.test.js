@@ -177,7 +177,7 @@ test("invite/new for a signed-in member: guest-only, the database gets a HASH, t
   assert.equal(w.github.length, 0);
 });
 
-test("invite claim then status on Supabase: one transaction, login, session, family kept out of the roster", async () => {
+test("invite claim then status on Supabase: one transaction, login, session, no family from a link", async () => {
   const w = await world();
   await withFetch(w.sb.fetchImpl, async () => {
     const jwt = await signJwt(w.key, { sub: USER_B });
@@ -200,12 +200,14 @@ test("invite claim then status on Supabase: one transaction, login, session, fam
     assert.equal(out.house, "guesthouse");
     assert.equal((await verifyGuestSessionV2(out.session, KEY, "sandbox", Date.now()))?.p, "guest-c");
     const args = w.sb.calls.find((c) => c.fn === "claim_guest")?.args;
-    assert.equal(args.p_family, "fam-x");
-    assert.equal("family" in args.p_roster, false, "family never rides inside roster");
+    assert.equal(JSON.stringify(args).includes("fam-x"), false, "a link never sets a family");
+    assert.match(args.p_until, /^\d{4}-\d{2}-\d{2}$/);
+    const login = w.sb.calls.find((c) => c.fn === "guest_login_add")?.args;
+    assert.equal(login.p_name_key, "guestc");
+    assert.equal(login.p_hash.length > 20, true);
     assert.equal(args.p_code_hash, await inviteCodeHash(code));
     assert.equal(JSON.stringify(args).includes(code), false);
-    assert.equal(args.p_login.hash.length > 20, true);
-    assert.equal(JSON.stringify(args).includes("1357"), false, "the passkey is hashed before any call");
+    assert.equal(JSON.stringify(w.sb.calls.map((c) => c.args)).includes("1357"), false, "the passkey is hashed before any call");
     // spent
     const again = await worker.fetch(
       workerReq("/invite/claim", { code, entry: { name: "Guest D", emoji: "🍋" }, targets: { macros: { calories: 2000, protein: 100 } } }, { ip: "8.8.8.8" }),
@@ -235,6 +237,7 @@ test("invite claim: a taken login name is refused before the code is spent", asy
     );
     assert.equal(r.status, 409);
     assert.equal(w.db.st.invites[await inviteCodeHash(code)].used_at, null, "still unspent");
+    assert.equal(w.sb.calls.filter((c) => c.fn === "claim_guest").length, 0);
   });
 });
 

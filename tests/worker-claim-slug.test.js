@@ -62,7 +62,7 @@ test("a claim the database answers slug_taken (a race) moves to the next slug", 
     claim_guest: (/** @type {any} */ a, /** @type {any} */ ctx) => {
       if (first) {
         first = false;
-        return { status: "slug_taken" };
+        return Response.json({ code: "P0409", message: "mise_conflict" }, { status: 409 });
       }
       return db.rpc.claim_guest(a, ctx);
     },

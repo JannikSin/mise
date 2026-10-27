@@ -11,8 +11,9 @@
 //  - Guest sessions are signed with GUEST_SESSION_KEY, typed (guest-session.js).
 //  - Invite codes are stored HASHED (SHA-256 hex): the database never holds a
 //    usable code. The plaintext goes back once, to the host who minted it.
-//  - A claim is ONE svc transaction (svc.claim_guest), so the 1.95 dance of
-//    stamp-first then four writes, with its "spent but failed" state, is gone.
+//  - A claim is ONE svc transaction (svc.claim_guest: spend, profile, grant,
+//    both targets rows), so the 1.95 stamp-first-then-four-writes dance is
+//    gone. Only the optional login row follows it, as in 1.95 (step 5).
 //  - Invites are guest-only (B4): a member invite is refused here.
 //  - annotate-save writes AS THE CALLER (their own JWT to write_doc): the
 //    admin's save lands in the bank, anyone else's in their own recipes.
@@ -44,6 +45,7 @@ import { projectFor } from "./supabase-env.js";
 import {
   SvcError,
   claimGuest,
+  guestLoginAdd,
   cronInputs,
   guestLoginRow,
   guestSummary,
@@ -74,6 +76,8 @@ import { guestSessionSecret, signGuestSessionV2, verifyGuestSessionV2 } from "./
  */
 
 const ID_RE = /^[a-z0-9-]+$/;
+/** a claimed guest's grant, and the status page, last 60 days (1.95 INVITE_STATUS_TTL_MS) */
+const GUEST_GRANT_MS = 60 * 24 * 60 * 60 * 1000;
 
 /**
  * SHA-256 hex of an invite code: the only form the database ever holds.
@@ -273,6 +277,17 @@ export async function supaInviteRoute(pathname, body, code, branch, env, ctx) {
       login = { name_key: nameKey, salt, hash };
     }
 
+    // a taken login name is refused HERE, before the code is spent
+    if (login && (await guestLoginRow(project, login.name_key, f))) {
+      if (!allowRequest(ctx.rateState, `claimname:${code}`, ctx.nowMs, 6)) {
+        return ctx.json(429, {
+          error: "Too many names tried. Wait a few minutes, or ask your host for help.",
+        });
+      }
+      return ctx.json(409, { error: "that login name is taken; add your last initial" });
+    }
+    // family stays off Supabase claims: on 2.0 a guest's family is the
+    // admin's to set (profiles.family), never something a link can claim
     const roster = {
       name: entry.name,
       emoji: entry.emoji,
@@ -280,37 +295,32 @@ export async function supaInviteRoute(pathname, body, code, branch, env, ctx) {
       capabilities: [],
       ...(dinners.length > 0 ? { wantsDinners: dinners } : {}),
     };
+    // the grant runs as long as the status page does (60 days, as in 1.95)
+    const until = new Date(ctx.nowMs + GUEST_GRANT_MS).toISOString().slice(0, 10);
     /** @type {Set<string>} */
     const taken = new Set();
     for (let tries = 0; tries < 5; tries++) {
       const slug = slugForName(entry.name, taken);
       taken.add(slug);
       if (!(await slugFree(project, slug, f))) continue;
-      const r = await claimGuest(
-        project,
-        { codeHash, slug, roster, family: entry.family ?? null, targets, login },
-        f,
-      );
+      const r = await claimGuest(project, { codeHash, slug, roster, targets, until }, f);
       if (r.status === "slug_taken") continue;
-      if (r.status === "used") return ctx.json(410, { error: "this invite was already used" });
-      if (r.status === "expired") {
-        return ctx.json(410, { error: "this invite has expired, ask for a new one" });
+      if (r.status === "invalid") return ctx.json(410, { error: "this invite was already used" });
+      // from here the code is SPENT: a later failure must not invite a retry
+      // that can only answer 410
+      if (!login) return ctx.json(200, { ok: true, id: slug, name: entry.name, house: "guesthouse" });
+      const added = await guestLoginAdd(
+        project,
+        { profileId: r.profileId, nameKey: login.name_key, salt: login.salt, hash: login.hash },
+        f,
+      ).catch(() => false);
+      if (!added) {
+        console.log("invite claim: login not saved after the claim");
+        return ctx.json(502, { error: "something went wrong saving your login; ask for a new link" });
       }
-      if (r.status === "missing") return ctx.json(404, { error: "that invite does not exist" });
-      if (r.status === "name_taken") {
-        // one unspent code must not become a name-probing tool
-        if (!allowRequest(ctx.rateState, `claimname:${code}`, ctx.nowMs, 6)) {
-          return ctx.json(429, {
-            error: "Too many names tried. Wait a few minutes, or ask your host for help.",
-          });
-        }
-        return ctx.json(409, { error: "that login name is taken; add your last initial" });
-      }
-      if (r.status !== "ok") return unreachable(ctx, new Error(`claim ${r.status}`));
-      if (!login) return ctx.json(200, { ok: true, id: slug, name: entry.name, house: r.house });
       const secret = guestSessionSecret(env);
       const session = secret ? await signGuestSessionV2({ p: slug, b: branch }, secret, ctx.nowMs) : "";
-      return ctx.json(200, { ok: true, id: slug, name: entry.name, house: r.house, session });
+      return ctx.json(200, { ok: true, id: slug, name: entry.name, house: "guesthouse", session });
     }
     return ctx.json(409, { error: "could not find a free name, try a different one" });
   } catch (e) {

@@ -183,6 +183,7 @@ export function fakeSvcDb(seed = {}) {
     /** @type {Record<string, any>} */ logins: { ...(seed.logins ?? {}) },
     /** @type {Record<string, any>} */ invites: {},
     /** @type {any[]} */ writes: [],
+    /** @type {Record<string, number>} */ usage: {},
   };
   let n = 0;
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
@@ -192,10 +193,10 @@ export function fakeSvcDb(seed = {}) {
     Response.json({ code, message: "refused" }, { status: 400 });
   /** @type {Record<string, (a: any, ctx: any) => any>} */
   const rpc = {
-    entitled: (a) => Boolean(byUser(a.p_user)?.entitled),
-    ai_take: () => "ok",
+    entitled: (a) => Boolean(byUser(a.p_sub)?.entitled),
+    ai_count: (a) => (st.usage[a.p_sub] = (st.usage[a.p_sub] ?? 0) + 1),
     whoami: (a) => {
-      const p = byUser(a.p_user);
+      const p = byUser(a.p_sub);
       return p ? { slug: p.slug, admin: Boolean(p.admin), houses: p.houses ?? [] } : null;
     },
     recipe_for: (a) =>
@@ -225,7 +226,7 @@ export function fakeSvcDb(seed = {}) {
     slug_free: (a) =>
       !bySlug(a.p_slug) && !Object.keys(st.docs).some((k) => k.startsWith(`profiles/${a.p_slug}/`)),
     mint_invite: (a) => {
-      const p = byUser(a.p_user);
+      const p = byUser(a.p_sub);
       if (!p || !(p.admin || (p.houses ?? []).includes(a.p_host_house))) return "forbidden";
       st.invites[a.p_code_hash] = {
         host_house: a.p_host_house,
@@ -239,11 +240,8 @@ export function fakeSvcDb(seed = {}) {
     invite_get: (a) => st.invites[a.p_code_hash] ?? null,
     claim_guest: (a) => {
       const inv = st.invites[a.p_code_hash];
-      if (!inv) return { status: "missing" };
-      if (inv.used_at) return { status: "used" };
-      if (inv.expires_at < new Date().toISOString()) return { status: "expired" };
-      if (!rpc.slug_free({ p_slug: a.p_slug }, {})) return { status: "slug_taken" };
-      if (a.p_login && st.logins[a.p_login.name_key]) return { status: "name_taken" };
+      if (!inv || inv.used_at || inv.expires_at <= new Date().toISOString()) return pgErr("P0403");
+      if (!rpc.slug_free({ p_slug: a.p_slug }, {})) return pgErr("P0409");
       const id = `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
       st.people.push({
         id,
@@ -253,17 +251,21 @@ export function fakeSvcDb(seed = {}) {
         houses: [],
         name: a.p_roster.name,
         roster: a.p_roster,
-        family: a.p_family,
         grantHouse: inv.host_house,
-        grantUntil: "2099-01-01",
+        grantUntil: a.p_until,
       });
       st.docs[`profiles/${a.p_slug}/profile/targets.json`] = a.p_targets;
       st.docs[`profiles/${a.p_slug}/fitness/targets.json`] = a.p_targets;
-      if (a.p_login) st.logins[a.p_login.name_key] = { slug: a.p_slug, salt: a.p_login.salt, hash: a.p_login.hash };
       inv.used_at = new Date().toISOString();
       inv.claimed = a.p_slug;
-      inv.status_until = "2099-01-01T00:00:00.000Z";
-      return { status: "ok", house: "guesthouse" };
+      inv.status_until = `${a.p_until}T00:00:00.000Z`;
+      return id;
+    },
+    guest_login_add: (a) => {
+      if (st.logins[a.p_name_key]) return false;
+      const g = st.people.find((p) => p.id === a.p_profile);
+      st.logins[a.p_name_key] = { slug: g?.slug, salt: a.p_salt, hash: a.p_hash };
+      return true;
     },
     guest_login_row: (a) => st.logins[a.p_name_key] ?? null,
     guest_view: (a) => {
@@ -289,7 +291,7 @@ export function fakeSvcDb(seed = {}) {
       const g = st.people.find((p) => p.id === a.p_profile);
       return g ? (st.docs[`profiles/${g.slug}/profile/targets.json`] ?? null) : null;
     },
-    guard_hits: () => 0,
+    guard_hits: () => ({ docs: 0, recipes: 0, plates: 0 }),
     write_doc: (a, ctx) => {
       const bearer = String(ctx.headers.get("authorization") ?? "").replace(/^Bearer /, "");
       st.writes.push({ path: a.p_path, bearer, apikey: ctx.headers.get("apikey"), profile: ctx.headers.get("content-profile") });

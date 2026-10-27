@@ -6,8 +6,10 @@
 // no USAGE on it, RT N5). The functions are typed and narrow on purpose: the
 // Worker never gets a generic "read any path".
 //
-// THIS FILE IS THE CONTRACT with the DB lane (supabase/schema.sql). Each
-// wrapper below names the SQL signature it expects. A function missing on the
+// THIS FILE IS THE CONTRACT with the DB lane (supabase/migrations/). Each
+// wrapper below names the SQL signature it expects. Marked [B2] = already in
+// the DB lane's B2 migration with this exact signature; marked [NEEDED] = the
+// Worker needs the DB lane to add it (listed in the lane notes). A function missing on the
 // server answers 404 from PostgREST, which reaches the caller as SvcError
 // and the route as a 502/503, never as a silent empty result.
 //
@@ -73,49 +75,37 @@ export async function rpc(project, fn, args, opts = {}) {
 // ---- the typed svc functions (the DB lane's contract) ----------------------
 
 /**
- * svc.entitled(p_user uuid) returns boolean
- * True only for a profile whose user_id is p_user and whose `entitled` is true.
+ * [B2] svc.entitled(p_sub uuid) returns boolean
+ * True for an entitled (or admin) non-probe profile whose user_id is p_sub.
  * @param {SvcProject} project @param {string} sub @param {FetchImpl} [fetchImpl]
  */
 export async function entitled(project, sub, fetchImpl) {
-  return (await rpc(project, "entitled", { p_user: sub }, { fetchImpl })) === true;
+  return (await rpc(project, "entitled", { p_sub: sub }, { fetchImpl })) === true;
 }
 
 /**
- * svc.ai_take(p_user uuid, p_day date, p_weight int, p_user_cap int, p_global_cap int) returns text
- * Atomically adds p_weight to public.ai_usage(p_user, p_day) when BOTH the
- * user's total and the day's total across all users stay within their caps;
- * returns 'ok', or 'user' / 'global' (nothing added) when a cap would be passed.
- * The shared PAT quota uses the nil uuid.
- * @param {SvcProject} project
- * @param {{ user: string, day: string, weight: number, userCap: number, globalCap: number }} a
- * @param {FetchImpl} [fetchImpl]
- * @returns {Promise<"ok" | "user" | "global">}
+ * [B2] svc.ai_count(p_sub uuid) returns int
+ * Adds one call to public.ai_usage(p_sub, current_date) and returns that
+ * row's count for today. The Worker uses two reserved rows besides each
+ * person's: the shared PAT quota and the global ceiling (auth.js).
+ * @param {SvcProject} project @param {string} sub @param {FetchImpl} [fetchImpl]
+ * @returns {Promise<number>}
  */
-export async function aiTake(project, a, fetchImpl) {
-  const r = await rpc(
-    project,
-    "ai_take",
-    {
-      p_user: a.user,
-      p_day: a.day,
-      p_weight: a.weight,
-      p_user_cap: a.userCap,
-      p_global_cap: a.globalCap,
-    },
-    { fetchImpl },
-  );
-  return r === "ok" || r === "user" || r === "global" ? r : "global";
+export async function aiCount(project, sub, fetchImpl) {
+  const r = await rpc(project, "ai_count", { p_sub: sub }, { fetchImpl });
+  const n = Number(r);
+  if (!Number.isFinite(n)) throw new SvcError("ai_count returned no count", 502);
+  return n;
 }
 
 /**
- * svc.whoami(p_user uuid) returns jsonb
+ * [NEEDED] svc.whoami(p_sub uuid) returns jsonb
  * { slug text, admin boolean, houses text[] } for the caller's profile, or null.
  * @param {SvcProject} project @param {string} sub @param {FetchImpl} [fetchImpl]
  * @returns {Promise<{ slug: string, admin: boolean, houses: string[] } | null>}
  */
 export async function whoami(project, sub, fetchImpl) {
-  const r = await rpc(project, "whoami", { p_user: sub }, { fetchImpl });
+  const r = await rpc(project, "whoami", { p_sub: sub }, { fetchImpl });
   if (!r || typeof r.slug !== "string") return null;
   return {
     slug: r.slug,
@@ -125,7 +115,7 @@ export async function whoami(project, sub, fetchImpl) {
 }
 
 /**
- * svc.recipe_for(p_house text, p_id text) returns jsonb
+ * [B2] svc.recipe_for(p_house text, p_id text) returns jsonb
  * The bank row's data, or households/<p_house>/recipes/<p_id>.json when p_id
  * starts with "house-"; null otherwise (and null for a staging recipe).
  * @param {SvcProject} project @param {string} house @param {string} id @param {FetchImpl} [fetchImpl]
@@ -136,7 +126,7 @@ export async function recipeFor(project, house, id, fetchImpl) {
 }
 
 /**
- * svc.recipe_names(p_house text, p_ids text[]) returns jsonb
+ * [B2] svc.recipe_names(p_house text, p_ids text[]) returns jsonb
  * { "<id>": "<name>" } for the ids that resolve (bank, or that house's specials).
  * @param {SvcProject} project @param {string} house @param {string[]} ids @param {FetchImpl} [fetchImpl]
  * @returns {Promise<Record<string, string>>}
@@ -153,7 +143,7 @@ export async function recipeNames(project, house, ids, fetchImpl) {
 }
 
 /**
- * svc.cron_inputs(p_week text, p_with_shopping boolean) returns jsonb
+ * [NEEDED] svc.cron_inputs(p_week text, p_with_shopping boolean) returns jsonb
  * The root profile's (private.settings root_profile) inputs to the hourly
  * notifications: { profile text, house text|null, plan jsonb|null,
  * events jsonb|null, shopping jsonb|null }. `house` is the root profile's
@@ -177,7 +167,7 @@ export async function cronInputs(project, week, withShopping, fetchImpl) {
 }
 
 /**
- * svc.slug_free(p_slug text) returns boolean
+ * [B2] svc.slug_free(p_slug text) returns boolean
  * True only when there is no profiles row with that slug AND no docs row
  * under profiles/<p_slug>/ (a recycled id would inherit a stranger's targets).
  * @param {SvcProject} project @param {string} slug @param {FetchImpl} [fetchImpl]
@@ -187,7 +177,7 @@ export async function slugFree(project, slug, fetchImpl) {
 }
 
 /**
- * svc.mint_invite(p_user uuid, p_code_hash text, p_host_house text, p_expires_at timestamptz) returns text
+ * [NEEDED] svc.mint_invite(p_sub uuid, p_code_hash text, p_host_house text, p_expires_at timestamptz) returns text
  * Inserts a guest invite for p_host_house when the caller is an entitled
  * member of that house (or the admin): 'ok', else 'forbidden'.
  * @param {SvcProject} project
@@ -199,7 +189,7 @@ export async function mintInvite(project, a, fetchImpl) {
     project,
     "mint_invite",
     {
-      p_user: a.user,
+      p_sub: a.user,
       p_code_hash: a.codeHash,
       p_host_house: a.hostHouse,
       p_expires_at: a.expiresAt,
@@ -210,7 +200,7 @@ export async function mintInvite(project, a, fetchImpl) {
 }
 
 /**
- * svc.invite_get(p_code_hash text) returns jsonb
+ * [NEEDED] svc.invite_get(p_code_hash text) returns jsonb
  * { host_house text, expires_at text, used_at text|null, claimed text|null
  * (the claimed profile's slug), status_until text|null } or null.
  * @param {SvcProject} project @param {string} codeHash @param {FetchImpl} [fetchImpl]
@@ -228,39 +218,51 @@ export async function inviteGet(project, codeHash, fetchImpl) {
 }
 
 /**
- * svc.claim_guest(p_code_hash text, p_slug text, p_roster jsonb, p_family text, p_targets jsonb, p_login jsonb) returns jsonb
- * ONE transaction: re-checks the invite (unspent, unexpired), re-checks
- * slug_free, refuses a taken login name, then creates the guest profile
- * (kind 'guest', roster = p_roster, family = p_family, never inside roster), its guest grant to the invite's host
- * house, BOTH targets docs rows (the plate trigger fires on them), the login
- * row when p_login is not null ({ name_key, salt, hash }), and stamps the
- * invite used. Returns { status: 'ok'|'used'|'expired'|'missing'|'name_taken'|'slug_taken',
- * house text } where house is the new profile's home household slug as
- * roster() would show it to the guest. Nothing is written unless status is 'ok'.
+ * [B2] svc.claim_guest(p_code_hash text, p_slug text, p_roster jsonb, p_targets jsonb, p_until date) returns uuid
+ * ONE transaction: spends an unused, unexpired guest invite and creates the
+ * guest profile (kind 'guest'), its grant to the invite's host house until
+ * p_until, and BOTH targets docs rows (the plate trigger fires on them).
+ * Raises P0403 when the invite is invalid and P0409 when the slug is taken.
  * @param {SvcProject} project
- * @param {{ codeHash: string, slug: string, roster: Record<string, unknown>, family: string | null, targets: Record<string, unknown>, login: null | { name_key: string, salt: string, hash: string } }} a
+ * @param {{ codeHash: string, slug: string, roster: Record<string, unknown>, targets: Record<string, unknown>, until: string }} a
  * @param {FetchImpl} [fetchImpl]
- * @returns {Promise<{ status: string, house: string }>}
+ * @returns {Promise<{ status: "ok" | "invalid" | "slug_taken", profileId: string }>}
  */
 export async function claimGuest(project, a, fetchImpl) {
-  const r = await rpc(
-    project,
-    "claim_guest",
-    {
-      p_code_hash: a.codeHash,
-      p_slug: a.slug,
-      p_roster: a.roster,
-      p_family: a.family,
-      p_targets: a.targets,
-      p_login: a.login,
-    },
-    { fetchImpl },
-  );
-  return { status: String(r?.status ?? "missing"), house: String(r?.house ?? "") };
+  try {
+    const r = await rpc(
+      project,
+      "claim_guest",
+      { p_code_hash: a.codeHash, p_slug: a.slug, p_roster: a.roster, p_targets: a.targets, p_until: a.until },
+      { fetchImpl },
+    );
+    return { status: "ok", profileId: String(r ?? "") };
+  } catch (e) {
+    if (e instanceof SvcError && e.code === "P0409") return { status: "slug_taken", profileId: "" };
+    if (e instanceof SvcError && e.code === "P0403") return { status: "invalid", profileId: "" };
+    throw e;
+  }
 }
 
 /**
- * svc.guest_login_row(p_name_key text) returns jsonb
+ * [NEEDED] svc.guest_login_add(p_profile uuid, p_name_key text, p_salt text, p_hash text) returns boolean
+ * Inserts the guest_logins row; false (nothing written) when the name_key is taken.
+ * @param {SvcProject} project
+ * @param {{ profileId: string, nameKey: string, salt: string, hash: string }} a
+ * @param {FetchImpl} [fetchImpl]
+ */
+export async function guestLoginAdd(project, a, fetchImpl) {
+  const r = await rpc(
+    project,
+    "guest_login_add",
+    { p_profile: a.profileId, p_name_key: a.nameKey, p_salt: a.salt, p_hash: a.hash },
+    { fetchImpl },
+  );
+  return r === true;
+}
+
+/**
+ * [NEEDED] svc.guest_login_row(p_name_key text) returns jsonb
  * { slug text, salt text, hash text } or null.
  * @param {SvcProject} project @param {string} nameKey @param {FetchImpl} [fetchImpl]
  */
@@ -271,7 +273,7 @@ export async function guestLoginRow(project, nameKey, fetchImpl) {
 }
 
 /**
- * svc.guest_view(p_slug text) returns jsonb
+ * [NEEDED] svc.guest_view(p_slug text) returns jsonb
  * For a guest profile with a LIVE grant (until >= current_date):
  * { profile_id uuid, name text, has_login boolean, host_house text,
  *   tables jsonb (the host house's events.json "tables"),
@@ -298,7 +300,7 @@ export async function guestView(project, slug, fetchImpl) {
 }
 
 /**
- * svc.guest_summary(p_profile uuid) returns jsonb
+ * [B2] svc.guest_summary(p_profile uuid) returns jsonb
  * The guest's own profile/targets.json data (the guest is its owner), or null.
  * @param {SvcProject} project @param {string} profileId @param {FetchImpl} [fetchImpl]
  */
@@ -308,14 +310,19 @@ export async function guestSummary(project, profileId, fetchImpl) {
 }
 
 /**
- * svc.guard_hits() returns integer
- * Whole-word guard-term hits across every row each term's hidden_from house
- * can read, plus any term at all in the bank. The weekly probe wants 0.
+ * [B2] svc.guard_hits() returns jsonb
+ * { docs, recipes, plates }: rows carrying a guarded term where that term's
+ * audience can read it. The weekly probe wants every count 0; this returns
+ * their sum (NaN when the answer is not that shape).
  * @param {SvcProject} project @param {FetchImpl} [fetchImpl]
  */
 export async function guardHits(project, fetchImpl) {
   const r = await rpc(project, "guard_hits", {}, { fetchImpl });
-  return typeof r === "number" ? r : Number.NaN;
+  if (typeof r === "number") return r;
+  if (!r || typeof r !== "object") return Number.NaN;
+  const vals = Object.values(r).map(Number);
+  if (vals.length === 0 || vals.some((v) => !Number.isFinite(v))) return Number.NaN;
+  return vals.reduce((a, b) => a + b, 0);
 }
 
 // ---- as the user -----------------------------------------------------------
