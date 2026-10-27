@@ -106,6 +106,10 @@ test("the other gates: unmapped, bad bank id, unparsable, people, admin, freeze"
   refuses(() => planMigration(writeSnapshot(), { ...PEOPLE, admin: "mate-1" }), "admin");
   refuses(() => planMigration(writeSnapshot(), PEOPLE, { final: true }), "freeze");
   planMigration(writeSnapshot((f) => (f["freeze.json"] = { frozen: true })), PEOPLE, { final: true });
+  // worker fix loop 1, item 16 (E6b): an UNFREEZE leaves the file; it must not pass
+  for (const marker of [{ frozen: false, at: "2026-11-01T15:00:00.000Z", by: "host-1" }, {}, { frozen: "true" }]) {
+    refuses(() => planMigration(writeSnapshot((f) => (f["freeze.json"] = marker)), PEOPLE, { final: true }), "freeze");
+  }
 });
 
 test("migration into the stand-in: verified, committed, plates from the canonical file", { skip: SKIP }, async () => {

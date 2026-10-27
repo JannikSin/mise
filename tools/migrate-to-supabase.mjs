@@ -42,6 +42,7 @@ import { fileURLToPath } from "node:url";
 import { docScope, audienceOf, BadPathError } from "../app/lib/doc-scope.js";
 import { plateOf } from "../app/lib/plate-of.js";
 import { PLATE_FIELDS, PLATE_SAFETY_FIELDS } from "../app/lib/plate-fields.js";
+import { isFrozen } from "../app/lib/freeze.js";
 import { guardHits as nameGuardHits, guardPath, termWords, TermError } from "./name-guard.mjs";
 
 /** @typedef {{ query: (sql: string, params?: unknown[]) => Promise<{ rows: any[], affectedRows?: number }> }} Client */
@@ -143,6 +144,11 @@ export function planMigration(snapshotDir, people, opts = {}) {
   if (opts.final) {
     const marker = opts.freezeFile ?? "freeze.json";
     if (!files.includes(marker)) throw new GateError("freeze", `the final run needs the freeze marker ${marker} in the snapshot`);
+    // worker fix loop 1, item 16 (Engineer F6b): after an UNFREEZE the file is
+    // still there with frozen false; only an explicit frozen true passes
+    if (!isFrozen(read.get(marker)?.data)) {
+      throw new GateError("freeze", `the freeze marker ${marker} does not say frozen: true; freeze in Settings, wait 10 minutes, take a fresh snapshot`);
+    }
   }
 
   // the people file
