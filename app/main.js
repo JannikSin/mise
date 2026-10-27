@@ -66,7 +66,13 @@ import {
 } from "./lib/worker.js";
 import { repriceList, reapplyOps } from "./lib/repricer.js";
 import { ProfileGateView } from "./views/profile-gate.js";
-import { AuthGateRoot, authGateWanted, shellBackend, projectRef } from "./views/auth-gate.js";
+import {
+  AuthGateRoot,
+  authGateWanted,
+  shellBackend,
+  projectRef,
+  gateAfterBoot,
+} from "./views/auth-gate.js";
 import { supabaseProject } from "./lib/backend/config.js";
 import { JoinView, StatusView, WelcomeView, GuestHomeView } from "./views/join.js";
 import { CookbookView } from "./views/cookbook.js";
@@ -5513,8 +5519,9 @@ if (root) {
     first === "join" || first === "status" || first === "me" || guestSession() !== "";
   // 2.0 D1: a Supabase shell with no session signs in first; a GitHub shell
   // (every 1.9x shell) gets null here and boots exactly as before
+  const backendKind = shellBackend();
   const gate = authGateWanted({
-    backend: shellBackend(),
+    backend: backendKind,
     hash: location.hash,
     ref: projectRef(supabaseProject()?.url),
     storage: (() => {
@@ -5525,18 +5532,60 @@ if (root) {
       }
     })(),
   });
-  try {
-    render(
-      gate
-        ? html`<${AuthGateRoot} start=${gate} />`
-        : localStorage.getItem("mise.activeProfile")
-          ? html`<${App} />`
-          : guestLink
-            ? html`<${GuestLinkRoot} />`
-            : html`<${ProfileGateView} />`,
-      root,
-    );
-  } catch (err) {
-    showCrash("render", err);
+  /** @param {any} node */
+  const draw = (node) => {
+    try {
+      render(node, root);
+    } catch (err) {
+      showCrash("render", err);
+    }
+  };
+  const appNode = () =>
+    localStorage.getItem("mise.activeProfile")
+      ? html`<${App} />`
+      : guestLink
+        ? html`<${GuestLinkRoot} />`
+        : html`<${ProfileGateView} />`;
+  if (backendKind !== "supabase") {
+    draw(appNode());
+  } else {
+    // 2.0 worker fix loop 1, item 15: the Supabase shell's boot. The client
+    // and the session boot load only here (dynamic import), the gate gets
+    // its auth client, and a stored session is adopted BEFORE the app
+    // renders; a dead session or a removed account goes back to SIGN IN
+    // (gateAfterBoot, E5). A slow network renders the cached app after 4 s
+    // and still routes a late answer to the gate.
+    void (async () => {
+      /** @type {null | { boot: () => Promise<any> }} */
+      let supa = null;
+      try {
+        supa = (await import("./lib/supabase-boot.js")).startSupabase();
+      } catch (err) {
+        showCrash("supabase boot", err);
+      }
+      if (gate || !supa || guestLink) {
+        draw(gate ? html`<${AuthGateRoot} start=${gate} />` : appNode());
+        return;
+      }
+      /** @param {any} result */
+      const toGate = (result) => {
+        const g = gateAfterBoot(result);
+        if (g) draw(html`<${AuthGateRoot} start=${g.start} reason=${g.reason} />`);
+        return Boolean(g);
+      };
+      const booting = supa.boot().catch(() => "offline");
+      const first = await Promise.race([
+        booting,
+        new Promise((r) => setTimeout(() => r("slow"), 4000)),
+      ]);
+      if (first !== "slow") {
+        if (!toGate(first)) draw(appNode());
+        return;
+      }
+      const drawn = Boolean(localStorage.getItem("mise.activeProfile"));
+      if (drawn) draw(appNode());
+      const late = await booting;
+      if (!toGate(late) && !drawn) draw(appNode());
+    })();
   }
 }
