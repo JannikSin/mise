@@ -317,8 +317,14 @@ export function createSupabaseAdapter({
       // the rows (loop 2 item 10, Red Team 2 L2): the full targets never
       // cross the wire to a non-owner, even if a policy were wrong. Its
       // other files are then fetched one by one, and its targets as the plate.
+      // A parent of a targets folder too (loop 3 item 11, Red Team 3 L-b): the
+      // LIKE pattern of `profiles/X` or `profiles` reaches the nested targets
+      // rows, so their data must not be selected for a non-owner either.
       const t = classifyPath(`${dir}/targets.json`);
-      const blind = t.kind === "targets" && !mayReadFull(t.owner);
+      const parent = /^profiles(?:\/([a-z0-9][a-z0-9-]*))?$/.exec(dir);
+      const blind =
+        (t.kind === "targets" && !mayReadFull(t.owner)) ||
+        (parent !== null && (parent[1] ? !mayReadFull(parent[1]) : !asker().admin));
       /** @type {(DocRow & { path: string })[]} */
       const rows =
         (await run(
