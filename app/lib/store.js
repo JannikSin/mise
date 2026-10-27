@@ -8,11 +8,14 @@
 //          whenever we're online. Offline writes simply stay queued.
 
 import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
-import { backend, stampHere, replaysHere } from "./backend.js";
+import { backend, stampHere, replaysHere, installBackend, lockedBackend } from "./backend.js";
 import { ForbiddenError, NameGuardError } from "./backend/errors.js";
 import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
 import { syncScopeFor, verifiedKey, ADMIN_DEVICE_KEY, keyOf, isAdmin } from "./privacy.js";
+import { stricterTargets } from "./stricter-targets.js";
+import { holdWrite, FREEZE_PATH } from "./freeze.js";
+import { specialTarget } from "./house-special.js";
 
 const io = {
   /** @param {string} path */
@@ -20,6 +23,25 @@ const io = {
   /** @param {string} path @param {Record<string, unknown>} data @param {string | null} [sha] */
   write: (path, data, sha) => backend().write(path, data, sha),
 };
+
+// THE PURGE EPOCH (2.0, Red Team 8 / ENG F4): bumped by every purge. A fetch
+// or a push that started before the purge finds it moved and stores nothing,
+// so revoked data can never land back on the phone after it was wiped.
+let epoch = 0;
+
+// ONE PHONE, MORE THAN ONE ACCOUNT (2.0, seam fixes 1, 14 and 15; Red Team 1,
+// ENG F3; worker gate E4). The sign-in side (session-boot.js) calls
+// onSessionChange(prev, next) on every account change and holds the store
+// lock (acquireStoreLock) across the switch, so no push that started under
+// one account is still in flight when the next one's session goes in.
+const ACCOUNT_KEY = "mise.storeAccount";
+// how many holders keep the queue from flushing (acquireStoreLock)
+let storeLocks = 0;
+
+/** @returns {string | null} the signed-in slug, when the backend knows one */
+function accountNow() {
+  return backend().session()?.slug ?? null;
+}
 
 /** Fallback the app boots into when profiles.json is missing (fresh
  *  install) or unreachable — a legacy/pre-multi-profile install still opens
@@ -40,6 +62,17 @@ export function activeProfile() {
   const s = backend().session();
   if (s && !s.admin) return s.slug;
   return localStorage.getItem("mise.activeProfile") || "david";
+}
+
+/**
+ * May this phone offer SWITCH PROFILE? (2.0, plan section 5, Red Team 4.)
+ * On Supabase only the signed-in admin may; on GitHub it is 1.95, always.
+ * @returns {boolean}
+ */
+export function canSwitchProfile() {
+  const b = backend();
+  if (b.name !== "supabase") return true;
+  return b.session()?.admin === true;
 }
 
 /**
@@ -236,7 +269,10 @@ export const writeOccasionsOf = (id, data) =>
 async function defaultProfilesRead(path) {
   const key = scoped(path);
   const rec = await dbGet(key);
-  if (rec) {
+  // a refused roster write reads as the server copy (2.0, Red Team 3), and a
+  // refused one with no server copy asks the network
+  const view = rec ? localView(rec) : null;
+  if (rec && view) {
     // A CACHED PROFILE LIST IS NOT A FROZEN ONE (David, 2026-08-28).
     //
     // This return used to be bare, which made profiles.json the ONE file in
@@ -253,12 +289,13 @@ async function defaultProfilesRead(path) {
     // still wins, and it emits on change, so the views listening to
     // onSyncChange re-read and repaint.
     void revalidate(key);
-    return { data: rec.data, sha: rec.sha ?? "" };
+    return { data: view, sha: rec.sha ?? "" };
   }
   try {
+    const started = epoch;
     const remote = await io.read(path);
     if (remote) {
-      await cacheRemote(key, remote.data, remote.sha);
+      await cacheRemote(key, remote.data, remote.sha, undefined, started);
       return remote;
     }
   } catch {
@@ -285,7 +322,11 @@ export async function readProfiles(readFn = defaultProfilesRead) {
       if (readFn === defaultProfilesRead) {
         // no profile chosen yet syncs nothing personal (activeProfile's
         // "david" default is the admin, which would sync everything)
-        const chosen = localStorage.getItem("mise.activeProfile");
+        // with a session the choice is the pinned one (2.0, Red Team 4): a
+        // non-admin's old localStorage value never picks the scope
+        const chosen = backend().session()
+          ? activeProfile()
+          : localStorage.getItem("mise.activeProfile");
         // v1.8 set mise.adminDevice with no check, so it counts only while the
         // admin has no passkey; once he sets one, only a verified open does
         // (Tribunal Red Team, 2.0 loop 2)
@@ -405,7 +446,7 @@ function emit() {
 async function recount() {
   const all = await dbGetAll();
   status.pending = all.filter((r) => r.dirty).length;
-  status.refused = all.filter((r) => r.dirty && r.refused).length;
+  status.refused = all.filter((r) => r.dirty && (r.refused || fromAnotherAccount(r))).length;
   status.loading = false;
   emit();
 }
@@ -614,7 +655,32 @@ export async function read(path, opts) {
  * @returns {Record<string, unknown> | null}
  */
 function localView(rec) {
-  return rec.refused ? rec.base : rec.data;
+  // another account's queued write: nothing of it reads on this session,
+  // not even its base, which that account could see and this one may not
+  if (fromAnotherAccount(rec)) return null;
+  if (!rec.refused) return rec.data;
+  // the person's own targets keep every restriction of the refused edit
+  // (2.0, Red Team 5): stricter only, never looser
+  if (isOwnTargetsPath(rec.path)) return stricterTargets(rec.base, rec.data);
+  return rec.base;
+}
+
+/**
+ * A queued write made under a different signed-in account than the one on
+ * the phone now (2.0, seam fix 1, Red Team 1 / ENG F3). It is held: never
+ * pushed under this session, never read, listed as refused "made by another
+ * account" with DISCARD. On GitHub no record carries an account, so never.
+ * @param {import("./db.js").FileRecord} rec
+ */
+function fromAnotherAccount(rec) {
+  if (!rec.dirty || typeof rec.account !== "string") return false;
+  return rec.account !== accountNow();
+}
+
+/** @param {string} path */
+function isOwnTargetsPath(path) {
+  const me = activeProfile();
+  return path === pathFor(me, TARGETS_PATH) || path === pathFor(me, LEGACY_TARGETS_PATH);
 }
 
 /**
@@ -659,10 +725,16 @@ export async function readMeta(path, opts) {
   if (!inSyncScope(finalPath)) return { data: null, sha: null, dirty: false };
   const rec = await dbGet(finalPath);
   void revalidate(finalPath);
-  if (!rec) return { data: null, sha: null, dirty: false };
-  if (rec.refused) return { data: rec.base, sha: rec.fingerprint ?? rec.sha ?? null, dirty: false };
+  if (!rec || fromAnotherAccount(rec)) return { data: null, sha: null, dirty: false };
+  if (rec.refused) {
+    return { data: localView(rec), sha: rec.fingerprint ?? rec.sha ?? null, dirty: false };
+  }
   // a targets file on Supabase fingerprints by its plate (2.0, ENG L2-3)
-  return { data: rec.data, sha: rec.fingerprint ?? rec.sha ?? null, dirty: Boolean(rec.dirty) };
+  return {
+    data: rec.data,
+    sha: rec.fingerprint ?? rec.sha ?? null,
+    dirty: Boolean(rec.dirty || rec.fingerprintStale),
+  };
 }
 
 // ONE FETCH PER FILE, AND A MISSING FILE IS REMEMBERED (Mise 2.0, A-02 /
@@ -703,11 +775,29 @@ async function revalidateFile(scopedPath) {
   // local edits win until flushed; a refused one still learns the server copy
   if (rec?.dirty && !rec.refused) return;
   try {
+    const started = epoch;
     const remote = await backend().read(scopedPath);
+    if (started !== epoch) return;
     fileCheckedAt.set(scopedPath, { at: Date.now(), missing: !remote });
-    if (!remote) return;
-    if (rec && remote.sha === rec.sha && rec.fingerprint === remote.fingerprint) return;
-    await cacheRemote(scopedPath, remote.data, remote.sha, remote.fingerprint);
+    if (!remote) {
+      // HIDDEN NOW (2.0, Red Team 2): on Supabase a row the policies no
+      // longer show reads as null, so the clean copy goes; a queued edit
+      // stays. On GitHub a missing file keeps 1.95's behaviour.
+      if (rec && !rec.dirty && backend().name === "supabase") {
+        await dbDeleteIfClean(scopedPath);
+        emit();
+      }
+      return;
+    }
+    if (
+      rec &&
+      remote.sha === rec.sha &&
+      rec.fingerprint === remote.fingerprint &&
+      !rec.fingerprintStale
+    ) {
+      return;
+    }
+    await cacheRemote(scopedPath, remote.data, remote.sha, remote.fingerprint, started);
     emit();
   } catch {
     // offline, no token or rate-limited: the cache already served the read,
@@ -730,15 +820,19 @@ export function resetFileChecks() {
  * @param {string} sha
  * @param {string | null} [fingerprint] the plate's sha for a targets file on
  *   Supabase (2.0, ENG L2-3); never set on GitHub, so 1.95 records keep their shape
+ * @param {number} [started] the purge epoch when the fetch began
  * @returns {Promise<void>}
  */
-function cacheRemote(path, data, sha, fingerprint) {
-  // a fetch that started before the scope was set never lands (2.0, A-03)
-  if (!inSyncScope(path)) return Promise.resolve();
+function cacheRemote(path, data, sha, fingerprint, started = epoch) {
+  // a fetch that started before the scope was set never lands (2.0, A-03),
+  // nor one that started before a purge (Red Team 8)
+  if (!inSyncScope(path) || started !== epoch) return Promise.resolve();
   return dbUpdate(path, (cur) =>
-    cur?.dirty
+    started !== epoch
+      ? null
+      : cur?.dirty
       ? cur.refused
-        ? { ...cur, base: data, sha }
+        ? { ...cur, base: data, sha, ...(fingerprint !== undefined ? { fingerprint } : {}) }
         : null
       : {
           path,
@@ -846,6 +940,7 @@ async function revalidatePass(scopedDir) {
     return;
   }
   const prefix = `${scopedDir}/`;
+  const started = epoch;
   try {
     const listing = await backend().list(scopedDir);
     const cached = (await dbGetAll()).filter((r) => r.path.startsWith(prefix));
@@ -880,7 +975,7 @@ async function revalidatePass(scopedDir) {
         // store the LISTING's sha — it's what the next revalidate compares
         // against, so a listing/content sha disagreement can never cause an
         // endless refetch-emit loop (they're the same blob sha on GitHub)
-        await cacheRemote(entry.path, remote.data, entry.sha);
+        await cacheRemote(entry.path, remote.data, entry.sha, undefined, started);
         changed = true;
       }
     };
@@ -937,6 +1032,11 @@ export async function write(path, data, opts) {
     // stamped with the branch it was written under (release train): a queued
     // sandbox edit must never be pushed to main, and vice versa
     branch: cur?.dirty && cur.branch !== undefined ? cur.branch : stampHere(),
+    // the plate fingerprint rides along (2.0, ENG F1); a dirty record reads
+    // as dirty anyway, so a stale value is never reported
+    ...(cur && "fingerprint" in cur ? { fingerprint: cur.fingerprint } : {}),
+    // who made it (seam fix 1): a later account on this phone holds it
+    ...(accountNow() ? { account: /** @type {string} */ (accountNow()) } : {}),
   }));
   await recount();
   void flush();
@@ -1024,7 +1124,10 @@ export async function flushNow({ timeoutMs = 20000 } = {}) {
  * @returns {Promise<void>}
  */
 async function flush() {
-  if (status.flushing || !navigator.onLine) return;
+  if (status.flushing || storeLocks > 0 || !navigator.onLine) return;
+  // a Supabase build before sign-in can only fail every push, and must not
+  // tell a phone that never signed in that it was signed out (2.0, ENG F2)
+  if (backend().name === "supabase" && !backend().session()) return;
   status.flushing = true;
   status.conflicts = 0;
   emit();
@@ -1033,7 +1136,22 @@ async function flush() {
       .filter((r) => r.dirty)
       .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
     const here = stampHere();
+    const started = epoch;
     status.mismatched = 0;
+    // a 1.95 AI special still queued for the bank goes to its house instead
+    // (seam fix 12, ENG F7): on Supabase the bank is the admin's
+    for (let i = 0; i < queued.length; i++) {
+      const moved = await rehomeLegacySpecial(/** @type {any} */ (queued[i]), here);
+      if (moved) queued[i] = moved;
+    }
+    // THE MOVE FREEZE (seam fix 13): while the kitchen's store is frozen for
+    // the migration, every queued change waits on the phone, except the
+    // freeze file itself (UNFREEZE must land). Read from the store the
+    // kitchen is still on; a missing or malformed file never holds anything.
+    const freeze =
+      backend().name === "github"
+        ? await readNow(FREEZE_PATH, { raw: true }).catch(() => null)
+        : null;
     // a failure stops its LANE, not the pass (2.0 composite: a GitHub outage
     // must not hold back the Supabase queue); with one lane this is the
     // 1.95 stop-on-first-error exactly
@@ -1041,7 +1159,8 @@ async function flush() {
     const stopped = new Set();
     for (const rec of queued) {
       const lane = backend().laneOf(rec.path);
-      if (stopped.has(lane) || rec.refused) continue;
+      if (stopped.has(lane) || rec.refused || fromAnotherAccount(rec)) continue;
+      if (holdWrite(freeze, rec.path)) continue;
       // BRANCH GUARD (release train). A record with no stamp predates the
       // train: it was written on this install, so it belongs to this install's
       // branch, and is stamped on the way past (a read-time heal, never a
@@ -1057,9 +1176,10 @@ async function flush() {
           continue;
         }
         // a 1.95 record on the build that took over its branch (2.0, plan
-        // section 5): restamped, then replayed through the conflict path
-        rec.branch = here;
-        await dbUpdate(rec.path, (cur) => (cur ? { ...cur, branch: here } : null));
+        // section 5): replayed through the conflict path, and stamped with
+        // this install only once it has landed (ENG F2), so a record that
+        // fails, conflicts or is refused stays a GitHub-era write and a
+        // rollback still pushes it
       }
       try {
         const pushed = await pushFile(io, {
@@ -1070,7 +1190,19 @@ async function flush() {
         });
         // atomic: an edit that landed while the push was in flight stays
         // dirty; only base/sha advance (afterPushRecord decides)
-        await dbUpdate(rec.path, (cur) => afterPushRecord(cur ?? rec, pushed, rec.rev));
+        await dbUpdate(rec.path, (cur) => {
+          // a record purged while its push was in flight stays gone (ENG F4)
+          if (!cur || started !== epoch) return null;
+          const landed = afterPushRecord(cur, pushed, rec.rev);
+          const next = rec.branch === here ? landed : { ...landed, branch: here };
+          // a targets push may have moved the plate: the old fingerprint is
+          // kept but marked stale, and reads as dirty until the next fetch
+          // brings the plate's (2.0, ENG F1 / Red Team 7)
+          return "fingerprint" in cur
+            ? { ...next, fingerprint: cur.fingerprint, fingerprintStale: true }
+            : next;
+        });
+        fileCheckedAt.delete(rec.path);
         status.lastSyncAt = new Date().toISOString();
         if (stopped.size === 0) status.lastError = null;
       } catch (e) {
@@ -1162,11 +1294,17 @@ export async function purgeForeignRecords() {
 
 /**
  * THE ACCOUNT WAS REVOKED (2.0, plan section 5): the phone forgets
- * everything, queued writes included. Called by the sign-in layer when the
- * server says this account no longer exists or may not read.
+ * everything, queued writes included. Called by the sign-in layer ONLY on a
+ * confirmed revoke (the server says this account no longer exists or may not
+ * read), never on an AuthError, which is an expired session whose queue must
+ * survive. The locked backend goes in and the scope is emptied first, and the
+ * purge epoch moves, so nothing in flight lands back (Red Team 8, ENG F4).
  * @returns {Promise<number>} records removed
  */
 export async function purgeEverything() {
+  epoch++;
+  installBackend(lockedBackend());
+  await setSyncScope({ profileIds: [], houses: [] });
   let removed = 0;
   for (const rec of await dbGetAll()) {
     await dbDelete(rec.path);
@@ -1183,17 +1321,23 @@ export async function purgeEverything() {
 export const REFUSED_REASON = {
   forbidden: "not allowed",
   name: "would show a name to another house",
+  account: "made by another account",
 };
 
 /**
- * Every queued write the server refused, for the Settings list.
- * @returns {Promise<{ path: string, reason: "forbidden" | "name", at: number }[]>}
+ * Every queued write the server refused, and every one another account made
+ * on this phone (seam fix 1), for the Settings list.
+ * @returns {Promise<{ path: string, reason: "forbidden" | "name" | "account", at: number }[]>}
  */
 export async function refusedRecords() {
-  /** @type {{ path: string, reason: "forbidden" | "name", at: number }[]} */
+  /** @type {{ path: string, reason: "forbidden" | "name" | "account", at: number }[]} */
   const out = [];
   for (const r of await dbGetAll()) {
-    if (r.dirty && r.refused) out.push({ path: r.path, reason: r.refused.reason, at: r.refused.at });
+    if (r.dirty && fromAnotherAccount(r)) {
+      out.push({ path: r.path, reason: "account", at: r.queuedAt ?? 0 });
+    } else if (r.dirty && r.refused) {
+      out.push({ path: r.path, reason: r.refused.reason, at: r.refused.at });
+    }
   }
   return out.sort((a, b) => a.path.localeCompare(b.path));
 }
@@ -1206,9 +1350,106 @@ export async function refusedRecords() {
  */
 export async function discardRefused(path) {
   const rec = await dbGet(path);
-  if (!rec?.dirty || !rec.refused) return false;
+  if (!rec?.dirty || !(rec.refused || fromAnotherAccount(rec))) return false;
   await dbDelete(path);
   fileCheckedAt.delete(path);
   await recount();
   return true;
+}
+
+const LEGACY_SPECIAL = /^recipes\/(special-[a-z0-9-]+)\.json$/;
+
+/**
+ * A queued 1.95 AI special (`recipes/special-<name>-<date>.json`) replaying
+ * on Supabase is moved to the signed-in person's house, under an opaque id,
+ * before it is pushed (seam fix 12, ENG F7). The old id rides along as
+ * `legacyId`, so the plan entry that names it still resolves (house-recipes.js).
+ * Anything else, or no home house: null, and the record replays as it is.
+ * @param {import("./db.js").FileRecord} rec
+ * @param {string | null} here
+ * @returns {Promise<import("./db.js").FileRecord | null>}
+ */
+async function rehomeLegacySpecial(rec, here) {
+  const b = backend();
+  if (b.name !== "supabase" || !rec.dirty || rec.branch === here) return null;
+  if (!replaysHere(rec.branch, here)) return null;
+  const m = LEGACY_SPECIAL.exec(rec.path);
+  const home = b.session()?.home;
+  if (!m || !home) return null;
+  const legacyId = String(m[1]);
+  const t = specialTarget("supabase", home, legacyId);
+  const moved = {
+    ...rec,
+    path: t.path,
+    data: { ...rec.data, id: t.id, legacyId },
+    base: null,
+    sha: null,
+  };
+  await dbUpdate(t.path, () => moved);
+  await dbDelete(rec.path);
+  return moved;
+}
+
+/** @returns {string | null} the account this phone's cache last belonged to */
+function rememberedAccount() {
+  try {
+    return localStorage.getItem(ACCOUNT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The phone changed account (a sign-in as someone else, or a sign-out).
+ * Every clean cached record goes, so nothing the last account could read
+ * serves this one; every queued write stays, held as "made by another
+ * account" until that account signs in again or the person DISCARDs it.
+ * (purgeEverything is the confirmed-revoke purge and would delete the queue
+ * this must keep.) The slug is remembered in the store too, so a change is
+ * seen even when the caller's own memory was lost. No change: nothing done.
+ * @param {string | null} prevSlug
+ * @param {string | null} nextSlug
+ * @returns {Promise<number>} cached records removed
+ */
+export async function onSessionChange(prevSlug, nextSlug) {
+  const remembered = rememberedAccount();
+  try {
+    if (nextSlug) localStorage.setItem(ACCOUNT_KEY, nextSlug);
+    else localStorage.removeItem(ACCOUNT_KEY);
+  } catch {
+    // storage refused: the caller's prev still decides
+  }
+  const changed =
+    (prevSlug ?? null) !== (nextSlug ?? null) ||
+    (remembered !== null && remembered !== (nextSlug ?? null));
+  if (!changed) return 0;
+  epoch++;
+  let removed = 0;
+  for (const rec of await dbGetAll()) {
+    if (rec.dirty) continue;
+    await dbDeleteIfClean(rec.path);
+    removed++;
+  }
+  resetFileChecks();
+  freshDirs.clear();
+  stalledDirs.clear();
+  await recount();
+  return removed;
+}
+
+/**
+ * Hold the queue: no new flush starts until the returned release is called,
+ * and this resolves only once a flush already in flight has finished. The
+ * sign-in side takes it before an account switch (worker gate E4).
+ * @returns {Promise<() => void>} release (idempotent)
+ */
+export async function acquireStoreLock() {
+  storeLocks++;
+  while (status.flushing) await new Promise((r) => setTimeout(r, 25));
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    storeLocks--;
+  };
 }

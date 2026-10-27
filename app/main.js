@@ -32,6 +32,7 @@ import {
 import { initRouter, parseRoute } from "./lib/router.js";
 import { backend } from "./lib/backend.js";
 import { specialTarget } from "./lib/house-special.js";
+import { houseRecipeDirs, withHouseRecipes, mayPromote } from "./lib/house-recipes.js";
 import {
   visibleProfilesFor,
   withoutHiddenNames,
@@ -621,9 +622,18 @@ function App() {
   useEffect(() => {
     let alive = true;
     const load = () => {
-      readCollection("recipes", { raw: true }).then((r) => {
+      readCollection("recipes", { raw: true }).then(async (r) => {
         if (!alive) return;
-        setBankRecipes(r);
+        // the bank plus every house of mine (2.0 E2): on Supabase a special
+        // is its house's; on GitHub there are no house dirs to read
+        const dirs = houseRecipeDirs(
+          backend().name,
+          backend().name === "supabase" ? (await readProfiles()).profiles : [],
+          activeProfile(),
+        );
+        const houses = await Promise.all(dirs.map((d) => readCollection(d, { raw: true })));
+        if (!alive) return;
+        setBankRecipes(withHouseRecipes(r, houses));
         // ready once the bank fully synced, or, when this launch cannot sync
         // (offline, rate-limited), from a cache that is not empty
         setBankReady(
@@ -4392,6 +4402,9 @@ function App() {
   // on an AI-written bank recipe (hbp-annotated / ai-special), letting the
   // week generator and brigades use it. Writing the flag IS the audit.
   const handlePromoteRecipe = useCallback(async (/** @type {Record<string, any>} */ recipe) => {
+    // the admin's alone on Supabase (2.0 E2); the bank path below means the
+    // server's admin check and bank name guard both apply
+    if (!mayPromote(backend())) throw new Error("only the admin can promote a recipe");
     const promoted = { ...recipe, promoted: true };
     await write(`recipes/${recipe.id}.json`, /** @type {any} */ (promoted), { raw: true });
     setBankRecipes([...bankRecipesRef.current.filter((r) => r.id !== recipe.id), promoted]);

@@ -722,6 +722,24 @@ missing, because knowing where a thing sits is useful without a price.
 }
 ```
 
+### House specials: `households/<h>/recipes/house-<12 hex>.json` (Mise 2.0, E1 and E2, Supabase only)
+
+On Supabase an AI dinner special is its inventing house's, not the bank's. Same
+shape as a bank recipe, with `id` equal to the opaque file name (`house-` plus 12
+random lowercase hex), which names no dish and no person. The house is bound by
+the path, so only that house reads it. The recipe pool is the bank plus every
+house of mine (home `household`, plus `family` when roster() shows it). A house
+row counts only when it is whole (`ingredients` non-empty and a `nutrition`
+object); a bank row with the same id wins (a promoted copy). A plan entry or
+table whose `house-` id resolves in none of my houses shows "a house dish",
+carries no macros and fails every allergy screen ("the dish could not be
+found"). PROMOTE writes `recipes/<id>.json` and is the admin's. On GitHub (1.95)
+specials stay `recipes/special-<name>-<date>.json` and no house dir is read.
+A 1.95 special still queued for the bank when the phone moves to Supabase is
+written to the person's home house on replay, under a new opaque id, with
+`legacyId` set to its old `special-...` id; the pool lists it under that old id,
+so the plan entry that names it still resolves.
+
 ## Pantry — `households/<household>/pantry.json` (B2, 2026-07-21)
 
 HOUSEHOLD-SHARED: one kitchen, one fridge, one pantry file, keyed by the

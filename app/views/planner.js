@@ -20,6 +20,7 @@ import { CookBlocks } from "./cook-blocks.js";
 import { brigadeRunLines } from "./brigade-lines.js";
 import { rotateComponents, rotates } from "../lib/rotate.js";
 import { isParked } from "../lib/parked.js";
+import { houseDishName } from "../lib/house-recipes.js";
 
 /**
  * TODAY'S TOPPINGS on the plan row (David, 2026-09-06: "each day just has
@@ -553,7 +554,7 @@ export function PlannerView({
                             ${stacked.map((entry) => {
                               const rid = entry.recipeId ?? entry.viewRecipeId;
                               const recipe = rid ? byId.get(rid) : null;
-                              const name = recipe ? recipe.name : entry.freeText;
+                              const name = recipe ? recipe.name : (houseDishName(rid) ?? entry.freeText);
                               return html`
                                 <div class="stackline" key=${entry.id}>
                                   <button
@@ -675,7 +676,7 @@ export function PlannerView({
                             // dayTotals recipeId paths
                             const rid = entry.recipeId ?? entry.viewRecipeId;
                             const recipe = rid ? byId.get(rid) : null;
-                            const name = recipe ? recipe.name : entry.freeText;
+                            const name = recipe ? recipe.name : (houseDishName(rid) ?? entry.freeText);
                             return html`
                               <div class="stackline" key=${entry.id}>
                                 <button
