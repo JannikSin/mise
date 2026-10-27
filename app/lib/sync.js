@@ -11,6 +11,19 @@ export class ConflictError extends Error {
 }
 
 /**
+ * The account changed while this push was in flight (2.0, seam fix loop 3,
+ * item 1; Red Team 3 S1, ENG 3 N7): no further request goes out for it, and
+ * the record stays queued for its own account.
+ */
+export class PushAborted extends Error {
+  /** @param {string} path */
+  constructor(path) {
+    super(`push stopped, the account changed: ${path}`);
+    this.name = "PushAborted";
+  }
+}
+
+/**
  * @typedef {{
  *   read(path: string): Promise<{ data: Record<string, unknown>, sha: string } | null>,
  *   write(path: string, data: Record<string, unknown>, sha?: string | null): Promise<{ sha: string }>
@@ -61,17 +74,21 @@ export function afterPushRecord(current, pushed, flushedRev) {
 /**
  * @param {SyncIO} io
  * @param {{ path: string, data: Record<string, unknown>, base: Record<string, unknown> | null, sha: string | null }} job
+ * @param {() => boolean} [alive] asked before every request, the conflict
+ *   retry included: false stops the push with PushAborted (loop 3, item 1)
  * @returns {Promise<{ data: Record<string, unknown>, sha: string }>}
  */
-export async function pushFile(io, job) {
+export async function pushFile(io, job, alive = () => true) {
   const MAX_ATTEMPTS = 3;
   let { data, base, sha } = job;
   for (let attempt = 1; ; attempt++) {
     try {
+      if (!alive()) throw new PushAborted(job.path);
       const res = await io.write(job.path, data, sha);
       return { data, sha: res.sha };
     } catch (e) {
       if (!(e instanceof ConflictError) || attempt >= MAX_ATTEMPTS) throw e;
+      if (!alive()) throw new PushAborted(job.path);
       const remote = await io.read(job.path);
       data = mergeFieldWise(base ?? {}, data, remote?.data ?? {});
       base = remote?.data ?? {};

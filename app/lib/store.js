@@ -10,7 +10,7 @@
 import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
 import { backend, stampHere, replaysHere, installBackend, lockedBackend } from "./backend.js";
 import { ForbiddenError, NameGuardError } from "./backend/errors.js";
-import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
+import { pushFile, afterPushRecord, ConflictError, PushAborted } from "./sync.js";
 import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
 import { syncScopeFor, verifiedKey, ADMIN_DEVICE_KEY, keyOf, isAdmin } from "./privacy.js";
 import { stricterTargets } from "./stricter-targets.js";
@@ -1180,6 +1180,20 @@ async function flush() {
       .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
     const here = stampHere();
     const started = epoch;
+    // ONE BACKEND FOR THE WHOLE PASS (loop 3, item 1; Red Team 3 S1, ENG 3
+    // N7): a push that hung past the lock's deadline must never retry its
+    // conflict through the next account's adapter, JWT or house. The adapter
+    // is captured once, and before every request, the conflict retry
+    // included, the pass checks that neither the account (the epoch) nor
+    // the installed backend has moved; if either has, it stops and the
+    // record stays queued for its own account.
+    const pinned = backend();
+    const alive = () => started === epoch && backend() === pinned;
+    /** @type {import("./sync.js").SyncIO} */
+    const pinnedIo = {
+      read: (path) => pinned.read(path),
+      write: (path, data, sha) => pinned.write(path, data, sha),
+    };
     status.mismatched = 0;
     // a 1.95 AI special still queued for the bank goes to its house instead
     // (seam fix 12, ENG F7): on Supabase the bank is the admin's
@@ -1207,6 +1221,7 @@ async function flush() {
     /** @type {Set<string>} */
     const stopped = new Set();
     for (const rec of queued) {
+      if (!alive()) break;
       const lane = backend().laneOf(rec.path);
       if (stopped.has(lane) || rec.refused || fromAnotherAccount(rec)) continue;
       // and only ever under its own account's session: the store's memory
@@ -1237,12 +1252,11 @@ async function flush() {
         // rollback still pushes it
       }
       try {
-        const pushed = await pushFile(io, {
-          path: rec.path,
-          data: rec.data,
-          base: rec.base,
-          sha: rec.sha,
-        });
+        const pushed = await pushFile(
+          pinnedIo,
+          { path: rec.path, data: rec.data, base: rec.base, sha: rec.sha },
+          alive,
+        );
         if ("from" in rec) {
           await landRehomed(/** @type {any} */ (rec), pushed, here, started);
           fileCheckedAt.delete(rec.path);
@@ -1268,6 +1282,8 @@ async function flush() {
         status.lastSyncAt = new Date().toISOString();
         if (stopped.size === 0) status.lastError = null;
       } catch (e) {
+        // the account changed mid-push: nothing more is sent this pass
+        if (e instanceof PushAborted) break;
         if (e instanceof ConflictError) {
           status.conflicts++;
           continue; // stays dirty; next flush retries the merge
@@ -1656,8 +1672,10 @@ export const LOCK_TIMEOUT_MESSAGE =
  * and this resolves once a flush already in flight has finished, or at the
  * deadline (loop 2 item 8, ENG 2), so a push hung on a stalled fetch never
  * hangs sign-in or sign-out. On a timeout the release says `timedOut: true`
- * and Sync says so; the hung push cannot land on the next account's phone,
- * because the account change moves the purge epoch and holds the queue.
+ * and Sync says so. The hung push sends nothing more after the switch: its
+ * pass is pinned to the backend it started with and stops before any further
+ * request once the epoch or the installed backend has moved (loop 3, item 1),
+ * and the account change holds its record for its own account.
  * The sign-in side takes it before an account switch (worker gate E4).
  * @param {{ timeoutMs?: number }} [opts]
  * @returns {Promise<(() => void) & { timedOut: boolean }>} release (idempotent)
