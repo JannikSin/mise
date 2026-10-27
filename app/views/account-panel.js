@@ -13,8 +13,8 @@ import { accountSource } from "../lib/session-boot.js";
 //  - WHAT THIS PHONE CAN SEE: the houses whose files reach this phone, how
 //    many people's plate cards, live guests, and the shared bank. It is read
 //    from what the DATABASE returned to this phone (roster()), never from
-//    what the phone assumes, so it is a check, not a promise. On Elliot's
-//    phone it must say one house (plan section 6, his in-person steps).
+//    what the phone assumes, so it is a check, not a promise. On a housemate's
+//    phone it must say one house (plan section 6, the in-person steps).
 //  - CHANGES THE SERVER REFUSED: each queued write the database would not
 //    take (not allowed, or it would show a name to another house), with
 //    DISCARD. A refused record no longer overrides what the phone reads.

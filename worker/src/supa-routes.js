@@ -353,7 +353,7 @@ export async function supaInviteRoute(pathname, body, code, branch, env, ctx) {
  */
 export async function supaInviteNew(who, body, ctx) {
   if (body?.house === "member") {
-    return ctx.json(400, { error: "only guests are invited by link; David adds members" });
+    return ctx.json(400, { error: "only guests are invited by link; the admin adds members" });
   }
   const hostHouse = slugOf(body?.hostHouse);
   if (!hostHouse) return ctx.json(400, { error: "which house is the guest coming to?" });
