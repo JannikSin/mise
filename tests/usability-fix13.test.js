@@ -70,7 +70,7 @@ test("U4/U6: the data notice is short, plain, and never says Supabase or I UNDER
   assert.match(notice, /Always read the label too\./);
   assert.match(notice, /OK, CONTINUE/);
   assert.match(gateSrc, /"Before you start"/);
-  assert.equal(/—/.test(gateSrc + panelSrc), false, "no em dash");
+  assert.equal(/\u2014/.test(gateSrc + panelSrc), false, "no em dash");
 });
 
 test("U8/U10/U12: calm reset note with a rest, forgot password as a link, a show-password toggle", () => {
