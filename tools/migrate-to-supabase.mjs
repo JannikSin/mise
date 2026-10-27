@@ -21,6 +21,11 @@
 //     "guardTerms": [{ "term": "<word>", "hiddenFrom": "<house>" }]
 //   }
 //
+// The snapshot must be a git clone with a clean tree whose HEAD is origin/main
+// (fix loop 3, E1): the file list and every legacy_sha come from
+// `git ls-tree -r HEAD` (the committed blob sha, the sha GitHub gives the
+// phones), never from the working-tree bytes, which core.autocrlf rewrites.
+//
 // Steps: 1 preflight (classify every file, the admin diff gate, the bank scrub
 // gate, the audience-aware name guard, sha-256 per file, the freeze marker on
 // --final); 2 houses, profiles, memberships, the admin, guest grants (no auth
@@ -36,6 +41,7 @@
 // database client for them is the owner's call (see NEEDS DAVID in the fleet
 // notes). `runMigration` takes any client with `query(sql, params)`.
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync, existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -90,6 +96,55 @@ export function guardHits(data, terms, extra = null) {
   return nameGuardHits(data, terms, extra);
 }
 
+class GateError extends Error {
+  /** @param {string} gate @param {string} message @param {string[]} [paths] */
+  constructor(gate, message, paths = []) {
+    super(`${gate}: ${message}`);
+    this.gate = gate;
+    this.paths = paths;
+  }
+}
+export { GateError };
+
+/**
+ * fix loop 3 E1: every committed file of a snapshot clone and its git blob
+ * sha, from `git ls-tree -r HEAD`. Refuses (gate `git`) unless the directory
+ * is the root of a git clone, its tree is clean (no change, no untracked
+ * file) and HEAD is origin/main as last fetched. Reads only; never fetches.
+ * @param {string} dir
+ * @returns {Map<string, string>} repo-relative POSIX path -> blob sha
+ */
+export function committedBlobs(dir) {
+  const git = (/** @type {string[]} */ args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 256 * 1024 * 1024 });
+  let prefix;
+  try {
+    prefix = git(["rev-parse", "--show-prefix"]).trim();
+  } catch {
+    throw new GateError("git", "the snapshot is not a git clone (the shas must come from git, not from the working-tree bytes)");
+  }
+  if (prefix !== "") throw new GateError("git", "the snapshot is a folder inside a clone; point --snapshot at the clone's root");
+  const dirty = git(["status", "--porcelain", "--untracked-files=all"]).split("\n").filter(Boolean).length;
+  if (dirty) throw new GateError("git", `the snapshot clone has ${dirty} uncommitted or untracked change(s); it must be a clean tree at origin/main`);
+  const head = git(["rev-parse", "HEAD"]).trim();
+  let origin;
+  try {
+    origin = git(["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main"]).trim();
+  } catch {
+    throw new GateError("git", "the snapshot clone has no origin/main; fetch it first");
+  }
+  if (head !== origin) throw new GateError("git", "the snapshot clone's HEAD is not origin/main; check out origin/main (after a fetch) first");
+  /** @type {Map<string, string>} */
+  const out = new Map();
+  for (const entry of git(["ls-tree", "-r", "-z", "HEAD"]).split("\0")) {
+    if (!entry) continue;
+    const m = /^\d+ (\w+) ([0-9a-f]{40})\t(.+)$/s.exec(entry);
+    if (!m) throw new GateError("git", "git ls-tree printed a line this tool does not understand");
+    if (m[1] !== "blob") throw new GateError("git", "the snapshot clone holds a submodule; it has no place in mise-data");
+    out.set(String(m[3]), String(m[2]));
+  }
+  return out;
+}
+
 /** @param {string} dir @param {string} [base] @returns {string[]} repo-relative POSIX paths */
 export function walk(dir, base = dir) {
   /** @type {string[]} */
@@ -103,16 +158,6 @@ export function walk(dir, base = dir) {
   return out.sort();
 }
 
-class GateError extends Error {
-  /** @param {string} gate @param {string} message @param {string[]} [paths] */
-  constructor(gate, message, paths = []) {
-    super(`${gate}: ${message}`);
-    this.gate = gate;
-    this.paths = paths;
-  }
-}
-export { GateError };
-
 /**
  * Step 1: read and classify the snapshot, and run every gate that needs no
  * database. Throws GateError naming the gate; never writes.
@@ -121,7 +166,11 @@ export { GateError };
  * @param {{ final?: boolean, freezeFile?: string, reviewedTermLoad?: boolean }} [opts]
  */
 export function planMigration(snapshotDir, people, opts = {}) {
-  const files = walk(snapshotDir);
+  // E1: the committed files and their blob shas (refuses a dirty or stale clone)
+  const blobs = committedBlobs(snapshotDir);
+  const files = [...blobs.keys()].sort();
+  /** @param {string} f */
+  const blobOf = (f) => /** @type {string} */ (blobs.get(f));
   /** @type {Record<string, string>} */
   const sha256 = {};
   /** @type {Map<string, { bytes: Buffer, data: any }>} */
@@ -199,7 +248,7 @@ export function planMigration(snapshotDir, people, opts = {}) {
   // classify every file
   /** @type {{ id: string, staging: boolean, data: any, sha: string, path: string }[]} */
   const recipes = [];
-  /** @type {{ path: string, kind: string, data: any, sha: string, profile: string | null, household: string | null, copy?: boolean }[]} */
+  /** @type {{ path: string, kind: string, data: any, sha: string, src: string, profile: string | null, household: string | null, copy?: boolean }[]} */
   const docs = [];
   /** @type {Record<string, number>} */
   const skipped = {};
@@ -227,20 +276,20 @@ export function planMigration(snapshotDir, people, opts = {}) {
     const bank = BANK.exec(f);
     if (bank) {
       if (entry.data?.id !== bank[2]) badBank.push(f);
-      recipes.push({ id: String(bank[2]), staging: bank[1] === "recipes-staging", data: entry.data, sha: gitBlobSha(entry.bytes), path: f });
+      recipes.push({ id: String(bank[2]), staging: bank[1] === "recipes-staging", data: entry.data, sha: blobOf(f), path: f });
       continue;
     }
     if (ROOT_SHARED.test(f)) {
       // per-house prices and pins: each house without its own file gets a copy
       for (const h of houses) {
         const p = `households/${h}/${f}`;
-        if (!read.has(p)) docs.push({ path: p, kind: f.replace(".json", ""), data: entry.data, sha: gitBlobSha(entry.bytes), profile: null, household: h, copy: true });
+        if (!read.has(p)) docs.push({ path: p, kind: f.replace(".json", ""), data: entry.data, sha: blobOf(f), src: f, profile: null, household: h, copy: true });
       }
       continue;
     }
     try {
       const s = docScope(f, world);
-      docs.push({ path: f, kind: s.kind, data: entry.data, sha: gitBlobSha(entry.bytes), profile: s.profile, household: s.household });
+      docs.push({ path: f, kind: s.kind, data: entry.data, sha: blobOf(f), src: f, profile: s.profile, household: s.household });
     } catch (e) {
       if (!(e instanceof BadPathError)) throw e;
       unmapped.push(f);
@@ -330,7 +379,7 @@ export function planMigration(snapshotDir, people, opts = {}) {
   /** @type {Record<string, number>} */
   const kinds = {};
   for (const d of kept) kinds[d.kind] = (kinds[d.kind] ?? 0) + 1;
-  return { people, guardWords, termLoad, roster: roster.profiles, recipes, docs: kept, skipped, kinds, sha256, fileCount: files.length };
+  return { people, guardWords, termLoad, roster: roster.profiles, recipes, docs: kept, skipped, kinds, sha256, blobs: Object.fromEntries(blobs), fileCount: files.length };
 }
 
 /** @typedef {ReturnType<typeof planMigration>} MigrationPlan */
@@ -453,7 +502,8 @@ export async function verify(client, plan) {
 
   const docMismatch = plan.docs.filter((d) => {
     const row = docByPath.get(d.path);
-    return !row || contentHash(row.data) !== contentHash(d.data) || row.legacy_sha !== d.sha || row.kind !== d.kind;
+    // E1: the sha is the committed blob of the source file (git ls-tree), not the plan's copy of it
+    return !row || contentHash(row.data) !== contentHash(d.data) || row.legacy_sha !== plan.blobs[d.src] || row.kind !== d.kind;
   }).length;
   add("docs equal their files", docMismatch, `${plan.docs.length} files, ${docMismatch} mismatched`);
   add("no extra docs rows", docs.length - plan.docs.length, `${docs.length} rows for ${plan.docs.length} files`);
@@ -464,7 +514,7 @@ export async function verify(client, plan) {
   add("counts per kind", kindBad, Object.entries(plan.kinds).map(([k, n]) => `${k} ${n}`).join(", "));
   const recMismatch = plan.recipes.filter((r) => {
     const row = recById.get(r.id);
-    return !row || row.staging !== r.staging || contentHash(row.data) !== contentHash(r.data) || row.legacy_sha !== r.sha;
+    return !row || row.staging !== r.staging || contentHash(row.data) !== contentHash(r.data) || row.legacy_sha !== plan.blobs[r.path];
   }).length;
   add("bank equals its files", recMismatch + Math.abs(recipes.length - plan.recipes.length), `${plan.recipes.length} recipes`);
 
@@ -473,7 +523,7 @@ export async function verify(client, plan) {
   add("plate keys within PLATE_FIELDS", plates.filter((p) => Object.keys(p.data).some((k) => !PLATE_FIELDS.includes(k))).length, "");
   const shaBad = plates.filter((p) => {
     const canon = plan.docs.find((d) => d.kind === "targets" && d.profile === p.slug && d.path.endsWith("profile/targets.json"));
-    return canon ? p.legacy_sha !== canon.sha : false;
+    return canon ? p.legacy_sha !== plan.blobs[canon.src] : false;
   }).length;
   add("plate sha is the canonical file's", shaBad, "");
   // F2: every plate is plateOf(the canonical file), or of the mirror when the

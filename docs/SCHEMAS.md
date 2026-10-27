@@ -2517,7 +2517,11 @@ many bank recipes each guard term and listed name hits, labelled by field
 (`guardTerms[i]`, `people[i].names[j]`), never the term or a recipe, and stops
 with gate `term-load` when a term hits more than 5% of the bank and more than
 one recipe (a common word as well as a name); `--reviewed-term-load` goes on
-after David has looked (fix loop 2, N5).
+after David has looked (fix loop 2, N5). The snapshot must be a git clone with
+a clean tree whose HEAD is `origin/main` (gate `git`): the file list and every
+`legacy_sha` come from `git ls-tree -r HEAD`, the committed blob sha GitHub
+gives the phones, never from the working-tree bytes, which `core.autocrlf`
+rewrites; verify compares each row with that blob sha (fix loop 3, E1).
 
 **Backup, restore and rollback** (G2). One snapshot format, `mise-backup/1`
 (`tools/db-snapshot.mjs`): a single JSON document `{ format, taken_at,
