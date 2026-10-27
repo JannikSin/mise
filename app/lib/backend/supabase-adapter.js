@@ -57,9 +57,13 @@ export function classifyPath(path) {
   const bank = BANK.exec(path);
   if (bank) return { kind: "bank", id: String(bank[2]), staging: bank[1] === "recipes-staging" };
   if (path === "profiles.json") return { kind: "roster" };
-  // root profile/targets.json is the root profile's; root fitness/targets.json
-  // is not stored here at all (the GitHub lane keeps it for Anvil)
-  if (path === "profile/targets.json") return { kind: "targets", owner: ROOT_PROFILE };
+  // root profile/targets.json is the root profile's, and so is the legacy
+  // root fitness/targets.json (Red Team 6): on the admin's phone the GitHub
+  // lane keeps that one for Anvil, but any other phone asking for it here
+  // gets the plate, never the full row
+  if (path === "profile/targets.json" || path === "fitness/targets.json") {
+    return { kind: "targets", owner: ROOT_PROFILE };
+  }
   const own = OWN_TARGETS.exec(path);
   if (own) return { kind: "targets", owner: String(own[1]) };
   return { kind: "doc" };
@@ -168,6 +172,16 @@ export function createSupabaseAdapter({
   };
 
   /**
+   * The owner, or the admin, reads a targets row in full; anyone else reads
+   * the plate (ENG L2-2), decided by who is asking.
+   * @param {string} owner
+   */
+  const mayReadFull = (owner) => {
+    const me = asker();
+    return me.admin || me.slug === owner;
+  };
+
+  /**
    * The row a path's sha is checked against, for the legacy mapping.
    * @param {string} path
    * @returns {Promise<{ legacy_sha?: string | null } | null>}
@@ -224,8 +238,7 @@ export function createSupabaseAdapter({
       return { data: { profiles: got.profiles.map(rosterEntry) }, sha: `pg:${got.rev}` };
     }
     if (c.kind === "targets") {
-      const me = asker();
-      if (!(me.admin || me.slug === c.owner)) {
+      if (!mayReadFull(c.owner)) {
         const plate = await plateRow(c.owner, path);
         if (!plate) return null;
         const sha = plateShaOf(plate);
@@ -287,18 +300,33 @@ export function createSupabaseAdapter({
         )) ?? [];
       const prefix = `${dir}/`;
       // the Contents API lists one level of JSON files; so does this
-      return rows
+      const files = rows
         .filter((r) => {
           const rest = r.path.slice(prefix.length);
           return r.path.startsWith(prefix) && !rest.includes("/") && rest.endsWith(".json");
         })
-        .sort((a, b) => a.path.localeCompare(b.path))
-        .map((r) => ({
-          name: r.path.slice(prefix.length),
-          path: r.path,
-          sha: shaOf(r),
-          data: r.data,
-        }));
+        .sort((a, b) => a.path.localeCompare(b.path));
+      /** @type {{ name: string, path: string, sha: string, data: Record<string, unknown> }[]} */
+      const out = [];
+      for (const r of files) {
+        const c = classifyPath(r.path);
+        // the plate rule holds for listings too (Red Team 6): someone else's
+        // targets list as their plate, or not at all
+        if (c.kind === "targets" && !mayReadFull(c.owner)) {
+          const plate = await plateRow(c.owner, r.path);
+          if (plate) {
+            out.push({
+              name: r.path.slice(prefix.length),
+              path: r.path,
+              sha: plateShaOf(plate),
+              data: plate.data,
+            });
+          }
+          continue;
+        }
+        out.push({ name: r.path.slice(prefix.length), path: r.path, sha: shaOf(r), data: r.data });
+      }
+      return out;
     },
     async readMeta(path) {
       const got = await read(path);
