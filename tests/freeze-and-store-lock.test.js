@@ -144,7 +144,9 @@ test("the sign-in side switches accounts holding the store lock, and flushes aft
     },
   });
   assert.equal(await boot.adopt({ user: { id: "u2" }, access_token: "t" }), "signed-in");
-  assert.deepEqual(log, ["lock", "session", "install", "reset", "unlock", "flush"]);
+  // seam loop 2's order (worker fix loop 1, item 15): the locked backend is
+  // in when onSessionChange runs, then the new adapter, all under the lock
+  assert.deepEqual(log, ["lock", "install", "reset", "session", "install", "reset", "unlock", "flush"]);
   log.length = 0;
   await boot.signOut();
   assert.deepEqual(log.slice(0, 1), ["lock"]);
