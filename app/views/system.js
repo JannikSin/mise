@@ -43,6 +43,8 @@ import { EQUIPMENT, canMake, unlockCounts } from "../lib/equipment.js";
 import { SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { notifyTest } from "../lib/worker.js";
 import { isParked } from "../lib/parked.js";
+import { AccountSection } from "./account-panel.js";
+import { canSwitchHere } from "../lib/session-boot.js";
 
 const BUY_DAY_NAMES = [
   "Sunday",
@@ -686,6 +688,8 @@ export function SystemView({
         </a>`
       }
 
+      <${AccountSection} me=${me} isAdmin=${isAdmin(profile)} askConfirm=${askConfirm} />
+
       <div class="tile">
         <h2 class="k">App</h2>
         <div class="row">
@@ -696,9 +700,14 @@ export function SystemView({
           <span class="k">Profile</span>
           <span class="status dim">${profile ? `${profile.emoji} ${profile.name}` : "…"}</span>
         </div>
-        <div class="actions">
-          <button class="secondary" onClick=${switchProfile}>SWITCH PROFILE</button>
-        </div>
+        ${
+          // 2.0 D2: signed in on Supabase, only the admin switches profile;
+          // on GitHub canSwitchHere() is true, as in 1.95
+          canSwitchHere() &&
+          html`<div class="actions">
+            <button class="secondary" onClick=${switchProfile}>SWITCH PROFILE</button>
+          </div>`
+        }
         ${
           profile &&
           html`<div class="tile pin-form">

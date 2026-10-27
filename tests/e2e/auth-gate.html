@@ -83,7 +83,13 @@
               guests: 1,
               bank: true,
             }}
-            freeze=${window.__freeze ?? null}
+            freeze=${q.get("frozen") ? { frozen: true, at: new Date().toISOString(), by: "host-1" } : null}
+            refused=${admin ? [] : [
+              { path: "plans/2026-W44.json", reason: "name", at: 1 },
+              { path: "profiles/host-1/profile/targets.json", reason: "forbidden", at: 2 },
+            ]}
+            onDiscard=${async (p) => { window.authCalls.push(["discard", p]); return true; }}
+            askConfirm=${async () => true}
             onSignOut=${() => window.authCalls.push(["signOut"])}
             onFreeze=${async (on) => { window.authCalls.push(["freeze", on]); }}
           /></div>`,

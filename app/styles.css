@@ -3069,3 +3069,43 @@ input[aria-label$="comma separated"] {
 .auth-gate button.linktext {
   min-height: 44px;
 }
+
+/* SETTINGS, YOUR ACCOUNT (Mise 2.0, D2): label above value, and a refused
+   write as path, reason, then a full-width DISCARD, so a long path can
+   never push the button off a 390 px screen */
+.account-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  margin: 8px 0 4px;
+}
+.account-facts dt {
+  color: var(--dim);
+}
+.account-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.refused-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.refused-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.refused-path {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.refused-why {
+  color: var(--amber);
+  font-size: 13px;
+}
+.refused-row button {
+  min-height: 44px;
+}
