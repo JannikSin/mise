@@ -13,6 +13,7 @@ import { ForbiddenError, NameGuardError } from "./backend/errors.js";
 import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
 import { syncScopeFor, verifiedKey, ADMIN_DEVICE_KEY, keyOf, isAdmin } from "./privacy.js";
+import { stricterTargets } from "./stricter-targets.js";
 
 const io = {
   /** @param {string} path */
@@ -632,7 +633,17 @@ export async function read(path, opts) {
  * @returns {Record<string, unknown> | null}
  */
 function localView(rec) {
-  return rec.refused ? rec.base : rec.data;
+  if (!rec.refused) return rec.data;
+  // the person's own targets keep every restriction of the refused edit
+  // (2.0, Red Team 5): stricter only, never looser
+  if (isOwnTargetsPath(rec.path)) return stricterTargets(rec.base, rec.data);
+  return rec.base;
+}
+
+/** @param {string} path */
+function isOwnTargetsPath(path) {
+  const me = activeProfile();
+  return path === pathFor(me, TARGETS_PATH) || path === pathFor(me, LEGACY_TARGETS_PATH);
 }
 
 /**
@@ -678,7 +689,9 @@ export async function readMeta(path, opts) {
   const rec = await dbGet(finalPath);
   void revalidate(finalPath);
   if (!rec) return { data: null, sha: null, dirty: false };
-  if (rec.refused) return { data: rec.base, sha: rec.fingerprint ?? rec.sha ?? null, dirty: false };
+  if (rec.refused) {
+    return { data: localView(rec), sha: rec.fingerprint ?? rec.sha ?? null, dirty: false };
+  }
   // a targets file on Supabase fingerprints by its plate (2.0, ENG L2-3)
   return { data: rec.data, sha: rec.fingerprint ?? rec.sha ?? null, dirty: Boolean(rec.dirty) };
 }
