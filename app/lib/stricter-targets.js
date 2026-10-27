@@ -41,6 +41,16 @@ function stricterDiet(server, local) {
   return l > s ? local : server;
 }
 
+/** @param {string} text the typed allergy text, split at commas, semicolons and lines */
+const terms = (text) =>
+  text
+    .split(/[,;\n]/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+/** @param {string} t */
+const normTerm = (t) => t.toLowerCase().replace(/\s+/g, " ");
+
 /**
  * @param {Record<string, unknown> | null} server the server copy (null when none came down)
  * @param {Record<string, unknown> | null} local the refused local edit
@@ -54,10 +64,19 @@ export function stricterTargets(server, local) {
     const v = unionList(server?.[k], local[k]);
     if (v !== undefined) out[k] = v;
   }
+  // the typed allergy text is merged by WHOLE terms (loop 2 item 9, Red Team
+  // 2 L1): a local "apple" is kept beside a server "pineapple", never dropped
+  // as a substring of it
   const sText = String(server?.allergensFreeText ?? "").trim();
-  const lText = String(local.allergensFreeText ?? "").trim();
-  if (lText && !sText.toLowerCase().includes(lText.toLowerCase())) {
-    out.allergensFreeText = sText ? `${sText}; ${lText}` : lText;
+  const have = new Set(terms(sText).map(normTerm));
+  const extra = terms(String(local.allergensFreeText ?? "")).filter((t) => {
+    const n = normTerm(t);
+    if (have.has(n)) return false;
+    have.add(n);
+    return true;
+  });
+  if (extra.length > 0) {
+    out.allergensFreeText = [...(sText ? [sText] : []), ...extra].join("; ");
   }
   const diet = stricterDiet(server?.diet, local.diet);
   if (diet !== undefined) out.diet = diet;
