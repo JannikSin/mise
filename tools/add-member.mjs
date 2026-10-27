@@ -25,6 +25,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { lit, jsonLit, textArray, SLUG, EMAIL, parseArgs } from "./sql-script.mjs";
 import { DISPLAY_DROPPED } from "./migrate-to-supabase.mjs";
+import { termWords } from "./name-guard.mjs";
 
 /**
  * Check a person file; throws naming the field, never the value.
@@ -43,8 +44,16 @@ export function checkPerson(p) {
   if (!roster || typeof roster !== "object" || Array.isArray(roster)) throw new Error("roster: an object of display fields");
   if (Object.keys(roster).some((k) => DISPLAY_DROPPED.includes(k))) throw new Error(`roster: may not carry ${DISPLAY_DROPPED.join(", ")}`);
   const terms = /** @type {any[]} */ (p.guardTerms ?? []);
+  // fix loop 2 C1: a term is folded as the text is and split into words
+  /** @type {{ term: string, hiddenFrom: string }[]} */
+  const words = [];
   for (const t of terms) {
-    if (!/^[a-z0-9-]{2,40}$/.test(String(t?.term ?? "").toLowerCase()) || !SLUG.test(String(t?.hiddenFrom))) throw new Error("guardTerms: {term, hiddenFrom} with a 2 to 40 character word and a house slug");
+    if (!SLUG.test(String(t?.hiddenFrom))) throw new Error("guardTerms: {term, hiddenFrom} with a name or word and a house slug");
+    try {
+      for (const w of termWords(String(t?.term ?? ""))) words.push({ term: w, hiddenFrom: String(t.hiddenFrom) });
+    } catch {
+      throw new Error("guardTerms: a term must fold to plain letters a to z, with a word of 2 to 40 letters");
+    }
   }
   return {
     slug: String(p.slug),
@@ -54,7 +63,7 @@ export function checkPerson(p) {
     entitled: p.entitled === true,
     family: p.family == null ? null : String(p.family),
     roster,
-    guardTerms: terms.map((t) => ({ term: String(t.term).toLowerCase(), hiddenFrom: String(t.hiddenFrom) })),
+    guardTerms: words.filter((w, i) => words.findIndex((x) => x.term === w.term && x.hiddenFrom === w.hiddenFrom) === i),
   };
 }
 

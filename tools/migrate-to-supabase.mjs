@@ -42,7 +42,7 @@ import { fileURLToPath } from "node:url";
 import { docScope, audienceOf, BadPathError } from "../app/lib/doc-scope.js";
 import { plateOf } from "../app/lib/plate-of.js";
 import { PLATE_FIELDS, PLATE_SAFETY_FIELDS } from "../app/lib/plate-fields.js";
-import { guardHits as nameGuardHits, guardPath } from "./name-guard.mjs";
+import { guardHits as nameGuardHits, guardPath, termWords, TermError } from "./name-guard.mjs";
 
 /** @typedef {{ query: (sql: string, params?: unknown[]) => Promise<{ rows: any[], affectedRows?: number }> }} Client */
 
@@ -175,12 +175,24 @@ export function planMigration(snapshotDir, people, opts = {}) {
   /** @param {string} s */
   const plateHouses = (s) => [...housesOf(s), ...(bySlug.get(s)?.grants ?? []).map((/** @type {any} */ g) => String(g.house))];
   const world = { households: houses, profiles: slugs, rootProfile: String(people.rootProfile) };
-  const allTerms = /** @type {any[]} */ (people.guardTerms ?? []).map((g) => String(g.term).toLowerCase());
+  // fix loop 2 C1: every term and name folded exactly as the text is, split
+  // into words; one that is not plain a to z after folding stops the run
+  // (the message names the field, never the value)
+  /** @param {unknown} raw @param {string} field */
+  const wordsOf = (raw, field) => {
+    try {
+      return termWords(String(raw ?? ""));
+    } catch (e) {
+      if (e instanceof TermError) throw new GateError("terms", `${field} is not plain letters a to z after folding (or has no word of 2 letters); write it in Latin letters`);
+      throw e;
+    }
+  };
+  const guardWords = /** @type {any[]} */ (people.guardTerms ?? []).flatMap((g, i) =>
+    wordsOf(g?.term, `guardTerms[${i}].term`).map((term) => ({ term, hiddenFrom: String(g.hiddenFrom) })),
+  );
+  const allTerms = [...new Set(guardWords.map((g) => g.term))];
   /** @param {string[] | null} aud */
-  const termsFor = (aud) =>
-    aud === null
-      ? allTerms
-      : /** @type {any[]} */ (people.guardTerms ?? []).filter((g) => aud.includes(g.hiddenFrom)).map((g) => String(g.term).toLowerCase());
+  const termsFor = (aud) => (aud === null ? allTerms : [...new Set(guardWords.filter((g) => aud.includes(g.hiddenFrom)).map((g) => g.term))]);
 
   // classify every file
   /** @type {{ id: string, staging: boolean, data: any, sha: string, path: string }[]} */
@@ -251,10 +263,7 @@ export function planMigration(snapshotDir, people, opts = {}) {
   // name on any shared recipe, staging included
   const scrubTerms = [
     ...allTerms,
-    ...list
-      .filter((p) => p.slug !== people.admin)
-      .flatMap((p) => /** @type {string[]} */ (p.names ?? []))
-      .map((n) => String(n).toLowerCase()),
+    ...list.flatMap((p, i) => (p.slug === people.admin ? [] : /** @type {unknown[]} */ (p.names ?? []).flatMap((n, j) => wordsOf(n, `people[${i}].names[${j}]`)))),
   ];
   const named = recipes.filter((r) => guardHits(r.data, scrubTerms, r.id) > 0);
   if (named.length) {
@@ -297,7 +306,7 @@ export function planMigration(snapshotDir, people, opts = {}) {
   /** @type {Record<string, number>} */
   const kinds = {};
   for (const d of kept) kinds[d.kind] = (kinds[d.kind] ?? 0) + 1;
-  return { people, roster: roster.profiles, recipes, docs: kept, skipped, kinds, sha256, fileCount: files.length };
+  return { people, guardWords, roster: roster.profiles, recipes, docs: kept, skipped, kinds, sha256, fileCount: files.length };
 }
 
 /** @typedef {ReturnType<typeof planMigration>} MigrationPlan */
@@ -375,8 +384,8 @@ export async function runMigration(client, plan, opts = {}) {
 
     // step 3: guard terms
     await q("delete from private.guard_terms");
-    for (const g of people.guardTerms ?? []) {
-      await q("insert into private.guard_terms values ($1, $2)", [String(g.term).toLowerCase(), houseId.get(g.hiddenFrom)]);
+    for (const g of plan.guardWords) {
+      await q("insert into private.guard_terms values ($1, $2) on conflict do nothing", [g.term, houseId.get(g.hiddenFrom)]);
     }
 
     // steps 4 and 5: the data, fresh (plates come back through the trigger)

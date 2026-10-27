@@ -2387,6 +2387,20 @@ digits (fix loop 1, F1; SQL `private.guard_fold`/`guard_text`/`guard_hit`, JS
 twin `tools/name-guard.mjs`, one corpus through both in
 `tests/name-guard.test.js`).
 
+**Guard terms** (fix loop 2, C1). A term is folded exactly as the text is
+(the same NFKD, marks, lookalikes, plus eszett to `ss` and ae, oe, thorn and
+eth to two letters) and stored as one word of 2 to 40 letters `a` to `z`
+(`private.guard_terms` check, and a `before insert or update` trigger that
+folds the term and refuses anything else with `22023`). A name of several
+words is split by the callers (`termWords` in `tools/name-guard.mjs`: the
+migration's `people.local.json` terms and scrub names, `tools/add-member.mjs`)
+at spaces, apostrophes, hyphens and periods into each word of 2 or more letters
+(name particles such as `de`, `la`, `van` dropped) plus the words joined:
+"Mary Ann" is stored as `mary`, `ann`, `maryann`. A term or name that is not
+plain `a` to `z` after folding (a digit, a symbol, a letter of another script)
+stops the migration preflight with gate `terms`, naming the field, never the
+value.
+
 **Plate source and safety keys** (fix loop 1, F2, F7). The plate is made from
 the person's CANONICAL row (`.../profile/targets.json`) whenever one exists,
 from the mirror only when there is none. The root profile's slug-form paths
