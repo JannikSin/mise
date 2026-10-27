@@ -41,20 +41,23 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { docScope, audienceOf, BadPathError } from "../app/lib/doc-scope.js";
 import { plateOf } from "../app/lib/plate-of.js";
-import { PLATE_FIELDS } from "../app/lib/plate-fields.js";
+import { PLATE_FIELDS, PLATE_SAFETY_FIELDS } from "../app/lib/plate-fields.js";
+import { guardHits as nameGuardHits, guardPath, termWords, TermError } from "./name-guard.mjs";
 
 /** @typedef {{ query: (sql: string, params?: unknown[]) => Promise<{ rows: any[], affectedRows?: number }> }} Client */
 
 /** Files the migration leaves behind, by rule (plan section 6, step 4). */
-const SKIP_RULES = /** @type {[string, RegExp][]} */ ([
+export const SKIP_RULES = /** @type {[string, RegExp][]} */ ([
   ["server-only", /^(meta|invites|guests)\.json$/],
   ["github-lane", /^(fitness|health)\//],
   ["workouts-activities", /^profiles\/[^/]+\/fitness\/(workouts|activities)\.json$/],
   ["health-files", /^profiles\/[^/]+\/health\//],
 ]);
-const BANK = /^(recipes|recipes-staging)\/([a-z0-9][a-z0-9-]{0,150})\.json$/;
-const ROOT_SHARED = /^(prices|pins)\.json$/;
-const DISPLAY_DROPPED = ["id", "household", "family", "admin", "passkey", "adminKey"];
+export const BANK = /^(recipes|recipes-staging)\/([a-z0-9][a-z0-9-]{0,150})\.json$/;
+export const ROOT_SHARED = /^(prices|pins)\.json$/;
+/** fix loop 2 N5: a term hitting more than this share of the bank stops for review. */
+export const TERM_LOAD_SHARE = 0.05;
+export const DISPLAY_DROPPED = ["id", "household", "family", "admin", "passkey", "adminKey"];
 
 /** @param {unknown} v @returns {unknown} keys sorted, for a stable hash */
 function canonical(v) {
@@ -78,21 +81,17 @@ export function gitBlobSha(bytes) {
 }
 
 /**
- * Whole-word, case-blind, the same test as private.guard_hit.
- * @param {unknown} data @param {string[]} terms @returns {number} hits
+ * The name guard, the same test as private.guard_hit (tools/name-guard.mjs:
+ * decoded strings and keys, folded, plurals; fix loop 1 F1).
+ * @param {unknown} data @param {string[]} terms @param {string | null} [extra] a path or an id
+ * @returns {number} hits
  */
-export function guardHits(data, terms) {
-  const text = JSON.stringify(data).toLowerCase();
-  let n = 0;
-  for (const t of terms) {
-    const re = new RegExp(`(^|[^a-z0-9])${t.replace(/[^a-z0-9-]/g, "")}([^a-z0-9]|$)`, "g");
-    n += (text.match(re) ?? []).length;
-  }
-  return n;
+export function guardHits(data, terms, extra = null) {
+  return nameGuardHits(data, terms, extra);
 }
 
 /** @param {string} dir @param {string} [base] @returns {string[]} repo-relative POSIX paths */
-function walk(dir, base = dir) {
+export function walk(dir, base = dir) {
   /** @type {string[]} */
   const out = [];
   for (const name of readdirSync(dir)) {
@@ -119,7 +118,7 @@ export { GateError };
  * database. Throws GateError naming the gate; never writes.
  * @param {string} snapshotDir
  * @param {any} people parsed people.local.json
- * @param {{ final?: boolean, freezeFile?: string }} [opts]
+ * @param {{ final?: boolean, freezeFile?: string, reviewedTermLoad?: boolean }} [opts]
  */
 export function planMigration(snapshotDir, people, opts = {}) {
   const files = walk(snapshotDir);
@@ -178,17 +177,29 @@ export function planMigration(snapshotDir, people, opts = {}) {
   /** @param {string} s */
   const plateHouses = (s) => [...housesOf(s), ...(bySlug.get(s)?.grants ?? []).map((/** @type {any} */ g) => String(g.house))];
   const world = { households: houses, profiles: slugs, rootProfile: String(people.rootProfile) };
-  const allTerms = /** @type {any[]} */ (people.guardTerms ?? []).map((g) => String(g.term).toLowerCase());
+  // fix loop 2 C1: every term and name folded exactly as the text is, split
+  // into words; one that is not plain a to z after folding stops the run
+  // (the message names the field, never the value)
+  /** @param {unknown} raw @param {string} field */
+  const wordsOf = (raw, field) => {
+    try {
+      return termWords(String(raw ?? ""));
+    } catch (e) {
+      if (e instanceof TermError) throw new GateError("terms", `${field} is not plain letters a to z after folding (or has no word of 2 letters); write it in Latin letters`);
+      throw e;
+    }
+  };
+  const guardWords = /** @type {any[]} */ (people.guardTerms ?? []).flatMap((g, i) =>
+    wordsOf(g?.term, `guardTerms[${i}].term`).map((term) => ({ term, hiddenFrom: String(g.hiddenFrom) })),
+  );
+  const allTerms = [...new Set(guardWords.map((g) => g.term))];
   /** @param {string[] | null} aud */
-  const termsFor = (aud) =>
-    aud === null
-      ? allTerms
-      : /** @type {any[]} */ (people.guardTerms ?? []).filter((g) => aud.includes(g.hiddenFrom)).map((g) => String(g.term).toLowerCase());
+  const termsFor = (aud) => (aud === null ? allTerms : [...new Set(guardWords.filter((g) => aud.includes(g.hiddenFrom)).map((g) => g.term))]);
 
   // classify every file
   /** @type {{ id: string, staging: boolean, data: any, sha: string, path: string }[]} */
   const recipes = [];
-  /** @type {{ path: string, kind: string, data: any, sha: string, profile: string | null, household: string | null }[]} */
+  /** @type {{ path: string, kind: string, data: any, sha: string, profile: string | null, household: string | null, copy?: boolean }[]} */
   const docs = [];
   /** @type {Record<string, number>} */
   const skipped = {};
@@ -223,7 +234,7 @@ export function planMigration(snapshotDir, people, opts = {}) {
       // per-house prices and pins: each house without its own file gets a copy
       for (const h of houses) {
         const p = `households/${h}/${f}`;
-        if (!read.has(p)) docs.push({ path: p, kind: f.replace(".json", ""), data: entry.data, sha: gitBlobSha(entry.bytes), profile: null, household: h });
+        if (!read.has(p)) docs.push({ path: p, kind: f.replace(".json", ""), data: entry.data, sha: gitBlobSha(entry.bytes), profile: null, household: h, copy: true });
       }
       continue;
     }
@@ -250,18 +261,37 @@ export function planMigration(snapshotDir, people, opts = {}) {
     return true;
   });
 
+  // fix loop 2 N5: how many bank recipes each term and name hits (counts
+  // only, labelled by field, never the term or the recipe). A term that hits
+  // more than 5% of the bank is a common word as well as a name (a surname
+  // such as a food word) and would refuse most writes: stop for review. One
+  // recipe is never a common word.
+  /** @type {{ field: string, recipes: number }[]} */
+  const termLoad = [];
+  /** @param {string} field @param {string[]} words */
+  const load = (field, words) => termLoad.push({ field, recipes: recipes.filter((r) => words.some((w) => guardHits(r.data, [w], r.id) > 0)).length });
+  /** @type {any[]} */ (people.guardTerms ?? []).forEach((g, i) => load(`guardTerms[${i}]`, wordsOf(g?.term, `guardTerms[${i}].term`)));
+  list.forEach((p, i) => {
+    if (p.slug !== people.admin) /** @type {unknown[]} */ (p.names ?? []).forEach((n, j) => load(`people[${i}].names[${j}]`, wordsOf(n, `people[${i}].names[${j}]`)));
+  });
+  const wide = termLoad.filter((t) => t.recipes > 1 && t.recipes > TERM_LOAD_SHARE * recipes.length);
+  if (wide.length && !opts.reviewedTermLoad) {
+    throw new GateError(
+      "term-load",
+      `${wide.length} term(s) each hit more than ${TERM_LOAD_SHARE * 100}% of the ${recipes.length} bank recipes: a common word as well as a name; review them, then rerun with --reviewed-term-load`,
+      termLoad.map((t) => `${t.field}: ${t.recipes} of ${recipes.length} bank recipe(s)`),
+    );
+  }
+
   // the bank scrub gate (plan section 6 step 1, decision 3): no person's
   // name on any shared recipe, staging included
   const scrubTerms = [
     ...allTerms,
-    ...list
-      .filter((p) => p.slug !== people.admin)
-      .flatMap((p) => /** @type {string[]} */ (p.names ?? []))
-      .map((n) => String(n).toLowerCase()),
+    ...list.flatMap((p, i) => (p.slug === people.admin ? [] : /** @type {unknown[]} */ (p.names ?? []).flatMap((n, j) => wordsOf(n, `people[${i}].names[${j}]`)))),
   ];
-  const named = recipes.filter((r) => guardHits(r.data, scrubTerms) > 0);
+  const named = recipes.filter((r) => guardHits(r.data, scrubTerms, r.id) > 0);
   if (named.length) {
-    const hits = named.reduce((a, r) => a + guardHits(r.data, scrubTerms), 0);
+    const hits = named.reduce((a, r) => a + guardHits(r.data, scrubTerms, r.id), 0);
     throw new GateError("scrub", `${named.length} bank recipe(s) carry a person's name (${hits} hit(s)); run the bank scrub first`, named.map((r) => r.path));
   }
 
@@ -271,10 +301,28 @@ export function planMigration(snapshotDir, people, opts = {}) {
   const guarded = [];
   for (const d of kept) {
     const aud = d.kind === "global" ? null : audienceOf(d, housesOf);
-    if ((aud !== null || d.kind === "global") && guardHits(d.data, termsFor(aud)) > 0) guarded.push(d.path);
+    if ((aud !== null || d.kind === "global") && guardHits(d.data, termsFor(aud), guardPath(d.path)) > 0) guarded.push(d.path);
     if (d.kind === "targets" && d.profile && guardHits(plateOf(d.data), termsFor(plateHouses(d.profile))) > 0) guarded.push(d.path);
   }
+  // F5: the roster's display fields reach every house that can see the row
+  for (const r of roster.profiles) {
+    const display = Object.fromEntries(Object.entries(r).filter(([k]) => !DISPLAY_DROPPED.includes(k)));
+    if (guardHits(display, termsFor(plateHouses(String(r.id)))) > 0) guarded.push("profiles.json");
+  }
   if (guarded.length) throw new GateError("name-guard", `${guarded.length} file(s) would show a name to a house it is hidden from`, guarded);
+
+  // F2: a mirror that disagrees with its canonical file on a safety key is a
+  // stale copy; the plate follows the canonical file, but refuse so David
+  // looks (counts only)
+  /** @type {string[]} */
+  const split = [];
+  for (const c of kept.filter((d) => d.kind === "targets" && d.path.endsWith("profile/targets.json"))) {
+    const m = kept.find((d) => d.kind === "targets" && d.profile === c.profile && d.path.endsWith("fitness/targets.json"));
+    if (!m) continue;
+    const pick = (/** @type {any} */ t) => Object.fromEntries(PLATE_SAFETY_FIELDS.map((k) => [k, t?.[k] ?? null]));
+    if (contentHash(pick(c.data)) !== contentHash(pick(m.data))) split.push(m.path);
+  }
+  if (split.length) throw new GateError("targets-mirror", `${split.length} person(s) have a fitness/targets.json mirror that disagrees with profile/targets.json on a safety key (diet, allergies, avoids)`, split);
 
   // canonical targets before the mirror, so the plate carries the canonical sha
   kept.sort((a, b) => Number(/fitness\/targets\.json$/.test(a.path)) - Number(/fitness\/targets\.json$/.test(b.path)));
@@ -282,7 +330,7 @@ export function planMigration(snapshotDir, people, opts = {}) {
   /** @type {Record<string, number>} */
   const kinds = {};
   for (const d of kept) kinds[d.kind] = (kinds[d.kind] ?? 0) + 1;
-  return { people, roster: roster.profiles, recipes, docs: kept, skipped, kinds, sha256, fileCount: files.length };
+  return { people, guardWords, termLoad, roster: roster.profiles, recipes, docs: kept, skipped, kinds, sha256, fileCount: files.length };
 }
 
 /** @typedef {ReturnType<typeof planMigration>} MigrationPlan */
@@ -309,6 +357,10 @@ export async function runMigration(client, plan, opts = {}) {
     if (strangers > 0) throw new GateError("people", `${strangers} profile(s) in the database are not in people.local.json`);
 
     await q("insert into private.settings values ('root_profile', $1), ('admin_profile', $2) on conflict (key) do update set value = excluded.value", [people.rootProfile, people.admin]);
+    // G2: which house rows are copies of a root file, so the reverse export
+    // (tools/export-from-supabase.mjs) can put the root file back
+    const copies = plan.docs.filter((d) => d.copy).map((d) => d.path);
+    await q("insert into private.settings values ('root_copies', $1) on conflict (key) do update set value = excluded.value", [JSON.stringify(copies)]);
 
     // step 2: houses, profiles, memberships, grants
     for (const h of people.houses) await q("insert into public.households (slug) values ($1) on conflict (slug) do nothing", [h]);
@@ -349,15 +401,15 @@ export async function runMigration(client, plan, opts = {}) {
       if (p.email) await q("insert into private.pending_links values (lower($1), $2)", [p.email, profileId.get(p.slug)]);
     }
     await q(`update public.profiles pr set user_id = u.id from private.pending_links l join auth.users u on lower(u.email) = l.email
-             where pr.id = l.profile_id and pr.user_id is distinct from u.id`);
+             where pr.id = l.profile_id and pr.user_id is distinct from u.id and u.email_confirmed_at is not null`);
     await q("delete from public.admins");
     await q("insert into public.admins select user_id from public.profiles where slug = $1 and user_id is not null", [people.admin]);
     await q("update public.roster_rev set rev = rev + 1");
 
     // step 3: guard terms
     await q("delete from private.guard_terms");
-    for (const g of people.guardTerms ?? []) {
-      await q("insert into private.guard_terms values ($1, $2)", [String(g.term).toLowerCase(), houseId.get(g.hiddenFrom)]);
+    for (const g of plan.guardWords) {
+      await q("insert into private.guard_terms values ($1, $2) on conflict do nothing", [g.term, houseId.get(g.hiddenFrom)]);
     }
 
     // steps 4 and 5: the data, fresh (plates come back through the trigger)
@@ -424,6 +476,14 @@ export async function verify(client, plan) {
     return canon ? p.legacy_sha !== canon.sha : false;
   }).length;
   add("plate sha is the canonical file's", shaBad, "");
+  // F2: every plate is plateOf(the canonical file), or of the mirror when the
+  // person has no canonical file
+  const plateBad = plates.filter((p) => {
+    const mine = plan.docs.filter((d) => d.kind === "targets" && d.profile === p.slug);
+    const src = mine.find((d) => d.path.endsWith("profile/targets.json")) ?? mine[0];
+    return !src || contentHash(p.data) !== contentHash(plateOf(src.data));
+  }).length;
+  add("plate equals plateOf(canonical)", plateBad, "");
   return out;
 }
 
@@ -446,7 +506,7 @@ function parseArgs(argv) {
 async function main() {
   const a = parseArgs(process.argv.slice(2));
   if (!a.snapshot || !a.people) {
-    console.log("usage: node tools/migrate-to-supabase.mjs --snapshot <mise-data dir> --people <people.local.json> [--dry-run] [--final] [--target pglite] [--rollback] [--show-paths] [--manifest <out.json>]");
+    console.log("usage: node tools/migrate-to-supabase.mjs --snapshot <mise-data dir> --people <people.local.json> [--dry-run] [--final] [--reviewed-term-load] [--target pglite] [--rollback] [--show-paths] [--manifest <out.json>]");
     process.exit(2);
   }
   const snapshot = String(a.snapshot);
@@ -454,17 +514,23 @@ async function main() {
   const people = JSON.parse(readFileSync(String(a.people), "utf8"));
   let plan;
   try {
-    plan = planMigration(snapshot, people, { final: a.final === true, freezeFile: typeof a["freeze-file"] === "string" ? a["freeze-file"] : undefined });
+    plan = planMigration(snapshot, people, {
+      final: a.final === true,
+      freezeFile: typeof a["freeze-file"] === "string" ? a["freeze-file"] : undefined,
+      reviewedTermLoad: a["reviewed-term-load"] === true,
+    });
   } catch (e) {
     if (e instanceof GateError) {
       console.error(`REFUSED ${e.message}`);
-      if (a["show-paths"]) for (const p of e.paths) console.error(`  ${p}`);
+      // the term-load lines are counts by field, never a term: always shown
+      if (a["show-paths"] || e.gate === "term-load") for (const p of e.paths) console.error(`  ${p}`);
       process.exit(1);
     }
     throw e;
   }
   console.log(`preflight ok: ${plan.fileCount} files, ${plan.recipes.length} bank recipes, ${plan.docs.length} docs`);
   console.log(`  kinds: ${Object.entries(plan.kinds).map(([k, n]) => `${k} ${n}`).join(", ")}`);
+  console.log(`  bank recipes hit per term: ${plan.termLoad.map((t) => `${t.field} ${t.recipes}`).join(", ") || "no terms"}`);
   console.log(`  skipped: ${Object.entries(plan.skipped).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`);
   if (typeof a.manifest === "string") writeFileSync(a.manifest, JSON.stringify(plan.sha256, null, 2));
   if (a["dry-run"]) return;

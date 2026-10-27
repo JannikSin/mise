@@ -33,6 +33,23 @@ export const PLATE_FIELDS = Object.freeze([
   "currencies",
 ]);
 
+/**
+ * The plate keys that keep a dish safe for the person (db fix loop 1, F2 and
+ * F7). A writer who is not the owner may only make these stricter: a diet
+ * stricter, an item added. Enforced by private.safety_loosened in
+ * supabase/migrations/20261031090000_fix1_guard_plates.sql, and the migration
+ * refuses a snapshot whose mirror disagrees with its canonical file on any.
+ */
+export const PLATE_SAFETY_FIELDS = Object.freeze([
+  "diet",
+  "allergens",
+  "allergensFreeText",
+  "avoidIngredients",
+  "avoidRecipes",
+  "dislikeIngredients",
+  "slotAvoid",
+]);
+
 /** `macros` keys left off the plate (every other macros key goes on it). */
 export const PLATE_MACROS_DROPPED = Object.freeze(["waterLiters"]);
 

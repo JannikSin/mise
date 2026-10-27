@@ -100,9 +100,9 @@ test("claim_guest spends the invite once and makes the plate", { skip: SKIP }, a
 
 test("guard_hits counts rows that show a hidden name, counts only", { skip: SKIP }, async () => {
   const { db } = await world();
-  assert.deepEqual((await svc(db, "select svc.guard_hits() as h")).h, { docs: 0, recipes: 0, plates: 0 });
+  assert.deepEqual((await svc(db, "select svc.guard_hits() as h")).h, { docs: 0, recipes: 0, plates: 0, roster: 0 });
   // a term added after the fact (the guard runs on writes, the probe catches the rest)
   await db.exec("insert into private.guard_terms select 'soup', id from public.households where slug = 'house-w'");
-  assert.deepEqual((await svc(db, "select svc.guard_hits() as h")).h, { docs: 0, recipes: 1, plates: 0 });
+  assert.deepEqual((await svc(db, "select svc.guard_hits() as h")).h, { docs: 0, recipes: 1, plates: 0, roster: 0 });
   await db.close();
 });

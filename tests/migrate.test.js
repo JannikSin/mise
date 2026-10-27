@@ -132,7 +132,11 @@ test("an invite links the person, and the admin becomes admin; a re-run keeps th
   const db = await freshDb();
   const plan = planMigration(writeSnapshot(), PEOPLE);
   await runMigration(db, plan);
+  // fix loop 1 F4: an unconfirmed account links nothing; confirming it links
   await db.exec("insert into auth.users (email) values ('Owner-1@example.invalid'), ('mate-1@example.invalid'), ('stranger@example.invalid')");
+  assert.equal((await db.query("select count(*)::int n from public.profiles where user_id is not null")).rows[0].n, 0);
+  assert.equal((await db.query("select count(*)::int n from public.admins")).rows[0].n, 0);
+  await db.exec("update auth.users set email_confirmed_at = now()");
   const linked = (await db.query("select slug from public.profiles where user_id is not null order by 1")).rows.map((/** @type {any} */ r) => r.slug);
   assert.deepEqual(linked, ["mate-1", "owner-1"]);
   assert.equal((await db.query("select count(*)::int n from public.admins")).rows[0].n, 1);

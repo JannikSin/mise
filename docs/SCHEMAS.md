@@ -2365,7 +2365,7 @@ JSON inside it keeps exactly the shape this document describes above.
 | `public.plates` | person | the cook-facing projection of their targets (see Plate card below), made only by the server |
 | `public.profiles`, `public.memberships`, `public.households`, `public.admins` | person, membership, house, admin | no client grant; read through `roster()` |
 | `public.guest_grants`, `public.invites`, `public.guest_logins`, `public.ai_usage` | | Worker only (through `svc`) |
-| `private.settings` | `root_profile` = the slug whose files sat at the repo root; `admin_profile` = the admin's slug | written by the migration, not the SQL |
+| `private.settings` | `root_profile` = the slug whose files sat at the repo root; `admin_profile` = the admin's slug; `root_copies` = JSON list of the house `prices`/`pins` rows the migration copied from a root file (the reverse export folds them back) | written by the migration, not the SQL |
 | `private.guard_terms` | (term, house it is hidden from) | the name guard |
 | `private.pending_links` | invite email (lowercase) to profile | when an invite creates the auth user, the `link_pending` trigger on `auth.users` sets `profiles.user_id`, and adds `admins` for `admin_profile` |
 
@@ -2395,7 +2395,42 @@ change.
 any row a member of its `hidden_from` house can read: house rows of that house;
 plan, shopping, occasions, pantry and own recipes of anyone in that house; the
 plate of anyone in it or granted to it as a guest. The bank and `global` rows
-refuse every term.
+refuse every term. The guard reads every decoded string and object key (never
+the serialized JSON), each pair of adjacent strings in an array joined, and
+the path without its `profiles/<p>/` or `households/<h>/` segment (a bank
+recipe's id); each folded (NFKD, combining marks of every combining block,
+zero-width characters, bidi controls such as LRM and RLM, invisible
+operators, variation selectors and tag characters dropped (fix loop 2, N3), common Cyrillic and Greek lookalikes mapped to ASCII, lower case). A
+term matches as a whole word with an optional plural (`s`, `es`) and trailing
+digits (fix loop 1, F1; SQL `private.guard_fold`/`guard_text`/`guard_hit`, JS
+twin `tools/name-guard.mjs`, one corpus through both in
+`tests/name-guard.test.js`).
+
+**Guard terms** (fix loop 2, C1). A term is folded exactly as the text is
+(the same NFKD, marks, lookalikes, plus eszett to `ss` and ae, oe, thorn and
+eth to two letters) and stored as one word of 2 to 40 letters `a` to `z`
+(`private.guard_terms` check, and a `before insert or update` trigger that
+folds the term and refuses anything else with `22023`). A name of several
+words is split by the callers (`termWords` in `tools/name-guard.mjs`: the
+migration's `people.local.json` terms and scrub names, `tools/add-member.mjs`)
+at spaces, apostrophes, hyphens and periods into each word of 2 or more letters
+(name particles such as `de`, `la`, `van` dropped) plus the words joined:
+"Mary Ann" is stored as `mary`, `ann`, `maryann`. A term or name that is not
+plain `a` to `z` after folding (a digit, a symbol, a letter of another script)
+stops the migration preflight with gate `terms`, naming the field, never the
+value.
+
+**Plate source and safety keys** (fix loop 1, F2, F7). The plate is made from
+the person's CANONICAL row (`.../profile/targets.json`) whenever one exists,
+from the mirror only when there is none. The root profile's slug-form paths
+(`profiles/<root>/profile/targets.json`, `.../plans/...`, `shopping.json`,
+`occasions.json`, `pantry.json`) resolve to the root row
+(`private.canonical_path`). A signed-in writer who is not the owner, the admin
+included, may not drop a targets key or loosen a plate safety key
+(`PLATE_SAFETY_FIELDS`: diet, allergens, allergensFreeText, avoidIngredients,
+avoidRecipes, dislikeIngredients, slotAvoid) on an update or an insert: a diet
+may only get stricter (omnivore, pescatarian, vegetarian, vegan), a list may
+only gain items, the free text may only gain words (P0403).
 
 **Plate card** (`public.plates.data`, made by `private.plate_of`; lists in
 `app/lib/plate-fields.js`, JS port `app/lib/plate-of.js`). Exactly the targets
@@ -2437,6 +2472,34 @@ write to them is refused (P0403) and a read finds nothing. Writing
 visible row for the admin. New rows, house moves, families and admin flags are
 refused (P0403).
 
+**Deploy gates** (fix loop 1, F4, F6; David's step 6 in every project):
+sign-ups OFF, anonymous sign-ins OFF, Confirm email ON; exposed schemas are
+`public` and `svc` only, never `private`. An invite links its profile only once
+the email is confirmed (`link_pending` fires on insert and on update of
+`email_confirmed_at`, and acts only when it is set). authenticated may execute
+only `private.my_profile`, `is_admin`, `my_households`, `housemates`,
+`visible_guests`, `can_write`, `patch_roster` and `canonical_path`; every `svc`
+function is granted to service_role by name. Roster display fields pass the
+name guard for every house that can see the row (`patch_roster`,
+`svc.claim_guest`, the migration's preflight), and `svc.guard_hits()` counts
+roster rows too.
+
+**Worker and app RPCs** (fix loop 1, item 9; contract in `worker/src/svc.js`).
+`public.whoami()` (signed in): `{ slug, admin, home }` or null when the account
+has no profile. service_role only: `svc.whoami(p_sub)` `{ slug, admin, houses }`;
+`svc.cron_inputs(p_week, p_with_shopping)` `{ profile, house, plan, events,
+shopping }` for the root profile; `svc.mint_invite(p_sub, p_code_hash,
+p_host_house, p_expires_at)` `'ok'` for the admin or an entitled member of that
+house with an expiry in the future and at most 30 days out (fix loop 2, N8),
+else `'forbidden'`; `svc.invite_get(p_code_hash)` `{ host_house,
+expires_at, used_at, claimed, status_until }`; `svc.guest_login_add(p_profile,
+p_name_key, p_salt, p_hash)` boolean; `svc.guest_login_row(p_name_key)` `{ slug,
+salt, hash }`; `svc.guest_view(p_slug)` for a live grant only, `{ profile_id,
+name, has_login, host_house, tables, names }` where `names` covers only the
+people seated at the guest's own tables whom the host house can already see:
+its members and the guests it holds a live grant for (fix loop 2, C2; a seat
+naming anyone else is left out).
+
 **Migration** (`tools/migrate-to-supabase.mjs`, G1). Reads a local mise-data
 snapshot and `people.local.json` (shape in the tool's header) and writes one
 transaction that is rolled back unless every verify check passes. Not
@@ -2449,4 +2512,60 @@ imported. Gates, each refusing before any write: every file classified, the
 admin flag in profiles.json equal to people.local.json's admin, no guarded
 term or listed person name in any bank or staging recipe (the scrub), no
 guarded term in a file or plate a hidden-from house can read, and the freeze
-marker (`freeze.json`) on `--final`.
+marker (`freeze.json`) on `--final`. Before the scrub, the preflight prints how
+many bank recipes each guard term and listed name hits, labelled by field
+(`guardTerms[i]`, `people[i].names[j]`), never the term or a recipe, and stops
+with gate `term-load` when a term hits more than 5% of the bank and more than
+one recipe (a common word as well as a name); `--reviewed-term-load` goes on
+after David has looked (fix loop 2, N5).
+
+**Backup, restore and rollback** (G2). One snapshot format, `mise-backup/1`
+(`tools/db-snapshot.mjs`): a single JSON document `{ format, taken_at,
+columns: { "<schema.table>": [column names] }, tables: { "<schema.table>":
+[rows ordered by primary key] } }` covering every table in `public` and
+`private` (a test fails when a table is added and not listed). The schema
+itself is `supabase/migrations/`, not the snapshot. The nightly backup
+(`.github/workflows/mise-backup.yml`, runs only in the private `mise-backup`
+repo) takes it as the read-only `mise_backup` role (login off until step 10,
+`tools/backup-setup.mjs`; a select policy on every RLS table, no write grant),
+encrypts it with age and keeps 30 nights on one orphan branch. The workflow
+(fix loop 2, C3) pins the public code to one full commit SHA (the variable
+`MISE_CODE_REF` or the `code_sha` input, refused when absent; no branch
+default) and `actions/checkout` by SHA; the checkout and the public code
+(`db-snapshot.mjs sql` and `tables`) run in steps with no secret and the
+checkout is deleted before the dump; only the dump step holds the database
+URL, only the encrypt step the age recipient; the counts check is the
+workflow's own inline script, never public code. The plaintext exists only
+under `/dev/shm/mise-backup` (the run refuses when that is not tmpfs), is
+shredded right after the encrypt, and an `always()` step shreds any left by a
+failed step. `mise-keepalive.yml` reads each project twice a day. `tools/restore-backup.mjs`
+first verifies the snapshot itself (fix loop 2, N7: age encrypts to a public
+key, so anyone can make a valid file): every `admins` row must be a profile in
+the pinned list given as `--admins <slug>[,<slug>]`, every pinned admin with
+an account must be an admin, `admin_profile` must be pinned, and every plate
+must equal `plateOf` of its canonical targets row (the mirror when there is
+none), one plate per person with targets; anything else refuses before a
+script is written. It then
+turns a snapshot into one transaction that checks the target's columns,
+refuses a non-empty target without `--wipe`, inserts with triggers off (revs,
+doc ids and shas exact), clears account links the target lacks (they relink on
+the next confirmed sign-in) and checks the counts. `tools/export-from-supabase.mjs`
+turns a snapshot back into the mise-data file layout (the rollback).
+
+**Freeze marker** (agreed with the worker lane's D2): `freeze.json` at the
+mise-data root, `{ "frozen": true, "at": "<ISO time>", "by": "<slug>" }`. The
+migration's `--final` refuses without it and never migrates it; the reverse
+export's `--merge-into` refuses without it and never writes or deletes it.
+
+**Operator tools** (G2; dry runs by default; none connects to a database).
+`tools/add-member.mjs` (a member from `person.local.json`; never an admin;
+refuses a taken slug, an unknown house, a pending email, a guarded display
+name, a new guard term that already appears), `tools/delete-member.mjs` (the
+person, their account and every row they own; never the admin, the root
+profile or a house's rows) and `tools/make-probe.mjs` (`probe-<6 hex>`, kind
+`probe`, one house or none; its account is created confirmed through the Auth
+admin API and its email and password go only into the Worker secrets
+`PROBE_EMAIL`/`PROBE_PASSWORD` or `PROBE_SANDBOX_EMAIL`/`PROBE_SANDBOX_PASSWORD`)
+each write one SQL transaction for David to run with psql.
+`tools/export-person.mjs` writes one person's own rows, `account.json` and
+`plate.json` from a snapshot.

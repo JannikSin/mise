@@ -11,6 +11,29 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { asUser, asRole, errorOf, SKIP } from "./_pglite.js";
 import { world, PEOPLE } from "./_world.js";
+import { plateOf } from "../app/lib/plate-of.js";
+
+/**
+ * Fix loop 1, item 8: a NON-admin member of both houses (the admin short-
+ * circuits every check, so without this person the two-house rules were
+ * never exercised). Returns the people list to check.
+ * @param {any} db @param {Record<string, string>} uid
+ */
+async function addBoth(db, uid) {
+  await db.exec(`
+    insert into auth.users (email, email_confirmed_at) values ('both-1@example.invalid', now());
+    insert into public.profiles (slug, user_id, kind, home_household, roster, sort_order)
+      select 'both-1', u.id, 'member', h.id, '{"name":"Both"}', 8 from auth.users u, public.households h
+       where u.email = 'both-1@example.invalid' and h.slug = 'house-w';
+    insert into public.memberships select p.id, h.id from public.profiles p, public.households h where p.slug = 'both-1';`);
+  await db.query("insert into public.docs (path, data) values ($1, $2), ($3, $4), ($5, '{\"items\":[]}')", [
+    "profiles/both-1/profile/targets.json", JSON.stringify({ diet: "pescatarian", allergens: ["sesame"], body: { age: 40 } }),
+    "profiles/both-1/plans/2026-W40.json", JSON.stringify({ week: "2026-W40", entries: [] }),
+    "profiles/both-1/shopping.json",
+  ]);
+  uid["both-1"] = (await db.query("select user_id from public.profiles where slug = 'both-1'")).rows[0].user_id;
+  return [...PEOPLE, "both-1"];
+}
 
 /**
  * Every place a policy decides, for every person: the rows they should and do
@@ -19,7 +42,7 @@ import { world, PEOPLE } from "./_world.js";
  * @param {Record<string, string>} uid
  * @returns {Promise<string[]>}
  */
-async function reachViolations(db, uid) {
+async function reachViolations(db, uid, people = /** @type {readonly string[]} */ (PEOPLE)) {
   const docs = (await db.query(
     `select d.path, d.kind, p.slug as owner, h.slug as house
        from public.docs d left join public.profiles p on p.id = d.profile_id
@@ -33,6 +56,18 @@ async function reachViolations(db, uid) {
   )).rows;
   const plateOwners = (await db.query("select p.slug from public.plates pl join public.profiles p on p.id = pl.profile_id")).rows.map((/** @type {any} */ r) => r.slug);
   const recipes = (await db.query("select id, staging from public.recipes")).rows;
+  // item 8: row CONTENT, not only reach. The plate each person should carry,
+  // from the JS port of plate_of on their canonical row (the mirror when none)
+  const targets = (await db.query("select p.slug, d.path, d.data from public.docs d join public.profiles p on p.id = d.profile_id where d.kind = 'targets'")).rows;
+  /** @param {string} s */
+  const wantPlate = (s) => {
+    const mine = targets.filter((/** @type {any} */ t) => t.slug === s);
+    const src = mine.find((/** @type {any} */ t) => t.path.endsWith("profile/targets.json")) ?? mine[0];
+    return src ? plateOf(src.data) : null;
+  };
+  const profiles = (await db.query(
+    "select p.slug, p.kind, p.roster, p.family, h.slug as home, exists (select 1 from public.admins a where a.user_id = p.user_id) as admin from public.profiles p left join public.households h on h.id = p.home_household",
+  )).rows;
 
   const housesOf = (/** @type {string} */ s) => members.filter((/** @type {any} */ m) => m.slug === s).map((/** @type {any} */ m) => m.house);
   const shareHouse = (/** @type {string} */ a, /** @type {string} */ b) => housesOf(a).some((h) => housesOf(b).includes(h));
@@ -66,7 +101,7 @@ async function reachViolations(db, uid) {
     for (const x of want) if (!got.includes(x)) out.push(`MISSING ${what}: ${x}`);
   };
 
-  for (const me of PEOPLE) {
+  for (const me of people) {
     await asUser(db, uid[me], async () => {
       const seen = (await db.query("select path from public.docs")).rows.map((/** @type {any} */ r) => r.path);
       diff(`${me} reads docs`, docs.filter((d) => canRead(me, d)).map((d) => d.path), seen);
@@ -79,6 +114,27 @@ async function reachViolations(db, uid) {
       const wantPlates = plateOwners.filter((o) => canSeePlate(me, o));
       diff(`${me} reads plates (plate_for)`, wantPlates, viaRpc);
       if (plates !== wantPlates.length) out.push(`LEAK or MISSING ${me} plates table: ${plates} rows, want ${wantPlates.length}`);
+      for (const owner of viaRpc) {
+        const got = (await db.query("select public.plate_for($1) as p", [owner])).rows[0].p.data;
+        if (JSON.stringify(sortKeys(got)) !== JSON.stringify(sortKeys(wantPlate(owner)))) out.push(`LEAK or WRONG ${me} plate content: ${owner}`);
+      }
+
+      // roster() rows, content included (RT N2)
+      const roster = (await db.query("select public.roster() as r")).rows[0].r.profiles;
+      const wantRoster = profiles
+        .filter((/** @type {any} */ p) => p.kind !== "probe" && (isAdmin(me) || p.slug === me || shareHouse(me, p.slug) || grants.some((/** @type {any} */ g) => g.slug === p.slug && housesOf(me).includes(g.house))))
+        .map((/** @type {any} */ p) => ({
+          id: p.slug,
+          roster: p.roster,
+          household: p.home && (isAdmin(me) || housesOf(me).includes(p.home)) ? p.home : null,
+          family: p.family && (isAdmin(me) || housesOf(me).includes(p.family)) ? p.family : null,
+          admin: p.admin,
+        }));
+      diff(`${me} roster rows`, wantRoster.map((r) => r.id), roster.map((/** @type {any} */ r) => r.id));
+      for (const r of roster) {
+        const w = wantRoster.find((x) => x.id === r.id);
+        if (w && JSON.stringify(sortKeys(w)) !== JSON.stringify(sortKeys(r))) out.push(`LEAK or WRONG ${me} roster row content: ${r.id}`);
+      }
 
       const rs = (await db.query("select id from public.recipes")).rows.map((/** @type {any} */ r) => r.id);
       diff(`${me} reads bank`, recipes.filter((/** @type {any} */ r) => !r.staging || isAdmin(me)).map((/** @type {any} */ r) => r.id), rs);
@@ -98,14 +154,41 @@ async function reachViolations(db, uid) {
         }
       }
       diff(`${me} updates docs`, docs.filter((d) => canWrite(me, d)).map((d) => d.path), wrote);
+
+      // item 8: an INSERT pass. Each row is removed (as the superuser, inside
+      // a transaction that is rolled back) and the person inserts it again
+      /** @type {string[]} */
+      const inserted = [];
+      for (const d of docs) {
+        await db.exec("begin");
+        try {
+          await db.exec("reset role");
+          const row = (await db.query("delete from public.docs where path = $1 returning data", [d.path])).rows[0];
+          await db.exec("set role authenticated");
+          await db.query("insert into public.docs (path, data) values ($1, $2)", [d.path, JSON.stringify(row.data)]);
+          inserted.push(d.path);
+        } catch {
+          // refused (policy or trigger)
+        } finally {
+          await db.exec("rollback");
+        }
+      }
+      diff(`${me} inserts docs`, docs.filter((d) => canWrite(me, d)).map((d) => d.path), inserted);
     });
   }
   return out;
 }
 
+/** @param {unknown} v @returns {unknown} */
+function sortKeys(v) {
+  if (Array.isArray(v)) return v.map(sortKeys);
+  if (v && typeof v === "object") return Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys(/** @type {any} */ (v)[k])]));
+  return v;
+}
+
 test("policy go/no-go: every person reaches exactly what the rules allow", { skip: SKIP }, async () => {
   const { db, uid } = await world();
-  assert.deepEqual(await reachViolations(db, uid), []);
+  assert.deepEqual(await reachViolations(db, uid, await addBoth(db, uid)), []);
   await db.close();
 });
 
@@ -151,6 +234,25 @@ const LEAKS = [
     "plate_for without the house check",
     `create or replace function public.plate_for(p_slug text) returns jsonb language sql stable security definer set search_path = '' as $$
        select jsonb_build_object('data', pl.data) from public.plates pl join public.profiles p on p.id = pl.profile_id where p.slug = p_slug $$`,
+  ],
+  // fix loop 1, item 8: leaks only the new passes can see
+  ["anyone may insert any docs row (the insert pass)", `create policy leak on public.docs for insert to authenticated with check (true)`],
+  [
+    "roster() shows every home house and family (row content)",
+    `create or replace function public.roster() returns jsonb language sql stable security definer set search_path = '' as $$
+       select jsonb_build_object('rev', 1, 'profiles', coalesce(jsonb_agg(jsonb_build_object('id', p.slug,
+         'roster', p.roster, 'household', h.slug, 'family', p.family,
+         'admin', exists (select 1 from public.admins a where a.user_id = p.user_id)) order by p.sort_order), '[]'::jsonb))
+       from public.profiles p left join public.households h on h.id = p.home_household
+       where p.kind <> 'probe' and ((select private.is_admin()) or p.id = (select private.my_profile())
+         or p.id = any ((select private.housemates())::uuid[]) or p.id = any ((select private.visible_guests())::uuid[])) $$`,
+  ],
+  [
+    "plates carry an owner-only key (plate content)",
+    `alter function private.plate_of(jsonb) rename to plate_of_real;
+     create function private.plate_of(t jsonb) returns jsonb language sql immutable set search_path = '' as $$
+       select private.plate_of_real(t) || jsonb_build_object('goalWeightLb', t->'goalWeightLb') $$;
+     update public.docs set data = data || '{"x": 1}' where kind = 'targets';`,
   ],
 ];
 
