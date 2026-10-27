@@ -21,30 +21,65 @@
 //   inside the clone. The report in --out is the only place names appear,
 //   and --out must be outside this repository.
 //
-// Matching is the database's own rule: case-insensitive, whole word, where
-// a word boundary is anything but a-z and 0-9. So "cardamom" never matches a
-// person called "Carda", and the count of substring-only near misses is
-// reported so the difference is visible.
+// MATCHING IS THE GUARD'S OWN (fix loop 1, Red Team R2, Engineer F2, F17,
+// F18): tools/name-guard.mjs, the one module the migration gate and the
+// database's private.guard_hit twin share. It reads decoded strings (a name
+// after a newline is found), folds accents and lookalikes (a name written
+// with a diaeresis matches its plain spelling), and matches whole words with
+// plurals. "Still names someone" below is that guard's own answer with the
+// migration's exact call, so 0 here means the migration's scrub gate passes.
+// With --people <people.local.json> the terms also include the migration's
+// list (every guard term, every non-admin person's extra names).
+//
+// WHAT IT MAY EDIT. Only free text that names a dish or tells its story:
+// `name`, `notes`, `description` (top level) and `instructions[].text`. A hit
+// anywhere else (ingredients, allergens, tags, nutrition, the id, the file
+// name, any other field) is listed for a hand review and never touched, so
+// the allergy screen keeps every food word. A hit is also review-only, in any
+// field, when the word is a food word (a person called Ginger or Sage), when
+// it is 2 letters, or when the guard still sees a name the tool cannot place.
+// In instructions a dedication ("with X") is never dropped, only replaced, so
+// a cooking step keeps its sense.
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep, parse as parsePath } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { fold, guardHits, termWords, TermError } from "./name-guard.mjs";
+import { knownFoods } from "../app/lib/ingredients.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const BANK_DIRS = ["recipes", "recipes-staging"];
-/** a term the guard can hold: plan section 4.2 guard_terms check */
-const TERM_RE = /^[a-z0-9-]{2,40}$/;
+/** the only top-level fields the tool rewrites (plus instructions[].text) */
+const AUTO_TOP = new Set(["name", "notes", "description"]);
+/** food words that are also given names; the ingredient table adds the rest */
+const EXTRA_FOOD_WORDS = [
+  "sage", "rose", "clementine", "rosemary", "saffron", "jasmine", "candy",
+  "kale", "bean", "cinnamon", "nutmeg", "pepper", "olive", "ginger", "basil",
+  "honey", "cherry", "berry", "juniper", "poppy", "plum", "peach", "fig",
+  "mint", "thyme", "barley", "rye", "maple", "hazel", "acorn", "date",
+];
+
+/** every word of every food the app knows, folded; a name in it is review-only */
+export const FOOD_WORDS = new Set(
+  [...knownFoods().flatMap((f) => fold(f).split(/[^a-z]+/)), ...EXTRA_FOOD_WORDS].filter(
+    (w) => w.length >= 2,
+  ),
+);
 
 /**
- * The terms to look for, from the clone's own roster. Each profile gives its
- * id, every word of its name (3 letters or more, so initials do not match
- * everything), and its family slug.
+ * The words to look for, from the clone's roster (and, with `people`, the
+ * migration's people.local.json: every guard term and every non-admin
+ * person's extra names). Raw names go through name-guard's termWords, so a
+ * term is folded and split exactly as the guard does it. A word shared with
+ * the admin (a family surname) STAYS a term: the migration's gate refuses it
+ * too. A name that cannot be folded to a to z is listed by FIELD in
+ * `unusable`, never by value.
  * @param {{ profiles?: any[] } | null} roster profiles.json
  * @param {string[]} profileDirs folder names under profiles/
- * @param {{ exclude?: string[] }} [o]
- * @returns {string[]} lowercased, unique, sorted
+ * @param {{ exclude?: string[], people?: any }} [o]
+ * @returns {{ words: string[], unusable: string[] }}
  */
-export function buildTerms(roster, profileDirs, o = {}) {
+export function buildTermSet(roster, profileDirs, o = {}) {
   const exclude = new Set((o.exclude ?? []).map((s) => s.toLowerCase()));
   const list = Array.isArray(roster?.profiles) ? roster.profiles : [];
   const skipped = new Set(
@@ -54,69 +89,132 @@ export function buildTerms(roster, profileDirs, o = {}) {
   );
   for (const s of exclude) skipped.add(s);
   /** @type {Set<string>} */
-  const terms = new Set();
-  const add = (/** @type {unknown} */ t) => {
-    const v = String(t ?? "")
-      .toLowerCase()
-      .trim();
-    if (TERM_RE.test(v) && v.length >= 3) terms.add(v);
+  const words = new Set();
+  /** @type {string[]} */
+  const unusable = [];
+  /** @param {unknown} raw @param {string} field */
+  const add = (raw, field) => {
+    if (raw == null || String(raw).trim() === "") return;
+    try {
+      for (const w of termWords(String(raw))) words.add(w);
+    } catch (e) {
+      if (e instanceof TermError) unusable.push(field);
+      else throw e;
+    }
   };
-  /** words of the skipped profiles, so the admin's own name is never a term */
-  const keep = new Set();
-  for (const p of list) {
-    if (!skipped.has(String(p?.id ?? "").toLowerCase())) continue;
-    keep.add(String(p.id).toLowerCase());
-    for (const w of String(p?.name ?? "")
-      .toLowerCase()
-      .split(/[^a-z0-9-]+/))
-      if (w) keep.add(w);
-  }
-  for (const p of list) {
+  // a slug is a name with digits and hyphens: its letter runs are the words
+  const slugText = (/** @type {string} */ s) => s.replace(/[0-9_]+/g, " ");
+  list.forEach((p, i) => {
     const id = String(p?.id ?? "").toLowerCase();
-    if (skipped.has(id)) continue;
-    add(id);
-    for (const w of String(p?.name ?? "")
-      .normalize("NFKD")
-      .replace(/[̀-ͯ]/g, "")
-      .split(/[^A-Za-z0-9-]+/))
-      add(w);
-    if (p?.family) add(p.family);
+    if (skipped.has(id)) return;
+    add(slugText(id), `profiles.json profiles[${i}].id`);
+    add(p?.name, `profiles.json profiles[${i}].name`);
+    add(p?.family, `profiles.json profiles[${i}].family`);
+  });
+  profileDirs.forEach((d, i) => {
+    if (!skipped.has(d.toLowerCase())) add(slugText(d), `profiles/ folder ${i + 1}`);
+  });
+  const people = o.people;
+  if (people) {
+    /** @type {any[]} */ (people.guardTerms ?? []).forEach((g, i) =>
+      add(g?.term, `people guardTerms[${i}].term`),
+    );
+    /** @type {any[]} */ (people.people ?? []).forEach((p, i) => {
+      if (p?.slug === people.admin) return;
+      /** @type {unknown[]} */ (p?.names ?? []).forEach((n, j) =>
+        add(n, `people people[${i}].names[${j}]`),
+      );
+    });
   }
-  for (const d of profileDirs) if (!skipped.has(d.toLowerCase())) add(d);
-  for (const k of keep) terms.delete(k);
-  return [...terms].sort();
+  return { words: [...words].sort(), unusable };
 }
 
-/** @param {string} term */
-const wordRe = (term) =>
-  new RegExp(`(^|[^a-z0-9])${term.replace(/[-]/g, "\\-")}(?=[^a-z0-9]|$)`, "i");
+/**
+ * The term words only.
+ * @param {{ profiles?: any[] } | null} roster
+ * @param {string[]} profileDirs
+ * @param {{ exclude?: string[], people?: any }} [o]
+ */
+export function buildTerms(roster, profileDirs, o = {}) {
+  return buildTermSet(roster, profileDirs, o).words;
+}
+
+// one word of text: letters, marks, digits and the invisible characters the
+// guard's fold drops (so a zero-width space cannot split a name in two)
+const TOKEN = /[\p{L}\p{M}\p{N}\u00ad\u200b-\u200f\u2060-\u2064\ufeff]+/gu;
+
+/** @param {string} tok @param {string[]} terms @returns {string | null} the term it is */
+function tokenTerm(tok, terms) {
+  const f = fold(tok);
+  for (const t of terms) if (new RegExp(`^${t}(s|es)?[0-9]*$`).test(f)) return t;
+  return null;
+}
 
 /**
- * Does this text carry the term as a whole word (the database's rule)?
+ * Does this text carry the term as a whole word (the guard's rule)?
  * @param {string} text
- * @param {string} term
+ * @param {string} term a raw name or word
  */
 export function hasWord(text, term) {
-  return wordRe(term).test(String(text).toLowerCase());
+  try {
+    return guardHits(String(text), [term]) > 0;
+  } catch (e) {
+    if (e instanceof TermError) return false;
+    throw e;
+  }
 }
 
 /**
- * Rewrite one string so it names no one: a possessive ("X's ") and a
- * dedication ("for X", "from X", "by X") are dropped, any other mention
- * becomes "a friend".
- * @param {string} s
- * @param {string[]} terms
+ * The term words found in one string, one entry per hit.
+ * @param {string} s @param {string[]} terms
  */
-export function scrubString(s, terms) {
-  let out = s;
-  for (const t of terms) {
-    const w = t.replace(/[-]/g, "\\-");
-    out = out
-      .replace(new RegExp(`(^|[^A-Za-z0-9])${w}['’]s\\s+`, "gi"), "$1")
-      .replace(new RegExp(`\\s*\\b(?:for|from|by|with)\\s+${w}(?=[^A-Za-z0-9]|$)`, "gi"), "")
-      .replace(new RegExp(`(^|[^A-Za-z0-9])${w}(?=[^A-Za-z0-9]|$)`, "gi"), "$1a friend");
+export function wordsIn(s, terms) {
+  /** @type {string[]} */
+  const out = [];
+  for (const m of String(s).matchAll(TOKEN)) {
+    const t = tokenTerm(m[0], terms);
+    if (t) out.push(t);
   }
+  return out;
+}
+
+/**
+ * Rewrite one string so it names no one: a possessive ("X's ") and, outside
+ * instructions, a dedication ("for X", "from X", "by X", "with X") are
+ * dropped; any other mention becomes "a friend". Matching is token by token on
+ * the folded text, so an accented spelling is found in place.
+ * @param {string} s
+ * @param {string[]} terms term words
+ * @param {{ keepDedication?: boolean }} [o]
+ */
+export function scrubString(s, terms, o = {}) {
+  /** @type {{ start: number, end: number }[]} */
+  const hits = [];
+  for (const m of String(s).matchAll(TOKEN)) {
+    const start = /** @type {number} */ (m.index);
+    if (tokenTerm(m[0], terms)) hits.push({ start, end: start + m[0].length });
+  }
+  if (hits.length === 0) return s;
+  let out = "";
+  let at = 0;
+  for (const h of hits) {
+    const before = s.slice(at, h.start);
+    let end = h.end;
+    const poss = /^['\u2019]s(\s+|$)/i.exec(s.slice(end));
+    const ded = o.keepDedication ? null : /(^|\s)(for|from|by|with)\s+$/i.exec(before);
+    if (poss) {
+      end += poss[0].length;
+      out += before;
+    } else if (ded) {
+      out += before.slice(0, ded.index);
+    } else {
+      out += `${before}a friend`;
+    }
+    at = end;
+  }
+  out += s.slice(at);
   out = out
+    .replace(/a friend(\s+a friend)+/g, "a friend")
     .replace(/\s{2,}/g, " ")
     .replace(/\s+([,.;:!?)])/g, "$1")
     .trim();
@@ -125,19 +223,33 @@ export function scrubString(s, terms) {
   return out;
 }
 
+/** @param {string} word @returns {string | null} why the tool may not edit it */
+function reviewReason(word) {
+  if (FOOD_WORDS.has(word)) return "food word";
+  if (word.length < 3) return "short name";
+  return null;
+}
+
 /**
- * Walk a recipe, scrub every string, drop a name-carrying tag. Returns the
- * proposed recipe and what changed; `manual` lists what a tool must not
- * rename (the id: plans point at it).
+ * Propose an edit for one recipe. Only `name`, `notes`, `description` and
+ * `instructions[].text` are ever rewritten; every other hit is listed in
+ * `review` with its field and why.
  * @param {Record<string, any>} recipe
- * @param {string[]} terms
+ * @param {string[]} terms term words (buildTermSet().words)
  */
 export function proposeEdit(recipe, terms) {
   /** @type {{ at: string, before: string, after: string | null }[]} */
   const changes = [];
+  /** @type {{ at: string, word: string, why: string }[]} */
+  const review = [];
   /** @type {string[]} */
   const manual = [];
-  const hit = (/** @type {string} */ s) => terms.filter((t) => hasWord(s, t));
+  /** @param {string} at @returns {"free" | "steps" | null} */
+  const editable = (at) => {
+    if (AUTO_TOP.has(at.split(/[.[]/)[0] ?? "")) return "free";
+    if (/^instructions\[\d+\]\.text$/.test(at)) return "steps";
+    return null;
+  };
   /**
    * @param {any} v
    * @param {string} at
@@ -145,69 +257,96 @@ export function proposeEdit(recipe, terms) {
    */
   const walk = (v, at) => {
     if (typeof v === "string") {
-      if (hit(v).length === 0) return v;
+      const found = [...new Set(wordsIn(v, terms))];
+      if (found.length === 0) return v;
       if (at === "id") {
         manual.push("id");
+        for (const w of found) review.push({ at, word: w, why: "the id (plans point at it)" });
         return v;
       }
-      const after = scrubString(v, terms);
+      const kind = editable(at);
+      const stop = found
+        .map((w) => ({ w, why: kind ? reviewReason(w) : "a field the tool never edits" }))
+        .filter((b) => b.why);
+      if (stop.length) {
+        for (const b of stop) review.push({ at, word: b.w, why: /** @type {string} */ (b.why) });
+        return v;
+      }
+      const after = scrubString(v, terms, { keepDedication: kind === "steps" });
       changes.push({ at, before: v, after });
       return after;
     }
     if (Array.isArray(v)) {
-      const keepTags = at.endsWith("tags");
-      /** @type {any[]} */
-      const out = [];
-      v.forEach((x, i) => {
-        if (keepTags && typeof x === "string" && hit(x).length > 0) {
-          changes.push({ at: `${at}[${i}]`, before: x, after: null });
-          return;
+      v.forEach((e, i) => {
+        const n = v[i + 1];
+        if (typeof e === "string" && typeof n === "string") {
+          const joined = new Set(wordsIn(e + n, terms));
+          for (const w of [...wordsIn(e, terms), ...wordsIn(n, terms)]) joined.delete(w);
+          for (const w of joined)
+            review.push({ at: `${at}[${i}..${i + 1}]`, word: w, why: "split across two list items" });
         }
-        out.push(walk(x, `${at}[${i}]`));
       });
-      return out;
+      return v.map((x, i) => walk(x, `${at}[${i}]`));
     }
     if (v && typeof v === "object") {
       /** @type {Record<string, any>} */
       const out = {};
-      for (const [k, x] of Object.entries(v)) out[k] = walk(x, at ? `${at}.${k}` : k);
+      for (const [k, x] of Object.entries(v)) {
+        const kat = at ? `${at}.${k}` : k;
+        for (const w of new Set(wordsIn(k, terms)))
+          review.push({ at: kat, word: w, why: "a key names someone" });
+        out[k] = walk(x, kat);
+      }
       return out;
     }
     return v;
   };
   const proposed = walk(recipe, "");
-  return { proposed, changes, manual };
+  return { proposed, changes, review, manual };
 }
+
+/** @param {any} d */
+const idOf = (d) => (d && typeof d === "object" && typeof d.id === "string" ? d.id : null);
 
 /**
  * Scan a bank. Pure over its inputs so the tests feed it synthetic files.
+ * Counting and the residual use name-guard's guardHits with the recipe id, the
+ * migration gate's exact call, so "0 still name someone" means the gate passes.
  * @param {{ path: string, data: any }[]} files bank files (path relative to the clone)
- * @param {string[]} terms
+ * @param {string[]} terms term words
  */
 export function scanBank(files, terms) {
   let hits = 0;
   let nearMisses = 0;
-  /** @type {{ path: string, terms: string[], changes: any[], manual: string[], proposed: any }[]} */
+  /** @type {{ path: string, terms: string[], changes: any[], review: any[], manual: string[], proposed: any }[]} */
   const flagged = [];
   for (const f of files) {
-    const text = JSON.stringify(f.data).toLowerCase();
-    const found = terms.filter((t) => hasWord(text, t));
-    nearMisses += terms.filter((t) => !found.includes(t) && text.includes(t)).length;
-    for (const t of found) {
-      const g = new RegExp(`(^|[^a-z0-9])${t.replace(/[-]/g, "\\-")}(?=[^a-z0-9]|$)`, "g");
-      hits += (text.match(g) ?? []).length;
-    }
-    const fileHit = found.length > 0 || terms.some((t) => hasWord(f.path.toLowerCase(), t));
-    if (!fileHit) continue;
+    const per = terms.map((t) => guardHits(f.data, [t], idOf(f.data)));
+    const n = per.reduce((a, b) => a + b, 0);
+    hits += n;
+    const plain = JSON.stringify(f.data).toLowerCase();
+    nearMisses += terms.filter((t, i) => per[i] === 0 && plain.includes(t)).length;
+    const nameHit = terms.length > 0 && guardHits(parsePath(f.path).name, terms) > 0;
+    if (n === 0 && !nameHit) continue;
     const e = proposeEdit(f.data, terms);
-    if (terms.some((t) => hasWord(f.path.toLowerCase(), t)) && !e.manual.includes("file name"))
+    if (nameHit) {
       e.manual.push("file name");
-    flagged.push({ path: f.path, terms: found, ...e });
+      e.review.push({ at: "(file name)", word: "", why: "the file name names someone" });
+    }
+    // the guard is the judge: a name it still sees after the proposal that
+    // the tool did not place goes to review, never silently passed
+    const left = terms.length ? guardHits({ ...e.proposed, id: "" }, terms) : 0;
+    const placed = e.review.filter((r) => r.at !== "id" && r.at !== "(file name)").length;
+    if (left > 0 && placed === 0)
+      e.review.push({
+        at: "(whole file)",
+        word: "",
+        why: "the guard still sees a name the tool could not place",
+      });
+    flagged.push({ path: f.path, terms: terms.filter((_t, i) => per[i] > 0), ...e });
   }
-  // after the proposal, does anything but the id still name someone?
-  const residual = flagged.filter((x) =>
-    terms.some((t) => hasWord(JSON.stringify({ ...x.proposed, id: "" }), t)),
-  ).length;
+  // after the proposal, does the migration's gate still refuse this file?
+  const residual = flagged.filter((x) => guardHits(x.proposed, terms, idOf(x.proposed)) > 0).length;
   return { scanned: files.length, hits, nearMisses, flagged, residual };
 }
 
@@ -249,6 +388,7 @@ export function main(argv, io = {}) {
   const exclude = [];
   let out = "";
   let apply = false;
+  let peopleFile = "";
   /** @type {string[]} */
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
@@ -256,12 +396,13 @@ export function main(argv, io = {}) {
     if (a === "--out") out = argv[++i] ?? "";
     else if (a === "--exclude") exclude.push(argv[++i] ?? "");
     else if (a === "--apply") apply = true;
+    else if (a === "--people") peopleFile = argv[++i] ?? "";
     else rest.push(String(a));
   }
   const dataDir = rest[0] ? resolve(rest[0]) : "";
   if (!dataDir || !out) {
     log(
-      "usage: node tools/bank-scrub.mjs <mise-data dir> --out <dir outside this repo> [--exclude <slug>]... [--apply]",
+      "usage: node tools/bank-scrub.mjs <mise-data dir> --out <dir outside this repo> [--people <people.local.json>] [--exclude <slug>]... [--apply]",
     );
     return 2;
   }
@@ -280,7 +421,8 @@ export function main(argv, io = {}) {
         statSync(join(dataDir, "profiles", n)).isDirectory(),
       )
     : [];
-  const terms = buildTerms(roster, profileDirs, { exclude });
+  const people = peopleFile ? JSON.parse(readFileSync(resolve(peopleFile), "utf8")) : undefined;
+  const { words: terms, unusable } = buildTermSet(roster, profileDirs, { exclude, people });
   const files = readBank(dataDir);
   const r = scanBank(files, terms);
 
@@ -300,9 +442,11 @@ export function main(argv, io = {}) {
         `Needs a hand rename: ${f.manual.join(", ")} (plans point at the id; rename it with the app, not here)`,
       );
     for (const c of f.changes) {
-      lines.push(
-        `- \`${c.at}\`: ${JSON.stringify(c.before)} -> ${c.after === null ? "(tag removed)" : JSON.stringify(c.after)}`,
-      );
+      lines.push(`- \`${c.at}\`: ${JSON.stringify(c.before)} -> ${JSON.stringify(c.after)}`);
+    }
+    if (f.review.length) {
+      lines.push("", "Hand review (the tool did not touch these):");
+      for (const v of f.review) lines.push(`- \`${v.at}\`${v.word ? ` "${v.word}"` : ""}: ${v.why}`);
     }
     lines.push("");
     const dest = join(outDir, "proposed", f.path);
@@ -323,10 +467,14 @@ export function main(argv, io = {}) {
       applied++;
     }
   }
-  const manual = r.flagged.filter((f) => f.manual.length > 0).length;
+  const manual = r.flagged.filter((f) => f.manual.length > 0 || f.review.length > 0).length;
   log(
-    `bank-scrub: ${r.scanned} bank files scanned, ${terms.length} terms, ${r.hits} whole-word hits in ${r.flagged.length} files, ${r.nearMisses} substring-only near misses, ${r.flagged.reduce((n, f) => n + f.changes.length, 0)} proposed edits, ${manual} files need a hand rename, ${r.residual} files still name someone after the proposal`,
+    `bank-scrub: ${r.scanned} bank files scanned, ${terms.length} terms, ${r.hits} whole-word hits in ${r.flagged.length} files, ${r.nearMisses} substring-only near misses, ${r.flagged.reduce((n, f) => n + f.changes.length, 0)} proposed edits, ${manual} files need a hand review, ${r.residual} files still name someone after the proposal`,
   );
+  if (unusable.length)
+    log(
+      `${unusable.length} name(s) could not be read as plain letters a to z, so they are NOT searched; write them in Latin letters: ${unusable.join("; ")}`,
+    );
   log(
     apply
       ? `applied: ${applied} files rewritten in the clone (review with git diff, then commit)`
