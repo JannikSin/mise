@@ -1796,9 +1796,14 @@ async function holdOthers(who) {
 }
 
 /**
- * Move `who`'s own held writes back into their slots. A held write whose
- * slot is taken stays held, listed, until the slot is free or it is
- * discarded.
+ * Move `who`'s own held writes back into their slots, each in one
+ * transaction (loop 3, item 5; ENG 3 N6), so a phone that dies mid-restore
+ * leaves the write at one key, never both. A held write whose slot is taken
+ * stays held, listed, until the slot is free or it is discarded. Idempotent:
+ * when the slot already holds this very write (same account and queue time,
+ * at the same rev or a later edit of it, which only a restore cut off before
+ * its delete can leave), the held copy is dropped, so it can never replay
+ * later over newer data.
  * @param {string} who
  * @returns {Promise<number>} records restored
  */
@@ -1809,19 +1814,26 @@ async function restoreMine(who) {
     .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
   for (const rec of mine) {
     const h = /** @type {NonNullable<typeof rec.held>} */ (rec.held);
-    /** @type {import("./db.js").FileRecord} */
-    const back = { ...rec, path: h.path };
-    delete back.held;
-    delete back.branch;
-    if (h.branch !== undefined) back.branch = h.branch;
     let put = false;
-    await dbUpdate(h.path, (cur) => {
-      if (cur) return null;
+    await dbMove(rec.path, h.path, (from, to) => {
+      if (!from || !from.dirty || !from.held) return null;
+      if (to) {
+        const same =
+          to.dirty &&
+          to.account === from.held.account &&
+          to.queuedAt === from.queuedAt &&
+          to.rev >= from.rev;
+        return same ? { deleteFrom: true } : null;
+      }
+      /** @type {import("./db.js").FileRecord} */
+      const back = { ...from, path: from.held.path };
+      delete back.held;
+      delete back.branch;
+      if (from.held.branch !== undefined) back.branch = from.held.branch;
       put = true;
-      return back;
+      return { put: back, deleteFrom: true };
     });
     if (!put) continue;
-    await dbDelete(rec.path);
     fileCheckedAt.delete(h.path);
     moved++;
   }
