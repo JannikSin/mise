@@ -1456,19 +1456,36 @@ export async function purgeForeignRecords() {
 
 /**
  * THE ACCOUNT WAS REVOKED (2.0, plan section 5): the phone forgets
- * everything, queued writes included. Called by the sign-in layer ONLY on a
- * confirmed revoke (the server says this account no longer exists or may not
- * read), never on an AuthError, which is an expired session whose queue must
- * survive. The locked backend goes in and the scope is emptied first, and the
- * purge epoch moves, so nothing in flight lands back (Red Team 8, ENG F4).
+ * everything of it, queued writes included. Called by the sign-in layer ONLY
+ * on a confirmed revoke (the server says this account no longer exists or may
+ * not read), never on an AuthError, which is an expired session whose queue
+ * must survive. The locked backend goes in and the scope is emptied first,
+ * and the purge epoch moves, so nothing in flight lands back (Red Team 8,
+ * ENG F4).
+ *
+ * OTHER ACCOUNTS' QUEUES SURVIVE (loop 3, item 3; Red Team 3 S2): on a shared
+ * phone a revoke must not delete a housemate's held writes. Every clean
+ * record goes, and so do the revoked account's queue (the account the store
+ * remembers, unless the caller names it), the "before sign-in" bucket and
+ * any queue with no account. Another account's queued write is kept, held:
+ * unreadable and unpushable here until that account signs in again.
+ * @param {string | null} [revokedSlug] defaults to the remembered account
  * @returns {Promise<number>} records removed
  */
-export async function purgeEverything() {
+export async function purgeEverything(revokedSlug = rememberedAccount()) {
   epoch++;
   installBackend(lockedBackend());
   await setSyncScope({ profileIds: [], houses: [] });
   let removed = 0;
   for (const rec of await dbGetAll()) {
+    const by = rec.held ? rec.held.account : rec.account;
+    const keep =
+      rec.dirty && typeof by === "string" && by !== PRE_SIGN_IN && by !== revokedSlug;
+    if (keep) {
+      // a slot is never left holding another account's write
+      if (!isHeld(rec)) await holdRecord(rec);
+      continue;
+    }
     await dbDelete(rec.path);
     removed++;
   }
