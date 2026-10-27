@@ -2331,3 +2331,50 @@ profile is unread, and the check must refuse that person, never pass them.
   "lastWrite": { "device": "iphone", "at": "2026-07-06T18:20:11Z" }, // ? debugging aid
 }
 ```
+
+## Mise 2.0 database (Supabase): `supabase/migrations/*.sql`
+
+Mise 2.0 moves the data out of `mise-data` into a Supabase Postgres database
+(plan: the fleet's `schelkin-2.0-plan.md`, revision 3, section 4). The files in
+`supabase/migrations/` are applied in name order; the PGlite suite applies the
+same files (`tests/_pglite.js`). Every former JSON file becomes one row; the
+JSON inside it keeps exactly the shape this document describes above.
+
+| Table | One row per | Notes |
+|---|---|---|
+| `public.docs` | former file (`path` is the old repo path) | `kind`, `profile_id`, `household_id` are set by the server from the path; `rev` bumps on every write; `legacy_sha` is the git blob sha at migration |
+| `public.recipes` | bank recipe (`recipes/` and `recipes-staging/`, `staging` flag) | admin writes only; refuses any guarded name |
+| `public.plates` | person | the cook-facing projection of their targets (see Plate card below), made only by the server |
+| `public.profiles`, `public.memberships`, `public.households`, `public.admins` | person, membership, house, admin | no client grant; read through `roster()` |
+| `public.guest_grants`, `public.invites`, `public.guest_logins`, `public.ai_usage` | | Worker only (through `svc`) |
+| `private.settings` | `root_profile` = the slug whose files sat at the repo root | written by the migration, not the SQL |
+| `private.guard_terms` | (term, house it is hidden from) | the name guard |
+| `private.pending_links` | invite email to profile | |
+
+**Path to row** (`private.doc_scope`, mirrored by `app/lib/doc-scope.js`):
+
+| Path | kind | Owner |
+|---|---|---|
+| `households/<h>/{events,ledger,pantry,pantry-notes,waste,household,prices,pins}.json` | the file name | house `<h>` |
+| `households/<h>/recipes/house-<12 hex>.json` | `house_recipe` | house `<h>` |
+| `philosophies/<id>.json` | `global` | everyone |
+| `profiles/<p>/profile/targets.json`, `profiles/<p>/fitness/targets.json` | `targets` | person `<p>` |
+| `profiles/<p>/fitness/*`, `profiles/<p>/health/*` (other files) | `health` | person `<p>` |
+| `profiles/<p>/plans/<YYYY-Www>.json`, `shopping.json`, `occasions.json`, `pantry.json`, `recipes/<id>.json` | `plan`, `shopping`, `occasions`, `pantry`, `own_recipe` | person `<p>` |
+| root `plans/`, `profile/`, `shopping.json`, `occasions.json`, `pantry.json` | as above | the root profile |
+| root `fitness/*`, `health/*` | refused | stay on GitHub (daily log, Anvil) |
+| anything else | refused (`mise_bad_path`) | |
+
+**Triggers.** `docs_before` derives the scope on insert and pins `path`,
+`doc_id`, `kind`, owner and `legacy_sha` on update; it refuses a signed-in
+non-owner's targets write that drops a stored key (ENG L2-2, P0403), and runs
+the name guard (P0422). `recipes_before` and `plates_before` bump `rev` and pin
+`doc_id` and `legacy_sha`. `targets_after` rebuilds the plate from either
+targets path and leaves the plate's `rev` alone when the projection did not
+change.
+
+**Name guard.** A guard term may not appear, as a whole word, case-blind, in
+any row a member of its `hidden_from` house can read: house rows of that house;
+plan, shopping, occasions, pantry and own recipes of anyone in that house; the
+plate of anyone in it or granted to it as a guest. The bank and `global` rows
+refuse every term.
