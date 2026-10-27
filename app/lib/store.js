@@ -1243,6 +1243,13 @@ async function flush() {
           base: rec.base,
           sha: rec.sha,
         });
+        if ("from" in rec) {
+          await landRehomed(/** @type {any} */ (rec), pushed, here, started);
+          fileCheckedAt.delete(rec.path);
+          status.lastSyncAt = new Date().toISOString();
+          if (stopped.size === 0) status.lastError = null;
+          continue;
+        }
         // atomic: an edit that landed while the push was in flight stays
         // dirty; only base/sha advance (afterPushRecord decides)
         await dbUpdate(rec.path, (cur) => {
@@ -1272,7 +1279,9 @@ async function flush() {
           // push was in flight is newer data and gets its own try.
           /** @type {"forbidden" | "name"} */
           const reason = e instanceof NameGuardError ? "name" : "forbidden";
-          await dbUpdate(rec.path, (cur) =>
+          // a rehomed special is refused at the record that is really queued
+          const slot = "from" in rec ? String(rec.from) : rec.path;
+          await dbUpdate(slot, (cur) =>
             cur && cur.dirty && cur.rev === rec.rev
               ? { ...cur, refused: { reason, at: Date.now() } }
               : null,
@@ -1459,13 +1468,20 @@ const LEGACY_SPECIAL = /^recipes\/(special-[a-z0-9-]+)\.json$/;
 
 /**
  * A queued 1.95 AI special (`recipes/special-<name>-<date>.json`) replaying
- * on Supabase is moved to the signed-in person's house, under an opaque id,
- * before it is pushed (seam fix 12, ENG F7). The old id rides along as
- * `legacyId`, so the plan entry that names it still resolves (house-recipes.js).
- * Anything else, or no home house: null, and the record replays as it is.
+ * on Supabase is pushed to the signed-in person's house, under an opaque id
+ * (seam fix 12, ENG F7). The old id rides along as `legacyId`, so the plan
+ * entry that names it still resolves (house-recipes.js). Anything else, or
+ * no home house: null, and the record replays as it is.
+ *
+ * Nothing moves on the phone until the push lands (loop 2 item 7, ENG 2):
+ * the record stays at its 1.95 path, so a rollback still pushes it to the
+ * bank as 1.95 would. Only the chosen house path is remembered on it
+ * (`rehome`), so a retry reuses the same id and never makes a second copy.
+ * A home that is no house slug refuses the record ("not allowed") instead of
+ * throwing out of the flush.
  * @param {import("./db.js").FileRecord} rec
  * @param {string | null} here
- * @returns {Promise<import("./db.js").FileRecord | null>}
+ * @returns {Promise<(import("./db.js").FileRecord & { from?: string }) | null>}
  */
 async function rehomeLegacySpecial(rec, here) {
   const b = backend();
@@ -1475,17 +1491,49 @@ async function rehomeLegacySpecial(rec, here) {
   const home = b.session()?.home;
   if (!m || !home) return null;
   const legacyId = String(m[1]);
-  const t = specialTarget("supabase", home, legacyId);
-  const moved = {
+  let t = rec.rehome;
+  if (!t) {
+    try {
+      t = specialTarget("supabase", home, legacyId);
+    } catch {
+      const refused = { reason: /** @type {const} */ ("forbidden"), at: Date.now() };
+      await dbUpdate(rec.path, (cur) =>
+        cur && cur.dirty && cur.rev === rec.rev ? { ...cur, refused } : null,
+      );
+      return { ...rec, refused };
+    }
+    const chosen = t;
+    await dbUpdate(rec.path, (cur) =>
+      cur && cur.dirty && cur.rev === rec.rev ? { ...cur, rehome: chosen } : null,
+    );
+  }
+  return {
     ...rec,
     path: t.path,
     data: { ...rec.data, id: t.id, legacyId },
     base: null,
     sha: null,
+    from: rec.path,
   };
-  await dbUpdate(t.path, () => moved);
-  await dbDelete(rec.path);
-  return moved;
+}
+
+/**
+ * A rehomed special landed: only now does the phone keep it at its house
+ * path, clean and stamped here, and forget the 1.95 record (item 7).
+ * @param {import("./db.js").FileRecord & { from?: string }} rec as pushed
+ * @param {{ data: Record<string, unknown>, sha: string }} pushed
+ * @param {string | null} here
+ * @param {number} started the purge epoch when the flush began
+ */
+async function landRehomed(rec, pushed, here, started) {
+  const from = /** @type {string} */ (rec.from);
+  await dbUpdate(rec.path, (cur) => {
+    if (cur?.dirty || started !== epoch) return null;
+    // same rev, so this is a fresh clean record: no `from`, no `rehome`
+    return { ...afterPushRecord(rec, pushed, rec.rev), branch: here };
+  });
+  const old = await dbGet(from);
+  if (old && old.rev === rec.rev) await dbDelete(from);
 }
 
 /** @returns {string | null} the account this phone's cache last belonged to */
