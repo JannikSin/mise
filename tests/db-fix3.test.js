@@ -525,3 +525,22 @@ for (const [name, table, key, id, change, check] of [
     rmSync(dir, { recursive: true, force: true });
   });
 }
+
+// ---- item 10 (Engineer mutant #10): anon executes no client function
+
+test("10: anon may execute no function in public (write_doc, roster, plate_for, whoami); authenticated exactly those four", { skip: SKIP }, async () => {
+  const db = await freshDb();
+  const fns = (await db.query(`select p.oid::regprocedure::text sig,
+      has_function_privilege('anon', p.oid, 'EXECUTE') anon,
+      has_function_privilege('authenticated', p.oid, 'EXECUTE') authed
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' order by 1`)).rows;
+  const CLIENT = ["plate_for(text)", "roster()", "whoami()", "write_doc(text,jsonb,bigint)"];
+  for (const c of CLIENT) assert.ok(fns.some((/** @type {any} */ f) => f.sig === c), `${c} exists`);
+  assert.deepEqual(fns.filter((/** @type {any} */ f) => f.anon).map((/** @type {any} */ f) => f.sig), [], "anon executes nothing");
+  assert.deepEqual(fns.filter((/** @type {any} */ f) => f.authed).map((/** @type {any} */ f) => f.sig), CLIENT);
+  // and every svc and private function is closed to anon too
+  const open = (await db.query(`select p.oid::regprocedure::text sig from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname in ('svc', 'private') and has_function_privilege('anon', p.oid, 'EXECUTE')`)).rows;
+  assert.deepEqual(open, []);
+  await db.close();
+});
