@@ -1802,8 +1802,10 @@ async function holdOthers(who) {
 /**
  * Move `who`'s own held writes back into their slots, each in one
  * transaction (loop 3, item 5; ENG 3 N6), so a phone that dies mid-restore
- * leaves the write at one key, never both. A held write whose slot is taken
- * stays held, listed, until the slot is free or it is discarded. Idempotent:
+ * leaves the write at one key, never both. Runs on every call, the same
+ * account again included (item 9). A clean cached copy in the slot is
+ * replaced; a held write whose slot holds another queued write stays held,
+ * listed, until the slot is free or it is discarded. Idempotent:
  * when the slot already holds this very write (same account and queue time,
  * at the same rev or a later edit of it, which only a restore cut off before
  * its delete can leave), the held copy is dropped, so it can never replay
@@ -1821,9 +1823,11 @@ async function restoreMine(who) {
     let put = false;
     await dbMove(rec.path, h.path, (from, to) => {
       if (!from || !from.dirty || !from.held) return null;
-      if (to) {
+      // a clean record in the slot is only a cached copy: the queued write
+      // goes back over it, and the flush merges with the server as usual
+      // (loop 3, item 9; Red Team 3 Q4). Only a queued write blocks.
+      if (to?.dirty) {
         const same =
-          to.dirty &&
           to.account === from.held.account &&
           to.queuedAt === from.queuedAt &&
           to.rev >= from.rev;
