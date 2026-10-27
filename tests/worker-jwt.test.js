@@ -204,3 +204,7 @@ test("R5: after the TTL a failed refetch keeps the cached keys (stale-if-error) 
   await verifySupabaseJwt(await tok(late + 41_000), project, { fetchImpl, nowMs: t0 + late + 41_000 });
   assert.equal(hits, 3, "fresh again: served from the cache");
 });
+
+// fix loop 1, item 9: the mutation-killing tests for this file's sources
+import { jwtKills } from "./_mutation-kills.js";
+jwtKills(test);

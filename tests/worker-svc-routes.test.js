@@ -346,3 +346,7 @@ test("F8: invite/new names a house in the body, but the database checks it again
   const mint = w.sb.calls.find((c) => c.fn === "mint_invite");
   assert.equal(mint?.args.p_sub, USER_B, "the sub is the verified token's, never the body's");
 });
+
+// fix loop 1, item 9: the mutation-killing tests for this file's sources
+import { svcKills } from "./_mutation-kills.js";
+svcKills(test);
