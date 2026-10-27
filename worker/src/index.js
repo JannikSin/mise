@@ -86,6 +86,10 @@ import {
 import { callModel, providerConfigured } from "./provider.js";
 import { handleKroger, handleKrogerCallback } from "./kroger.js";
 import { handleHall } from "./hall.js";
+import { authenticate, takeAiQuota } from "./auth.js";
+
+/** 2.0 F1: the data routes a JWT caller cannot use until F2 ports them to svc */
+const JWT_PENDING_ROUTES = new Set(["/notify-test", "/invite/new", "/annotate-save"]);
 
 const DATA_REPO = "JannikSin/mise-data";
 
@@ -1278,24 +1282,22 @@ export default {
     }
 
     const token = request.headers.get("x-mise-auth");
-    const auth = await isAuthorized(token, repoForRequest(request, env));
-    if (auth === "retry") {
-      return json(
-        503,
-        {
-          error:
-            "GitHub is rate-limiting right now (a burst of edits can do this), wait two minutes and try again. Your token is fine.",
-        },
-        cors,
-      );
-    }
-    if (auth !== "ok") {
-      return json(401, { error: "unauthorized" }, cors);
-    }
+    // 2.0 (plan section 1 B1, E4): the PAT or the Supabase session JWT; see auth.js
+    const reqBranch = branchForOrigin(request.headers.get("origin"));
+    const authed = await authenticate({
+      token,
+      branch: reqBranch,
+      pathname: url.pathname,
+      env,
+      patCheck: (t) => isAuthorized(t, repoForRequest(request, env)),
+    });
+    if (!authed.ok) return json(authed.status, { error: authed.error }, cors);
+    const who = authed.who;
     if (
       !allowRequest(
         rateState,
-        await tokenKey(/** @type {string} */ (token)),
+        // a JWT refreshes hourly, so its window is keyed by the person
+        who.kind === "jwt" ? `jwt:${who.sub}` : await tokenKey(/** @type {string} */ (token)),
         Date.now(),
         // /annotate is a transcribe call plus up to two 8k annotate
         // attempts (Tribunal M1); /kroger/byId fans out one upstream call
@@ -1309,6 +1311,13 @@ export default {
       )
     ) {
       return json(429, { error: "slow down, try again in a few minutes" }, cors);
+    }
+    {
+      const q = await takeAiQuota({ who, branch: reqBranch, pathname: url.pathname, env });
+      if (!q.ok) return json(q.status, { error: q.error }, cors);
+    }
+    if (who.kind === "jwt" && JWT_PENDING_ROUTES.has(url.pathname)) {
+      return json(503, { error: "this is not on the account yet" }, cors);
     }
 
     // notification test (SYS button): reads with the PRESENTED token, sends
