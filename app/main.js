@@ -8,7 +8,7 @@ import {
   savingDead,
   dataBranch,
   branchProbe,
-} from "./lib/github.js";
+} from "./lib/backend/github-adapter.js";
 import {
   initStore,
   write,

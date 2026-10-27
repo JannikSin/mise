@@ -8,12 +8,17 @@
 //          whenever we're online. Offline writes simply stay queued.
 
 import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
-import { listDir, readFile, writeFile, dataBranch } from "./github.js";
+import { backend, stampHere, replaysHere } from "./backend.js";
 import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
 import { syncScopeFor, verifiedKey, ADMIN_DEVICE_KEY, keyOf, isAdmin } from "./privacy.js";
 
-const io = { read: readFile, write: writeFile };
+const io = {
+  /** @param {string} path */
+  read: (path) => backend().read(path),
+  /** @param {string} path @param {Record<string, unknown>} data @param {string | null} [sha] */
+  write: (path, data, sha) => backend().write(path, data, sha),
+};
 
 /** Fallback the app boots into when profiles.json is missing (fresh
  *  install) or unreachable — a legacy/pre-multi-profile install still opens
@@ -674,7 +679,7 @@ async function revalidateFile(scopedPath) {
   const rec = await dbGet(scopedPath);
   if (rec?.dirty) return; // local edits win until flushed
   try {
-    const remote = await readFile(scopedPath);
+    const remote = await backend().read(scopedPath);
     fileCheckedAt.set(scopedPath, { at: Date.now(), missing: !remote });
     if (!remote) return;
     if (rec && remote.sha === rec.sha) return;
@@ -715,7 +720,7 @@ function cacheRemote(path, data, sha) {
           dirty: false,
           queuedAt: null,
           rev: cur?.rev ?? 0,
-          branch: dataBranch(),
+          branch: stampHere(),
         },
   );
 }
@@ -811,7 +816,7 @@ async function revalidatePass(scopedDir) {
   }
   const prefix = `${scopedDir}/`;
   try {
-    const listing = await listDir(scopedDir);
+    const listing = await backend().list(scopedDir);
     const cached = (await dbGetAll()).filter((r) => r.path.startsWith(prefix));
     const cachedByPath = new Map(cached.map((r) => [r.path, r]));
     const listed = new Set(listing.map((e) => e.path));
@@ -826,10 +831,10 @@ async function revalidatePass(scopedDir) {
     const worker = async () => {
       while (next < todo.length) {
         const entry = /** @type {{ path: string, sha: string }} */ (todo[next++]);
-        /** @type {Awaited<ReturnType<typeof readFile>>} */
+        /** @type {Awaited<ReturnType<ReturnType<typeof backend>["read"]>>} */
         let remote;
         try {
-          remote = await readFile(entry.path);
+          remote = await backend().read(entry.path);
         } catch {
           failed++;
           continue; // one unreadable/corrupt file must not sink the whole collection
@@ -894,7 +899,7 @@ export async function write(path, data, opts) {
     rev: (cur?.rev ?? 0) + 1,
     // stamped with the branch it was written under (release train): a queued
     // sandbox edit must never be pushed to main, and vice versa
-    branch: cur?.dirty && cur.branch !== undefined ? cur.branch : dataBranch(),
+    branch: cur?.dirty && cur.branch !== undefined ? cur.branch : stampHere(),
   }));
   await recount();
   void flush();
@@ -916,7 +921,7 @@ export function writeErrorMessage(msg) {
   if (/unknown data branch for this origin/.test(msg)) {
     return "this origin has no data branch, so nothing saves from here (the live app and the sandbox each have theirs)";
   }
-  if (/HTTP 404/.test(msg) && dataBranch() === "sandbox") {
+  if (/HTTP 404/.test(msg) && stampHere() === "sandbox") {
     // a missing sandbox branch answers 404 to a PUT; sending someone to audit
     // token scopes over it is the wrong instruction (Red Team, 2026-09-07)
     return "the sandbox data branch is gone: re-seed it (tools/seed-sandbox-data.ps1)";
@@ -986,7 +991,7 @@ async function flush() {
     const queued = (await dbGetAll())
       .filter((r) => r.dirty)
       .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
-    const here = dataBranch();
+    const here = stampHere();
     status.mismatched = 0;
     for (const rec of queued) {
       // BRANCH GUARD (release train). A record with no stamp predates the
@@ -999,8 +1004,14 @@ async function flush() {
         rec.branch = here;
         await dbUpdate(rec.path, (cur) => (cur ? { ...cur, branch: here } : null));
       } else if (rec.branch !== here) {
-        status.mismatched++;
-        continue;
+        if (!replaysHere(rec.branch, here)) {
+          status.mismatched++;
+          continue;
+        }
+        // a 1.95 record on the build that took over its branch (2.0, plan
+        // section 5): restamped, then replayed through the conflict path
+        rec.branch = here;
+        await dbUpdate(rec.path, (cur) => (cur ? { ...cur, branch: here } : null));
       }
       try {
         const pushed = await pushFile(io, {
@@ -1049,11 +1060,11 @@ async function flush() {
  * @returns {Promise<number>} how many were dropped
  */
 export async function discardMismatched() {
-  const here = dataBranch();
+  const here = stampHere();
   const all = await dbGetAll();
   let n = 0;
   for (const rec of all) {
-    if (!rec.dirty || rec.branch === undefined || rec.branch === here) continue;
+    if (!rec.dirty || rec.branch === undefined || replaysHere(rec.branch, here)) continue;
     await dbDelete(rec.path);
     n++;
   }
