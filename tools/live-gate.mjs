@@ -13,7 +13,7 @@
 //
 //   node tools/live-gate.mjs --url <http://127.0.0.1:54321 | https://<ref>.supabase.co> [--invite-email <address>]
 //
-// The keys come from the environment at run time, typed by David, never
+// The keys come from the environment at run time, typed by the admin, never
 // committed: MISE_GATE_SECRET_KEY (the secret or service_role key) and
 // MISE_GATE_PUBLISHABLE_KEY (the publishable or anon key). There is no
 // default URL. It speaks HTTP to PostgREST and Auth exactly as supabase-js

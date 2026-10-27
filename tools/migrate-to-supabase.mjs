@@ -40,7 +40,7 @@
 // stand-in (the local rehearsal, no network). `--target sandbox` and
 // `--target live` read the connection string from the MISE_DB_URL environment
 // variable (never an argument: it holds the database password) and need the
-// `pg` package, which is not a dependency yet (NEEDS DAVID). Fix loop 3, E4:
+// `pg` package, which is not a dependency yet (the owner adds it). Fix loop 3, E4:
 // the run is one transaction, so it must hold ONE connection from begin to
 // commit: one pg.Client (never a pg.Pool) on the direct connection or the
 // session pooler, port 5432. The transaction pooler (6543) and pgbouncer URLs

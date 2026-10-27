@@ -2,7 +2,7 @@
 // itself is for the real stack and is never run here. These tests drive the
 // SAME script against the PGlite stand-in through a small fake of PostgREST
 // and Auth (each request runs under the role its key or token maps to), so a
-// wrong check, a wrong code or a wrong seed shows up before David runs it,
+// wrong check, a wrong code or a wrong seed shows up before the admin runs it,
 // and negative controls prove each check can fail. No network.
 import test from "node:test";
 import assert from "node:assert/strict";
