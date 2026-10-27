@@ -154,3 +154,53 @@ test("looksLikeJwt tells a JWT from a GitHub PAT", async () => {
   assert.equal(looksLikeJwt(null), false);
   assert.equal(looksLikeJwt("a.b"), false);
 });
+
+// ---- fix loop 1, item 5 (Red Team R5, probe P2): stale-if-error with a
+// 30-second backoff. A JWKS blip never throws away good keys, and an outage
+// costs one fetch per 30 seconds, not one per request.
+test("R5 P2: JWKS down from the start: 20 requests make one fetch, then one per 30 s", async () => {
+  resetJwksCacheForTests();
+  const key = await makeKey("kid-1");
+  let hits = 0;
+  const down = async () => {
+    hits++;
+    return new Response("down", { status: 500 });
+  };
+  const t0 = 1_800_000_000_000;
+  for (let i = 0; i < 20; i++) {
+    const r = await verifySupabaseJwt(await signJwt(key), project, { fetchImpl: down, nowMs: t0 + i * 100 });
+    assert.deepEqual(r, { ok: false, reason: "jwks" });
+  }
+  assert.equal(hits, 1);
+  await verifySupabaseJwt(await signJwt(key), project, { fetchImpl: down, nowMs: t0 + 31_000 });
+  assert.equal(hits, 2, "the next try waits out the backoff");
+});
+
+test("R5: after the TTL a failed refetch keeps the cached keys (stale-if-error) and backs off 30 s", async () => {
+  resetJwksCacheForTests();
+  const key = await makeKey("kid-1");
+  const sb = fakeSupabase({ jwks: { [SANDBOX_REF]: [key.jwk] } });
+  let up = true;
+  let hits = 0;
+  /** @type {(input: string, init?: any) => Promise<Response>} */
+  const fetchImpl = async (input, init) => {
+    hits++;
+    return up ? sb.fetchImpl(input, init) : new Response("down", { status: 503 });
+  };
+  const t0 = 1_800_000_000_000;
+  const tok = async (/** @type {number} */ ms) =>
+    signJwt(key, { iat: Math.floor((t0 + ms) / 1000), exp: Math.floor((t0 + ms) / 1000) + 3600 });
+  assert.equal((await verifySupabaseJwt(await tok(0), project, { fetchImpl, nowMs: t0 })).ok, true);
+  up = false;
+  const late = 11 * 60 * 1000;
+  for (let i = 0; i < 10; i++) {
+    const r = await verifySupabaseJwt(await tok(late + i), project, { fetchImpl, nowMs: t0 + late + i * 1000 });
+    assert.equal(r.ok, true, "the held key still verifies during the blip");
+  }
+  assert.equal(hits, 2, "one failed refetch, then the backoff");
+  up = true;
+  await verifySupabaseJwt(await tok(late + 40_000), project, { fetchImpl, nowMs: t0 + late + 40_000 });
+  assert.equal(hits, 3, "after the backoff it fetches again and recovers");
+  await verifySupabaseJwt(await tok(late + 41_000), project, { fetchImpl, nowMs: t0 + late + 41_000 });
+  assert.equal(hits, 3, "fresh again: served from the cache");
+});
