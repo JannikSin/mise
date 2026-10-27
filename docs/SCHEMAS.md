@@ -2477,3 +2477,25 @@ admin flag in profiles.json equal to people.local.json's admin, no guarded
 term or listed person name in any bank or staging recipe (the scrub), no
 guarded term in a file or plate a hidden-from house can read, and the freeze
 marker (`freeze.json`) on `--final`.
+
+**Backup, restore and rollback** (G2). One snapshot format, `mise-backup/1`
+(`tools/db-snapshot.mjs`): a single JSON document `{ format, taken_at,
+columns: { "<schema.table>": [column names] }, tables: { "<schema.table>":
+[rows ordered by primary key] } }` covering every table in `public` and
+`private` (a test fails when a table is added and not listed). The schema
+itself is `supabase/migrations/`, not the snapshot. The nightly backup
+(`.github/workflows/mise-backup.yml`, runs only in the private `mise-backup`
+repo) takes it as the read-only `mise_backup` role (login off until step 10,
+`tools/backup-setup.mjs`; a select policy on every RLS table, no write grant),
+encrypts it with age and keeps 30 nights on one orphan branch;
+`mise-keepalive.yml` reads each project twice a day. `tools/restore-backup.mjs`
+turns a snapshot into one transaction that checks the target's columns,
+refuses a non-empty target without `--wipe`, inserts with triggers off (revs,
+doc ids and shas exact), clears account links the target lacks (they relink on
+the next confirmed sign-in) and checks the counts. `tools/export-from-supabase.mjs`
+turns a snapshot back into the mise-data file layout (the rollback).
+
+**Freeze marker** (agreed with the worker lane's D2): `freeze.json` at the
+mise-data root, `{ "frozen": true, "at": "<ISO time>", "by": "<slug>" }`. The
+migration's `--final` refuses without it and never migrates it; the reverse
+export's `--merge-into` refuses without it and never writes or deletes it.
