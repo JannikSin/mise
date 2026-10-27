@@ -36,7 +36,13 @@ export const PLATE_FIELDS = Object.freeze([
 /** `macros` keys left off the plate (every other macros key goes on it). */
 export const PLATE_MACROS_DROPPED = Object.freeze(["waterLiters"]);
 
-/** The keys a `currencies` item keeps on the plate. */
+/**
+ * The keys a `currencies` item keeps on the plate. `estCalories` and
+ * `estProtein` (the stated swipe tray) are read for a housemate by
+ * compose.js memberCoverage through plan.js buffetMacroEstimate; without them
+ * a brigade sizes that person's plates differently (found by
+ * tests/plate-parity.test.js, not in the plan's list).
+ */
 export const PLATE_CURRENCY_KEYS = Object.freeze([
   "id",
   "unit",
@@ -45,6 +51,8 @@ export const PLATE_CURRENCY_KEYS = Object.freeze([
   "venue",
   "toGo",
   "preferredSlot",
+  "estCalories",
+  "estProtein",
 ]);
 
 /** Keys removed from an object item of `mealSlots` on the plate. */

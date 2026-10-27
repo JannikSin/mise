@@ -20,7 +20,7 @@ select coalesce(jsonb_object_agg(e.key, case
     when e.key = 'currencies' and jsonb_typeof(e.value) = 'array' then (
       select coalesce(jsonb_agg(case when jsonb_typeof(c) = 'object' then (
           select coalesce(jsonb_object_agg(ck, cv), '{}'::jsonb) from jsonb_each(c) x(ck, cv)
-           where ck in ('id', 'unit', 'perWeek', 'expires', 'venue', 'toGo', 'preferredSlot'))
+           where ck in ('id', 'unit', 'perWeek', 'expires', 'venue', 'toGo', 'preferredSlot', 'estCalories', 'estProtein'))
         else c end order by ord), '[]'::jsonb)
       from jsonb_array_elements(e.value) with ordinality a(c, ord))
     when e.key = 'mealSlots' and jsonb_typeof(e.value) = 'array' then (
@@ -49,7 +49,10 @@ declare s record; begin
       or (s.kind in ('plan','shopping','occasions') and s.profile_id = any (private.housemates())), false);
 exception when others then return false; end $$;
 
--- The roster, as the caller may see it: {profiles: [...], rev} (RT N2).
+-- The roster, as the caller may see it (RT N2):
+--   {profiles: [{id, roster, household, family, admin}], rev}
+-- `roster` is the stored display fields (name, emoji, phase...), the shape the
+-- seam lane's adapter flattens back into a 1.95 profiles.json entry.
 -- A row is visible to the admin, to its owner, to housemates and, for a guest,
 -- to the houses holding a live grant. `household` is the home house's slug only
 -- for the admin or a member of that house, else JSON null (hidden, NOT "home").
@@ -61,24 +64,25 @@ select jsonb_build_object(
   'rev', (select rev from public.roster_rev))
 from (
   select p.slug, p.sort_order,
-    jsonb_build_object('id', p.slug)
-    || (p.roster - 'id' - 'household' - 'family' - 'admin' - 'passkey' - 'adminKey')
-    || jsonb_build_object(
+    jsonb_build_object(
+         'id', p.slug,
+         'roster', p.roster - 'id' - 'household' - 'family' - 'admin' - 'passkey' - 'adminKey',
          'household', case when (select private.is_admin()) or p.home_household = any ((select private.my_households())::uuid[])
                            then h.slug end,
          'family', case when (select private.is_admin())
                           or exists (select 1 from public.households fh
                                      where fh.slug = p.family and fh.id = any ((select private.my_households())::uuid[]))
-                        then p.family end)
-    || case when exists (select 1 from public.admins a where a.user_id = p.user_id)
-            then '{"admin": true}'::jsonb else '{}'::jsonb end as obj
+                        then p.family end,
+         'admin', exists (select 1 from public.admins a where a.user_id = p.user_id)) as obj
   from public.profiles p left join public.households h on h.id = p.home_household
   where p.kind <> 'probe'
     and ((select private.is_admin()) or p.id = (select private.my_profile())
          or p.id = any ((select private.housemates())::uuid[]) or p.id = any ((select private.visible_guests())::uuid[]))
 ) r $$;
 
--- profiles.json writes. Diffs only the rows roster() returns to the caller.
+-- profiles.json writes, in the 1.95 shape {profiles: [{id, ...display fields,
+-- household?, family?, admin?}]}. Diffs only the rows roster() returns to the
+-- caller. An absent household or family equals a hidden (null) one.
 -- Only the display fields (the `roster` jsonb) change here: a new row, a
 -- house, a family or an admin flag is refused (members come only from
 -- tools/add-member.mjs, B4). A non-admin may change only their own row. A row
@@ -143,6 +147,16 @@ begin
   if v_rev is null then raise exception 'mise_conflict' using errcode = 'P0409'; end if;
   return v_rev;
 end $$;
+
+-- One person's plate card by slug, under exactly plates_read's rules; null
+-- when the caller may not see it (or there is none). Clients never see
+-- profile uuids, so the seam lane reads plates through this.
+create function public.plate_for(p_slug text) returns jsonb language sql stable security definer set search_path = '' as $$
+select jsonb_build_object('data', pl.data, 'rev', pl.rev, 'content_hash', pl.content_hash, 'legacy_sha', pl.legacy_sha)
+from public.plates pl join public.profiles p on p.id = pl.profile_id
+where p.slug = p_slug
+  and ((select private.is_admin()) or pl.profile_id = (select private.my_profile())
+       or pl.profile_id = any ((select private.housemates())::uuid[]) or pl.profile_id = any ((select private.visible_guests())::uuid[])) $$;
 
 -- ===== svc: the Worker's typed reads and writes (ENG L2-5). service_role only.
 
@@ -256,5 +270,5 @@ revoke execute on all functions in schema public, private, svc from public, anon
 revoke execute on all functions in schema svc from authenticated;
 revoke execute on all functions in schema public from authenticated;
 grant execute on all functions in schema private to authenticated;
-grant execute on function public.write_doc(text, jsonb, bigint), public.roster() to authenticated;
+grant execute on function public.write_doc(text, jsonb, bigint), public.roster(), public.plate_for(text) to authenticated;
 grant execute on all functions in schema svc to service_role;

@@ -2385,8 +2385,8 @@ keys in `PLATE_FIELDS` (diet, allergens, allergensFreeText, avoidIngredients,
 avoidRecipes, dislikeIngredients, cuisinePrefs, fixedSlots, skipSlots,
 mealSlots, slotAvoid, breakfastStyle, snackStyle, snackPortable, dinnerAnchor,
 phase, weeklyBudgetUsd, macros, currencies), with `macros.waterLiters` dropped,
-each `currencies` item cut to id, unit, perWeek, expires, venue, toGo and
-preferredSlot, and `note`/`notes` removed from object items of `mealSlots`.
+each `currencies` item cut to id, unit, perWeek, expires, venue, toGo,
+preferredSlot, estCalories and estProtein, and `note`/`notes` removed from object items of `mealSlots`.
 Every other targets key is in `OWNER_ONLY_FIELDS`. A new targets key must be
 added to one of the two lists (`tests/plate-allowlist.test.js` fails
 otherwise).
@@ -2408,9 +2408,13 @@ the new `rev`. `expected_rev` null = create. Errors: `P0409` conflict (stale
 rev, or a create over an existing row), `P0403` forbidden (the same answer for a
 hidden row, a missing row and a bad path), `P0422` name guard. `profiles.json`
 goes to the roster: `public.roster()` returns `{ profiles: [...], rev }` in the
-old profiles.json order, each row `{ id, ...display fields, household, family,
-admin? }`; `household` and `family` are JSON `null` when hidden from the caller
-(null is NOT "home"); passkey hashes are never stored or returned. Writing
+old profiles.json order, each row `{ id, roster, household, family, admin }`
+(`roster` = the display fields; `admin` a boolean); `household` and `family` are
+JSON `null` when hidden from the caller (null is NOT "home"); passkey hashes are
+never stored or returned. `public.plate_for(slug)` returns one person's plate
+as `{ data, rev, content_hash, legacy_sha }`, or null when the caller may not
+see it. `meta.json`, `guests.json` and `invites.json` have no row: a client
+write to them is refused (P0403) and a read finds nothing. Writing
 `profiles.json` may change display fields only: the caller's own row, or any
 visible row for the admin. New rows, house moves, families and admin flags are
 refused (P0403).

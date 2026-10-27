@@ -36,7 +36,7 @@ test("plateOf keeps only plate fields and trims the three nested ones", () => {
   assert.equal(p.diet, "vegetarian");
   assert.deepEqual(p.macros, { calories: 3000, protein: 160, fat: 90, carbs: 380 });
   assert.deepEqual(p.currencies, [
-    { id: "swipes", unit: "swipe", perWeek: 7, expires: "weekly", venue: "buffet", toGo: true, preferredSlot: "lunch" },
+    { id: "swipes", unit: "swipe", perWeek: 7, expires: "weekly", venue: "buffet", toGo: true, preferredSlot: "lunch", estCalories: 900, estProtein: 60 },
     "odd",
   ]);
   assert.deepEqual(p.mealSlots, ["breakfast", { slot: "dinner", at: "18:30" }]);
