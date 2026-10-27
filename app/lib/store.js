@@ -8,7 +8,7 @@
 //          whenever we're online. Offline writes simply stay queued.
 
 import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
-import { backend, stampHere, replaysHere } from "./backend.js";
+import { backend, stampHere, replaysHere, installBackend, lockedBackend } from "./backend.js";
 import { ForbiddenError, NameGuardError } from "./backend/errors.js";
 import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
@@ -271,9 +271,10 @@ async function defaultProfilesRead(path) {
     return { data: view, sha: rec.sha ?? "" };
   }
   try {
+    const started = epoch;
     const remote = await io.read(path);
     if (remote) {
-      await cacheRemote(key, remote.data, remote.sha);
+      await cacheRemote(key, remote.data, remote.sha, undefined, started);
       return remote;
     }
   } catch {
@@ -449,6 +450,10 @@ export function initStore() {
 // here because the sync scope's purge forgets the paths it removes
 /** @type {Map<string, { at: number, missing: boolean }>} */
 const fileCheckedAt = new Map();
+// THE PURGE EPOCH (2.0, Red Team 8 / ENG F4): bumped by every purge. A fetch
+// or a push that started before the purge finds it moved and stores nothing,
+// so revoked data can never land back on the phone after it was wiped.
+let epoch = 0;
 /** @type {Map<string, number>} */
 const passDoneAt = new Map();
 
@@ -738,7 +743,9 @@ async function revalidateFile(scopedPath) {
   // local edits win until flushed; a refused one still learns the server copy
   if (rec?.dirty && !rec.refused) return;
   try {
+    const started = epoch;
     const remote = await backend().read(scopedPath);
+    if (started !== epoch) return;
     fileCheckedAt.set(scopedPath, { at: Date.now(), missing: !remote });
     if (!remote) {
       // HIDDEN NOW (2.0, Red Team 2): on Supabase a row the policies no
@@ -758,7 +765,7 @@ async function revalidateFile(scopedPath) {
     ) {
       return;
     }
-    await cacheRemote(scopedPath, remote.data, remote.sha, remote.fingerprint);
+    await cacheRemote(scopedPath, remote.data, remote.sha, remote.fingerprint, started);
     emit();
   } catch {
     // offline, no token or rate-limited: the cache already served the read,
@@ -781,13 +788,17 @@ export function resetFileChecks() {
  * @param {string} sha
  * @param {string | null} [fingerprint] the plate's sha for a targets file on
  *   Supabase (2.0, ENG L2-3); never set on GitHub, so 1.95 records keep their shape
+ * @param {number} [started] the purge epoch when the fetch began
  * @returns {Promise<void>}
  */
-function cacheRemote(path, data, sha, fingerprint) {
-  // a fetch that started before the scope was set never lands (2.0, A-03)
-  if (!inSyncScope(path)) return Promise.resolve();
+function cacheRemote(path, data, sha, fingerprint, started = epoch) {
+  // a fetch that started before the scope was set never lands (2.0, A-03),
+  // nor one that started before a purge (Red Team 8)
+  if (!inSyncScope(path) || started !== epoch) return Promise.resolve();
   return dbUpdate(path, (cur) =>
-    cur?.dirty
+    started !== epoch
+      ? null
+      : cur?.dirty
       ? cur.refused
         ? { ...cur, base: data, sha, ...(fingerprint !== undefined ? { fingerprint } : {}) }
         : null
@@ -897,6 +908,7 @@ async function revalidatePass(scopedDir) {
     return;
   }
   const prefix = `${scopedDir}/`;
+  const started = epoch;
   try {
     const listing = await backend().list(scopedDir);
     const cached = (await dbGetAll()).filter((r) => r.path.startsWith(prefix));
@@ -931,7 +943,7 @@ async function revalidatePass(scopedDir) {
         // store the LISTING's sha — it's what the next revalidate compares
         // against, so a listing/content sha disagreement can never cause an
         // endless refetch-emit loop (they're the same blob sha on GitHub)
-        await cacheRemote(entry.path, remote.data, entry.sha);
+        await cacheRemote(entry.path, remote.data, entry.sha, undefined, started);
         changed = true;
       }
     };
@@ -1090,6 +1102,7 @@ async function flush() {
       .filter((r) => r.dirty)
       .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
     const here = stampHere();
+    const started = epoch;
     status.mismatched = 0;
     // a failure stops its LANE, not the pass (2.0 composite: a GitHub outage
     // must not hold back the Supabase queue); with one lane this is the
@@ -1129,12 +1142,14 @@ async function flush() {
         // atomic: an edit that landed while the push was in flight stays
         // dirty; only base/sha advance (afterPushRecord decides)
         await dbUpdate(rec.path, (cur) => {
-          const landed = afterPushRecord(cur ?? rec, pushed, rec.rev);
+          // a record purged while its push was in flight stays gone (ENG F4)
+          if (!cur || started !== epoch) return null;
+          const landed = afterPushRecord(cur, pushed, rec.rev);
           const next = rec.branch === here ? landed : { ...landed, branch: here };
           // a targets push may have moved the plate: the old fingerprint is
           // kept but marked stale, and reads as dirty until the next fetch
           // brings the plate's (2.0, ENG F1 / Red Team 7)
-          return cur && "fingerprint" in cur
+          return "fingerprint" in cur
             ? { ...next, fingerprint: cur.fingerprint, fingerprintStale: true }
             : next;
         });
@@ -1230,11 +1245,17 @@ export async function purgeForeignRecords() {
 
 /**
  * THE ACCOUNT WAS REVOKED (2.0, plan section 5): the phone forgets
- * everything, queued writes included. Called by the sign-in layer when the
- * server says this account no longer exists or may not read.
+ * everything, queued writes included. Called by the sign-in layer ONLY on a
+ * confirmed revoke (the server says this account no longer exists or may not
+ * read), never on an AuthError, which is an expired session whose queue must
+ * survive. The locked backend goes in and the scope is emptied first, and the
+ * purge epoch moves, so nothing in flight lands back (Red Team 8, ENG F4).
  * @returns {Promise<number>} records removed
  */
 export async function purgeEverything() {
+  epoch++;
+  installBackend(lockedBackend());
+  await setSyncScope({ profileIds: [], houses: [] });
   let removed = 0;
   for (const rec of await dbGetAll()) {
     await dbDelete(rec.path);
