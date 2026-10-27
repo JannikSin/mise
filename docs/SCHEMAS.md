@@ -2347,9 +2347,9 @@ JSON inside it keeps exactly the shape this document describes above.
 | `public.plates` | person | the cook-facing projection of their targets (see Plate card below), made only by the server |
 | `public.profiles`, `public.memberships`, `public.households`, `public.admins` | person, membership, house, admin | no client grant; read through `roster()` |
 | `public.guest_grants`, `public.invites`, `public.guest_logins`, `public.ai_usage` | | Worker only (through `svc`) |
-| `private.settings` | `root_profile` = the slug whose files sat at the repo root | written by the migration, not the SQL |
+| `private.settings` | `root_profile` = the slug whose files sat at the repo root; `admin_profile` = the admin's slug | written by the migration, not the SQL |
 | `private.guard_terms` | (term, house it is hidden from) | the name guard |
-| `private.pending_links` | invite email to profile | |
+| `private.pending_links` | invite email (lowercase) to profile | when an invite creates the auth user, the `link_pending` trigger on `auth.users` sets `profiles.user_id`, and adds `admins` for `admin_profile` |
 
 **Path to row** (`private.doc_scope`, mirrored by `app/lib/doc-scope.js`):
 
@@ -2418,3 +2418,17 @@ write to them is refused (P0403) and a read finds nothing. Writing
 `profiles.json` may change display fields only: the caller's own row, or any
 visible row for the admin. New rows, house moves, families and admin flags are
 refused (P0403).
+
+**Migration** (`tools/migrate-to-supabase.mjs`, G1). Reads a local mise-data
+snapshot and `people.local.json` (shape in the tool's header) and writes one
+transaction that is rolled back unless every verify check passes. Not
+migrated: `meta.json`, `invites.json`, `guests.json`, root `fitness/*` and
+`health/*`, `profiles/<p>/fitness/{workouts,activities}.json`,
+`profiles/<p>/health/*`, non-JSON files, and own recipes identical to the bank
+copy of the same id (the shadow duplicates). Root `prices.json` and `pins.json`
+are copied to each house that has no file of its own. Passkey hashes are not
+imported. Gates, each refusing before any write: every file classified, the
+admin flag in profiles.json equal to people.local.json's admin, no guarded
+term or listed person name in any bank or staging recipe (the scrub), no
+guarded term in a file or plate a hidden-from house can read, and the freeze
+marker (`freeze.json`) on `--final`.

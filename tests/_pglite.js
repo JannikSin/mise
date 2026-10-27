@@ -1,68 +1,23 @@
 // Test-only PGlite harness for the Mise 2.0 database (plan section 8, the
 // PGlite go/no-go). Not a test file itself: `node --test tests/*.test.js`
-// matches only *.test.js.
-//
-// It stands in for a fresh Supabase project: the three API roles, an `auth`
-// schema with `auth.users` and `auth.uid()` read from the request claim, and
-// Supabase's GENEROUS default grants on the public schema, so a revoke the
-// migrations forget shows up here as a leak instead of passing by accident.
-// Then it applies every file in supabase/migrations/ in name order.
+// matches only *.test.js. The Supabase stand-in lives in
+// tools/pglite-standin.mjs, shared with the migration's local dry run.
 //
 // PGlite is a dev dependency. When it is missing, `PGLITE` is false and every
 // suite that needs it skips cleanly.
-import { readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { loadPglite, openStandin, migrationFiles } from "../tools/pglite-standin.mjs";
 
-/** @type {any} */
-let PGliteCtor = null;
-try {
-  PGliteCtor = (await import("@electric-sql/pglite")).PGlite;
-} catch {
-  PGliteCtor = null;
-}
-
-export const PGLITE = PGliteCtor !== null;
+export { migrationFiles };
+export const PGLITE = (await loadPglite()) !== null;
 export const SKIP = PGLITE ? false : "@electric-sql/pglite is not installed";
-
-const MIGRATIONS = fileURLToPath(new URL("../supabase/migrations/", import.meta.url));
-
-/** The migration files, in apply order. */
-export function migrationFiles() {
-  return readdirSync(MIGRATIONS)
-    .filter((f) => f.endsWith(".sql"))
-    .sort()
-    .map((f) => ({ name: f, sql: readFileSync(MIGRATIONS + f, "utf8") }));
-}
-
-const SUPABASE_STANDIN = `
-create role anon nologin;
-create role authenticated nologin;
-create role service_role nologin bypassrls;
-grant usage on schema public to anon, authenticated, service_role;
-alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
-alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
-create schema auth;
-grant usage on schema auth to anon, authenticated, service_role;
-create table auth.users (id uuid primary key default gen_random_uuid(), email text unique);
-create function auth.uid() returns uuid language sql stable as
-$$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
-grant execute on function auth.uid() to anon, authenticated, service_role;
-`;
 
 /**
  * A fresh database with the stand-in and every migration applied.
- * @param {{ upTo?: string }} [opts] apply only files whose name sorts at or before this
+ * @param {{ upTo?: string }} [opts]
  * @returns {Promise<any>} a PGlite instance
  */
-export async function freshDb(opts = {}) {
-  if (!PGliteCtor) throw new Error("PGlite missing");
-  const db = new PGliteCtor();
-  await db.exec(SUPABASE_STANDIN);
-  for (const m of migrationFiles()) {
-    if (opts.upTo && m.name > opts.upTo) break;
-    await db.exec(m.sql);
-  }
-  return db;
+export function freshDb(opts = {}) {
+  return openStandin(opts);
 }
 
 /**
