@@ -15,6 +15,7 @@ import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
 import { syncScopeFor, verifiedKey, ADMIN_DEVICE_KEY, keyOf, isAdmin } from "./privacy.js";
 import { stricterTargets } from "./stricter-targets.js";
 import { holdWrite, FREEZE_PATH } from "./freeze.js";
+import { specialTarget } from "./house-special.js";
 
 const io = {
   /** @param {string} path */
@@ -1137,6 +1138,12 @@ async function flush() {
     const here = stampHere();
     const started = epoch;
     status.mismatched = 0;
+    // a 1.95 AI special still queued for the bank goes to its house instead
+    // (seam fix 12, ENG F7): on Supabase the bank is the admin's
+    for (let i = 0; i < queued.length; i++) {
+      const moved = await rehomeLegacySpecial(/** @type {any} */ (queued[i]), here);
+      if (moved) queued[i] = moved;
+    }
     // THE MOVE FREEZE (seam fix 13): while the kitchen's store is frozen for
     // the migration, every queued change waits on the phone, except the
     // freeze file itself (UNFREEZE must land). Read from the store the
@@ -1348,6 +1355,39 @@ export async function discardRefused(path) {
   fileCheckedAt.delete(path);
   await recount();
   return true;
+}
+
+const LEGACY_SPECIAL = /^recipes\/(special-[a-z0-9-]+)\.json$/;
+
+/**
+ * A queued 1.95 AI special (`recipes/special-<name>-<date>.json`) replaying
+ * on Supabase is moved to the signed-in person's house, under an opaque id,
+ * before it is pushed (seam fix 12, ENG F7). The old id rides along as
+ * `legacyId`, so the plan entry that names it still resolves (house-recipes.js).
+ * Anything else, or no home house: null, and the record replays as it is.
+ * @param {import("./db.js").FileRecord} rec
+ * @param {string | null} here
+ * @returns {Promise<import("./db.js").FileRecord | null>}
+ */
+async function rehomeLegacySpecial(rec, here) {
+  const b = backend();
+  if (b.name !== "supabase" || !rec.dirty || rec.branch === here) return null;
+  if (!replaysHere(rec.branch, here)) return null;
+  const m = LEGACY_SPECIAL.exec(rec.path);
+  const home = b.session()?.home;
+  if (!m || !home) return null;
+  const legacyId = String(m[1]);
+  const t = specialTarget("supabase", home, legacyId);
+  const moved = {
+    ...rec,
+    path: t.path,
+    data: { ...rec.data, id: t.id, legacyId },
+    base: null,
+    sha: null,
+  };
+  await dbUpdate(t.path, () => moved);
+  await dbDelete(rec.path);
+  return moved;
 }
 
 /** @returns {string | null} the account this phone's cache last belonged to */

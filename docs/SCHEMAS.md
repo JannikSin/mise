@@ -735,6 +735,10 @@ table whose `house-` id resolves in none of my houses shows "a house dish",
 carries no macros and fails every allergy screen ("the dish could not be
 found"). PROMOTE writes `recipes/<id>.json` and is the admin's. On GitHub (1.95)
 specials stay `recipes/special-<name>-<date>.json` and no house dir is read.
+A 1.95 special still queued for the bank when the phone moves to Supabase is
+written to the person's home house on replay, under a new opaque id, with
+`legacyId` set to its old `special-...` id; the pool lists it under that old id,
+so the plan entry that names it still resolves.
 
 ## Pantry — `households/<household>/pantry.json` (B2, 2026-07-21)
 

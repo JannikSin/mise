@@ -70,7 +70,9 @@ export function wholeHouseRecipe(r) {
 /**
  * The bank plus my houses' recipes. A bank row wins over a house row with the
  * same id (a promoted special is the admin's bank copy). House rows are kept
- * only when they carry an opaque id and are whole.
+ * only when they carry an opaque id and are whole. A 1.95 special that was
+ * moved to its house on replay (store.js rehomeLegacySpecial) is listed under
+ * its old `legacyId`, the id its plan entry names.
  * @param {Record<string, any>[]} bank
  * @param {Record<string, any>[][]} houseLists one list per house directory
  * @returns {Record<string, any>[]}
@@ -81,9 +83,11 @@ export function withHouseRecipes(bank, houseLists) {
   for (const list of houseLists) {
     for (const r of list) {
       if (!wholeHouseRecipe(r)) continue;
-      if (seen.has(r.id)) continue;
-      seen.add(r.id);
-      out.push(r);
+      const legacy = typeof r.legacyId === "string" && /^special-[a-z0-9-]+$/.test(r.legacyId);
+      const shown = legacy ? { ...r, id: r.legacyId } : r;
+      if (seen.has(shown.id)) continue;
+      seen.add(shown.id);
+      out.push(shown);
     }
   }
   return out.length === bank.length ? bank : out;
