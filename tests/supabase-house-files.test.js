@@ -24,9 +24,9 @@ test("prices.json and pins.json read and write the home house's files", async ()
   });
   const a = createSupabaseAdapter({ client: sb.client, session: () => ME });
   const got = await a.read("prices.json");
-  assert.deepEqual(got, { data: { items: { rice: 1.5 } }, sha: "pg:3" });
-  assert.equal((await a.write("prices.json", { items: {} }, got?.sha)).sha, "pg:4");
-  assert.equal((await a.write("pins.json", { pins: [] }, null)).sha, "pg:1");
+  assert.deepEqual(got, { data: { items: { rice: 1.5 } }, sha: "pg:3@house-a" }); // tied to the house (fix loop 1, ENG F5)
+  assert.equal((await a.write("prices.json", { items: {} }, got?.sha)).sha, "pg:4@house-a");
+  assert.equal((await a.write("pins.json", { pins: [] }, null)).sha, "pg:1@house-a");
   assert.ok(sb.docs.has("households/house-a/pins.json"));
   assert.equal(sb.docs.has("pins.json"), false);
 });

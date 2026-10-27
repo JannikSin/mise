@@ -194,6 +194,13 @@ export function createSupabaseAdapter({
   };
 
   /**
+   * A home-house file's sha, tied to the asker's home house (ENG F5):
+   * `pg:N@<home>`, so a change of house is a change of sha.
+   * @param {string} sha
+   */
+  const houseSha = (sha) => `${sha}@${asker().home}`;
+
+  /**
    * The rev write_doc should expect for a write carrying `sha`.
    * @param {string} path
    * @param {string | null | undefined} sha
@@ -201,6 +208,15 @@ export function createSupabaseAdapter({
    */
   const expectedRev = async (path, sha) => {
     if (!sha) return null;
+    // a home-house file's sha names its house (ENG F5): one cached or queued
+    // under another house is a create, which conflicts and merges, never an
+    // edit of this house's row that happens to sit at the same rev
+    const house = /^households\/([^/]+)\/(?:prices|pins)\.json$/.exec(path);
+    if (house) {
+      const tied = /^(.*)@([^@]+)$/.exec(sha);
+      if (!tied || tied[2] !== house[1]) return null;
+      sha = String(tied[1]);
+    }
     const pg = /^pg:(\d+)$/.exec(sha);
     if (pg) return Number(pg[1]);
     const row = await legacyOf(path);
@@ -226,6 +242,10 @@ export function createSupabaseAdapter({
   async function read(phonePath) {
     const path = serverPath(phonePath);
     if (path === null) return null;
+    if (HOUSE_FILES.test(phonePath)) {
+      const row = await docRow(path);
+      return row ? { data: row.data, sha: houseSha(shaOf(row)) } : null;
+    }
     const c = classifyPath(path);
     if (c.kind === "bank") {
       const row = await bankRow(c.id, path);
@@ -270,7 +290,8 @@ export function createSupabaseAdapter({
       if (typeof rev !== "number" && typeof rev !== "string") {
         throw new Error(`supabase ${path}: write_doc returned no rev`);
       }
-      return { sha: `pg:${Number(rev)}` };
+      const next = `pg:${Number(rev)}`;
+      return { sha: HOUSE_FILES.test(phonePath) ? houseSha(next) : next };
     },
     async list(dir) {
       const bank = /^(recipes|recipes-staging)$/.exec(dir);
