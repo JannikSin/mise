@@ -5,7 +5,7 @@
 // apostrophe, a diaeresis, mixed scripts), not anyone in the app.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,6 +17,7 @@ import { PEOPLE, writeSnapshot } from "./_snapshot.js";
 import { planMigration, runMigration, GateError } from "../tools/migrate-to-supabase.mjs";
 import { fold, guardHits, termWords, TermError } from "../tools/name-guard.mjs";
 import { takeSnapshot, SNAPSHOT_TABLES } from "../tools/db-snapshot.mjs";
+import { restoreSql, verifySnapshot } from "../tools/restore-backup.mjs";
 
 // ---- item 1 (C1, N1): a term folds exactly as the text does
 
@@ -313,5 +314,77 @@ test("N5: the preflight prints the per-term counts, and on a stop prints them wi
   assert.match(stop.stderr, /REFUSED term-load/);
   assert.match(stop.stderr, /guardTerms\[2\]: 2 of 20 bank recipe\(s\)/);
   assert.doesNotMatch(stop.stdout + stop.stderr, /bean|filler/i);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// ---- item 6 (N7): restore verifies the snapshot before applying it
+
+/** A migrated stand-in where the admin and mate-1 have signed in; its snapshot. */
+async function signedInSnapshot() {
+  const db = await freshDb();
+  await runMigration(db, planMigration(writeSnapshot(), PEOPLE));
+  await db.exec("insert into auth.users (email, email_confirmed_at) values ('owner-1@example.invalid', now()), ('mate-1@example.invalid', now())");
+  const snap = await takeSnapshot(db);
+  return { db, snap };
+}
+
+test("N7 probe R: a snapshot that makes another person admin, or empties a plate's allergens, is refused before any SQL", { skip: SKIP }, async () => {
+  const { db, snap } = await signedInSnapshot();
+  const pid = Object.fromEntries(snap.tables["public.profiles"].map((/** @type {any} */ p) => [p.slug, p]));
+  assert.deepEqual(verifySnapshot(snap, ["owner-1"]), [], "the real snapshot verifies");
+  assert.ok(restoreSql(snap, { admins: ["owner-1"], wipe: true }).includes("begin;"));
+  // an extra admins row for mate-1
+  const t1 = structuredClone(snap);
+  t1.tables["public.admins"].push({ user_id: pid["mate-1"].user_id });
+  // a plate with its allergens emptied while the canonical row keeps them
+  const t2 = structuredClone(snap);
+  const kp = t2.tables["public.plates"].find((/** @type {any} */ p) => p.profile_id === pid["kin-1"].id);
+  kp.data = { ...kp.data, allergens: [] };
+  // the admin_profile setting moved to mate-1
+  const t3 = structuredClone(snap);
+  t3.tables["private.settings"].find((/** @type {any} */ r) => r.key === "admin_profile").value = "mate-1";
+  // the admin's own row removed (a pinned admin with an account is not an admin)
+  const t4 = structuredClone(snap);
+  t4.tables["public.admins"] = [];
+  // a plate with no targets row behind it
+  const t5 = structuredClone(snap);
+  t5.tables["public.docs"] = t5.tables["public.docs"].filter((/** @type {any} */ d) => !(d.kind === "targets" && d.profile_id === pid["kin-1"].id));
+  for (const [name, bad, why] of /** @type {[string, any, RegExp][]} */ ([
+    ["extra admin", t1, /admins row/],
+    ["plate allergens emptied", t2, /plateOf/],
+    ["admin_profile moved", t3, /admin_profile/],
+    ["admin row removed", t4, /pinned admin/],
+    ["plate without targets", t5, /plateOf/],
+  ])) {
+    assert.throws(() => restoreSql(bad, { admins: ["owner-1"], wipe: true }), (e) => /^mise_restore_verify/.test(String(/** @type {Error} */ (e).message)) && why.test(String(/** @type {Error} */ (e).message)), name);
+    for (const p of verifySnapshot(bad, ["owner-1"])) assert.doesNotMatch(p, /owner-1|mate-1|kin-1/, "counts only");
+  }
+  // no pinned list, or an empty one, refuses too
+  assert.throws(() => restoreSql(snap, /** @type {any} */ ({ wipe: true })), /pinned admin list is required/);
+  assert.throws(() => restoreSql(snap, { admins: [] }), /mise_restore_verify/);
+  assert.throws(() => restoreSql(snap, { admins: ["mate-1"] }), /mise_restore_verify/, "pinning the wrong admin refuses");
+  // and the database is untouched: mate-1 is not an admin
+  assert.equal((await db.query("select count(*)::int n from public.admins")).rows[0].n, 1);
+  await db.close();
+});
+
+test("N7: the restore CLI needs --admins and refuses a tampered snapshot, naming no one", { skip: SKIP }, async () => {
+  const { db, snap } = await signedInSnapshot();
+  await db.close();
+  const tool = fileURLToPath(new URL("../tools/restore-backup.mjs", import.meta.url));
+  const dir = mkdtempSync(path.join(tmpdir(), "mise-n7-"));
+  const f = path.join(dir, "snapshot.json");
+  const t = structuredClone(snap);
+  const mate = t.tables["public.profiles"].find((/** @type {any} */ p) => p.slug === "mate-1");
+  t.tables["public.admins"].push({ user_id: mate.user_id });
+  writeFileSync(f, JSON.stringify(t));
+  const none = spawnSync(process.execPath, [tool, "--snapshot", f, "--sql", path.join(dir, "r.sql")], { encoding: "utf8" });
+  assert.equal(none.status, 2);
+  assert.match(none.stderr, /--admins/);
+  const bad = spawnSync(process.execPath, [tool, "--snapshot", f, "--admins", "owner-1", "--sql", path.join(dir, "r.sql"), "--wipe"], { encoding: "utf8" });
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /REFUSED: the snapshot does not verify: 1 admins row/);
+  assert.doesNotMatch(bad.stdout + bad.stderr, /mate-1|example\.invalid/);
+  assert.equal(existsSync(path.join(dir, "r.sql")), false, "no script written");
   rmSync(dir, { recursive: true, force: true });
 });

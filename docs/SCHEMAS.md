@@ -2520,6 +2520,13 @@ workflow's own inline script, never public code. The plaintext exists only
 under `/dev/shm/mise-backup` (the run refuses when that is not tmpfs), is
 shredded right after the encrypt, and an `always()` step shreds any left by a
 failed step. `mise-keepalive.yml` reads each project twice a day. `tools/restore-backup.mjs`
+first verifies the snapshot itself (fix loop 2, N7: age encrypts to a public
+key, so anyone can make a valid file): every `admins` row must be a profile in
+the pinned list given as `--admins <slug>[,<slug>]`, every pinned admin with
+an account must be an admin, `admin_profile` must be pinned, and every plate
+must equal `plateOf` of its canonical targets row (the mirror when there is
+none), one plate per person with targets; anything else refuses before a
+script is written. It then
 turns a snapshot into one transaction that checks the target's columns,
 refuses a non-empty target without `--wipe`, inserts with triggers off (revs,
 doc ids and shas exact), clears account links the target lacks (they relink on

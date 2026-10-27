@@ -5,9 +5,9 @@
 // drill runs on the sandbox (steps below), and here against PGlite.
 //
 //   age -d -i <your age key file> mise-YYYY-MM-DD.json.age > snapshot.json
-//   node tools/restore-backup.mjs --snapshot snapshot.json                    (dry run: counts)
-//   node tools/restore-backup.mjs --snapshot snapshot.json --drill            (restore into a local PGlite and verify, no network)
-//   node tools/restore-backup.mjs --snapshot snapshot.json --sql restore.sql [--wipe]
+//   node tools/restore-backup.mjs --snapshot snapshot.json --admins <slug>                (dry run: counts, verify)
+//   node tools/restore-backup.mjs --snapshot snapshot.json --admins <slug> --drill        (restore into a local PGlite and verify, no network)
+//   node tools/restore-backup.mjs --snapshot snapshot.json --admins <slug> --sql restore.sql [--wipe]
 //   psql "<the project's postgres connection string>" -X -v ON_ERROR_STOP=1 -f restore.sql
 //
 // The script is ONE transaction. It refuses, before changing anything, when
@@ -24,8 +24,8 @@
 // SANDBOX DRILL (Mon 11/2 or later, once the sandbox exists; David at the laptop):
 //   1. Take a snapshot of the sandbox: psql "<sandbox postgres URL>" -X -q -At
 //      -v ON_ERROR_STOP=1 -f <(node tools/db-snapshot.mjs sql) > before.json
-//   2. node tools/restore-backup.mjs --snapshot before.json --drill   (local check first)
-//   3. node tools/restore-backup.mjs --snapshot before.json --sql restore.sql --wipe
+//   2. node tools/restore-backup.mjs --snapshot before.json --admins <admin slug> --drill   (local check first)
+//   3. node tools/restore-backup.mjs --snapshot before.json --admins <admin slug> --sql restore.sql --wipe
 //   4. psql "<sandbox postgres URL>" -X -v ON_ERROR_STOP=1 -f restore.sql
 //   5. Take a second snapshot (after.json, as in 1), then
 //      node tools/restore-backup.mjs --snapshot before.json --compare after.json
@@ -38,6 +38,15 @@
 // there step 5 names profiles.user_id and admins as the only differences
 // until people sign in again.
 //
+// Before any script is written (fix loop 2, N7), the snapshot itself is
+// checked, because age encrypts to a PUBLIC key and anyone can make a valid
+// encrypted file: every `admins` row must belong to a profile named in the
+// pinned admin list given on the command line (--admins <slug>[,<slug>]),
+// every pinned admin who has an account in the snapshot must be an admin, the
+// `admin_profile` setting must be a pinned admin, and every plate must equal
+// plateOf(the person's canonical targets row, or the mirror when there is
+// none), with one plate per person who has targets. Anything else refuses.
+//
 // Output is counts only.
 import { readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -45,6 +54,8 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { SNAPSHOT_TABLES, parseSnapshot, summarize, takeSnapshot } from "./db-snapshot.mjs";
+import { contentHash } from "./migrate-to-supabase.mjs";
+import { plateOf } from "../app/lib/plate-of.js";
 
 /** @param {string} s @param {string} tag */
 const dollar = (s, tag) => {
@@ -55,12 +66,51 @@ const dollar = (s, tag) => {
 const lit = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
 /**
- * The restore script for a snapshot.
+ * Check a snapshot before restoring it (fix loop 2, N7). Returns the
+ * problems, counts only (never a slug or a row); empty when it may be restored.
  * @param {import("./db-snapshot.mjs").Snapshot} snap
- * @param {{ wipe?: boolean, tag?: string }} [opts]
+ * @param {string[]} admins the pinned admin slugs
+ * @returns {string[]}
+ */
+export function verifySnapshot(snap, admins) {
+  const t = snap.tables;
+  const pinned = new Set(admins.map(String));
+  /** @type {string[]} */
+  const out = [];
+  if (!pinned.size) out.push("the pinned admin list is empty");
+  const profiles = t["public.profiles"] ?? [];
+  const slugOfUser = new Map(profiles.filter((p) => p.user_id).map((p) => [p.user_id, p.slug]));
+  const adminSlugs = (t["public.admins"] ?? []).map((a) => slugOfUser.get(a.user_id) ?? null);
+  const notPinned = adminSlugs.filter((s) => s === null || !pinned.has(s)).length;
+  if (notPinned) out.push(`${notPinned} admins row(s) are not a pinned admin`);
+  const missing = profiles.filter((p) => pinned.has(p.slug) && p.user_id && !adminSlugs.includes(p.slug)).length;
+  if (missing) out.push(`${missing} pinned admin(s) with an account are not an admin in the snapshot`);
+  const setting = (t["private.settings"] ?? []).find((r) => r.key === "admin_profile")?.value;
+  if (!pinned.has(setting)) out.push("the admin_profile setting is not a pinned admin");
+  const targets = (t["public.docs"] ?? []).filter((d) => d.kind === "targets" && d.profile_id);
+  const plates = t["public.plates"] ?? [];
+  const bad = plates.filter((p) => {
+    const mine = targets.filter((d) => d.profile_id === p.profile_id);
+    const src = mine.find((d) => String(d.path).endsWith("profile/targets.json")) ?? mine[0];
+    return !src || contentHash(p.data) !== contentHash(plateOf(src.data));
+  }).length;
+  if (bad) out.push(`${bad} plate(s) are not plateOf the canonical targets row`);
+  const noPlate = [...new Set(targets.map((d) => d.profile_id))].filter((id) => !plates.some((p) => p.profile_id === id)).length;
+  if (noPlate) out.push(`${noPlate} person(s) with targets have no plate`);
+  return out;
+}
+
+/**
+ * The restore script for a snapshot. Refuses a snapshot verifySnapshot finds
+ * a problem in.
+ * @param {import("./db-snapshot.mjs").Snapshot} snap
+ * @param {{ admins: string[], wipe?: boolean, tag?: string }} opts
  * @returns {string}
  */
-export function restoreSql(snap, opts = {}) {
+export function restoreSql(snap, opts) {
+  if (!Array.isArray(opts?.admins)) throw new Error("mise_restore_verify: the pinned admin list is required (--admins <slug>[,<slug>])");
+  const problems = verifySnapshot(snap, opts.admins);
+  if (problems.length) throw new Error(`mise_restore_verify: ${problems.join("; ")}`);
   const tag = opts.tag ?? `$mise_${randomBytes(6).toString("hex")}$`;
   const tables = SNAPSHOT_TABLES.map(([t]) => t);
   const out = [];
@@ -123,12 +173,14 @@ export function compareSnapshots(a, b) {
  * profiles and admins when the snapshot had linked accounts: the stand-in has
  * no auth users).
  * @param {import("./db-snapshot.mjs").Snapshot} snap
+ * @param {string[]} admins the pinned admin slugs
  */
-export async function drill(snap) {
+export async function drill(snap, admins) {
+  const sql = restoreSql(snap, { admins });
   const { openStandin } = await import("./pglite-standin.mjs");
   const db = await openStandin();
   try {
-    await db.exec(restoreSql(snap));
+    await db.exec(sql);
     const back = await takeSnapshot(db);
     return compareSnapshots(snap, back);
   } finally {
@@ -155,7 +207,7 @@ function parseArgs(argv) {
 async function main() {
   const a = parseArgs(process.argv.slice(2));
   if (typeof a.snapshot !== "string") {
-    console.log("usage: node tools/restore-backup.mjs --snapshot <snapshot.json> [--drill | --sql <out.sql> [--wipe] | --compare <other.json>]");
+    console.log("usage: node tools/restore-backup.mjs --snapshot <snapshot.json> --admins <slug>[,<slug>] [--drill | --sql <out.sql> [--wipe] | --compare <other.json>]");
     process.exit(2);
   }
   const snap = parseSnapshot(readFileSync(a.snapshot, "utf8"));
@@ -166,15 +218,26 @@ async function main() {
     return;
   }
   for (const [t, n] of Object.entries(summarize(snap))) console.log(`${t} ${n}`);
+  if (typeof a.admins !== "string") {
+    console.error("REFUSED: give the pinned admin list, --admins <slug>[,<slug>]");
+    process.exit(2);
+  }
+  const admins = a.admins.split(",").map((x) => x.trim()).filter(Boolean);
+  const problems = verifySnapshot(snap, admins);
+  if (problems.length) {
+    console.error(`REFUSED: the snapshot does not verify: ${problems.join("; ")}`);
+    process.exit(1);
+  }
+  console.log("snapshot verified: admins match the pinned list, every plate is plateOf its canonical targets");
   if (a.drill) {
-    const diff = await drill(snap);
+    const diff = await drill(snap, admins);
     const linked = diff.every((t) => t === "public.profiles" || t === "public.admins");
     console.log(diff.length === 0 ? "drill ok: restored and identical" : linked ? `drill ok: identical except ${diff.join(", ")} (no accounts in the local stand-in)` : `DRILL FAILED: ${diff.join(", ")}`);
     if (!linked) process.exit(1);
     return;
   }
   if (typeof a.sql === "string") {
-    writeFileSync(a.sql, restoreSql(snap, { wipe: a.wipe === true }), { mode: 0o600 });
+    writeFileSync(a.sql, restoreSql(snap, { admins, wipe: a.wipe === true }), { mode: 0o600 });
     console.log(`wrote the restore script${a.wipe ? " (it WIPES the target first)" : ""}; run it with psql, then delete it`);
     return;
   }
