@@ -9,6 +9,8 @@
  *   nameGuard?: (path: string, data: any) => boolean,
  *   isAdmin?: () => boolean,
  *   failWith?: (op: string, path: string) => { code?: string, message?: string, status?: number } | null,
+ *   plateOf?: (targets: any) => any,
+ *   rootSlug?: string,
  * }} [hooks]
  */
 export function fakeSupabase(hooks = {}) {
@@ -27,6 +29,26 @@ export function fakeSupabase(hooks = {}) {
   const nameGuard = hooks.nameGuard ?? (() => false);
   const isAdmin = hooks.isAdmin ?? (() => true);
   const failWith = hooks.failWith ?? (() => null);
+
+  // targets_after, in miniature: a targets write refreshes the owner's plate,
+  // and an unchanged projection leaves the plate (and its rev) alone
+  /** @param {string} path @param {any} data */
+  const refreshPlate = (path, data) => {
+    if (!hooks.plateOf) return;
+    const m = /^profiles\/([a-z0-9-]+)\/(?:profile|fitness)\/targets\.json$/.exec(path);
+    const owner = m ? m[1] : path === "profile/targets.json" ? hooks.rootSlug : undefined;
+    if (!owner) return;
+    const v = hooks.plateOf(data);
+    const cur = plates.get(owner);
+    const hash = JSON.stringify(v);
+    if (cur && JSON.stringify(cur.data) === hash) return;
+    plates.set(owner, {
+      data: v,
+      rev: cur ? cur.rev + 1 : 1,
+      content_hash: `h${hash.length}-${[...hash].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7)}`,
+      legacy_sha: cur?.legacy_sha ?? null,
+    });
+  };
 
   /** @param {string} pattern */
   const likeToRegex = (pattern) => {
@@ -124,10 +146,12 @@ export function fakeSupabase(hooks = {}) {
     if (expected == null) {
       if (cur) return conflict;
       docs.set(path, { path, data, rev: 1, legacy_sha: null });
+      refreshPlate(path, data);
       return { data: 1, error: null };
     }
     if (!cur || cur.rev !== expected) return conflict;
     docs.set(path, { ...cur, data, rev: cur.rev + 1 });
+    refreshPlate(path, data);
     return { data: cur.rev + 1, error: null };
   }
 

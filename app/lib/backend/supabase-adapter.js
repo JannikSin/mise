@@ -37,6 +37,11 @@ import { ROOT_PROFILE } from "./config.js";
  * @typedef {{ data: Record<string, unknown>, rev: number, content_hash: string, legacy_sha?: string | null }} PlateRow
  */
 
+// prices and pins are one per house now: the caller's home house (C2)
+const HOUSE_FILES = /^(prices|pins)\.json$/;
+// guest logins and invite codes are the Worker's alone; meta.json was a
+// GitHub write test and is not migrated (plan section 6, step 4)
+const SERVER_ONLY = /^(guests|invites|meta)\.json$/;
 const BANK = /^(recipes|recipes-staging)\/([a-z0-9][a-z0-9-]*)\.json$/;
 const OWN_TARGETS = /^profiles\/([a-z0-9][a-z0-9-]*)\/(?:profile|fitness)\/targets\.json$/;
 
@@ -188,8 +193,25 @@ export function createSupabaseAdapter({
     return row?.legacy_sha && row.legacy_sha === sha ? 1 : null;
   };
 
-  /** @param {string} path */
-  async function read(path) {
+  /**
+   * Where a phone path is stored on the server, or null for a file this
+   * phone never reads or writes on Supabase.
+   * @param {string} path
+   * @returns {string | null}
+   */
+  const serverPath = (path) => {
+    if (SERVER_ONLY.test(path)) return null;
+    if (HOUSE_FILES.test(path)) {
+      const home = asker().home;
+      return home ? `households/${home}/${path}` : null;
+    }
+    return path;
+  };
+
+  /** @param {string} phonePath */
+  async function read(phonePath) {
+    const path = serverPath(phonePath);
+    if (path === null) return null;
     const c = classifyPath(path);
     if (c.kind === "bank") {
       const row = await bankRow(c.id, path);
@@ -211,13 +233,22 @@ export function createSupabaseAdapter({
       }
     }
     const row = await docRow(path);
-    return row ? { data: row.data, sha: shaOf(row) } : null;
+    if (!row) return null;
+    if (c.kind === "targets") {
+      // the owner's own fingerprint is the plate's too (ENG L2-3), so every
+      // device that froze a pot on these targets compares the same value
+      const plate = await plateRow(c.owner, path);
+      return { data: row.data, sha: shaOf(row), fingerprint: plate ? plateShaOf(plate) : null };
+    }
+    return { data: row.data, sha: shaOf(row) };
   }
 
   return {
     name: "supabase",
     read,
-    async write(path, data, sha) {
+    async write(phonePath, data, sha) {
+      const path = serverPath(phonePath);
+      if (path === null) throw new ForbiddenError(phonePath);
       const expected = await expectedRev(path, sha);
       const rev = await run(
         client.rpc("write_doc", { p_path: path, p_data: data, p_expected_rev: expected }),

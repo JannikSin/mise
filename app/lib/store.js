@@ -411,7 +411,7 @@ export function initStore() {
   setInterval(() => {
     if (status.pending > 0 && !status.flushing) void flush();
   }, 60_000);
-  void recount();
+  void purgeForeignRecords().then(() => recount());
   void flush();
 }
 
@@ -639,7 +639,8 @@ export async function readMeta(path, opts) {
   const rec = await dbGet(finalPath);
   void revalidate(finalPath);
   if (!rec) return { data: null, sha: null, dirty: false };
-  return { data: rec.data, sha: rec.sha ?? null, dirty: Boolean(rec.dirty) };
+  // a targets file on Supabase fingerprints by its plate (2.0, ENG L2-3)
+  return { data: rec.data, sha: rec.fingerprint ?? rec.sha ?? null, dirty: Boolean(rec.dirty) };
 }
 
 // ONE FETCH PER FILE, AND A MISSING FILE IS REMEMBERED (Mise 2.0, A-02 /
@@ -682,8 +683,8 @@ async function revalidateFile(scopedPath) {
     const remote = await backend().read(scopedPath);
     fileCheckedAt.set(scopedPath, { at: Date.now(), missing: !remote });
     if (!remote) return;
-    if (rec && remote.sha === rec.sha) return;
-    await cacheRemote(scopedPath, remote.data, remote.sha);
+    if (rec && remote.sha === rec.sha && rec.fingerprint === remote.fingerprint) return;
+    await cacheRemote(scopedPath, remote.data, remote.sha, remote.fingerprint);
     emit();
   } catch {
     // offline, no token or rate-limited: the cache already served the read,
@@ -704,9 +705,11 @@ export function resetFileChecks() {
  * @param {string} path
  * @param {Record<string, unknown>} data
  * @param {string} sha
+ * @param {string | null} [fingerprint] the plate's sha for a targets file on
+ *   Supabase (2.0, ENG L2-3); never set on GitHub, so 1.95 records keep their shape
  * @returns {Promise<void>}
  */
-function cacheRemote(path, data, sha) {
+function cacheRemote(path, data, sha, fingerprint) {
   // a fetch that started before the scope was set never lands (2.0, A-03)
   if (!inSyncScope(path)) return Promise.resolve();
   return dbUpdate(path, (cur) =>
@@ -721,6 +724,7 @@ function cacheRemote(path, data, sha) {
           queuedAt: null,
           rev: cur?.rev ?? 0,
           branch: stampHere(),
+          ...(fingerprint !== undefined ? { fingerprint } : {}),
         },
   );
 }
@@ -999,7 +1003,14 @@ async function flush() {
       .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
     const here = stampHere();
     status.mismatched = 0;
+    // a failure stops its LANE, not the pass (2.0 composite: a GitHub outage
+    // must not hold back the Supabase queue); with one lane this is the
+    // 1.95 stop-on-first-error exactly
+    /** @type {Set<string>} */
+    const stopped = new Set();
     for (const rec of queued) {
+      const lane = backend().laneOf(rec.path);
+      if (stopped.has(lane)) continue;
       // BRANCH GUARD (release train). A record with no stamp predates the
       // train: it was written on this install, so it belongs to this install's
       // branch, and is stamped on the way past (a read-time heal, never a
@@ -1030,7 +1041,7 @@ async function flush() {
         // dirty; only base/sha advance (afterPushRecord decides)
         await dbUpdate(rec.path, (cur) => afterPushRecord(cur ?? rec, pushed, rec.rev));
         status.lastSyncAt = new Date().toISOString();
-        status.lastError = null;
+        if (stopped.size === 0) status.lastError = null;
       } catch (e) {
         if (e instanceof ConflictError) {
           status.conflicts++;
@@ -1049,7 +1060,7 @@ async function flush() {
         // is the one instruction that can never work, so it gets its own line.
         const msg = e instanceof Error ? e.message : String(e);
         status.lastError = writeErrorMessage(msg);
-        break;
+        stopped.add(lane);
       }
     }
   } finally {
@@ -1077,4 +1088,48 @@ export async function discardMismatched() {
   status.mismatched = 0;
   await recount();
   return n;
+}
+
+/**
+ * FIRST BOOT ON SUPABASE (2.0, plan section 5): every clean record not
+ * stamped with this install's project is a GitHub-era copy, and goes. Queued
+ * (dirty) records stay, to replay or be discarded on the person's word.
+ * Idempotent, so it runs on every boot; on GitHub it does nothing.
+ * @returns {Promise<number>} records removed
+ */
+export async function purgeForeignRecords() {
+  if (backend().name !== "supabase") return 0;
+  const here = stampHere();
+  let removed = 0;
+  try {
+    for (const rec of await dbGetAll()) {
+      if (rec.dirty || rec.branch === here) continue;
+      await dbDeleteIfClean(rec.path);
+      fileCheckedAt.delete(rec.path);
+      removed++;
+    }
+  } catch {
+    // storage unavailable: nothing cached to leak either
+  }
+  if (removed > 0) emit();
+  return removed;
+}
+
+/**
+ * THE ACCOUNT WAS REVOKED (2.0, plan section 5): the phone forgets
+ * everything, queued writes included. Called by the sign-in layer when the
+ * server says this account no longer exists or may not read.
+ * @returns {Promise<number>} records removed
+ */
+export async function purgeEverything() {
+  let removed = 0;
+  for (const rec of await dbGetAll()) {
+    await dbDelete(rec.path);
+    removed++;
+  }
+  resetFileChecks();
+  freshDirs.clear();
+  stalledDirs.clear();
+  await recount();
+  return removed;
 }

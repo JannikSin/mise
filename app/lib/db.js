@@ -18,7 +18,7 @@ const DB_VERSION = 1;
  *   dirty: boolean,
  *   queuedAt: number | null,
  *   rev: number
- * , branch?: string | null }} FileRecord
+ * , branch?: string | null, fingerprint?: string | null }} FileRecord
  */
 
 /** @type {Promise<IDBDatabase> | null} */
