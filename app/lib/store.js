@@ -1121,6 +1121,10 @@ export function writeErrorMessage(msg) {
   return "can't reach GitHub right now (auto-retrying)";
 }
 
+/** what Sync says while the freeze cannot be read on the switch morning */
+const FREEZE_UNKNOWN =
+  "couldn't check the move freeze, so changes wait on this phone (auto-retrying)";
+
 /**
  * FLUSH, AND TELL ME THE TRUTH.
  *
@@ -1188,11 +1192,15 @@ async function flush() {
     // freeze file itself (UNFREEZE must land). Read from the store the
     // kitchen is still on; a missing or malformed file never holds anything.
     // Only the switch-morning shell reads it (moveOn, loop 2 item 4): every
-    // other GitHub-lane flush sends exactly the requests 1.95 sent.
+    // other GitHub-lane flush sends exactly the requests 1.95 sent. There a
+    // read that FAILS holds everything too (item 5, fail closed): not
+    // knowing is not the same as not frozen.
     const freeze =
-      backend().name === "github" && moveOn()
-        ? await readNow(FREEZE_PATH, { raw: true }).catch(() => null)
-        : null;
+      backend().name === "github" && moveOn() ? await readFreeze() : { file: null, unknown: false };
+    // (a queued FREEZE or UNFREEZE is read locally, so it is never unknown)
+    const held = (/** @type {string} */ path) => freeze.unknown || holdWrite(freeze.file, path);
+    let heldUnknown = 0;
+    if (!freeze.unknown && status.lastError === FREEZE_UNKNOWN) status.lastError = null;
     // a failure stops its LANE, not the pass (2.0 composite: a GitHub outage
     // must not hold back the Supabase queue); with one lane this is the
     // 1.95 stop-on-first-error exactly
@@ -1204,7 +1212,10 @@ async function flush() {
       // and only ever under its own account's session: the store's memory
       // decides what is held, the live session decides what may be sent
       if (typeof rec.account === "string" && rec.account !== backend().session()?.slug) continue;
-      if (holdWrite(freeze, rec.path)) continue;
+      if (held(rec.path)) {
+        if (freeze.unknown) heldUnknown++;
+        continue;
+      }
       // BRANCH GUARD (release train). A record with no stamp predates the
       // train: it was written on this install, so it belongs to this install's
       // branch, and is stamped on the way past (a read-time heal, never a
@@ -1284,9 +1295,32 @@ async function flush() {
         stopped.add(lane);
       }
     }
+    if (heldUnknown > 0) {
+      status.lastError = FREEZE_UNKNOWN;
+    }
   } finally {
     status.flushing = false;
     await recount();
+  }
+}
+
+/**
+ * The move freeze, as this flush must obey it (seam fix 13, loop 2 items 4
+ * and 5). A local FREEZE or UNFREEZE not yet sent wins on this phone; else
+ * the kitchen's store is asked every pass (no 30 s window, Red Team 2 L3),
+ * and the answer is cached for Settings. A failed ask is `unknown`.
+ * @returns {Promise<{ file: unknown, unknown: boolean }>}
+ */
+async function readFreeze() {
+  const local = await dbGet(FREEZE_PATH);
+  if (local?.dirty) return { file: local.data, unknown: false };
+  try {
+    const started = epoch;
+    const remote = await backend().read(FREEZE_PATH);
+    if (remote) await cacheRemote(FREEZE_PATH, remote.data, remote.sha, undefined, started);
+    return { file: remote?.data ?? null, unknown: false };
+  } catch {
+    return { file: null, unknown: true };
   }
 }
 
