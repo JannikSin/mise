@@ -313,10 +313,19 @@ export function createSupabaseAdapter({
         }));
       }
       const pattern = `${dir.replace(/[\\%_]/g, (m) => `\\${m}`)}/%`;
+      // a directory that can hold someone else's targets is listed WITHOUT
+      // the rows (loop 2 item 10, Red Team 2 L2): the full targets never
+      // cross the wire to a non-owner, even if a policy were wrong. Its
+      // other files are then fetched one by one, and its targets as the plate.
+      const t = classifyPath(`${dir}/targets.json`);
+      const blind = t.kind === "targets" && !mayReadFull(t.owner);
       /** @type {(DocRow & { path: string })[]} */
       const rows =
         (await run(
-          client.from("docs").select("path,data,rev,legacy_sha").like("path", pattern),
+          client
+            .from("docs")
+            .select(blind ? "path,rev,legacy_sha" : "path,data,rev,legacy_sha")
+            .like("path", pattern),
           dir,
         )) ?? [];
       const prefix = `${dir}/`;
@@ -327,7 +336,7 @@ export function createSupabaseAdapter({
           return r.path.startsWith(prefix) && !rest.includes("/") && rest.endsWith(".json");
         })
         .sort((a, b) => a.path.localeCompare(b.path));
-      /** @type {{ name: string, path: string, sha: string, data: Record<string, unknown> }[]} */
+      /** @type {{ name: string, path: string, sha: string, data?: Record<string, unknown> }[]} */
       const out = [];
       for (const r of files) {
         const c = classifyPath(r.path);
@@ -345,7 +354,13 @@ export function createSupabaseAdapter({
           }
           continue;
         }
-        out.push({ name: r.path.slice(prefix.length), path: r.path, sha: shaOf(r), data: r.data });
+        const name = r.path.slice(prefix.length);
+        // listed blind, the store fetches the file itself (backend read)
+        out.push(
+          blind
+            ? { name, path: r.path, sha: shaOf(r) }
+            : { name, path: r.path, sha: shaOf(r), data: r.data },
+        );
       }
       return out;
     },

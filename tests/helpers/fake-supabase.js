@@ -69,19 +69,30 @@ export function fakeSupabase(hooks = {}) {
     const tests = [];
     /** @type {any[]} */
     const filters = [];
+    // the columns asked for: like PostgREST, only those come back
+    /** @type {string[] | null} */
+    let cols = null;
     const rows = () => {
       const all =
         table === "docs" ? [...docs.values()] : table === "recipes" ? [...recipes.values()] : [];
-      return all.filter((r) => tests.every((t) => t(r))).map((r) => structuredClone(r));
+      return all
+        .filter((r) => tests.every((t) => t(r)))
+        .map((r) => structuredClone(r))
+        .map((r) =>
+          cols ? Object.fromEntries(cols.filter((c) => c in r).map((c) => [c, r[c]])) : r,
+        );
     };
     const done = (/** @type {(rows: any[]) => any} */ shape) => {
-      log.push({ op: "select", table, filters });
+      log.push({ op: "select", table, filters, cols });
       const err = failWith("select", String(filters[0]?.[2] ?? table));
       if (err) return Promise.resolve({ data: null, error: err });
       return Promise.resolve({ data: shape(rows()), error: null });
     };
     const q = {
-      select: () => q,
+      select: (/** @type {string | undefined} */ c) => {
+        cols = c && c !== "*" ? c.split(",").map((x) => x.trim()) : null;
+        return q;
+      },
       eq: (/** @type {string} */ col, /** @type {any} */ v) => {
         filters.push(["eq", col, v]);
         tests.push((r) => r[col] === v);
