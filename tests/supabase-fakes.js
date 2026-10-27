@@ -165,3 +165,139 @@ export function workerReq(path, body, o = {}) {
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 }
+
+/**
+ * A tiny in-memory stand-in for the svc contract in worker/src/svc.js, with
+ * just enough behaviour to drive the Worker's Supabase routes. It is a TEST
+ * DOUBLE of the contract, not of the SQL: the DB lane's PGlite suite tests
+ * the real functions.
+ * @param {{ root?: string, people?: any[], docs?: Record<string, any>, bank?: Record<string, any>, logins?: Record<string, any> }} seed
+ */
+export function fakeSvcDb(seed = {}) {
+  const st = {
+    root: seed.root ?? "host-1",
+    /** @type {any[]} people: { id uuid, slug, user, kind, home, houses[], name, admin, entitled, grantUntil? } */
+    people: seed.people ?? [],
+    /** @type {Record<string, any>} */ docs: { ...(seed.docs ?? {}) },
+    /** @type {Record<string, any>} */ bank: { ...(seed.bank ?? {}) },
+    /** @type {Record<string, any>} */ logins: { ...(seed.logins ?? {}) },
+    /** @type {Record<string, any>} */ invites: {},
+    /** @type {any[]} */ writes: [],
+  };
+  let n = 0;
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
+  const byUser = (/** @type {string} */ u) => st.people.find((p) => p.user === u);
+  const bySlug = (/** @type {string} */ s) => st.people.find((p) => p.slug === s);
+  const pgErr = (/** @type {string} */ code) =>
+    Response.json({ code, message: "refused" }, { status: 400 });
+  /** @type {Record<string, (a: any, ctx: any) => any>} */
+  const rpc = {
+    entitled: (a) => Boolean(byUser(a.p_user)?.entitled),
+    ai_take: () => "ok",
+    whoami: (a) => {
+      const p = byUser(a.p_user);
+      return p ? { slug: p.slug, admin: Boolean(p.admin), houses: p.houses ?? [] } : null;
+    },
+    recipe_for: (a) =>
+      String(a.p_id).startsWith("house-")
+        ? (st.docs[`households/${a.p_house}/recipes/${a.p_id}.json`] ?? null)
+        : (st.bank[a.p_id] ?? null),
+    recipe_names: (a) => {
+      /** @type {Record<string, string>} */
+      const out = {};
+      for (const id of a.p_ids) {
+        const r = rpc.recipe_for({ p_house: a.p_house, p_id: id }, {});
+        if (r?.name) out[id] = r.name;
+      }
+      return out;
+    },
+    cron_inputs: (a) => {
+      const me = bySlug(st.root);
+      const house = me?.home ?? "";
+      return {
+        profile: st.root,
+        house,
+        plan: st.docs[`plans/${a.p_week}.json`] ?? null,
+        events: st.docs[`households/${house}/events.json`] ?? null,
+        shopping: a.p_with_shopping ? (st.docs["shopping.json"] ?? null) : null,
+      };
+    },
+    slug_free: (a) =>
+      !bySlug(a.p_slug) && !Object.keys(st.docs).some((k) => k.startsWith(`profiles/${a.p_slug}/`)),
+    mint_invite: (a) => {
+      const p = byUser(a.p_user);
+      if (!p || !(p.admin || (p.houses ?? []).includes(a.p_host_house))) return "forbidden";
+      st.invites[a.p_code_hash] = {
+        host_house: a.p_host_house,
+        expires_at: a.p_expires_at,
+        used_at: null,
+        claimed: null,
+        status_until: null,
+      };
+      return "ok";
+    },
+    invite_get: (a) => st.invites[a.p_code_hash] ?? null,
+    claim_guest: (a) => {
+      const inv = st.invites[a.p_code_hash];
+      if (!inv) return { status: "missing" };
+      if (inv.used_at) return { status: "used" };
+      if (inv.expires_at < new Date().toISOString()) return { status: "expired" };
+      if (!rpc.slug_free({ p_slug: a.p_slug }, {})) return { status: "slug_taken" };
+      if (a.p_login && st.logins[a.p_login.name_key]) return { status: "name_taken" };
+      const id = `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
+      st.people.push({
+        id,
+        slug: a.p_slug,
+        kind: "guest",
+        home: "guesthouse",
+        houses: [],
+        name: a.p_roster.name,
+        roster: a.p_roster,
+        family: a.p_family,
+        grantHouse: inv.host_house,
+        grantUntil: "2099-01-01",
+      });
+      st.docs[`profiles/${a.p_slug}/profile/targets.json`] = a.p_targets;
+      st.docs[`profiles/${a.p_slug}/fitness/targets.json`] = a.p_targets;
+      if (a.p_login) st.logins[a.p_login.name_key] = { slug: a.p_slug, salt: a.p_login.salt, hash: a.p_login.hash };
+      inv.used_at = new Date().toISOString();
+      inv.claimed = a.p_slug;
+      inv.status_until = "2099-01-01T00:00:00.000Z";
+      return { status: "ok", house: "guesthouse" };
+    },
+    guest_login_row: (a) => st.logins[a.p_name_key] ?? null,
+    guest_view: (a) => {
+      const g = bySlug(a.p_slug);
+      if (!g || g.kind !== "guest" || !(g.grantUntil >= today)) return null;
+      const tables = st.docs[`households/${g.grantHouse}/events.json`]?.tables ?? [];
+      /** @type {Record<string, string>} */
+      const names = {};
+      for (const t of tables) for (const s of t.seats ?? []) {
+        const p = bySlug(s.id);
+        if (p) names[s.id] = p.name;
+      }
+      return {
+        profile_id: g.id,
+        name: g.name,
+        has_login: Object.values(st.logins).some((l) => l.slug === g.slug),
+        host_house: g.grantHouse,
+        tables,
+        names,
+      };
+    },
+    guest_summary: (a) => {
+      const g = st.people.find((p) => p.id === a.p_profile);
+      return g ? (st.docs[`profiles/${g.slug}/profile/targets.json`] ?? null) : null;
+    },
+    guard_hits: () => 0,
+    write_doc: (a, ctx) => {
+      const bearer = String(ctx.headers.get("authorization") ?? "").replace(/^Bearer /, "");
+      st.writes.push({ path: a.p_path, bearer, apikey: ctx.headers.get("apikey"), profile: ctx.headers.get("content-profile") });
+      if (JSON.stringify(a.p_data).toLowerCase().includes("guest-name-term")) return pgErr("P0422");
+      if (a.p_path in st.docs) return pgErr("P0409");
+      st.docs[a.p_path] = a.p_data;
+      return 1;
+    },
+  };
+  return { st, rpc };
+}

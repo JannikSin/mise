@@ -87,9 +87,17 @@ import { callModel, providerConfigured } from "./provider.js";
 import { handleKroger, handleKrogerCallback } from "./kroger.js";
 import { handleHall } from "./hall.js";
 import { authenticate, takeAiQuota } from "./auth.js";
-
-/** 2.0 F1: the data routes a JWT caller cannot use until F2 ports them to svc */
-const JWT_PENDING_ROUTES = new Set(["/notify-test", "/invite/new", "/annotate-save"]);
+import { githubCronSource } from "./cron-source.js";
+import { onSupabase, projectFor } from "./supabase-env.js";
+import {
+  supaGuestRoute,
+  supaInviteRoute,
+  supaInviteNew,
+  requireAdmin,
+  supabaseCronSource,
+  supaAnnotateSave,
+} from "./supa-routes.js";
+import { probeDue, weeklyProbes } from "./probe.js";
 
 const DATA_REPO = "JannikSin/mise-data";
 
@@ -341,6 +349,22 @@ async function cacheDelete(key) {
   if (store) await store.delete(key).catch(() => {});
 }
 
+/**
+ * 2.0 F2: what the Supabase routes borrow from this file (supa-routes.js).
+ * @param {Record<string, string>} cors
+ */
+function routeCtx(cors) {
+  return {
+    json: (/** @type {number} */ s, /** @type {Record<string, any>} */ b) => json(s, b, cors),
+    cacheGet,
+    cachePut,
+    cacheDelete,
+    rateState,
+    todayIso: chicagoNow().dateIso,
+    nowMs: Date.now(),
+  };
+}
+
 /** tests only: the in-isolate cache and limits must not carry one test into the next */
 export function resetGuestCachesForTests() {
   memCache.clear();
@@ -420,6 +444,20 @@ async function cachedRecipe(id, token, branch) {
   return slim;
 }
 
+/**
+ * One ntfy push (the weekly probe's report). Titles and bodies carry check
+ * names and counts only, never data.
+ * @param {string} topic
+ * @param {{ title: string, body: string, priority: string }} n
+ */
+async function postNtfy(topic, n) {
+  await fetch(`https://ntfy.sh/${topic}`, {
+    method: "POST",
+    headers: { Title: n.title, Priority: n.priority, Tags: "lock" },
+    body: n.body,
+  }).catch(() => {});
+}
+
 /** local wall clock in David's timezone */
 function chicagoNow() {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -441,15 +479,20 @@ function chicagoNow() {
 
 /**
  * Compute this hour's notifications from live data and post them to ntfy.
- * @param {string} token repo-read token
+ * @param {import("./cron-source.js").CronSource} source GitHub (1.95) or Supabase (2.0)
  * @param {string} topic ntfy topic
  * @param {{ hour: number, weekday: string, dateIso: string }} now
  * @param {boolean} send false = preview only (the SYS test button)
  * @returns {Promise<{ sent: number, preview: { title: string, body: string }[] }>}
  */
-async function runNotifications(token, topic, now, send) {
+async function runNotifications(source, topic, now, send) {
   const weekId = isoWeekIdOf(now.dateIso);
-  const rawPlan = await ghReadJson(`plans/${weekId}.json`, token);
+  // shopping only matters at its hours; skip the read otherwise. (The daily
+  // log read left with the log nags, 2026-08-09; Crystal owns tracking.)
+  const wantsShopping = now.weekday === "Sat" || now.weekday === "Sun";
+  const read = await source.read(weekId, wantsShopping);
+  const me = read.me;
+  const rawPlan = read.plan;
   // THE KITCHEN'S SHARED MEALS (2026-10-17): his plan file holds only his own
   // meals; the shared ones live in the household's events.json, so every
   // ping used to miss them. Today's tables he is seated at (not skipped) join
@@ -458,17 +501,13 @@ async function runNotifications(token, topic, now, send) {
   const shared = [];
   /** @type {string[]} batch pots cooked TODAY for a later night (their recipe ids) */
   const batchesToday = [];
-  const profiles = await ghReadJson("profiles.json", token);
-  const house = String(
-    (profiles?.profiles ?? []).find((/** @type {any} */ p) => p?.id === "david")?.household ??
-      "",
-  );
+  const house = read.house;
   if (/^[a-z0-9-]+$/.test(house)) {
-    const events = await ghReadJson(`households/${house}/events.json`, token);
+    const events = read.events;
     // WHOSE NIGHT IT IS (Tribunal Realist, 2026-10-18): on a take-turns
     // kitchen the table names its cook, and the cook ping is for HIM only. A
     // table with no cookId is his (a kitchen of one).
-    const mine = (/** @type {any} */ t) => !t?.cookId || t.cookId === "david";
+    const mine = (/** @type {any} */ t) => !t?.cookId || t.cookId === me;
     for (const t of events?.tables ?? []) {
       if (
         t?.slot === "dinner" &&
@@ -478,7 +517,7 @@ async function runNotifications(token, topic, now, send) {
       )
         batchesToday.push(String(t.recipeId));
       if (t?.date !== now.dateIso) continue;
-      const seat = (t.seats ?? []).find((/** @type {any} */ x) => x?.id === "david");
+      const seat = (t.seats ?? []).find((/** @type {any} */ x) => x?.id === me);
       if (!seat || seat.status === "skipped") continue;
       shared.push({
         id: `table-${t.id}`,
@@ -496,13 +535,8 @@ async function runNotifications(token, topic, now, send) {
   let plan = rawPlan || shared.length > 0
     ? { ...(rawPlan ?? {}), entries: [...(rawPlan?.entries ?? []), ...shared] }
     : null;
-  // shopping only matters at its hours; skip the read otherwise. (The daily
-  // log read left with the log nags, 2026-08-09 — Crystal owns tracking.)
-  const wantsShopping = now.weekday === "Sat" || now.weekday === "Sun";
-  const shopping = wantsShopping ? await ghReadJson("shopping.json", token) : null;
+  const shopping = read.shopping;
   // resolve only the recipe names today's entries actually need
-  /** @type {Record<string, string>} */
-  const names = {};
   const todaysIds = [
     ...new Set(
       (plan?.entries ?? [])
@@ -514,10 +548,7 @@ async function runNotifications(token, topic, now, send) {
         .filter((/** @type {string} */ id) => /^[a-z0-9-]+$/.test(id)),
     ),
   ].slice(0, 12);
-  for (const id of todaysIds) {
-    const r = await ghReadJson(`recipes/${id}.json`, token);
-    if (r?.name) names[id] = String(r.name);
-  }
+  const names = await source.names(house, todaysIds);
   const recipeName = (/** @type {string} */ id) => names[id] ?? id;
   // a shared meal reads as its dish, a leftover night says so
   let batchNamed = false;
@@ -717,12 +748,37 @@ export default {
    * read-only fine-grained PAT for mise-data — the ONE stored credential,
    * revoke it to kill the cron) and NTFY_TOPIC.
    * @param {{ cron: string }} controller
-   * @param {{ MISE_DATA_TOKEN?: string, NTFY_TOPIC?: string }} env
+   * @param {Record<string, any> & { MISE_DATA_TOKEN?: string, NTFY_TOPIC?: string }} env
    */
   async scheduled(controller, env) {
+    // 2.0 F2: once live is switched to Supabase the cron reads svc, never
+    // GitHub (after the freeze GitHub is stale), and the weekly privacy
+    // probe runs for every switched project, Mondays at 7 am
+    const now = chicagoNow();
+    if (probeDue(now) && env.NTFY_TOPIC) {
+      await weeklyProbes(env, (n) => postNtfy(/** @type {string} */ (env.NTFY_TOPIC), n)).catch(
+        () => {},
+      );
+    }
+    if (onSupabase("main", env)) {
+      const project = projectFor("main", env);
+      if (!project || !env.NTFY_TOPIC) return;
+      try {
+        await runNotifications(supabaseCronSource(project), env.NTFY_TOPIC, now, true);
+      } catch {
+        // as below: the next hour runs fresh
+      }
+      return;
+    }
     if (!env.MISE_DATA_TOKEN || !env.NTFY_TOPIC) return;
     try {
-      await runNotifications(env.MISE_DATA_TOKEN, env.NTFY_TOPIC, chicagoNow(), true);
+      const token = env.MISE_DATA_TOKEN;
+      await runNotifications(
+        githubCronSource((path) => ghReadJson(path, token)),
+        env.NTFY_TOPIC,
+        now,
+        true,
+      );
     } catch {
       // one bad fetch must not take down the hour's cron; the next hour
       // runs fresh and the SYS test button surfaces persistent breakage
@@ -828,7 +884,8 @@ export default {
       const branch = branchForOrigin(request.headers.get("origin"));
       if (!branch) return json(403, { error: "not available from this origin" }, cors);
       const writeToken = env.MISE_INVITE_TOKEN;
-      if (!writeToken) return json(503, { error: "guest log in is not switched on yet" }, cors);
+      const sb = onSupabase(branch, env);
+      if (!writeToken && !sb) return json(503, { error: "guest log in is not switched on yet" }, cors);
       /** @type {any} */
       let body;
       try {
@@ -868,6 +925,8 @@ export default {
           return paused();
         }
       }
+      // 2.0 F2: a switched branch reads svc (supa-routes.js), behind the same guards
+      if (sb || !writeToken) return supaGuestRoute(url.pathname, body, branch, env, routeCtx(cors));
       try {
         const guests = await cachedGuests(writeToken, branch);
         const nowMs = Date.now();
@@ -970,7 +1029,8 @@ export default {
       if (!originBranch)
         return json(403, { error: "invites are not available from this origin" }, cors);
       const writeToken = env.MISE_INVITE_TOKEN;
-      if (!writeToken) {
+      const sb = onSupabase(originBranch, env);
+      if (!writeToken && !sb) {
         return json(503, { error: "invites are not switched on yet" }, cors);
       }
       /** @type {any} */
@@ -985,6 +1045,10 @@ export default {
       const code = typeof body?.code === "string" ? body.code.trim().toLowerCase() : "";
       if (!INVITE_CODE_RE.test(code))
         return json(404, { error: "that invite does not exist" }, cors);
+      // 2.0 F2: a switched branch reads svc (supa-routes.js), behind the same guards
+      if (sb || !writeToken) {
+        return supaInviteRoute(url.pathname, body, code, originBranch, env, routeCtx(cors));
+      }
       const fail = (/** @type {unknown} */ e) => {
         console.log(
           "invite route failed",
@@ -1316,18 +1380,22 @@ export default {
       const q = await takeAiQuota({ who, branch: reqBranch, pathname: url.pathname, env });
       if (!q.ok) return json(q.status, { error: q.error }, cors);
     }
-    if (who.kind === "jwt" && JWT_PENDING_ROUTES.has(url.pathname)) {
-      return json(503, { error: "this is not on the account yet" }, cors);
-    }
 
     // notification test (SYS button): reads with the PRESENTED token, sends
     // one live ping, returns the whole day's would-fire schedule. Needs no
     // Anthropic key — only the ntfy topic.
     if (url.pathname === "/notify-test") {
+      // 2.0 F2: on the account it previews the ADMIN's schedule, so admin-only
+      if (who.kind === "jwt") {
+        const refused = await requireAdmin(who, routeCtx(cors));
+        if (refused) return refused;
+      }
       try {
         const now = chicagoNow();
         const result = await runNotifications(
-          /** @type {string} */ (token),
+          who.kind === "jwt"
+            ? supabaseCronSource(who.project)
+            : githubCronSource((path) => ghReadJson(path, /** @type {string} */ (token))),
           env.NTFY_TOPIC ?? "",
           now,
           false,
@@ -1346,7 +1414,10 @@ export default {
           {
             pinged,
             topicSet: Boolean(env.NTFY_TOPIC),
-            cronReady: Boolean(env.MISE_DATA_TOKEN && env.NTFY_TOPIC),
+            cronReady: Boolean(
+              (onSupabase("main", env) ? projectFor("main", env) : env.MISE_DATA_TOKEN) &&
+                env.NTFY_TOPIC,
+            ),
             preview: result.preview,
           },
           cors,
@@ -1368,6 +1439,8 @@ export default {
       } catch {
         body = {};
       }
+      // 2.0 F2: on the account, guest invites only, minted through svc
+      if (who.kind === "jwt") return supaInviteNew(who, body, routeCtx(cors));
       const hostHouse = slugOf(body?.hostHouse) || "home";
       // where the new person LIVES: the host's own kitchen (a roommate) or the
       // guesthouse (a dinner guest). Nothing else is accepted.
@@ -1875,6 +1948,8 @@ export default {
           transcription,
           pantryStaples,
         });
+        // 2.0 F2: on the account the database decides where it may land
+        if (who.kind === "jwt") return supaAnnotateSave(who, id, recipe, routeCtx(cors));
         const ghPath = `recipes/${id}.json`;
         const writeToken = /** @type {string} */ (token);
         for (let attempt = 0; attempt < 2; attempt++) {

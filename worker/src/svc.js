@@ -228,16 +228,17 @@ export async function inviteGet(project, codeHash, fetchImpl) {
 }
 
 /**
- * svc.claim_guest(p_code_hash text, p_slug text, p_roster jsonb, p_targets jsonb, p_login jsonb) returns jsonb
+ * svc.claim_guest(p_code_hash text, p_slug text, p_roster jsonb, p_family text, p_targets jsonb, p_login jsonb) returns jsonb
  * ONE transaction: re-checks the invite (unspent, unexpired), re-checks
  * slug_free, refuses a taken login name, then creates the guest profile
- * (kind 'guest', roster = p_roster), its guest grant to the invite's host
+ * (kind 'guest', roster = p_roster, family = p_family, never inside roster), its guest grant to the invite's host
  * house, BOTH targets docs rows (the plate trigger fires on them), the login
  * row when p_login is not null ({ name_key, salt, hash }), and stamps the
  * invite used. Returns { status: 'ok'|'used'|'expired'|'missing'|'name_taken'|'slug_taken',
- * house text } . Nothing is written unless status is 'ok'.
+ * house text } where house is the new profile's home household slug as
+ * roster() would show it to the guest. Nothing is written unless status is 'ok'.
  * @param {SvcProject} project
- * @param {{ codeHash: string, slug: string, roster: Record<string, unknown>, targets: Record<string, unknown>, login: null | { name_key: string, salt: string, hash: string } }} a
+ * @param {{ codeHash: string, slug: string, roster: Record<string, unknown>, family: string | null, targets: Record<string, unknown>, login: null | { name_key: string, salt: string, hash: string } }} a
  * @param {FetchImpl} [fetchImpl]
  * @returns {Promise<{ status: string, house: string }>}
  */
@@ -249,6 +250,7 @@ export async function claimGuest(project, a, fetchImpl) {
       p_code_hash: a.codeHash,
       p_slug: a.slug,
       p_roster: a.roster,
+      p_family: a.family,
       p_targets: a.targets,
       p_login: a.login,
     },
