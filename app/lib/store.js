@@ -9,6 +9,7 @@
 
 import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
 import { backend, stampHere, replaysHere } from "./backend.js";
+import { ForbiddenError, NameGuardError } from "./backend/errors.js";
 import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
 import { syncScopeFor, verifiedKey, ADMIN_DEVICE_KEY, keyOf, isAdmin } from "./privacy.js";
@@ -33,6 +34,11 @@ const DEFAULT_PROFILES = {
  * @returns {string}
  */
 export function activeProfile() {
+  // PINNED FOR NON-ADMINS (2.0, ENG L2-2): on a backend that knows who is
+  // signed in, anyone but the admin is always themselves, whatever an old
+  // localStorage value says. GitHub has no session, so this is 1.95 there.
+  const s = backend().session();
+  if (s && !s.admin) return s.slug;
   return localStorage.getItem("mise.activeProfile") || "david";
 }
 
@@ -363,10 +369,13 @@ export async function patchProfiles(
 /** @type {Set<() => void>} */
 const listeners = new Set();
 
-/** @type {{ loading: boolean, pending: number, conflicts: number, mismatched: number, lastSyncAt: string | null, flushing: boolean, lastError: string | null }} */
+/** @type {{ loading: boolean, pending: number, conflicts: number, mismatched: number, refused: number, lastSyncAt: string | null, flushing: boolean, lastError: string | null }} */
 const status = {
   loading: true,
   pending: 0,
+  // queued writes the server refused for good (2.0, ENG L2-8): still counted
+  // in pending, listed by refusedRecords(), gone only on DISCARD
+  refused: 0,
   conflicts: 0,
   mismatched: 0,
   lastSyncAt: null,
@@ -396,6 +405,7 @@ function emit() {
 async function recount() {
   const all = await dbGetAll();
   status.pending = all.filter((r) => r.dirty).length;
+  status.refused = all.filter((r) => r.dirty && r.refused).length;
   status.loading = false;
   emit();
 }
@@ -593,7 +603,18 @@ export async function read(path, opts) {
   if (!inSyncScope(finalPath)) return null;
   const rec = await dbGet(finalPath);
   void revalidate(finalPath);
-  return rec ? rec.data : null;
+  return rec ? localView(rec) : null;
+}
+
+/**
+ * What a cached record reads as: the local data, except for a record the
+ * server refused (2.0, ENG L2-8), which reads as the server's copy so a
+ * write that will never land cannot pass for the truth.
+ * @param {import("./db.js").FileRecord} rec
+ * @returns {Record<string, unknown> | null}
+ */
+function localView(rec) {
+  return rec.refused ? rec.base : rec.data;
 }
 
 /**
@@ -619,7 +640,7 @@ export async function readNow(path, opts) {
   if (!(await dbGet(finalPath))) fileCheckedAt.delete(finalPath);
   await revalidate(finalPath);
   const rec = await dbGet(finalPath);
-  return rec ? rec.data : null;
+  return rec ? localView(rec) : null;
 }
 
 /**
@@ -639,6 +660,7 @@ export async function readMeta(path, opts) {
   const rec = await dbGet(finalPath);
   void revalidate(finalPath);
   if (!rec) return { data: null, sha: null, dirty: false };
+  if (rec.refused) return { data: rec.base, sha: rec.fingerprint ?? rec.sha ?? null, dirty: false };
   // a targets file on Supabase fingerprints by its plate (2.0, ENG L2-3)
   return { data: rec.data, sha: rec.fingerprint ?? rec.sha ?? null, dirty: Boolean(rec.dirty) };
 }
@@ -678,7 +700,8 @@ function revalidate(scopedPath) {
 async function revalidateFile(scopedPath) {
   if (!navigator.onLine || !inSyncScope(scopedPath)) return;
   const rec = await dbGet(scopedPath);
-  if (rec?.dirty) return; // local edits win until flushed
+  // local edits win until flushed; a refused one still learns the server copy
+  if (rec?.dirty && !rec.refused) return;
   try {
     const remote = await backend().read(scopedPath);
     fileCheckedAt.set(scopedPath, { at: Date.now(), missing: !remote });
@@ -714,7 +737,9 @@ function cacheRemote(path, data, sha, fingerprint) {
   if (!inSyncScope(path)) return Promise.resolve();
   return dbUpdate(path, (cur) =>
     cur?.dirty
-      ? null
+      ? cur.refused
+        ? { ...cur, base: data, sha }
+        : null
       : {
           path,
           data,
@@ -747,7 +772,9 @@ export async function readCollection(
     .filter((r) => r.path.startsWith(prefix))
     .sort((a, b) => a.path.localeCompare(b.path));
   void revalidateCollection(scopedDir);
-  return cached.map((r) => r.data);
+  return /** @type {Record<string, unknown>[]} */ (
+    cached.map(localView).filter((d) => d !== null)
+  );
 }
 
 // ONE PASS PER DIRECTORY (audit 2026-10-18: a first launch made about
@@ -827,7 +854,7 @@ async function revalidatePass(scopedDir) {
     let changed = false;
     const todo = listing.filter((entry) => {
       const rec = cachedByPath.get(entry.path);
-      return !(rec && (rec.sha === entry.sha || rec.dirty));
+      return !(rec && (rec.sha === entry.sha || (rec.dirty && !rec.refused)));
     });
     // eight at a time: a cold bank of ~180 recipes was 180 serial round trips
     let next = 0;
@@ -928,6 +955,9 @@ export async function write(path, data, opts) {
  * @returns {string}
  */
 export function writeErrorMessage(msg) {
+  if (/^auth: /.test(msg)) {
+    return "signed out: sign in again and everything waiting will save";
+  }
   if (/unknown data branch for this origin/.test(msg)) {
     return "this origin has no data branch, so nothing saves from here (the live app and the sandbox each have theirs)";
   }
@@ -948,6 +978,7 @@ export function writeErrorMessage(msg) {
     }
     return "GitHub rejected the token (renew it in SYS)";
   }
+  if (backend().name === "supabase") return "can't reach the server right now (auto-retrying)";
   return "can't reach GitHub right now (auto-retrying)";
 }
 
@@ -1010,7 +1041,7 @@ async function flush() {
     const stopped = new Set();
     for (const rec of queued) {
       const lane = backend().laneOf(rec.path);
-      if (stopped.has(lane)) continue;
+      if (stopped.has(lane) || rec.refused) continue;
       // BRANCH GUARD (release train). A record with no stamp predates the
       // train: it was written on this install, so it belongs to this install's
       // branch, and is stamped on the way past (a read-time heal, never a
@@ -1046,6 +1077,20 @@ async function flush() {
         if (e instanceof ConflictError) {
           status.conflicts++;
           continue; // stays dirty; next flush retries the merge
+        }
+        if (e instanceof ForbiddenError || e instanceof NameGuardError) {
+          // REFUSED (2.0, ENG 2 / L2-8): retrying can never help. Kept so the
+          // person can see what did not save, but it stops overriding reads,
+          // and the pass goes on to the next record. An edit made while the
+          // push was in flight is newer data and gets its own try.
+          /** @type {"forbidden" | "name"} */
+          const reason = e instanceof NameGuardError ? "name" : "forbidden";
+          await dbUpdate(rec.path, (cur) =>
+            cur && cur.dirty && cur.rev === rec.rev
+              ? { ...cur, refused: { reason, at: Date.now() } }
+              : null,
+          );
+          continue;
         }
         // network/auth failure — stop, everything stays queued, and SAY WHY
         // (A5). THREE states, not two (2026-08-22). A 404 on a write means
@@ -1132,4 +1177,38 @@ export async function purgeEverything() {
   stalledDirs.clear();
   await recount();
   return removed;
+}
+
+/** What a refused record says in Settings, Sync (2.0, plan section 5). */
+export const REFUSED_REASON = {
+  forbidden: "not allowed",
+  name: "would show a name to another house",
+};
+
+/**
+ * Every queued write the server refused, for the Settings list.
+ * @returns {Promise<{ path: string, reason: "forbidden" | "name", at: number }[]>}
+ */
+export async function refusedRecords() {
+  /** @type {{ path: string, reason: "forbidden" | "name", at: number }[]} */
+  const out = [];
+  for (const r of await dbGetAll()) {
+    if (r.dirty && r.refused) out.push({ path: r.path, reason: r.refused.reason, at: r.refused.at });
+  }
+  return out.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * DISCARD: drop one refused write, on the person's word. The file then reads
+ * as the server has it, fetched fresh.
+ * @param {string} path
+ * @returns {Promise<boolean>} false when the record was not a refused one
+ */
+export async function discardRefused(path) {
+  const rec = await dbGet(path);
+  if (!rec?.dirty || !rec.refused) return false;
+  await dbDelete(path);
+  fileCheckedAt.delete(path);
+  await recount();
+  return true;
 }
