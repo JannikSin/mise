@@ -46,10 +46,21 @@ function lane() {
   return { b, freeze, writes, ctl, release: () => held.splice(0).forEach((r) => r()) };
 }
 
+/** the switch-morning shell: `<meta name="mise-move" content="on">` (loop 2 item 4) */
+function moveShell(on = true) {
+  /** @type {any} */ (globalThis).document = on
+    ? {
+        querySelector: (/** @type {string} */ s) =>
+          s === 'meta[name="mise-move"]' ? { getAttribute: () => "on" } : null,
+      }
+    : undefined;
+}
+
 test("a frozen kitchen holds every queued change but the freeze file", async () => {
   idb.clear();
   kv.clear();
   resetFileChecks();
+  moveShell();
   const l = lane();
   l.freeze.file = { frozen: true, at: "2026-11-15T09:00:00Z", by: "admin-1" };
   installBackend(l.b);
@@ -70,6 +81,7 @@ test("a frozen kitchen holds every queued change but the freeze file", async () 
   const res = await flushNow({ timeoutMs: 2000 });
   assert.equal(res.landed, true);
   assert.deepEqual(l.writes, ["freeze.json", "shopping.json"], "unfrozen, the queue goes");
+  moveShell(false);
   installBackend(null);
 });
 

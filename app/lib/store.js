@@ -14,7 +14,7 @@ import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
 import { syncScopeFor, verifiedKey, ADMIN_DEVICE_KEY, keyOf, isAdmin } from "./privacy.js";
 import { stricterTargets } from "./stricter-targets.js";
-import { holdWrite, FREEZE_PATH } from "./freeze.js";
+import { holdWrite, FREEZE_PATH, moveOn } from "./freeze.js";
 import { specialTarget } from "./house-special.js";
 
 const io = {
@@ -1187,8 +1187,10 @@ async function flush() {
     // the migration, every queued change waits on the phone, except the
     // freeze file itself (UNFREEZE must land). Read from the store the
     // kitchen is still on; a missing or malformed file never holds anything.
+    // Only the switch-morning shell reads it (moveOn, loop 2 item 4): every
+    // other GitHub-lane flush sends exactly the requests 1.95 sent.
     const freeze =
-      backend().name === "github"
+      backend().name === "github" && moveOn()
         ? await readNow(FREEZE_PATH, { raw: true }).catch(() => null)
         : null;
     // a failure stops its LANE, not the pass (2.0 composite: a GitHub outage
