@@ -35,6 +35,10 @@ let epoch = 0;
 // lock (acquireStoreLock) across the switch, so no push that started under
 // one account is still in flight when the next one's session goes in.
 const ACCOUNT_KEY = "mise.storeAccount";
+// the remembered account's slug again, when that account is known to be the
+// admin (loop 3, item 4; Red Team 3 S3): with no session, only the admin's
+// profile pick may scope paths
+const ACCOUNT_ADMIN_KEY = "mise.storeAccountAdmin";
 // how many holders keep the queue from flushing (acquireStoreLock)
 let storeLocks = 0;
 // THE SWITCH GATE (loop 3, item 2; ENG 3 N5): an account change in progress.
@@ -96,9 +100,44 @@ export function activeProfile() {
   // PINNED FOR NON-ADMINS (2.0, ENG L2-2): on a backend that knows who is
   // signed in, anyone but the admin is always themselves, whatever an old
   // localStorage value says. GitHub has no session, so this is 1.95 there.
-  const s = backend().session();
-  if (s && !s.admin) return s.slug;
+  const b = backend();
+  const s = b.session();
+  if (s) {
+    noteAdmin(s);
+    if (!s.admin) return s.slug;
+  } else if (b.name === "supabase") {
+    // NO SESSION (an offline reload, loop 3 item 4, Red Team 3 S3): the
+    // account the store remembers is still pinned to itself unless it is
+    // known to be the admin, so a leftover profile pick on a shared tablet
+    // never scopes a housemate's edits to another profile's paths
+    const who = rememberedAccount();
+    if (who && !isRememberedAdmin(who)) return who;
+  }
   return localStorage.getItem("mise.activeProfile") || "david";
+}
+
+/**
+ * Remember whether the live session's account is the admin, when it is the
+ * account the store remembers (loop 3, item 4).
+ * @param {{ slug: string, admin: boolean }} s
+ */
+function noteAdmin(s) {
+  try {
+    if (s.slug !== localStorage.getItem(ACCOUNT_KEY)) return;
+    if (s.admin) localStorage.setItem(ACCOUNT_ADMIN_KEY, s.slug);
+    else localStorage.removeItem(ACCOUNT_ADMIN_KEY);
+  } catch {
+    // storage refused: the account stays pinned to itself
+  }
+}
+
+/** @param {string} slug */
+function isRememberedAdmin(slug) {
+  try {
+    return localStorage.getItem(ACCOUNT_ADMIN_KEY) === slug;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -1650,10 +1689,13 @@ function rememberedAccount() {
  * as early as possible. Calls are serialized.
  * @param {string | null} prevSlug
  * @param {string | null} nextSlug
+ * @param {{ admin?: boolean }} [next] whether `nextSlug` is the admin, when
+ *   the caller knows (loop 3, item 4); else the store learns it from the
+ *   live session, and until then the account is pinned to itself
  * @returns {Promise<number>} cached records removed
  */
-export function onSessionChange(prevSlug, nextSlug) {
-  const run = switching.then(() => changeAccount(prevSlug, nextSlug));
+export function onSessionChange(prevSlug, nextSlug, next = {}) {
+  const run = switching.then(() => changeAccount(prevSlug, nextSlug, next.admin));
   switching = run.then(
     () => undefined,
     () => undefined,
@@ -1664,13 +1706,19 @@ export function onSessionChange(prevSlug, nextSlug) {
 /**
  * @param {string | null} prevSlug
  * @param {string | null} nextSlug
+ * @param {boolean | undefined} admin
  * @returns {Promise<number>}
  */
-async function changeAccount(prevSlug, nextSlug) {
+async function changeAccount(prevSlug, nextSlug, admin) {
   const remembered = rememberedAccount();
   try {
     if (nextSlug) localStorage.setItem(ACCOUNT_KEY, nextSlug);
     else localStorage.removeItem(ACCOUNT_KEY);
+    // the admin flag belongs to the remembered account and goes with it
+    if (nextSlug && admin === true) localStorage.setItem(ACCOUNT_ADMIN_KEY, nextSlug);
+    else if (admin === false || localStorage.getItem(ACCOUNT_ADMIN_KEY) !== nextSlug) {
+      localStorage.removeItem(ACCOUNT_ADMIN_KEY);
+    }
   } catch {
     // storage refused: the caller's prev still decides
   }
