@@ -30,6 +30,8 @@ import {
   setScopeGuests,
 } from "./lib/store.js";
 import { initRouter, parseRoute } from "./lib/router.js";
+import { backend } from "./lib/backend.js";
+import { specialTarget } from "./lib/house-special.js";
 import {
   visibleProfilesFor,
   withoutHiddenNames,
@@ -4408,7 +4410,14 @@ function App() {
         const s = decision.special;
         // date-suffixed so two discussions landing on the same generic name
         // ("quick stir-fry") never overwrite each other's recipe
-        recipeId = `special-${slug(s.name)}-${date}`;
+        // on Supabase a special is the inventing house's, under an opaque
+        // house-<hex> id (2.0, ENG L2-4); on GitHub this is the 1.95 id
+        const target = specialTarget(
+          backend().name,
+          myHouseOf(),
+          `special-${slug(s.name)}-${date}`,
+        );
+        recipeId = target.id;
         const effort = s.totalTime <= 15 ? "assembly" : s.totalTime <= 30 ? "cook" : "project";
         // SPECIALS ARE FULL BANK CITIZENS on the fields the promise suite
         // enforces (found 2026-08-29 scorch: six week-run smoothie specials
@@ -4441,7 +4450,7 @@ function App() {
           safeDays: slot === "smoothie" ? 1 : 3,
           equipment: slot === "smoothie" ? ["blender"] : effort === "assembly" ? [] : ["stovetop"],
         };
-        await write(`recipes/${recipeId}.json`, /** @type {any} */ (recipe), { raw: true });
+        await write(target.path, /** @type {any} */ (recipe), { raw: true });
         setBankRecipes([...bankRecipesRef.current.filter((r) => r.id !== recipeId), recipe]);
       }
       if (!recipeId) throw new Error("the decision names no recipe");
