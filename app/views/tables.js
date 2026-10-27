@@ -1,5 +1,5 @@
 import { html } from "htm/preact";
-import { tokenBroken } from "../lib/github.js";
+import { tokenBroken } from "../lib/backend.js";
 import { useEffect, useState } from "preact/hooks";
 import { datesOfWeek, recipesById, shiftWeek, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import { parseLocalIso, isoWeekId } from "../lib/dates.js";

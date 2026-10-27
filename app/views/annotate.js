@@ -1,5 +1,5 @@
 import { html } from "htm/preact";
-import { tokenBroken } from "../lib/github.js";
+import { tokenBroken } from "../lib/backend.js";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { annotateRecipe, saveAnnotation } from "../lib/worker.js";
 import {

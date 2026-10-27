@@ -1,5 +1,5 @@
 import { html } from "htm/preact";
-import { tokenBroken } from "../lib/github.js";
+import { tokenBroken } from "../lib/backend.js";
 import { useRef, useState } from "preact/hooks";
 import { scanMenu } from "../lib/worker.js";
 import { screenMenuReport, unconfirmedReason } from "../lib/annotate.js";

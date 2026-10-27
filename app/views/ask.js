@@ -1,5 +1,5 @@
 import { html } from "htm/preact";
-import { tokenBroken } from "../lib/github.js";
+import { tokenBroken } from "../lib/backend.js";
 import { useState } from "preact/hooks";
 import { askTurn } from "../lib/worker.js";
 

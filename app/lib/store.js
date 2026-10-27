@@ -8,12 +8,18 @@
 //          whenever we're online. Offline writes simply stay queued.
 
 import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
-import { listDir, readFile, writeFile, dataBranch } from "./github.js";
+import { backend, stampHere, replaysHere } from "./backend.js";
+import { ForbiddenError, NameGuardError } from "./backend/errors.js";
 import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
 import { syncScopeFor, verifiedKey, ADMIN_DEVICE_KEY, keyOf, isAdmin } from "./privacy.js";
 
-const io = { read: readFile, write: writeFile };
+const io = {
+  /** @param {string} path */
+  read: (path) => backend().read(path),
+  /** @param {string} path @param {Record<string, unknown>} data @param {string | null} [sha] */
+  write: (path, data, sha) => backend().write(path, data, sha),
+};
 
 /** Fallback the app boots into when profiles.json is missing (fresh
  *  install) or unreachable — a legacy/pre-multi-profile install still opens
@@ -28,6 +34,11 @@ const DEFAULT_PROFILES = {
  * @returns {string}
  */
 export function activeProfile() {
+  // PINNED FOR NON-ADMINS (2.0, ENG L2-2): on a backend that knows who is
+  // signed in, anyone but the admin is always themselves, whatever an old
+  // localStorage value says. GitHub has no session, so this is 1.95 there.
+  const s = backend().session();
+  if (s && !s.admin) return s.slug;
   return localStorage.getItem("mise.activeProfile") || "david";
 }
 
@@ -358,10 +369,13 @@ export async function patchProfiles(
 /** @type {Set<() => void>} */
 const listeners = new Set();
 
-/** @type {{ loading: boolean, pending: number, conflicts: number, mismatched: number, lastSyncAt: string | null, flushing: boolean, lastError: string | null }} */
+/** @type {{ loading: boolean, pending: number, conflicts: number, mismatched: number, refused: number, lastSyncAt: string | null, flushing: boolean, lastError: string | null }} */
 const status = {
   loading: true,
   pending: 0,
+  // queued writes the server refused for good (2.0, ENG L2-8): still counted
+  // in pending, listed by refusedRecords(), gone only on DISCARD
+  refused: 0,
   conflicts: 0,
   mismatched: 0,
   lastSyncAt: null,
@@ -391,6 +405,7 @@ function emit() {
 async function recount() {
   const all = await dbGetAll();
   status.pending = all.filter((r) => r.dirty).length;
+  status.refused = all.filter((r) => r.dirty && r.refused).length;
   status.loading = false;
   emit();
 }
@@ -406,7 +421,7 @@ export function initStore() {
   setInterval(() => {
     if (status.pending > 0 && !status.flushing) void flush();
   }, 60_000);
-  void recount();
+  void purgeForeignRecords().then(() => recount());
   void flush();
 }
 
@@ -588,7 +603,18 @@ export async function read(path, opts) {
   if (!inSyncScope(finalPath)) return null;
   const rec = await dbGet(finalPath);
   void revalidate(finalPath);
-  return rec ? rec.data : null;
+  return rec ? localView(rec) : null;
+}
+
+/**
+ * What a cached record reads as: the local data, except for a record the
+ * server refused (2.0, ENG L2-8), which reads as the server's copy so a
+ * write that will never land cannot pass for the truth.
+ * @param {import("./db.js").FileRecord} rec
+ * @returns {Record<string, unknown> | null}
+ */
+function localView(rec) {
+  return rec.refused ? rec.base : rec.data;
 }
 
 /**
@@ -614,7 +640,7 @@ export async function readNow(path, opts) {
   if (!(await dbGet(finalPath))) fileCheckedAt.delete(finalPath);
   await revalidate(finalPath);
   const rec = await dbGet(finalPath);
-  return rec ? rec.data : null;
+  return rec ? localView(rec) : null;
 }
 
 /**
@@ -634,7 +660,9 @@ export async function readMeta(path, opts) {
   const rec = await dbGet(finalPath);
   void revalidate(finalPath);
   if (!rec) return { data: null, sha: null, dirty: false };
-  return { data: rec.data, sha: rec.sha ?? null, dirty: Boolean(rec.dirty) };
+  if (rec.refused) return { data: rec.base, sha: rec.fingerprint ?? rec.sha ?? null, dirty: false };
+  // a targets file on Supabase fingerprints by its plate (2.0, ENG L2-3)
+  return { data: rec.data, sha: rec.fingerprint ?? rec.sha ?? null, dirty: Boolean(rec.dirty) };
 }
 
 // ONE FETCH PER FILE, AND A MISSING FILE IS REMEMBERED (Mise 2.0, A-02 /
@@ -672,13 +700,14 @@ function revalidate(scopedPath) {
 async function revalidateFile(scopedPath) {
   if (!navigator.onLine || !inSyncScope(scopedPath)) return;
   const rec = await dbGet(scopedPath);
-  if (rec?.dirty) return; // local edits win until flushed
+  // local edits win until flushed; a refused one still learns the server copy
+  if (rec?.dirty && !rec.refused) return;
   try {
-    const remote = await readFile(scopedPath);
+    const remote = await backend().read(scopedPath);
     fileCheckedAt.set(scopedPath, { at: Date.now(), missing: !remote });
     if (!remote) return;
-    if (rec && remote.sha === rec.sha) return;
-    await cacheRemote(scopedPath, remote.data, remote.sha);
+    if (rec && remote.sha === rec.sha && rec.fingerprint === remote.fingerprint) return;
+    await cacheRemote(scopedPath, remote.data, remote.sha, remote.fingerprint);
     emit();
   } catch {
     // offline, no token or rate-limited: the cache already served the read,
@@ -699,14 +728,18 @@ export function resetFileChecks() {
  * @param {string} path
  * @param {Record<string, unknown>} data
  * @param {string} sha
+ * @param {string | null} [fingerprint] the plate's sha for a targets file on
+ *   Supabase (2.0, ENG L2-3); never set on GitHub, so 1.95 records keep their shape
  * @returns {Promise<void>}
  */
-function cacheRemote(path, data, sha) {
+function cacheRemote(path, data, sha, fingerprint) {
   // a fetch that started before the scope was set never lands (2.0, A-03)
   if (!inSyncScope(path)) return Promise.resolve();
   return dbUpdate(path, (cur) =>
     cur?.dirty
-      ? null
+      ? cur.refused
+        ? { ...cur, base: data, sha }
+        : null
       : {
           path,
           data,
@@ -715,7 +748,8 @@ function cacheRemote(path, data, sha) {
           dirty: false,
           queuedAt: null,
           rev: cur?.rev ?? 0,
-          branch: dataBranch(),
+          branch: stampHere(),
+          ...(fingerprint !== undefined ? { fingerprint } : {}),
         },
   );
 }
@@ -738,7 +772,9 @@ export async function readCollection(
     .filter((r) => r.path.startsWith(prefix))
     .sort((a, b) => a.path.localeCompare(b.path));
   void revalidateCollection(scopedDir);
-  return cached.map((r) => r.data);
+  return /** @type {Record<string, unknown>[]} */ (
+    cached.map(localView).filter((d) => d !== null)
+  );
 }
 
 // ONE PASS PER DIRECTORY (audit 2026-10-18: a first launch made about
@@ -811,25 +847,31 @@ async function revalidatePass(scopedDir) {
   }
   const prefix = `${scopedDir}/`;
   try {
-    const listing = await listDir(scopedDir);
+    const listing = await backend().list(scopedDir);
     const cached = (await dbGetAll()).filter((r) => r.path.startsWith(prefix));
     const cachedByPath = new Map(cached.map((r) => [r.path, r]));
     const listed = new Set(listing.map((e) => e.path));
     let changed = false;
     const todo = listing.filter((entry) => {
       const rec = cachedByPath.get(entry.path);
-      return !(rec && (rec.sha === entry.sha || rec.dirty));
+      return !(rec && (rec.sha === entry.sha || (rec.dirty && !rec.refused)));
     });
     // eight at a time: a cold bank of ~180 recipes was 180 serial round trips
     let next = 0;
     let failed = 0;
     const worker = async () => {
       while (next < todo.length) {
-        const entry = /** @type {{ path: string, sha: string }} */ (todo[next++]);
-        /** @type {Awaited<ReturnType<typeof readFile>>} */
+        const entry = /** @type {{ path: string, sha: string, data?: Record<string, unknown> }} */ (
+          todo[next++]
+        );
+        /** @type {Awaited<ReturnType<ReturnType<typeof backend>["read"]>>} */
         let remote;
         try {
-          remote = await readFile(entry.path);
+          // a listing that carries the rows (Supabase, ENG 10) needs no
+          // second fetch per file; the GitHub listing never does
+          remote = entry.data
+            ? { data: entry.data, sha: entry.sha }
+            : await backend().read(entry.path);
         } catch {
           failed++;
           continue; // one unreadable/corrupt file must not sink the whole collection
@@ -894,7 +936,7 @@ export async function write(path, data, opts) {
     rev: (cur?.rev ?? 0) + 1,
     // stamped with the branch it was written under (release train): a queued
     // sandbox edit must never be pushed to main, and vice versa
-    branch: cur?.dirty && cur.branch !== undefined ? cur.branch : dataBranch(),
+    branch: cur?.dirty && cur.branch !== undefined ? cur.branch : stampHere(),
   }));
   await recount();
   void flush();
@@ -913,10 +955,13 @@ export async function write(path, data, opts) {
  * @returns {string}
  */
 export function writeErrorMessage(msg) {
+  if (/^auth: /.test(msg)) {
+    return "signed out: sign in again and everything waiting will save";
+  }
   if (/unknown data branch for this origin/.test(msg)) {
     return "this origin has no data branch, so nothing saves from here (the live app and the sandbox each have theirs)";
   }
-  if (/HTTP 404/.test(msg) && dataBranch() === "sandbox") {
+  if (/HTTP 404/.test(msg) && stampHere() === "sandbox") {
     // a missing sandbox branch answers 404 to a PUT; sending someone to audit
     // token scopes over it is the wrong instruction (Red Team, 2026-09-07)
     return "the sandbox data branch is gone: re-seed it (tools/seed-sandbox-data.ps1)";
@@ -933,6 +978,7 @@ export function writeErrorMessage(msg) {
     }
     return "GitHub rejected the token (renew it in SYS)";
   }
+  if (backend().name === "supabase") return "can't reach the server right now (auto-retrying)";
   return "can't reach GitHub right now (auto-retrying)";
 }
 
@@ -986,9 +1032,16 @@ async function flush() {
     const queued = (await dbGetAll())
       .filter((r) => r.dirty)
       .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
-    const here = dataBranch();
+    const here = stampHere();
     status.mismatched = 0;
+    // a failure stops its LANE, not the pass (2.0 composite: a GitHub outage
+    // must not hold back the Supabase queue); with one lane this is the
+    // 1.95 stop-on-first-error exactly
+    /** @type {Set<string>} */
+    const stopped = new Set();
     for (const rec of queued) {
+      const lane = backend().laneOf(rec.path);
+      if (stopped.has(lane) || rec.refused) continue;
       // BRANCH GUARD (release train). A record with no stamp predates the
       // train: it was written on this install, so it belongs to this install's
       // branch, and is stamped on the way past (a read-time heal, never a
@@ -999,8 +1052,14 @@ async function flush() {
         rec.branch = here;
         await dbUpdate(rec.path, (cur) => (cur ? { ...cur, branch: here } : null));
       } else if (rec.branch !== here) {
-        status.mismatched++;
-        continue;
+        if (!replaysHere(rec.branch, here)) {
+          status.mismatched++;
+          continue;
+        }
+        // a 1.95 record on the build that took over its branch (2.0, plan
+        // section 5): restamped, then replayed through the conflict path
+        rec.branch = here;
+        await dbUpdate(rec.path, (cur) => (cur ? { ...cur, branch: here } : null));
       }
       try {
         const pushed = await pushFile(io, {
@@ -1013,11 +1072,25 @@ async function flush() {
         // dirty; only base/sha advance (afterPushRecord decides)
         await dbUpdate(rec.path, (cur) => afterPushRecord(cur ?? rec, pushed, rec.rev));
         status.lastSyncAt = new Date().toISOString();
-        status.lastError = null;
+        if (stopped.size === 0) status.lastError = null;
       } catch (e) {
         if (e instanceof ConflictError) {
           status.conflicts++;
           continue; // stays dirty; next flush retries the merge
+        }
+        if (e instanceof ForbiddenError || e instanceof NameGuardError) {
+          // REFUSED (2.0, ENG 2 / L2-8): retrying can never help. Kept so the
+          // person can see what did not save, but it stops overriding reads,
+          // and the pass goes on to the next record. An edit made while the
+          // push was in flight is newer data and gets its own try.
+          /** @type {"forbidden" | "name"} */
+          const reason = e instanceof NameGuardError ? "name" : "forbidden";
+          await dbUpdate(rec.path, (cur) =>
+            cur && cur.dirty && cur.rev === rec.rev
+              ? { ...cur, refused: { reason, at: Date.now() } }
+              : null,
+          );
+          continue;
         }
         // network/auth failure — stop, everything stays queued, and SAY WHY
         // (A5). THREE states, not two (2026-08-22). A 404 on a write means
@@ -1032,7 +1105,7 @@ async function flush() {
         // is the one instruction that can never work, so it gets its own line.
         const msg = e instanceof Error ? e.message : String(e);
         status.lastError = writeErrorMessage(msg);
-        break;
+        stopped.add(lane);
       }
     }
   } finally {
@@ -1049,15 +1122,93 @@ async function flush() {
  * @returns {Promise<number>} how many were dropped
  */
 export async function discardMismatched() {
-  const here = dataBranch();
+  const here = stampHere();
   const all = await dbGetAll();
   let n = 0;
   for (const rec of all) {
-    if (!rec.dirty || rec.branch === undefined || rec.branch === here) continue;
+    if (!rec.dirty || rec.branch === undefined || replaysHere(rec.branch, here)) continue;
     await dbDelete(rec.path);
     n++;
   }
   status.mismatched = 0;
   await recount();
   return n;
+}
+
+/**
+ * FIRST BOOT ON SUPABASE (2.0, plan section 5): every clean record not
+ * stamped with this install's project is a GitHub-era copy, and goes. Queued
+ * (dirty) records stay, to replay or be discarded on the person's word.
+ * Idempotent, so it runs on every boot; on GitHub it does nothing.
+ * @returns {Promise<number>} records removed
+ */
+export async function purgeForeignRecords() {
+  if (backend().name !== "supabase") return 0;
+  const here = stampHere();
+  let removed = 0;
+  try {
+    for (const rec of await dbGetAll()) {
+      if (rec.dirty || rec.branch === here) continue;
+      await dbDeleteIfClean(rec.path);
+      fileCheckedAt.delete(rec.path);
+      removed++;
+    }
+  } catch {
+    // storage unavailable: nothing cached to leak either
+  }
+  if (removed > 0) emit();
+  return removed;
+}
+
+/**
+ * THE ACCOUNT WAS REVOKED (2.0, plan section 5): the phone forgets
+ * everything, queued writes included. Called by the sign-in layer when the
+ * server says this account no longer exists or may not read.
+ * @returns {Promise<number>} records removed
+ */
+export async function purgeEverything() {
+  let removed = 0;
+  for (const rec of await dbGetAll()) {
+    await dbDelete(rec.path);
+    removed++;
+  }
+  resetFileChecks();
+  freshDirs.clear();
+  stalledDirs.clear();
+  await recount();
+  return removed;
+}
+
+/** What a refused record says in Settings, Sync (2.0, plan section 5). */
+export const REFUSED_REASON = {
+  forbidden: "not allowed",
+  name: "would show a name to another house",
+};
+
+/**
+ * Every queued write the server refused, for the Settings list.
+ * @returns {Promise<{ path: string, reason: "forbidden" | "name", at: number }[]>}
+ */
+export async function refusedRecords() {
+  /** @type {{ path: string, reason: "forbidden" | "name", at: number }[]} */
+  const out = [];
+  for (const r of await dbGetAll()) {
+    if (r.dirty && r.refused) out.push({ path: r.path, reason: r.refused.reason, at: r.refused.at });
+  }
+  return out.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * DISCARD: drop one refused write, on the person's word. The file then reads
+ * as the server has it, fetched fresh.
+ * @param {string} path
+ * @returns {Promise<boolean>} false when the record was not a refused one
+ */
+export async function discardRefused(path) {
+  const rec = await dbGet(path);
+  if (!rec?.dirty || !rec.refused) return false;
+  await dbDelete(path);
+  fileCheckedAt.delete(path);
+  await recount();
+  return true;
 }

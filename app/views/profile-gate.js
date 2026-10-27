@@ -1,7 +1,7 @@
 import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 import { readProfiles, patchProfiles, writeTargetsOf } from "../lib/store.js";
-import { getToken } from "../lib/github.js";
+import { getToken } from "../lib/backend/github-adapter.js";
 import {
   targetsFromQuestionnaire,
   avoidTermsFromAllergens,

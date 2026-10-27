@@ -9,7 +9,7 @@ import {
   dataRepoOverridden,
   dataBranch,
   readFile,
-} from "../lib/github.js";
+} from "../lib/backend/github-adapter.js";
 import { buyDayOf, formatSyncTime } from "../lib/dates.js";
 import {
   activeProfile,

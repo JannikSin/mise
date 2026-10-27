@@ -4,7 +4,7 @@
 // If WORKER_URL's origin changes, the CSP connect-src in index.html must
 // change with it.
 
-import { getToken, DATA_REPO, dataRepoOverridden, dataBranch } from "./github.js";
+import { getToken, DATA_REPO, dataRepoOverridden, dataBranch } from "./backend/github-adapter.js";
 import { withCartSend, withSentUpcs } from "./shopping.js";
 import { narrationWav } from "./scan.js";
 

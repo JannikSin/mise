@@ -2,7 +2,7 @@ import { html } from "htm/preact";
 import { MoneyCard } from "./money.js";
 import { readPantryNote, frameTimes, mergeFridgeWalk, outMatches } from "../lib/scan.js";
 import { Fragment } from "preact";
-import { tokenBroken } from "../lib/github.js";
+import { tokenBroken } from "../lib/backend.js";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import {
   krogerCartAdd,

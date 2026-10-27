@@ -28,6 +28,10 @@ test("sw.js SHELL precache matches the real app files exactly", () => {
     ...readdirSync(root + "app/views")
       .filter((f) => f.endsWith(".js"))
       .map((f) => `app/views/${f}`),
+    // the storage seam's adapters (Mise 2.0, plan section 5)
+    ...readdirSync(root + "app/lib/backend")
+      .filter((f) => f.endsWith(".js"))
+      .map((f) => `app/lib/backend/${f}`),
   ].sort();
 
   assert.deepEqual(listed, actual);
