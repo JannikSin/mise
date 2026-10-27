@@ -6,6 +6,8 @@ import {
   targetsFromQuestionnaire,
   avoidTermsFromAllergens,
   outsideSafeBand,
+  ALLERGEN_EXCEPTIONS,
+  allergenExceptionsOf,
 } from "../lib/targets.js";
 /** @typedef {import("../lib/targets.js").mergeProfileAnswers} MergeFn */
 import { localIsoDate } from "../lib/dates.js";
@@ -61,6 +63,15 @@ const ALLERGEN_PRESETS = [
   "fish",
   "sesame",
 ];
+/**
+ * Plain words for the terms a person may clear from a chip (P8, David
+ * 2026-10-27). Keys must match ALLERGEN_EXCEPTIONS in app/lib/targets.js.
+ * @type {Record<string, string>}
+ */
+const EXCEPTION_WORDS = {
+  "pine nut": "pine nuts",
+  pesto: "pesto",
+};
 /** Trackable kitchen equipment (survey-v2 Q16); absent from profile = has everything. */
 const EQUIPMENT = ["blender", "oven", "rice cooker", "food processor", "freezer"];
 /** Chip grid for cuisine loves/avoids (survey-v2 Q14) — the bank's common cuisines. */
@@ -129,6 +140,10 @@ export function ProfileGateView({
   );
   const [allergens, setAllergens] = useState(/** @type {string[]} */ ([]));
   const [allergensFreeText, setAllergensFreeText] = useState("");
+  // terms this person cleared from a chip for themselves (P8, 2026-10-27)
+  const [allergenExceptions, setAllergenExceptions] = useState(
+    /** @type {Record<string, string[]>} */ ({}),
+  );
   const [skipBreakfast, setSkipBreakfast] = useState(false);
   const [smoothie, setSmoothie] = useState(true);
   const [snackAppetite, setSnackAppetite] = useState(/** @type {"grazer" | "meals"} */ ("grazer"));
@@ -302,9 +317,11 @@ export function ProfileGateView({
     if (t.diet) setDiet(t.diet);
     const algs = Array.isArray(t.allergens) ? t.allergens : [];
     setAllergens(algs);
+    const exc = allergenExceptionsOf(t.allergenExceptions);
+    setAllergenExceptions(exc);
     // avoid terms the allergens do not already imply ride in the free text,
     // so a re-save keeps them (a housemate's typed "tempeh, pesto")
-    const implied = new Set(avoidTermsFromAllergens(algs, ""));
+    const implied = new Set(avoidTermsFromAllergens(algs, "", exc));
     setAllergensFreeText(
       (Array.isArray(t.avoidIngredients) ? t.avoidIngredients : [])
         .filter((/** @type {string} */ a) => !implied.has(a))
@@ -360,6 +377,7 @@ export function ProfileGateView({
         diet,
         allergens,
         allergensFreeText,
+        allergenExceptions,
         skipBreakfast,
         smoothie,
         snackAppetite,
@@ -750,6 +768,42 @@ export function ProfileGateView({
               `,
             )}
           </div>
+          ${allergens
+            .filter((a) => Object.hasOwn(ALLERGEN_EXCEPTIONS, a))
+            .map((a) => {
+              const cleared = allergenExceptions[a] ?? [];
+              return html`
+                <div class="allergen-except" key=${"x-" + a}>
+                  <p class="hint">
+                    ${a} also keeps these off your plate. Tap one that is fine for you:
+                  </p>
+                  <div class="chips wrapchips" role="group" aria-label=${`${a}: also kept off`}>
+                    ${(ALLERGEN_EXCEPTIONS[a] ?? []).map((term) => {
+                      const off = !cleared.includes(term);
+                      return html`
+                        <button
+                          class="chip ${off ? "on" : ""}"
+                          key=${term}
+                          aria-pressed=${off}
+                          onClick=${() =>
+                            setAllergenExceptions({
+                              ...allergenExceptions,
+                              [a]: toggleIn(cleared, term),
+                            })}
+                        >
+                          ${off ? "no " : ""}${EXCEPTION_WORDS[term] ?? term}${off ? "" : " ok"}
+                        </button>
+                      `;
+                    })}
+                  </div>
+                  <p class="hint" hidden=${!cleared.includes("pesto")}>
+                    Pesto is fine only when it has no nuts but pine nuts. Check the jar: some store
+                    pesto uses cashews or walnuts. A recipe that names any other nut is still kept
+                    off your plate.
+                  </p>
+                </div>
+              `;
+            })}
           <input
             aria-label="Anything else to avoid, comma separated"
             placeholder="anything else? e.g. cilantro, mushrooms"
