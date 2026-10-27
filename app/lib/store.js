@@ -705,7 +705,16 @@ async function revalidateFile(scopedPath) {
   try {
     const remote = await backend().read(scopedPath);
     fileCheckedAt.set(scopedPath, { at: Date.now(), missing: !remote });
-    if (!remote) return;
+    if (!remote) {
+      // HIDDEN NOW (2.0, Red Team 2): on Supabase a row the policies no
+      // longer show reads as null, so the clean copy goes; a queued edit
+      // stays. On GitHub a missing file keeps 1.95's behaviour.
+      if (rec && !rec.dirty && backend().name === "supabase") {
+        await dbDeleteIfClean(scopedPath);
+        emit();
+      }
+      return;
+    }
     if (rec && remote.sha === rec.sha && rec.fingerprint === remote.fingerprint) return;
     await cacheRemote(scopedPath, remote.data, remote.sha, remote.fingerprint);
     emit();
