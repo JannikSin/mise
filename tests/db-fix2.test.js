@@ -388,3 +388,18 @@ test("N7: the restore CLI needs --admins and refuses a tampered snapshot, naming
   assert.equal(existsSync(path.join(dir, "r.sql")), false, "no script written");
   rmSync(dir, { recursive: true, force: true });
 });
+
+// ---- item 7 (N8): mint_invite caps the expiry server side
+
+test("N8 probe W: an invite valid for years is forbidden; up to 30 days is ok", { skip: SKIP }, async () => {
+  const { db, uid } = await world();
+  /** @param {string} code @param {string} until a SQL timestamptz expression */
+  const mint = async (code, until) =>
+    asRole(db, "service_role", async () => (await db.query(`select svc.mint_invite($1, $2, 'house-w', ${until}) r`, [uid["mate-1"], code])).rows[0].r);
+  assert.equal(await mint("w-far", "'9999-01-01'::timestamptz"), "forbidden");
+  assert.equal(await mint("w-31", "now() + interval '31 days'"), "forbidden");
+  assert.equal(await mint("w-30", "now() + interval '30 days' - interval '1 minute'"), "ok");
+  assert.equal(await mint("w-7", "now() + interval '7 days'"), "ok");
+  assert.equal((await db.query("select count(*)::int n from public.invites where code_hash in ('w-far', 'w-31')")).rows[0].n, 0, "nothing stored");
+  await db.close();
+});

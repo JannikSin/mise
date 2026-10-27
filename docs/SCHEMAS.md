@@ -2472,7 +2472,8 @@ has no profile. service_role only: `svc.whoami(p_sub)` `{ slug, admin, houses }`
 `svc.cron_inputs(p_week, p_with_shopping)` `{ profile, house, plan, events,
 shopping }` for the root profile; `svc.mint_invite(p_sub, p_code_hash,
 p_host_house, p_expires_at)` `'ok'` for the admin or an entitled member of that
-house, else `'forbidden'`; `svc.invite_get(p_code_hash)` `{ host_house,
+house with an expiry in the future and at most 30 days out (fix loop 2, N8),
+else `'forbidden'`; `svc.invite_get(p_code_hash)` `{ host_house,
 expires_at, used_at, claimed, status_until }`; `svc.guest_login_add(p_profile,
 p_name_key, p_salt, p_hash)` boolean; `svc.guest_login_row(p_name_key)` `{ slug,
 salt, hash }`; `svc.guest_view(p_slug)` for a live grant only, `{ profile_id,
