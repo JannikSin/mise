@@ -481,3 +481,47 @@ test("I3: add-member's family must be one of the person's houses; the error name
     );
   }
 });
+
+// ---- item 9 (E9): the verify gate can fail, and a failed verify commits nothing
+
+/**
+ * A stand-in where a trigger tampers with one row as the migration writes it
+ * (it fires after the real before-insert triggers, by name order).
+ * @param {string} table @param {string} key @param {string} id @param {string} change plpgsql assignment to `new`
+ */
+async function tampered(table, key, id, change) {
+  const db = await freshDb();
+  await db.exec(`create function public.tamper() returns trigger language plpgsql as $$ begin ${change}; return new; end $$;
+    create trigger zz_tamper before insert on public.${table} for each row when (new.${key} = '${id}') execute function public.tamper();`);
+  return db;
+}
+
+/** @param {any} db */
+async function nothingCommitted(db) {
+  for (const t of ["public.docs", "public.recipes", "public.plates", "public.profiles", "public.households", "private.guard_terms", "private.settings"]) {
+    assert.equal((await db.query(`select count(*)::int n from ${t}`)).rows[0].n, 0, `${t} rolled back`);
+  }
+}
+
+for (const [name, table, key, id, change, check] of [
+  ["a doc's legacy_sha", "docs", "path", "shopping.json", "new.legacy_sha := repeat('0', 40)", "docs equal their files"],
+  ["a doc's data", "docs", "path", "shopping.json", `new.data := new.data || '{"x":1}'`, "docs equal their files"],
+  ["a bank recipe's legacy_sha", "recipes", "id", "soup", "new.legacy_sha := repeat('0', 40)", "bank equals its files"],
+  ["a canonical targets row's legacy_sha (the plate's sha)", "docs", "path", "profiles/mate-1/profile/targets.json", "new.legacy_sha := repeat('0', 40)", "plate sha is the canonical file's"],
+]) {
+  test(`E9: tampering with ${name} inside the transaction fails verify and rolls everything back`, { skip: SKIP }, async () => {
+    const dir = writeSnapshot();
+    const plan = planMigration(dir, PEOPLE);
+    const db = await tampered(table, key, id, change);
+    await assert.rejects(
+      () => runMigration(db, plan),
+      (e) => e instanceof GateError && e.gate === "verify" && e.message.includes(check),
+    );
+    await nothingCommitted(db);
+    // the same run without the tamper commits (the control is the tamper, nothing else)
+    await db.exec("drop trigger zz_tamper on public." + table);
+    assert.equal((await runMigration(db, plan)).committed, true);
+    await db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+}
