@@ -9,7 +9,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { freshDb, asUser, errorOf, SKIP } from "./_pglite.js";
+import { freshDb, asUser, asRole, errorOf, SKIP } from "./_pglite.js";
 import { world } from "./_world.js";
 import { PEOPLE, writeSnapshot } from "./_snapshot.js";
 import { planMigration, runMigration, GateError, gitBlobSha, committedBlobs, checkConnection } from "../tools/migrate-to-supabase.mjs";
@@ -392,4 +392,32 @@ test("E4 CLI: the help says rehearse with --rollback first; a real target needs 
   }
   rmSync(tmp, { recursive: true, force: true });
   rmSync(dir, { recursive: true, force: true });
+});
+
+// ---- item 6 (E6): docs_before pins the owner against the writers that can reach the columns
+
+test("E6: an update by the migration role or by svc cannot move a row's owner, house, path, kind or rev", { skip: SKIP }, async () => {
+  const { db, pid, house } = await world();
+  const p = "profiles/mate-1/plans/2026-W46.json";
+  await db.query("insert into public.docs (path, data) values ($1, '{}'::jsonb)", [p]);
+  const before = (await db.query("select profile_id, household_id, kind, rev, doc_id from public.docs where path = $1", [p])).rows[0];
+  assert.equal(before.profile_id, pid["mate-1"]);
+  const move = `update public.docs set data = '{"week":"x"}', profile_id = $2, household_id = null, kind = 'global', rev = 99 where path = $1`;
+  // the migration's connection (session-less superuser)
+  await db.query(move, [p, pid["kin-1"]]);
+  // the Worker's service_role (svc functions run as their owner; the role itself holds table grants on Supabase)
+  await asRole(db, "service_role", () => db.query(move, [p, pid["kin-2"]]));
+  const after = (await db.query("select profile_id, household_id, kind, rev, doc_id, data from public.docs where path = $1", [p])).rows[0];
+  assert.equal(after.profile_id, pid["mate-1"], "profile_id pinned");
+  assert.equal(after.household_id, null);
+  assert.equal(after.kind, "plan");
+  assert.equal(Number(after.rev), 3, "rev bumps by one per write, whatever was sent");
+  assert.equal(after.doc_id, before.doc_id);
+  assert.deepEqual(after.data, { week: "x" });
+  // a house row keeps its house
+  const h = "households/house-w/pantry-notes.json";
+  await db.query("insert into public.docs (path, data) values ($1, '{}'::jsonb)", [h]);
+  await db.query("update public.docs set household_id = $2, profile_id = null where path = $1", [h, house["house-f"]]);
+  assert.equal((await db.query("select household_id from public.docs where path = $1", [h])).rows[0].household_id, house["house-w"]);
+  await db.close();
 });
