@@ -2462,7 +2462,13 @@ included; full profiles for the admin only):
 **Writes** go through `public.write_doc(path, data, expected_rev)`, the only
 door: `authenticated` holds select on `docs` but no insert or update (fix loop
 3, E3), and `write_doc` runs as its owner after its own `can_write` check. It returns
-the new `rev`. `expected_rev` null = create. Errors: `P0409` conflict (stale
+the new `rev`. Reads are column grants (fix loop 3, E7): a client may select
+`docs (path, doc_id, kind, data, rev, legacy_sha, updated_at)`, `plates (data,
+rev, content_hash, legacy_sha)` and `recipes (id, doc_id, data, staging, rev,
+legacy_sha, updated_at)`, never `profile_id`, `household_id` or `updated_by`
+(and so never `*`); RLS still picks the rows. The weekly probe
+(`tools/probe-reach.mjs`) judges ownership from the path and plates by count,
+and fails when a uuid column is readable or the docs table is not. `expected_rev` null = create. Errors: `P0409` conflict (stale
 rev, or a create over an existing row), `P0403` forbidden (the same answer for a
 hidden row, a missing row and a bad path), `P0422` name guard. `profiles.json`
 goes to the roster: `public.roster()` returns `{ profiles: [...], rev }` in the

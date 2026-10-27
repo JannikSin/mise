@@ -106,7 +106,7 @@ async function reachViolations(db, uid, people = /** @type {readonly string[]} *
       const seen = (await db.query("select path from public.docs")).rows.map((/** @type {any} */ r) => r.path);
       diff(`${me} reads docs`, docs.filter((d) => canRead(me, d)).map((d) => d.path), seen);
 
-      const plates = (await db.query("select profile_id from public.plates")).rows.length;
+      const plates = (await db.query("select data from public.plates")).rows.length;
       const viaRpc = [];
       for (const owner of plateOwners) {
         if ((await db.query("select public.plate_for($1) as p", [owner])).rows[0].p) viaRpc.push(owner);

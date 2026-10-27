@@ -88,10 +88,11 @@ test("claim_guest spends the invite once and makes the plate", { skip: SKIP }, a
   assert.equal(plate.diet, "vegetarian");
   assert.equal("body" in plate, false);
   // the shared house sees the new guest's plate; the family house does not
-  const seen = await asUser(db, uid["mate-1"], () => db.query("select count(*)::int n from public.plates where profile_id = $1", [id]));
-  assert.equal(seen.rows[0].n, 1);
-  const unseen = await asUser(db, uid["kin-1"], () => db.query("select count(*)::int n from public.plates where profile_id = $1", [id]));
-  assert.equal(unseen.rows[0].n, 0);
+  // (through plate_for: a client cannot read plates.profile_id, fix loop 3 E7)
+  const seen = await asUser(db, uid["mate-1"], () => db.query("select public.plate_for('guest-n') p"));
+  assert.equal(seen.rows[0].p?.data?.diet, "vegetarian");
+  const unseen = await asUser(db, uid["kin-1"], () => db.query("select public.plate_for('guest-n') p"));
+  assert.equal(unseen.rows[0].p, null);
   // spent, expired and taken slugs refuse
   assert.equal((await asRole(db, "service_role", () => errorOf(() => db.query(q, ["h1", "guest-m", "{}", t, "2999-01-01"]))))?.code, "P0403");
   assert.equal((await asRole(db, "service_role", () => errorOf(() => db.query(q, ["old", "guest-m", "{}", t, "2999-01-01"]))))?.code, "P0403");

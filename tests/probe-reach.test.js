@@ -40,9 +40,9 @@ test("shared-house, family-house and no-house probes all pass on the real polici
   }
   // the shared-house probe does see something: its house and its housemates' plates
   const r = sqlReader(db, uid["probe-0a0a0a"] ?? "");
-  const docs = await r.select("docs");
-  assert.ok(Array.isArray(docs) && docs.some((d) => d.household_id));
-  const plates = await r.select("plates");
+  const docs = await r.select("docs", "path");
+  assert.ok(Array.isArray(docs) && docs.some((d) => d.path.startsWith("households/")));
+  const plates = await r.select("plates", "data");
   assert.ok(Array.isArray(plates) && plates.length === 3, "owner, housemate, live guest");
   await db.close();
 });
@@ -53,6 +53,10 @@ const LEAKS = [
   ["every plate", `create policy leak on public.plates for select to authenticated using (true)`, "plates only of housemates and live guests"],
   ["people tables", `grant select on public.profiles to authenticated; create policy leak on public.profiles for select to authenticated using (true)`, "zero rows from the people tables"],
   ["staging", `create policy leak on public.recipes for select to authenticated using (true)`, "no staging recipes"],
+  // fix loop 3 E7
+  ["a uuid column", `grant select (profile_id) on public.docs to authenticated`, "no profile or account uuids"],
+  ["the plates owner column", `grant select (profile_id) on public.plates to authenticated`, "no profile or account uuids"],
+  ["docs unreadable (every docs check would pass on nothing)", `revoke select on public.docs from authenticated`, "docs readable"],
 ];
 
 for (const [name, sql, check] of LEAKS) {
@@ -61,6 +65,23 @@ for (const [name, sql, check] of LEAKS) {
     await db.exec(sql);
     const failed = (await run(db, uid, "probe-0a0a0a")).filter((c) => !c.ok).map((c) => c.check);
     assert.ok(failed.includes(check), `${name}: failed ${JSON.stringify(failed)}`);
+    await db.close();
+  });
+}
+
+// fix loop 3 E7: ownership is read from the path, so leaks of a person's food
+// files, by slug path and by the root profile's root path, must be caught too
+// (run as the no-house probe, which may read neither)
+for (const [name, sql] of [
+  ["everyone's plans by slug path", `create policy leak on public.docs for select to authenticated using (path like 'profiles/%/plans/%')`],
+  ["the root profile's root files", `create policy leak on public.docs for select to authenticated using (path like 'plans/%' or path = 'shopping.json')`],
+]) {
+  test(`negative control: the probe catches a leak (${name})`, { skip: SKIP }, async () => {
+    const { db, uid } = await migrated();
+    assert.deepEqual((await run(db, uid, "probe-0c0c0c")).filter((c) => !c.ok), [], "clean before the leak");
+    await db.exec(sql);
+    const failed = (await run(db, uid, "probe-0c0c0c")).filter((c) => !c.ok).map((c) => c.check);
+    assert.ok(failed.includes("food files only of housemates"), `${name}: failed ${JSON.stringify(failed)}`);
     await db.close();
   });
 }

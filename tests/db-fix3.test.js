@@ -221,12 +221,13 @@ const P1 = [
 
 test("E3 probe P1, shape 1: direct insert and update are not granted; every probe answers alike", { skip: SKIP }, async () => {
   const { db, uid } = await world();
-  for (const [priv, want] of [["SELECT", true], ["INSERT", false], ["UPDATE", false], ["DELETE", false]]) {
+  for (const [priv, want] of [["INSERT", false], ["UPDATE", false], ["DELETE", false]]) {
     assert.equal((await db.query("select has_table_privilege('authenticated', 'public.docs', $1) h", [priv])).rows[0].h, want, priv);
   }
   for (const [col, priv] of [["path", "INSERT"], ["data", "INSERT"], ["data", "UPDATE"]]) {
     assert.equal((await db.query("select has_column_privilege('authenticated', 'public.docs', $1, $2) h", [col, priv])).rows[0].h, false, `${priv} (${col})`);
   }
+  assert.equal((await db.query("select has_column_privilege('authenticated', 'public.docs', 'data', 'SELECT') h")).rows[0].h, true, "reads stay");
   const codes = [];
   for (const [p, data] of P1) {
     const e = await asUser(db, uid["kin-1"], () => errorOf(() => db.query("insert into public.docs (path, data) values ($1, $2)", [p, JSON.stringify(data)])));
@@ -419,5 +420,48 @@ test("E6: an update by the migration role or by svc cannot move a row's owner, h
   await db.query("insert into public.docs (path, data) values ($1, '{}'::jsonb)", [h]);
   await db.query("update public.docs set household_id = $2, profile_id = null where path = $1", [h, house["house-f"]]);
   assert.equal((await db.query("select household_id from public.docs where path = $1", [h])).rows[0].household_id, house["house-w"]);
+  await db.close();
+});
+
+// ---- item 7 (E7): housemates read rows, never the profile or account uuids on them
+
+const ADAPTER = fileURLToPath(new URL("../app/lib/backend/supabase-adapter.js", import.meta.url));
+
+/** Every (table, column list) the adapter selects, read from its source (each quoted string inside a .select()). */
+function adapterSelects() {
+  const src = readFileSync(ADAPTER, "utf8");
+  /** @type {[string, string][]} */
+  const out = [];
+  for (const m of src.matchAll(/\.from\("(\w+)"\)\s*\.select\(([^)]*)\)/g)) {
+    for (const q of String(m[2]).matchAll(/"([^"]*)"/g)) out.push([String(m[1]), String(q[1])]);
+  }
+  return out;
+}
+
+test("E7: a housemate cannot select profile_id, household_id or updated_by (nor *), and RLS still picks the rows", { skip: SKIP }, async () => {
+  const { db, uid } = await world();
+  await db.query("insert into public.docs (path, data) values ('households/house-w/pantry-notes.json', '{}'::jsonb), ('profiles/owner-1/plans/2026-W46.json', '{}'::jsonb)");
+  for (const [t, c] of [["docs", "profile_id"], ["docs", "household_id"], ["docs", "updated_by"], ["docs", "*"], ["plates", "profile_id"], ["plates", "*"], ["recipes", "updated_by"], ["recipes", "*"]]) {
+    const e = await asUser(db, uid["mate-1"], () => errorOf(() => db.query(`select ${c} from public.${t}`)));
+    assert.equal(e?.code, "42501", `${t}.${c}`);
+  }
+  // the rows a policy decides on those hidden columns are still the right ones
+  const paths = async (/** @type {string} */ who) => (await asUser(db, uid[who], () => db.query("select path from public.docs order by 1"))).rows.map((/** @type {any} */ r) => r.path);
+  assert.ok((await paths("mate-1")).includes("households/house-w/pantry-notes.json"), "a house-w member reads house-w");
+  assert.ok((await paths("mate-1")).includes("plans/2026-W46.json"), "and a housemate's plan (the root profile's path)");
+  assert.equal((await paths("kin-1")).some((p) => p.startsWith("households/house-w/")), false, "kin-1 reads none of house-w");
+  assert.ok((await asUser(db, uid["mate-1"], () => db.query("select data from public.plates"))).rows.length > 0, "plates rows still readable, without their owner");
+  await db.close();
+});
+
+test("E7: every column list the adapter selects is granted, none names a uuid column, and each runs as a member", { skip: SKIP }, async () => {
+  const sel = adapterSelects();
+  assert.ok(sel.length >= 4, `found ${sel.length} selects in the adapter`);
+  const { db, uid } = await world();
+  for (const [t, cols] of sel) {
+    assert.ok(!/\b(profile_id|household_id|updated_by)\b|\*/.test(cols), `${t}: ${cols}`);
+    const e = await asUser(db, uid["mate-1"], () => errorOf(() => db.query(`select ${cols} from public.${t}`)));
+    assert.equal(e, null, `${t}: ${cols}`);
+  }
   await db.close();
 });
