@@ -2493,7 +2493,12 @@ imported. Gates, each refusing before any write: every file classified, the
 admin flag in profiles.json equal to people.local.json's admin, no guarded
 term or listed person name in any bank or staging recipe (the scrub), no
 guarded term in a file or plate a hidden-from house can read, and the freeze
-marker (`freeze.json`) on `--final`.
+marker (`freeze.json`) on `--final`. Before the scrub, the preflight prints how
+many bank recipes each guard term and listed name hits, labelled by field
+(`guardTerms[i]`, `people[i].names[j]`), never the term or a recipe, and stops
+with gate `term-load` when a term hits more than 5% of the bank and more than
+one recipe (a common word as well as a name); `--reviewed-term-load` goes on
+after David has looked (fix loop 2, N5).
 
 **Backup, restore and rollback** (G2). One snapshot format, `mise-backup/1`
 (`tools/db-snapshot.mjs`): a single JSON document `{ format, taken_at,

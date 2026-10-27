@@ -9,6 +9,8 @@ import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { freshDb, errorOf, asUser, asRole, SKIP } from "./_pglite.js";
 import { world } from "./_world.js";
 import { PEOPLE, writeSnapshot } from "./_snapshot.js";
@@ -250,5 +252,66 @@ test("C3: the workflow's own check passes a real snapshot, prints counts only, a
   const noTable = structuredClone(snap);
   delete noTable.tables["private.guard_terms"];
   for (const bad of ["not json", { ...snap, format: "other" }, noDocs, noTable]) assert.notEqual(run(bad).status, 0);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// ---- item 5 (N5): per-term bank counts, and a stop for review above 5%
+
+/** A bank of 20 recipes; `named` of them carry the word. @param {number} named @param {string} word */
+function bankWith(named, word) {
+  return writeSnapshot((f) => {
+    for (let i = 0; i < 17; i++) {
+      f[`recipes/filler-${i}.json`] = { id: `filler-${i}`, name: i < named ? `Filler with ${word}s` : `Filler ${i}` };
+    }
+  });
+}
+
+test("N5: a food-word surname hitting more than 5% of the bank stops for review, counts by field only", () => {
+  const people = structuredClone(PEOPLE);
+  people.guardTerms.push({ term: "Bean", hiddenFrom: "house-w" });
+  const dir = bankWith(2, "bean"); // 2 of 20 = 10%
+  let err = /** @type {any} */ (null);
+  try {
+    planMigration(dir, people);
+  } catch (e) {
+    err = e;
+  }
+  assert.ok(err instanceof GateError && err.gate === "term-load", String(err));
+  assert.deepEqual(err.paths, ["guardTerms[0]: 0 of 20 bank recipe(s)", "guardTerms[1]: 0 of 20 bank recipe(s)", "guardTerms[2]: 2 of 20 bank recipe(s)", "people[2].names[0]: 0 of 20 bank recipe(s)"]);
+  for (const s of [err.message, ...err.paths]) {
+    assert.doesNotMatch(s, /bean|filler/i, "never the term or a recipe");
+  }
+  // after review the run goes on to the next gate (the bank still carries the word)
+  assert.throws(() => planMigration(dir, people, { reviewedTermLoad: true }), (e) => e instanceof GateError && e.gate === "scrub");
+});
+
+test("N5: a name in the people list counts too; at or under 5% the preflight does not stop for review", () => {
+  const people = structuredClone(PEOPLE);
+  /** @type {any} */ (people.people.find((p) => p.slug === "kin-1")).names = ["Rice"];
+  assert.throws(() => planMigration(bankWith(3, "rice"), people), (e) => e instanceof GateError && e.gate === "term-load");
+  // 1 of 20 is exactly 5% (and one recipe is a leak, not a common word): no review stop, the scrub gate still refuses the named recipe
+  assert.throws(() => planMigration(bankWith(1, "rice"), people), (e) => e instanceof GateError && e.gate === "scrub");
+  // a clean bank: the plan carries the counts
+  const plan = planMigration(writeSnapshot(), PEOPLE);
+  assert.deepEqual(plan.termLoad.map((t) => t.recipes), [0, 0, 0]);
+  assert.deepEqual(plan.termLoad.map((t) => t.field), ["guardTerms[0]", "guardTerms[1]", "people[2].names[0]"]);
+});
+
+test("N5: the preflight prints the per-term counts, and on a stop prints them without --show-paths, never a term", () => {
+  const tool = fileURLToPath(new URL("../tools/migrate-to-supabase.mjs", import.meta.url));
+  const dir = mkdtempSync(path.join(tmpdir(), "mise-n5-"));
+  const peopleFile = path.join(dir, "people.local.json");
+  writeFileSync(peopleFile, JSON.stringify(PEOPLE));
+  const ok = spawnSync(process.execPath, [tool, "--snapshot", writeSnapshot(), "--people", peopleFile, "--dry-run"], { encoding: "utf8" });
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stdout, /bank recipes hit per term: guardTerms\[0\] 0, guardTerms\[1\] 0, people\[2\]\.names\[0\] 0/);
+  const p2 = structuredClone(PEOPLE);
+  p2.guardTerms.push({ term: "Bean", hiddenFrom: "house-w" });
+  writeFileSync(peopleFile, JSON.stringify(p2));
+  const stop = spawnSync(process.execPath, [tool, "--snapshot", bankWith(2, "bean"), "--people", peopleFile, "--dry-run"], { encoding: "utf8" });
+  assert.equal(stop.status, 1);
+  assert.match(stop.stderr, /REFUSED term-load/);
+  assert.match(stop.stderr, /guardTerms\[2\]: 2 of 20 bank recipe\(s\)/);
+  assert.doesNotMatch(stop.stdout + stop.stderr, /bean|filler/i);
   rmSync(dir, { recursive: true, force: true });
 });

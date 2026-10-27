@@ -55,6 +55,8 @@ export const SKIP_RULES = /** @type {[string, RegExp][]} */ ([
 ]);
 export const BANK = /^(recipes|recipes-staging)\/([a-z0-9][a-z0-9-]{0,150})\.json$/;
 export const ROOT_SHARED = /^(prices|pins)\.json$/;
+/** fix loop 2 N5: a term hitting more than this share of the bank stops for review. */
+export const TERM_LOAD_SHARE = 0.05;
 export const DISPLAY_DROPPED = ["id", "household", "family", "admin", "passkey", "adminKey"];
 
 /** @param {unknown} v @returns {unknown} keys sorted, for a stable hash */
@@ -116,7 +118,7 @@ export { GateError };
  * database. Throws GateError naming the gate; never writes.
  * @param {string} snapshotDir
  * @param {any} people parsed people.local.json
- * @param {{ final?: boolean, freezeFile?: string }} [opts]
+ * @param {{ final?: boolean, freezeFile?: string, reviewedTermLoad?: boolean }} [opts]
  */
 export function planMigration(snapshotDir, people, opts = {}) {
   const files = walk(snapshotDir);
@@ -259,6 +261,28 @@ export function planMigration(snapshotDir, people, opts = {}) {
     return true;
   });
 
+  // fix loop 2 N5: how many bank recipes each term and name hits (counts
+  // only, labelled by field, never the term or the recipe). A term that hits
+  // more than 5% of the bank is a common word as well as a name (a surname
+  // such as a food word) and would refuse most writes: stop for review. One
+  // recipe is never a common word.
+  /** @type {{ field: string, recipes: number }[]} */
+  const termLoad = [];
+  /** @param {string} field @param {string[]} words */
+  const load = (field, words) => termLoad.push({ field, recipes: recipes.filter((r) => words.some((w) => guardHits(r.data, [w], r.id) > 0)).length });
+  /** @type {any[]} */ (people.guardTerms ?? []).forEach((g, i) => load(`guardTerms[${i}]`, wordsOf(g?.term, `guardTerms[${i}].term`)));
+  list.forEach((p, i) => {
+    if (p.slug !== people.admin) /** @type {unknown[]} */ (p.names ?? []).forEach((n, j) => load(`people[${i}].names[${j}]`, wordsOf(n, `people[${i}].names[${j}]`)));
+  });
+  const wide = termLoad.filter((t) => t.recipes > 1 && t.recipes > TERM_LOAD_SHARE * recipes.length);
+  if (wide.length && !opts.reviewedTermLoad) {
+    throw new GateError(
+      "term-load",
+      `${wide.length} term(s) each hit more than ${TERM_LOAD_SHARE * 100}% of the ${recipes.length} bank recipes: a common word as well as a name; review them, then rerun with --reviewed-term-load`,
+      termLoad.map((t) => `${t.field}: ${t.recipes} of ${recipes.length} bank recipe(s)`),
+    );
+  }
+
   // the bank scrub gate (plan section 6 step 1, decision 3): no person's
   // name on any shared recipe, staging included
   const scrubTerms = [
@@ -306,7 +330,7 @@ export function planMigration(snapshotDir, people, opts = {}) {
   /** @type {Record<string, number>} */
   const kinds = {};
   for (const d of kept) kinds[d.kind] = (kinds[d.kind] ?? 0) + 1;
-  return { people, guardWords, roster: roster.profiles, recipes, docs: kept, skipped, kinds, sha256, fileCount: files.length };
+  return { people, guardWords, termLoad, roster: roster.profiles, recipes, docs: kept, skipped, kinds, sha256, fileCount: files.length };
 }
 
 /** @typedef {ReturnType<typeof planMigration>} MigrationPlan */
@@ -482,7 +506,7 @@ function parseArgs(argv) {
 async function main() {
   const a = parseArgs(process.argv.slice(2));
   if (!a.snapshot || !a.people) {
-    console.log("usage: node tools/migrate-to-supabase.mjs --snapshot <mise-data dir> --people <people.local.json> [--dry-run] [--final] [--target pglite] [--rollback] [--show-paths] [--manifest <out.json>]");
+    console.log("usage: node tools/migrate-to-supabase.mjs --snapshot <mise-data dir> --people <people.local.json> [--dry-run] [--final] [--reviewed-term-load] [--target pglite] [--rollback] [--show-paths] [--manifest <out.json>]");
     process.exit(2);
   }
   const snapshot = String(a.snapshot);
@@ -490,17 +514,23 @@ async function main() {
   const people = JSON.parse(readFileSync(String(a.people), "utf8"));
   let plan;
   try {
-    plan = planMigration(snapshot, people, { final: a.final === true, freezeFile: typeof a["freeze-file"] === "string" ? a["freeze-file"] : undefined });
+    plan = planMigration(snapshot, people, {
+      final: a.final === true,
+      freezeFile: typeof a["freeze-file"] === "string" ? a["freeze-file"] : undefined,
+      reviewedTermLoad: a["reviewed-term-load"] === true,
+    });
   } catch (e) {
     if (e instanceof GateError) {
       console.error(`REFUSED ${e.message}`);
-      if (a["show-paths"]) for (const p of e.paths) console.error(`  ${p}`);
+      // the term-load lines are counts by field, never a term: always shown
+      if (a["show-paths"] || e.gate === "term-load") for (const p of e.paths) console.error(`  ${p}`);
       process.exit(1);
     }
     throw e;
   }
   console.log(`preflight ok: ${plan.fileCount} files, ${plan.recipes.length} bank recipes, ${plan.docs.length} docs`);
   console.log(`  kinds: ${Object.entries(plan.kinds).map(([k, n]) => `${k} ${n}`).join(", ")}`);
+  console.log(`  bank recipes hit per term: ${plan.termLoad.map((t) => `${t.field} ${t.recipes}`).join(", ") || "no terms"}`);
   console.log(`  skipped: ${Object.entries(plan.skipped).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`);
   if (typeof a.manifest === "string") writeFileSync(a.manifest, JSON.stringify(plan.sha256, null, 2));
   if (a["dry-run"]) return;
