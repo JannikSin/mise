@@ -8,7 +8,7 @@
 //   - With that meta: Supabase, on the project the origin owns. The live
 //     origin gets the live project, the sandbox origin the sandbox project,
 //     any other origin none (the adapter then refuses every call).
-// The values below are placeholders. The owner commits David's project URL
+// The values below are placeholders. The owner commits the real project URL
 // and publishable key (plan section 8, step 8); a publishable key is public
 // by design, the database policies are what protect the data.
 
