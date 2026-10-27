@@ -7,7 +7,8 @@ import { readFileSync, writeFileSync, mkdtempSync, rmSync, unlinkSync, mkdirSync
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { freshDb, asUser, SKIP } from "./_pglite.js";
+import { freshDb, asUser, errorOf, SKIP } from "./_pglite.js";
+import { world } from "./_world.js";
 import { PEOPLE, writeSnapshot } from "./_snapshot.js";
 import { planMigration, runMigration, GateError, gitBlobSha, committedBlobs } from "../tools/migrate-to-supabase.mjs";
 
@@ -205,4 +206,68 @@ test("E2 probe P3: a roster rename by a member stops a re-run, and the name surv
   assert.equal((await db.query("select roster->>'name' n from public.profiles where slug = 'mate-1'")).rows[0].n, "Mate");
   await db.close();
   rmSync(dir, { recursive: true, force: true });
+});
+
+// ---- item 3 (E3): no cross-house oracle; write_doc is the only door
+
+/** Probe P1: kin-1 (house-f only) writes into house-w a word hidden from house-w, a plain word, and into a house that does not exist. */
+const P1 = [
+  ["households/house-w/pantry-notes.json", { note: "with kinword" }],
+  ["households/house-w/pantry-notes.json", { note: "with tea" }],
+  ["households/house-zz/pantry-notes.json", { note: "with tea" }],
+];
+
+test("E3 probe P1, shape 1: direct insert and update are not granted; every probe answers alike", { skip: SKIP }, async () => {
+  const { db, uid } = await world();
+  for (const [priv, want] of [["SELECT", true], ["INSERT", false], ["UPDATE", false], ["DELETE", false]]) {
+    assert.equal((await db.query("select has_table_privilege('authenticated', 'public.docs', $1) h", [priv])).rows[0].h, want, priv);
+  }
+  for (const [col, priv] of [["path", "INSERT"], ["data", "INSERT"], ["data", "UPDATE"]]) {
+    assert.equal((await db.query("select has_column_privilege('authenticated', 'public.docs', $1, $2) h", [col, priv])).rows[0].h, false, `${priv} (${col})`);
+  }
+  const codes = [];
+  for (const [p, data] of P1) {
+    const e = await asUser(db, uid["kin-1"], () => errorOf(() => db.query("insert into public.docs (path, data) values ($1, $2)", [p, JSON.stringify(data)])));
+    codes.push(e?.code);
+  }
+  assert.deepEqual(codes, ["42501", "42501", "42501"]);
+  // the writer answers alike too
+  const viaWriter = [];
+  for (const [p, data] of P1) {
+    viaWriter.push((await asUser(db, uid["kin-1"], () => errorOf(() => db.query("select public.write_doc($1, $2::jsonb, null)", [p, JSON.stringify(data)]))))?.code);
+  }
+  assert.deepEqual(viaWriter, ["P0403", "P0403", "P0403"]);
+  // a direct update of a row the member CAN write is refused too (it skipped the rev check, E7)
+  const own = await asUser(db, uid["mate-1"], () => errorOf(() => db.query("update public.docs set data = '{}' where path = 'profiles/mate-1/shopping.json'")));
+  assert.equal(own?.code, "42501");
+  // and the door still opens for the people it should: mate-1 creates and edits a house-w file
+  const r1 = (await asUser(db, uid["mate-1"], () => db.query("select public.write_doc($1, $2::jsonb, null) r", [P1[1][0], JSON.stringify(P1[1][1])]))).rows[0].r;
+  const r2 = (await asUser(db, uid["mate-1"], () => db.query("select public.write_doc($1, $2::jsonb, $3) r", [P1[1][0], '{"note":"with rice"}', r1]))).rows[0].r;
+  assert.deepEqual([Number(r1), Number(r2)], [1, 2]);
+  // the guard still speaks to a real writer
+  assert.equal((await asUser(db, uid["mate-1"], () => errorOf(() => db.query("select public.write_doc($1, $2::jsonb, $3)", [P1[0][0], JSON.stringify(P1[0][1]), r2]))))?.code, "P0422");
+  await db.close();
+});
+
+test("E3 probe P1, shape 2: should the grant come back, docs_before answers P0403 before the path or the guard speaks", { skip: SKIP }, async () => {
+  const { db, uid } = await world();
+  await db.exec("grant insert (path, data), update (data) on public.docs to authenticated");
+  const codes = [];
+  for (const [p, data] of P1) {
+    codes.push((await asUser(db, uid["kin-1"], () => errorOf(() => db.query("insert into public.docs (path, data) values ($1, $2)", [p, JSON.stringify(data)]))))?.code);
+  }
+  assert.deepEqual(codes, ["P0403", "P0403", "P0403"]);
+  // an update: RLS hides the row first; with the read and update policies
+  // loosened as well, the trigger alone still refuses it
+  const upd = "update public.docs set data = '{\"note\":\"x\"}' where path = 'households/house-w/events.json'";
+  assert.equal((await asUser(db, uid["kin-1"], () => db.query(upd))).affectedRows, 0);
+  await db.exec(`create policy loose on public.docs for update to authenticated using (true) with check (true);
+                 create policy loose_read on public.docs for select to authenticated using (true)`);
+  assert.equal((await asUser(db, uid["kin-1"], () => errorOf(() => db.query(upd))))?.code, "P0403");
+  // a writer who may write it still meets the guard
+  assert.equal((await asUser(db, uid["mate-1"], () => errorOf(() => db.query("insert into public.docs (path, data) values ($1, $2)", [P1[0][0], JSON.stringify(P1[0][1])]))))?.code, "P0422");
+  // session-less writes (the migration, svc) are exempt from the check and keep their own answers
+  assert.equal((await errorOf(() => db.query("insert into public.docs (path, data) values ($1, $2)", [P1[0][0], JSON.stringify(P1[0][1])])))?.code, "P0422");
+  assert.match((await errorOf(() => db.query("insert into public.docs (path, data) values ($1, $2)", [P1[2][0], JSON.stringify(P1[2][1])])))?.message ?? "", /mise_bad_path/);
+  await db.close();
 });

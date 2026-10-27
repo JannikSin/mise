@@ -139,16 +139,48 @@ async function reachViolations(db, uid, people = /** @type {readonly string[]} *
       const rs = (await db.query("select id from public.recipes")).rows.map((/** @type {any} */ r) => r.id);
       diff(`${me} reads bank`, recipes.filter((/** @type {any} */ r) => !r.staging || isAdmin(me)).map((/** @type {any} */ r) => r.id), rs);
 
-      // direct table update: RLS silently filters what a policy refuses
+      // fix loop 3 E3: write_doc is the only door. A direct insert or update
+      // that lands is a leak whatever the row.
+      /** @type {string[]} */
+      const direct = [];
+      for (const d of docs) {
+        await db.exec("begin");
+        try {
+          const r = await db.query("update public.docs set data = data where path = $1", [d.path]);
+          if (r.affectedRows === 1) direct.push(d.path);
+        } catch {
+          // refused (grant, policy or trigger)
+        } finally {
+          await db.exec("rollback");
+        }
+        await db.exec("begin");
+        try {
+          await db.exec("reset role");
+          const row = (await db.query("delete from public.docs where path = $1 returning data", [d.path])).rows[0];
+          await db.exec("set role authenticated");
+          await db.query("insert into public.docs (path, data) values ($1, $2)", [d.path, JSON.stringify(row.data)]);
+          direct.push(d.path);
+        } catch {
+          // refused
+        } finally {
+          await db.exec("rollback");
+        }
+      }
+      if (direct.length) out.push(`LEAK ${me} writes docs directly: ${[...new Set(direct)].join(", ")}`);
+
+      // an update pass through write_doc, at the row's current rev
       /** @type {string[]} */
       const wrote = [];
       for (const d of docs) {
         await db.exec("begin");
         try {
-          const r = await db.query("update public.docs set data = data where path = $1", [d.path]);
-          if (r.affectedRows === 1) wrote.push(d.path);
+          await db.exec("reset role");
+          const cur = (await db.query("select data, rev from public.docs where path = $1", [d.path])).rows[0];
+          await db.exec("set role authenticated");
+          await db.query("select public.write_doc($1, $2::jsonb, $3)", [d.path, JSON.stringify(cur.data), cur.rev]);
+          wrote.push(d.path);
         } catch {
-          // a trigger refusal counts as not written
+          // refused (P0403, or a trigger)
         } finally {
           await db.exec("rollback");
         }
@@ -156,7 +188,8 @@ async function reachViolations(db, uid, people = /** @type {readonly string[]} *
       diff(`${me} updates docs`, docs.filter((d) => canWrite(me, d)).map((d) => d.path), wrote);
 
       // item 8: an INSERT pass. Each row is removed (as the superuser, inside
-      // a transaction that is rolled back) and the person inserts it again
+      // a transaction that is rolled back) and the person creates it again
+      // through write_doc
       /** @type {string[]} */
       const inserted = [];
       for (const d of docs) {
@@ -165,10 +198,10 @@ async function reachViolations(db, uid, people = /** @type {readonly string[]} *
           await db.exec("reset role");
           const row = (await db.query("delete from public.docs where path = $1 returning data", [d.path])).rows[0];
           await db.exec("set role authenticated");
-          await db.query("insert into public.docs (path, data) values ($1, $2)", [d.path, JSON.stringify(row.data)]);
+          await db.query("select public.write_doc($1, $2::jsonb, null)", [d.path, JSON.stringify(row.data)]);
           inserted.push(d.path);
         } catch {
-          // refused (policy or trigger)
+          // refused (P0403, or a trigger)
         } finally {
           await db.exec("rollback");
         }
@@ -226,17 +259,30 @@ const LEAKS = [
   ["plates to everyone signed in", `create policy leak on public.plates for select to authenticated using (true)`],
   ["every house's rows to everyone", `create policy leak on public.docs for select to authenticated using (household_id is not null)`],
   ["staging to everyone", `create policy leak on public.recipes for select to authenticated using (staging)`],
+  // fix loop 3 E3: writes go through write_doc only, so the write rule is
+  // private.can_write (the docs_insert and docs_update policies are a second
+  // lock behind revoked grants). Leaks in that rule, and the grant coming back:
   [
-    "housemates may update each other's targets",
-    `create policy leak on public.docs for update to authenticated using (profile_id = any ((select private.housemates())::uuid[])) with check (true)`,
+    "housemates may update each other's targets (can_write)",
+    `alter function private.can_write(text) rename to can_write_real;
+     create function private.can_write(p text) returns boolean language sql stable security definer set search_path = '' as $$
+       select private.can_write_real(p) or exists (select 1 from private.doc_scope(p) s
+         where s.kind = 'targets' and s.profile_id = any (private.housemates())) $$`,
   ],
+  ["direct update comes back (the update grant)", `grant update (data) on public.docs to authenticated`],
   [
     "plate_for without the house check",
     `create or replace function public.plate_for(p_slug text) returns jsonb language sql stable security definer set search_path = '' as $$
        select jsonb_build_object('data', pl.data) from public.plates pl join public.profiles p on p.id = pl.profile_id where p.slug = p_slug $$`,
   ],
   // fix loop 1, item 8: leaks only the new passes can see
-  ["anyone may insert any docs row (the insert pass)", `create policy leak on public.docs for insert to authenticated with check (true)`],
+  [
+    "anyone may create any docs row (the insert pass, can_write)",
+    `alter function private.can_write(text) rename to can_write_real;
+     create function private.can_write(p text) returns boolean language sql stable security definer set search_path = '' as $$
+       select private.can_write_real(p) or not exists (select 1 from public.docs where path = p) $$`,
+  ],
+  ["direct insert comes back (the insert grant)", `grant insert (path, data) on public.docs to authenticated`],
   [
     "roster() shows every home house and family (row content)",
     `create or replace function public.roster() returns jsonb language sql stable security definer set search_path = '' as $$

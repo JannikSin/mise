@@ -99,7 +99,8 @@ async function nonOwnerCannotLoosen(/** @type {any} */ db, /** @type {any} */ ui
   refused.push((await writeAs(db, uid["owner-1"], "profiles/kin-2/fitness/targets.json", { macros: { calories: 2500 } }, null))?.code === "P0403");
   await db.query("delete from public.docs where path = 'profiles/kin-1/fitness/targets.json'");
   const direct = await errorOf(() => asUser(db, uid["owner-1"], () => db.query(`insert into public.docs (path, data) values ('profiles/kin-1/fitness/targets.json', '{"diet":"omnivore"}')`)));
-  refused.push(direct?.code === "P0403");
+  // fix loop 3 E3: no insert grant, so the direct form stops at the grant
+  refused.push(direct?.code === "42501");
   const pl1 = await plateData(db, pid["kin-1"]);
   const pl2 = await plateData(db, pid["kin-2"]);
   return refused.every(Boolean) && JSON.stringify(pl1.allergens) === '["peanut"]' && JSON.stringify(pl2.allergens) === '["peanut"]';

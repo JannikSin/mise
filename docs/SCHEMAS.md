@@ -2383,7 +2383,10 @@ JSON inside it keeps exactly the shape this document describes above.
 | root `fitness/*`, `health/*` | refused | stay on GitHub (daily log, Anvil) |
 | anything else | refused (`mise_bad_path`) | |
 
-**Triggers.** `docs_before` derives the scope on insert and pins `path`,
+**Triggers.** `docs_before` first refuses a signed-in caller who may not
+write the path (`private.can_write`, P0403) before any other check can answer
+(fix loop 3, E3: else `mise_bad_path`, P0422 and 42501 told a stranger which
+house slugs exist and which names are hidden from a house). It derives the scope on insert and pins `path`,
 `doc_id`, `kind`, owner and `legacy_sha` on update; it refuses a signed-in
 non-owner's targets write that drops a stored key (ENG L2-2, P0403), and runs
 the name guard (P0422). `recipes_before` and `plates_before` bump `rev` and pin
@@ -2456,7 +2459,9 @@ included; full profiles for the admin only):
 | `global` | everyone signed in |
 | bank `recipes` | everyone signed in; `staging` rows the admin only |
 
-**Writes** go through `public.write_doc(path, data, expected_rev)`; it returns
+**Writes** go through `public.write_doc(path, data, expected_rev)`, the only
+door: `authenticated` holds select on `docs` but no insert or update (fix loop
+3, E3), and `write_doc` runs as its owner after its own `can_write` check. It returns
 the new `rev`. `expected_rev` null = create. Errors: `P0409` conflict (stale
 rev, or a create over an existing row), `P0403` forbidden (the same answer for a
 hidden row, a missing row and a bad path), `P0422` name guard. `profiles.json`
