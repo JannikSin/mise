@@ -43,6 +43,17 @@ export function activeProfile() {
 }
 
 /**
+ * May this phone offer SWITCH PROFILE? (2.0, plan section 5, Red Team 4.)
+ * On Supabase only the signed-in admin may; on GitHub it is 1.95, always.
+ * @returns {boolean}
+ */
+export function canSwitchProfile() {
+  const b = backend();
+  if (b.name !== "supabase") return true;
+  return b.session()?.admin === true;
+}
+
+/**
  * THE ONE PLACE THE SCOPING RULE EXISTS. David stays at the data-repo root
  * (his live synced mise-data repo is never migrated); every other profile's
  * files live under `profiles/<id>/`. `profiles.json` is the one path that is
@@ -236,7 +247,10 @@ export const writeOccasionsOf = (id, data) =>
 async function defaultProfilesRead(path) {
   const key = scoped(path);
   const rec = await dbGet(key);
-  if (rec) {
+  // a refused roster write reads as the server copy (2.0, Red Team 3), and a
+  // refused one with no server copy asks the network
+  const view = rec ? localView(rec) : null;
+  if (rec && view) {
     // A CACHED PROFILE LIST IS NOT A FROZEN ONE (David, 2026-08-28).
     //
     // This return used to be bare, which made profiles.json the ONE file in
@@ -253,7 +267,7 @@ async function defaultProfilesRead(path) {
     // still wins, and it emits on change, so the views listening to
     // onSyncChange re-read and repaint.
     void revalidate(key);
-    return { data: rec.data, sha: rec.sha ?? "" };
+    return { data: view, sha: rec.sha ?? "" };
   }
   try {
     const remote = await io.read(path);
@@ -285,7 +299,11 @@ export async function readProfiles(readFn = defaultProfilesRead) {
       if (readFn === defaultProfilesRead) {
         // no profile chosen yet syncs nothing personal (activeProfile's
         // "david" default is the admin, which would sync everything)
-        const chosen = localStorage.getItem("mise.activeProfile");
+        // with a session the choice is the pinned one (2.0, Red Team 4): a
+        // non-admin's old localStorage value never picks the scope
+        const chosen = backend().session()
+          ? activeProfile()
+          : localStorage.getItem("mise.activeProfile");
         // v1.8 set mise.adminDevice with no check, so it counts only while the
         // admin has no passkey; once he sets one, only a verified open does
         // (Tribunal Red Team, 2.0 loop 2)
