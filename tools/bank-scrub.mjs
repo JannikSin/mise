@@ -377,6 +377,23 @@ const inside = (p, root) => {
 };
 
 /**
+ * The nearest folder at or above `p` that holds a .git (any working copy of
+ * any repository), or null. The report names people, so it may never land
+ * where a later `git add -A` could publish it (Red Team R3).
+ * @param {string} p
+ * @returns {string | null}
+ */
+export function gitAbove(p) {
+  let d = resolve(p);
+  for (;;) {
+    if (existsSync(join(d, ".git"))) return d;
+    const up = dirname(d);
+    if (up === d) return null;
+    d = up;
+  }
+}
+
+/**
  * @param {string[]} argv
  * @param {{ log?: (s: string) => void, repoRoot?: string }} [io]
  * @returns {number} exit code
@@ -413,6 +430,10 @@ export function main(argv, io = {}) {
   }
   if (inside(outDir, repoRoot) || inside(dataDir, repoRoot)) {
     log("refused: the report and the data must both live outside this public repository");
+    return 2;
+  }
+  if (gitAbove(outDir)) {
+    log("refused: --out is inside a git working copy (a .git at or above it); pick a private folder that is in no repository");
     return 2;
   }
   const roster = JSON.parse(readFileSync(join(dataDir, "profiles.json"), "utf8"));

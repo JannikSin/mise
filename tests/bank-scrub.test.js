@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildTerms,
   buildTermSet,
+  gitAbove,
   hasWord,
   scrubString,
   proposeEdit,
@@ -358,5 +359,28 @@ test("R2: --apply never writes a file whose only hits are review items", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test("R3: --out is refused inside ANY git working copy, not only this repo", () => {
+  const dir = clone();
+  const other = mkdtempSync(join(tmpdir(), "bank-scrub-otherrepo-"));
+  mkdirSync(join(other, ".git"));
+  /** @type {string[]} */
+  const said = [];
+  try {
+    const target = join(other, "deep", "scrub");
+    assert.equal(main([dir, "--out", target], { log: (s) => said.push(s), repoRoot: REPO }), 2);
+    assert.match(said.join("\n"), /git working copy/);
+    assert.equal(existsSync(target), false, "nothing written there");
+    assert.equal(gitAbove(target), other);
+    // a .git FILE (a worktree's pointer) counts too
+    const wt = mkdtempSync(join(tmpdir(), "bank-scrub-wt-"));
+    writeFileSync(join(wt, ".git"), "gitdir: elsewhere");
+    assert.equal(main([dir, "--out", join(wt, "x")], { log: () => {}, repoRoot: REPO }), 2);
+    rmSync(wt, { recursive: true, force: true });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(other, { recursive: true, force: true });
   }
 });
