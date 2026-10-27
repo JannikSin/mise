@@ -22,6 +22,11 @@ const io = {
   write: (path, data, sha) => backend().write(path, data, sha),
 };
 
+// THE PURGE EPOCH (2.0, Red Team 8 / ENG F4): bumped by every purge. A fetch
+// or a push that started before the purge finds it moved and stores nothing,
+// so revoked data can never land back on the phone after it was wiped.
+let epoch = 0;
+
 /** Fallback the app boots into when profiles.json is missing (fresh
  *  install) or unreachable — a legacy/pre-multi-profile install still opens
  *  straight into David's data at the root, unscoped. */
@@ -450,10 +455,6 @@ export function initStore() {
 // here because the sync scope's purge forgets the paths it removes
 /** @type {Map<string, { at: number, missing: boolean }>} */
 const fileCheckedAt = new Map();
-// THE PURGE EPOCH (2.0, Red Team 8 / ENG F4): bumped by every purge. A fetch
-// or a push that started before the purge finds it moved and stores nothing,
-// so revoked data can never land back on the phone after it was wiped.
-let epoch = 0;
 /** @type {Map<string, number>} */
 const passDoneAt = new Map();
 
