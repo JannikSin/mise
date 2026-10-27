@@ -1647,19 +1647,37 @@ async function holdAndRestore(next) {
   return moved;
 }
 
+/** what Sync says when a push hung past the lock's deadline (loop 2 item 8) */
+export const LOCK_TIMEOUT_MESSAGE =
+  "a save was still running when the account changed; it will be checked again";
+
 /**
  * Hold the queue: no new flush starts until the returned release is called,
- * and this resolves only once a flush already in flight has finished. The
- * sign-in side takes it before an account switch (worker gate E4).
- * @returns {Promise<() => void>} release (idempotent)
+ * and this resolves once a flush already in flight has finished, or at the
+ * deadline (loop 2 item 8, ENG 2), so a push hung on a stalled fetch never
+ * hangs sign-in or sign-out. On a timeout the release says `timedOut: true`
+ * and Sync says so; the hung push cannot land on the next account's phone,
+ * because the account change moves the purge epoch and holds the queue.
+ * The sign-in side takes it before an account switch (worker gate E4).
+ * @param {{ timeoutMs?: number }} [opts]
+ * @returns {Promise<(() => void) & { timedOut: boolean }>} release (idempotent)
  */
-export async function acquireStoreLock() {
+export async function acquireStoreLock({ timeoutMs = 20000 } = {}) {
   storeLocks++;
-  while (status.flushing) await new Promise((r) => setTimeout(r, 25));
+  const deadline = Date.now() + timeoutMs;
+  while (status.flushing && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  const timedOut = status.flushing;
+  if (timedOut) {
+    status.lastError = LOCK_TIMEOUT_MESSAGE;
+    emit();
+  }
   let released = false;
-  return () => {
+  const release = () => {
     if (released) return;
     released = true;
     storeLocks--;
   };
+  return Object.assign(release, { timedOut });
 }
