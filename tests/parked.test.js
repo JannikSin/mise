@@ -29,6 +29,15 @@ test("the parked set is exactly what David parked on 2026-10-12 and 2026-10-16, 
   assert.equal(isParked("reroll"), false, "PICK DIFFERENT MEALS is back (2026-10-18)");
 });
 
+// audit 2026-10-23 finding 1: the tour was parked but its "New here?" card still
+// offered itself to every new profile. A source scan (main.js does not load in
+// node), so it guards the gate's spelling, not the render.
+test("the tour offer is gated on the tour being parked", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../app/main.js", import.meta.url), "utf8");
+  assert.match(src, /const tourOfferVisible =\s*!isParked\("tour"\) &&/);
+});
+
 // 2026-10-17: a fridge component goes with a dinner, never a planned snack
 test("fridge components are never auto-planned", async () => {
   const { autoPlanEligible } = await import("../app/lib/plan.js");
