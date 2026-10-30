@@ -974,9 +974,17 @@ export function ShoppingView({
   // UPC match, quantity, store selection.
   //
   // The three cheapest rows on purpose: if the store selection turns out to be
-  // wrong, the mistake is a few dollars, not a week of food.
+  // wrong, the mistake is a few dollars, not a week of food. Each goes as ONE
+  // pack, so cheapest means one pack's price; an unpriced row sorts last
+  // (audit 2026-10-23 finding 6: this once sorted by pack count, so one $15
+  // salmon fillet beat a $2 bag of rice).
+  const onePackPrice = (/** @type {string} */ upc) => {
+    const item = tripItems.find((i) => pinFor(pins, i.food, homeStore)?.upc === upc);
+    const c = item ? rowCost(item) : null;
+    return c ? c.cost / (c.packs ?? 1) : Infinity;
+  };
   const testRows = [...cartRows]
-    .sort((a, b) => a.quantity - b.quantity)
+    .sort((a, b) => onePackPrice(a.upc) - onePackPrice(b.upc))
     .slice(0, 3)
     .map((r) => ({ ...r, quantity: 1 }));
 

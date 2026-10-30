@@ -2883,3 +2883,13 @@ test("SET TABLE can never pass without a finished allergy check, and offers TRY 
   assert.match(src, /Could not check allergies\. Check the phone has signal, then TRY AGAIN\./);
   assert.match(src, /Checking everyone's allergies, a few seconds\./);
 });
+
+// audit 2026-10-23 finding 6: the three-item test push promised the cheapest
+// rows but sorted by pack count, so one $15 fillet beat a $2 bag of rice. A
+// source scan (testRows lives in the view), so it guards the sort key's
+// spelling, not the render.
+test("the test push sorts by one pack's price, not by pack count", () => {
+  const src = readFileSync(new URL("../app/views/shopping.js", import.meta.url), "utf8");
+  assert.match(src, /\.sort\(\(a, b\) => onePackPrice\(a\.upc\) - onePackPrice\(b\.upc\)\)/);
+  assert.doesNotMatch(src, /\.sort\(\(a, b\) => a\.quantity - b\.quantity\)/);
+});
