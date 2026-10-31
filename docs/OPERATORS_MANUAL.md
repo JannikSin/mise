@@ -143,7 +143,7 @@ SQL transaction for David to run; none connects on its own.
 | What the app does on a Supabase shell | `docs/supabase-shell.md` (config, CSP, boot order) |
 | Database tests without a project | `tests/_pglite.js` with `tools/pglite-standin.mjs`; run with the normal `node --test` |
 | The gate on a REAL stack before the live run | `tools/live-gate.md`, `tools/live-gate.mjs` (local Docker stack or the sandbox, never live) |
-| Clean the shared recipe bank of names first | `tools/bank-scrub.mjs` (the migration refuses while any bank recipe names a person) |
+| Clean the shared recipe bank of names first | `tools/bank-scrub.mjs` (the migration refuses while any bank recipe names a person); a recipe whose id names someone: `tools/rename-recipe.mjs <clone> --from <old> --to <new> [--apply]`, which rewrites every pointer |
 | Move the data across | `tools/migrate-to-supabase.mjs --snapshot <mise-data clone> --people <people.local.json>` (`--target pglite`, the default, is a local dry run; `--target sandbox` or `live` reads `MISE_DB_URL`) |
 | Invite people (sign-ups are off) | `tools/invite.mjs --people people.local.json --me [--send]` |
 | Add, delete or export one person | `tools/add-member.mjs`, `tools/delete-member.mjs`, `tools/export-person.mjs` |
