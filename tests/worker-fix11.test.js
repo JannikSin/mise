@@ -140,3 +140,37 @@ test("E12: expiry is compared as an instant, whatever zone Postgres writes", asy
   const st = await supaInviteRoute("/invite/status", {}, code, "sandbox", SANDBOX_ENV, ctx(sb.fetchImpl, now));
   assert.equal(st.status, 410);
 });
+
+test("E13: a login name taken between the check and the claim answers 409 and spends nothing", async () => {
+  const sb = fakeSupabase({ rpc: { claim_guest: refuse("P0410") } });
+  const r = await claimGuest(
+    project,
+    { codeHash: "h", slug: "s", roster: {}, targets: {}, until: "2026-12-01", login: { name_key: "sam", salt: "a", hash: "b" } },
+    sb.fetchImpl,
+  );
+  assert.equal(r.status, "login_taken");
+  const code = "k3m7pq2xvta4bcdefgh2";
+  const hash = await inviteCodeHash(code);
+  const inv = { host_house: "house-w", expires_at: "2099-01-01T00:00:00+00:00", used_at: null, claimed: null };
+  /** @type {any[]} */
+  const claims = [];
+  const raced = fakeSupabase({
+    rpc: {
+      invite_get: (/** @type {any} */ a) => (a.p_code_hash === hash ? inv : null),
+      slug_free: () => true,
+      guest_login_row: () => null,
+      claim_guest: (/** @type {any} */ a) => (claims.push(a), Response.json({ code: "P0410", message: "taken" }, { status: 409 })),
+    },
+  });
+  const body = {
+    entry: { name: "Guest Z", emoji: "x" },
+    targets: { macros: { calories: 2000, protein: 90 } },
+    login: { name: "Sam", pin: "1234" },
+  };
+  const res = await supaInviteRoute("/invite/claim", body, code, "sandbox", SANDBOX_ENV, ctx(raced.fetchImpl, Date.now()));
+  assert.equal(res.status, 409);
+  assert.match((await res.json()).error, /login name is taken/);
+  assert.equal(claims.length, 1, "one claim, no retry under another slug");
+  assert.equal(claims[0].p_login.name_key, "sam");
+  assert.equal(raced.calls.some((c) => c.fn === "guest_login_add"), false, "no second save");
+});

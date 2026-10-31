@@ -125,3 +125,23 @@ test("negative control: a mint_invite without the house check, and a guest_view 
   assert.notEqual((await svc(db, "select svc.guest_view('guest-2') v")).v, null, "the broken version shows a lapsed guest");
   await db.close();
 });
+
+// E13: the login is saved inside the claim, so a taken name spends nothing
+test("svc.claim_guest saves the name login in the same transaction (E13)", { skip: SKIP }, async () => {
+  const { db, uid } = await world();
+  await svc(db, "select svc.mint_invite($1, 'ce', 'house-w', now() + interval '1 day')", [uid["mate-1"]]);
+  await svc(db, "select svc.mint_invite($1, 'cf', 'house-w', now() + interval '1 day')", [uid["mate-1"]]);
+  const login = (/** @type {string} */ k) => JSON.stringify({ name_key: k, salt: "s", hash: "h" });
+  const gid = (await svc(db, "select svc.claim_guest('ce', 'guest-e', '{\"name\":\"E\"}', '{}', '2999-01-01', $1) id", [login("sam k")])).id;
+  assert.equal((await svc(db, "select svc.guest_login_row('sam k') r")).r.slug, "guest-e");
+  assert.ok(gid);
+  const err = await errorOf(() => svc(db, "select svc.claim_guest('cf', 'guest-f', '{\"name\":\"F\"}', '{}', '2999-01-01', $1) id", [login("sam k")]));
+  assert.equal(err?.code, "P0410", "a taken name");
+  assert.equal((await svc(db, "select svc.invite_get('cf') i")).i.used_at, null, "the invite is not spent");
+  assert.equal((await svc(db, "select count(*)::int n from public.profiles where slug = 'guest-f'")).n, 0, "no half-made guest");
+  const bad = await errorOf(() => svc(db, "select svc.claim_guest('cf', 'guest-f', '{}', '{}', '2999-01-01', '{\"name_key\":\"x\"}') id"));
+  assert.equal(bad?.code, "P0400");
+  // with no login, as before
+  assert.ok((await svc(db, "select svc.claim_guest('cf', 'guest-f', '{\"name\":\"F\"}', '{}', '2999-01-01') id")).id);
+  await db.close();
+});

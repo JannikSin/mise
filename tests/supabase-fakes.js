@@ -249,7 +249,10 @@ export function fakeSvcDb(seed = {}) {
       const inv = st.invites[a.p_code_hash];
       if (!inv || inv.used_at || inv.expires_at <= new Date().toISOString()) return pgErr("P0403");
       if (!rpc.slug_free({ p_slug: a.p_slug }, {})) return pgErr("P0409");
+      // E13: the login is saved in the claim; a taken name spends nothing
+      if (a.p_login && st.logins[a.p_login.name_key]) return pgErr("P0410");
       const id = `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
+      if (a.p_login) st.logins[a.p_login.name_key] = { slug: a.p_slug, salt: a.p_login.salt, hash: a.p_login.hash };
       st.people.push({
         id,
         slug: a.p_slug,

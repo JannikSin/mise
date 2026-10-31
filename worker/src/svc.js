@@ -241,18 +241,20 @@ export async function inviteGet(project, codeHash, fetchImpl) {
 }
 
 /**
- * [B2] svc.claim_guest(p_code_hash text, p_slug text, p_roster jsonb, p_targets jsonb, p_until date) returns uuid
+ * [B2, E13 20261106090000] svc.claim_guest(p_code_hash text, p_slug text, p_roster jsonb, p_targets jsonb, p_until date, p_login jsonb default null) returns uuid
  * ONE transaction: spends an unused, unexpired guest invite and creates the
  * guest profile (kind 'guest'), its grant to the invite's host house until
  * p_until, and BOTH targets docs rows (the plate trigger fires on them).
  * Raises P0403 when the invite is invalid and P0409 when the slug is taken.
  * Fix loop 1, E11: 23505 (a slug inserted by a racing claim) is a taken slug
  * too, and P0422 (the guest's own entry trips the host house's name guard)
- * is "guarded", which the route answers in plain words.
+ * is "guarded", which the route answers in plain words. E13: the guest's
+ * name login ({ name_key, salt, hash }) is saved in the same transaction;
+ * P0410 is a taken name, and the invite stays unspent.
  * @param {SvcProject} project
- * @param {{ codeHash: string, slug: string, roster: Record<string, unknown>, targets: Record<string, unknown>, until: string }} a
+ * @param {{ codeHash: string, slug: string, roster: Record<string, unknown>, targets: Record<string, unknown>, until: string, login?: { name_key: string, salt: string, hash: string } | null }} a
  * @param {FetchImpl} [fetchImpl]
- * @returns {Promise<{ status: "ok" | "invalid" | "slug_taken" | "guarded", profileId: string }>}
+ * @returns {Promise<{ status: "ok" | "invalid" | "slug_taken" | "guarded" | "login_taken", profileId: string }>}
  */
 export async function claimGuest(project, a, fetchImpl) {
   try {
@@ -265,6 +267,7 @@ export async function claimGuest(project, a, fetchImpl) {
         p_roster: a.roster,
         p_targets: a.targets,
         p_until: a.until,
+        p_login: a.login ?? null,
       },
       { fetchImpl },
     );
@@ -273,6 +276,7 @@ export async function claimGuest(project, a, fetchImpl) {
     if (e instanceof SvcError && (e.code === "P0409" || e.code === "23505"))
       return { status: "slug_taken", profileId: "" };
     if (e instanceof SvcError && e.code === "P0422") return { status: "guarded", profileId: "" };
+    if (e instanceof SvcError && e.code === "P0410") return { status: "login_taken", profileId: "" };
     if (e instanceof SvcError && e.code === "P0403") return { status: "invalid", profileId: "" };
     throw e;
   }

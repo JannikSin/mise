@@ -2545,7 +2545,12 @@ salt, hash }`; `svc.guest_view(p_slug)` for a live grant only, `{ profile_id,
 name, has_login, host_house, tables, names }` where `names` covers only the
 people seated at the guest's own tables whom the host house can already see:
 its members and the guests it holds a live grant for (fix loop 2, C2; a seat
-naming anyone else is left out).
+naming anyone else is left out). `svc.claim_guest(p_code_hash, p_slug, p_roster,
+p_targets, p_until, p_login jsonb default null)` (E13,
+`20261106090000_e13_claim_login.sql`) saves the guest's name login
+`{ name_key, salt, hash }` in the same transaction as the claim: a taken name
+raises P0410 and nothing is spent, a malformed login raises P0400; the Worker's
+claim no longer calls `guest_login_add` after the invite is spent.
 
 **AI allowance** (worker fix loop 1, item 10; `20261104100000_worker_ai_take.sql`).
 `svc.ai_take(p_sub, p_n, p_day, p_user_cap, p_global_cap)` returns `'ok'`, `'user'`

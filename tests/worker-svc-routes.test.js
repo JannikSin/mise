@@ -202,9 +202,11 @@ test("invite claim then status on Supabase: one transaction, login, session, no 
     const args = w.sb.calls.find((c) => c.fn === "claim_guest")?.args;
     assert.equal(JSON.stringify(args).includes("fam-x"), false, "a link never sets a family");
     assert.match(args.p_until, /^\d{4}-\d{2}-\d{2}$/);
-    const login = w.sb.calls.find((c) => c.fn === "guest_login_add")?.args;
-    assert.equal(login.p_name_key, "guestc");
-    assert.equal(login.p_hash.length > 20, true);
+    // E13: the login rides in the claim itself, no second call
+    const login = args.p_login;
+    assert.equal(login.name_key, "guestc");
+    assert.equal(login.hash.length > 20, true);
+    assert.equal(w.sb.calls.some((c) => c.fn === "guest_login_add"), false);
     assert.equal(args.p_code_hash, await inviteCodeHash(code));
     assert.equal(JSON.stringify(args).includes(code), false);
     assert.equal(JSON.stringify(w.sb.calls.map((c) => c.args)).includes("1357"), false, "the passkey is hashed before any call");

@@ -45,7 +45,6 @@ import { projectFor } from "./supabase-env.js";
 import {
   SvcError,
   claimGuest,
-  guestLoginAdd,
   cronInputs,
   guestLoginRow,
   guestSummary,
@@ -320,30 +319,23 @@ export async function supaInviteRoute(pathname, body, code, branch, env, ctx) {
       const slug = slugForName(entry.name, taken);
       taken.add(slug);
       if (!(await slugFree(project, slug, f))) continue;
-      const r = await claimGuest(project, { codeHash, slug, roster, targets, until }, f);
+      const r = await claimGuest(project, { codeHash, slug, roster, targets, until, login }, f);
       if (r.status === "slug_taken") continue;
       if (r.status === "invalid") return ctx.json(410, { error: "this invite was already used" });
+      // E13: the name went between the check above and the claim; nothing was
+      // spent, so the guest just picks another name
+      if (r.status === "login_taken")
+        return ctx.json(409, { error: "that login name is taken; add your last initial" });
       if (r.status === "guarded") {
         return ctx.json(422, {
           error:
             "Something you typed (your name or a note) can't be saved for this kitchen. Change it and try again; your link still works.",
         });
       }
-      // from here the code is SPENT: a later failure must not invite a retry
-      // that can only answer 410
+      // from here the code is SPENT, and the login (if any) was saved with it
+      // in the same transaction (E13)
       if (!login)
         return ctx.json(200, { ok: true, id: slug, name: entry.name, house: "guesthouse" });
-      const added = await guestLoginAdd(
-        project,
-        { profileId: r.profileId, nameKey: login.name_key, salt: login.salt, hash: login.hash },
-        f,
-      ).catch(() => false);
-      if (!added) {
-        console.log("invite claim: login not saved after the claim");
-        return ctx.json(502, {
-          error: "something went wrong saving your login; ask for a new link",
-        });
-      }
       const secret = guestSessionSecret(env);
       const session = secret
         ? await signGuestSessionV2({ p: slug, b: branch }, secret, ctx.nowMs)
