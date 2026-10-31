@@ -26,7 +26,7 @@ function fakeSeam() {
       log.push(`install:${b.name}`);
     },
     lockedBackend: () => ({ name: "locked" }),
-    createSupabaseAdapter: (/** @type {any} */ o) => ({ name: "supabase", session: o.session }),
+    createSupabaseAdapter: (/** @type {any} */ o) => ({ name: "supabase", session: o.session, accessToken: o.accessToken }),
     createCompositeBackend: (/** @type {any} */ o) => ({
       name: `composite(${o.primary.name}+${o.github.name})`,
       session: o.primary.session,
@@ -281,3 +281,20 @@ test(
     backendMod.installBackend(null);
   },
 );
+
+test("an adapter's token is its own sign-in's: after a sign-out it answers false, never the next one's (gate20 loop 2, L2-1)", async () => {
+  const { seam, installed } = fakeSeam();
+  const client = fakeClient({
+    session: SESSION,
+    whoami: { data: { slug: "housemate-1", admin: false }, error: null },
+  });
+  const boot = createSessionBoot({ client, seam, project: PROJECT, storage: mem() });
+  assert.equal(await boot.boot(), "signed-in");
+  const a = installed();
+  assert.equal(typeof a.accessToken(), "string", "A's adapter carries A's token");
+  await boot.signOut();
+  assert.equal(a.accessToken(), false, "A's adapter is stale once A signs out");
+  assert.equal(await boot.adopt({ ...SESSION, user: { id: "u-other" }, access_token: "tB" }), "signed-in");
+  assert.equal(a.accessToken(), false, "and stays stale after the next sign-in");
+  assert.equal(installed().accessToken(), "tB");
+});

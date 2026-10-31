@@ -112,7 +112,7 @@ export function mapError(error, path) {
  * @param {{
  *   client: SupabaseLike,
  *   session: () => import("../backend.js").BackendSession | null,
- *   accessToken?: () => string | null,
+ *   accessToken?: () => string | null | false,
  *   stamp?: string,
  * }} opts
  * @returns {import("../backend.js").Backend}
@@ -133,9 +133,20 @@ export function createSupabaseAdapter({
     // signs out or an invite link signs in, before the store hears of it,
     // and it only adds its own Authorization when the request has none
     const token = accessToken();
+    // false: this adapter's sign-in is over; never send under whoever the
+    // shared client holds now (gate20 loop 2, Red Team L2-1)
+    if (token === false) throw new AuthError("the session changed");
     const b = /** @type {any} */ (q);
     if (token && typeof b?.setHeader === "function") q = b.setHeader("Authorization", `Bearer ${token}`);
-    const { data, error } = await q;
+    let { data, error } = await q;
+    // a phone that woke with an expired token: supabase-js refreshed it
+    // during this request, but the pinned header went out stale. Resend once
+    // with the new token of the SAME adoption (gate20 loop 2, Engineer)
+    const fresh = accessToken();
+    if (error && mapError(error, path) instanceof AuthError && typeof fresh === "string" && fresh && token && fresh !== token) {
+      q = /** @type {any} */ (q).setHeader("Authorization", `Bearer ${fresh}`);
+      ({ data, error } = await q);
+    }
     if (error) throw mapError(error, path);
     return data;
   };

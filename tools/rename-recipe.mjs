@@ -4,11 +4,17 @@
 // renames one recipe in a mise-data clone: the file `recipes/<old>.json` (or
 // `recipes-staging/`) becomes `<new>.json`, its `id` becomes <new>, and every
 // JSON string value or object key anywhere in the clone that is EXACTLY <old>
-// becomes <new>. Exact only: a longer id that merely contains <old> is left
-// alone, and so is prose. Public code, no names: the ids are typed by David.
+// becomes <new> (see below for which). Exact only: a longer id that merely
+// contains <old> is left alone, and so is prose. Public code, no names: the ids are typed by David.
 //
 //   node tools/rename-recipe.mjs <mise-data clone> --from <old id> --to <new id>           (dry run: counts)
-//   node tools/rename-recipe.mjs <mise-data clone> --from <old id> --to <new id> --apply
+//   node tools/rename-recipe.mjs <mise-data clone> --from <old id> --to <new id> --apply [--everywhere]
+//
+// Only recipe pointers change by default: a string under a key that names a
+// recipe or dish (recipeId, slotRecipes, avoidRecipes...), the recipe's own
+// id, and every copy of its file (the bank's and each person's recipes/). An
+// exact match anywhere else (an allergy list, a tag) is counted and refused
+// until --everywhere (gate20 loop 2, Engineer and Red Team L2-2).
 //
 // The dry run prints how many files and pointers change, never their content.
 // Run it on a branch of the clone and look at `git diff` before pushing.
@@ -21,36 +27,60 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 const BANK_DIRS = ["recipes", "recipes-staging"];
 
+/** a key under which a string names a recipe: recipeId, recipes, slotRecipes, avoidRecipes, dish... */
+const POINTER_KEY = /recipe|dish/i;
+
 /**
- * Every exact pointer to `from` in one JSON value, replaced by `to`.
+ * Every exact match of `from` in one JSON value, replaced by `to`. `n` counts
+ * the recipe pointers (a string under a key that names a recipe or dish, a key
+ * inside such an object, or a file's own top-level `id`); `other` counts any
+ * other exact match, which the CLI refuses unless told --everywhere (gate20
+ * loop 2, Engineer: an id that is also a food word or a tag).
  * @param {unknown} v
  * @param {string} from
  * @param {string} to
- * @returns {{ value: unknown, n: number }}
+ * @param {{ key?: string, top?: boolean, under?: boolean, everywhere?: boolean }} [at] `under`: an
+ *   ancestor's key already names a recipe (slotRecipes.dinner[0])
+ * @returns {{ value: unknown, n: number, other: number }}
  */
-export function renameIn(v, from, to) {
-  if (typeof v === "string") return v === from ? { value: to, n: 1 } : { value: v, n: 0 };
+export function renameIn(v, from, to, at = {}) {
+  const under = at.under === true || POINTER_KEY.test(at.key ?? "");
+  const pointer = under || (at.top === true && at.key === "id");
+  if (typeof v === "string") {
+    if (v !== from) return { value: v, n: 0, other: 0 };
+    if (pointer) return { value: to, n: 1, other: 0 };
+    return { value: at.everywhere ? to : v, n: 0, other: 1 };
+  }
   if (Array.isArray(v)) {
     let n = 0;
+    let other = 0;
     const value = v.map((x) => {
-      const r = renameIn(x, from, to);
+      const r = renameIn(x, from, to, { key: at.key, under: at.under, everywhere: at.everywhere });
       n += r.n;
+      other += r.other;
       return r.value;
     });
-    return { value, n };
+    return { value, n, other };
   }
   if (v && typeof v === "object") {
     let n = 0;
+    let other = 0;
     /** @type {Record<string, unknown>} */
     const out = {};
     for (const [k, x] of Object.entries(v)) {
-      const r = renameIn(x, from, to);
-      n += r.n + (k === from ? 1 : 0);
-      out[k === from ? to : k] = r.value;
+      const r = renameIn(x, from, to, { key: k, top: at.key === undefined, under, everywhere: at.everywhere });
+      n += r.n;
+      other += r.other;
+      let key = k;
+      if (k === from) {
+        if (under) (n++, (key = to));
+        else (other++, at.everywhere && (key = to));
+      }
+      out[key] = r.value;
     }
-    return { value: out, n };
+    return { value: out, n, other };
   }
-  return { value: v, n: 0 };
+  return { value: v, n: 0, other: 0 };
 }
 
 /** @param {string} dir @returns {string[]} every .json file below dir, skipping .git */
@@ -71,17 +101,24 @@ function jsonFiles(dir) {
  * @param {string} dataDir
  * @param {string} from
  * @param {string} to
- * @param {{ apply?: boolean }} [o]
- * @returns {{ bankFile: string, files: number, pointers: number, unreadable: number }}
+ * @param {{ apply?: boolean, everywhere?: boolean }} [o]
+ * @returns {{ bankFile: string, files: number, pointers: number, others: number, copies: number, unreadable: number }}
  */
 export function renameRecipe(dataDir, from, to, o = {}) {
   const bankFile = BANK_DIRS.map((d) => join(d, `${from}.json`)).find((f) => existsSync(join(dataDir, f)));
   if (!bankFile) throw new Error(`no recipe ${from} in recipes/ or recipes-staging/`);
-  for (const d of BANK_DIRS)
-    if (existsSync(join(dataDir, d, `${to}.json`))) throw new Error(`${to} already exists in ${d}/`);
+  // every copy named after the id: the bank's, and each person's own recipes/ shadow
+  const copies = jsonFiles(dataDir)
+    .map((abs) => relative(dataDir, abs).split("\\").join("/"))
+    .filter((f) => f.endsWith(`/recipes/${from}.json`) || f === `recipes/${from}.json` || f === `recipes-staging/${from}.json`);
+  for (const f of copies)
+    if (existsSync(join(dataDir, dirname(f), `${to}.json`))) throw new Error(`${to} already exists beside ${f}`);
   let files = 0;
   let pointers = 0;
+  let others = 0;
   let unreadable = 0;
+  /** @type {[string, string][]} */
+  const writes = [];
   for (const abs of jsonFiles(dataDir)) {
     const text = readFileSync(abs, "utf8");
     if (!text.includes(from)) continue;
@@ -92,14 +129,21 @@ export function renameRecipe(dataDir, from, to, o = {}) {
       unreadable++;
       continue;
     }
-    const r = renameIn(data, from, to);
-    if (r.n === 0) continue;
+    const r = renameIn(data, from, to, { everywhere: o.everywhere });
+    if (r.n === 0 && r.other === 0) continue;
     files++;
     pointers += r.n;
-    if (o.apply) writeFileSync(abs, JSON.stringify(r.value, null, 2) + (text.endsWith("\n") ? "\n" : ""));
+    others += r.other;
+    writes.push([abs, JSON.stringify(r.value, null, 2) + (text.endsWith("\n") ? "\n" : "")]);
   }
-  if (o.apply) renameSync(join(dataDir, bankFile), join(dataDir, dirname(bankFile), `${to}.json`));
-  return { bankFile, files, pointers, unreadable };
+  // planned in full first: a refusal writes nothing at all
+  if (others > 0 && !o.everywhere && o.apply)
+    throw new Error(`${others} match(es) are not recipe pointers; read them, then rerun with --everywhere`);
+  if (o.apply) {
+    for (const [abs, text] of writes) writeFileSync(abs, text);
+    for (const f of copies) renameSync(join(dataDir, f), join(dataDir, dirname(f), `${to}.json`));
+  }
+  return { bankFile, files, pointers, others, copies: copies.length, unreadable };
 }
 
 /**
@@ -113,6 +157,7 @@ export function main(argv, io = {}) {
   let from = "";
   let to = "";
   let apply = false;
+  let everywhere = false;
   /** @type {string[]} */
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
@@ -120,6 +165,7 @@ export function main(argv, io = {}) {
     if (a === "--from") from = argv[++i] ?? "";
     else if (a === "--to") to = argv[++i] ?? "";
     else if (a === "--apply") apply = true;
+    else if (a === "--everywhere") everywhere = true;
     else rest.push(String(a));
   }
   const dataDir = rest[0] ? resolve(rest[0]) : "";
@@ -140,9 +186,9 @@ export function main(argv, io = {}) {
     return 2;
   }
   try {
-    const r = renameRecipe(dataDir, from, to, { apply });
+    const r = renameRecipe(dataDir, from, to, { apply, everywhere });
     log(
-      `rename-recipe: ${r.files} file(s), ${r.pointers} pointer(s) ${apply ? "rewritten" : "would change"}; the recipe file ${apply ? "was" : "would be"} renamed${r.unreadable ? `; ${r.unreadable} unreadable JSON file(s) mention it and were left alone, look at them by hand` : ""}`,
+      `rename-recipe: ${r.files} file(s), ${r.pointers} recipe pointer(s) ${apply ? "rewritten" : "would change"}, ${r.copies} recipe file(s) ${apply ? "renamed" : "would be renamed"}${r.others ? `; ${r.others} other exact match(es) outside recipe fields (an id that is also a food word or a tag)${everywhere ? (apply ? ", rewritten too" : ", would be rewritten too") : ", left alone; --apply refuses until you read them and add --everywhere"}` : ""}${r.unreadable ? `; ${r.unreadable} unreadable JSON file(s) mention it and were left alone, look at them by hand` : ""}`,
     );
     if (!apply) log("dry run: nothing changed; add --apply, then read git diff in the clone");
     return 0;

@@ -31,7 +31,7 @@
  * @typedef {{
  *   installBackend: (b: any) => void,
  *   lockedBackend: () => any,
- *   createSupabaseAdapter: (o: { client: any, session: () => WhoAmI | null, accessToken?: () => string | null, stamp?: string }) => any,
+ *   createSupabaseAdapter: (o: { client: any, session: () => WhoAmI | null, accessToken?: () => string | null | false, stamp?: string }) => any,
  *   createCompositeBackend?: (o: { primary: any, github: any }) => any,
  *   createGithubAdapter?: () => any,
  *   onSessionChange: (prev: string | null, next: string | null) => Promise<unknown> | void,
@@ -110,6 +110,11 @@ export function createSessionBoot({
   let who = null;
   let email = "";
   let token = "";
+  // which sign-in an adapter belongs to: a sign-out or another account moves
+  // it, and an older adapter's token then answers false, so a call that
+  // spans the change refuses instead of sending as the next person (gate20
+  // loop 2, Red Team L2-1)
+  let adoption = 0;
   /** the auth user this boot last adopted, so a repeated SIGNED_IN is a no-op */
   let lastUser = "";
   const store = storage ?? safeStorage();
@@ -165,6 +170,7 @@ export function createSessionBoot({
     const prev = lastSlug();
     who = null;
     token = "";
+    adoption++;
     await lock();
     await seam.onSessionChange(prev, null);
     rememberSlug(null);
@@ -245,10 +251,11 @@ export function createSessionBoot({
         admin: me.admin === true,
         home: typeof me.home === "string" ? me.home : null,
       };
+      const mine = ++adoption;
       const primary = seam.createSupabaseAdapter({
         client,
         session: () => who,
-        accessToken: () => token || null,
+        accessToken: () => (adoption === mine ? token || null : false),
         stamp: project.stamp,
       });
       const useGithub =

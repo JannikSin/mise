@@ -131,3 +131,36 @@ test("E1: every adapter request carries the adopted token, whatever the client's
   assert.ok(auth.length >= 2, "each request set its own Authorization");
   assert.ok(auth.every((v) => v === "Bearer tokA"));
 });
+
+test("an expired pinned token is resent once with the refreshed one (gate20 loop 2)", async () => {
+  /** @type {string[]} */
+  const sent = [];
+  let tok = "old";
+  const q = () => {
+    /** @type {string} */ let auth = "";
+    /** @type {any} */
+    const b = {
+      setHeader: (/** @type {string} */ k, /** @type {string} */ v) => ((auth = v), b),
+      then: (/** @type {any} */ ok) => {
+        sent.push(auth);
+        // supabase-js refreshes during the request; the old token is refused
+        if (auth === "Bearer old") {
+          tok = "new";
+          return Promise.resolve({ data: null, error: { status: 401, code: "PGRST301", message: "JWT expired" } }).then(ok);
+        }
+        return Promise.resolve({ data: { data: { n: 1 }, rev: 2 }, error: null }).then(ok);
+      },
+      select: () => b, eq: () => b, maybeSingle: () => b,
+    };
+    return b;
+  };
+  const ad = createSupabaseAdapter({
+    client: { from: () => q(), rpc: () => q() },
+    stamp: "supabase",
+    accessToken: () => tok,
+    session: () => ({ slug: "housemate-1", admin: false, home: "house-a" }),
+  });
+  const got = await ad.read("profiles/housemate-1/pantry.json");
+  assert.deepEqual(sent, ["Bearer old", "Bearer new"]);
+  assert.ok(got, "the resend landed");
+});
