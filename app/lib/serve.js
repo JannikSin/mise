@@ -145,7 +145,10 @@ export function buildServe(t, recipe, profilesOrder, rulesBySeat, synth) {
         kind: "aside",
         fraction,
         ...(asideLines && asideLines.length > 0 ? { lines: asideLines } : {}),
-        note: hard[0],
+        // the same words as a blocked seat's: an aside that only said
+        // "(contains roux)" read as "plate his share apart" (1.96 Final
+        // Gate, Red Team F3)
+        note: rules ? `not for ${name}: ${hard[0]}. Do not plate it.` : hard[0],
       });
       continue;
     }

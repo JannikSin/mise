@@ -239,7 +239,14 @@ export function RecipeView({
   const shownN = forN ? forN.portions : baseN;
   const forLine = scalable ? cookFor(recipe, shownN) : null;
   const ingredients = forN ? forN.ingredients : plan.ingredients;
-  const step = (/** @type {number} */ by) =>
+  // an optional row the viewer avoids never refuses the dish (plan.js), so it
+  // is left off their list here, and the page says so (1.96 Final Gate, Red
+  // Team F2: Elliot read "peanut butter (sweet option)" with nothing around it)
+  const optionalOff = leftOffFor(
+    ingredients.filter((/** @type {any} */ i) => i.optional),
+    avoid,
+  ).left;
+  const step =(/** @type {number} */ by) =>
     setCookN(Math.min(COOK_FOR_MAX, Math.max(COOK_FOR_MIN, shownN + by)));
   return html`
     <div class="view detail">
@@ -637,8 +644,16 @@ export function RecipeView({
       ${
         !rotates(recipe) &&
         html`<h2 class="block-title">Ingredients</h2>
+          ${
+            optionalOff.length > 0 &&
+            html`<p class="hint redflag" role="note">
+              ${avoid === null
+                ? "Not checked: your profile could not be read, so the optional extras are not listed. Check signal and reopen."
+                : `Left off for you: ${optionalOff.map((/** @type {any} */ c) => c.food).join(", ")}.`}
+            </p>`
+          }
           <div>
-            ${ingredients.map(
+            ${ingredients.filter((/** @type {any} */ i) => !optionalOff.includes(i)).map(
               (/** @type {Record<string, any>} */ i) => html`
                 <div class="ing ${i.staple ? "staple" : ""}">
                   <span>

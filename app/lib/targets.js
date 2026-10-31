@@ -112,6 +112,8 @@ export const ALLERGEN_TERMS = {
   // the same call the dairy list makes below
   peanuts: [
     "peanut",
+    // a generic "nut butter" row may be peanut (1.96 Final Gate, Red Team F6)
+    "nut butter",
     "groundnut",
     "arachis",
     "pb2",
@@ -488,6 +490,14 @@ function typedCores(term) {
   ];
 }
 
+/** Every term an allergen family carries. @type {Set<string> | null} */
+let FAMILY_TERMS = null;
+/** @param {string} term @returns {boolean} */
+function familyTerm(term) {
+  FAMILY_TERMS ??= new Set([...Object.values(ALLERGEN_TERMS).flat(), ...CHEESE_TERMS]);
+  return FAMILY_TERMS.has(term);
+}
+
 /**
  * The terms one typed avoid word stands for: itself, plus its family when it
  * names one ("cheeses", "Tree nuts", "eggs" all count), and each food of a
@@ -504,18 +514,35 @@ export function typedAvoidTerms(word) {
   // (Mise 2.0, D-01: a guest typed a pair like that on her guest form, 10/18,
   // and as one term it matched nothing). Each part counts on its own, the whole
   // phrase too, so it can only refuse more
-  const parts = term.split(/\s+(?:and|or)\s+|\s*[&/;+]\s*/).map((x) => x.trim()).filter(Boolean);
+  // a term the families already carry ("pb&j", "s&b curry") is one food, so
+  // widening a widened list changes nothing (1.96 Final Gate, Usability F1:
+  // a second pass split "s&b curry" into a bare "s" that matched every food)
+  const parts = familyTerm(term)
+    ? [term]
+    : term.split(/\s+(?:and|or)\s+|\s*[&/;+]\s*/).map((x) => x.trim()).filter(Boolean);
   if (parts.length > 1) return [...new Set([term, ...parts.flatMap(typedAvoidTerms)])];
   // own keys only: "constructor" or "__proto__" must not reach Object.prototype
   // (Tribunal Red Team, 2.0 loop 1: it threw and stopped SET)
   const famOf = (/** @type {string} */ k) =>
     Object.hasOwn(TYPED_FAMILIES, k) ? TYPED_FAMILIES[k] : undefined;
-  const fam = famOf(term) ?? famOf(term.replace(/(es|s)$/, "")) ?? famOf(term.replace(/s$/, ""));
+  const familyOf = (/** @type {string} */ t) =>
+    famOf(t) ?? famOf(t.replace(/(es|s)$/, "")) ?? famOf(t.replace(/s$/, ""));
+  const fam = familyOf(term);
   if (!fam) {
+    // a term a family already carries stays itself ("pine nut" is not the
+    // whole nut family), so a list widened on read widens to the same list
+    if (familyTerm(term)) return [term];
     // a phrase around a food: the food counts too, run through this same
     // function so "allergic to peanuts and shellfish" brings both families
     const cores = typedCores(term);
-    return cores.length > 0 ? [...new Set([term, ...cores.flatMap(typedAvoidTerms)])] : [term];
+    // and a family word anywhere in the phrase counts, whatever surrounds it:
+    // "reaction to peanuts", "epipen for tree nuts" (1.96 Final Gate, Red Team
+    // BLOCK: a wrapper the list above never named left the peanut dish served)
+    const words = term.replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
+    const named = [...words, ...words.slice(1).map((w, i) => `${words[i]} ${w}`)].filter(
+      (w) => w !== term && familyOf(w),
+    );
+    return [...new Set([term, ...cores.flatMap(typedAvoidTerms), ...named.flatMap(typedAvoidTerms)])];
   }
   const out = new Set([term]);
   for (const id of fam) {

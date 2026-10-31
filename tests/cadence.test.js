@@ -431,3 +431,17 @@ test("Sunday night after the cutoff, Sunday's dinner set: Monday stays on meal A
     assert.equal(d.find((t) => t.date === "2026-11-03").preparedOn, "2026-11-01", `regenerate ${regenerate}: B prepped tonight`);
   }
 });
+
+// 1.96 Final Gate, Usability F2: a stew's meat simmers in the pot, and a dish
+// whose every step but one touches the meat leaves Sunday nothing to prep
+test("meal B never takes a dish that leaves Sunday under two steps, unless its split is written", () => {
+  assert.equal(freshProteinOk(dish("moroccan chicken stew", "chicken thigh", { note: "cubed" })), false);
+  const oneStep = {
+    ...dish("x", "chicken thigh", { note: "sliced thin" }),
+    instructions: ["Cook the rice.", "Simmer the chicken in the dashi.", "Pour the egg over the chicken."],
+  };
+  assert.equal(splitSteps(oneStep).sunday.length, 1);
+  assert.equal(freshProteinOk(oneStep), false);
+  const written = { ...oneStep, freshSplit: { sunday: ["Cook the rice."], night: ["Simmer the chicken.", "Add the egg."] } };
+  assert.equal(freshProteinOk(written), true, "a hand-written split stands");
+});

@@ -45,7 +45,7 @@ const SLOW =
   /\b(left whole|whole bird|rotisserie|cheeks?|shank|brisket|roast|bone-in|poached|shredded|batch-cooked|sunday[- ]batch|cooked|fillets?)\b/;
 /** dishes where the meat cooks INTO the rest (baked, simmered for hours): there is no "rest" to prep without it */
 const BAKED_IN =
-  /\b(dump-and-bake|casserole|sunday-bake|shepherd|lasagn\w*|bake|sheet-pan|slow[- ]cooker|braise\w*)\b/;
+  /\b(dump-and-bake|casserole|sunday-bake|shepherd|lasagn\w*|bake|sheet-pan|slow[- ]cooker|braise\w*|stew|tagine)\b/;
 
 /**
  * The meat rows meal B cooks fresh each night, or null when the dish cannot
@@ -91,7 +91,14 @@ export function freshProteinRows(recipe) {
  * @returns {boolean}
  */
 export function freshProteinOk(recipe) {
-  return freshProteinRows(recipe) !== null;
+  if (freshProteinRows(recipe) === null) return false;
+  // Sunday needs a rest to prep: a derived split that leaves it under two
+  // steps cooks the dish on the night, and the three screens disagreed about
+  // it (1.96 Final Gate, Usability F2: the Moroccan stew, oyakodon). A
+  // hand-written freshSplit says what Sunday does, so it stands
+  const own = recipe?.freshSplit;
+  if (own && Array.isArray(own.night) && own.night.length > 0) return true;
+  return splitSteps(recipe).sunday.length >= 2;
 }
 
 /**

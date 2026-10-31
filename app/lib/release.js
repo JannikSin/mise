@@ -54,6 +54,11 @@ export const RELEASES = [
       "Plan warns on a dinner when someone at the table cannot eat it, with their name and the reason.",
       "WHOLE TRIP on List clears JUST SOME DAYS, so BUILD goes back to the whole trip. SEND TO CART is a full button, and linking Kroger brings you back to List.",
       "The People card lists cooks only for the nights that cook. The recipe card closes when you change tabs or go Back, and the pencil button moved to the left so it no longer sits on top of the right-hand buttons. A snack left out of the rule says when the reason is the backpack setting.",
+      "A typed allergy is caught however it is worded: \"reaction to peanuts\", \"epipen for peanuts\", \"peanut oil\" or \"peanut butter\" all bring every peanut food, and a plain \"nut butter\" counts as peanut too.",
+      "The recipe page leaves off an optional extra you avoid, like a spoon of peanut butter, and says so. Before your profile has loaded it lists no optional extras and says it has not checked yet.",
+      "The List's check-the-label lines now show for the person they were written for (they never appeared before).",
+      "The second Sunday dish no longer picks a stew, a tagine, or a dish like oyakodon whose every step cooks the meat, so Sunday always has real prep and the three screens agree.",
+      "On the serve step, someone who cannot eat a dish reads \"not for Sam: contains roux. Do not plate it.\", not only the reason.",
     ],
   },
   {

@@ -24,7 +24,6 @@ import {
   readNow,
   readTargetsForSeat,
   readTargetsMetaOf,
-  withCurrentAllergenTerms,
   writeTargetsOf,
   pathFor,
   inSyncScope,
@@ -5064,10 +5063,10 @@ function App() {
         onCookedTable=${handleMarkTableCooked}
         cookNight=${Boolean(routeTable && !routeTable.leftoverOf && !(/** @type {any} */ (routeTable).preparedOn))}
         avoid=${
-          // the viewer's own list; before it loads, nothing is left off here
-          // (the plan and the table screen already fail closed on an unread
-          // profile, and a blank card on every launch would teach nothing)
-          targets?.avoidIngredients ?? []
+          // the viewer's own list; null while it is unread, so the page says
+          // "not checked" and lists no optional extra rather than every one
+          // (1.96 Final Gate, Engineer M2 / Red Team F4: it failed open)
+          targets ? (targets.avoidIngredients ?? []) : null
         }
       />`
     }
@@ -5135,9 +5134,10 @@ function App() {
             .filter((p) => (p.household ?? "home") === myHouseOf())
             .map((p) => ({
               name: p.id === me ? "you" : String(p.name ?? p.id),
-              avoid: /** @type {string[]} */ (
-                withCurrentAllergenTerms(houseTargets.get(p.id)?.data ?? null)?.avoidIngredients ?? []
-              ),
+              // already widened on read (readTargetsMetaOf); widening it a
+              // second time split "pb&j" into a bare "s" that hid every label
+              // line (1.96 Final Gate, Usability F1)
+              avoid: /** @type {string[]} */ (houseTargets.get(p.id)?.data?.avoidIngredients ?? []),
             }))
             .filter((x) => x.avoid.length > 0)
         }
