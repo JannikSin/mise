@@ -161,3 +161,28 @@ are new: the daily log and workouts never go to Supabase (Anvil keeps reading
 GitHub); a house sees another person's plate card, never their full profile;
 the shared bank names no one; secret keys live only in Worker secrets.
 
+
+### 9.1 The switch morning, in order (gate20 Realist R3, R4)
+
+Before the morning: the project config is committed (`app/lib/backend/config.js`), the
+Worker carries the plain vars `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
+`SUPABASE_SANDBOX_URL`, `SUPABASE_SANDBOX_PUBLISHABLE_KEY` and the secrets
+`SUPABASE_SECRET_KEY`, `SUPABASE_SANDBOX_SECRET_KEY`, `GUEST_SESSION_KEY`, with
+`SUPABASE_BACKEND=sandbox`; Mise NEXT has run on shell B for the sandbox
+(`node tools/make-shell.mjs index.html --supabase sandbox --write`, committed on `next`).
+
+1. **Shell A** (GitHub plus the freeze control): `node tools/make-shell.mjs index.html --move --write`,
+   commit, ship with the train (`tools/release.ps1`, then `-Confirm`).
+2. On the admin's phone, Settings: FREEZE. Every phone on shell A holds its writes.
+3. Fetch mise-data, check out origin/main, then
+   `node tools/migrate-to-supabase.mjs --snapshot <clone> --people <people.local.json> --target live --final --head-file head.txt`.
+4. `node tools/migrate-to-supabase.mjs --snapshot <clone> --verify-head head.txt`. If it refuses,
+   a phone wrote to GitHub after the snapshot: unfreeze, fetch, and run step 3 again.
+5. **Shell B** (Supabase): `node tools/make-shell.mjs index.html --supabase live --write`, commit,
+   a second train.
+6. Worker: set `SUPABASE_BACKEND=sandbox,main` and deploy it with
+   `npx wrangler deploy --config worker/wrangler.toml` from the repo root.
+7. Sign in yourself first (`tools/invite.mjs --me`), then send the invites.
+
+Back out before step 5: unfreeze and ship the plain shell
+(`node tools/make-shell.mjs index.html --plain --write`). After it: section 9's rollback row.
