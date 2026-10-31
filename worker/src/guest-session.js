@@ -46,7 +46,9 @@ async function hmacKey(secret) {
 }
 
 /**
- * @param {{ p: string, b: string }} who guest profile slug and data branch
+ * @param {{ p: string, b: string, i: string }} who guest profile slug, data
+ *   branch and profile uuid (the uuid ties the session to THIS person: a slug
+ *   is reused when a deleted guest's name is claimed again, gate20 RT20-2)
  * @param {string} secret GUEST_SESSION_KEY
  * @param {number} nowMs
  */
@@ -57,6 +59,7 @@ export async function signGuestSessionV2(who, secret, nowMs) {
         typ: "guest",
         p: String(who.p),
         b: String(who.b),
+        i: String(who.i),
         exp: nowMs + GUEST_SESSION_TTL_MS,
       }),
     ),
@@ -74,7 +77,7 @@ export async function signGuestSessionV2(who, secret, nowMs) {
  * @param {string} secret
  * @param {string} branch
  * @param {number} nowMs
- * @returns {Promise<{ p: string, b: string, exp: number } | null>}
+ * @returns {Promise<{ p: string, b: string, i: string, exp: number } | null>}
  */
 export async function verifyGuestSessionV2(token, secret, branch, nowMs) {
   if (!secret || typeof token !== "string" || token.length > 1024) return null;
@@ -90,8 +93,10 @@ export async function verifyGuestSessionV2(token, secret, branch, nowMs) {
     if (!ok) return null;
     const s = JSON.parse(new TextDecoder().decode(fromB64url(body)));
     if (s?.typ !== "guest" || typeof s.p !== "string" || s.b !== branch) return null;
+    // a session from before the uuid was carried names no one: log in again
+    if (typeof s.i !== "string" || !s.i) return null;
     if (!(Number(s.exp) > nowMs)) return null;
-    return { p: s.p, b: s.b, exp: Number(s.exp) };
+    return { p: s.p, b: s.b, i: s.i, exp: Number(s.exp) };
   } catch {
     return null;
   }

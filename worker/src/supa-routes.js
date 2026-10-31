@@ -157,7 +157,11 @@ export async function supaGuestRoute(pathname, body, branch, env, ctx) {
       const view = await guestView(project, row.slug, f);
       if (!view || !view.hasLogin) return nope();
       await ctx.cacheDelete(failKey);
-      const session = await signGuestSessionV2({ p: row.slug, b: branch }, secret, ctx.nowMs);
+      const session = await signGuestSessionV2(
+        { p: row.slug, b: branch, i: String(view.profileId ?? "") },
+        secret,
+        ctx.nowMs,
+      );
       return ctx.json(200, { session, name: firstNameOf(view.name) });
     }
 
@@ -165,7 +169,9 @@ export async function supaGuestRoute(pathname, body, branch, env, ctx) {
     // deleted login or a lapsed grant signs the guest out at once)
     const s = await verifyGuestSessionV2(body?.session, secret, branch, ctx.nowMs);
     const view = s ? await guestView(project, s.p, f) : null;
-    if (!s || !view || !view.hasLogin) return ctx.json(401, { error: "signed out" });
+    // the same slug as a deleted guest's is someone else (gate20 RT20-2)
+    if (!s || !view || !view.hasLogin || view.profileId !== s.i)
+      return ctx.json(401, { error: "signed out" });
     const first = firstNameOf(view.name);
     const rows = inviteStatusRows(
       view.tables,
@@ -338,7 +344,7 @@ export async function supaInviteRoute(pathname, body, code, branch, env, ctx) {
         return ctx.json(200, { ok: true, id: slug, name: entry.name, house: "guesthouse" });
       const secret = guestSessionSecret(env);
       const session = secret
-        ? await signGuestSessionV2({ p: slug, b: branch }, secret, ctx.nowMs)
+        ? await signGuestSessionV2({ p: slug, b: branch, i: r.profileId }, secret, ctx.nowMs)
         : "";
       return ctx.json(200, { ok: true, id: slug, name: entry.name, house: "guesthouse", session });
     }

@@ -63,7 +63,7 @@ export function jwtKills(test) {
 /** @param {typeof import("node:test").default} test */
 export function svcKills(test) {
   test("mutant 'session branch' (F8): a sandbox guest session is refused on live", async () => {
-    const s = await signGuestSessionV2({ p: "guest-a", b: "sandbox" }, KEY, NOW);
+    const s = await signGuestSessionV2({ p: "guest-a", b: "sandbox", i: "a0000000-0000-4000-8000-000000000003" }, KEY, NOW);
     assert.ok(await verifyGuestSessionV2(s, KEY, "sandbox", NOW));
     assert.equal(await verifyGuestSessionV2(s, KEY, "main", NOW), null);
   });

@@ -129,7 +129,7 @@ test("guest login: a lapsed grant cannot log in; a missing GUEST_SESSION_KEY is 
 test("/guest/me on Supabase: own seats only, bank and house-special recipes, own profile", async () => {
   const w = await world();
   await withFetch(w.sb.fetchImpl, async () => {
-    const session = await signGuestSessionV2({ p: "guest-a", b: "sandbox" }, KEY, Date.now());
+    const session = await signGuestSessionV2({ p: "guest-a", b: "sandbox", i: "a0000000-0000-4000-8000-000000000003" }, KEY, Date.now());
     const r = await worker.fetch(workerReq("/guest/me", { session }), ENV);
     assert.equal(r.status, 200);
     const body = await r.json();
@@ -149,10 +149,10 @@ test("/guest/me: a 1.95 session, a deleted login and a lapsed grant are all sign
   await withFetch(w.sb.fetchImpl, async () => {
     const old = await signGuestSession({ p: "guest-a", b: "sandbox" }, "write-token", Date.now());
     assert.equal((await worker.fetch(workerReq("/guest/me", { session: old }), ENV)).status, 401);
-    const lapsed = await signGuestSessionV2({ p: "guest-b", b: "sandbox" }, KEY, Date.now());
+    const lapsed = await signGuestSessionV2({ p: "guest-b", b: "sandbox", i: "a0000000-0000-4000-8000-000000000004" }, KEY, Date.now());
     assert.equal((await worker.fetch(workerReq("/guest/me", { session: lapsed }), ENV)).status, 401);
     delete w.db.st.logins.guesta;
-    const s = await signGuestSessionV2({ p: "guest-a", b: "sandbox" }, KEY, Date.now());
+    const s = await signGuestSessionV2({ p: "guest-a", b: "sandbox", i: "a0000000-0000-4000-8000-000000000003" }, KEY, Date.now());
     assert.equal((await worker.fetch(workerReq("/guest/me", { session: s }), ENV)).status, 401);
   });
 });
@@ -315,14 +315,14 @@ test("F8: house and profile for recipe_for, recipe_names and guest_summary come 
     ids: ["house-ffffffffffff"],
   };
   await withFetch(w.sb.fetchImpl, async () => {
-    const session = await signGuestSessionV2({ p: "guest-a", b: "sandbox" }, KEY, Date.now());
+    const session = await signGuestSessionV2({ p: "guest-a", b: "sandbox", i: "a0000000-0000-4000-8000-000000000003" }, KEY, Date.now());
     const r = await worker.fetch(workerReq("/guest/me", { session, ...hostile }), ENV);
     assert.equal(r.status, 200);
     const body = JSON.stringify(await r.json());
     assert.equal(body.includes("Other House Dish"), false);
     assert.equal(body.includes("sesame"), false);
     // a forged session naming the other guest is refused outright
-    const forged = await signGuestSessionV2({ p: "guest-b", b: "sandbox" }, "not-the-key-PLACEHOLDER", Date.now());
+    const forged = await signGuestSessionV2({ p: "guest-b", b: "sandbox", i: "a0000000-0000-4000-8000-000000000004" }, "not-the-key-PLACEHOLDER", Date.now());
     assert.equal((await worker.fetch(workerReq("/guest/me", { session: forged, ...hostile }), ENV)).status, 401);
     // the status page takes its house from the stored invite, not the body
     const jwt = await signJwt(w.key, { sub: USER_B });
@@ -352,3 +352,16 @@ test("F8: invite/new names a house in the body, but the database checks it again
 // fix loop 1, item 9: the mutation-killing tests for this file's sources
 import { svcKills } from "./_mutation-kills.js";
 svcKills(test);
+
+test("RT20-2: a session names the guest's uuid, so a new guest on a reused slug is not opened by the old one", async () => {
+  const w = await world();
+  await withFetch(w.sb.fetchImpl, async () => {
+    const old = await signGuestSessionV2({ p: "guest-a", b: "sandbox", i: "a0000000-0000-4000-8000-0000000000ff" }, KEY, Date.now());
+    const r = await worker.fetch(workerReq("/guest/me", { session: old }), ENV);
+    assert.equal(r.status, 401, "same slug, another person");
+    const noId = await signGuestSessionV2(/** @type {any} */ ({ p: "guest-a", b: "sandbox" }), KEY, Date.now());
+    assert.equal((await worker.fetch(workerReq("/guest/me", { session: noId }), ENV)).status, 401, "an old session without a uuid");
+    const mine = await signGuestSessionV2({ p: "guest-a", b: "sandbox", i: "a0000000-0000-4000-8000-000000000003" }, KEY, Date.now());
+    assert.equal((await worker.fetch(workerReq("/guest/me", { session: mine }), ENV)).status, 200);
+  });
+});
