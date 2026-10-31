@@ -2431,7 +2431,9 @@ table above stays the one map.
 **Triggers.** `docs_before` first refuses a signed-in caller who may not
 write the path (`private.can_write`, P0403) before any other check can answer
 (fix loop 3, E3: else `mise_bad_path`, P0422 and 42501 told a stranger which
-house slugs exist and which names are hidden from a house). It derives the scope on insert and pins `path`,
+house slugs exist and which names are hidden from a house); `can_write` is false
+for a probe account on every path (gate20 RT20-4, `20261106100000_rt20_probe_readonly.sql`:
+the probe only reads). It derives the scope on insert and pins `path`,
 `doc_id`, `kind`, owner and `legacy_sha` on update; it refuses a signed-in
 non-owner's targets write that drops a stored key (ENG L2-2, P0403), and runs
 the name guard (P0422). `recipes_before` and `plates_before` bump `rev` and pin
