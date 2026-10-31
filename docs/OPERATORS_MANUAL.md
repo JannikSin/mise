@@ -145,6 +145,7 @@ SQL transaction for David to run; none connects on its own.
 | The gate on a REAL stack before the live run | `tools/live-gate.md`, `tools/live-gate.mjs` (local Docker stack or the sandbox, never live) |
 | Clean the shared recipe bank of names first | `tools/bank-scrub.mjs` (the migration refuses while any bank recipe names a person); a recipe whose id names someone: `tools/rename-recipe.mjs <clone> --from <old> --to <new> [--apply]`, which rewrites every pointer |
 | Move the data across | `tools/migrate-to-supabase.mjs --snapshot <mise-data clone> --people <people.local.json>` (`--target pglite`, the default, is a local dry run; `--target sandbox` or `live` reads `MISE_DB_URL`) |
+| Prove no write reached GitHub during the freeze (after `--final`, before anyone signs in) | the `--final` run with `--head-file head.txt`, then `node tools/migrate-to-supabase.mjs --snapshot <clone> --verify-head head.txt`; if it refuses, unfreeze, fetch, and run `--final` again |
 | Invite people (sign-ups are off) | `tools/invite.mjs --people people.local.json --me [--send]` |
 | Add, delete or export one person | `tools/add-member.mjs`, `tools/delete-member.mjs`, `tools/export-person.mjs` |
 | The Wayne probe account | `tools/make-probe.mjs`; what it may reach: `tools/probe-reach.mjs` |

@@ -604,6 +604,32 @@ export async function verify(client, plan) {
   return out;
 }
 
+/**
+ * gate20 Realist R4: the freeze is enforced on the phones only, so a phone
+ * still on a cached 1.x page can write to GitHub after the snapshot. Run this
+ * after --final and before anyone signs in: it fetches mise-data and refuses
+ * unless origin/main is still the commit the snapshot was taken at (written
+ * by --head-file). If it moved, unfreeze, fetch, and run --final again.
+ * @param {string} dir the snapshot clone
+ * @param {string} want the HEAD sha recorded with --head-file
+ * @param {{ fetch?: boolean }} [o]
+ */
+export function verifyHead(dir, want, o = {}) {
+  const git = (/** @type {string[]} */ args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  if (!/^[0-9a-f]{40}$/.test(want)) throw new GateError("head", "the head file does not hold a commit sha");
+  if (o.fetch !== false) {
+    try {
+      git(["fetch", "--quiet", "origin", "main"]);
+    } catch {
+      throw new GateError("head", "could not fetch mise-data; check signal and run this again (nobody signs in until it passes)");
+    }
+  }
+  const now = git(["rev-parse", "refs/remotes/origin/main"]).trim();
+  if (now !== want)
+    throw new GateError("head", "mise-data's main moved after the snapshot: a write reached GitHub during the freeze. Unfreeze, fetch, and run --final again");
+  return now;
+}
+
 /** @param {string[]} argv */
 function parseArgs(argv) {
   /** @type {Record<string, string | boolean>} */
@@ -621,7 +647,10 @@ function parseArgs(argv) {
 }
 
 export const USAGE = `usage: node tools/migrate-to-supabase.mjs --snapshot <mise-data clone> --people <people.local.json>
-         [--dry-run] [--final] [--reviewed-term-load] [--target pglite|sandbox|live] [--rollback] [--show-paths] [--manifest <out.json>]
+         [--dry-run] [--final] [--reviewed-term-load] [--target pglite|sandbox|live] [--rollback] [--show-paths] [--manifest <out.json>] [--head-file <out.txt>]
+       node tools/migrate-to-supabase.mjs --snapshot <mise-data clone> --verify-head <head.txt>
+  --head-file                records the snapshot's commit; --verify-head (after --final, before anyone signs in)
+                             fetches mise-data and refuses if its main moved since
   --target pglite (default)  a fresh in-memory stand-in, discarded on exit
   --target sandbox|live      the connection string comes from the MISE_DB_URL environment variable:
                              the direct connection or the session pooler, port 5432 (never 6543)
@@ -630,6 +659,19 @@ Rehearse with --rollback first: run each real target once with --rollback, read 
 
 async function main() {
   const a = parseArgs(process.argv.slice(2));
+  if (typeof a.snapshot === "string" && typeof a["verify-head"] === "string") {
+    try {
+      const sha = verifyHead(a.snapshot, readFileSync(a["verify-head"], "utf8").trim());
+      console.log(`head ok: mise-data main is still ${sha.slice(0, 12)}, the snapshot's commit`);
+      process.exit(0);
+    } catch (e) {
+      if (e instanceof GateError) {
+        console.error(`REFUSED ${e.message}`);
+        process.exit(1);
+      }
+      throw e;
+    }
+  }
   if (!a.snapshot || !a.people) {
     console.log(USAGE);
     process.exit(a.help ? 0 : 2);
@@ -658,6 +700,8 @@ async function main() {
   console.log(`  bank recipes hit per term: ${plan.termLoad.map((t) => `${t.field} ${t.recipes}`).join(", ") || "no terms"}`);
   console.log(`  skipped: ${Object.entries(plan.skipped).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`);
   if (typeof a.manifest === "string") writeFileSync(a.manifest, JSON.stringify(plan.sha256, null, 2));
+  if (typeof a["head-file"] === "string")
+    writeFileSync(a["head-file"], execFileSync("git", ["-C", snapshot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim() + "\n");
   if (a["dry-run"]) return;
   const target = String(a.target ?? "pglite");
   /** @type {any} */
