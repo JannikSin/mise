@@ -33,9 +33,11 @@ const dish = (id, food, extra = {}) => ({
     { qty: 300, unit: "g", food: "brown rice" },
   ],
   instructions: [
+    // the rest first and the meat last: a dish that really preps ahead
+    // (1.96 re-gate: steps after the meat are the night's)
     { step: 1, text: "Cook the rice." },
-    { step: 2, text: `Brown the ${food} in a hot pan.` },
-    { step: 3, text: "Whisk the sauce." },
+    { step: 2, text: "Whisk the sauce." },
+    { step: 3, text: `Brown the ${food} in a hot pan.` },
   ],
   ...extra,
 });
@@ -444,4 +446,22 @@ test("meal B never takes a dish that leaves Sunday under two steps, unless its s
   assert.equal(freshProteinOk(oneStep), false);
   const written = { ...oneStep, freshSplit: { sunday: ["Cook the rice."], night: ["Simmer the chicken.", "Add the egg."] } };
   assert.equal(freshProteinOk(written), true, "a hand-written split stands");
+});
+
+// 1.96 re-gate, Engineer F1 / F3 / F4: steps after the meat goes in are the
+// night's, a hand-written split is judged one way, and the night needs a step
+test("once the meat is in, every later step is the night's", () => {
+  const chili = {
+    ...dish("x", "ground turkey"),
+    instructions: ["Dice the onion and pepper.", "Rinse the beans.", "Brown the turkey.", "Add the beans and tomatoes and simmer 30 minutes.", "Portion into 8."],
+  };
+  assert.deepEqual(splitSteps(chili), {
+    sunday: ["Dice the onion and pepper.", "Rinse the beans."],
+    night: ["Brown the turkey.", "Add the beans and tomatoes and simmer 30 minutes.", "Portion into 8."],
+  });
+  assert.equal(freshProteinOk(chili), true);
+  const noMeatStep = { ...dish("x", "ground turkey"), instructions: ["Cook the rice.", "Whisk the sauce."] };
+  assert.equal(freshProteinOk(noMeatStep), false, "nothing cooks the meat on the night");
+  const bad = { ...noMeatStep, freshSplit: { sunday: ["Cook the rice."], night: [""] } };
+  assert.equal(freshProteinOk(bad), false, "a split splitSteps would ignore is not a split here either");
 });

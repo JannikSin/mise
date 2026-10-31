@@ -96,9 +96,10 @@ export function freshProteinOk(recipe) {
   // steps cooks the dish on the night, and the three screens disagreed about
   // it (1.96 Final Gate, Usability F2: the Moroccan stew, oyakodon). A
   // hand-written freshSplit says what Sunday does, so it stands
-  const own = recipe?.freshSplit;
-  if (own && Array.isArray(own.night) && own.night.length > 0) return true;
-  return splitSteps(recipe).sunday.length >= 2;
+  if (validSplit(recipe?.freshSplit)) return true;
+  // and the night needs a step of its own, or nothing cooks the meat (F4)
+  const split = splitSteps(recipe);
+  return split.sunday.length >= 2 && split.night.length >= 1;
 }
 
 /**
@@ -135,6 +136,19 @@ export function meatPhrase(meat) {
 }
 
 /**
+ * A hand-written `freshSplit` counts only as two lists of plain steps with at
+ * least one for the night; splitSteps and freshProteinOk both ask this, so
+ * they never disagree about one (1.96 re-gate, Engineer F3).
+ * @param {any} own
+ * @returns {boolean}
+ */
+function validSplit(own) {
+  const strings = (/** @type {unknown} */ a) =>
+    Array.isArray(a) && a.every((x) => typeof x === "string" && x.trim() !== "");
+  return Boolean(own && strings(own.sunday) && strings(own.night) && own.night.length > 0);
+}
+
+/**
  * Split the recipe's steps: Sunday does every step that does not touch the
  * meat; the night does the rest. A recipe's own `freshSplit` ({ sunday,
  * night }, lists of plain steps) wins; otherwise a step naming a fresh row's
@@ -146,10 +160,7 @@ export function splitSteps(recipe) {
   // the recipe's own split wins (tagged by hand: a step that softens the
   // onion and then browns the chicken is half Sunday's, half the night's)
   const own = recipe?.freshSplit;
-  const strings = (/** @type {unknown} */ a) =>
-    Array.isArray(a) && a.every((x) => typeof x === "string" && x.trim() !== "");
-  if (own && strings(own.sunday) && strings(own.night) && own.night.length > 0)
-    return { sunday: [...own.sunday], night: [...own.night] };
+  if (validSplit(own)) return { sunday: [...own.sunday], night: [...own.night] };
   const rows = freshProteinRows(recipe) ?? [];
   const words = new Set(
     rows.flatMap((r) => [
@@ -186,7 +197,10 @@ export function splitSteps(recipe) {
     if (!text) continue;
     const lower = text.toLowerCase();
     const touchesMeat = [...words].some((w) => new RegExp(`\\b${w}`).test(lower));
-    (touchesMeat ? night : sunday).push(text);
+    // once the meat is in, every later step is the night's: "simmer the pot
+    // 30 minutes" and "portion into 8" never name the meat but need it
+    // (1.96 re-gate, Engineer F1: the chili simmered on Sunday)
+    (touchesMeat || night.length > 0 ? night : sunday).push(text);
   }
   return { sunday, night };
 }

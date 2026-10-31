@@ -149,7 +149,7 @@ function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
 }
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, date?: string, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void, avoid?: string[] | null, cookNight?: boolean }} props `cookNight` = this page is the shared pot's own cook night; `avoid` = the viewer's avoid list (null = unread); picks they avoid are left off
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, date?: string, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void, avoid?: string[] | null, cookNight?: boolean, mealBLines?: string[] }} props `mealBLines` = a second-Sunday-dish night's own lines (the Plan row's); `cookNight` = this page is the shared pot's own cook night; `avoid` = the viewer's avoid list (null = unread); picks they avoid are left off
  */
 export function RecipeView({
   recipe,
@@ -166,6 +166,7 @@ export function RecipeView({
   onAvoid = undefined,
   avoid = [],
   cookNight = false,
+  mealBLines = [],
   entry = undefined,
   onCooked = undefined,
   onCookComment = undefined,
@@ -447,7 +448,11 @@ export function RecipeView({
                   <div class="serve-name">SET ASIDE</div>
                   <div class="serve-line">
                     ${r.name.toUpperCase()}'s portion, ${r.fraction}, set
-                    apart${r.note ? ` (${r.note})` : ""}
+                    apart${
+                      // "not for Sam: ... Do not plate it." is its own sentence
+                      // (1.96 re-gate, Engineer F7)
+                      r.note ? (/^not for /.test(r.note) ? `. ${r.note.replace(/^n/, "N")}` : ` (${r.note})`) : ""
+                    }
                   </div>
                 </div>`
               : html`<div class="serve-seat" key=${r.id}>
@@ -475,7 +480,18 @@ export function RecipeView({
         </div>`
       }
       ${
+        // MEAL B NIGHT: the rest was prepped Sunday and only the meat cooks
+        // tonight, so the stored batch text ("cook the whole pot Sunday") is
+        // replaced by the Plan row's own lines, and the two screens agree
+        mealBLines.length > 0 &&
+        html`<div class="tile portion batch" role="note">
+          <div class="k">🥩 Tonight: the rest was prepped Sunday</div>
+          ${mealBLines.map((line, i) => html`<div class="d" key=${`mb${i}`}>${line}</div>`)}
+        </div>`
+      }
+      ${
         recipe.batchPrep &&
+        mealBLines.length === 0 &&
         html`<div class="tile portion batch" role="note">
           ${
             recipe.batchPrep.sundayComponent &&
@@ -621,7 +637,7 @@ export function RecipeView({
           </div>
           <p class="hint">
             ${
-              forN || !planned
+              forN || !planned || mealBLines.length > 0
                 ? forLine.line
                 : `${forLine.asWritten} The amounts below are what the plan cooks; tap + or − to cook a different number.`
             }

@@ -519,7 +519,13 @@ export function typedAvoidTerms(word) {
   // a second pass split "s&b curry" into a bare "s" that matched every food)
   const parts = familyTerm(term)
     ? [term]
-    : term.split(/\s+(?:and|or)\s+|\s*[&/;+]\s*/).map((x) => x.trim()).filter(Boolean);
+    : term
+        .split(/\s+(?:and|or)\s+|\s*[&/;+]\s*/)
+        .map((x) => x.trim())
+        // "S & B curry" and "M&Ms" are one food: a letter or two left by the
+        // split matched nearly every food and hid the label lines (1.96 re-gate,
+        // Red Team C1); the whole phrase is still kept
+        .filter((x) => x.length > 2);
   if (parts.length > 1) return [...new Set([term, ...parts.flatMap(typedAvoidTerms)])];
   // own keys only: "constructor" or "__proto__" must not reach Object.prototype
   // (Tribunal Red Team, 2.0 loop 1: it threw and stopped SET)
@@ -539,8 +545,12 @@ export function typedAvoidTerms(word) {
     // "reaction to peanuts", "epipen for tree nuts" (1.96 Final Gate, Red Team
     // BLOCK: a wrapper the list above never named left the peanut dish served)
     const words = term.replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
+    // a single food a family carries counts too: "reaction to cashews"
+    // (1.96 re-gate, Engineer F2)
     const named = [...words, ...words.slice(1).map((w, i) => `${words[i]} ${w}`)].filter(
-      (w) => w !== term && familyOf(w),
+      (w) =>
+        w !== term &&
+        (familyOf(w) || familyTerm(w) || familyTerm(w.replace(/(es|s)$/, "")) || familyTerm(w.replace(/s$/, ""))),
     );
     return [...new Set([term, ...cores.flatMap(typedAvoidTerms), ...named.flatMap(typedAvoidTerms)])];
   }

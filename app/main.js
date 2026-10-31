@@ -30,6 +30,7 @@ import {
   setScopeGuests,
 } from "./lib/store.js";
 import { initRouter, parseRoute } from "./lib/router.js";
+import { mealBLines } from "./lib/cadence.js";
 import {
   visibleProfilesFor,
   withoutHiddenNames,
@@ -5062,6 +5063,18 @@ function App() {
         tableCooked=${Boolean(routeTable?.cookedAt)}
         onCookedTable=${handleMarkTableCooked}
         cookNight=${Boolean(routeTable && !routeTable.leftoverOf && !(/** @type {any} */ (routeTable).preparedOn))}
+        mealBLines=${
+          // a second-Sunday-dish night: the same lines its Plan row prints,
+          // read from the derived table entry the row reads (1.96 re-gate,
+          // Usability F2-R: this page showed the stored "cook the whole pot")
+          route.table
+            ? mealBLines(
+                viewPlan.entries.find((/** @type {any} */ e) => e.table === route.table) ?? {},
+                (/** @type {string} */ iso) =>
+                  parseLocalIso(iso).toLocaleDateString([], { weekday: "short" }),
+              )
+            : []
+        }
         avoid=${
           // the viewer's own list; null while it is unread, so the page says
           // "not checked" and lists no optional extra rather than every one

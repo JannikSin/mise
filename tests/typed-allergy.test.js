@@ -174,3 +174,19 @@ test("widening a widened list changes nothing (1.96 Final Gate, Usability F1)", 
   assert.deepEqual(twice.avoidIngredients, once.avoidIngredients);
   for (const bare of ["s", "b", "j", "pb"]) assert.ok(!once.avoidIngredients.includes(bare), bare);
 });
+
+test("a split never leaves a one- or two-letter term (1.96 re-gate, Red Team C1)", () => {
+  for (const typed of ["S & B curry", "M&Ms", "b&b", "pb & j"]) {
+    const terms = typedAvoidTerms(typed);
+    assert.ok(terms.includes(typed.toLowerCase()), `"${typed}" kept`);
+    assert.ok(terms.every((t) => t.length > 2), `"${typed}" -> ${terms.join(" | ")}`);
+  }
+  assert.ok(typedAvoidTerms("celery and okra").includes("okra"), "real pairs still split");
+});
+
+test("a single food a family carries counts inside a phrase (1.96 re-gate, Engineer F2)", () => {
+  const bowl = dish("cashew-bowl", ["brown rice", "roasted cashews", "chicken thigh"]);
+  for (const typed of ["reaction to cashews", "hives from cashews", "epipen for cashews"]) {
+    assert.ok(recipeConflicts(bowl, undefined, avoidTermsFromAllergens([], typed)).length > 0, typed);
+  }
+});
