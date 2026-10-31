@@ -88,6 +88,17 @@ export async function inviteCodeHash(code) {
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Is a database timestamp in the past? Compared as instants, never as text
+ * (fix loop 1, E12: Postgres may answer "2026-10-27 12:00:00+00" or another
+ * zone). Unreadable counts as past, the safe side.
+ * @param {string} ts @param {number} nowMs
+ */
+export function pastIso(ts, nowMs) {
+  const t = Date.parse(String(ts).replace(" ", "T").replace(/([+-]\d\d)$/, "$1:00"));
+  return !(Number.isFinite(t) && t > nowMs);
+}
+
 /** @param {RouteCtx} ctx @param {unknown} e */
 function unreachable(ctx, e) {
   console.log("supabase route failed", e instanceof Error ? e.message : String(e));
@@ -219,11 +230,11 @@ export async function supaInviteRoute(pathname, body, code, branch, env, ctx) {
 
     if (pathname === "/invite/status") {
       if (!inv.usedAt || !inv.claimed) {
-        return inv.expiresAt < nowIso
+        return pastIso(inv.expiresAt, ctx.nowMs)
           ? ctx.json(410, { error: "this invite has expired, ask for a new one" })
           : ctx.json(200, { state: "unclaimed" });
       }
-      if (inv.statusUntil && inv.statusUntil < nowIso) {
+      if (inv.statusUntil && pastIso(inv.statusUntil, ctx.nowMs)) {
         return ctx.json(410, { error: "this link has expired, ask for a new one" });
       }
       const view = await guestView(project, inv.claimed, f);
@@ -255,7 +266,7 @@ export async function supaInviteRoute(pathname, body, code, branch, env, ctx) {
 
     // /invite/claim
     if (inv.usedAt) return ctx.json(410, { error: "this invite was already used" });
-    if (inv.expiresAt < nowIso) {
+    if (pastIso(inv.expiresAt, ctx.nowMs)) {
       return ctx.json(410, { error: "this invite has expired, ask for a new one" });
     }
     const entry = sanitizeInviteEntry(body?.entry);
@@ -312,6 +323,12 @@ export async function supaInviteRoute(pathname, body, code, branch, env, ctx) {
       const r = await claimGuest(project, { codeHash, slug, roster, targets, until }, f);
       if (r.status === "slug_taken") continue;
       if (r.status === "invalid") return ctx.json(410, { error: "this invite was already used" });
+      if (r.status === "guarded") {
+        return ctx.json(422, {
+          error:
+            "Something you typed (your name or a note) can't be saved for this kitchen. Change it and try again; your link still works.",
+        });
+      }
       // from here the code is SPENT: a later failure must not invite a retry
       // that can only answer 410
       if (!login)

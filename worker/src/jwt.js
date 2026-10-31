@@ -36,8 +36,10 @@ const ALGS = {
 };
 
 /**
- * jwksUrl -> { keys: kid -> jwk, imported: kid -> CryptoKey, fetchedAt }
- * @type {Map<string, { keys: Map<string, any>, imported: Map<string, CryptoKey>, fetchedAt: number }>}
+ * jwksUrl -> { keys: kid -> jwk, imported: kid -> CryptoKey, fetchedAt,
+ * retryAt }. retryAt is the backoff after a failed fetch (fix loop 1, R5):
+ * no new fetch before it, and the keys already held keep working.
+ * @type {Map<string, { keys: Map<string, any>, imported: Map<string, CryptoKey>, fetchedAt: number, retryAt: number }>}
  */
 const jwksCache = new Map();
 
@@ -74,15 +76,33 @@ export function pinnedAlg(env) {
  * @param {number} nowMs
  */
 async function loadJwks(jwksUrl, fetchImpl, nowMs) {
-  const res = await fetchImpl(jwksUrl, { headers: { accept: "application/json" } });
-  if (!res.ok) throw new Error(`jwks ${res.status}`);
-  const body = await res.json();
+  const old = jwksCache.get(jwksUrl);
+  // inside the backoff after a failure: the old keys, or the outage
+  if (old && nowMs < old.retryAt) {
+    if (old.keys.size) return old;
+    throw new Error("jwks backoff");
+  }
+  let body;
+  try {
+    const res = await fetchImpl(jwksUrl, { headers: { accept: "application/json" } });
+    if (!res.ok) throw new Error(`jwks ${res.status}`);
+    body = await res.json();
+  } catch (e) {
+    // stale-if-error: keep what we had, and wait REFETCH_FLOOR_MS before the next try
+    if (old) {
+      old.retryAt = nowMs + REFETCH_FLOOR_MS;
+      if (old.keys.size) return old;
+    } else {
+      jwksCache.set(jwksUrl, { keys: new Map(), imported: new Map(), fetchedAt: -Infinity, retryAt: nowMs + REFETCH_FLOOR_MS });
+    }
+    throw e;
+  }
   /** @type {Map<string, any>} */
   const keys = new Map();
   for (const k of Array.isArray(body?.keys) ? body.keys : []) {
     if (k && typeof k.kid === "string" && k.kid) keys.set(k.kid, k);
   }
-  const entry = { keys, imported: new Map(), fetchedAt: nowMs };
+  const entry = { keys, imported: new Map(), fetchedAt: nowMs, retryAt: 0 };
   jwksCache.set(jwksUrl, entry);
   return entry;
 }

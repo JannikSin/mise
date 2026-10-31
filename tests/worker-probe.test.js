@@ -112,3 +112,7 @@ test("probeDue: Mondays at 7 am only", () => {
   assert.equal(probeDue({ weekday: "Mon", hour: 8 }), false);
   assert.equal(probeDue({ weekday: "Tue", hour: 7 }), false);
 });
+
+// fix loop 1, item 9: the mutation-killing tests for this file's sources
+import { probeKills } from "./_mutation-kills.js";
+probeKills(test);

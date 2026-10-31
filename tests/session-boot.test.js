@@ -104,7 +104,10 @@ test("a session: locked first, then onSessionChange, install, reset checks, THEN
   });
   const boot = createSessionBoot({ client, seam, project: PROJECT, storage: store });
   assert.equal(await boot.boot(), "signed-in");
+  // the seam's order (loop 2): the locked backend is in when onSessionChange runs
   assert.deepEqual(log, [
+    "install:locked",
+    "reset",
     "install:locked",
     "reset",
     "session:null->housemate-1",
@@ -126,7 +129,7 @@ test("a session: locked first, then onSessionChange, install, reset checks, THEN
   assert.ok(log.includes("discard:plans/2026-W44.json"));
 });
 
-test("the same account again does not call onSessionChange; a different one does", async () => {
+test("onSessionChange runs on every good whoami (idempotent in the store); a different account is a change", async () => {
   const { seam, log } = fakeSeam();
   const store = mem({ "mise.signedInSlug": "housemate-1" });
   const same = createSessionBoot({
@@ -139,10 +142,7 @@ test("the same account again does not call onSessionChange; a different one does
     storage: store,
   });
   await same.boot();
-  assert.equal(
-    log.some((l) => l.startsWith("session:")),
-    false,
-  );
+  assert.ok(log.includes("session:housemate-1->housemate-1"), "the same account is still reported (seam loop 2)");
   log.length = 0;
   const other = createSessionBoot({
     client: fakeClient({
@@ -175,11 +175,13 @@ test("the admin (root profile) gets the composite lane and may switch profile", 
   assert.equal(canSwitchHere(), true);
 });
 
-test("an auth error or no signal never purges: locked, queue kept", async () => {
-  for (const whoami of [
-    { data: null, error: { status: 401, code: "PGRST301" } },
-    () => Promise.reject(new TypeError("Failed to fetch")),
-  ]) {
+test("an auth error or no signal never purges: locked, queue kept (a 401 or 403 is 'expired', E5)", async () => {
+  for (const [whoami, want] of /** @type {const} */ ([
+    [{ data: null, error: { status: 401, code: "PGRST301" } }, "expired"],
+    [{ data: null, error: { status: 403, code: "42501" } }, "expired"],
+    [{ data: null, error: { status: 503, message: "upstream" } }, "offline"],
+    [() => Promise.reject(new TypeError("Failed to fetch")), "offline"],
+  ])) {
     const { seam, log } = fakeSeam();
     const r = await createSessionBoot({
       client: fakeClient({ session: SESSION, whoami }),
@@ -187,7 +189,7 @@ test("an auth error or no signal never purges: locked, queue kept", async () => 
       project: PROJECT,
       storage: mem({ "mise.signedInSlug": "housemate-1" }),
     }).boot();
-    assert.equal(r, "offline");
+    assert.equal(r, want);
     assert.equal(log.includes("PURGE"), false);
     assert.equal(log.includes("flush"), false);
     assert.equal(log.at(-2), "install:locked");
@@ -274,7 +276,7 @@ test(
     const b = backendMod.backend();
     assert.equal(b.name, "supabase");
     assert.equal(b.session()?.slug, "housemate-1");
-    assert.deepEqual(log, ["reset", "null->housemate-1", "reset", "flush"]);
+    assert.deepEqual(log, ["reset", "reset", "null->housemate-1", "reset", "flush"]);
     backendMod.installBackend(null);
   },
 );

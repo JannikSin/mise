@@ -195,6 +195,13 @@ export function fakeSvcDb(seed = {}) {
   const rpc = {
     entitled: (a) => Boolean(byUser(a.p_sub)?.entitled),
     ai_count: (a) => (st.usage[a.p_sub] = (st.usage[a.p_sub] ?? 0) + 1),
+    ai_take: (a) => {
+      st.usage[a.p_sub] = (st.usage[a.p_sub] ?? 0) + a.p_n;
+      if (st.usage[a.p_sub] > a.p_user_cap) return "user";
+      const g = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+      st.usage[g] = (st.usage[g] ?? 0) + a.p_n;
+      return st.usage[g] > a.p_global_cap ? "global" : "ok";
+    },
     whoami: (a) => {
       const p = byUser(a.p_sub);
       return p ? { slug: p.slug, admin: Boolean(p.admin), houses: p.houses ?? [] } : null;

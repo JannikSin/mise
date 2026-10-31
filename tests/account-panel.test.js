@@ -62,3 +62,18 @@ test("Settings: SWITCH PROFILE is behind canSwitchHere, and the account section 
   );
   assert.match(src, /<\$\{AccountSection\}/);
 });
+
+test("E14: a 2.0 roster (no kind, a guest's house hidden from a member) counts its guests", () => {
+  // what roster() sends a member: housemates with their house, a live guest with household null
+  const rows = [
+    { id: "housemate-1", household: "house-w", admin: false },
+    { id: "host-1", household: "house-w", admin: true },
+    { id: "guest-a", household: null, family: null, admin: false, roster: { name: "Guest A" } },
+  ];
+  assert.equal(reachSummary(rows, "housemate-1").guests, 1);
+  // what the admin sees: the guest house by name
+  assert.equal(
+    reachSummary([{ id: "host-1", household: "house-w" }, { id: "guest-a", household: "guesthouse" }], "host-1").guests,
+    1,
+  );
+});

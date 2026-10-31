@@ -1,0 +1,10 @@
+<!-- Mise 2.0, Supabase Auth > Emails > Reset password. Paste this whole file as the body.
+     Subject: Reset your Mise password
+     The link carries the token HASH and opens the app's SET PASSWORD screen, which spends
+     the token only when the person taps the button. Never use {{ .ConfirmationURL }} here:
+     a mail scanner that opens it would spend the link before the person sees it. -->
+<h2>Reset your Mise password</h2>
+<p>Open this link on your phone and choose a new password:</p>
+<p><a href="{{ .SiteURL }}#/set-password?token_hash={{ .TokenHash }}&type=recovery">Choose a new password</a></p>
+<p>The link works once. If it has stopped working, ask for a new one from the sign-in screen.</p>
+<p>If you did not ask for this, you can ignore it. Your password stays the same.</p>

@@ -86,9 +86,9 @@ import {
 import { callModel, providerConfigured } from "./provider.js";
 import { handleKroger, handleKrogerCallback } from "./kroger.js";
 import { handleHall } from "./hall.js";
-import { authenticate, takeAiQuota } from "./auth.js";
+import { authenticate, takeAiQuota, bareAuth } from "./auth.js";
 import { githubCronSource } from "./cron-source.js";
-import { onSupabase, projectFor } from "./supabase-env.js";
+import { onSupabase, projectFor, devOriginRefused } from "./supabase-env.js";
 import {
   supaGuestRoute,
   supaInviteRoute,
@@ -458,6 +458,24 @@ async function postNtfy(topic, n) {
   }).catch(() => {});
 }
 
+/**
+ * One high-priority ntfy a day when the switched live cron cannot run (fix
+ * loop 1, E10). Plain words, no data: the next hour tries again by itself.
+ * @param {string} topic
+ * @param {string} dateIso David's date
+ * @param {string} why
+ */
+async function cronAlarm(topic, dateIso, why) {
+  const key = `https://mise-worker.internal/cron-alarm/${dateIso}`;
+  if (await cacheGet(key)) return;
+  await cachePut(key, { at: dateIso }, 86400);
+  await postNtfy(topic, {
+    title: "Mise reminders are not running",
+    priority: "high",
+    body: `Today's meal reminders could not be sent: ${why}. It tries again every hour.`,
+  });
+}
+
 /** local wall clock in David's timezone */
 function chicagoNow() {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -762,11 +780,17 @@ export default {
     }
     if (onSupabase("main", env)) {
       const project = projectFor("main", env);
-      if (!project || !env.NTFY_TOPIC) return;
+      if (!env.NTFY_TOPIC) return;
+      // fix loop 1, E10: a switched live cron that cannot run says so, once a
+      // day, counts only; it never fails silently every hour
+      if (!project) {
+        await cronAlarm(env.NTFY_TOPIC, now.dateIso, "the live database settings are incomplete");
+        return;
+      }
       try {
         await runNotifications(supabaseCronSource(project), env.NTFY_TOPIC, now, true);
       } catch {
-        // as below: the next hour runs fresh
+        await cronAlarm(env.NTFY_TOPIC, now.dateIso, "the cron could not read the kitchen's records");
       }
       return;
     }
@@ -813,6 +837,11 @@ export default {
     }
 
     if (!cors) return json(403, { error: "origin not allowed" }, {});
+    // 2.0 (Red Team R1): the local dev origin owns no branch; once anything is
+    // switched it is refused unless ALLOW_DEV_ORIGIN=1 (local wrangler dev)
+    if (devOriginRefused(branchForOrigin(request.headers.get("origin")), env)) {
+      return json(403, { error: "origin not allowed" }, cors);
+    }
 
     if (
       request.method !== "POST" ||
@@ -1345,7 +1374,9 @@ export default {
       }
     }
 
-    const token = request.headers.get("x-mise-auth");
+    // 2.0 (fix loop 1, E7): an optional "Bearer " prefix is taken off, so the
+    // app's Authorization-style value and the bare credential both work
+    const token = bareAuth(request.headers.get("x-mise-auth"));
     // 2.0 (plan section 1 B1, E4): the PAT or the Supabase session JWT; see auth.js
     const reqBranch = branchForOrigin(request.headers.get("origin"));
     const authed = await authenticate({

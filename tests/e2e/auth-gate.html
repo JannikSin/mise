@@ -1,11 +1,16 @@
 <!doctype html>
 <!--
-  DEV HARNESS ONLY (Mise 2.0 D1/D2). Serves the real account gate and the
-  real account panel with a FAKE auth client and a fake session, so every
-  screen can be driven at phone width with no Supabase project at all.
+  DEV HARNESS ONLY (Mise 2.0 D1/D2, fix loop 1). Serves the real account gate
+  and the real account panel with a FAKE auth client and a fake session, so
+  every screen can be driven at phone width with no Supabase project at all.
   Never deployed: tools/sandbox-deploy.ps1 copies only the app shell.
   Open: http://127.0.0.1:8091/tests/e2e/auth-gate.html?screen=signin
-  screens: signin | setpw | notice | account | account-admin | nolink
+  screens: signin | setpw | notice | account | account-admin | nolink | root
+  options: reason=removed|expired (sign in), weak=1 (the first password is
+           refused as weak), type=invite|recovery, token=spent-token-0 (a spent link)
+  root: the real AuthGateRoot from location.hash, as main.js renders it; a
+        verify stores a fake session for this project, so a reload after
+        verify lands where a phone would
 -->
 <html lang="en">
   <head>
@@ -28,19 +33,32 @@
     <div id="app"></div>
     <script type="module">
       import { html, render } from "htm/preact";
-      import { AuthGateView } from "../../app/views/auth-gate.js";
+      import {
+        AuthGateView,
+        AuthGateRoot,
+        authGateWanted,
+        setAuthClientFactory,
+      } from "../../app/views/auth-gate.js";
 
       const q = new URLSearchParams(location.search);
       const screen = q.get("screen") ?? "signin";
+      const REF = "placeholderref01";
+      const SESSION_KEY = `sb-${REF}-auth-token`;
       if (screen !== "notice") localStorage.setItem("mise.dataNotice.v1", "yes");
       else localStorage.removeItem("mise.dataNotice.v1");
 
-      // the fake: one account, password "correct-horse-1"; every call counted
-      window.authCalls = [];
+      // the fake: one account, password "correct-horse-1"; every call counted,
+      // and kept across a reload so a test can read the whole story
+      const calls = JSON.parse(sessionStorage.getItem("harness.calls") ?? "[]");
+      window.authCalls = calls;
+      const note = (c) => {
+        calls.push(c);
+        sessionStorage.setItem("harness.calls", JSON.stringify(calls));
+      };
       const wait = () => new Promise((r) => setTimeout(r, 250));
       const auth = {
         async signInWithPassword(a) {
-          window.authCalls.push(["signInWithPassword", a.email]);
+          note(["signInWithPassword", a.email]);
           await wait();
           if (a.email === "guest-a@example.test" && a.password === "correct-horse-1") {
             return { data: { session: { access_token: "fake" } }, error: null };
@@ -48,20 +66,25 @@
           return { data: {}, error: { status: 400, code: "invalid_credentials", message: "Invalid login credentials" } };
         },
         async verifyOtp(a) {
-          window.authCalls.push(["verifyOtp", a.type]);
+          note(["verifyOtp", a.type]);
           await wait();
           if (a.token_hash === "spent-token-0") {
             return { data: {}, error: { status: 403, code: "otp_expired", message: "expired" } };
           }
+          localStorage.setItem(SESSION_KEY, JSON.stringify({ access_token: "fake", refresh_token: "fake" }));
           return { data: { session: { access_token: "fake" } }, error: null };
         },
         async updateUser() {
-          window.authCalls.push(["updateUser"]);
+          note(["updateUser"]);
           await wait();
+          if (q.get("weak") === "1" && !sessionStorage.getItem("harness.weakDone")) {
+            sessionStorage.setItem("harness.weakDone", "1");
+            return { data: {}, error: { status: 422, code: "weak_password", message: "weak" } };
+          }
           return { data: {}, error: null };
         },
-        async resetPasswordForEmail(email) {
-          window.authCalls.push(["resetPasswordForEmail"]);
+        async resetPasswordForEmail() {
+          note(["resetPasswordForEmail"]);
           await wait();
           return { data: {}, error: null };
         },
@@ -76,23 +99,39 @@
         const admin = screen === "account-admin";
         render(
           html`<div class="view"><${AccountPanel}
-            account=${{ email: admin ? "host-1@example.test" : "housemate-1@example.test", slug: admin ? "host-1" : "housemate-1", admin, project: "sandbox" }}
+            account=${{
+              email: admin ? "host-1@example.test" : "housemate-1@example.test",
+              slug: admin ? "host-1" : "housemate-1",
+              admin,
+              project: "sandbox",
+              name: admin ? "Host One" : "Housemate One",
+            }}
             reach=${{
               houses: admin ? ["house-w", "house-f"] : ["house-w"],
-              plateCards: admin ? 6 : 1,
+              plateCards: admin ? 6 : 2,
               guests: 1,
               bank: true,
             }}
             freeze=${q.get("frozen") ? { frozen: true, at: new Date().toISOString(), by: "host-1" } : null}
             refused=${admin ? [] : [
-              { path: "plans/2026-W44.json", reason: "name", at: 1 },
-              { path: "profiles/host-1/profile/targets.json", reason: "forbidden", at: 2 },
+              { path: "plans/2026-W44.json", id: "plans/2026-W44.json", reason: "name", at: 1 },
+              { path: "profiles/host-1/profile/targets.json", id: "profiles/host-1/profile/targets.json", reason: "forbidden", at: 2 },
+              { path: "households/house-w/shopping.json", id: "#before-sign-in/households/house-w/shopping.json", reason: "presignin", at: 3 },
             ]}
-            onDiscard=${async (p) => { window.authCalls.push(["discard", p]); return true; }}
+            onDiscard=${async (p) => { note(["discard", p]); return true; }}
             askConfirm=${async () => true}
-            onSignOut=${() => window.authCalls.push(["signOut"])}
-            onFreeze=${async (on) => { window.authCalls.push(["freeze", on]); }}
+            onSignOut=${() => note(["signOut"])}
+            onFreeze=${async (on) => { note(["freeze", on]); }}
           /></div>`,
+          root,
+        );
+      } else if (screen === "root") {
+        setAuthClientFactory(() => auth);
+        const gate = authGateWanted({ backend: "supabase", hash: location.hash, storage: localStorage, ref: REF });
+        render(
+          gate
+            ? html`<${AuthGateRoot} start=${gate} />`
+            : html`<div class="view"><p class="hint" id="app-shown">THE APP (harness)</p></div>`,
           root,
         );
       } else {
@@ -101,7 +140,17 @@
             ? { tokenHash: q.get("token") ?? "fresh-token-1", type: q.get("type") ?? "invite" }
             : null;
         const start = screen === "setpw" || screen === "nolink" ? "setpw" : "signin";
-        render(html`<${AuthGateView} auth=${auth} start=${start} link=${link} onSignedIn=${done} />`, root);
+        render(
+          html`<${AuthGateView}
+            auth=${auth}
+            start=${start}
+            link=${link}
+            reason=${q.get("reason")}
+            onSignedIn=${done}
+            replaceHash=${(h) => history.replaceState(null, "", location.pathname + location.search + h)}
+          />`,
+          root,
+        );
       }
     </script>
   </body>

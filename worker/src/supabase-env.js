@@ -54,6 +54,37 @@ export function onSupabase(branch, env) {
 }
 
 /**
+ * The branch a caller is metered and judged against. An origin with no data
+ * branch (the local dev server, 127.0.0.1) is NOT a way around the switch
+ * (Red Team R1): once any branch is switched it counts as switched, on main
+ * when main is switched, else on the sandbox. With nothing switched it stays
+ * null, which is 1.95 exactly.
+ * @param {string | null} branch
+ * @param {any} env
+ * @returns {"main" | "sandbox" | null}
+ */
+export function effectiveBranch(branch, env) {
+  if (branch === "main" || branch === "sandbox") return branch;
+  const on = supabaseBranches(env);
+  if (on.has("main")) return "main";
+  if (on.has("sandbox")) return "sandbox";
+  return null;
+}
+
+/**
+ * The deployed Worker refuses an origin that owns no data branch while any
+ * branch is switched, unless ALLOW_DEV_ORIGIN is "1" (local wrangler dev).
+ * With nothing switched the local dev origin works as in 1.95.
+ * @param {string | null} branch the origin's own branch
+ * @param {any} env
+ */
+export function devOriginRefused(branch, env) {
+  if (branch) return false;
+  if (String(env?.ALLOW_DEV_ORIGIN ?? "").trim() === "1") return false;
+  return supabaseBranches(env).size > 0;
+}
+
+/**
  * The project for a branch, or null when the branch is not switched or its
  * config is incomplete or malformed.
  * @param {string | null} branch
