@@ -205,4 +205,16 @@ test("a short part never takes its neighbour off the screen (1.96 re-gate round 
   assert.ok(typedAvoidTerms("celery + oj").includes("celery"));
   assert.ok(typedAvoidTerms("mango or oj").includes("mango"));
   assert.ok(typedAvoidTerms("PB&J").includes("satay"), "PB&J is the peanut family");
+  assert.ok(typedAvoidTerms("satay sauce").includes("peanut butter") || typedAvoidTerms("satay sauce").includes("peanut"), "satay is peanut");
+  for (const typed of ["black walnuts", "sliced almonds", "epipen cashews", "epipen walnuts"]) {
+    assert.ok(typedAvoidTerms(typed).length > 1, typed);
+  }
+});
+
+test("a family food keeps counting after any word that is not an allergen (security review)", () => {
+  for (const [typed, must] of [["raw cashews", "cashews"], ["roasted pistachios", "pistachios"], ["bad reaction to pine nuts", "pine nut"], ["salted almonds", "almonds"]]) {
+    assert.ok(typedAvoidTerms(typed).includes(must), `${typed} -> ${must}`);
+  }
+  // "milk" names a family, so "almond milk" still brings dairy: fails closed
+  assert.ok(!typedAvoidTerms("peanut butter").includes("butter"));
 });
