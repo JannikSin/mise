@@ -2417,6 +2417,17 @@ JSON inside it keeps exactly the shape this document describes above.
 | root `fitness/*`, `health/*` | refused | stay on GitHub (daily log, Anvil) |
 | anything else | refused (`mise_bad_path`) | |
 
+**Escape hatch: splitting a kind out of `docs`** (plan section 4). Every file
+is one `public.docs` row today. When one kind outgrows it (size, query shape,
+its own policy), it moves to its own table in three releases, never in place:
+(1) a migration creates the table with a `doc_id` column referencing
+`public.docs(id)`, copies that kind's rows across, and gives it the same RLS
+as `docs` for that kind; (2) the Supabase adapter routes that kind's paths to
+the new table, read-time tolerant of a row that exists only in `docs`; (3) one
+release later, a migration deletes the old `docs` rows. `private.doc_scope`
+and `app/lib/doc-scope.js` keep naming the kind throughout, so the path to row
+table above stays the one map.
+
 **Triggers.** `docs_before` first refuses a signed-in caller who may not
 write the path (`private.can_write`, P0403) before any other check can answer
 (fix loop 3, E3: else `mise_bad_path`, P0422 and 42501 told a stranger which

@@ -126,3 +126,37 @@ Live at https://janniksin.github.io/mise/ on shell v208, released by the first r
 Outstanding, David-side: `MISE_INVITE_TOKEN`; the Kroger cart push needs its redirect URI registered on his Kroger developer app (the code side is done, the cart has been dark since it shipped); the local model (`LOCAL_BASE_URL`) is still unset, so food data goes to Anthropic against the 2026-07-20 council.
 
 The July planning set (`START_HERE`, `FIRST_SESSION_PROMPT`, `INSTALL_GUIDE`, `HANDOFF_CONTEXT`, `MISE_BLUEPRINT`, `docs/BUILD_PLAN`) is local-only and gitignored, since it carries personal data; the mockups, the training set and the weekly Cowork prompt are under `docs/archive/`. All of it is history, not instruction. Sections 1, 2, 6 and 7 of this manual describe the July architecture and are kept for orientation; where they disagree with `CLAUDE.md`, `DOCTRINE.md` or `docs/SCHEMAS.md`, those win.
+
+## 9. Mise 2.0 on Supabase: where everything is (2026-10-31)
+
+2.0 moves the data from the private GitHub repo to Supabase (Free plan, two
+projects: live and sandbox). The full plan, with David's steps, is the
+schelkin 2.0 plan (revision 3) in the fleet folder; this section is the index
+of what is in the repo. Every tool below is public code and names no one: the
+people come from `people.local.json` / `person.local.json` on David's laptop,
+which are never committed. Tools that change a database write ONE reviewable
+SQL transaction for David to run; none connects on its own.
+
+| Need | Where |
+|---|---|
+| The schema, policies and RPCs | `supabase/migrations/*.sql` in order; described in `docs/SCHEMAS.md` "Mise 2.0 database" |
+| What the app does on a Supabase shell | `docs/supabase-shell.md` (config, CSP, boot order) |
+| Database tests without a project | `tests/_pglite.js` with `tools/pglite-standin.mjs`; run with the normal `node --test` |
+| The gate on a REAL stack before the live run | `tools/live-gate.md`, `tools/live-gate.mjs` (local Docker stack or the sandbox, never live) |
+| Clean the shared recipe bank of names first | `tools/bank-scrub.mjs` (the migration refuses while any bank recipe names a person) |
+| Move the data across | `tools/migrate-to-supabase.mjs --snapshot <mise-data clone> --people <people.local.json>` (`--target pglite`, the default, is a local dry run; `--target sandbox` or `live` reads `MISE_DB_URL`) |
+| Invite people (sign-ups are off) | `tools/invite.mjs --people people.local.json --me [--send]` |
+| Add, delete or export one person | `tools/add-member.mjs`, `tools/delete-member.mjs`, `tools/export-person.mjs` |
+| The Wayne probe account | `tools/make-probe.mjs`; what it may reach: `tools/probe-reach.mjs` |
+| Nightly backup | `.github/workflows/mise-backup.yml` (read-only `mise_backup` role, encrypted with age); set up with `tools/backup-setup.mjs` |
+| A snapshot by hand | `tools/db-snapshot.mjs` |
+| Restore a backup (the restore drill runs on the sandbox) | `tools/restore-backup.mjs --snapshot <file> --admins <slug>` |
+| Roll back to the GitHub build inside 30 days | `tools/export-from-supabase.mjs --snapshot <file> --merge-into ../mise-data`, then `tools/release.ps1 --rollback` to a 1.x tag; `mise-data` is never written by the migration, so it is still there |
+| Split a kind out of the `docs` table later | `docs/SCHEMAS.md`, "Escape hatch" |
+
+Rules that carry over unchanged: the release train (`docs/RELEASE_TRAIN.md`),
+`next` to the sandbox first, the live switch only on David's yes. Rules that
+are new: the daily log and workouts never go to Supabase (Anvil keeps reading
+GitHub); a house sees another person's plate card, never their full profile;
+the shared bank names no one; secret keys live only in Worker secrets.
+
