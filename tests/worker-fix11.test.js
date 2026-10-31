@@ -174,3 +174,27 @@ test("E13: a login name taken between the check and the claim answers 409 and sp
   assert.equal(claims[0].p_login.name_key, "sam");
   assert.equal(raced.calls.some((c) => c.fn === "guest_login_add"), false, "no second save");
 });
+
+test("RT20-3: the invite status page answers only for the house that minted the code", async () => {
+  const code = "k3m7pq2xvta4bcdefgh2";
+  const hash = await inviteCodeHash(code);
+  const inv = {
+    host_house: "house-w",
+    expires_at: "2099-01-01T00:00:00+00:00",
+    used_at: "2026-10-30T00:00:00+00:00",
+    claimed: "guest-m",
+    status_until: "2099-01-01T00:00:00+00:00",
+  };
+  /** @param {string} house */
+  const view = (house) => ({ profile_id: "a0000000-0000-4000-8000-000000000003", name: "Guest M", has_login: true, host_house: house, tables: [], names: {} });
+  for (const [house, want] of [["house-f", 410], ["house-w", 200]]) {
+    const sb = fakeSupabase({
+      rpc: {
+        invite_get: (/** @type {any} */ a) => (a.p_code_hash === hash ? inv : null),
+        guest_view: () => view(String(house)),
+      },
+    });
+    const r = await supaInviteRoute("/invite/status", {}, code, "sandbox", SANDBOX_ENV, ctx(sb.fetchImpl, Date.now()));
+    assert.equal(r.status, want, `guest's latest grant is ${house}`);
+  }
+});

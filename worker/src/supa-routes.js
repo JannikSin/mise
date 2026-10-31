@@ -243,7 +243,11 @@ export async function supaInviteRoute(pathname, body, code, branch, env, ctx) {
         return ctx.json(410, { error: "this link has expired, ask for a new one" });
       }
       const view = await guestView(project, inv.claimed, f);
-      if (!view) return ctx.json(410, { error: "this link has expired, ask for a new one" });
+      // the view is the guest's latest grant; a guest with grants to two
+      // houses must never show this code's holder the other house's tables
+      // (gate20 Red Team RT20-3)
+      if (!view || view.hostHouse !== inv.hostHouse)
+        return ctx.json(410, { error: "this link has expired, ask for a new one" });
       const rows = inviteStatusRows(
         view.tables,
         inv.claimed,
