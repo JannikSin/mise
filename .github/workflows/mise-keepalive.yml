@@ -15,7 +15,8 @@
 # Secrets (names only): MISE_BACKUP_DB_URL (live), MISE_SANDBOX_DB_URL
 # (sandbox), NTFY_TOPIC (optional).
 # Variables (public values, optional): MISE_LIVE_URL, MISE_LIVE_PUBLISHABLE_KEY,
-# MISE_SANDBOX_URL, MISE_SANDBOX_PUBLISHABLE_KEY.
+# MISE_SANDBOX_URL, MISE_SANDBOX_PUBLISHABLE_KEY, MISE_LIVE_SWITCHED (yes from
+# the switch morning on).
 name: mise-keepalive
 
 on:
@@ -37,10 +38,15 @@ jobs:
       - name: An authenticated read
         env:
           DB_URL: ${{ secrets.MISE_BACKUP_DB_URL }}
+          # the live database is empty until the switch (gate20 Realist R7);
+          # set the repository variable MISE_LIVE_SWITCHED=yes that morning,
+          # and from then on an empty bank is an alarm
+          SWITCHED: ${{ vars.MISE_LIVE_SWITCHED }}
         run: |
           set -euo pipefail
           test -n "${DB_URL}"
-          test "$(psql "${DB_URL}" -X -q -At -v ON_ERROR_STOP=1 -c 'select count(*) > 0 from public.recipes')" = "t"
+          if [ "${SWITCHED:-}" = "yes" ]; then want='count(*) > 0'; else want='count(*) >= 0'; fi
+          test "$(psql "${DB_URL}" -X -q -At -v ON_ERROR_STOP=1 -c "select ${want} from public.recipes")" = "t"
           echo ok
       - name: The public API
         env:

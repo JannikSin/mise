@@ -183,6 +183,8 @@ Worker carries the plain vars `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
 6. Worker: set `SUPABASE_BACKEND=sandbox,main` and deploy it with
    `npx wrangler deploy --config worker/wrangler.toml` from the repo root.
 7. Sign in yourself first (`tools/invite.mjs --me`), then send the invites.
+8. In the private `mise-backup` repo, set the Actions variable `MISE_LIVE_SWITCHED=yes`, so the
+   keep-alive treats an empty live bank as an alarm from now on.
 
 Back out before step 5: unfreeze and ship the plain shell
 (`node tools/make-shell.mjs index.html --plain --write`). After it: section 9's rollback row.
