@@ -133,7 +133,7 @@ import {
   storeSlugOf,
   resolveHomeStore,
 } from "./lib/prices.js";
-import { normalizePins } from "./lib/kroger.js";
+import { mergePinBooks, normalizePins } from "./lib/kroger.js";
 import { perishableCoverage } from "./lib/coverage.js";
 import { composeWeekReview } from "./lib/review.js";
 import { appendWaste } from "./lib/waste.js";
@@ -1438,8 +1438,27 @@ function App() {
   // persist the shared pins book / price catalogue (Kroger loop, Tier 3):
   // the shopping view runs the searches, these write the results home
   const handleSavePins = useCallback((/** @type {import("./lib/kroger.js").PinBook} */ next) => {
-    setPins(next);
-    void write("pins.json", /** @type {any} */ (next), { raw: true });
+    if (pinsRef.current !== null) {
+      setPins(next);
+      void write("pins.json", /** @type {any} */ (next), { raw: true });
+      return;
+    }
+    // pins.json had not loaded yet (pins is null until it does), so `next` was
+    // built on an empty book and holds only this pin: merge it into the stored
+    // book, never replace the household's pins with it; an unreadable book is
+    // not written at all (2.0 open item, terrigen 10/27: a cold-read save)
+    // readNow, not the cached read: a cold cache answers null for a book
+    // that exists. Null here (offline, missing, out of scope) writes nothing
+    void readNow("pins.json", { raw: true })
+      .then((raw) => {
+        if (!raw) return;
+        const merged = mergePinBooks(normalizePins(raw), next);
+        setPins(merged);
+        return write("pins.json", /** @type {any} */ (merged), { raw: true });
+      })
+      // left unloaded, so a later save merges again instead of writing this
+      // one-pin book as if it were the household's
+      .catch(() => {});
   }, []);
   const handleSavePrices = useCallback(
     (/** @type {import("./lib/prices.js").PriceCatalogue} */ next) => {

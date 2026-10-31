@@ -38,6 +38,35 @@ export function normalizePins(raw) {
 }
 
 /**
+ * A pin book built before the stored one loaded, merged INTO the stored one:
+ * every stored pin, store, miss and red-listed food stays, and the new book's
+ * entries win where both have one (2.0 open item: a cold-read save replaced
+ * the household's pins with one).
+ * @param {PinBook} stored
+ * @param {PinBook} next
+ * @returns {PinBook}
+ */
+export function mergePinBooks(stored, next) {
+  // pins and misses are per store, then per food: merge both levels, or a
+  // store's other pins would go with the one new book's
+  /** @template T @param {Record<string, Record<string, T>>} a @param {Record<string, Record<string, T>>} b */
+  const deep = (a, b) => {
+    /** @type {Record<string, Record<string, T>>} */
+    const out = { ...a };
+    for (const [k, v] of Object.entries(b)) out[k] = { ...(a[k] ?? {}), ...v };
+    return out;
+  };
+  return {
+    ...stored,
+    ...next,
+    redList: [...new Set([...stored.redList, ...next.redList])],
+    stores: { ...stored.stores, ...next.stores },
+    pins: deep(stored.pins, next.pins),
+    misses: deep(stored.misses, next.misses),
+  };
+}
+
+/**
  * The ledger key a food is pinned under.
  * @param {string} food
  */

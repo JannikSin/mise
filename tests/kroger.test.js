@@ -415,3 +415,22 @@ test("a store that said nothing returns empty, never a fake aisle", () => {
   assert.equal(shelfDirections(pins, "salt", "pay-less"), "");
   assert.equal(shelfDirections(null, "salt", "pay-less"), "");
 });
+
+test("a pin saved before the book loaded merges into the stored book (2.0 open item)", async () => {
+  const { mergePinBooks, normalizePins } = await import("../app/lib/kroger.js");
+  const pin = (upc) => ({ upc, description: upc, size: "1", soldBy: "unit" });
+  const stored = normalizePins({
+    redList: ["salt"],
+    stores: { payless: { locationId: "1", name: "Pay Less" } },
+    pins: { payless: { oats: pin("o1"), rice: pin("r1") }, kroger: { eggs: pin("e1") } },
+    misses: { payless: { tahini: "2026-10-01" } },
+  });
+  const cold = normalizePins({ pins: { payless: { oats: pin("o2") } }, misses: { payless: { okra: "2026-10-31" } } });
+  const m = mergePinBooks(stored, cold);
+  assert.equal(m.pins.payless.oats.upc, "o2", "the new pin wins");
+  assert.equal(m.pins.payless.rice.upc, "r1", "the store's other pins stay");
+  assert.equal(m.pins.kroger.eggs.upc, "e1", "other stores stay");
+  assert.deepEqual(Object.keys(m.misses.payless).sort(), ["okra", "tahini"]);
+  assert.deepEqual(m.redList, ["salt"]);
+  assert.equal(m.stores.payless.name, "Pay Less");
+});
