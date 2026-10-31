@@ -21,6 +21,11 @@
 //     "guardTerms": [{ "term": "<word>", "hiddenFrom": "<house>" }]
 //   }
 //
+// The snapshot must be a git clone with a clean tree whose HEAD is origin/main
+// (fix loop 3, E1): the file list and every legacy_sha come from
+// `git ls-tree -r HEAD` (the committed blob sha, the sha GitHub gives the
+// phones), never from the working-tree bytes, which core.autocrlf rewrites.
+//
 // Steps: 1 preflight (classify every file, the admin diff gate, the bank scrub
 // gate, the audience-aware name guard, sha-256 per file, the freeze marker on
 // --final); 2 houses, profiles, memberships, the admin, guest grants (no auth
@@ -31,11 +36,19 @@
 // Output is counts only unless --show-paths: a path can carry a slug, and
 // slugs are names.
 //
-// Targets: `--target pglite` runs into a fresh in-memory PGlite stand-in (the
-// local rehearsal, no network). `sandbox` and `live` are not wired yet: the
-// database client for them is the owner's call (see NEEDS DAVID in the fleet
-// notes). `runMigration` takes any client with `query(sql, params)`.
+// Targets: `--target pglite` (the default) runs into a fresh in-memory PGlite
+// stand-in (the local rehearsal, no network). `--target sandbox` and
+// `--target live` read the connection string from the MISE_DB_URL environment
+// variable (never an argument: it holds the database password) and need the
+// `pg` package, which is not a dependency yet (the owner adds it). Fix loop 3, E4:
+// the run is one transaction, so it must hold ONE connection from begin to
+// commit: one pg.Client (never a pg.Pool) on the direct connection or the
+// session pooler, port 5432. The transaction pooler (6543) and pgbouncer URLs
+// are refused, and the run checks that its transaction id never changes.
+// Rehearse with --rollback first: it runs every step and every check, then
+// rolls back.
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync, existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -90,6 +103,55 @@ export function guardHits(data, terms, extra = null) {
   return nameGuardHits(data, terms, extra);
 }
 
+class GateError extends Error {
+  /** @param {string} gate @param {string} message @param {string[]} [paths] */
+  constructor(gate, message, paths = []) {
+    super(`${gate}: ${message}`);
+    this.gate = gate;
+    this.paths = paths;
+  }
+}
+export { GateError };
+
+/**
+ * fix loop 3 E1: every committed file of a snapshot clone and its git blob
+ * sha, from `git ls-tree -r HEAD`. Refuses (gate `git`) unless the directory
+ * is the root of a git clone, its tree is clean (no change, no untracked
+ * file) and HEAD is origin/main as last fetched. Reads only; never fetches.
+ * @param {string} dir
+ * @returns {Map<string, string>} repo-relative POSIX path -> blob sha
+ */
+export function committedBlobs(dir) {
+  const git = (/** @type {string[]} */ args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 256 * 1024 * 1024 });
+  let prefix;
+  try {
+    prefix = git(["rev-parse", "--show-prefix"]).trim();
+  } catch {
+    throw new GateError("git", "the snapshot is not a git clone (the shas must come from git, not from the working-tree bytes)");
+  }
+  if (prefix !== "") throw new GateError("git", "the snapshot is a folder inside a clone; point --snapshot at the clone's root");
+  const dirty = git(["status", "--porcelain", "--untracked-files=all"]).split("\n").filter(Boolean).length;
+  if (dirty) throw new GateError("git", `the snapshot clone has ${dirty} uncommitted or untracked change(s); it must be a clean tree at origin/main`);
+  const head = git(["rev-parse", "HEAD"]).trim();
+  let origin;
+  try {
+    origin = git(["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main"]).trim();
+  } catch {
+    throw new GateError("git", "the snapshot clone has no origin/main; fetch it first");
+  }
+  if (head !== origin) throw new GateError("git", "the snapshot clone's HEAD is not origin/main; check out origin/main (after a fetch) first");
+  /** @type {Map<string, string>} */
+  const out = new Map();
+  for (const entry of git(["ls-tree", "-r", "-z", "HEAD"]).split("\0")) {
+    if (!entry) continue;
+    const m = /^\d+ (\w+) ([0-9a-f]{40})\t(.+)$/s.exec(entry);
+    if (!m) throw new GateError("git", "git ls-tree printed a line this tool does not understand");
+    if (m[1] !== "blob") throw new GateError("git", "the snapshot clone holds a submodule; it has no place in mise-data");
+    out.set(String(m[3]), String(m[2]));
+  }
+  return out;
+}
+
 /** @param {string} dir @param {string} [base] @returns {string[]} repo-relative POSIX paths */
 export function walk(dir, base = dir) {
   /** @type {string[]} */
@@ -103,15 +165,40 @@ export function walk(dir, base = dir) {
   return out.sort();
 }
 
-class GateError extends Error {
-  /** @param {string} gate @param {string} message @param {string[]} [paths] */
-  constructor(gate, message, paths = []) {
-    super(`${gate}: ${message}`);
-    this.gate = gate;
-    this.paths = paths;
+/**
+ * fix loop 3 E4: a connection string the migration may use. One session from
+ * begin to commit: the direct connection or the session pooler on port 5432.
+ * Refuses the transaction pooler (6543), a pgbouncer URL and any other port.
+ * Never echoes the string (it holds the password).
+ * @param {string} url
+ * @returns {{ host: string, port: number }}
+ */
+export function checkConnection(url) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new GateError("connection", "MISE_DB_URL is not a URL");
   }
+  if (u.protocol !== "postgres:" && u.protocol !== "postgresql:") throw new GateError("connection", "MISE_DB_URL is not a postgres:// URL");
+  const port = u.port === "" ? 5432 : Number(u.port);
+  if (port === 6543) throw new GateError("connection", "port 6543 is the transaction pooler: one transaction would run over several connections; use the direct connection or the session pooler (port 5432)");
+  if ([...u.searchParams.keys()].some((k) => k.toLowerCase() === "pgbouncer")) throw new GateError("connection", "a pgbouncer URL is a pool; use the direct connection or the session pooler (port 5432)");
+  if (port !== 5432) throw new GateError("connection", `port ${port} is not the direct connection or the session pooler (5432)`);
+  return { host: u.hostname, port };
 }
-export { GateError };
+
+/**
+ * fix loop 3 E4: refuse a pool (pg.Pool, or anything shaped like one): each
+ * query could land on another connection, so begin, the writes, verify and
+ * commit would not be one transaction.
+ * @param {any} client
+ */
+export function requireSingleClient(client) {
+  if (!client || typeof client.query !== "function") throw new GateError("connection", "the client has no query()");
+  const pooled = ["totalCount", "idleCount", "waitingCount"].some((k) => k in client) || /pool/i.test(String(client.constructor?.name ?? ""));
+  if (pooled) throw new GateError("connection", "the client is a pool; pass one pg.Client, connected, on port 5432");
+}
 
 /**
  * Step 1: read and classify the snapshot, and run every gate that needs no
@@ -121,7 +208,11 @@ export { GateError };
  * @param {{ final?: boolean, freezeFile?: string, reviewedTermLoad?: boolean }} [opts]
  */
 export function planMigration(snapshotDir, people, opts = {}) {
-  const files = walk(snapshotDir);
+  // E1: the committed files and their blob shas (refuses a dirty or stale clone)
+  const blobs = committedBlobs(snapshotDir);
+  const files = [...blobs.keys()].sort();
+  /** @param {string} f */
+  const blobOf = (f) => /** @type {string} */ (blobs.get(f));
   /** @type {Record<string, string>} */
   const sha256 = {};
   /** @type {Map<string, { bytes: Buffer, data: any }>} */
@@ -199,7 +290,7 @@ export function planMigration(snapshotDir, people, opts = {}) {
   // classify every file
   /** @type {{ id: string, staging: boolean, data: any, sha: string, path: string }[]} */
   const recipes = [];
-  /** @type {{ path: string, kind: string, data: any, sha: string, profile: string | null, household: string | null, copy?: boolean }[]} */
+  /** @type {{ path: string, kind: string, data: any, sha: string, src: string, profile: string | null, household: string | null, copy?: boolean }[]} */
   const docs = [];
   /** @type {Record<string, number>} */
   const skipped = {};
@@ -227,20 +318,20 @@ export function planMigration(snapshotDir, people, opts = {}) {
     const bank = BANK.exec(f);
     if (bank) {
       if (entry.data?.id !== bank[2]) badBank.push(f);
-      recipes.push({ id: String(bank[2]), staging: bank[1] === "recipes-staging", data: entry.data, sha: gitBlobSha(entry.bytes), path: f });
+      recipes.push({ id: String(bank[2]), staging: bank[1] === "recipes-staging", data: entry.data, sha: blobOf(f), path: f });
       continue;
     }
     if (ROOT_SHARED.test(f)) {
       // per-house prices and pins: each house without its own file gets a copy
       for (const h of houses) {
         const p = `households/${h}/${f}`;
-        if (!read.has(p)) docs.push({ path: p, kind: f.replace(".json", ""), data: entry.data, sha: gitBlobSha(entry.bytes), profile: null, household: h, copy: true });
+        if (!read.has(p)) docs.push({ path: p, kind: f.replace(".json", ""), data: entry.data, sha: blobOf(f), src: f, profile: null, household: h, copy: true });
       }
       continue;
     }
     try {
       const s = docScope(f, world);
-      docs.push({ path: f, kind: s.kind, data: entry.data, sha: gitBlobSha(entry.bytes), profile: s.profile, household: s.household });
+      docs.push({ path: f, kind: s.kind, data: entry.data, sha: blobOf(f), src: f, profile: s.profile, household: s.household });
     } catch (e) {
       if (!(e instanceof BadPathError)) throw e;
       unmapped.push(f);
@@ -330,7 +421,7 @@ export function planMigration(snapshotDir, people, opts = {}) {
   /** @type {Record<string, number>} */
   const kinds = {};
   for (const d of kept) kinds[d.kind] = (kinds[d.kind] ?? 0) + 1;
-  return { people, guardWords, termLoad, roster: roster.profiles, recipes, docs: kept, skipped, kinds, sha256, fileCount: files.length };
+  return { people, guardWords, termLoad, roster: roster.profiles, recipes, docs: kept, skipped, kinds, sha256, blobs: Object.fromEntries(blobs), fileCount: files.length };
 }
 
 /** @typedef {ReturnType<typeof planMigration>} MigrationPlan */
@@ -346,12 +437,27 @@ export async function runMigration(client, plan, opts = {}) {
   const q = (/** @type {string} */ sql, /** @type {unknown[]} */ params = []) => client.query(sql, params);
   const { people } = plan;
   const list = /** @type {any[]} */ (people.people);
+  requireSingleClient(client);
   await q("begin");
   try {
-    // a re-run after phones have written would erase their work
-    const edited = (await q("select (select count(*) from public.docs where rev > 1) + (select count(*) from public.recipes where rev > 1) as n")).rows[0].n;
-    if (Number(edited) > 0 && !opts.overwriteEdits) {
-      throw new GateError("edited", `${edited} row(s) were edited after the last migration; refusing to overwrite them`);
+    // E4: the transaction id, taken now and again before commit; a change
+    // means the statements did not all run on one connection
+    const txid = (await q("select txid_current()::text as t")).rows[0].t;
+    // a re-run after phones have written would erase their work. fix loop 3
+    // E2: a row the migration did not write (a phone's new file at rev 1 has
+    // updated_by set; a server-made one, such as a claimed guest's, has no
+    // legacy_sha) counts as well as an edited one, and so does a roster edit
+    // (profiles.roster is not a doc): roster_rev as this tool left it
+    // is kept in private.settings and must not have moved.
+    const seen = (
+      await q(`select (select count(*) from public.docs where rev > 1 or updated_by is not null or legacy_sha is null)
+                    + (select count(*) from public.recipes where rev > 1 or updated_by is not null or legacy_sha is null) as n,
+                      (select value from private.settings where key = 'roster_rev') as stored,
+                      (select rev::text from public.roster_rev) as roster`)
+    ).rows[0];
+    const rosterMoved = seen.stored != null && seen.stored !== seen.roster;
+    if ((Number(seen.n) > 0 || rosterMoved) && !opts.overwriteEdits) {
+      throw new GateError("edited", `${seen.n} row(s) were written after the last migration${rosterMoved ? " and the roster was edited" : ""}; refusing to overwrite them`);
     }
     const strangers = (await q("select count(*)::int as n from public.profiles where kind <> 'probe' and not (slug = any ($1::text[]))", [list.map((p) => p.slug)])).rows[0].n;
     if (strangers > 0) throw new GateError("people", `${strangers} profile(s) in the database are not in people.local.json`);
@@ -405,6 +511,7 @@ export async function runMigration(client, plan, opts = {}) {
     await q("delete from public.admins");
     await q("insert into public.admins select user_id from public.profiles where slug = $1 and user_id is not null", [people.admin]);
     await q("update public.roster_rev set rev = rev + 1");
+    await q("insert into private.settings select 'roster_rev', rev::text from public.roster_rev on conflict (key) do update set value = excluded.value");
 
     // step 3: guard terms
     await q("delete from private.guard_terms");
@@ -427,6 +534,9 @@ export async function runMigration(client, plan, opts = {}) {
     const checks = await verify(client, plan);
     const failed = checks.filter((c) => !c.ok);
     if (failed.length) throw new GateError("verify", `${failed.length} check(s) failed: ${failed.map((c) => c.check).join(", ")}`);
+    if ((await q("select txid_current()::text as t")).rows[0].t !== txid) {
+      throw new GateError("connection", "the transaction id changed during the run: the statements were not all on one connection; nothing is committed");
+    }
     await q(opts.rollback ? "rollback" : "commit");
     return { committed: !opts.rollback, checks };
   } catch (e) {
@@ -453,7 +563,8 @@ export async function verify(client, plan) {
 
   const docMismatch = plan.docs.filter((d) => {
     const row = docByPath.get(d.path);
-    return !row || contentHash(row.data) !== contentHash(d.data) || row.legacy_sha !== d.sha || row.kind !== d.kind;
+    // E1: the sha is the committed blob of the source file (git ls-tree), not the plan's copy of it
+    return !row || contentHash(row.data) !== contentHash(d.data) || row.legacy_sha !== plan.blobs[d.src] || row.kind !== d.kind;
   }).length;
   add("docs equal their files", docMismatch, `${plan.docs.length} files, ${docMismatch} mismatched`);
   add("no extra docs rows", docs.length - plan.docs.length, `${docs.length} rows for ${plan.docs.length} files`);
@@ -464,7 +575,7 @@ export async function verify(client, plan) {
   add("counts per kind", kindBad, Object.entries(plan.kinds).map(([k, n]) => `${k} ${n}`).join(", "));
   const recMismatch = plan.recipes.filter((r) => {
     const row = recById.get(r.id);
-    return !row || row.staging !== r.staging || contentHash(row.data) !== contentHash(r.data) || row.legacy_sha !== r.sha;
+    return !row || row.staging !== r.staging || contentHash(row.data) !== contentHash(r.data) || row.legacy_sha !== plan.blobs[r.path];
   }).length;
   add("bank equals its files", recMismatch + Math.abs(recipes.length - plan.recipes.length), `${plan.recipes.length} recipes`);
 
@@ -473,7 +584,7 @@ export async function verify(client, plan) {
   add("plate keys within PLATE_FIELDS", plates.filter((p) => Object.keys(p.data).some((k) => !PLATE_FIELDS.includes(k))).length, "");
   const shaBad = plates.filter((p) => {
     const canon = plan.docs.find((d) => d.kind === "targets" && d.profile === p.slug && d.path.endsWith("profile/targets.json"));
-    return canon ? p.legacy_sha !== canon.sha : false;
+    return canon ? p.legacy_sha !== plan.blobs[canon.src] : false;
   }).length;
   add("plate sha is the canonical file's", shaBad, "");
   // F2: every plate is plateOf(the canonical file), or of the mirror when the
@@ -503,11 +614,19 @@ function parseArgs(argv) {
   return a;
 }
 
+export const USAGE = `usage: node tools/migrate-to-supabase.mjs --snapshot <mise-data clone> --people <people.local.json>
+         [--dry-run] [--final] [--reviewed-term-load] [--target pglite|sandbox|live] [--rollback] [--show-paths] [--manifest <out.json>]
+  --target pglite (default)  a fresh in-memory stand-in, discarded on exit
+  --target sandbox|live      the connection string comes from the MISE_DB_URL environment variable:
+                             the direct connection or the session pooler, port 5432 (never 6543)
+  --rollback                 run every step and check, then roll back
+Rehearse with --rollback first: run each real target once with --rollback, read the checks, then run it for real.`;
+
 async function main() {
   const a = parseArgs(process.argv.slice(2));
   if (!a.snapshot || !a.people) {
-    console.log("usage: node tools/migrate-to-supabase.mjs --snapshot <mise-data dir> --people <people.local.json> [--dry-run] [--final] [--reviewed-term-load] [--target pglite] [--rollback] [--show-paths] [--manifest <out.json>]");
-    process.exit(2);
+    console.log(USAGE);
+    process.exit(a.help ? 0 : 2);
   }
   const snapshot = String(a.snapshot);
   if (!existsSync(snapshot)) throw new Error("the snapshot directory does not exist");
@@ -534,17 +653,44 @@ async function main() {
   console.log(`  skipped: ${Object.entries(plan.skipped).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`);
   if (typeof a.manifest === "string") writeFileSync(a.manifest, JSON.stringify(plan.sha256, null, 2));
   if (a["dry-run"]) return;
-  const target = a.target ?? "pglite";
-  if (target !== "pglite") {
-    console.error(`target ${target} is not wired yet: the owner chooses the database client for the real projects`);
+  const target = String(a.target ?? "pglite");
+  /** @type {any} */
+  let db;
+  if (target === "pglite") {
+    const { openStandin } = await import("./pglite-standin.mjs");
+    db = await openStandin();
+  } else if (target === "sandbox" || target === "live") {
+    const url = process.env.MISE_DB_URL;
+    if (!url) {
+      console.error(`REFUSED target ${target} needs MISE_DB_URL in the environment (the direct or session pooler connection string, port 5432)`);
+      process.exit(2);
+    }
+    try {
+      checkConnection(url);
+    } catch (e) {
+      console.error(`REFUSED ${/** @type {Error} */ (e).message}`);
+      process.exit(2);
+    }
+    /** @type {any} */
+    let pg;
+    try {
+      const name = "pg";
+      pg = (await import(name)).default;
+    } catch {
+      console.error("REFUSED the pg package is not installed (a dev dependency the owner has not added yet)");
+      process.exit(2);
+    }
+    db = new pg.Client({ connectionString: url });
+    await db.connect();
+    db.close = () => db.end();
+  } else {
+    console.error(`REFUSED unknown target ${target}`);
     process.exit(2);
   }
-  const { openStandin } = await import("./pglite-standin.mjs");
-  const db = await openStandin();
   try {
     const out = await runMigration(db, plan, { rollback: a.rollback === true });
     for (const c of out.checks) console.log(`  ${c.ok ? "ok  " : "FAIL"} ${c.check}${c.detail ? `: ${c.detail}` : ""}`);
-    console.log(out.committed ? "migrated into the local PGlite stand-in (discarded on exit)" : "rehearsed and rolled back");
+    console.log(out.committed ? (target === "pglite" ? "migrated into the local PGlite stand-in (discarded on exit)" : `migrated into ${target}`) : "rehearsed and rolled back");
   } catch (e) {
     if (e instanceof GateError) {
       console.error(`REFUSED ${e.message}`);

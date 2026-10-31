@@ -1,6 +1,7 @@
 // A synthetic mise-data snapshot for the migration tests (not a test file).
 // Made-up people and words only; written to a fresh temp directory per call.
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -100,5 +101,22 @@ export function writeSnapshot(edit) {
     mkdirSync(path.dirname(full), { recursive: true });
     writeFileSync(full, typeof v === "string" ? v : JSON.stringify(v, null, 2) + "\n");
   }
+  commitSnapshot(dir);
   return dir;
+}
+
+/**
+ * fix loop 3 E1: a snapshot is a git clone, committed, with origin/main at
+ * HEAD (the migration takes every sha from git ls-tree). Line endings are
+ * left alone here (core.autocrlf false), whatever the machine's git config.
+ * @param {string} dir
+ */
+export function commitSnapshot(dir) {
+  const git = (/** @type {string[]} */ ...args) =>
+    execFileSync("git", ["-C", dir, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", ...args], { stdio: "pipe" });
+  git("init", "-q", "-b", "main");
+  git("config", "core.autocrlf", "false");
+  git("add", "-A");
+  git("commit", "-q", "-m", "snapshot");
+  git("update-ref", "refs/remotes/origin/main", "HEAD");
 }

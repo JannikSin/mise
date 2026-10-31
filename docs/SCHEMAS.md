@@ -2398,7 +2398,10 @@ JSON inside it keeps exactly the shape this document describes above.
 | root `fitness/*`, `health/*` | refused | stay on GitHub (daily log, Anvil) |
 | anything else | refused (`mise_bad_path`) | |
 
-**Triggers.** `docs_before` derives the scope on insert and pins `path`,
+**Triggers.** `docs_before` first refuses a signed-in caller who may not
+write the path (`private.can_write`, P0403) before any other check can answer
+(fix loop 3, E3: else `mise_bad_path`, P0422 and 42501 told a stranger which
+house slugs exist and which names are hidden from a house). It derives the scope on insert and pins `path`,
 `doc_id`, `kind`, owner and `legacy_sha` on update; it refuses a signed-in
 non-owner's targets write that drops a stored key (ENG L2-2, P0403), and runs
 the name guard (P0422). `recipes_before` and `plates_before` bump `rev` and pin
@@ -2473,8 +2476,16 @@ included; full profiles for the admin only):
 | `global` | everyone signed in |
 | bank `recipes` | everyone signed in; `staging` rows the admin only |
 
-**Writes** go through `public.write_doc(path, data, expected_rev)`; it returns
-the new `rev`. `expected_rev` null = create. Errors: `P0409` conflict (stale
+**Writes** go through `public.write_doc(path, data, expected_rev)`, the only
+door: `authenticated` holds select on `docs` but no insert or update (fix loop
+3, E3), and `write_doc` runs as its owner after its own `can_write` check. It returns
+the new `rev`. Reads are column grants (fix loop 3, E7): a client may select
+`docs (path, doc_id, kind, data, rev, legacy_sha, updated_at)`, `plates (data,
+rev, content_hash, legacy_sha)` and `recipes (id, doc_id, data, staging, rev,
+legacy_sha, updated_at)`, never `profile_id`, `household_id` or `updated_by`
+(and so never `*`); RLS still picks the rows. The weekly probe
+(`tools/probe-reach.mjs`) judges ownership from the path and plates by count,
+and fails when a uuid column is readable or the docs table is not. `expected_rev` null = create. Errors: `P0409` conflict (stale
 rev, or a create over an existing row), `P0403` forbidden (the same answer for a
 hidden row, a missing row and a bad path), `P0422` name guard. `profiles.json`
 goes to the roster: `public.roster()` returns `{ profiles: [...], rev }` in the
@@ -2534,7 +2545,21 @@ many bank recipes each guard term and listed name hits, labelled by field
 (`guardTerms[i]`, `people[i].names[j]`), never the term or a recipe, and stops
 with gate `term-load` when a term hits more than 5% of the bank and more than
 one recipe (a common word as well as a name); `--reviewed-term-load` goes on
-after David has looked (fix loop 2, N5).
+after David has looked (fix loop 2, N5). The snapshot must be a git clone with
+a clean tree whose HEAD is `origin/main` (gate `git`): the file list and every
+`legacy_sha` come from `git ls-tree -r HEAD`, the committed blob sha GitHub
+gives the phones, never from the working-tree bytes, which `core.autocrlf`
+rewrites; verify compares each row with that blob sha (fix loop 3, E1).
+A re-run refuses (gate `edited`, unless told to overwrite) when any `docs` or
+`recipes` row has `rev > 1`, `updated_by` set or no `legacy_sha` (a phone's
+new file at rev 1, a claimed guest's rows), or when `public.roster_rev` has
+moved from the value the last run stored as `private.settings` `roster_rev` (a
+roster edit; fix loop 3, E2). The run is one transaction on ONE connection
+(fix loop 3, E4): a pool is refused, a real target (`--target sandbox|live`)
+reads its connection string from `MISE_DB_URL` and accepts only the direct
+connection or the session pooler on port 5432 (never 6543 or a pgbouncer
+URL), and the transaction id is checked again before commit. Rehearse each
+real target with `--rollback` first.
 
 **Backup, restore and rollback** (G2). One snapshot format, `mise-backup/1`
 (`tools/db-snapshot.mjs`): a single JSON document `{ format, taken_at,
@@ -2576,7 +2601,8 @@ export's `--merge-into` refuses without it and never writes or deletes it.
 
 **Operator tools** (G2; dry runs by default; none connects to a database).
 `tools/add-member.mjs` (a member from `person.local.json`; never an admin;
-refuses a taken slug, an unknown house, a pending email, a guarded display
+refuses a taken slug, an unknown house, a `family` that is not one of the
+person's houses (fix loop 3, Red Team I3), a pending email, a guarded display
 name, a new guard term that already appears), `tools/delete-member.mjs` (the
 person, their account and every row they own; never the admin, the root
 profile or a house's rows) and `tools/make-probe.mjs` (`probe-<6 hex>`, kind
@@ -2586,3 +2612,11 @@ admin API and its email and password go only into the Worker secrets
 each write one SQL transaction for David to run with psql.
 `tools/export-person.mjs` writes one person's own rows, `account.json` and
 `plate.json` from a snapshot.
+
+**Live gate** (fix loop 3, E5; runbook `tools/live-gate.md`). Before the live
+run, on the local Docker stack or the sandbox (never live): the migrations,
+`tools/live-gate-seed.sql`, `node tools/live-gate.mjs --url <url>` with
+`MISE_GATE_SECRET_KEY` and `MISE_GATE_PUBLISHABLE_KEY` set for that run only,
+then `tools/live-gate-teardown.sql`. Its 17 checks cover the `auth.users`
+trigger and its abort, `svc` exposure, the global execute revoke, the writer's
+codes as `error.code`, the direct-insert revoke and `plate_for`.

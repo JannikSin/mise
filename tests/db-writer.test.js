@@ -59,11 +59,11 @@ test("admin partial targets write refused", { skip: SKIP }, async () => {
   const partial = { diet: "vegan", macros: { calories: 2000, protein: 120 } };
   const e = await asUser(db, uid["owner-1"], () => errorOf(() => db.query(W, ["profiles/kin-1/profile/targets.json", JSON.stringify(partial), 1])));
   assert.equal(e?.code, "P0403");
-  // and the same through the table directly
+  // and the table directly: no update grant since fix loop 3 E3 (write_doc is the only door)
   const e2 = await asUser(db, uid["owner-1"], () =>
     errorOf(() => db.query("update public.docs set data = $1 where path = 'profiles/kin-1/profile/targets.json'", [JSON.stringify(partial)])),
   );
-  assert.equal(e2?.code, "P0403");
+  assert.equal(e2?.code, "42501");
   // a full write that keeps every key is allowed
   const full = { ...targetsFor("kin-1"), diet: "vegan" };
   const ok = await asUser(db, uid["owner-1"], () => db.query(W, ["profiles/kin-1/profile/targets.json", JSON.stringify(full), 1]));
