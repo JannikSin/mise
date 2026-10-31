@@ -149,6 +149,8 @@ test("the sign-in side switches accounts holding the store lock, and flushes aft
   assert.deepEqual(log, ["lock", "install", "reset", "session", "install", "reset", "unlock", "flush"]);
   log.length = 0;
   await boot.signOut();
-  assert.deepEqual(log.slice(0, 1), ["lock"]);
+  // the locked backend goes in at once, before the lock is waited for
+  // (gate20 Engineer E1), then the switch runs holding it
+  assert.deepEqual(log.slice(0, 2), ["install", "lock"]);
   assert.equal(log.at(-1), "unlock");
 });

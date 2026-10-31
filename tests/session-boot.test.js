@@ -224,7 +224,8 @@ test("sign out (here or in another tab) locks the store and runs the hook", asyn
   log.length = 0;
   client.fire("SIGNED_OUT", null);
   await new Promise((r) => setTimeout(r, 0));
-  assert.deepEqual(log, ["install:locked", "reset", "session:housemate-1->null"]);
+  // locked at once on the event (gate20 Engineer E1), then again under the lock
+  assert.deepEqual(log, ["install:locked", "install:locked", "reset", "session:housemate-1->null"]);
   assert.equal(accountSource(), null);
   assert.equal(canSwitchHere(), false);
 });

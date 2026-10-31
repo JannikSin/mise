@@ -42,7 +42,7 @@ export function snapshotFiles() {
         { id: "owner-1", name: "Owner", emoji: "x", admin: true, household: "house-w", passkey: { salt: "s", hash: "h" } },
         { id: "mate-1", name: "Mate", household: "house-w" },
         { id: "kin-1", name: "Kin", household: "house-f", family: "house-f" },
-        { id: "guest-1", name: "Guest A" },
+        { id: "guest-1", name: "Guest A", household: "guesthouse" },
       ],
     },
     "recipes/soup.json": soup,

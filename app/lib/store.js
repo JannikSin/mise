@@ -1385,8 +1385,10 @@ async function flush() {
         status.lastSyncAt = new Date().toISOString();
         if (stopped.size === 0) status.lastError = null;
       } catch (e) {
-        // the account changed mid-push: nothing more is sent this pass
-        if (e instanceof PushAborted) break;
+        // the account changed mid-push: nothing more is sent this pass, and
+        // a refusal that came back after it changed is the new session's
+        // answer, not this record's (gate20 Engineer E1): it stays queued
+        if (e instanceof PushAborted || !alive()) break;
         if (e instanceof ConflictError) {
           status.conflicts++;
           continue; // stays dirty; next flush retries the merge

@@ -128,6 +128,13 @@ export function createSupabaseAdapter({
    * @param {string} path
    */
   const run = async (q, path) => {
+    // every request carries the token this adapter was adopted with (gate20
+    // Engineer E1): supabase-js swaps its own session the moment someone
+    // signs out or an invite link signs in, before the store hears of it,
+    // and it only adds its own Authorization when the request has none
+    const token = accessToken();
+    const b = /** @type {any} */ (q);
+    if (token && typeof b?.setHeader === "function") q = b.setHeader("Authorization", `Bearer ${token}`);
     const { data, error } = await q;
     if (error) throw mapError(error, path);
     return data;

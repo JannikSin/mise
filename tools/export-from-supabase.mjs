@@ -98,9 +98,21 @@ export function profilesFile(ix, old) {
     .sort((a, b) => a.sort_order - b.sort_order || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
   let changedRows = 0;
   const rows = people.map((p) => {
-    const home = p.home_household ? ix.houseSlug.get(p.home_household) ?? null : null;
+    const prevRow = oldRows.get(p.slug);
+    // a guest has no home house on 2.0; on 1.95 a row with no household is
+    // "home" (the family's), so a guest always goes back as guesthouse
+    // (gate20 Engineer E2: a 2.0 guest showed in the family's chooser)
+    // (a guest's 1.95 row keeps what it had, so the round trip stays exact)
+    const home =
+      p.kind === "guest"
+        ? prevRow
+          ? (prevRow.household ?? null)
+          : "guesthouse"
+        : p.home_household
+          ? ix.houseSlug.get(p.home_household) ?? null
+          : null;
     const isAdmin = p.slug === ix.settings.admin_profile;
-    const prev = oldRows.get(p.slug);
+    const prev = prevRow;
     if (prev) {
       // the values the migration took from this row (DISPLAY_DROPPED aside)
       const display = Object.fromEntries(Object.entries(prev).filter(([k]) => !DISPLAY_DROPPED.includes(k)));

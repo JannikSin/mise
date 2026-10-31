@@ -177,6 +177,9 @@ export function createSessionBoot({
 
   /** sign out: the server session ends, the store goes back to locked */
   const signOut = async () => {
+    // locked BEFORE the server session ends, so a flush in flight stops at
+    // its next record instead of sending it signed out (gate20 Engineer E1)
+    seam.installBackend(seam.lockedBackend());
     await Promise.resolve(client.auth?.signOut?.()).catch(() => {});
     lastUser = "";
     await dropSession();
@@ -309,6 +312,8 @@ export function createSessionBoot({
     client.auth?.onAuthStateChange?.((/** @type {string} */ event, /** @type {any} */ session) => {
       if (event === "SIGNED_OUT") {
         lastUser = "";
+        // synchronously, before waiting for the store lock (E1)
+        seam.installBackend(seam.lockedBackend());
         void dropSession();
       } else if (event === "TOKEN_REFRESHED" && session?.access_token) token = session.access_token;
       else if (
@@ -318,6 +323,8 @@ export function createSessionBoot({
         session.user.id !== lastUser
       ) {
         lastUser = session.user.id;
+        // another account: nothing more goes out under the old adapter (E1)
+        seam.installBackend(seam.lockedBackend());
         void adopt(session);
       }
     });
