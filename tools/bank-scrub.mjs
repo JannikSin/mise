@@ -32,7 +32,10 @@
 // list (every guard term, every non-admin person's extra names).
 //
 // WHAT IT MAY EDIT. Only free text that names a dish or tells its story:
-// `name`, `notes`, `description` (top level) and `instructions[].text`. A hit
+// `name`, `notes`, `description` (top level), `instructions[].text`, and the
+// prose a recipe carries about itself: `lessons[]`, `audited.evidence` and
+// `rotation.note` (gate20 Realist R1: 35 of the real bank's 36 remaining
+// hits sat in those, and the migration refused). A hit
 // anywhere else (ingredients, allergens, tags, nutrition, the id, the file
 // name, any other field) is listed for a hand review and never touched, so
 // the allergy screen keeps every food word. A hit is also review-only, in any
@@ -51,6 +54,8 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const BANK_DIRS = ["recipes", "recipes-staging"];
 /** the only top-level fields the tool rewrites (plus instructions[].text) */
 const AUTO_TOP = new Set(["name", "notes", "description"]);
+/** prose fields below the top level, rewritten like `notes` (R1) */
+const AUTO_PROSE = /^(lessons\[\d+\]|audited\.evidence|rotation\.note)$/;
 /** food words that are also given names; the ingredient table adds the rest */
 const EXTRA_FOOD_WORDS = [
   "sage", "rose", "clementine", "rosemary", "saffron", "jasmine", "candy",
@@ -231,8 +236,9 @@ function reviewReason(word) {
 }
 
 /**
- * Propose an edit for one recipe. Only `name`, `notes`, `description` and
- * `instructions[].text` are ever rewritten; every other hit is listed in
+ * Propose an edit for one recipe. Only `name`, `notes`, `description`,
+ * `instructions[].text`, `lessons[]`, `audited.evidence` and `rotation.note`
+ * are ever rewritten; every other hit is listed in
  * `review` with its field and why.
  * @param {Record<string, any>} recipe
  * @param {string[]} terms term words (buildTermSet().words)
@@ -247,6 +253,7 @@ export function proposeEdit(recipe, terms) {
   /** @param {string} at @returns {"free" | "steps" | null} */
   const editable = (at) => {
     if (AUTO_TOP.has(at.split(/[.[]/)[0] ?? "")) return "free";
+    if (AUTO_PROSE.test(at)) return "free";
     if (/^instructions\[\d+\]\.text$/.test(at)) return "steps";
     return null;
   };

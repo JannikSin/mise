@@ -15,6 +15,7 @@ import {
   scrubString,
   proposeEdit,
   scanBank,
+  wordsIn,
   main,
 } from "../tools/bank-scrub.mjs";
 
@@ -393,4 +394,22 @@ test("E19: the header's command is the usage the tool prints, and the old plan c
   assert.equal(main(["--apply"], { log: (s) => said.push(s), repoRoot: REPO }), 2);
   assert.equal(said[0], `usage: ${header}`);
   assert.match(String(header), /<mise-data dir> --out <dir outside this repo> \[--people <people\.local\.json>\]/);
+});
+
+test("R1 (gate20 Realist): lessons, audited.evidence and rotation.note are rewritten like notes; ingredients still are not", () => {
+  const terms = ["zelda"];
+  const r = {
+    id: "dish-x",
+    name: "Dish X",
+    lessons: ["Zelda liked it with more lime.", "Use a wide pan."],
+    audited: { standard: "greger", on: "2026-10-18", by: "audit", evidence: "Zelda's batch held 4 days." },
+    rotation: { perDay: 1, note: "Zelda prefers the berry rotation." },
+    ingredients: [{ food: "rice", note: "the way Zelda rinses it" }],
+  };
+  const { proposed, review } = proposeEdit(r, terms);
+  for (const s of [...proposed.lessons, proposed.audited.evidence, proposed.rotation.note])
+    assert.equal(wordsIn(s, terms).length, 0, s);
+  assert.equal(proposed.lessons[1], "Use a wide pan.", "a lesson with no name is untouched");
+  assert.equal(proposed.ingredients[0].note, "the way Zelda rinses it", "ingredients stay for a hand review");
+  assert.ok(review.some((x) => x.at === "ingredients[0].note"));
 });
