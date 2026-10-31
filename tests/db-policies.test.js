@@ -83,6 +83,8 @@ async function reachViolations(db, uid, people = /** @type {readonly string[]} *
   };
   const canWrite = (/** @type {string} */ me, /** @type {any} */ d) => {
     if (isAdmin(me)) return true;
+    // the probe only reads (gate20 RT20-4)
+    if (me.startsWith("probe-")) return false;
     if (d.house) return housesOf(me).includes(d.house);
     if (d.owner === me) return true;
     return ["plan", "shopping", "occasions"].includes(d.kind) && shareHouse(me, d.owner);
