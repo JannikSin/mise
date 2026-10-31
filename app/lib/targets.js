@@ -490,6 +490,11 @@ function typedCores(term) {
   ];
 }
 
+/** Words that lead into a food rather than name it ("reaction TO cashews"). */
+const FOOD_LEADS = new Set(
+  "to for from with of on no any all eat eating around near containing contain contains and or anything".split(" "),
+);
+
 /** Every term an allergen family carries. @type {Set<string> | null} */
 let FAMILY_TERMS = null;
 /** @param {string} term @returns {boolean} */
@@ -545,13 +550,16 @@ export function typedAvoidTerms(word) {
     // "reaction to peanuts", "epipen for tree nuts" (1.96 Final Gate, Red Team
     // BLOCK: a wrapper the list above never named left the peanut dish served)
     const words = term.replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
-    // a single food a family carries counts too: "reaction to cashews"
-    // (1.96 re-gate, Engineer F2)
-    const named = [...words, ...words.slice(1).map((w, i) => `${words[i]} ${w}`)].filter(
-      (w) =>
-        w !== term &&
-        (familyOf(w) || familyTerm(w) || familyTerm(w.replace(/(es|s)$/, "")) || familyTerm(w.replace(/s$/, ""))),
-    );
+    // a single food a family carries counts too when it stands alone
+    // ("reaction to cashews", 1.96 re-gate, Engineer F2), never when another
+    // word names it ("peanut butter" is not all butter, round 2 N1)
+    const alone = (/** @type {number} */ i) => i === 0 || FOOD_LEADS.has(words[i - 1] ?? "");
+    const carried = (/** @type {string} */ w) =>
+      familyTerm(w) || familyTerm(w.replace(/(es|s)$/, "")) || familyTerm(w.replace(/s$/, ""));
+    const named = [
+      ...words.filter((w, i) => familyOf(w) || (alone(i) && carried(w))),
+      ...words.slice(1).map((w, i) => `${words[i]} ${w}`).filter((w) => familyOf(w)),
+    ].filter((w) => w !== term);
     return [...new Set([term, ...cores.flatMap(typedAvoidTerms), ...named.flatMap(typedAvoidTerms)])];
   }
   const out = new Set([term]);

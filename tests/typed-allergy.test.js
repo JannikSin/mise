@@ -190,3 +190,12 @@ test("a single food a family carries counts inside a phrase (1.96 re-gate, Engin
     assert.ok(recipeConflicts(bowl, undefined, avoidTermsFromAllergens([], typed)).length > 0, typed);
   }
 });
+
+test("a food another word names is not its whole family (1.96 re-gate round 2, N1)", () => {
+  const toast = dish("butter-toast", ["whole wheat bread", "butter"]);
+  for (const typed of ["peanut butter", "peanut flour", "coconut cream"]) {
+    assert.deepEqual(recipeConflicts(toast, undefined, avoidTermsFromAllergens([], typed)), [], typed);
+  }
+  assert.ok(typedAvoidTerms("peanut butter").includes("satay"), "still the peanut family");
+  assert.ok(typedAvoidTerms("cashews make me sick").includes("cashews"));
+});

@@ -637,7 +637,9 @@ export function RecipeView({
           </div>
           <p class="hint">
             ${
-              forN || !planned || mealBLines.length > 0
+              // a reheat night cooks nothing: "what the plan cooks" was
+              // wrong there (1.96 re-gate round 2, Usability R2-2)
+              forN || !planned || mealBLines.length > 0 || (tableId && !cookNight)
                 ? forLine.line
                 : `${forLine.asWritten} The amounts below are what the plan cooks; tap + or − to cook a different number.`
             }
