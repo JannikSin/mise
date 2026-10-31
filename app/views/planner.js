@@ -1,6 +1,7 @@
 import { html } from "htm/preact";
 import { useRef, useState } from "preact/hooks";
 import { targetsSanity } from "../lib/targets.js";
+import { mealBLines, mealBSundayLines } from "../lib/cadence.js";
 import {
   cookLine,
   datesOfWeek,
@@ -51,6 +52,43 @@ function monthDay(isoDate) {
     month: "short",
     day: "numeric",
   });
+}
+
+/**
+ * SUNDAY'S POT, said on Sunday's row (shrike 2026-10-25): which nights the pot
+ * cooked on this row feeds, for how many, and the nights of the second dish
+ * prepped alongside it. The wording is cadence.js's and the kitchen rule's:
+ * "Sun and Mon", "Tue, Wed and Thu". Empty for a pot that feeds one night, a
+ * leftover night, and a row that is not a shared pot.
+ * @param {Record<string, any>} entry
+ * @param {Record<string, any>[]} entries the week's plan entries
+ * @param {{ id: string, seats?: { status?: string }[], guests?: number }[]} tables the brigade's tables
+ * @param {(iso: string) => string} dayName
+ * @returns {string[]}
+ */
+function potLines(entry, entries, tables, dayName) {
+  if (!entry.table || entry.leftoverOf) return [];
+  const nights = [
+    entry.date,
+    ...entries.filter((e) => e.leftoverOf === entry.table).map((e) => e.date),
+  ].sort();
+  if (nights.length < 2) return [];
+  const list = (/** @type {string[]} */ ds) => {
+    const names = ds.map((d) => dayName(d));
+    return names.length > 1
+      ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
+      : (names[0] ?? "");
+  };
+  const t = tables.find((x) => x.id === entry.table);
+  const seats = (t?.seats ?? []).filter((s) => s.status !== "skipped").length + (Number(t?.guests) || 0);
+  const bNights = entry.batchAlongside?.freshNights;
+  return [
+    `Makes ${list(nights)} dinners${seats > 0 ? ` for ${seats}` : ""}.${
+      Array.isArray(bNights) && bNights.length > 1
+        ? ` The second dish is for ${list(bNights)}.`
+        : ""
+    }`,
+  ];
 }
 
 /**
@@ -110,6 +148,7 @@ function monthDay(isoDate) {
  *     me: string,
  *   } | null,
  *   brigadeRun?: Record<string, any> | null,
+ *   seatClashes?: Record<string, { name: string, reasons: string[] }[]>,
  *   endedBrigade?: import("../lib/tables.js").Brigade | null,
  *   onAddGuest?: (date: string, profileId: string, slots: string[]) => Promise<{ note: string, retry: boolean }>,
  *   onRemoveGuest?: (date: string, profileId: string) => void,
@@ -151,6 +190,7 @@ export function PlannerView({
   lastWeekReview = null,
   brigade = null,
   brigadeRun = null,
+  seatClashes = {},
   endedBrigade = null,
   profileId = "",
 }) {
@@ -365,6 +405,30 @@ export function PlannerView({
         </div>`
       }
       ${
+        // THE ANSWER TO SET MY WEEK, above the fold (shrike 2026-10-25, UI 2):
+        // the tap used to change nothing on screen, because the result and the
+        // pot sentence lived inside the folded "how this week was built". A
+        // run that failed already has the banner above; this is the other
+        // case. The first line is the result, the cook-nights line is the pot.
+        (() => {
+          const run = /** @type {any} */ (brigadeRun);
+          if (!run || !brigade) return "";
+          const failed =
+            run.outOfRange ||
+            (run.made === 0 && (run.thin ?? []).some((/** @type {any} */ t) => t.available === 0));
+          if (failed) return "";
+          const lines = brigadeRunLines(run, {
+            runWeek: weekId,
+            todayIso,
+            nameOf: (id) => brigade.profiles.find((p) => p.id === id)?.name ?? id,
+          });
+          const shown = lines.filter((l, i) => i === 0 || l.startsWith("🍳 Cook"));
+          return html`<div class="tile buildreport setresult" role="status">
+            ${shown.map((l, i) => html`<div class="d" key=${i}>${l}</div>`)}
+          </div>`;
+        })()
+      }
+      ${
         // a pot bigger than one pan is a shopping and cooking fact, so it is
         // in view, not folded into the run report (Tribunal Realist, loop 2)
         (/** @type {any} */ (brigadeRun)?.notes ?? [])
@@ -397,11 +461,17 @@ export function PlannerView({
         sameDishEveryDay(/** @type {any} */ (plan.entries), dates, (id) => byId.get(id)).map(
           (r) =>
             html`<p class="hint" role="note" key=${`same-${r.slot}`}>
-              ⚠ ${SLOT_META[r.slot]?.full ?? r.slot} is ${r.name}
-              ${r.days === dates.length ? "every day this week" : "every day it is planned this week"}.
-              ${brigade?.active?.slots?.includes(r.slot)
-                ? "To vary it, add another to the kitchen rule on the People tab."
-                : "To vary it, SWITCH one of the days."}
+              ${
+                // one string: htm drops the whitespace between a value and a
+                // line break, so "Muffins" ran into "every day" (1.95 too)
+                `⚠ ${SLOT_META[r.slot]?.full ?? r.slot} is ${r.name} ${
+                  r.days === dates.length ? "every day this week" : "every day it is planned this week"
+                }. ${
+                  brigade?.active?.slots?.includes(r.slot)
+                    ? "To vary it, add another to the kitchen rule on the People tab."
+                    : "To vary it, SWITCH one of the days."
+                }`
+              }
             </p>`,
         )
       }
@@ -573,23 +643,19 @@ export function PlannerView({
                                           html` <span class="usesoon cookedchip">✓ ate it</span>`
                                         }
                                         ${
-                                          cookLine(
-                                            entry,
-                                            profileId,
-                                            weekdayShort,
-                                            isPerBowl(recipe),
-                                          ) &&
-                                          html` <span class="usesoon"
-                                            >${cookLine(entry, profileId, weekdayShort, isPerBowl(recipe))}</span
-                                          >`
-                                        }
-                                        ${
                                           toppingsLine(recipe, date) &&
                                           html`<span class="hint plateline"
                                             >🥣 ${toppingsLine(recipe, date)}</span
                                           >`
                                         }
                                       </span>
+                                      ${
+                                        // who cooks, under the name, not clipped by its two-line clamp (shrike item 19)
+                                        cookLine(entry, profileId, weekdayShort, isPerBowl(recipe)) &&
+                                        html`<span class="usesoon cookchip"
+                                          >${cookLine(entry, profileId, weekdayShort, isPerBowl(recipe))}</span
+                                        >`
+                                      }
                                       ${
                                         recipe &&
                                         html`<span class="m num"
@@ -690,17 +756,6 @@ export function PlannerView({
                                   <span class="chipbody">
                                     <span class="n">
                                       ${name}
-                                      ${
-                                        cookLine(
-                                          entry,
-                                          profileId,
-                                          weekdayShort,
-                                          isPerBowl(recipe),
-                                        ) &&
-                                        html` <span class="usesoon"
-                                          >${cookLine(entry, profileId, weekdayShort, isPerBowl(recipe))}</span
-                                        >`
-                                      }
                                       ${entry.cookedAt && html` <span class="usesoon cookedchip">✓ ate it</span>`}
                                       ${
                                         /** @type {any} */ (entry).plate &&
@@ -715,6 +770,13 @@ export function PlannerView({
                                         >`
                                       }
                                     </span>
+                                    ${
+                                      // who cooks, under the name, not clipped by its two-line clamp (shrike item 19)
+                                      cookLine(entry, profileId, weekdayShort, isPerBowl(recipe)) &&
+                                      html`<span class="usesoon cookchip"
+                                        >${cookLine(entry, profileId, weekdayShort, isPerBowl(recipe))}</span
+                                      >`
+                                    }
                                     ${
                                       recipe &&
                                       html`<span class="m num"
@@ -770,6 +832,33 @@ export function PlannerView({
                                   </button>`
                                 }
                               </div>
+                              ${potLines(entry, plan.entries, brigade?.tables ?? [], weekdayShort).map(
+                                (line, i) =>
+                                  html`<p class="hint mealbline" key=${`${entry.id}-p${i}`}>🥘 ${line}</p>`,
+                              )}
+                              ${
+                                // MEAL B (2026-10-25): Sunday's prep lines on Sunday's
+                                // row, the night's meat on Tue to Thu. Below the meal,
+                                // not inside it: the meal button clamps to two lines
+                                [
+                                  ...mealBSundayLines(/** @type {any} */ (entry).batchAlongside, weekdayShort),
+                                  ...mealBLines(entry, weekdayShort),
+                                ].map(
+                                  (line, i) =>
+                                    html`<p class="hint mealbline" key=${`${entry.id}-b${i}`}>🥩 ${line}</p>`,
+                                )
+                              }
+                              ${
+                                // WHO CANNOT EAT IT, one chip per seat (shrike
+                                // 2026-10-25): a housemate's new allergy used
+                                // to leave this dinner here with no warning
+                                (seatClashes[String(entry.table ?? "")] ?? []).map(
+                                  (c) =>
+                                    html`<p class="hint seatclash" role="note" key=${`${entry.id}-x${c.name}`}>
+                                      ⚠ ${c.name} cannot eat this: ${c.reasons.join(", ")}. SET MY WEEK plans around it.
+                                    </p>`,
+                                )
+                              }
                             `;
                           })}
                         </div>`
@@ -832,6 +921,7 @@ export function PlannerView({
         daily=${daily}
         pantry=${pantry}
         onPatchDay=${onPatchDay}
+        tables=${brigade?.tables ?? []}
       />
       ${
         // HOW THE WEEK WAS BUILT, folded away (David, 2026-10-16: "I don't

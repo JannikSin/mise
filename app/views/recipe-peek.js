@@ -49,6 +49,14 @@ export function RecipePeek({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // the card belongs to the screen it was opened from: a tab tap or Back
+  // changes the hash and the card used to stay, over the bottom bar
+  // (shrike 2026-10-25, UI 10)
+  useEffect(() => {
+    window.addEventListener("hashchange", onClose);
+    return () => window.removeEventListener("hashchange", onClose);
+  }, [onClose]);
+
   if (!recipe) return null;
   const plan = cookPlan(recipe, servings);
   // Cook Mode is gone (2026-08-19): both buttons land on the recipe page,
@@ -113,7 +121,7 @@ export function RecipePeek({
           unshopped &&
           html`<p class="hint peekreceipt">
             No receipt scanned for this week yet, so nothing here is confirmed bought. Cook it
-            anyway if you already have the food. <a href="#/list">scan the receipt →</a>
+            anyway if you already have the food. <a class="secondary linkbtn receiptbtn" href="#/list">SCAN THE RECEIPT →</a>
           </p>`
         }
         <h3 class="block-title">${rotating ? `Ingredients · today's ${noun}` : "Ingredients"}</h3>

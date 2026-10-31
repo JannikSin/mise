@@ -107,6 +107,8 @@ test("a hard-conflicted seat STAYS IN the denominator and renders SET ASIDE", ()
   assert.ok(ben);
   assert.equal(ben.kind, "aside", "never a plate instruction for a conflicted seat");
   assert.equal(ben.fraction, "about half the pan", "still half the pot — it was bought for them");
+  // 1.96 Final Gate, Red Team F3: the aside says not to plate it, in words
+  assert.match(String(ben.note), /^not for .+: contains beef\. Do not plate it\.$/);
   const ann = m.rows.find((r) => r.id === "a");
   assert.equal(ann?.fraction, "about half the pan", "denominator unchanged by the conflict");
 });

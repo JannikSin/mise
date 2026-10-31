@@ -6,13 +6,15 @@
 // (main.js strips `e.table` before every plan write).
 import { autoPlanEligible, recipeConflicts, SLOT_KEYS, SLOT_META } from "./plan.js";
 import { parsePot, solveSeat } from "./synth.js";
+import { freshMeatFor } from "./cadence.js";
+import { allergenFamilyOf } from "./targets.js";
 
 /**
  * @typedef {{ id: string, servings: number, rawServings?: number, status?: "in" | "skipped", auto?: boolean, edited?: boolean, blocked?: string }} Seat seat id = profileId; `auto: true` marks a MACHINE-stamped skip (recomputed every run, unlike a human decline which carries); `blocked` (2026-10-16) is the reason the allergy/diet screen skipped this seat on this dish (always with auto: true); `edited: true` marks a HUMAN servings edit (patchSeat) that binds the composer while the dish is unchanged
  * @typedef {{ portionGrams?: number, plate: string[], estCalories: number, estProtein: number }} TailorSeat scale-first: portionGrams = weighed grams of the finished dish on this plate (absent/0 on pre-scale tailors)
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
- * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, buyerFrom?: "rule", fromBrigade?: string, fromWeekRun?: boolean, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string, leftoverOf?: string, preparedOn?: string }} TableEvent `buyerFrom: "rule"` marks a buyer filled from a take-turns rule's shopper (it follows the rule; a hand claim carries no marker). `fromWeekRun` is LEGACY: written only by the retired AI week run; read solely by planBrigadeWeek's shadow sweep, which clears such tables from a brigade's span. `leftoverOf` names the COOK table this meal is eaten from (a no-cook night, David 2026-09-05): its seats size the pot, it is never bought or cooked on its own. `preparedOn` (2026-09-24) marks a BATCH pot: this night's dish is cooked on that earlier date (the Sunday batch) and its later nights eat it as leftovers; its safe window runs from that date.
- * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]>, batches?: { cookDay: number, feeds: number[] }[], dinnerMeat?: boolean, open?: boolean, breaks?: string, sundayMinutes?: number, sundayBatch?: boolean }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool. `batches` (David, 2026-09-24) = a second pot cooked on `cookDay` and eaten on the weekdays in `feeds` (the Sunday batch for Tue + Wed); absent = no batch. `dinnerMeat` (David, 2026-09-25) = every dinner the brigade plans is anchored on chicken, turkey, beef or pork; absent = any protein. `open` (David, 2026-10-18) = no end date: the 28-day record rolls forward (rolledRule). `breaks` = a SCHOOL_BREAKS key; the rule plans nothing on those dates. `sundayMinutes` (David, 2026-10-18) = his rough limit on Sunday cooking, shown against the estimate, never enforced. `sundayBatch` (2.0, I-14) = Sunday's dinner is the batch for Mon to Thu: Sunday cooks one pot and no second dish; absent = ON, applied by the app through sundayBatchOn before it plans (planBrigadeWeek reads only `true`), false = off.
+ * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, buyerFrom?: "rule", fromBrigade?: string, fromWeekRun?: boolean, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string, leftoverOf?: string, preparedOn?: string, proteinFresh?: "once" | "daily" }} TableEvent `buyerFrom: "rule"` marks a buyer filled from a take-turns rule's shopper (it follows the rule; a hand claim carries no marker). `fromWeekRun` is LEGACY: written only by the retired AI week run; read solely by planBrigadeWeek's shadow sweep, which clears such tables from a brigade's span. `leftoverOf` names the COOK table this meal is eaten from (a no-cook night, David 2026-09-05): its seats size the pot, it is never bought or cooked on its own. `preparedOn` (2026-09-24) marks a BATCH pot: this night's dish is cooked on that earlier date (the Sunday batch) and its later nights eat it as leftovers; its safe window runs from that date. `proteinFresh` (2026-10-25) marks a batch pot prepped all but the meat: "once" = this night cooks the meat for every night the pot feeds, "daily" = each night cooks its own share.
+ * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]>, batches?: { cookDay: number, feeds: number[] }[], dinnerMeat?: boolean, open?: boolean, breaks?: string, sundayMinutes?: number, sundayBatch?: boolean, sundayTwoPots?: boolean, meatDaily?: boolean }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool. `batches` (David, 2026-09-24) = a second pot cooked on `cookDay` and eaten on the weekdays in `feeds` (the Sunday batch for Tue + Wed); absent = no batch. `dinnerMeat` (David, 2026-09-25) = every dinner the brigade plans is anchored on chicken, turkey, beef or pork; absent = any protein. `open` (David, 2026-10-18) = no end date: the 28-day record rolls forward (rolledRule). `breaks` = a SCHOOL_BREAKS key; the rule plans nothing on those dates. `sundayMinutes` (David, 2026-10-18) = his rough limit on Sunday cooking, shown against the estimate, never enforced. `sundayBatch` (2.0, I-14) = Sunday's dinner is the batch for Mon to Thu: Sunday cooks one pot and no second dish; absent = ON, applied by the app through sundayBatchOn before it plans (planBrigadeWeek reads only `true`), false = off. `sundayTwoPots` (David, 2026-10-25) = with the batch on, Sunday cooks TWO pots: A for Sun and Mon, B for Tue to Thu prepped all but the meat, which is cooked fresh each night; absent = ON (sundayTwoPotsOn), false = the one pot for Mon to Thu. `meatDaily` = meal B's meat is cooked each night it is eaten; absent = cooked once, on B's first night, for all of them.
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
 
@@ -146,7 +148,8 @@ export function brigadeCovers(b, date) {
  * dish cooked that day (its dinner pot, a batch prepared that day, the day's
  * bake and breakfast) counted once, as prepTime plus at most fifteen minutes
  * of cookTime, because an oven or a simmer runs on its own. It does NOT scale
- * with portions, so it is shown as "about", never enforced. P7.
+ * with portions, so it is shown as "about", never enforced. A meal B pot
+ * (`proteinFresh`) counts fifteen minutes less: its meat is cooked later. P7.
  * @param {TableEvent[]} tables
  * @param {Map<string, Record<string, any>>} recipeById
  * @param {string} sundayIso
@@ -154,17 +157,21 @@ export function brigadeCovers(b, date) {
  */
 export function sundayPrepMinutes(tables, recipeById, sundayIso) {
   const ids = new Set();
+  /** meal B dishes: their meat is cooked on a later night, not Sunday */
+  const fresh = new Set();
   for (const t of tables ?? []) {
     if (t.leftoverOf) continue;
     const cooksSunday = t.preparedOn ? t.preparedOn === sundayIso : t.date === sundayIso;
     if (cooksSunday && t.recipeId) ids.add(t.recipeId);
+    if (cooksSunday && t.preparedOn && /** @type {any} */ (t).proteinFresh) fresh.add(t.recipeId);
   }
   let minutes = 0;
   for (const id of ids) {
     const r = recipeById.get(id);
     const prep = Number(r?.prepTime) > 0 ? Number(r?.prepTime) : 0;
     const cook = Number(r?.cookTime) > 0 ? Number(r?.cookTime) : 0;
-    minutes += prep + Math.min(cook, 15);
+    // meal B leaves its meat, about fifteen minutes, for the night (1.96)
+    minutes += Math.max(0, prep + Math.min(cook, 15) - (fresh.has(id) ? 15 : 0));
   }
   return { minutes: Math.round(minutes), dishes: ids.size };
 }
@@ -268,6 +275,8 @@ export function validBrigade(b) {
   }
   if (b.dinnerMeat !== undefined && typeof b.dinnerMeat !== "boolean") return false;
   if (b.sundayBatch !== undefined && typeof b.sundayBatch !== "boolean") return false;
+  if (b.sundayTwoPots !== undefined && typeof b.sundayTwoPots !== "boolean") return false;
+  if (b.meatDaily !== undefined && typeof b.meatDaily !== "boolean") return false;
   if (b.slotRecipes !== undefined) {
     if (!isPlainObject(b.slotRecipes)) return false;
     for (const [slot, ids] of Object.entries(b.slotRecipes)) {
@@ -572,7 +581,10 @@ export function deriveTables(houses, ctx) {
             cookExtras.push(
               /** @type {any} */ ({
                 recipeId: t.recipeId,
-                date: t.date,
+                // a batch is bought for the day it is MADE (shrike item 9,
+                // 10/25): JUST SOME DAYS on Sunday must buy meal B, prepped
+                // Sunday, though it is first eaten Tuesday
+                date: /** @type {any} */ (t).preparedOn ?? t.date,
                 // slot travels with the batch so JUST SOME DAYS' meal chips
                 // filter brigade buys too (they were inert on cookExtras —
                 // Final Gate Usability, 2026-08-30)
@@ -693,6 +705,30 @@ export function deriveTables(houses, ctx) {
               leftoverPrepared: /** @type {any} */ (tableById.get(String(t.leftoverOf))).preparedOn,
             }
           : {}),
+        // MEAL B (2026-10-25): a pot prepped all but the meat. Every night it
+        // feeds names its nights and the meat THIS night cooks: its own plates
+        // when the meat is cooked each night, the whole pot's on the first
+        // night when it is cooked once, nothing on a later once night
+        ...(() => {
+          const head = isLeftover ? tableById.get(String(t.leftoverOf)) : t;
+          const mode = /** @type {any} */ (head)?.proteinFresh;
+          if (!head || (mode !== "once" && mode !== "daily")) return {};
+          const nightDates = [
+            head.date,
+            ...[...tableById.values()]
+              .filter((x) => /** @type {any} */ (x).leftoverOf === head.id)
+              .map((x) => x.date),
+          ].sort();
+          const own =
+            known.reduce((sum, s2) => sum + clampServings(s2.servings), 0) + clampGuests(t);
+          const servingsCooked =
+            mode === "daily" ? own : isLeftover ? 0 : own + (leftoverServings.get(t.id) ?? 0);
+          return {
+            proteinFresh: mode,
+            freshNights: nightDates,
+            freshMeat: servingsCooked > 0 ? freshMeatFor(recipe, servingsCooked) : [],
+          };
+        })(),
         ...(() => {
           const alongside = [...tableById.values()].find(
             (x) =>
@@ -711,6 +747,19 @@ export function deriveTables(houses, ctx) {
                 batchAlongside: {
                   name: String(dish?.name ?? alongside.recipeId),
                   date: alongside.date,
+                  // meal B: Sunday preps it all but the meat (2026-10-25)
+                  ...(/** @type {any} */ (alongside).proteinFresh === "once" ||
+                  /** @type {any} */ (alongside).proteinFresh === "daily"
+                    ? {
+                        proteinFresh: /** @type {any} */ (alongside).proteinFresh,
+                        freshNights: [
+                          alongside.date,
+                          ...[...tableById.values()]
+                            .filter((x) => /** @type {any} */ (x).leftoverOf === alongside.id)
+                            .map((x) => x.date),
+                        ].sort(),
+                      }
+                    : {}),
                   ...(batchCook
                     ? {
                         cookId: batchCook.id,
@@ -1302,6 +1351,20 @@ export function useRecipeOnTable(events, tableId, recipe, targetsById, nameOf) {
   const fed = (events.tables ?? []).filter((x) => x.leftoverOf === tableId && !x.cookedAt);
   /** @type {string[]} */
   const refused = [];
+  // THE NEW DISH HAS TO KEEP (shrike item 7, 10/25): the pot is eaten to its
+  // last night, counted from the day it is made, so a dish that keeps one day
+  // cannot become Sunday's pot for Mon to Thu. Same fallback as the planner
+  // (3 days when the recipe states none, USDA leftovers)
+  const madeOn = /** @type {any} */ (t).preparedOn ?? t.date;
+  const lastNight = [t.date, ...fed.map((x) => x.date)].sort().pop() ?? t.date;
+  const needDays = Math.round(
+    (Date.parse(`${lastNight}T12:00:00`) - Date.parse(`${madeOn}T12:00:00`)) / 86400000,
+  );
+  const keeps = Number(recipe?.safeDays) > 0 ? Number(recipe.safeDays) : 3;
+  if (needDays > keeps)
+    refused.push(
+      `${String(recipe?.name ?? recipe?.id)} keeps ${keeps} day${keeps === 1 ? "" : "s"}, and this pot is eaten for ${needDays} days after it is made. Pick a dish that keeps, or set it on a night closer to when it is eaten`,
+    );
   const screened = new Set();
   for (const table of [t, ...fed]) {
     for (const seat of table.seats ?? []) {
@@ -1424,6 +1487,38 @@ export function namedSlotLine(chosen, recipeOf, checkOf) {
  */
 export function sundayBatchOn(b) {
   return /** @type {any} */ (b)?.sundayBatch !== false;
+}
+
+/**
+ * SUNDAY COOKS TWO POTS (David, 2026-10-25): meal A is Sunday's dinner and
+ * Monday's leftovers; meal B is prepped Sunday, everything but the meat, and
+ * eaten Tue to Thu with the meat cooked fresh each night. ON wherever the
+ * Sunday batch is on, unless the rule saved `sundayTwoPots: false` (one pot
+ * for Mon to Thu, the 1.95 way). Applied by the app before it plans, like
+ * sundayBatchOn; planBrigadeWeek reads only `true`. Whether a rule's nights
+ * leave room for two pots is twoPotSplit's question, not this one's.
+ * @param {Partial<Brigade> | null | undefined} b
+ * @returns {boolean}
+ */
+export function sundayTwoPotsOn(b) {
+  return sundayBatchOn(b) && /** @type {any} */ (b)?.sundayTwoPots !== false;
+}
+
+/**
+ * The nights Sunday's two pots feed: A eats Sunday plus the first night after
+ * it, B the rest up to Thursday (day 4 from Sunday, the leftovers limit),
+ * stopping at the first night that cooks. Null when Sunday does not cook or
+ * fewer than three nights follow it (then one pot covers them).
+ * @param {number[] | undefined} cookDays
+ * @returns {{ a: number[], b: number[] } | null}
+ */
+export function twoPotSplit(cookDays) {
+  const cooks = new Set((cookDays ?? []).map(Number));
+  if (!cooks.has(0)) return null;
+  /** @type {number[]} */
+  const fed = [];
+  for (let d = 1; d <= 4 && !cooks.has(d); d++) fed.push(d);
+  return fed.length >= 3 ? { a: fed.slice(0, 1), b: fed.slice(1) } : null;
 }
 
 /**
@@ -1737,7 +1832,22 @@ export function seatGuestOnDay(events, brigadeId, date, slots, guest, targets, b
     // a guest is never seated on a dish their profile refuses
     const no = seatScreen(recipe, targets);
     if (no.length > 0) {
-      refused.push(`${mealOf(slot)} (${recipe?.name ?? table.recipeId}: ${no.join(", ")})`);
+      // NAME THE ALLERGEN (shrike item 20, 10/25): "Japanese Chicken Curry
+      // has curry roux, which has dairy (Sunday's dinner)"
+      const dish = String(recipe?.name ?? table.recipeId);
+      const why = no
+        .map((r) => {
+          const food = r.replace(/^contains /, "");
+          if (food === r) return r;
+          const fam = allergenFamilyOf(food, targets.avoidIngredients);
+          return fam && fam !== food ? `${food}, which has ${fam}` : food;
+        })
+        .join("; ");
+      refused.push(
+        no.every((r) => r.startsWith("contains "))
+          ? `${dish} has ${why} (${mealOf(slot)})`
+          : `${mealOf(slot)} (${dish}: ${why})`,
+      );
       continue;
     }
     const servings = seatServingsFor(targets, slot, /** @type {Record<string, any>} */ (recipe));

@@ -74,18 +74,21 @@ test("a typed word that names an Object property never throws (Tribunal Red Team
 });
 
 // D-02 (10/23): "japanese curry roux cubes" passed gluten and soy allergies
-test("curry roux is refused for gluten, soy and dairy allergies", () => {
+test("curry roux is refused for gluten, soy, dairy and peanut allergies", () => {
   const recipe = { id: "c", name: "Curry", ingredients: [{ food: "japanese curry roux cubes", g: 100 }] };
   for (const allergen of ["gluten", "soy", "dairy"]) {
     const terms = avoidTermsFromAllergens([allergen]);
     assert.ok(recipeConflicts(recipe, undefined, terms).length > 0, `${allergen} let curry roux through`);
   }
-  assert.equal(recipeConflicts(recipe, undefined, avoidTermsFromAllergens(["peanuts"])).length, 0);
+  // shrike S-H3 (10/25) reversed this: the blocks vary by brand and the bank's
+  // own note says to read the allergen line for peanut, so a peanut allergy
+  // refuses them too (fails closed)
+  assert.ok(recipeConflicts(recipe, undefined, avoidTermsFromAllergens(["peanuts"])).length > 0);
 });
 
 // F4 (Tribunal Red Team, 10/24): the blocks are sold as cubes, blocks, sauce
 // mix and by brand, and none of those says "roux"
-test("curry blocks under every name they are sold by are refused for gluten, soy and dairy", () => {
+test("curry blocks under every name they are sold by are refused for gluten, soy, dairy and peanut", () => {
   const names = [
     "japanese curry cubes",
     "curry block",
@@ -111,7 +114,7 @@ test("curry blocks under every name they are sold by are refused for gluten, soy
   ];
   for (const food of names) {
     const recipe = { id: "c", name: "Curry", ingredients: [{ food, g: 100 }] };
-    for (const allergen of ["gluten", "soy", "dairy"]) {
+    for (const allergen of ["gluten", "soy", "dairy", "peanuts"]) {
       const terms = avoidTermsFromAllergens([allergen]);
       assert.ok(recipeConflicts(recipe, undefined, terms).length > 0, `${allergen} let "${food}" through`);
     }
@@ -121,4 +124,69 @@ test("curry blocks under every name they are sold by are refused for gluten, soy
 test("a butter roux is refused for a dairy allergy", () => {
   const recipe = { id: "g", name: "Gravy", ingredients: [{ food: "blond roux", g: 40 }] };
   assert.ok(recipeConflicts(recipe, undefined, avoidTermsFromAllergens(["dairy"])).length > 0);
+});
+
+// 1.96 Final Gate (Red Team BLOCK): a phrase with a wrapper word the list
+// never named ("reaction to", "epipen for", "hives from") still names a family
+test("a family word anywhere in a typed phrase brings the family", () => {
+  const satay = dish("satay", ["chicken thigh", "peanut butter", "lime"]);
+  for (const typed of ["reaction to peanuts", "Epipen for peanut", "bad reaction to peanuts!"]) {
+    const avoid = avoidTermsFromAllergens([], typed);
+    assert.ok(avoid.includes(typed.toLowerCase()), `"${typed}" kept as typed`);
+    assert.ok(recipeConflicts(satay, undefined, avoid).length > 0, `"${typed}" refuses peanut butter`);
+  }
+  assert.ok(typedAvoidTerms("gets hives from shellfish").includes("shrimp"));
+  assert.ok(typedAvoidTerms("swelling with tree nuts").includes("cashew"));
+  for (const w of ["coconut", "butternut squash", "the green stuff"]) {
+    assert.deepEqual(typedAvoidTerms(w), [w], `${w} names no family`);
+  }
+});
+
+test("the Red Team's typed phrases all refuse peanut butter (1.96 Final Gate F1, F6)", () => {
+  const toast = dish("pb-toast", ["whole wheat bread", "peanut butter", "banana"]);
+  for (const typed of [
+    "anaphylaxis to peanut",
+    "anaphylactic to peanuts",
+    "peanut products",
+    "contains peanuts",
+    "may contain peanuts",
+    "epipen for peanuts",
+    "peanuts - epipen",
+    "peanut traces",
+    "keep away from peanuts",
+    "nothing containing peanuts",
+    "peanuts are deadly",
+    "peanut oil",
+    "peanut butter",
+  ]) {
+    const avoid = avoidTermsFromAllergens([], typed);
+    assert.ok(avoid.includes("satay"), `"${typed}" brings the peanut family`);
+    assert.ok(recipeConflicts(toast, undefined, avoid).length > 0, `"${typed}" refuses the toast`);
+  }
+  const generic = dish("nb-toast", ["whole wheat bread", "nut butter"]);
+  assert.ok(recipeConflicts(generic, undefined, avoidTermsFromAllergens(["peanuts"], "")).length > 0);
+});
+
+test("widening a widened list changes nothing (1.96 Final Gate, Usability F1)", () => {
+  const stored = { allergens: ["peanuts"], avoidIngredients: ["peanut", "tempeh", "pesto"] };
+  const once = withCurrentAllergenTerms(stored);
+  const twice = withCurrentAllergenTerms(once);
+  assert.deepEqual(twice.avoidIngredients, once.avoidIngredients);
+  for (const bare of ["s", "b", "j", "pb"]) assert.ok(!once.avoidIngredients.includes(bare), bare);
+});
+
+test("a split never leaves a one- or two-letter term (1.96 re-gate, Red Team C1)", () => {
+  for (const typed of ["S & B curry", "M&Ms", "b&b", "pb & j"]) {
+    const terms = typedAvoidTerms(typed);
+    assert.ok(terms.includes(typed.toLowerCase()), `"${typed}" kept`);
+    assert.ok(terms.every((t) => t.length > 2), `"${typed}" -> ${terms.join(" | ")}`);
+  }
+  assert.ok(typedAvoidTerms("celery and okra").includes("okra"), "real pairs still split");
+});
+
+test("a single food a family carries counts inside a phrase (1.96 re-gate, Engineer F2)", () => {
+  const bowl = dish("cashew-bowl", ["brown rice", "roasted cashews", "chicken thigh"]);
+  for (const typed of ["reaction to cashews", "hives from cashews", "epipen for cashews"]) {
+    assert.ok(recipeConflicts(bowl, undefined, avoidTermsFromAllergens([], typed)).length > 0, typed);
+  }
 });

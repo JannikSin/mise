@@ -3,7 +3,7 @@
    of David's apps ships style-src 'self' with no 'unsafe-inline'. A linked
    same-origin sheet passes that; an injected <style> is silently dropped, which is
    what left this button unstyled in every app before 2026-08-26. */
-.sg-btn{position:fixed;right:12px;bottom:76px;z-index:2147483000;width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.28);background:#1b1d24;color:#fff;font:600 19px/1 system-ui,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;padding:0}
+.sg-btn{position:fixed;left:8px;bottom:76px;opacity:.8;z-index:2147483000;width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.28);background:#1b1d24;color:#fff;font:600 19px/1 system-ui,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;padding:0}
 .sg-btn:focus-visible{outline:2px solid #7cc4ff;outline-offset:2px}
 .sg-badge{position:absolute;top:-4px;right:-4px;min-width:17px;height:17px;border-radius:9px;background:#c2410c;color:#fff;font:600 11px/17px system-ui,sans-serif;text-align:center;padding:0 3px}
 .sg-wrap{position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center}

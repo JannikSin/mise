@@ -33,6 +33,7 @@ import { initRouter, parseRoute } from "./lib/router.js";
 import { backend } from "./lib/backend.js";
 import { specialTarget } from "./lib/house-special.js";
 import { houseRecipeDirs, withHouseRecipes, mayPromote } from "./lib/house-recipes.js";
+import { mealBLines } from "./lib/cadence.js";
 import {
   visibleProfilesFor,
   withoutHiddenNames,
@@ -208,10 +209,12 @@ import {
   updateBrigade,
   rolledRule,
   sundayBatchOn,
+  sundayTwoPotsOn,
   brigadeCovers,
   removeSeat,
   brigadeTableId,
   seatScreen,
+  plateRefusal,
   seatGuestOnDay,
   useRecipeOnTable,
 } from "./lib/tables.js";
@@ -365,7 +368,11 @@ function App() {
   const [krogerLinkNote, setKrogerLinkNote] = useState("");
   useEffect(() => {
     const r = krogerConsumeRedirect();
-    if (r === "linked") setKrogerLinkNote("Kroger account linked, SEND TO CART is ready on List.");
+    if (r === "linked") {
+      setKrogerLinkNote("Kroger account linked, SEND TO CART is ready on List.");
+      // land on the List the note points at, not on Plan
+      window.location.hash = "#/list";
+    }
     else if (r === "error")
       setKrogerLinkNote("Kroger sign-in did not complete. Try LINK KROGER again.");
   }, []);
@@ -4216,7 +4223,12 @@ function App() {
       // SUNDAY'S DINNER IS THE BATCH unless the rule saved it off (2.0,
       // I-14): the default is applied to the copy the planner reads, never
       // written into the rule, so "no saved value" stays no saved value
-      const planned = { ...run, sundayBatch: sundayBatchOn(run) };
+      const planned = {
+        ...run,
+        sundayBatch: sundayBatchOn(run),
+        // TWO SUNDAY POTS unless the rule saved one (David, 2026-10-25)
+        sundayTwoPots: sundayTwoPotsOn(run),
+      };
       const { events, made, thin, report, swept, notes, nights } = planBrigadeWeek(cur, planned, {
         dates: datesOfWeek(week),
         today,
@@ -4366,7 +4378,14 @@ function App() {
       // handed the whole pool as one pot. Each seat of a bowl is its own
       // portion of today's list; no model is asked.
       const result = isPerBowl(recipe)
-        ? bowlTailor(recipe, live, t.date ?? today)
+        ? // each seat's own avoid list, so an optional row they avoid is
+          // left off their plate; an unread list (null) gets no plate
+          bowlTailor(
+            recipe,
+            live,
+            t.date ?? today,
+            Object.fromEntries(facts.map((f) => [f.id, f.unconfirmed ? null : f.avoid])),
+          )
         : // a cooked dish: the model sees the WHOLE POT at the table's real
           // total and each seat's share of it, and every line it returns is
           // screened against the dish's own ingredients afterwards (code,
@@ -4822,6 +4841,30 @@ function App() {
   // planned recipe — bans govern picking, not what an existing entry means
   const recipeById = (/** @type {string | undefined} */ id) => allRecipes.find((r) => r.id === id);
 
+  // WHO CANNOT EAT A PLANNED DINNER, per seat, for the Plan rows (shrike
+  // 2026-10-25: a housemate adds an allergy and the plan keeps the unsafe
+  // dinner with no warning). The kitchen rule's own screen (plateRefusal); a
+  // seat whose targets are not read yet shows nothing here, the Table tab
+  // still fails closed on it. Keyed by table id.
+  /** @type {Record<string, { name: string, reasons: string[] }[]>} */
+  const seatClashes = {};
+  for (const t of plannerBrigade?.tables ?? []) {
+    if (t.date < localIsoDate(new Date())) continue;
+    const dish = recipeById(t.recipeId);
+    if (!dish) continue;
+    for (const s of t.seats ?? []) {
+      if (/** @type {any} */ (s).status === "skipped") continue;
+      const own = houseTargets.get(s.id)?.data;
+      if (!own) continue;
+      const reasons = plateRefusal(dish, own);
+      if (reasons.length > 0)
+        (seatClashes[t.id] ??= []).push({
+          name: allProfiles.find((p) => p.id === s.id)?.name ?? s.id,
+          reasons,
+        });
+    }
+  }
+
   const loading = recipes.length === 0 && hasToken;
 
   // Cook Mode is gone (David 2026-08-19): the recipe page carries the timer
@@ -4977,6 +5020,7 @@ function App() {
         brigade=${plannerBrigade}
         endedBrigade=${endedBrigade}
         brigadeRun=${brigadeRun}
+        seatClashes=${seatClashes}
         onAddGuest=${handleAddGuestSeat}
         onRemoveGuest=${handleRemoveGuestSeat}
         onNewGuestProfile=${handleNewGuestProfile}
@@ -5048,6 +5092,25 @@ function App() {
         serve=${routeServe}
         tableCooked=${Boolean(routeTable?.cookedAt)}
         onCookedTable=${handleMarkTableCooked}
+        cookNight=${Boolean(routeTable && !routeTable.leftoverOf && !(/** @type {any} */ (routeTable).preparedOn))}
+        mealBLines=${
+          // a second-Sunday-dish night: the same lines its Plan row prints,
+          // read from the derived table entry the row reads (1.96 re-gate,
+          // Usability F2-R: this page showed the stored "cook the whole pot")
+          route.table
+            ? mealBLines(
+                viewPlan.entries.find((/** @type {any} */ e) => e.table === route.table) ?? {},
+                (/** @type {string} */ iso) =>
+                  parseLocalIso(iso).toLocaleDateString([], { weekday: "short" }),
+              )
+            : []
+        }
+        avoid=${
+          // the viewer's own list; null while it is unread, so the page says
+          // "not checked" and lists no optional extra rather than every one
+          // (1.96 Final Gate, Engineer M2 / Red Team F4: it failed open)
+          targets ? (targets.avoidIngredients ?? []) : null
+        }
       />`
     }
     ${
@@ -5108,6 +5171,19 @@ function App() {
         onSavePins=${handleSavePins}
         onSavePrices=${handleSavePrices}
         avoid=${targets?.avoidIngredients ?? []}
+        labelSeats=${
+          // everyone in my house, for the List's "check the label" rows
+          allProfiles
+            .filter((p) => (p.household ?? "home") === myHouseOf())
+            .map((p) => ({
+              name: p.id === me ? "you" : String(p.name ?? p.id),
+              // already widened on read (readTargetsMetaOf); widening it a
+              // second time split "pb&j" into a bare "s" that hid every label
+              // line (1.96 Final Gate, Usability F1)
+              avoid: /** @type {string[]} */ (houseTargets.get(p.id)?.data?.avoidIngredients ?? []),
+            }))
+            .filter((x) => x.avoid.length > 0)
+        }
         weeklyBudgetUsd=${targets?.weeklyBudgetUsd}
         region=${targets?.region}
         storeSlug=${storeSlugOf(targets?.stores?.[0])}

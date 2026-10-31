@@ -937,6 +937,9 @@ summary.block-title {
   cursor: pointer;
   list-style: none;
   padding: 8px 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
 }
 
 .slotrow .cooktap:focus-visible {
@@ -952,7 +955,7 @@ summary.block-title {
 }
 
 .slotrow .outbtn {
-  min-width: 40px;
+  min-width: 44px;
   min-height: 44px;
   flex-shrink: 0;
   border: none;
@@ -2913,8 +2916,8 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="
 /* the buffer snack's minus and plus: a thumb-sized target, like the week
    arrows (they were 23x18) */
 button.wk:not(.weeknav .wk) {
-  min-width: 40px;
-  min-height: 40px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--panel);
@@ -3156,4 +3159,100 @@ input[aria-label$="comma separated"] {
 }
 .account-panel .refused-path {
   font-size: 15px;
+}
+
+/* meal B's lines under the meal (Mise 1.96): what Sunday preps, and the
+   night's meat; outside the meal button, which clamps to two lines */
+.mealbline {
+  margin: 0 0 0 4px;
+  font-size: 11.5px;
+}
+
+/* a warning chip and the result of SET MY WEEK on the Plan tab (shrike 2026-10-25) */
+.seatclash {
+  color: var(--amber);
+}
+
+/* tap targets under 44px, found at phone width (shrike 2026-10-25): People
+   rows, the folded Settings and Plan summaries, the kitchen rule's own
+   selects and fields, the weekly budget box */
+.personrow {
+  min-height: 44px;
+}
+details.tile > summary.k,
+.engineinfo > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+.tableform select,
+.tableform input[type="date"],
+.tableform input[type="number"],
+label.row input[type="number"],
+label.row select,
+.tile select,
+.tile input[type="number"] {
+  min-height: 44px;
+  box-sizing: border-box;
+  font-size: 16px;
+}
+.tableform input[type="number"],
+label.row input[type="number"],
+.tile input[type="number"] {
+  width: 84px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 0 10px;
+}
+:root select {
+  min-height: 44px;
+  height: 44px;
+}
+
+/* shrike item 19 (10/25), the rest */
+/* the peek's amounts wrap instead of cutting off ("4.82 lb (2187.5 ...") */
+.checkrow.static .q {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  text-align: right;
+  max-width: 48%;
+  overflow-wrap: anywhere;
+}
+/* who cooks, on its own line under the meal name, never clipped by the
+   name's two-line clamp */
+.chipbody .cookchip {
+  font-size: 10.5px;
+  align-self: flex-start;
+  white-space: normal;
+}
+/* a plain text box in a row (Settings: Family) is a 44px target */
+.row > input:not([type="checkbox"]):not([type="radio"]):not([type="date"]):not([type="number"]) {
+  min-height: 44px;
+  box-sizing: border-box;
+  font-size: 16px;
+}
+/* a checkbox's whole label is the target */
+label.checkline {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+label.checkline input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+/* "scan the receipt" is a button, not a 14px link */
+.receiptbtn {
+  margin-top: 6px;
+}
+/* a guest's own requested nights on the Add to a dinner chips (shrike item 20) */
+.chip.asked {
+  border-style: dashed;
+  border-color: var(--signal);
 }

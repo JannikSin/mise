@@ -61,9 +61,11 @@ import {
   moreThanSentLines,
   alreadySentLines,
   priceFlag,
+  labelLineFor,
 } from "../lib/shopping.js";
 import { AISLES } from "../lib/ingredients.js";
 import { isParked } from "../lib/parked.js";
+import { mealBShoppingLines } from "../lib/cadence.js";
 import { decodeReceiptLine, shopScore } from "../lib/receipt.js";
 import { formatSyncTime, localIsoDate, parseLocalIso } from "../lib/dates.js";
 import { datesOfWeek, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
@@ -268,6 +270,7 @@ const FRESH_STEPS = [
  *   pickDays?: string[] | null,
  *   buildNote?: string,
  *   repriceNote?: string,
+ *   labelSeats?: { name: string, avoid: string[] }[],
  *   onReceiptApprove?: (store: string, lines: { name: string, price: number, size: string }[]) => void,
  *   onClearList?: () => void,
  *   onRemovePantry?: (kind: "staple" | "perishable", key: string) => void,
@@ -328,6 +331,7 @@ export function ShoppingView({
   pickDays = null,
   buildNote = "",
   repriceNote = "",
+  labelSeats = [],
   onReceiptApprove = undefined,
   onClearList = undefined,
   onRemovePantry = undefined,
@@ -1249,9 +1253,18 @@ export function ShoppingView({
       },
     );
   };
+  // CHECK THE LABEL (shrike item 8, 10/25): shopping.js labelLineFor
+  const labelLine = (/** @type {any[]} */ members) =>
+    labelLineFor(
+      members.map((m) => String(m?.food ?? "")),
+      labelSeats ?? [],
+    );
   const flagLine = (/** @type {any[]} */ members) => {
     const flag = flagFor(members);
-    return flag ? html`<p class="priceflag" role="note">${flag}</p>` : "";
+    const label = labelLine(members);
+    return html`${flag ? html`<p class="priceflag" role="note">${flag}</p>` : ""}${
+      label ? html`<p class="priceflag labelflag" role="note">${label}</p>` : ""
+    }`;
   };
 
   // What a trip block adds up to at this store — shown beside the block
@@ -1853,7 +1866,7 @@ export function ShoppingView({
                 >${provisionalRows.length} price${provisionalRows.length === 1 ? "" : "s"}
                 auto-picked</span
               >
-              <button class="linktext" onClick=${() => openPinConfirm(provisionalRows[0], true)}>
+              <button class="secondary" onClick=${() => openPinConfirm(provisionalRows[0], true)}>
                 REVIEW
               </button>
             </div>`
@@ -1905,10 +1918,20 @@ export function ShoppingView({
             !cartOff &&
             html`<div class="row">
                 <span class="k"
-                  >${STORE_NAMES[homeStore] ?? "Kroger"} cart · ${cartRows.length} items ready to send</span
+                  >${
+                    // after a send the header says what was sent and what is
+                    // new, never "12 items ready to send" again (shrike UI 14)
+                    `${STORE_NAMES[homeStore] ?? "Kroger"} cart · ${
+                      sentCount === 0
+                        ? `${cartRows.length} items ready to send`
+                        : haveSent && freshRows.length > 0
+                          ? `sent, ${freshRows.length} new to send`
+                          : `sent${sentCount > 1 ? ` ${sentCount} times` : ""} this week`
+                    }`
+                  }</span
                 >
                 <button
-                  class="linktext"
+                  class="primary"
                   disabled=${cartRows.length === 0 || cartNote === "sending…"}
                   onClick=${() => sendToKrogerCart()}
                 >
@@ -1950,7 +1973,7 @@ export function ShoppingView({
                 html`<div class="row">
                     <span class="k">test it first · ${testRows.length} cheap items, 1 each</span>
                     <button
-                      class="linktext"
+                      class="secondary"
                       disabled=${cartNote === "sending…"}
                       onClick=${() => sendToKrogerCart({ test: true })}
                     >
@@ -2179,7 +2202,15 @@ export function ShoppingView({
                 <button
                   class="secondary"
                   disabled=${!bankReady}
-                  onClick=${() => setShowPartial(!showPartial)}
+                  onClick=${() => {
+                    // WHOLE TRIP undoes JUST SOME DAYS: the picked days and
+                    // slots go too, or BUILD stays "FOR 2 DAYS" (shrike 2026-10-25)
+                    if (showPartial) {
+                      setBuyDays([]);
+                      setBuySlots([]);
+                    }
+                    setShowPartial(!showPartial);
+                  }}
                 >
                   ${showPartial ? "WHOLE TRIP" : "JUST SOME DAYS"}
                 </button>`
@@ -2257,6 +2288,17 @@ export function ShoppingView({
             </div>`
           }
           ${buildNote && html`<p class="hint" role="status">${buildNote}</p>`}
+          ${
+            // MEAL B (Mise 1.96): the B nights' meat, and where it goes
+            mealBShoppingLines(
+              /** @type {any} */ (plan)?.entries ?? [],
+              (iso) => parseLocalIso(iso).toLocaleDateString([], { weekday: "short" }),
+              (id) => String(recipeIndex?.get(id)?.name ?? id),
+              localIsoDate(new Date()),
+              // a housemate's List names the shopper instead of saying "buy it"
+              brigade && !brigade.iShop ? String(brigade.shopperName ?? "") : "",
+            ).map((line, i) => html`<p class="hint" role="note" key=${`mb${i}`}>🥩 ${line}</p>`)
+          }
           ${
             // the saved-plan confirmation stays; the always-on explainers went
             // (David, 2026-10-16: "it's giving a lot of random data that i
@@ -3629,6 +3671,11 @@ export function ShoppingView({
                         </span>
                       </button>
                       ${colCells(i)}
+                      ${(() => {
+                        // the house list says check the label too (shrike item 8)
+                        const l = labelLine([i]);
+                        return l ? html`<p class="priceflag labelflag" role="note">${l}</p>` : "";
+                      })()}
                     </div>
                   `;
                 })}

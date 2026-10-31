@@ -24,7 +24,9 @@ import {
   validBrigade,
   brigadeCovers,
   plateRefusal,
+  twoPotSplit,
 } from "./tables.js";
+import { freshProteinOk } from "./cadence.js";
 import { buffetMacroEstimate, recipeConflicts, weekRunSwipes } from "./plan.js";
 import { recipeProteinClass } from "./foodclass.js";
 
@@ -52,6 +54,28 @@ const BATCH_TAGS = new Set([
 const PROTEIN_WINDOW_DAYS = 6;
 /** how a same-class repeat weighs against a same-recipe repeat (1/gap) in the variety tie-break */
 const PROTEIN_REPEAT_COST = 0.5;
+/**
+ * DISH FAMILIES (Mise 1.96, 10/25 rehearsal: Sunday's dump-and-bake feta
+ * turkey meatball pasta and Saturday's dump-and-bake feta chicken pasta in one
+ * week). Bank tags that name a dish's SHAPE rather than its protein; a cook
+ * night sharing one with another cook night inside PROTEIN_WINDOW_DAYS costs
+ * the same as a protein repeat. Broad tags (rice-bowl, pasta, one-pot) are
+ * left out on purpose: a third of the dinners carry them.
+ */
+const FAMILY_TAGS = new Set([
+  "dump-and-bake",
+  "baked-feta",
+  "casserole",
+  "soup",
+  "stew",
+  "curry",
+  "sheet-pan",
+  "egg-drop",
+  "donburi",
+]);
+/** a recipe's family tags */
+const familiesOf = (/** @type {Record<string, any> | undefined} */ r) =>
+  (r?.tags ?? []).filter((/** @type {string} */ t) => FAMILY_TAGS.has(t));
 
 /** serving grids: quarter steps; light slots may halve, meals start at 0.75 */
 const MEAL_STEPS = [0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -290,6 +314,7 @@ export function solveSeatDay(dishes, bands, sigma, fixed = {}) {
  *   }[],
  *   recentBySlot?: Record<string, Map<string, number>>,
  *   recentClassBySlot?: Record<string, Set<string>>,
+ *   recentFamilyBySlot?: Record<string, Set<string>>,
  * }} day seats may exclude slots they do not eat from the pot (their own
  *   pinned entry or a carried skip covers them there instead). A seat's
  *   `fixed` binds ONLY while that slot's pick IS the named recipe — a
@@ -324,6 +349,14 @@ export function composeDay(day) {
   if (slots.length === 0 || day.seats.length === 0) return null;
   const recent = (/** @type {string} */ slot) => day.recentBySlot?.[slot];
   const recentClass = (/** @type {string} */ slot) => day.recentClassBySlot?.[slot];
+  // a dish FAMILY repeated on a nearby cook night (FAMILY_TAGS) costs like a protein repeat
+  const familyRepeats = (
+    /** @type {string} */ slot,
+    /** @type {Record<string, any> | undefined} */ r,
+  ) => {
+    const set = day.recentFamilyBySlot?.[slot];
+    return Boolean(set) && familiesOf(r).some((/** @type {string} */ t) => set?.has(t));
+  };
   const classRepeats = (
     /** @type {string} */ slot,
     /** @type {Record<string, any> | undefined} */ r,
@@ -375,6 +408,7 @@ export function composeDay(day) {
       const gap = recent(s)?.get(picks[s]?.id);
       if (gap !== undefined && gap > 0) repeats += 1 / gap;
       if (classRepeats(s, picks[s])) repeats += PROTEIN_REPEAT_COST;
+      if (familyRepeats(s, picks[s])) repeats += PROTEIN_REPEAT_COST;
     }
     return { picks, seats: seatsOut, considered, inBand, floors, repeats, score };
   };
@@ -779,9 +813,23 @@ export function planBrigadeWeek(events, brigade, ctx) {
           // I-08; post-mortem 5: "1 is in rotation" hid a week of the same
           // cocoa balls)
           const only = kept.length === 1 ? kept[0] : undefined;
+          // the real reason when it is the backpack rule, not an allergy or
+          // avoid screen (shrike 2026-10-25, M3: egg drop soup passed both
+          // screens and was dropped for not being marked portable)
+          const keptIds = new Set(kept.map((r) => String(r.id)));
+          const backpack =
+            slot === "snack" &&
+            members.some((m) => /** @type {any} */ (m).snackPortable) &&
+            [...keep]
+              .filter((id) => !keptIds.has(id))
+              .every((id) => ctx.bankById?.get(id) && ctx.bankById.get(id).portable !== true);
+          const gone = keep.size - 1;
+          const lead = backpack
+            ? `${gone} of the ${keep.size} named recipes ${gone === 1 ? "is" : "are"} not marked portable and someone takes snacks in a backpack`
+            : `${gone} of the ${keep.size} named recipes fail${gone === 1 ? "s" : ""} someone's screen`;
           notes.push(
             only
-              ? `${slot}: ${keep.size - 1} of the ${keep.size} named recipes fail${keep.size - 1 === 1 ? "s" : ""} someone's screen, so ${slot} is ${String(only.name ?? only.id)} every day. Add another in the kitchen rule to vary it`
+              ? `${slot}: ${lead}, so ${slot} is ${String(only.name ?? only.id)} every day. Add another in the kitchen rule to vary it`
               : `${slot}: ${keep.size - kept.length} of the ${keep.size} named recipes fail a member's screen or the auto-plan fence, so ${kept.length} are in rotation`,
           );
         }
@@ -896,8 +944,23 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // Sunday (kept by SET MY WEEK, cooked, or bought) stays exactly as it is.
   // planBrigadeWeek reads only `true`; the app applies the default ON
   // (sundayBatchOn) before it plans, so every rule here plans as written.
+  // SUNDAY COOKS TWO POTS (David, 2026-10-25: "meal A eaten Sun and Mon;
+  // meal B for Tue, Wed, Thu, fully prepped Sunday ... EXCEPT the meat"). With
+  // `sundayTwoPots` on (the app applies the default through sundayTwoPotsOn)
+  // and at least three nights after Sunday that do not cook, Sunday's dinner
+  // is meal A, eaten again Monday by the newest-pot rule, and meal B is a
+  // batch prepped Sunday for the nights after Monday up to Thursday, from the
+  // dishes whose meat cooks fresh each night (cadence.js freshProteinOk).
+  // Saved Sunday batches give way to it, as they do to the one-pot batch.
+  const twoPots =
+    /** @type {any} */ (brigade).sundayBatch === true &&
+    /** @type {any} */ (brigade).sundayTwoPots === true
+      ? twoPotSplit(brigade.cookDays)
+      : null;
   const sundayIsBatch =
-    /** @type {any} */ (brigade).sundayBatch === true && Boolean(cookDaySet?.has(0));
+    !twoPots && /** @type {any} */ (brigade).sundayBatch === true && Boolean(cookDaySet?.has(0));
+  /** @type {Set<string>} batch head dates whose pot is meal B, the meat cooked fresh */
+  const freshHeads = new Set();
   if (liveSlots.some((s) => LEFTOVER_SLOTS.has(s)) && cookDaySet) {
     const saved = (Array.isArray(brigade.batches) ? brigade.batches : []).filter(
       (b) =>
@@ -911,8 +974,10 @@ export function planBrigadeWeek(events, brigade, ctx) {
     /** @type {number[]} */
     const afterSunday = [];
     for (let w = 1; w <= 6 && !cookDaySet.has(w); w++) afterSunday.push(w);
-    const batches =
-      saved.length === 0 && sundayIsBatch && afterSunday.length > 0
+    /** @type {{ cookDay: number, feeds: number[], fresh?: boolean }[]} */
+    const batches = twoPots
+      ? [...saved.filter((b) => Number(b.cookDay) !== 0), { cookDay: 0, feeds: twoPots.b, fresh: true }]
+      : saved.length === 0 && sundayIsBatch && afterSunday.length > 0
         ? [{ cookDay: 0, feeds: afterSunday }]
         : saved;
     for (const b of batches) {
@@ -958,9 +1023,16 @@ export function planBrigadeWeek(events, brigade, ctx) {
           prep >= (ctx.calendarToday ?? ctx.today) ||
           (ex &&
             /** @type {any} */ (ex).preparedOn === prep &&
-            (Boolean(/** @type {any} */ (ex).cookedAt) || !ctx.bought || ctx.bought(ex)));
+            (Boolean(/** @type {any} */ (ex).cookedAt) ||
+              // a plain SET keeps a batch already set (2.0, I-01): a Monday
+              // SET turned meal B, prepped Sunday, into a Tuesday cook
+              // whenever its list was never ticked (shrike B1, 1.96 shape)
+              (Boolean(ctx.keepSet) && !ctx.regenerate) ||
+              !ctx.bought ||
+              ctx.bought(ex)));
         if (!real) continue;
         preparedOnMap.set(head, prep);
+        if (b.fresh) freshHeads.add(head);
         for (const d of fed) batchNights.add(d);
         for (const d of fed.slice(1)) {
           leftoverPlan.set(d, head);
@@ -1003,6 +1075,10 @@ export function planBrigadeWeek(events, brigade, ctx) {
         // planning day is Monday, but tonight's pot is still being cooked
         (exSrc.date >= (ctx.calendarToday ?? ctx.today) ||
           Boolean(/** @type {any} */ (exSrc).cookedAt) ||
+          // SET MY WEEK keeps set meals (2.0, I-01), leftover nights too: a
+          // Wednesday SET re-picked Wed and Thu off Sunday's pot whenever its
+          // list was never ticked (rehearsal 10/28, in 1.95 as well)
+          (Boolean(ctx.keepSet) && !ctx.regenerate) ||
           !ctx.bought ||
           ctx.bought(exSrc));
       if (
@@ -1046,6 +1122,17 @@ export function planBrigadeWeek(events, brigade, ctx) {
       if (gap > PROTEIN_WINDOW_DAYS) continue;
       const cls = recipeProteinClass(ctx.bankById.get(rid));
       if (cls) out.add(cls);
+    }
+    return out;
+  };
+  /** dish families the slot cooked on nearby nights, both sides of `date` (FAMILY_TAGS) */
+  const recentFamilyFor = (/** @type {string} */ slot, /** @type {string} */ date) => {
+    /** @type {Set<string>} */
+    const out = new Set();
+    for (const [d, rid] of cookedBySlot[slot] ?? []) {
+      if (d === date) continue;
+      if (Math.abs(dayOffset(date) - dayOffset(d)) > PROTEIN_WINDOW_DAYS) continue;
+      for (const t of familiesOf(ctx.bankById.get(rid))) out.add(String(t));
     }
     return out;
   };
@@ -1107,11 +1194,34 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // that names its recipes (EDIT, then SET) replaces a set meal no longer on
   // that list (Tribunal Realist, 2.0 loop 1: an edited breakfast list never
   // reached a week already set)
+  // A NAMED LIST THAT GREW (shrike item 15, 10/25): "add another breakfast
+  // to vary it" did nothing, because every set breakfast was still on the
+  // list. A breakfast or snack slot whose named recipes (those that pass
+  // everyone, so a snack the backpack rule drops never counts) include one no
+  // set meal of the run uses is re-planned where it is not bought. Dinners
+  // never take this path.
+  const runDates = new Set(dates);
+  /** @type {Set<string>} */
+  const grownSlots = new Set();
+  for (const slot of liveSlots) {
+    if (LEFTOVER_SLOTS.has(slot)) continue;
+    const named = /** @type {any} */ (brigade).slotRecipes?.[slot];
+    if (!Array.isArray(named) || named.length < 2) continue;
+    const usable = new Set((poolsBySlot[slot] ?? []).map((r) => String(r.id)));
+    const used = new Set(
+      [...byId.values()]
+        .filter((t) => t.fromBrigade === brigade.id && t.slot === slot && runDates.has(t.date))
+        .map((t) => t.recipeId),
+    );
+    if (used.size > 0 && named.some((id) => usable.has(String(id)) && !used.has(String(id))))
+      grownSlots.add(slot);
+  }
   const fitsRuleNow = (/** @type {import("./tables.js").TableEvent} */ t) => {
     // a batch pot already cooked (preparedOn today or earlier) is food that
     // exists, whatever the rule now names (Tribunal Engineer, 2.0 loop 2)
     const prep = /** @type {any} */ (t).preparedOn;
     if (typeof prep === "string" && prep <= (ctx.calendarToday ?? ctx.today)) return true;
+    if (grownSlots.has(t.slot)) return false;
     const named = /** @type {any} */ (brigade).slotRecipes?.[t.slot];
     return !Array.isArray(named) || named.length === 0 || named.includes(t.recipeId);
   };
@@ -1350,7 +1460,24 @@ export function planBrigadeWeek(events, brigade, ctx) {
       }
       let pool = /** @type {Record<string, any>[]} */ (walksBySlot[slot]);
       const feeds = LEFTOVER_SLOTS.has(slot) ? (fedBy.get(date) ?? []) : [];
-      const prepDay = LEFTOVER_SLOTS.has(slot) ? preparedOnMap.get(date) : undefined;
+      let prepDay = LEFTOVER_SLOTS.has(slot) ? preparedOnMap.get(date) : undefined;
+      // A BATCH MUST KEEP (shrike H6/item 6, 10/25): counted from its prep
+      // day, a batch pot's dish has to keep to its last night. When nothing
+      // in the pool does, the batch is not offered: this night cooks its own
+      // pot, named in `nights.uncovered`, and its later nights eat that
+      if (prepDay) {
+        const fromPrep = prepDay;
+        const needPrep = Math.max(...[date, ...feeds].map((d) => dayOffset(d) - dayOffset(fromPrep)));
+        if (!pool.some((r) => safeDaysOf(r) >= needPrep)) {
+          notes.push(
+            `${slot} ${date}: no dish keeps the ${needPrep} days from ${fromPrep}, so it is cooked that night instead of prepped ahead.`,
+          );
+          preparedOnMap.delete(date);
+          freshHeads.delete(date);
+          nights.uncovered.push(date);
+          prepDay = undefined;
+        }
+      }
       if (feeds.length > 0 || prepDay) {
         const from = prepDay ?? date;
         const need = Math.max(...[date, ...feeds].map((d) => dayOffset(d) - dayOffset(from)));
@@ -1381,6 +1508,16 @@ export function planBrigadeWeek(events, brigade, ctx) {
           notes.push(
             `${prepDay ?? date} ${slot}: this pot is about ${Math.round(most)} portions, more than one pan holds. Use the big pot, or make it in two dishes.`,
           );
+        }
+        // MEAL B (two Sunday pots): only dishes whose meat cooks fresh and
+        // whose rest holds; none passing everyone = the whole Sunday cook, said
+        if (freshHeads.has(date)) {
+          const fresh = pool.filter(freshProteinOk);
+          if (fresh.length > 0) pool = fresh;
+          else
+            notes.push(
+              `${prepDay ?? date} ${slot}: no dish whose meat can be cooked later passes everyone at the table, so this batch is cooked whole on Sunday.`,
+            );
         }
         const batch = pool.filter(isBatchDish);
         if (batch.length >= 3) pool = batch;
@@ -1649,6 +1786,11 @@ export function planBrigadeWeek(events, brigade, ctx) {
                 .filter((s) => LEFTOVER_SLOTS.has(s) && !leftoverBySlot[s])
                 .map((s) => [s, recentClassFor(s, date)]),
             ),
+            recentFamilyBySlot: Object.fromEntries(
+              liveSlots
+                .filter((s) => LEFTOVER_SLOTS.has(s) && !leftoverBySlot[s])
+                .map((s) => [s, recentFamilyFor(s, date)]),
+            ),
             seats: eating.map((s) => ({
               id: s.id,
               targets: s.targets,
@@ -1764,6 +1906,27 @@ export function planBrigadeWeek(events, brigade, ctx) {
       });
     const windowOf = (/** @type {string} */ slot) =>
       Math.max(0, (walksBySlot[slot]?.length ?? 1) - 1);
+    // how many nearby COOK nights share a dish family with `r` (FAMILY_TAGS):
+    // a cheaper swap may not add one, the same contract as a recipe repeat
+    const familyClashes = (
+      /** @type {string} */ slot,
+      /** @type {any} */ cd,
+      /** @type {Record<string, any>} */ r,
+    ) => {
+      const fams = familiesOf(r);
+      if (!LEFTOVER_SLOTS.has(slot) || fams.length === 0) return 0;
+      const cooked = new Map(cookedBySlot[slot] ?? []);
+      for (const d of composedDays) {
+        if (d.leftoverBySlot?.[slot]) cooked.delete(d.date);
+        else if (d.picks?.[slot]) cooked.set(d.date, String(d.picks[slot].id));
+      }
+      let n = 0;
+      for (const [d, rid] of cooked) {
+        if (d === cd.date || Math.abs(dayOffset(d) - dayOffset(cd.date)) > PROTEIN_WINDOW_DAYS) continue;
+        if (familiesOf(ctx.bankById.get(rid)).some((/** @type {string} */ t) => fams.includes(t))) n++;
+      }
+      return n;
+    };
     // The slot's repeat pressure, in the composer's own units (Σ 1/gap over
     // same-recipe pairs inside the window). The sweep's variety contract is
     // NOT "never repeat" — a 7-day week over a 6-dish pool must repeat once,
@@ -1945,6 +2108,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
                 repeatMetric(slot, nextServed) > repeatMetric(slot, served) + 1e-9
               )
                 continue;
+              if (familyClashes(slot, cd, alt) > familyClashes(slot, cd, cur)) continue;
               const nextPicks = { ...cd.picks, [slot]: alt };
               const re = resolve(cd, nextPicks);
               if (!re) continue;
@@ -2127,9 +2291,20 @@ export function planBrigadeWeek(events, brigade, ctx) {
                 ? /** @type {string} */ (preparedOnMap.get(date))
                 : date,
             );
+      // meal B: a Sunday-prepped pot whose meat is cooked fresh (cadence.js)
+      // "once" = the first B night cooks all of B's meat (the default, David's
+      // latest: "maybe make the ground beef ... on Tuesday"); "daily" = each
+      // night cooks its own share (`meatDaily` on the rule)
+      const wantFresh =
+        LEFTOVER_SLOTS.has(slot) && freshHeads.has(date) && freshProteinOk(meal)
+          ? /** @type {any} */ (brigade).meatDaily === true
+            ? "daily"
+            : "once"
+          : undefined;
       if (
         keepIfSame &&
         existing?.cookId === cookNow &&
+        /** @type {any} */ (existing)?.proteinFresh === wantFresh &&
         (existing?.seats ?? []).length === seatRows.length &&
         seatRows.every((r) => {
           const old = (existing?.seats ?? []).find((x) => x.id === r.id);
@@ -2158,6 +2333,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         ...(LEFTOVER_SLOTS.has(slot) && preparedOnMap.has(date)
           ? { preparedOn: preparedOnMap.get(date) }
           : {}),
+        ...(wantFresh ? { proteinFresh: wantFresh } : {}),
         // ONE LIST, ONE BUYER (David, 2026-10-18: "taking turns on cooking
         // should not be dependent or even affect who buys the list ... there
         // should only be one list compiled and one list bought"): when cooks

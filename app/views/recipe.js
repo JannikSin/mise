@@ -1,11 +1,12 @@
 import { html } from "htm/preact";
 import { rotateComponents, rotates, rotationNoun } from "../lib/rotate.js";
+import { leftOffFor } from "../lib/tailor.js";
 import { localIsoDate } from "../lib/dates.js";
 import { useEffect, useState } from "preact/hooks";
 import { cookFor, cookPlan, scaleQty, COOK_FOR_MAX, COOK_FOR_MIN } from "../lib/portions.js";
 import { formatRecipeQty } from "../lib/shopping.js";
 import { keepAwake } from "../lib/awake.js";
-import { untrustedForAutoPlan } from "../lib/plan.js";
+import { labelChecks, untrustedForAutoPlan } from "../lib/plan.js";
 
 // ?from=<key> in the recipe hash → where the backlink returns; unknown or
 // absent keys fall back to the cookbook (the historical behavior)
@@ -148,7 +149,7 @@ function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
 }
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, date?: string, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void }} props
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, date?: string, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void, avoid?: string[] | null, cookNight?: boolean, mealBLines?: string[] }} props `mealBLines` = a second-Sunday-dish night's own lines (the Plan row's); `cookNight` = this page is the shared pot's own cook night; `avoid` = the viewer's avoid list (null = unread); picks they avoid are left off
  */
 export function RecipeView({
   recipe,
@@ -163,6 +164,9 @@ export function RecipeView({
   onPromote,
   avoided = false,
   onAvoid = undefined,
+  avoid = [],
+  cookNight = false,
+  mealBLines = [],
   entry = undefined,
   onCooked = undefined,
   onCookComment = undefined,
@@ -236,7 +240,14 @@ export function RecipeView({
   const shownN = forN ? forN.portions : baseN;
   const forLine = scalable ? cookFor(recipe, shownN) : null;
   const ingredients = forN ? forN.ingredients : plan.ingredients;
-  const step = (/** @type {number} */ by) =>
+  // an optional row the viewer avoids never refuses the dish (plan.js), so it
+  // is left off their list here, and the page says so (1.96 Final Gate, Red
+  // Team F2: Elliot read "peanut butter (sweet option)" with nothing around it)
+  const optionalOff = leftOffFor(
+    ingredients.filter((/** @type {any} */ i) => i.optional),
+    avoid,
+  ).left;
+  const step =(/** @type {number} */ by) =>
     setCookN(Math.min(COOK_FOR_MAX, Math.max(COOK_FOR_MIN, shownN + by)));
   return html`
     <div class="view detail">
@@ -437,7 +448,11 @@ export function RecipeView({
                   <div class="serve-name">SET ASIDE</div>
                   <div class="serve-line">
                     ${r.name.toUpperCase()}'s portion, ${r.fraction}, set
-                    apart${r.note ? ` (${r.note})` : ""}
+                    apart${
+                      // "not for Sam: ... Do not plate it." is its own sentence
+                      // (1.96 re-gate, Engineer F7)
+                      r.note ? (/^not for /.test(r.note) ? `. ${r.note.replace(/^n/, "N")}` : ` (${r.note})`) : ""
+                    }
                   </div>
                 </div>`
               : html`<div class="serve-seat" key=${r.id}>
@@ -465,19 +480,39 @@ export function RecipeView({
         </div>`
       }
       ${
+        // MEAL B NIGHT: the rest was prepped Sunday and only the meat cooks
+        // tonight, so the stored batch text ("cook the whole pot Sunday") is
+        // replaced by the Plan row's own lines, and the two screens agree
+        mealBLines.length > 0 &&
+        html`<div class="tile portion batch" role="note">
+          <div class="k">🥩 Tonight: the rest was prepped Sunday</div>
+          ${mealBLines.map((line, i) => html`<div class="d" key=${`mb${i}`}>${line}</div>`)}
+        </div>`
+      }
+      ${
         recipe.batchPrep &&
+        mealBLines.length === 0 &&
         html`<div class="tile portion batch" role="note">
           ${
             recipe.batchPrep.sundayComponent &&
             html`<div>
-              <div class="k">🍲 BATCH PREP: cook this AHEAD, the steps below assume it's done</div>
+              <div class="k">
+                ${
+                  // ON THE NIGHT THE POT IS COOKED the steps below ARE the cook
+                  // (shrike item 13): telling him they assume it was done ahead
+                  // was wrong on exactly the night he makes it
+                  cookNight
+                    ? "🍲 Tonight you make the whole pot: follow every step below"
+                    : "🍲 BATCH PREP: cook this AHEAD, the steps below assume it's done"
+                }
+              </div>
               <div class="d">${recipe.batchPrep.sundayComponent}</div>
             </div>`
           }
           ${
             recipe.batchPrep.weekdayAssembly &&
             html`<div>
-              <div class="k">Day-of assembly</div>
+              <div class="k">${cookNight ? "The nights after, from the fridge" : "Day-of assembly"}</div>
               <div class="d">${recipe.batchPrep.weekdayAssembly}</div>
             </div>`
           }
@@ -501,6 +536,10 @@ export function RecipeView({
           const rotationDate = entry?.date ?? date ?? localIsoDate(new Date());
           const noun = rotationNoun(recipe);
           const chosen = rotateComponents(recipe.rotation, rotationDate);
+          // a pick the viewer avoids is left off and named (shrike item 3)
+          const kept = leftOffFor(chosen.kept, avoid);
+          const rot = leftOffFor(chosen.rotated, avoid);
+          const leftOff = [...kept.left, ...rot.left];
           const ratio = plan.eatServings / Math.max(1, Number(recipe.servings) || 1);
           const q = (/** @type {any} */ c) =>
             formatRecipeQty(scaleQty(Number(c.qty) || 0, c.unit, ratio), c.unit);
@@ -514,14 +553,14 @@ export function RecipeView({
               ${`${chosen.rotated.length} of ${recipe.rotation.pool.length} toppings, chosen for ${rotationDate}. Same day, same ${noun}. Put in exactly these, at these amounts.`}
             </p>
             <div>
-              ${chosen.kept.map(
+              ${kept.mine.map(
                 (/** @type {any} */ c) =>
                   html`<div class="ing staple" key=${c.food}>
                     <span>${c.food} <span class="pantry-mark">every day</span></span>
                     <span class="q">${q(c)}</span>
                   </div>`,
               )}
-              ${chosen.rotated.map(
+              ${rot.mine.map(
                 (/** @type {any} */ c) =>
                   html`<div class="ing" key=${c.food}>
                     <span>${c.food}</span>
@@ -544,6 +583,14 @@ export function RecipeView({
                   </p>`
             }
             ${
+              leftOff.length > 0 &&
+              html`<p class="hint redflag" role="note">
+                ${avoid === null
+                  ? "Not checked: your profile could not be read, so nothing is listed. Check signal and reopen."
+                  : `Left off for you: ${leftOff.map((/** @type {any} */ c) => c.food).join(", ")}.`}
+              </p>`
+            }
+            ${
               offShelf.length > 0 &&
               html`<p class="hint offshelf">
                 ${`Not in today's ${noun}, keep them on the shelf for other days: ${offShelf.join(" · ")}`}
@@ -551,6 +598,16 @@ export function RecipeView({
             }
           </div>`;
         })()
+      }
+      ${
+        // CHECK THE LABEL (shrike item 8): a packaged food whose allergen
+        // status is the brand's, for the viewer who avoids that allergen
+        labelChecks(recipe, avoid ?? []).map(
+          (line, i) =>
+            html`<p class="hint redflag" role="note" key=${`lbl${i}`}>
+              ${line.replace(/^check/, "Check")}.
+            </p>`,
+        )
       }
       ${
         forLine &&
@@ -580,7 +637,7 @@ export function RecipeView({
           </div>
           <p class="hint">
             ${
-              forN || !planned
+              forN || !planned || mealBLines.length > 0
                 ? forLine.line
                 : `${forLine.asWritten} The amounts below are what the plan cooks; tap + or − to cook a different number.`
             }
@@ -603,8 +660,16 @@ export function RecipeView({
       ${
         !rotates(recipe) &&
         html`<h2 class="block-title">Ingredients</h2>
+          ${
+            optionalOff.length > 0 &&
+            html`<p class="hint redflag" role="note">
+              ${avoid === null
+                ? "Not checked: your profile could not be read, so the optional extras are not listed. Check signal and reopen."
+                : `Left off for you: ${optionalOff.map((/** @type {any} */ c) => c.food).join(", ")}.`}
+            </p>`
+          }
           <div>
-            ${ingredients.map(
+            ${ingredients.filter((/** @type {any} */ i) => !optionalOff.includes(i)).map(
               (/** @type {Record<string, any>} */ i) => html`
                 <div class="ing ${i.staple ? "staple" : ""}">
                   <span>
@@ -630,7 +695,7 @@ export function RecipeView({
         unshopped &&
         html`<p class="hint receiptnote">
           No receipt scanned for this week yet, so nothing here is confirmed bought. Cook it anyway
-          if you already have the food. <a href="#/list">scan the receipt →</a>
+          if you already have the food. <a class="secondary linkbtn receiptbtn" href="#/list">SCAN THE RECEIPT →</a>
         </p>`
       }
       <ol class="steps">

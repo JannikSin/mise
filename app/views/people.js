@@ -167,10 +167,14 @@ export function PeopleSection({
                           <div class="chips wrapchips">
                             ${days.map((d) => {
                               const on = seatedOn.includes(d);
+                              // the nights they asked for are marked, so the
+                              // right chips are the obvious ones (shrike item 20)
+                              const wanted = !on && asked.includes(d);
                               return html`<button
                                 key=${d}
-                                class=${on ? "chip on" : "chip"}
+                                class=${on ? "chip on" : wanted ? "chip asked" : "chip"}
                                 aria-pressed=${on}
+                                aria-label=${`${dayLabel(d)}${on ? ", at this dinner" : wanted ? ", the night they asked for" : ""}`}
                                 disabled=${busy}
                                 onClick=${() =>
                                   on
@@ -180,7 +184,7 @@ export function PeopleSection({
                                       })
                                     : seat(p.id, [d])}
                               >
-                                ${dayLabel(d)}
+                                ${dayLabel(d)}${wanted ? " · asked" : ""}
                               </button>`;
                             })}
                           </div>
