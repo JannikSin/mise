@@ -80,7 +80,7 @@ test("the diet only ever gets stricter, and text allergies are kept", () => {
   assert.equal(stricterTargets(s, { diet: "carnivore" })?.diet, "vegetarian");
   assert.equal(
     stricterTargets(s, { allergensFreeText: "mango" })?.allergensFreeText,
-    "kiwi; mango",
+    "kiwi, mango",
   );
   assert.equal(stricterTargets(s, { allergensFreeText: "Kiwi" })?.allergensFreeText, "kiwi");
   assert.deepEqual(stricterTargets(null, { avoidRecipes: ["r1"] }), { avoidRecipes: ["r1"] });

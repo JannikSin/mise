@@ -65,7 +65,9 @@ test("B saves one pin: the three pins survive A's held edit, and A's edit lands 
   const bView = /** @type {any} */ (await readNow("pins.json", { raw: true }));
   assert.deepEqual(bView, { pins: { rice: 1, oats: 2, beans: 3 } }, "B reads the server's book");
   await write("pins.json", { pins: { ...bView.pins, tofu: 9 } }, { raw: true });
-  assert.equal((await flushNow({ timeoutMs: 2000 })).landed, false, "A's held edit still waits");
+  // A's held edit is not B's to send: it is listed as refused, not pending,
+  // so B's own save reports landed (loop 3, item 8; ENG 3 L1)
+  assert.equal((await flushNow({ timeoutMs: 2000 })).landed, true, "B's own queue landed");
   assert.deepEqual(sb.docs.get(ROW)?.data, { pins: { rice: 1, oats: 2, beans: 3, tofu: 9 } });
   const listed = await refusedRecords();
   assert.deepEqual(

@@ -7,10 +7,10 @@
 //          pushes queued files in order — with sha, merging on conflict —
 //          whenever we're online. Offline writes simply stay queued.
 
-import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
+import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete, dbMove } from "./db.js";
 import { backend, stampHere, replaysHere, installBackend, lockedBackend } from "./backend.js";
 import { ForbiddenError, NameGuardError } from "./backend/errors.js";
-import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
+import { pushFile, afterPushRecord, ConflictError, PushAborted } from "./sync.js";
 import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
 import { syncScopeFor, verifiedKey, ADMIN_DEVICE_KEY, keyOf, isAdmin } from "./privacy.js";
 import { stricterTargets } from "./stricter-targets.js";
@@ -35,8 +35,17 @@ let epoch = 0;
 // lock (acquireStoreLock) across the switch, so no push that started under
 // one account is still in flight when the next one's session goes in.
 const ACCOUNT_KEY = "mise.storeAccount";
+// the remembered account's slug again, when that account is known to be the
+// admin (loop 3, item 4; Red Team 3 S3): with no session, only the admin's
+// profile pick may scope paths
+const ACCOUNT_ADMIN_KEY = "mise.storeAccountAdmin";
 // how many holders keep the queue from flushing (acquireStoreLock)
 let storeLocks = 0;
+// THE SWITCH GATE (loop 3, item 2; ENG 3 N5): an account change in progress.
+// read, readNow, readMeta, readCollection and write wait for it, so nothing
+// reads a half-purged cache or builds on the outgoing account's record.
+/** @type {Promise<void>} */
+let switching = Promise.resolve();
 
 /**
  * Whose phone this is, for the hold (2.0, seam fix loop 2, item 2; ENG 2 N2):
@@ -91,9 +100,44 @@ export function activeProfile() {
   // PINNED FOR NON-ADMINS (2.0, ENG L2-2): on a backend that knows who is
   // signed in, anyone but the admin is always themselves, whatever an old
   // localStorage value says. GitHub has no session, so this is 1.95 there.
-  const s = backend().session();
-  if (s && !s.admin) return s.slug;
+  const b = backend();
+  const s = b.session();
+  if (s) {
+    noteAdmin(s);
+    if (!s.admin) return s.slug;
+  } else if (b.name === "supabase") {
+    // NO SESSION (an offline reload, loop 3 item 4, Red Team 3 S3): the
+    // account the store remembers is still pinned to itself unless it is
+    // known to be the admin, so a leftover profile pick on a shared tablet
+    // never scopes a housemate's edits to another profile's paths
+    const who = rememberedAccount();
+    if (who && !isRememberedAdmin(who)) return who;
+  }
   return localStorage.getItem("mise.activeProfile") || "david";
+}
+
+/**
+ * Remember whether the live session's account is the admin, when it is the
+ * account the store remembers (loop 3, item 4).
+ * @param {{ slug: string, admin: boolean }} s
+ */
+function noteAdmin(s) {
+  try {
+    if (s.slug !== localStorage.getItem(ACCOUNT_KEY)) return;
+    if (s.admin) localStorage.setItem(ACCOUNT_ADMIN_KEY, s.slug);
+    else localStorage.removeItem(ACCOUNT_ADMIN_KEY);
+  } catch {
+    // storage refused: the account stays pinned to itself
+  }
+}
+
+/** @param {string} slug */
+function isRememberedAdmin(slug) {
+  try {
+    return localStorage.getItem(ACCOUNT_ADMIN_KEY) === slug;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -450,7 +494,8 @@ const status = {
   loading: true,
   pending: 0,
   // queued writes the server refused for good (2.0, ENG L2-8): still counted
-  // in pending, listed by refusedRecords(), gone only on DISCARD
+  // in pending, listed by refusedRecords(), gone only on DISCARD; another
+  // account's held writes count here and NOT in pending (loop 3, item 8)
   refused: 0,
   conflicts: 0,
   mismatched: 0,
@@ -480,7 +525,10 @@ function emit() {
 
 async function recount() {
   const all = await dbGetAll();
-  status.pending = all.filter((r) => r.dirty).length;
+  // another account's held write (and one made before sign-in) is not this
+  // account's to send, so it counts under refused only, never as pending
+  // (loop 3, item 8; ENG 3 L1): Sync does not warn forever over it
+  status.pending = all.filter((r) => r.dirty && !fromAnotherAccount(r)).length;
   status.refused = all.filter((r) => r.dirty && (r.refused || fromAnotherAccount(r))).length;
   status.loading = false;
   emit();
@@ -675,6 +723,7 @@ export async function readTargetsForSeat(id, mayShow) {
  * @returns {Promise<Record<string, unknown> | null>}
  */
 export async function read(path, opts) {
+  await switching;
   const finalPath = opts?.raw ? path : scoped(path);
   if (!inSyncScope(finalPath)) return null;
   const rec = await dbGet(finalPath);
@@ -738,6 +787,7 @@ function isOwnTargetsPath(path) {
  * @returns {Promise<Record<string, unknown> | null>}
  */
 export async function readNow(path, opts) {
+  await switching;
   const finalPath = opts?.raw ? path : scoped(path);
   if (!inSyncScope(finalPath)) return null;
   if (!(await dbGet(finalPath))) fileCheckedAt.delete(finalPath);
@@ -758,6 +808,7 @@ export async function readNow(path, opts) {
  * @returns {Promise<{ data: Record<string, unknown> | null, sha: string | null, dirty: boolean }>}
  */
 export async function readMeta(path, opts) {
+  await switching;
   const finalPath = opts?.raw ? path : scoped(path);
   if (!inSyncScope(finalPath)) return { data: null, sha: null, dirty: false };
   const rec = await dbGet(finalPath);
@@ -896,6 +947,7 @@ export async function readCollection(
   dir,
   /** @type {{ raw?: boolean } | undefined} */ opts = undefined,
 ) {
+  await switching;
   const scopedDir = opts?.raw ? dir : scoped(dir);
   if (!inSyncScope(`${scopedDir}/`)) return [];
   const prefix = `${scopedDir}/`;
@@ -1056,9 +1108,63 @@ async function revalidatePass(scopedDir) {
  * @returns {Promise<void>}
  */
 export async function write(path, data, opts) {
+  await switching;
   const scopedPath = opts?.raw ? path : scoped(path);
   fileCheckedAt.delete(scopedPath);
-  await dbUpdate(scopedPath, (cur) => ({
+  // NEVER ON ANOTHER ACCOUNT'S RECORD (loop 3, item 2; ENG 3 N5): a queued
+  // write in this slot made by someone else is held first, then this one is
+  // built on nothing of it (not its data, base, sha or queue time). The
+  // updater re-checks inside its transaction, so a switch that slipped in
+  // between is caught too.
+  const me = writeAccount();
+  for (let tries = 0; ; tries++) {
+    /** @type {import("./db.js").FileRecord | null} */
+    let foreign = null;
+    await dbUpdate(scopedPath, (cur) => {
+      if (cur && isOtherAccounts(cur, me)) {
+        foreign = cur;
+        return null;
+      }
+      return buildWrite(scopedPath, data, cur, me);
+    });
+    if (!foreign) break;
+    if (tries >= 3) throw new Error(`could not save ${scopedPath}: another account's write is in the way`);
+    await holdRecord(foreign);
+  }
+  await recount();
+  void flush();
+}
+
+/**
+ * Who a write made now is stamped as: the account, "before sign-in" on a
+ * Supabase build with none, nobody on GitHub (1.95).
+ * @returns {string | undefined}
+ */
+function writeAccount() {
+  const a = accountNow();
+  if (a) return a;
+  return backend().name === "supabase" ? PRE_SIGN_IN : undefined;
+}
+
+/**
+ * A queued write stamped with an account other than `me` (loop 3, item 2).
+ * @param {import("./db.js").FileRecord} rec
+ * @param {string | undefined} me
+ */
+function isOtherAccounts(rec, me) {
+  return rec.dirty && typeof rec.account === "string" && rec.account !== me;
+}
+
+/**
+ * The record a write leaves in its slot.
+ * @param {string} scopedPath
+ * @param {Record<string, unknown>} data
+ * @param {import("./db.js").FileRecord | undefined} cur
+ * @param {string | undefined} me
+ * @returns {import("./db.js").FileRecord}
+ */
+function buildWrite(scopedPath, data, cur, me) {
+  return {
     path: scopedPath,
     data,
     base: cur?.base ?? null,
@@ -1074,14 +1180,8 @@ export async function write(path, data, opts) {
     ...(cur && "fingerprint" in cur ? { fingerprint: cur.fingerprint } : {}),
     // who made it (seam fix 1): a later account on this phone holds it
     // with no account at all on a Supabase build, it was made before sign-in
-    ...(accountNow()
-      ? { account: /** @type {string} */ (accountNow()) }
-      : backend().name === "supabase"
-      ? { account: PRE_SIGN_IN }
-      : {}),
-  }));
-  await recount();
-  void flush();
+    ...(me !== undefined ? { account: me } : {}),
+  };
 }
 
 /**
@@ -1183,6 +1283,20 @@ async function flush() {
       .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
     const here = stampHere();
     const started = epoch;
+    // ONE BACKEND FOR THE WHOLE PASS (loop 3, item 1; Red Team 3 S1, ENG 3
+    // N7): a push that hung past the lock's deadline must never retry its
+    // conflict through the next account's adapter, JWT or house. The adapter
+    // is captured once, and before every request, the conflict retry
+    // included, the pass checks that neither the account (the epoch) nor
+    // the installed backend has moved; if either has, it stops and the
+    // record stays queued for its own account.
+    const pinned = backend();
+    const alive = () => started === epoch && backend() === pinned;
+    /** @type {import("./sync.js").SyncIO} */
+    const pinnedIo = {
+      read: (path) => pinned.read(path),
+      write: (path, data, sha) => pinned.write(path, data, sha),
+    };
     status.mismatched = 0;
     // a 1.95 AI special still queued for the bank goes to its house instead
     // (seam fix 12, ENG F7): on Supabase the bank is the admin's
@@ -1210,6 +1324,7 @@ async function flush() {
     /** @type {Set<string>} */
     const stopped = new Set();
     for (const rec of queued) {
+      if (!alive()) break;
       const lane = backend().laneOf(rec.path);
       if (stopped.has(lane) || rec.refused || fromAnotherAccount(rec)) continue;
       // and only ever under its own account's session: the store's memory
@@ -1240,12 +1355,11 @@ async function flush() {
         // rollback still pushes it
       }
       try {
-        const pushed = await pushFile(io, {
-          path: rec.path,
-          data: rec.data,
-          base: rec.base,
-          sha: rec.sha,
-        });
+        const pushed = await pushFile(
+          pinnedIo,
+          { path: rec.path, data: rec.data, base: rec.base, sha: rec.sha },
+          alive,
+        );
         if ("from" in rec) {
           await landRehomed(/** @type {any} */ (rec), pushed, here, started);
           fileCheckedAt.delete(rec.path);
@@ -1271,6 +1385,8 @@ async function flush() {
         status.lastSyncAt = new Date().toISOString();
         if (stopped.size === 0) status.lastError = null;
       } catch (e) {
+        // the account changed mid-push: nothing more is sent this pass
+        if (e instanceof PushAborted) break;
         if (e instanceof ConflictError) {
           status.conflicts++;
           continue; // stays dirty; next flush retries the merge
@@ -1386,19 +1502,36 @@ export async function purgeForeignRecords() {
 
 /**
  * THE ACCOUNT WAS REVOKED (2.0, plan section 5): the phone forgets
- * everything, queued writes included. Called by the sign-in layer ONLY on a
- * confirmed revoke (the server says this account no longer exists or may not
- * read), never on an AuthError, which is an expired session whose queue must
- * survive. The locked backend goes in and the scope is emptied first, and the
- * purge epoch moves, so nothing in flight lands back (Red Team 8, ENG F4).
+ * everything of it, queued writes included. Called by the sign-in layer ONLY
+ * on a confirmed revoke (the server says this account no longer exists or may
+ * not read), never on an AuthError, which is an expired session whose queue
+ * must survive. The locked backend goes in and the scope is emptied first,
+ * and the purge epoch moves, so nothing in flight lands back (Red Team 8,
+ * ENG F4).
+ *
+ * OTHER ACCOUNTS' QUEUES SURVIVE (loop 3, item 3; Red Team 3 S2): on a shared
+ * phone a revoke must not delete a housemate's held writes. Every clean
+ * record goes, and so do the revoked account's queue (the account the store
+ * remembers, unless the caller names it), the "before sign-in" bucket and
+ * any queue with no account. Another account's queued write is kept, held:
+ * unreadable and unpushable here until that account signs in again.
+ * @param {string | null} [revokedSlug] defaults to the remembered account
  * @returns {Promise<number>} records removed
  */
-export async function purgeEverything() {
+export async function purgeEverything(revokedSlug = rememberedAccount()) {
   epoch++;
   installBackend(lockedBackend());
   await setSyncScope({ profileIds: [], houses: [] });
   let removed = 0;
   for (const rec of await dbGetAll()) {
+    const by = rec.held ? rec.held.account : rec.account;
+    const keep =
+      rec.dirty && typeof by === "string" && by !== PRE_SIGN_IN && by !== revokedSlug;
+    if (keep) {
+      // a slot is never left holding another account's write
+      if (!isHeld(rec)) await holdRecord(rec);
+      continue;
+    }
     await dbDelete(rec.path);
     removed++;
   }
@@ -1555,34 +1688,65 @@ function rememberedAccount() {
  * account" until that account signs in again or the person DISCARDs it.
  * (purgeEverything is the confirmed-revoke purge and would delete the queue
  * this must keep.) The slug is remembered in the store too, so a change is
- * seen even when the caller's own memory was lost. No change: nothing done.
+ * seen even when the caller's own memory was lost. No change: nothing purged,
+ * but the hold and the restore still run (loop 3, item 9).
+ *
+ * While it runs, reads and writes wait (loop 3, item 2; ENG 3 N5), and the
+ * outgoing account's queue is held BEFORE the purge, so its slots are free
+ * as early as possible. Calls are serialized.
  * @param {string | null} prevSlug
  * @param {string | null} nextSlug
+ * @param {{ admin?: boolean }} [next] whether `nextSlug` is the admin, when
+ *   the caller knows (loop 3, item 4); else the store learns it from the
+ *   live session, and until then the account is pinned to itself
  * @returns {Promise<number>} cached records removed
  */
-export async function onSessionChange(prevSlug, nextSlug) {
+export function onSessionChange(prevSlug, nextSlug, next = {}) {
+  const run = switching.then(() => changeAccount(prevSlug, nextSlug, next.admin));
+  switching = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+/**
+ * @param {string | null} prevSlug
+ * @param {string | null} nextSlug
+ * @param {boolean | undefined} admin
+ * @returns {Promise<number>}
+ */
+async function changeAccount(prevSlug, nextSlug, admin) {
   const remembered = rememberedAccount();
   try {
     if (nextSlug) localStorage.setItem(ACCOUNT_KEY, nextSlug);
     else localStorage.removeItem(ACCOUNT_KEY);
+    // the admin flag belongs to the remembered account and goes with it
+    if (nextSlug && admin === true) localStorage.setItem(ACCOUNT_ADMIN_KEY, nextSlug);
+    else if (admin === false || localStorage.getItem(ACCOUNT_ADMIN_KEY) !== nextSlug) {
+      localStorage.removeItem(ACCOUNT_ADMIN_KEY);
+    }
   } catch {
     // storage refused: the caller's prev still decides
   }
   const changed =
     (prevSlug ?? null) !== (nextSlug ?? null) ||
     (remembered !== null && remembered !== (nextSlug ?? null));
+  if (changed) epoch++;
+  // signed out, the slots belong to "before sign-in" (item 3)
+  const who = nextSlug ?? PRE_SIGN_IN;
+  // the hold runs on every call, so a queue is never left in a path's slot
+  // under the wrong account, even when the caller's memory said no change
+  let moved = await holdOthers(who);
   let removed = 0;
   if (changed) {
-    epoch++;
     for (const rec of await dbGetAll()) {
       if (rec.dirty) continue;
       await dbDeleteIfClean(rec.path);
       removed++;
     }
   }
-  // the hold runs on every call, so a queue is never left in a path's slot
-  // under the wrong account, even when the caller's memory said no change
-  const moved = await holdAndRestore(nextSlug ?? null);
+  moved += await restoreMine(who);
   if (changed || moved > 0) {
     resetFileChecks();
     freshDirs.clear();
@@ -1593,57 +1757,94 @@ export async function onSessionChange(prevSlug, nextSlug) {
 }
 
 /**
- * Move every queued write made by an account other than `next` out to a held
- * key, then move `next`'s own held writes back into their slots (item 1). A
- * record with no account (a 1.95 queue) stays where it is and replays under
- * the first account, as plan section 5 says. A held write whose slot is
- * taken stays held, listed, until the slot is free or it is discarded.
- * `next` null (signed out) counts as "before sign-in" (item 3).
- * @param {string | null} next
- * @returns {Promise<number>} records moved either way
+ * Move one queued write out of its path's slot to its held key, in one
+ * transaction, and only while the slot still holds a write by that account.
+ * @param {import("./db.js").FileRecord} rec
+ * @returns {Promise<boolean>} moved
  */
-async function holdAndRestore(next) {
-  // signed out, the slots belong to "before sign-in" (item 3)
-  const who = next ?? PRE_SIGN_IN;
+async function holdRecord(rec) {
+  if (typeof rec.account !== "string" || isHeld(rec)) return false;
+  const key = `${HELD_PREFIX}${rec.account}/${rec.queuedAt ?? 0}/${rec.path}`;
+  const moved = await dbMove(rec.path, key, (cur) => {
+    // whatever version of that account's write is there now is the one held
+    if (!cur || !cur.dirty || cur.account !== rec.account) return null;
+    /** @type {import("./db.js").FileRecord} */
+    const held = {
+      ...cur,
+      path: key,
+      branch: HELD_BRANCH,
+      held: {
+        path: cur.path,
+        account: /** @type {string} */ (cur.account),
+        ...(cur.branch !== undefined ? { branch: cur.branch } : {}),
+      },
+    };
+    return { put: held, deleteFrom: true };
+  });
+  if (moved) fileCheckedAt.delete(rec.path);
+  return moved;
+}
+
+/**
+ * Move every queued write made by an account other than `who` out to a held
+ * key (item 1). A record with no account (a 1.95 queue) stays where it is
+ * and replays under the first account, as plan section 5 says.
+ * @param {string} who
+ * @returns {Promise<number>} records held
+ */
+async function holdOthers(who) {
   let moved = 0;
   for (const rec of await dbGetAll()) {
     if (!rec.dirty || isHeld(rec) || typeof rec.account !== "string") continue;
     if (rec.account === who) continue;
-    const key = `${HELD_PREFIX}${rec.account}/${rec.queuedAt ?? 0}/${rec.path}`;
-    /** @type {import("./db.js").FileRecord} */
-    const held = {
-      ...rec,
-      path: key,
-      branch: HELD_BRANCH,
-      held: {
-        path: rec.path,
-        account: rec.account,
-        ...(rec.branch !== undefined ? { branch: rec.branch } : {}),
-      },
-    };
-    await dbUpdate(key, () => held);
-    await dbDelete(rec.path);
-    fileCheckedAt.delete(rec.path);
-    moved++;
+    if (await holdRecord(rec)) moved++;
   }
+  return moved;
+}
+
+/**
+ * Move `who`'s own held writes back into their slots, each in one
+ * transaction (loop 3, item 5; ENG 3 N6), so a phone that dies mid-restore
+ * leaves the write at one key, never both. Runs on every call, the same
+ * account again included (item 9). A clean cached copy in the slot is
+ * replaced; a held write whose slot holds another queued write stays held,
+ * listed, until the slot is free or it is discarded. Idempotent:
+ * when the slot already holds this very write (same account and queue time,
+ * at the same rev or a later edit of it, which only a restore cut off before
+ * its delete can leave), the held copy is dropped, so it can never replay
+ * later over newer data.
+ * @param {string} who
+ * @returns {Promise<number>} records restored
+ */
+async function restoreMine(who) {
+  let moved = 0;
   const mine = (await dbGetAll())
     .filter((r) => r.dirty && isHeld(r) && r.held?.account === who)
     .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
   for (const rec of mine) {
     const h = /** @type {NonNullable<typeof rec.held>} */ (rec.held);
-    /** @type {import("./db.js").FileRecord} */
-    const back = { ...rec, path: h.path };
-    delete back.held;
-    delete back.branch;
-    if (h.branch !== undefined) back.branch = h.branch;
     let put = false;
-    await dbUpdate(h.path, (cur) => {
-      if (cur) return null;
+    await dbMove(rec.path, h.path, (from, to) => {
+      if (!from || !from.dirty || !from.held) return null;
+      // a clean record in the slot is only a cached copy: the queued write
+      // goes back over it, and the flush merges with the server as usual
+      // (loop 3, item 9; Red Team 3 Q4). Only a queued write blocks.
+      if (to?.dirty) {
+        const same =
+          to.account === from.held.account &&
+          to.queuedAt === from.queuedAt &&
+          to.rev >= from.rev;
+        return same ? { deleteFrom: true } : null;
+      }
+      /** @type {import("./db.js").FileRecord} */
+      const back = { ...from, path: from.held.path };
+      delete back.held;
+      delete back.branch;
+      if (from.held.branch !== undefined) back.branch = from.held.branch;
       put = true;
-      return back;
+      return { put: back, deleteFrom: true };
     });
     if (!put) continue;
-    await dbDelete(rec.path);
     fileCheckedAt.delete(h.path);
     moved++;
   }
@@ -1659,8 +1860,10 @@ export const LOCK_TIMEOUT_MESSAGE =
  * and this resolves once a flush already in flight has finished, or at the
  * deadline (loop 2 item 8, ENG 2), so a push hung on a stalled fetch never
  * hangs sign-in or sign-out. On a timeout the release says `timedOut: true`
- * and Sync says so; the hung push cannot land on the next account's phone,
- * because the account change moves the purge epoch and holds the queue.
+ * and Sync says so. The hung push sends nothing more after the switch: its
+ * pass is pinned to the backend it started with and stops before any further
+ * request once the epoch or the installed backend has moved (loop 3, item 1),
+ * and the account change holds its record for its own account.
  * The sign-in side takes it before an account switch (worker gate E4).
  * @param {{ timeoutMs?: number }} [opts]
  * @returns {Promise<(() => void) & { timedOut: boolean }>} release (idempotent)
