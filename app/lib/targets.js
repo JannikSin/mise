@@ -409,6 +409,8 @@ const TYPED_FAMILIES = {
   "tree nut": ["nuts"],
   peanut: ["peanuts"],
   groundnut: ["peanuts"],
+  // typed "PB&J" passed every peanut dish (1.96 re-gate round 2, Red Team)
+  "pb&j": ["peanuts"],
   gluten: ["gluten"],
   wheat: ["gluten"],
   celiac: ["gluten"],
@@ -522,16 +524,18 @@ export function typedAvoidTerms(word) {
   // a term the families already carry ("pb&j", "s&b curry") is one food, so
   // widening a widened list changes nothing (1.96 Final Gate, Usability F1:
   // a second pass split "s&b curry" into a bare "s" that matched every food)
-  const parts = familyTerm(term)
+  const split = familyTerm(term)
     ? [term]
     : term
         .split(/\s+(?:and|or)\s+|\s*[&/;+]\s*/)
         .map((x) => x.trim())
-        // "S & B curry" and "M&Ms" are one food: a letter or two left by the
-        // split matched nearly every food and hid the label lines (1.96 re-gate,
-        // Red Team C1); the whole phrase is still kept
-        .filter((x) => x.length > 2);
-  if (parts.length > 1) return [...new Set([term, ...parts.flatMap(typedAvoidTerms)])];
+        .filter(Boolean);
+  // decided BEFORE short parts go, so "mustard & pb" still screens mustard
+  // (1.96 re-gate round 2, Red Team); a letter or two left by the split
+  // ("S & B curry", "M&Ms") matched nearly every food and hid the label lines
+  // (Red Team C1), so those parts are dropped; the whole phrase is kept
+  if (split.length > 1)
+    return [...new Set([term, ...split.filter((x) => x.length > 2).flatMap(typedAvoidTerms)])];
   // own keys only: "constructor" or "__proto__" must not reach Object.prototype
   // (Tribunal Red Team, 2.0 loop 1: it threw and stopped SET)
   const famOf = (/** @type {string} */ k) =>

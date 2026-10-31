@@ -199,3 +199,10 @@ test("a food another word names is not its whole family (1.96 re-gate round 2, N
   assert.ok(typedAvoidTerms("peanut butter").includes("satay"), "still the peanut family");
   assert.ok(typedAvoidTerms("cashews make me sick").includes("cashews"));
 });
+
+test("a short part never takes its neighbour off the screen (1.96 re-gate round 2, Red Team)", () => {
+  assert.ok(typedAvoidTerms("mustard & pb").includes("mustard"));
+  assert.ok(typedAvoidTerms("celery + oj").includes("celery"));
+  assert.ok(typedAvoidTerms("mango or oj").includes("mango"));
+  assert.ok(typedAvoidTerms("PB&J").includes("satay"), "PB&J is the peanut family");
+});
