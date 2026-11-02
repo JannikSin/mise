@@ -145,7 +145,7 @@ test("plate_for: a plate by slug under plates_read's rules, never a uuid", { ski
   /** @param {string} who @param {string} slug */
   const as = async (who, slug) => (await asUser(db, uid[who], () => db.query(q, [slug]))).rows[0].p;
   const p = await as("mate-1", "owner-1");
-  assert.deepEqual(Object.keys(p).sort(), ["content_hash", "data", "legacy_sha", "rev"]);
+  assert.deepEqual(Object.keys(p).sort(), ["content_hash", "data", "rev"]);
   assert.equal(p.data.diet, "vegetarian");
   assert.equal("body" in p.data, false);
   assert.equal(p.rev, 1);

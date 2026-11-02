@@ -92,7 +92,8 @@ test("the rule itself, and the plate fingerprint", () => {
   assert.equal(shaOf({ rev: 1 }), "pg:1");
   assert.equal(shaOf({ rev: 1, legacy_sha: "abc" }), "abc");
   assert.equal(shaOf({ rev: 7, legacy_sha: "abc" }), "pg:7");
-  assert.equal(plateShaOf({ data: {}, rev: 1, content_hash: "h1", legacy_sha: "abc" }), "abc");
+  // RT20-5: never the owner's git sha, even at rev 1
+  assert.equal(plateShaOf({ data: {}, rev: 1, content_hash: "h1", legacy_sha: "abc" }), "plate:h1");
   assert.equal(plateShaOf({ data: {}, rev: 1, content_hash: "h1", legacy_sha: null }), "plate:h1");
   assert.equal(plateShaOf({ data: {}, rev: 2, content_hash: "h2", legacy_sha: "abc" }), "plate:h2");
 });

@@ -34,7 +34,7 @@ import { ROOT_PROFILE } from "./config.js";
  *   rpc(name: string, args?: Record<string, unknown>): PromiseLike<SbResult>,
  * }} SupabaseLike
  * @typedef {{ data: Record<string, unknown>, rev: number, legacy_sha?: string | null }} DocRow
- * @typedef {{ data: Record<string, unknown>, rev: number, content_hash: string, legacy_sha?: string | null }} PlateRow
+ * @typedef {{ data: Record<string, unknown>, rev: number, content_hash: string, legacy_sha?: string | null }} PlateRow legacy_sha: never sent since RT20-5; tolerated from an older server
  */
 
 // prices and pins are one per house now: the caller's home house (C2)
@@ -79,11 +79,12 @@ export function shaOf(row) {
 
 /**
  * The fingerprint a frozen pot keys on (ENG L2-3): the plate's, the same on
- * every device. legacy_sha while the plate is at rev 1, else its content hash.
+ * every device. Always its content hash: the owner's git sha is never handed
+ * to a reader (gate20 RT20-5, it is a guessing oracle for owner-only fields).
  * @param {PlateRow} plate
  */
 export function plateShaOf(plate) {
-  return plate.rev === 1 && plate.legacy_sha ? plate.legacy_sha : `plate:${plate.content_hash}`;
+  return `plate:${plate.content_hash}`;
 }
 
 /**

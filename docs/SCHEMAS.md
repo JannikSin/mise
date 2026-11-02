@@ -2513,7 +2513,7 @@ door: `authenticated` holds select on `docs` but no insert or update (fix loop
 3, E3), and `write_doc` runs as its owner after its own `can_write` check. It returns
 the new `rev`. Reads are column grants (fix loop 3, E7): a client may select
 `docs (path, doc_id, kind, data, rev, legacy_sha, updated_at)`, `plates (data,
-rev, content_hash, legacy_sha)` and `recipes (id, doc_id, data, staging, rev,
+rev, content_hash)` (not `legacy_sha`, gate20 RT20-5) and `recipes (id, doc_id, data, staging, rev,
 legacy_sha, updated_at)`, never `profile_id`, `household_id` or `updated_by`
 (and so never `*`); RLS still picks the rows. The weekly probe
 (`tools/probe-reach.mjs`) judges ownership from the path and plates by count,
@@ -2525,8 +2525,9 @@ old profiles.json order, each row `{ id, roster, household, family, admin }`
 (`roster` = the display fields; `admin` a boolean); `household` and `family` are
 JSON `null` when hidden from the caller (null is NOT "home"); passkey hashes are
 never stored or returned. `public.plate_for(slug)` returns one person's plate
-as `{ data, rev, content_hash, legacy_sha }`, or null when the caller may not
-see it. `meta.json`, `guests.json` and `invites.json` have no row: a client
+as `{ data, rev, content_hash }`, or null when the caller may not
+see it; the app fingerprints a plate as `plate:<content_hash>` on every device
+(RT20-5: the owner's git sha would be a guessing oracle for owner-only fields). `meta.json`, `guests.json` and `invites.json` have no row: a client
 write to them is refused (P0403) and a read finds nothing. Writing
 `profiles.json` may change display fields only: the caller's own row, or any
 visible row for the admin. New rows, house moves, families and admin flags are

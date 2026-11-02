@@ -56,7 +56,7 @@ async function fingerprintOn(/** @type {typeof OWNER} */ who) {
 test("owner and housemate get the same fingerprint for the same targets", async () => {
   const ownerSha = await fingerprintOn(OWNER);
   const housemateSha = await fingerprintOn(HOUSEMATE);
-  assert.equal(ownerSha, MIGRATED_GIT_SHA, "a migrated plate at rev 1 is its git sha");
+  assert.equal(ownerSha, "plate:seed", "a plate fingerprints by its content hash, never the git sha (RT20-5)");
   assert.equal(housemateSha, ownerSha);
 });
 

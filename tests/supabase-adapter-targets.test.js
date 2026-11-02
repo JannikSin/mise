@@ -87,7 +87,8 @@ test("a housemate reads the plate, and never asks for the full row", async () =>
   // the root profile's targets live at the data root
   const root = await other.read("profile/targets.json");
   assert.equal(root?.data.diet, "omnivore");
-  assert.equal(root?.sha, "rootgit", "a migrated plate at rev 1 reads its legacy sha");
+  assert.notEqual(root?.sha, "rootgit", "the owner's git sha never reaches a reader (RT20-5)");
+  assert.match(String(root?.sha), /^plate:/);
 });
 
 test("an empty full read never falls back to a plate", async () => {
