@@ -338,7 +338,11 @@ test("dish families: two dump-and-bake feta pastas do not share a week while ano
       bake("feta-chicken-pasta", "chicken thighs"),
       dish("beef-bowl", "ground beef"),
       dish("pork-bowl", "ground pork"),
-      dish("chicken-strips", "chicken breast", { note: "sliced thin" }),
+      // thighs, not breast (2026-11-02): with the planner's plating every
+      // other dish here lands its day, and breast at 600 g a pot is too
+      // protein-dense to, so the "another dish lands" alternative has to be
+      // one that can; bands outrank variety, by design
+      dish("chicken-strips", "chicken thigh", { note: "sliced thin" }),
       dish("turkey-bowl", "ground turkey"),
     ].map((r) => [r.id, r]),
   );

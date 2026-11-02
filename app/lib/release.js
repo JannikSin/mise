@@ -28,6 +28,16 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
+    version: UNRELEASED,
+    date: "",
+    notes: [
+      "A generated week no longer overshoots protein to reach calories. When a day's dishes as written carry too much protein for the calories you need, the plan keeps the same recipes and cooks them with less of the meat, whey or yogurt and more of the rice, oats or pasta, so the day lands near your protein aim and under the ceiling. Replayed on the 11/2 week, David went from about 245 g a day (30 of 36 days over 215 g) to about 200 g (none over), every day still at 3,500 kcal or more.",
+      "The amounts you see follow that choice everywhere: the day's calories and protein on Plan, the recipe page's amounts, the plates, and the shopping list, which buys the smaller amount of meat and the larger amount of starch.",
+      "Muffins and other baked batters are never re-proportioned (they would not hold together); only how many you eat changes.",
+      "Calorie and protein estimates for recipes with dry oats, raw rice, pasta and protein powder are more accurate: oats and rice were being counted as if already cooked, and protein powder was not counted as protein at all.",
+    ],
+  },
+  {
     version: "1.96",
     date: "2026-10-31",
     notes: [

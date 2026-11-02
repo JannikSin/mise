@@ -148,6 +148,32 @@ export const MACRO = /** @type {Record<string, [number, number]>} */ ({
   eggplant: [35, 0.8],
   fennel: [31, 1.2],
   corn: [86, 3.2],
+  // ---- 2026-11-02: THE DRY AND RAW BASIS (David: "it is significantly
+  // overshooting my protein goal"). Every grain row above is COOKED, but the
+  // bank writes grains DRY: 57 oat rows, 24 brown-rice rows "raw; cooks to
+  // ~400 g", pasta and couscous by the dry gram. So 100 g of rolled oats was
+  // priced as 71 kcal of porridge instead of 379 kcal of oats, every starch
+  // bucket came out about a third of its true size, and the transform
+  // believed there was almost no rice to move. A "dry " row is used for a
+  // grain row unless the row says it is cooked; a "raw " row only when the
+  // row says raw. USDA SR Legacy, per 100 g as written.
+  "dry rice": [365, 7.1],
+  "dry brown rice": [367, 7.5],
+  "dry oats": [379, 13.2],
+  "dry pasta": [371, 13],
+  "dry couscous": [376, 12.8],
+  "dry quinoa": [368, 14.1],
+  "dry farro": [340, 13],
+  "dry barley": [352, 9.9],
+  "dry bulgur": [342, 12.3],
+  "dry lentils": [352, 24.6],
+  "raw chicken breast": [120, 22.5],
+  "raw chicken thigh": [121, 19.7],
+  "raw chicken": [120, 21],
+  "raw ground turkey": [150, 18.7],
+  "raw ground beef": [215, 18.6],
+  "raw salmon": [208, 20],
+  "raw shrimp": [85, 20],
 });
 
 /**
@@ -163,9 +189,9 @@ export const PLATE_GRAMS = /** @type {Record<string, Record<string, number>>} */
   couscous: { cup: 157 },
   pasta: { cup: 140 },
   lentils: { cup: 198 },
-  chickpeas: { cup: 164 },
-  "black beans": { cup: 172 },
-  beans: { cup: 172 },
+  chickpeas: { cup: 164, can: 240 },
+  "black beans": { cup: 172, can: 240 },
+  beans: { cup: 172, can: 240 },
   oats: { cup: 90 },
   egg: { unit: 50, large: 50 },
   bread: { slice: 40, unit: 40 },
@@ -176,18 +202,18 @@ export const PLATE_GRAMS = /** @type {Record<string, Record<string, number>>} */
   potato: { unit: 170 },
   "sweet potato": { unit: 130 },
   "chicken breast": { unit: 174 },
-  broccoli: { cup: 91, unit: 300 },
+  broccoli: { cup: 91, unit: 300, head: 350 },
   spinach: { cup: 30 },
   zucchini: { unit: 196, cup: 124 },
   "bell pepper": { unit: 120 },
-  carrot: { unit: 61, cup: 122 },
-  tomato: { unit: 123 },
+  carrot: { unit: 61, medium: 61, cup: 122 },
+  tomato: { unit: 123, cup: 149 },
   onion: { unit: 110 },
   // added 2026-08-19 after measuring which rows the bank could not bridge.
   // USDA standard reference weights, the same kind of figure the rows above
   // already carry. Ordered by how many recipes each unblocks.
   "greek yogurt": { cup: 245 },
-  yogurt: { cup: 245 },
+  yogurt: { cup: 245, tbsp: 15 },
   "chicken broth": { cup: 240 },
   broth: { cup: 240 },
   stock: { cup: 240 },
@@ -223,6 +249,24 @@ export const PLATE_GRAMS = /** @type {Record<string, Record<string, number>>} */
   fennel: { unit: 234, cup: 87 },
   eggplant: { unit: 458, cup: 82 },
   collard: { cup: 190 },
+  // a scoop, as the bank's own notes weigh it ("2 scoop ... 60 g"), 2026-11-02
+  "protein powder": { scoop: 30 },
+  // a drained 15 oz can (beans, above), a 6 oz fillet, a drained 5 oz can of
+  // tuna, a cup of granola: the rows that left the most pool dishes unsplit
+  salmon: { unit: 170 },
+  tuna: { can: 113 },
+  granola: { cup: 122 },
+  whey: { scoop: 30 },
+  // dry-measure cups for the "dry " grain rows in MACRO (USDA cup weights)
+  "dry rice": { cup: 185 },
+  "dry brown rice": { cup: 190 },
+  "dry oats": { cup: 81 },
+  "dry couscous": { cup: 173 },
+  "dry quinoa": { cup: 170 },
+  "dry lentils": { cup: 192 },
+  "dry bulgur": { cup: 140 },
+  "dry barley": { cup: 200 },
+  "dry farro": { cup: 190 },
 });
 
 /** Foods a rung-3 top-up may add to a plate (a property of the FOOD). */
@@ -294,6 +338,12 @@ const PART_KEYWORDS = /** @type {[string, Part][]} */ ([
   ["tempeh", "protein"],
   ["edamame", "protein"],
   ["seitan", "protein"],
+  // PROTEIN POWDER (2026-11-02): it fell through to flavor, so the scoop of
+  // whey that carries a third of an oat jar's protein was the one thing the
+  // transform could never move, and every whey breakfast and protein muffin
+  // read as "nothing to scale"
+  ["protein powder", "protein"],
+  ["whey", "protein"],
   ["yogurt", "protein"],
   ["cottage cheese", "protein"],
   ["skyr", "protein"],
@@ -382,6 +432,41 @@ export function partOf(ing) {
   return "flavor";
 }
 
+/** the longest table key a food names, or undefined */
+function keyIn(/** @type {Record<string, any>} */ table, /** @type {string} */ food) {
+  const f = food.toLowerCase();
+  return Object.keys(table)
+    .filter((k) => f.includes(k))
+    .sort((a, b) => b.length - a.length)[0];
+}
+
+/**
+ * The basis a row is written in, when the tables carry one for its food:
+ * "dry" for a grain unless the FOOD says cooked, the row is canned or
+ * drained, or the note leads with "cooked" ("cooked weight"); a note that
+ * only mentions cooking ("dry; cooked separately", "or 2 cups cooked rice")
+ * leaves it dry, as the bank writes grains. "raw" for a meat only when the
+ * row says raw, else "" (the cooked default).
+ * @param {Record<string, any>} ing
+ * @returns {"dry" | "raw" | ""}
+ */
+function basisOf(ing) {
+  const key = keyIn(MACRO, String(ing?.food ?? ""));
+  if (!key) return "";
+  const food = String(ing?.food ?? "").toLowerCase();
+  const note = String(ing?.note ?? "").toLowerCase();
+  const text = `${food} ${note}`;
+  if (MACRO[`dry ${key}`]) {
+    const cooked =
+      /\bcooked\b/.test(food) ||
+      /\b(can|cans|canned|drained)\b/.test(text) ||
+      /^\s*cooked\b/.test(note);
+    return cooked ? "" : "dry";
+  }
+  if (MACRO[`raw ${key}`] && /\b(raw|uncooked)\b/.test(text)) return "raw";
+  return "";
+}
+
 /** grams for one qty of a row, or null when no nutrition-grade bridge exists */
 function gramsOf(/** @type {Record<string, any>} */ ing) {
   const qty = Number(ing?.qty ?? 0);
@@ -403,11 +488,20 @@ function gramsOf(/** @type {Record<string, any>} */ ing) {
   // failed its recipe closed. 58 ingredient rows across the bank use "each".
   // Longest key first: "sweet potato" must win over "potato".
   const u = unit === "each" || unit === "whole" || unit === "ct" ? "unit" : unit;
-  const key = Object.keys(PLATE_GRAMS)
-    .filter((k) => food.includes(k))
-    .sort((a, b) => b.length - a.length)[0];
-  const bridge = key ? PLATE_GRAMS[key]?.[u] : undefined;
+  const key = keyIn(PLATE_GRAMS, food);
+  // a dry grain is measured in DRY cups (a cup of raw rice is 185 g, not 195 g cooked)
+  const dryKey = basisOf(ing) === "dry" && key ? `dry ${key}` : undefined;
+  const bridge = key ? (PLATE_GRAMS[dryKey ?? ""]?.[u] ?? PLATE_GRAMS[key]?.[u]) : undefined;
   return bridge ? qty * bridge : null;
+}
+
+/** MACRO row for an ingredient row on its own basis (dry, raw, else cooked), or null */
+function macroOfRow(/** @type {Record<string, any>} */ ing) {
+  const m = macroOf(String(ing?.food ?? ""));
+  const basis = basisOf(ing);
+  if (!m || !basis) return m;
+  const key = keyIn(MACRO, String(ing?.food ?? ""));
+  return MACRO[`${basis} ${key}`] ?? m;
 }
 
 /** MACRO row for a food, or null */
@@ -440,6 +534,175 @@ const DEFAULT_PROTEIN_CAP_G = 100;
 const DEFAULT_CALORIES_CAP = 2500;
 
 /**
+ * The per-serving role buckets of a dish (spec §4.4), normalized against the
+ * audited nutrition blob so they sum exactly to recipe.nutrition: the
+ * protein bucket (moved by alpha), the carbfat bucket (moved by beta), and
+ * the fixed rest (veg plus the flavor remainder, multiplier 1). Null when
+ * the dish cannot be split honestly (no nutrition, an unbridged food, or no
+ * calories/protein at all). One source for the plate solve AND the planner,
+ * so the week the composer plans is the plate the table serves.
+ * @param {Record<string, any>} recipe
+ * @returns {{ Cpro: number, Ppro: number, Ccf: number, Pcf: number, Crest: number, Prest: number } | null}
+ */
+export function plateBuckets(recipe) {
+  const n = recipe?.nutrition ?? {};
+  if (!(n.calories > 0) || !(n.protein > 0)) return null;
+  const servings = recipe.servings > 0 ? recipe.servings : 1;
+  /** @type {Record<Part, [number, number]>} */
+  const raw = { protein: [0, 0], carbfat: [0, 0], veg: [0, 0], flavor: [0, 0] };
+  let missing = false;
+  for (const ing of recipe.ingredients ?? []) {
+    const part = partOf(ing);
+    const grams = gramsOf(ing);
+    const m = macroOfRow(ing);
+    if (part === "flavor") continue; // never moves; rides in the remainder
+    if (grams === null || !m) {
+      missing = true;
+      continue;
+    }
+    raw[part][0] += (grams * m[0]) / 100;
+    raw[part][1] += (grams * m[1]) / 100;
+  }
+  const rawC = raw.protein[0] + raw.carbfat[0] + raw.veg[0];
+  const rawP = raw.protein[1] + raw.carbfat[1] + raw.veg[1];
+  // rung 0b: zero-denominator guard (§4.4) — an all-flavor or unbridged dish
+  if (!(rawC > 0) || !(rawP > 0) || missing) return null;
+
+  // 4.4 NORMALIZATION, ON THE PER-SERVING BASIS. `raw` was accumulated over
+  // the WHOLE ingredient list while `nutrition` is per serving (SCHEMAS.md:
+  // "calories: 640, // per serving"), so the two must be brought onto the
+  // same basis BEFORE the ratio is taken. They were not, and the resulting
+  // k was a factor of `servings` too small: every solved plate's accounting
+  // came out divided by the recipe's serving count.
+  //
+  // Spec 4.4's own closing line is the test: "at uniform mode, a seat's
+  // macros are exactly recipe.nutrition x s_p". Before this fix, a seat
+  // asking for EXACTLY one serving of a 4-serving, 725 kcal dish solved to
+  // alpha 1.5 / beta 1.4 (both pinned at their clamps, reaching for a target
+  // it thought it could not touch) and reported the plate as 269 kcal. The
+  // engine has never run on a real meal, so nothing ever compared the
+  // instruction it prints against the numbers it prints beside it: it was
+  // telling David to eat 700 g of chicken thigh and calling it 41 g of
+  // protein. Found 2026-08-19 while unparking P8.
+  const rawCper = rawC / servings;
+  const rawPper = rawP / servings;
+  const kC = n.calories / rawCper;
+  const kP = n.protein / rawPper;
+  const Cpro = (raw.protein[0] / servings) * kC;
+  const Ppro = (raw.protein[1] / servings) * kP;
+  const Ccf = (raw.carbfat[0] / servings) * kC;
+  const Pcf = (raw.carbfat[1] / servings) * kP;
+  // the veg bucket and the flavor remainder never move (multiplier 1), so
+  // they travel as one fixed "rest" term
+  return {
+    Cpro,
+    Ppro,
+    Ccf,
+    Pcf,
+    Crest: n.calories - Cpro - Ccf,
+    Prest: n.protein - Ppro - Pcf,
+  };
+}
+
+/**
+ * THE PLANNER'S LADDER (2026-11-02, David: "it took a base recipe and scaled
+ * it to match the coordinate system of calories and protein ... while still
+ * maintaining the same skeleton"). One pot-level knob: each step trims the
+ * protein bucket and grows the carbfat bucket of the SAME recipe, same rows,
+ * same steps. Servings still size the plate, so step and servings together
+ * land a day on its calories with protein at its aim instead of over the
+ * ceiling. Step 0 is the recipe as written. The far end (half the meat,
+ * twice the starch) is still the dish; past it, it would not be.
+ */
+export const RATIO_STEPS = /** @type {const} */ ([
+  { protein: 1, carbfat: 1 },
+  { protein: 0.875, carbfat: 1.25 },
+  { protein: 0.75, carbfat: 1.5 },
+  { protein: 0.625, carbfat: 1.75 },
+  { protein: 0.5, carbfat: 2 },
+]);
+
+/** @type {WeakMap<Record<string, any>, Map<string, Record<string, any>>>} */
+const ratioCache = new WeakMap();
+
+/**
+ * A leavened batter (baking powder, baking soda, yeast) is chemistry: halve
+ * its eggs and yogurt and double its oats and the muffins do not hold
+ * together. Its proportions are never moved; servings still size it.
+ * @param {Record<string, any>} recipe
+ */
+export function isBatter(recipe) {
+  return (recipe?.ingredients ?? []).some(
+    (/** @type {Record<string, any>} */ i) =>
+      /baking (powder|soda)|\byeast\b/i.test(String(i?.food ?? "")) &&
+      !/nutritional yeast/i.test(String(i?.food ?? "")),
+  );
+}
+
+/**
+ * A recipe with its protein bucket times `ratio.protein` and its carbfat
+ * bucket times `ratio.carbfat`: the same rows in the same order (only qty
+ * moves), nutrition re-derived from the §4.4 buckets, and the ratio carried
+ * on the result so every reader knows the plan already sized it. Returns the
+ * recipe itself for no ratio, a 1:1 ratio, a malformed one (tolerant
+ * reader), or a dish that cannot be split honestly.
+ * @param {Record<string, any> | undefined} recipe
+ * @param {{ protein: number, carbfat: number } | null | undefined} ratio
+ * @returns {Record<string, any> | undefined}
+ */
+export function withRatio(recipe, ratio) {
+  if (!recipe || !ratio) return recipe;
+  const a = Number(ratio.protein);
+  const b = Number(ratio.carbfat);
+  if (!(a > 0) || !(b > 0) || a > 4 || b > 4 || (a === 1 && b === 1)) return recipe;
+  const key = `${a}|${b}`;
+  let byKey = ratioCache.get(recipe);
+  const hit = byKey?.get(key);
+  if (hit) return hit;
+  if (isBatter(recipe)) return recipe;
+  const bk = plateBuckets(recipe);
+  if (!bk) return recipe;
+  const n = recipe.nutrition ?? {};
+  const calories = a * bk.Cpro + b * bk.Ccf + bk.Crest;
+  const protein = a * bk.Ppro + b * bk.Pcf + bk.Prest;
+  // carbs and fat are not bucketed, so they absorb the energy change in the
+  // recipe's own carb:fat split (Atwater 4/4/9): an estimate, kept honest by
+  // conserving the calories the buckets do know
+  const carbs = Number(n.carbs) || 0;
+  const fat = Number(n.fat) || 0;
+  const rest = calories - n.calories - 4 * (protein - n.protein);
+  const carbShare = carbs + fat > 0 ? (4 * carbs) / (4 * carbs + 9 * fat) : 1;
+  const out = {
+    ...recipe,
+    ingredients: (recipe.ingredients ?? []).map((/** @type {Record<string, any>} */ ing) => {
+      const part = partOf(ing);
+      const m = part === "protein" ? a : part === "carbfat" ? b : 1;
+      return m === 1 || !(Number(ing.qty) > 0)
+        ? ing
+        : { ...ing, qty: Math.round(Number(ing.qty) * m * 1000) / 1000 };
+    }),
+    nutrition: {
+      ...n,
+      calories: Math.round(calories),
+      protein: Math.round(protein),
+      ...(n.carbs !== undefined
+        ? { carbs: Math.max(0, Math.round(carbs + (rest * carbShare) / 4)) }
+        : {}),
+      ...(n.fat !== undefined
+        ? { fat: Math.max(0, Math.round(fat + (rest * (1 - carbShare)) / 9)) }
+        : {}),
+    },
+    ratio: { protein: a, carbfat: b },
+  };
+  if (!byKey) {
+    byKey = new Map();
+    ratioCache.set(recipe, byKey);
+  }
+  byKey.set(key, out);
+  return out;
+}
+
+/**
  * Solve ONE seat's multipliers (spec §4.3, relative form).
  *
  * @param {{
@@ -470,6 +733,11 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
 
   // rung 0f, THE SHOPPED-WEEK FREEZE (David): a bought week is untouchable
   if (weekShopped) return uniform("0f-week-shopped");
+  // rung 0r: THE PLAN ALREADY SIZED IT (2026-11-02). A recipe carrying a
+  // planner ratio was proportioned by the composer against this seat's whole
+  // day (swipes and every other slot included) and bought that way; a
+  // per-slot re-solve here would undo it on the plate.
+  if (recipe?.ratio) return uniform("0r-planned");
   // rung 0: the tag is the rollout mechanism; absent = mixed = today
   if (assembly !== "plated") return uniform("0-mixed");
   // rung 5
@@ -492,63 +760,16 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
   }
   if (!Number.isFinite(sigma) || sigma <= 0) return uniform("0d-bad-sigma");
 
-  // per-serving buckets, normalized against the audited blob (§4.4)
-  const servings = recipe.servings > 0 ? recipe.servings : 1;
-  /** @type {Record<Part, [number, number]>} */
-  const raw = { protein: [0, 0], carbfat: [0, 0], veg: [0, 0], flavor: [0, 0] };
-  let missing = false;
-  for (const ing of recipe.ingredients ?? []) {
-    const part = partOf(ing);
-    const grams = gramsOf(ing);
-    const m = macroOf(String(ing.food ?? ""));
-    if (part === "flavor") continue; // never moves; rides in the remainder
-    if (grams === null || !m) {
-      missing = true;
-      continue;
-    }
-    raw[part][0] += (grams * m[0]) / 100;
-    raw[part][1] += (grams * m[1]) / 100;
-  }
-  const rawC = raw.protein[0] + raw.carbfat[0] + raw.veg[0];
-  const rawP = raw.protein[1] + raw.carbfat[1] + raw.veg[1];
-  // rung 0b: zero-denominator guard (§4.4) — an all-flavor or unbridged dish
-  if (!(rawC > 0) || !(rawP > 0) || missing)
+  const b = plateBuckets(recipe);
+  if (!b)
     return uniform(
       "1-degenerate",
       "this dish is one thing nutritionally; only the amount can change",
     );
+  const { Cpro, Ppro, Ccf, Pcf, Crest, Prest } = b;
 
-  // 4.4 NORMALIZATION, ON THE PER-SERVING BASIS. `raw` was accumulated over
-  // the WHOLE ingredient list while `nutrition` is per serving (SCHEMAS.md:
-  // "calories: 640, // per serving"), so the two must be brought onto the
-  // same basis BEFORE the ratio is taken. They were not, and the resulting
-  // k was a factor of `servings` too small: every solved plate's accounting
-  // came out divided by the recipe's serving count.
-  //
-  // Spec 4.4's own closing line is the test: "at uniform mode, a seat's
-  // macros are exactly recipe.nutrition x s_p". Before this fix, a seat
-  // asking for EXACTLY one serving of a 4-serving, 725 kcal dish solved to
-  // alpha 1.5 / beta 1.4 (both pinned at their clamps, reaching for a target
-  // it thought it could not touch) and reported the plate as 269 kcal. The
-  // engine has never run on a real meal, so nothing ever compared the
-  // instruction it prints against the numbers it prints beside it: it was
-  // telling David to eat 700 g of chicken thigh and calling it 41 g of
-  // protein. Found 2026-08-19 while unparking P8.
-  const rawCper = rawC / servings;
-  const rawPper = rawP / servings;
-  const kC = n.calories / rawCper;
-  const kP = n.protein / rawPper;
-  const Cpro = (raw.protein[0] / servings) * kC;
-  const Ppro = (raw.protein[1] / servings) * kP;
-  const Ccf = (raw.carbfat[0] / servings) * kC;
-  const Pcf = (raw.carbfat[1] / servings) * kP;
-  const Cveg = (raw.veg[0] / servings) * kC;
-  const Pveg = (raw.veg[1] / servings) * kP;
-  const Cfla = n.calories - Cpro - Ccf - Cveg;
-  const Pfla = n.protein - Ppro - Pcf - Pveg;
-
-  const Cs = (targets.macros.calories * slotShare) / sigma - (Cveg + Cfla);
-  const Ps = (targets.macros.protein * slotShare) / sigma - (Pveg + Pfla);
+  const Cs = (targets.macros.calories * slotShare) / sigma - Crest;
+  const Ps = (targets.macros.protein * slotShare) / sigma - Prest;
 
   const det = Cpro * Pcf - Ccf * Ppro;
   const norm = Math.hypot(Cpro, Ccf) * Math.hypot(Ppro, Pcf);
@@ -600,17 +821,17 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
     Number(targets.macros.plateCaloriesCap) > 0
       ? Number(targets.macros.plateCaloriesCap)
       : DEFAULT_CALORIES_CAP;
-  const plateP = () => s * (alpha * Ppro + beta * Pcf + Pveg + Pfla);
-  const plateC = () => s * (alpha * Cpro + beta * Ccf + Cveg + Cfla);
+  const plateP = () => s * (alpha * Ppro + beta * Pcf + Prest);
+  const plateC = () => s * (alpha * Cpro + beta * Ccf + Crest);
   // the ABSOLUTE caps outrank the relative clamp floors on purpose: a cap
   // that cannot push a multiplier below the clamp floor is not absolute,
   // and the kilogram-of-chicken path re-opens through that gap
   if (plateP() > capP && Ppro > 0) {
-    alpha = Math.max(0, (capP / s - beta * Pcf - Pveg - Pfla) / Ppro);
+    alpha = Math.max(0, (capP / s - beta * Pcf - Prest) / Ppro);
     clamped = true;
   }
   if (plateC() > capC && Ccf > 0) {
-    beta = Math.max(0, (capC / s - alpha * Cpro - Cveg - Cfla) / Ccf);
+    beta = Math.max(0, (capC / s - alpha * Cpro - Crest) / Ccf);
     clamped = true;
   }
 

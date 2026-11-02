@@ -450,3 +450,141 @@ test("parsePot drops a corrupt topUps array but keeps the pot (honest floor for 
   assert.ok(parsed, "pot survives");
   assert.equal(parsed.topUps, undefined, "bad top-ups die alone");
 });
+
+// ---- THE DRY BASIS AND THE PLANNER'S PLATING (2026-11-02) ----
+import { plateBuckets, withRatio, RATIO_STEPS, isBatter } from "../app/lib/synth.js";
+
+test("THE DRY BASIS: rolled oats and raw rice are priced as the dry grain the bank writes, a cooked row as cooked", () => {
+  const jar = (/** @type {Record<string, any>[]} */ ingredients) =>
+    plateBuckets({ servings: 1, nutrition: { calories: 600, protein: 40 }, ingredients });
+  // 100 g whey (400 kcal raw table) against 100 g oats: dry oats are 379
+  // kcal, cooked porridge 71; the split must reflect the dry figure
+  const dry = jar([
+    { qty: 100, unit: "g", food: "whey protein powder" },
+    { qty: 100, unit: "g", food: "rolled oats" },
+  ]);
+  assert.ok(dry);
+  assert.ok(Math.abs(dry.Ccf / dry.Cpro - 379 / 400) < 0.01, `${dry.Ccf / dry.Cpro}`);
+  const cooked = jar([
+    { qty: 100, unit: "g", food: "whey protein powder" },
+    { qty: 100, unit: "g", food: "brown rice", note: "cooked" },
+  ]);
+  assert.ok(cooked);
+  assert.ok(Math.abs(cooked.Ccf / cooked.Cpro - 112 / 400) < 0.01);
+  // a dry cup is a dry cup: 1 cup raw brown rice is 190 g, not 195 g cooked
+  const cup = jar([
+    { qty: 100, unit: "g", food: "whey protein powder" },
+    { qty: 1, unit: "cup", food: "brown rice", note: "raw" },
+  ]);
+  assert.ok(cup && Math.abs(cup.Ccf / cup.Cpro - (1.9 * 367) / 400) < 0.01);
+});
+
+test("protein powder is the protein bucket, and a scoop is weighed", () => {
+  assert.equal(partOf({ food: "whey protein powder" }), "protein");
+  const b = plateBuckets({
+    servings: 1,
+    nutrition: { calories: 500, protein: 40 },
+    ingredients: [
+      { qty: 1, unit: "scoop", food: "whey protein powder" },
+      { qty: 80, unit: "g", food: "rolled oats" },
+    ],
+  });
+  assert.ok(b && b.Ppro > b.Pcf, "the scoop carries most of the protein");
+});
+
+test("withRatio: same rows, same order, only protein and starch move; calories and protein re-derived exactly", () => {
+  const bowl = {
+    id: "bowl",
+    servings: 2,
+    nutrition: { calories: 1000, protein: 80, carbs: 90, fat: 25 },
+    ingredients: [
+      { qty: 400, unit: "g", food: "chicken breast" },
+      { qty: 150, unit: "g", food: "brown rice", note: "raw" },
+      { qty: 2, unit: "cup", food: "broccoli" },
+      { qty: 1, unit: "tbsp", food: "olive oil" },
+    ],
+  };
+  const b = /** @type {NonNullable<ReturnType<typeof plateBuckets>>} */ (plateBuckets(bowl));
+  assert.ok(Math.abs(b.Cpro + b.Ccf + b.Crest - 1000) < 1e-9, "buckets sum to the audited blob");
+  const step = RATIO_STEPS[2];
+  const v = /** @type {any} */ (withRatio(bowl, step));
+  assert.deepEqual(v.ratio, { protein: 0.75, carbfat: 1.5 });
+  assert.deepEqual(
+    v.ingredients.map((/** @type {any} */ i) => [i.food, i.unit, i.qty]),
+    [
+      ["chicken breast", "g", 300],
+      ["brown rice", "g", 225],
+      ["broccoli", "cup", 2],
+      ["olive oil", "tbsp", 1],
+    ],
+  );
+  assert.equal(v.nutrition.calories, Math.round(0.75 * b.Cpro + 1.5 * b.Ccf + b.Crest));
+  assert.equal(v.nutrition.protein, Math.round(0.75 * b.Ppro + 1.5 * b.Pcf + b.Prest));
+  // Atwater: carbs and fat absorb the energy the buckets moved
+  const kcalFromMacros = 4 * v.nutrition.protein + 4 * v.nutrition.carbs + 9 * v.nutrition.fat;
+  const kcalBefore = 4 * 80 + 4 * 90 + 9 * 25;
+  assert.ok(Math.abs(kcalFromMacros - kcalBefore - (v.nutrition.calories - 1000)) < 12);
+  assert.equal(withRatio(bowl, step), v, "cached: one object per dish and step");
+  // the tolerant reader: absent, 1:1 or malformed is the recipe itself
+  assert.equal(withRatio(bowl, null), bowl);
+  assert.equal(withRatio(bowl, { protein: 1, carbfat: 1 }), bowl);
+  assert.equal(withRatio(bowl, /** @type {any} */ ({ protein: "x", carbfat: 2 })), bowl);
+  // a dish the buckets cannot split is never "re-proportioned"
+  const flat = { ...bowl, ingredients: [{ qty: 1, unit: "x", food: "mystery" }] };
+  assert.equal(withRatio(flat, step), flat);
+});
+
+test("withRatio never re-proportions a leavened batter (the muffins would not hold)", () => {
+  const muffin = {
+    id: "m",
+    servings: 4,
+    nutrition: { calories: 350, protein: 26 },
+    ingredients: [
+      { qty: 60, unit: "g", food: "whey protein powder" },
+      { qty: 120, unit: "g", food: "rolled oats" },
+      { qty: 2, unit: "each", food: "eggs" },
+      { qty: 1.5, unit: "tsp", food: "baking powder" },
+    ],
+  };
+  assert.ok(isBatter(muffin));
+  assert.equal(withRatio(muffin, RATIO_STEPS[4]), muffin);
+});
+
+test("a plated recipe on a planned plating is served as planned: the per-slot solve never re-sizes it (rung 0r)", () => {
+  const planned = /** @type {any} */ (withRatio({ ...RECIPE }, RATIO_STEPS[1]));
+  assert.ok(planned.ratio, "the fixture recipe splits");
+  const r = solveSeat({
+    recipe: planned,
+    assembly: "plated",
+    seat: { servings: 1 },
+    targets: TARGETS,
+    slotShare: SLOT_SHARE,
+  });
+  assert.equal(r.synthMode, "uniform");
+  assert.equal(r.rung, "0r-planned");
+});
+
+test("THE DRY BASIS reads the row, not every word in it (code review): 'dry; cooked separately' is dry, canned or 'cooked weight' is cooked", () => {
+  const share = (/** @type {Record<string, any>} */ row) => {
+    const b = plateBuckets({
+      servings: 1,
+      nutrition: { calories: 900, protein: 80 },
+      ingredients: [{ qty: 300, unit: "g", food: "chicken breast" }, row],
+    });
+    return b ? b.Ccf / (b.Ccf + b.Cpro) : NaN;
+  };
+  const dry = share({ qty: 200, unit: "g", food: "brown rice", note: "dry" });
+  assert.equal(share({ qty: 200, unit: "g", food: "brown rice", note: "dry; cooked separately" }), dry);
+  assert.equal(share({ qty: 200, unit: "g", food: "brown rice" }), dry, "unmarked grain is dry");
+  const cooked = share({ qty: 200, unit: "g", food: "rice", note: "cooked weight" });
+  assert.ok(cooked < dry / 1.5, `${cooked} vs ${dry}`);
+  const lentilsCan = share({ qty: 200, unit: "g", food: "green lentils", note: "canned, drained" });
+  const lentilsDry = share({ qty: 200, unit: "g", food: "green lentils", note: "dry, rinsed" });
+  assert.ok(lentilsCan < lentilsDry / 1.5, "canned lentils are cooked");
+  assert.equal(share({ qty: 200, unit: "g", food: "brown rice, cooked", note: "about 260 g dry" }) < dry, true);
+});
+
+test("nutritional yeast is a seasoning, not a leavener", () => {
+  assert.equal(isBatter({ ingredients: [{ food: "nutritional yeast" }] }), false);
+  assert.equal(isBatter({ ingredients: [{ food: "instant yeast" }] }), true);
+});

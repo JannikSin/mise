@@ -648,3 +648,45 @@ test("seatScreen refuses a dish a guest's profile refuses, and refuses when the 
   assert.deepEqual(seatScreen(plain, null), ["their profile could not be read"]);
   assert.deepEqual(seatScreen(undefined, peanutGuest), ["the dish could not be found"]);
 });
+
+test("A PLANNED PLATING follows the table everywhere: the day meter counts it and the cook buys it (2026-11-02, P1/P5)", async () => {
+  const { withRatio } = await import("../app/lib/synth.js");
+  const BOWL = {
+    id: "bowl",
+    name: "Rice bowl",
+    mealType: "dinner",
+    servings: 1,
+    nutrition: { calories: 900, protein: 68 },
+    ingredients: [
+      { qty: 300, unit: "g", food: "chicken breast" },
+      { qty: 110, unit: "g", food: "brown rice", note: "raw" },
+      { qty: 1, unit: "tbsp", food: "olive oil" },
+    ],
+  };
+  const ratio = { protein: 0.75, carbfat: 1.5 };
+  const dish = /** @type {any} */ (withRatio(BOWL, ratio));
+  assert.ok(dish.nutrition.calories > 900 && dish.nutrition.protein < 68, "more starch, less meat");
+  const { entries, cookExtras } = deriveTables(
+    [
+      {
+        house: "home",
+        events: { tables: [table({ recipeId: "bowl", buyerId: "david", ratio })] },
+      },
+    ],
+    ctx({ bankById: new Map([["bowl", BOWL]]) }),
+  );
+  assert.equal(entries[0].estCalories, Math.round(dish.nutrition.calories * 1.5));
+  assert.equal(entries[0].estProtein, Math.round(dish.nutrition.protein * 1.5));
+  const rows = /** @type {any} */ (cookExtras[0]).potRows;
+  assert.ok(rows, "the buy carries the planned pot");
+  assert.equal(rows[0].qty, 300 * 0.75 * 2.5, "chicken trimmed, for 2.5 servings");
+  assert.equal(rows[1].qty, 110 * 1.5 * 2.5, "rice grown, for 2.5 servings");
+  assert.equal(rows[2].qty, 2.5, "the oil as written");
+  // no ratio: the plain path, unchanged
+  const plain = deriveTables(
+    [{ house: "home", events: { tables: [table({ recipeId: "bowl", buyerId: "david" })] } }],
+    ctx({ bankById: new Map([["bowl", BOWL]]) }),
+  );
+  assert.equal(/** @type {any} */ (plain.cookExtras[0]).potRows, undefined);
+  assert.equal(plain.entries[0].estCalories, 1350);
+});

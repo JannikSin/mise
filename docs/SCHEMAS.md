@@ -1098,6 +1098,17 @@ before every plan write).
       //   own share (brigade `meatDaily`). Written by planBrigadeWeek on the
       //   batch's head table only; its leftover nights read it through
       //   `leftoverOf`. Absent = the pot is cooked whole on its prep day.
+      "ratio": { "protein": 0.75, "carbfat": 1.5 }, // ? THE PLANNED PLATING
+      //   (2026-11-02, decision 0020, P1/P5): the pot is the bank recipe with
+      //   its protein-bucket rows times `protein` and its carbfat-bucket rows
+      //   times `carbfat` (synth.js partOf; veg and flavor rows as written),
+      //   one of synth.js RATIO_STEPS. Written by planBrigadeWeek when the
+      //   recipe as written cannot land a seat's day under the protein
+      //   ceiling; a leftover night carries its pot's ratio. Every reader
+      //   resolves the dish through synth.js withRatio: day meters, the buy
+      //   (cook-table potRows), the recipe page, plates and the ledger. A
+      //   malformed value reads as absent (withRatio is tolerant). Absent =
+      //   the recipe as written.
       "cookedAt": "2026-07-24", // ? the serve step's COOKED confirmation
       //   (per-person-plates-design §7.2). Set once by setTableCooked, never
       //   cleared (you cannot un-cook food, same rule as a plan entry's

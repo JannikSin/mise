@@ -1819,3 +1819,150 @@ test("THE FOUR-FOOD WEEK: a day with no dining swipe sizes the plates up to the 
   assert.ok(noSwipe.kcal >= 3500, `no-swipe day reaches the floor at ${noSwipe.kcal} kcal`);
   assert.notEqual(noSwipe.status, "miss");
 });
+
+// ---------------------------------------------------------------------------
+// THE TRANSFORM IN THE PLANNER (2026-11-02, David: "when i generated a week it
+// is significantly overshooting my protein goal ... it should not be an issue
+// to tailor to a certain ratio of protein and calories"). Whole servings move
+// calories and protein together; the synth transform moves them apart. These
+// dishes carry real rows, so the transform can split them into buckets.
+// ---------------------------------------------------------------------------
+
+/** a dish with a real protein row and a real starch row, ~75 g per 1,000 kcal */
+const splitDish = (/** @type {string} */ id, /** @type {string} */ meal) =>
+  recipe(id, meal, 900, 68, {
+    servings: 1,
+    ingredients: [
+      { qty: 300, unit: "g", food: "chicken breast" },
+      { qty: 110, unit: "g", food: "brown rice", note: "raw" },
+      { qty: 1, unit: "tbsp", food: "olive oil" },
+    ],
+  });
+
+test("THE TRANSFORM IN THE PLANNER: a day the written recipes can feed only by crossing the protein ceiling lands BOTH numbers on a re-proportioned plate of the same recipes", () => {
+  const dishes = [
+    { slot: "breakfast", recipe: splitDish("bf-split", "breakfast") },
+    { slot: "dinner", recipe: splitDish("din-split", "dinner") },
+  ];
+  const bands = seatBands(davidTargets, { calories: 900, protein: 70 });
+  assert.ok(bands);
+  // the bug, pinned: servings alone reach the floor only over the ceiling
+  const uniform = solveSeatDay(dishes, bands, {});
+  assert.equal(uniform?.status, "over", "whole servings cannot land this day");
+  const day = composeDay({
+    slots: ["breakfast", "dinner"],
+    poolsBySlot: { breakfast: [dishes[0].recipe], dinner: [dishes[1].recipe] },
+    startBySlot: { breakfast: dishes[0].recipe, dinner: dishes[1].recipe },
+    seats: [{ id: "david", targets: davidTargets, bands }],
+  });
+  assert.ok(day);
+  const seat = day.seats.david;
+  assert.equal(seat.status, "band", `got ${seat.status} at ${seat.kcal} kcal / ${seat.protein} g`);
+  assert.ok(seat.kcal >= bands.kcalLo && seat.protein <= bands.pHi);
+  // the SAME recipe skeleton: same rows, same order, only protein and starch moved
+  for (const slot of ["breakfast", "dinner"]) {
+    const pick = day.picks[slot];
+    const base = slot === "breakfast" ? dishes[0].recipe : dishes[1].recipe;
+    assert.equal(pick.id, base.id);
+    assert.deepEqual(
+      pick.ingredients.map((/** @type {any} */ i) => [i.food, i.unit]),
+      base.ingredients.map((i) => [i.food, i.unit]),
+    );
+    if (!pick.ratio) continue;
+    assert.ok(pick.ratio.protein < 1 && pick.ratio.carbfat > 1, JSON.stringify(pick.ratio));
+    assert.equal(pick.ingredients[2].qty, 1, "the oil (flavor) never moves");
+  }
+  assert.ok(day.picks.breakfast.ratio || day.picks.dinner.ratio, "something was re-proportioned");
+});
+
+test("THE TRANSFORM IN THE PLANNER: a locked slot keeps its plating, and a day that already lands keeps the recipes as written", () => {
+  const din = splitDish("din-split", "dinner");
+  const bands = seatBands(davidTargets, { calories: 900, protein: 70 });
+  assert.ok(bands);
+  const locked = composeDay({
+    slots: ["dinner"],
+    poolsBySlot: { dinner: [din] },
+    startBySlot: { dinner: din },
+    lockedSlots: new Set(["dinner"]),
+    seats: [{ id: "david", targets: davidTargets, bands }],
+  });
+  assert.equal(locked?.picks.dinner, din, "a locked dish is used exactly as given");
+  // a day the written dish lands is never touched
+  const easy = seatBands(
+    { macros: { calories: 1900, caloriesFloor: 1800, protein: 140, proteinCeiling: 160 } },
+    { calories: 0, protein: 0 },
+  );
+  const asWritten = composeDay({
+    slots: ["dinner"],
+    poolsBySlot: { dinner: [din] },
+    startBySlot: { dinner: din },
+    seats: [{ id: "a", targets: null, bands: easy }],
+  });
+  assert.equal(asWritten?.picks.dinner, din);
+});
+
+test("THE TRANSFORM IN THE PLANNER: a planned brigade week writes the plating on the table, keeps every day at the floor, and a leftover night eats its pot's plating", () => {
+  const bank = [
+    splitDish("bf-split", "breakfast"),
+    splitDish("din-a", "dinner"),
+    splitDish("din-b", "dinner"),
+    splitDish("din-c", "dinner"),
+  ].map((r) => ({ ...r, safeDays: 4, tags: ["batch-friendly"] }));
+  const ctx = wayneCtx({
+    bankById: new Map(bank.map((r) => [r.id, r])),
+    targetsById: new Map([
+      ["david", davidTargets],
+      ["rowan", rowanTargets],
+    ]),
+  });
+  const brigade = { ...BRIGADE, slots: ["breakfast", "dinner"], cookDays: [1, 3, 5] };
+  const { events, report } = planBrigadeWeek({ tables: [], brigades: [brigade] }, brigade, ctx);
+  const tables = events.tables.filter((t) => t.fromBrigade === brigade.id);
+  assert.ok(
+    tables.some((t) => /** @type {any} */ (t).ratio),
+    "the plan re-proportioned something",
+  );
+  for (const r of report) {
+    assert.notEqual(r.status, "miss", `${r.date} ${r.seatId} under its floor`);
+    assert.notEqual(r.status, "over", `${r.date} ${r.seatId} over the protein ceiling`);
+  }
+  for (const t of tables) {
+    const src = /** @type {any} */ (t).leftoverOf;
+    if (!src) continue;
+    const pot = tables.find((x) => x.id === src);
+    assert.deepEqual(/** @type {any} */ (t).ratio, /** @type {any} */ (pot)?.ratio, `${t.date}`);
+  }
+});
+
+test("THE TRANSFORM IN THE PLANNER stays fast on a day nothing can land (code review: the full product took 132 s)", () => {
+  const pool = (/** @type {string} */ meal) =>
+    Array.from({ length: 10 }, (_, i) => ({ ...splitDish(`${meal}-${i}`, meal), nutrition: { calories: 900, protein: 90 + i } }));
+  const slots = ["breakfast", "smoothie", "snack", "dinner"];
+  const poolsBySlot = Object.fromEntries(slots.map((s) => [s, pool(s)]));
+  const bands = seatBands(davidTargets, { calories: 0, protein: 0 });
+  const t0 = Date.now();
+  const day = composeDay({
+    slots,
+    poolsBySlot,
+    startBySlot: Object.fromEntries(slots.map((s) => [s, poolsBySlot[s][0]])),
+    seats: ["a", "b", "c"].map((id) => ({ id, targets: davidTargets, bands })),
+  });
+  assert.ok(day);
+  // about 3 s on the laptop; the bound only catches the old 132 s product
+  assert.ok(Date.now() - t0 < 60000, `${Date.now() - t0} ms`);
+});
+
+test("a seat under its calorie floor counts as a miss even when its status says over (code review)", () => {
+  // a pool so protein-dense and so small that the only plates are under the
+  // floor AND over the ceiling: the composer must name it, never call it fed
+  const tiny = recipe("din-tiny", "dinner", 300, 60);
+  const bands = seatBands(davidTargets, { calories: 0, protein: 0 });
+  const day = composeDay({
+    slots: ["dinner"],
+    poolsBySlot: { dinner: [tiny] },
+    startBySlot: { dinner: tiny },
+    seats: [{ id: "david", targets: davidTargets, bands }],
+  });
+  assert.ok(day && !day.allInBand);
+  assert.ok(day.seats.david.kcal < (bands?.kcalFloorLo ?? 0));
+});
