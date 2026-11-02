@@ -40,7 +40,7 @@ test("canonicalFood NEVER merges things that are different products", () => {
   assert.notEqual(canonicalFood("brown rice"), canonicalFood("cooked brown rice"));
   assert.notEqual(canonicalFood("lemon"), canonicalFood("lemon juice"));
   assert.notEqual(canonicalFood("silken tofu"), canonicalFood("extra-firm tofu"));
-  // David 2026-08-19 reversed the berries split: every bank use takes frozen,
+  // The owner 2026-08-19 reversed the berries split: every bank use takes frozen,
   // and two rows double-charged one bag ($14.49 twice on the same list)
   assert.equal(canonicalFood("mixed berries"), canonicalFood("frozen mixed berries"));
 });
@@ -62,7 +62,7 @@ test("same-dimension conversion needs no per-food data", () => {
   assert.ok(Math.abs(r.qty - 1) < 1e-6, `expected 1 tbsp, got ${r?.qty}`);
 });
 
-test("broccoli, David's actual complaint, merges to ONE row across three units", () => {
+test("broccoli, Owner's actual complaint, merges to ONE row across three units", () => {
   // the bank writes broccoli as cup x7, g x2 and head x1
   const ident = mergeIdentity("broccoli", "cup");
   assert.equal(mergeIdentity("broccoli", "g").id, ident.id);
@@ -144,7 +144,7 @@ test("canonicalFood strips parentheticals: packaging is not identity (fix 0.3)",
   assert.equal(canonicalFood("baby spinach (5 oz clamshell)"), "baby-spinach");
 });
 
-test("normalizeQty: pack language becomes the one shape the arithmetic reads (David, 2026-09-06)", () => {
+test("normalizeQty: pack language becomes the one shape the arithmetic reads (Owner, 2026-09-06)", () => {
   const cases = [
     ["milk", "2 gallons", "2 gal"],
     ["milk", "half a gallon", "0.5 gal"],

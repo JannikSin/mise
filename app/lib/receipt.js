@@ -1,6 +1,6 @@
 // Decoding supermarket till text, and scoring the trip against the list.
 //
-// David, 2026-07-26: "BLDMD ALMND 16OZ was a bag of almonds and you assumed it
+// The owner, 2026-07-26: "BLDMD ALMND 16OZ was a bag of almonds and you assumed it
 // was almond milk." That is the whole problem in one line. Blue Diamond is
 // famous for almond milk, so a model reading the abbreviation cold guesses
 // milk. The fix he named himself is the right one: look at the list he was
@@ -129,7 +129,7 @@ export function decodeReceiptLine(raw, expected) {
 /**
  * How well the trip matched the list.
  *
- * David asked for a score on "did i buy for what i needed". Deliberately plain
+ * The owner asked for a score on "did i buy for what i needed". Deliberately plain
  * arithmetic over what is already known, in the same spirit as the adherence
  * score: no judgment, just the three numbers and the names behind them, so a
  * low score is always explainable rather than accusing.

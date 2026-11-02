@@ -5,7 +5,7 @@
 // `recipes-staging/`) becomes `<new>.json`, its `id` becomes <new>, and every
 // JSON string value or object key anywhere in the clone that is EXACTLY <old>
 // becomes <new> (see below for which). Exact only: a longer id that merely
-// contains <old> is left alone, and so is prose. Public code, no names: the ids are typed by David.
+// contains <old> is left alone, and so is prose. Public code, no names: the ids are typed by the owner.
 //
 //   node tools/rename-recipe.mjs <mise-data clone> --from <old id> --to <new id>           (dry run: counts)
 //   node tools/rename-recipe.mjs <mise-data clone> --from <old id> --to <new id> --apply [--everywhere]

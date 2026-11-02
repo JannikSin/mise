@@ -1,6 +1,6 @@
 // Mise 2.0 G2: small helpers for the operator tools that write a SQL script
-// for David to run (add-member, delete-member, make-probe). Those tools never
-// connect to a database: they write one reviewable transaction, which David
+// for the owner to run (add-member, delete-member, make-probe). Those tools never
+// connect to a database: they write one reviewable transaction, which the owner
 // runs with psql (or pastes into the SQL Editor), and the PGlite tests run the
 // same text. Every value is validated by the tool before it reaches here.
 

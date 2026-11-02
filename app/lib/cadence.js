@@ -1,4 +1,4 @@
-// THE TWO SUNDAY POTS (David, 2026-10-25: "Sunday he cooks TWO separate
+// THE TWO SUNDAY POTS (the owner, 2026-10-25: "Sunday he cooks TWO separate
 // recipes: meal A eaten Sun and Mon; meal B for Tue, Wed, Thu, fully prepped
 // Sunday ... EXCEPT the meat ... beef is made day of to make sure it is still
 // fresh"). This module holds the facts about meal B that are not planning:
@@ -54,7 +54,7 @@ const BAKED_IN =
  * dairy excluded, those hold like the rest) must cook from raw in about 15 to
  * 20 minutes, the dish must not bake or braise the meat into the rest, and
  * the rest must keep at least 3 days. Fish fillets are out (they keep 1 to 2
- * days raw, like ground meat, but are not on David's list); shrimp is in.
+ * days raw, like ground meat, but are not on the owner's list); shrimp is in.
  * @param {Record<string, any> | null | undefined} recipe
  * @returns {Record<string, any>[] | null}
  */

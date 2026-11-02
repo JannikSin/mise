@@ -107,7 +107,7 @@ export function trimProduct(p) {
 }
 
 /**
- * WHERE THE THING PHYSICALLY IS (David, 2026-08-24: "I was just at Pay Less
+ * WHERE THE THING PHYSICALLY IS (the owner, 2026-08-24: "I was just at Pay Less
  * the other day and it would be nice if I could have navigated that better").
  *
  * Kroger returns a whole `aisleLocations` object per product and we were
@@ -314,7 +314,7 @@ export async function handleKrogerCallback(url, env) {
 }
 
 // ---------------------------------------------------------------------------
-// CART PUSH (David, 2026-08-22: "as long as you put it in the cart, I will
+// CART PUSH (the owner, 2026-08-22: "as long as you put it in the cart, I will
 // place the order").
 //
 // What is and is not possible, established 2026-08-22 by probing the gateway

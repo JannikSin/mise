@@ -1,5 +1,5 @@
 // The 2026-10-18 phone audit (monolith): the fixes that protect safety and
-// David's one list, pinned so they cannot quietly come undone.
+// The owner's one list, pinned so they cannot quietly come undone.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizeEvents, effectiveBuyerOf } from "../app/lib/tables.js";
@@ -8,15 +8,15 @@ import { recipeConflicts } from "../app/lib/plan.js";
 
 test("take turns: a rule table with no buyer is bought by the rule's shopper, never that night's cook", () => {
   const ev = normalizeEvents({
-    brigades: [{ id: "r1", name: "Wayne", memberIds: ["david", "elliot"], slots: ["dinner"], cookId: "david", rotateCooks: true, from: "2026-10-13", until: "2026-11-09" }],
+    brigades: [{ id: "r1", name: "Wayne", memberIds: ["david", "flatmate"], slots: ["dinner"], cookId: "david", rotateCooks: true, from: "2026-10-13", until: "2026-11-09" }],
     tables: [
-      { id: "a", date: "2026-10-19", slot: "dinner", recipeId: "x", seats: [{ id: "elliot", servings: 1 }, { id: "david", servings: 2 }], cookId: "elliot", fromBrigade: "r1" },
-      { id: "b", date: "2026-10-20", slot: "dinner", recipeId: "x", seats: [{ id: "elliot", servings: 1 }], cookId: "elliot", fromBrigade: "r1", buyerId: "elliot" },
+      { id: "a", date: "2026-10-19", slot: "dinner", recipeId: "x", seats: [{ id: "flatmate", servings: 1 }, { id: "david", servings: 2 }], cookId: "flatmate", fromBrigade: "r1" },
+      { id: "b", date: "2026-10-20", slot: "dinner", recipeId: "x", seats: [{ id: "flatmate", servings: 1 }], cookId: "flatmate", fromBrigade: "r1", buyerId: "flatmate" },
     ],
   });
-  const profiles = new Map([["david", { id: "david", household: "wayne" }], ["elliot", { id: "elliot", household: "wayne" }]]);
-  assert.equal(effectiveBuyerOf(ev.tables[0], "wayne", profiles), "david", "the shopper buys Elliot's night");
-  assert.equal(effectiveBuyerOf(ev.tables[1], "wayne", profiles), "elliot", "a buyer claimed by hand still wins");
+  const profiles = new Map([["david", { id: "david", household: "wayne" }], ["flatmate", { id: "flatmate", household: "wayne" }]]);
+  assert.equal(effectiveBuyerOf(ev.tables[0], "wayne", profiles), "david", "the shopper buys Flatmate's night");
+  assert.equal(effectiveBuyerOf(ev.tables[1], "wayne", profiles), "flatmate", "a buyer claimed by hand still wins");
 });
 
 test("allergy chips catch what the audit found passing (dairy, fish, egg, gluten, nuts)", () => {
@@ -35,7 +35,7 @@ test("allergy chips catch what the audit found passing (dairy, fish, egg, gluten
   }
 });
 
-test("a Sunday buy day shops Sun to Sat (David, 2026-10-18: \"It should be building from Sunday to Saturday\")", async () => {
+test("a Sunday buy day shops Sun to Sat (Owner, 2026-10-18: \"It should be building from Sunday to Saturday\")", async () => {
   const { tripFor } = await import("../app/lib/plan.js");
   assert.deepEqual(tripFor("2026-W43", "2026-10-18", "2026-10-18", 0), [
     "2026-10-18", "2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-24",
@@ -78,11 +78,11 @@ test("Tribunal loop 1: a profile saved before the wider terms still refuses pest
 });
 
 test("Tribunal loop 1: a rule-filled buyer follows the rule's shopper and goes when turns stop; a hand claim stays", () => {
-  const rule = (o) => ({ id: "r1", name: "Wayne", memberIds: ["david", "elliot"], slots: ["dinner"], from: "2026-10-13", until: "2026-11-09", ...o });
-  const t = (o) => ({ id: "a", date: "2026-10-19", slot: "dinner", recipeId: "x", seats: [{ id: "elliot", servings: 1 }], cookId: "elliot", fromBrigade: "r1", ...o });
-  assert.equal(normalizeEvents({ brigades: [rule({ cookId: "elliot", rotateCooks: true })], tables: [t({ buyerId: "david", buyerFrom: "rule" })] }).tables[0].buyerId, "elliot", "a new shopper takes over");
+  const rule = (o) => ({ id: "r1", name: "Wayne", memberIds: ["david", "flatmate"], slots: ["dinner"], from: "2026-10-13", until: "2026-11-09", ...o });
+  const t = (o) => ({ id: "a", date: "2026-10-19", slot: "dinner", recipeId: "x", seats: [{ id: "flatmate", servings: 1 }], cookId: "flatmate", fromBrigade: "r1", ...o });
+  assert.equal(normalizeEvents({ brigades: [rule({ cookId: "flatmate", rotateCooks: true })], tables: [t({ buyerId: "david", buyerFrom: "rule" })] }).tables[0].buyerId, "flatmate", "a new shopper takes over");
   const off = normalizeEvents({ brigades: [rule({ cookId: "david", rotateCooks: false })], tables: [t({ buyerId: "david", buyerFrom: "rule" })] }).tables[0];
   assert.equal(off.buyerId, undefined, "turns stopped: the rule buyer goes");
-  assert.equal(normalizeEvents({ brigades: [rule({ cookId: "david", rotateCooks: true })], tables: [t({ buyerId: "elliot" })] }).tables[0].buyerId, "elliot", "a hand claim stays");
+  assert.equal(normalizeEvents({ brigades: [rule({ cookId: "david", rotateCooks: true })], tables: [t({ buyerId: "flatmate" })] }).tables[0].buyerId, "flatmate", "a hand claim stays");
   assert.equal(normalizeEvents({ brigades: [rule({ cookId: "mom", rotateCooks: true })], tables: [t({})] }).tables[0].buyerId, undefined, "a shopper outside the rule is never filled");
 });

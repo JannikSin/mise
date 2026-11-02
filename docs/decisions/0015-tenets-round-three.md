@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-10-12
-- **Deciders:** David; drafted by session tweener, cross-reviewed by wallfacer
+- **Deciders:** the owner; drafted by session tweener, cross-reviewed by wallfacer
 - **Tenet invoked:** none (this record amends the tenets)
 
 ## Context
@@ -10,8 +10,8 @@
 The 2026-09-21 tenets mixed values with working rules: "his reading is the scarce resource"
 is a session habit, and "the bought week is never disturbed" was already an invariant. The
 2026-10-12 audit showed the app had written no data since 2026-10-04 and that the four foods
-David actually eats were not in the bank, so the tenets were deciding nothing. Three drafting
-rounds, sourced from David's stated goals and the Acquired playbooks (Costco, IKEA, Trader
+The owner actually eats were not in the bank, so the tenets were deciding nothing. Three drafting
+rounds, sourced from the owner's stated goals and the Acquired playbooks (Costco, IKEA, Trader
 Joe's, Hermes), produced the set now in `DOCTRINE.md`. The reasoning is in Crystal
 `Lanes/App-Doctrines-2026-10-12`.
 

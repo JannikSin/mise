@@ -2,7 +2,7 @@
 -- functions, and the row level security policies with their grants.
 -- Plan: ~/.claude/fleet/schelkin-2.0-plan.md revision 3, sections 4.1 and 4.2.
 --
--- WHO SEES WHAT (David's decision 1, 2026-10-27): plate cards for everyone,
+-- WHO SEES WHAT (the owner's decision 1, 2026-10-27): plate cards for everyone,
 -- the family house included; full profiles for the admin only. So a `targets`
 -- or `health` row is readable by its owner and the admin and nobody else, in
 -- every house; housemates and live guests' hosts read the `plates` row.

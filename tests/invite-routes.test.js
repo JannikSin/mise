@@ -101,7 +101,7 @@ test("a claim spends the code FIRST, then writes both targets files and one prof
     {
       sandbox: {
         "invites.json": { invites: [invite()] },
-        "profiles.json": { profiles: [{ id: "david", name: "David", household: "wayne" }] },
+        "profiles.json": { profiles: [{ id: "david", name: "Owner", household: "wayne" }] },
       },
       main: { "invites.json": { invites: [] }, "profiles.json": { profiles: [{ id: "david" }] } },
     },
@@ -276,7 +276,7 @@ test("status: unclaimed before, then only this person's live seats with their pl
         "invites.json": { invites: [invite({ code: "bbbbbbbbbbbbbbbbbbbb" }), used] },
         "profiles.json": {
           profiles: [
-            { id: "david", name: "David" },
+            { id: "david", name: "Owner" },
             { id: "priya", name: "Priya", household: "guesthouse" },
           ],
         },
@@ -294,7 +294,7 @@ test("status: unclaimed before, then only this person's live seats with their pl
               ],
               tailor: {
                 seats: {
-                  david: { plate: ["DAVID SECRET"] },
+                  david: { plate: ["OWNER SECRET"] },
                   priya: { plate: ["add 100 g pasta"] },
                 },
               },
@@ -329,7 +329,7 @@ test("status: unclaimed before, then only this person's live seats with their pl
       assert.equal(out.rows.length, 1, "the table she is not seated at is not returned");
       assert.equal(out.rows[0].dish, "Chicken Piccata");
       assert.deepEqual(out.rows[0].plate, ["add 100 g pasta"]);
-      assert.ok(!JSON.stringify(out).includes("DAVID SECRET"), "no other seat's plate leaks");
+      assert.ok(!JSON.stringify(out).includes("OWNER SECRET"), "no other seat's plate leaks");
       assert.equal(out.rows[0].cook, "your host");
     },
   );
@@ -376,7 +376,7 @@ test("the dinners a guest picks on the form land on their profile row (2026-10-1
     {
       sandbox: {
         "invites.json": { invites: [invite()] },
-        "profiles.json": { profiles: [{ id: "david", name: "David", household: "wayne" }] },
+        "profiles.json": { profiles: [{ id: "david", name: "Owner", household: "wayne" }] },
       },
       main: { "invites.json": { invites: [] }, "profiles.json": { profiles: [] } },
     },
@@ -397,7 +397,7 @@ test("a roommate invite never carries picked dinners onto the profile (2026-10-1
     {
       sandbox: {
         "invites.json": { invites: [invite({ house: "wayne" })] },
-        "profiles.json": { profiles: [{ id: "david", name: "David", household: "wayne" }] },
+        "profiles.json": { profiles: [{ id: "david", name: "Owner", household: "wayne" }] },
       },
       main: { "invites.json": { invites: [] }, "profiles.json": { profiles: [] } },
     },

@@ -75,12 +75,12 @@ test("all cooked + receipt = 100, no phantom log component", () => {
 test("rankScoreboard sorts by score desc, name as stable tiebreak", () => {
   const rows = [
     { name: "Mom", score: 80 },
-    { name: "David", score: 95 },
-    { name: "Lena", score: 80 },
+    { name: "Owner", score: 95 },
+    { name: "Wren", score: 80 },
   ];
   assert.deepEqual(
     rankScoreboard(rows).map((r) => r.name),
-    ["David", "Lena", "Mom"],
+    ["Owner", "Mom", "Wren"],
   );
 });
 

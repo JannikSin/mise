@@ -1,4 +1,4 @@
-// LINK A ROOMMATE (David, 2026-10-16: "click on a profile maybe and then link
+// LINK A ROOMMATE (the owner, 2026-10-16: "click on a profile maybe and then link
 // it to yourself, so like if you're roommates ... all the meals are like
 // that"). The household half is the same write Settings' ADD TO THIS HOUSE
 // made, moved here so the People tab and nothing else owns it: the person

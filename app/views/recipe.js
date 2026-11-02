@@ -213,7 +213,7 @@ export function RecipeView({
   const plan = (() => {
     const ings = basePlan.ingredients ?? [];
     // a per-bowl dish has no pot: the table's pooled rows must never replace
-    // this eater's one bowl (David 2026-09-07: "are two people sharing 1.5
+    // this eater's one bowl (the owner 2026-09-07: "are two people sharing 1.5
     // cups? Is that what it is?")
     if (basePlan.mode === "bowl") return basePlan;
     if (!potRows || potRows.length !== ings.length) return basePlan;
@@ -229,7 +229,7 @@ export function RecipeView({
       note: basePlan.mode === "batch" ? basePlan.note : "Amounts for tonight's table.",
     };
   })();
-  // COOK FOR N (Mise 2.0, D-03; David, Sun 10/18: he needed the curry for 4
+  // COOK FOR N (Mise 2.0, D-03; the owner, Sun 10/18: he needed the curry for 4
   // and could not tell how to scale it). Not for a per-bowl dish or a
   // rotating one: those lists are one portion by design (isPerBowl).
   const scalable = !rotates(recipe) && plan.mode !== "bowl";
@@ -242,7 +242,7 @@ export function RecipeView({
   const ingredients = forN ? forN.ingredients : plan.ingredients;
   // an optional row the viewer avoids never refuses the dish (plan.js), so it
   // is left off their list here, and the page says so (1.96 Final Gate, Red
-  // Team F2: Elliot read "peanut butter (sweet option)" with nothing around it)
+  // Team F2: the housemate read "peanut butter (sweet option)" with nothing around it)
   const optionalOff = leftOffFor(
     ingredients.filter((/** @type {any} */ i) => i.optional),
     avoid,
@@ -256,7 +256,7 @@ export function RecipeView({
       <div class="meta num">
         ${recipe.totalTime}m ·${" "}
         ${
-          // NO SERVING COUNTS (David, 2026-08-10). "cooking 0.75 of 3" and
+          // NO SERVING COUNTS (the owner, 2026-08-10). "cooking 0.75 of 3" and
           // "makes 9.75 servings" are the app talking to itself. A serving is
           // only a denominator for the macros; it is not an amount of food any
           // particular person should eat, and printing it invites exactly the
@@ -335,7 +335,7 @@ export function RecipeView({
         html`<p class="hint" role="status">promoted: the planner can use this recipe now.</p>`
       }
       ${
-        // NEVER SUGGEST THIS AGAIN (David, 2026-08-24). `targets.avoidRecipes`
+        // NEVER SUGGEST THIS AGAIN (the owner, 2026-08-24). `targets.avoidRecipes`
         // was honoured by the generator for weeks with NO way to write it from
         // the app -- its only entry had been hand-edited into the JSON. A
         // toggle rather than a delete: the recipe stays, so a mistaken tap
@@ -414,7 +414,7 @@ export function RecipeView({
       }
       ${!awake.held && awake.reason && html`<p class="hint awakewhy">☀ ${awake.reason}</p>`}
       ${
-        // THE SERVE TILE (Cook Mode's rehomed last step, David 2026-08-19:
+        // THE SERVE TILE (Cook Mode's rehomed last step, the owner 2026-08-19:
         // "get rid of it entirely", executed once this landed). A shared
         // table's who-gets-what renders HERE, and the COOKED button lives
         // inside the same tile — you still cannot confirm a shared meal
@@ -519,12 +519,12 @@ export function RecipeView({
         </div>`
       }
       ${
-        // TODAY'S ROTATION (David 2026-08-24). The bowl and the smoothie are
+        // TODAY'S ROTATION (the owner 2026-08-24). The bowl and the smoothie are
         // eaten every day, which is right nutritionally and is exactly how a
         // person gets bored. The spine is fixed and the trimmings rotate,
         // deterministically per date so a re-render never reshuffles
         // breakfast, and only within a stated macro tolerance.
-        // ONE LIST (David 2026-09-07, from this very page): this card used to
+        // ONE LIST (the owner 2026-09-07, from this very page): this card used to
         // sit ABOVE a second "Ingredients" list of the whole pool, the card at
         // the recipe's per-serving amounts and the list at the table's pooled
         // total, so the same yogurt read 1 cup here and 1.5 cup there. Now the
@@ -687,7 +687,7 @@ export function RecipeView({
 
       <h2 class="block-title">Steps</h2>
       ${
-        // NOT A GATE any more (David, 2026-07-27: "it is not good for people
+        // NOT A GATE any more (the owner, 2026-07-27: "it is not good for people
         // to not be able to access recipes when not given receipt yet cause
         // sometimes we do have the food"). The steps used to wait behind a
         // scanned receipt; now the receipt is a NOTE. The original worry it

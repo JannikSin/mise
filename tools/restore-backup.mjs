@@ -21,7 +21,7 @@
 // invite email is in pending_links). Last, the row counts are checked inside
 // the transaction; a mismatch rolls everything back.
 //
-// SANDBOX DRILL (Mon 11/2 or later, once the sandbox exists; David at the laptop):
+// SANDBOX DRILL (Mon 11/2 or later, once the sandbox exists; the owner at the laptop):
 //   1. Take a snapshot of the sandbox: psql "<sandbox postgres URL>" -X -q -At
 //      -v ON_ERROR_STOP=1 -f <(node tools/db-snapshot.mjs sql) > before.json
 //   2. node tools/restore-backup.mjs --snapshot before.json --admins <admin slug> --drill   (local check first)

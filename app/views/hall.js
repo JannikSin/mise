@@ -45,7 +45,7 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
   // cannot know what a buffet plate weighed
   const [eatenCal, setEatenCal] = useState("");
   const [eatenPro, setEatenPro] = useState("");
-  // SCAN MY PLATE (P1, P10, David 2026-08-29): a photo of the actual tray,
+  // SCAN MY PLATE (P1, P10, the owner 2026-08-29): a photo of the actual tray,
   // matched against this meal's published items — the model identifies and
   // counts portions, the Worker computes macros from Purdue's own numbers
   const [plateBusy, setPlateBusy] = useState(false);
@@ -101,7 +101,7 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
   // marginal cash cost of zero — so a tray deliberately overshoots protein,
   // and the week's cooking then buys less of the expensive macro.
   //
-  // THE STATED TRAY WINS (David 2026-08-25: "this is buffet style eating...
+  // THE STATED TRAY WINS (the owner 2026-08-25: "this is buffet style eating...
   // i can get lots and lots of food"). buffetMacroEstimate has honoured a
   // currency's stated estCalories/estProtein since 2026-08-24 and its
   // comment promised "the tray composer then AIMS at this figure" — but
@@ -306,7 +306,7 @@ export function HallView({ targets = null, onAddToPlan, forDate = "", forMeal = 
                       ${
                         // the court's own serving language, so "2×" is
                         // answerable at the counter: "2 × 4 oz" is an order,
-                        // "2×" alone is a guess (David 2026-08-29)
+                        // "2×" alone is a guess (the owner 2026-08-29)
                         p.servingSize ? `${p.servingSize} each · ` : ""
                       }${Math.round(p.calories)} kcal · ${Math.round(p.protein)} g protein</small
                     >

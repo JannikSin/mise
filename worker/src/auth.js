@@ -9,7 +9,7 @@
 //    Supabase (SUPABASE_BACKEND), verified against THAT project's JWKS
 //    (jwt.js), then `svc.entitled(sub)`, cached 5 minutes per isolate. Sign-up
 //    and anonymous sign-in are off, so a valid token is an invited person; the
-//    entitlement flag is what lets David switch one off without a deploy.
+//    entitlement flag is what lets the owner switch one off without a deploy.
 //  - The PAT on a branch still on GitHub is 1.95 exactly: every route.
 //  - The PAT on a branch switched to Supabase is AI-ONLY dual-accept (E4): the
 //    AI routes keep working for a phone that has not signed in yet, under ONE
@@ -20,7 +20,7 @@
 // switched branch, takes from a per-person daily allowance AND a global daily
 // ceiling, counted in public.ai_usage through svc.ai_take: ONE call per
 // request that adds the request's weight to the person's row and then the
-// global row (fix loop 1, E9), on David's day in America/Chicago, so the
+// global row (fix loop 1, E9), on the owner's day in America/Chicago, so the
 // allowance resets at midnight Chicago. Two reserved rows sit beside each
 // person's: one shared by every PAT caller and one for the global total. A
 // refused call still counts (the conservative side). A failed quota check
@@ -86,7 +86,7 @@ export function aiWeight(pathname) {
 }
 
 /**
- * Today in David's timezone, YYYY-MM-DD (the quota day and the PAT cutoff).
+ * Today in the owner's timezone, YYYY-MM-DD (the quota day and the PAT cutoff).
  * @param {number} nowMs
  */
 export function chicagoDate(nowMs) {

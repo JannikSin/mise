@@ -174,7 +174,7 @@ function unsafeFor(
  */
 export function composeTray(items, quota, opts = {}) {
   const avoid = new Set((opts.avoidAllergens ?? []).map((a) => String(a).toLowerCase()));
-  // TWO HELPINGS AT MOST (David, 2026-10-18: "Am I actually getting that?"):
+  // TWO HELPINGS AT MOST (the owner, 2026-10-18: "Am I actually getting that?"):
   // on the real Purdue menus three scoops of one thing, 12 oz of shawarma,
   // was how a tray reached 90 g. Nobody eats that; two is a real second plate.
   const maxEach = Math.max(1, opts.maxServingsPerItem ?? 2);
@@ -249,7 +249,7 @@ export function composeTray(items, quota, opts = {}) {
     calories: Math.round(r.item.calories * r.servings),
     protein: Math.round(r.item.protein * r.servings),
     // the court's own stated serving ("4 oz", "1 each"): without it on the
-    // pick, "2x Fajita Chicken" is unactionable at the counter (David
+    // pick, "2x Fajita Chicken" is unactionable at the counter (the owner
     // 2026-08-29: "the portions are very hard to look at and decide")
     servingSize: String(r.item.servingSize ?? ""),
   }));

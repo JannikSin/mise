@@ -1,6 +1,6 @@
 // OCCASIONS — dated overrides that take days off the generator.
 //
-// The gap this closes (David, 2026-08-10): every KIND of situation in Mise
+// The gap this closes (the owner, 2026-08-10): every KIND of situation in Mise
 // used to be a code branch. Numbers and avoid-lists were data you could edit;
 // everything else — a medical prep, a holiday, a travel stretch, a sick week —
 // had no data shape at all, so the only way to express one was new code, which
@@ -8,7 +8,7 @@
 // that swallows the whole class: a name, a date range, whose days it owns, and
 // a fixed script per day.
 //
-// The rule David set: an occasion is FIXED, not generated. On a day an
+// The rule the owner set: an occasion is FIXED, not generated. On a day an
 // occasion owns, the week generator hands off completely (weekbuilder.js reads
 // `entry.occasion` and holds the date exactly like a day already eaten), and
 // the person's seat comes off every shared table those days. No committee, no
@@ -411,7 +411,7 @@ export function occasionFromPreset(preset, anchorIso, profileId, opts = {}) {
   const days = {};
   // A REPEATABLE preset describes one day that stretches to fit: a lake-house
   // weekend is three travel days, not one, and nobody should have to create
-  // three occasions to say so (David, 2026-08-10). A fixed preset ignores the
+  // three occasions to say so (the owner, 2026-08-10). A fixed preset ignores the
   // length entirely — a colonoscopy prep is exactly as long as it is.
   const span = preset.repeatable ? Math.max(1, Math.min(30, Math.round(opts.days ?? 1))) : 1;
   for (const d of preset.days) {
@@ -439,7 +439,7 @@ export function occasionFromPreset(preset, anchorIso, profileId, opts = {}) {
     ...(preset.disclaimer ? { disclaimer: preset.disclaimer } : {}),
     // an occasion takes you off shared tables by default: the house does not
     // eat prep food with you, and a seat you cannot eat still sizes the pot
-    // and lands on somebody's shopping list (David, 2026-08-10)
+    // and lands on somebody's shopping list (the owner, 2026-08-10)
     offTables: opts.offTables ?? true,
     days,
     ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),

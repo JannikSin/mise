@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Mise 2.0 G2: David's step 10, the backup role's password and connection
+// Mise 2.0 G2: the owner's step 10, the backup role's password and connection
 // string, so nothing is typed by hand and no placeholder is ever pasted.
 //
 //   node tools/backup-setup.mjs role-sql --ref <project ref> --pooler-host <host from Connect, Session pooler>

@@ -2,7 +2,7 @@
 
 - **Status:** proposed
 - **Date:** YYYY-MM-DD
-- **Deciders:** David / council / tribunal / session <codeword>
+- **Deciders:** the owner / council / tribunal / session <codeword>
 - **Tenet invoked:** none, or the tenet this decision turned on
 
 ## Context

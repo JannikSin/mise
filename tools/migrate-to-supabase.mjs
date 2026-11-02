@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Mise 2.0 G1: mise-data snapshot -> the Supabase database (plan section 6).
 // Public code: it holds no person's name. Everything personal comes from two
-// local inputs on David's laptop:
+// local inputs on the owner's laptop:
 //   --snapshot <dir>   a local mise-data clone (read only, never fetched)
 //   --people <file>    people.local.json (shape below)
 //
@@ -409,7 +409,7 @@ export function planMigration(snapshotDir, people, opts = {}) {
   if (guarded.length) throw new GateError("name-guard", `${guarded.length} file(s) would show a name to a house it is hidden from`, guarded);
 
   // F2: a mirror that disagrees with its canonical file on a safety key is a
-  // stale copy; the plate follows the canonical file, but refuse so David
+  // stale copy; the plate follows the canonical file, but refuse so the owner
   // looks (counts only)
   /** @type {string[]} */
   const split = [];

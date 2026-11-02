@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  The Sunday release: fast-forward the LIVE branch (main) to the commit David's yes
+  The Sunday release: fast-forward the LIVE branch (main) to the commit the owner's yes
   tagged, verify the live host, re-seed the sandbox data branch. Or roll it back.
   docs/RELEASE_TRAIN.md, "The release, exactly" and "Rollback".
 
@@ -11,7 +11,7 @@
   FORWARD (default):
    1. Consent, bound to a commit: an ANNOTATED tag ship/YYYY-MM-DD must exist on
       origin. Its commit is what ships. If origin/next has moved past it, refuse:
-      code David never saw on his phone does not ship. A .release-hold file in the
+      code the owner never saw on his phone does not ship. A .release-hold file in the
       tagged tree is a kill switch.
    2. Provenance: every commit in origin/main..ship is authored and committed by the
       repo's git identity (a typo guard, not a security control; step 1 is that).
@@ -45,7 +45,7 @@
 
 .PARAMETER Tag
   The ship tag to release. Default: ship/<today>. A second ship the same day is
-  ship/<today>b, then c, d (David, 2026-10-18: four releases in one night).
+  ship/<today>b, then c, d (the owner, 2026-10-18: four releases in one night).
 
 .PARAMETER SkipGates
   Skip lint/typecheck/tests (they were run seconds ago by hand, say). Everything else
@@ -89,7 +89,7 @@ function SwVersion([string]$ref) {
   return [int]$mt.Groups[1].Value
 }
 function MiseRelease([string]$ref) {
-  # the person-facing version (app/lib/release.js, David 2026-10-05): the top
+  # the person-facing version (app/lib/release.js, the owner 2026-10-05): the top
   # entry's version string and date. A ref without the file is the 1.0 baseline.
   # Under $ErrorActionPreference = "Stop", Windows PowerShell 5.1 turns a native
   # command's stderr into a terminating error even when redirected, so a ref
@@ -191,7 +191,7 @@ $date = $Tag.Substring(5, 10)
 # 1. consent: an annotated tag on ORIGIN, at the tip of origin/next
 $remoteTag = (git ls-remote --tags origin "refs/tags/$Tag") -split "\s+"
 if (-not $remoteTag -or -not $remoteTag[0]) { Fail "no $Tag on origin. No tag, no release: the yes is recorded as a pushed annotated tag" }
-if ((git cat-file -t $Tag) -ne "tag") { Fail "$Tag is a lightweight tag; the yes is an ANNOTATED tag whose message records the commit and David's words" }
+if ((git cat-file -t $Tag) -ne "tag") { Fail "$Tag is a lightweight tag; the yes is an ANNOTATED tag whose message records the commit and the owner's words" }
 $shipSha = Sha $Tag
 if ($shipSha -ne $nextSha) {
   Fail "origin/next ($($nextSha.Substring(0,7))) has moved past $Tag ($($shipSha.Substring(0,7))). Code he never saw does not ship: re-tag or stop"
@@ -236,12 +236,12 @@ if ($shellChanged -and $vShip -le $vMain) {
   Fail "shell files changed but CACHE_VERSION did not move (main v$vMain, $Tag v$vShip):`n$($shellChanged -join "`n")"
 }
 
-# 4b. release version gate (David, 2026-10-05): the number is chosen at ship
+# 4b. release version gate (the owner, 2026-10-05): the number is chosen at ship
 # time, sized to the improvement, and only moves up as a decimal (1.1 < 1.15 <
 # 1.5 < 2.0). The tag's top entry must be that number, above live's, dated today.
 $rMain = MiseRelease $mainSha
 $rShip = MiseRelease $shipSha
-if ($rShip.v -notmatch '^\d+\.\d+$') { Fail "the top release in app/lib/release.js is '$($rShip.v)'; name it (propose the number to David, he confirms) and date it $date, then re-tag" }
+if ($rShip.v -notmatch '^\d+\.\d+$') { Fail "the top release in app/lib/release.js is '$($rShip.v)'; name it (propose the number to the owner, he confirms) and date it $date, then re-tag" }
 if ([decimal]$rShip.v -le [decimal]$rMain.live) { Fail "release version did not move up (live v$($rMain.live), $Tag v$($rShip.v))" }
 if ($rShip.date -ne $date) { Fail "release v$($rShip.v) is dated '$($rShip.date)', the ship day is $date; date it in app/lib/release.js and re-tag" }
 Write-Host "4b. release version: live v$($rMain.live) -> v$($rShip.v) ($date)"

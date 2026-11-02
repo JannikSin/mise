@@ -57,7 +57,7 @@ test("tour state round-trips per profile and tolerates junk", () => {
 });
 
 test("the tour overlay always renders an escape, even with no card", () => {
-  // David, 2026-07-26: the app painted and scrolled but no control worked.
+  // The owner, 2026-07-26: the app painted and scrolled but no control worked.
   // .tour is fixed inset:0 and swallows every tap, and the card only renders
   // once a step's target has been MEASURED. A step whose element never
   // resolves therefore left an invisible, inescapable blocker over the whole

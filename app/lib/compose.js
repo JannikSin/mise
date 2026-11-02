@@ -39,7 +39,7 @@ const FALLBACK_SAFE_DAYS = 3;
 const LEFTOVER_SLOTS = new Set(["dinner"]);
 /** the longest a no-cook night may sit from the pot it eats (the bank's longest safeDays) */
 const MAX_LEFTOVER_DAYS = 4;
-/** one snack bake feeds this many days in a row (David, 2026-09-24) */
+/** one snack bake feeds this many days in a row (the owner, 2026-09-24) */
 const SNACK_BATCH_DAYS = 3;
 /** dishes written to be cooked once and eaten again (same tag set portions.js keys its ledger on) */
 const BATCH_TAGS = new Set([
@@ -81,7 +81,7 @@ const familiesOf = (/** @type {Record<string, any> | undefined} */ r) =>
 const MEAL_STEPS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 const LIGHT_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const LIGHT_SLOTS = new Set(["smoothie", "snack"]);
-// WHERE THE SMOOTHIE'S CALORIES GO (David, 2026-09-13, after dropping the
+// WHERE THE SMOOTHIE'S CALORIES GO (the owner, 2026-09-13, after dropping the
 // smoothie slot: "reportion the amount that was going to smoothie to the rest
 // of the things, probably other snack, so like baked goods, muffin thing, or
 // to the dinner... don't know if need to add more to breakfast cause I don't
@@ -325,7 +325,7 @@ export function solveSeatDay(dishes, bands, sigma, fixed = {}) {
  *   (Engineer, loop 2: a flat count chose back-to-back stew over three
  *   equally-landing alternatives at zero arithmetic cost). Variety is
  *   still only a tie-break the bands outrank, in both directions.
- *   `recentClassBySlot` (David, 2026-09-05: "switch up the proteins for
+ *   `recentClassBySlot` (the owner, 2026-09-05: "switch up the proteins for
  *   each meal, so chicken is fine for 1 night a week but mix in ground beef
  *   and ground turkey... and maybe fish") names the PROTEIN CLASSES a slot
  *   served on nearby cook nights; a pick whose class repeats costs
@@ -635,7 +635,7 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
  *   tripItems?: (recipeId: string) => { key: string, cost: number, need?: { food: string, qty: number, unit: string }[] }[],
  *   priceNeed?: (food: string, qty: number, unit: string) => number,
  *   budgetUsd?: number,
- * }} ctx `costOf` (David's yes, 2026-08-30: "let the composer see cost...
+ * }} ctx `costOf` (the owner's yes, 2026-08-30: "let the composer see cost...
  *   the composer needs to work to reduce it") turns on the WEEK-LEVEL cost
  *   sweep: the week composes exactly as without it, then slot-by-slot swaps
  *   are accepted only when the day gets strictly cheaper, no seat's status
@@ -664,7 +664,7 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
  *   COOK, which eat LEFTOVERS and from which cook date, and which no-cook
  *   nights had no pot inside its safe window and were cooked after all.
  *
- *   COOK DAYS (David, 2026-09-05: "i want to only have to cook maybe 3
+ *   COOK DAYS (the owner, 2026-09-05: "i want to only have to cook maybe 3
  *   dinners a week... make a larger quantity and then have leftovers cause
  *   especially for busy nights that's easier"). `brigade.cookDays` names the
  *   weekdays dinner is cooked. Every other night's dinner is the NEAREST
@@ -675,7 +675,7 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
  *   cooked after all and named in `nights.uncovered`, never left empty.
  *   Absent cookDays = cook every night, exactly the old behaviour.
  *
- *   SLOT RECIPES (David, same day: "breakfast should just be variations of
+ *   SLOT RECIPES (the owner, same day: "breakfast should just be variations of
  *   greek yogurt bowls, no pancakes or breakfast balls"). `brigade.slotRecipes`
  *   narrows one slot's pool to named ids; the screens still apply, and a list
  *   that screens down to nothing falls back to the full pool with a note.
@@ -795,7 +795,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // PICK DIFFERENT MEALS and stored ON the brigade so every device agrees)
   // reshuffles the walk: deterministic means same inputs, same week — so a
   // re-roll must CHANGE an input, or the button hands back the identical
-  // seven days it promised to replace (David's question, 2026-08-30).
+  // seven days it promised to replace (the owner's question, 2026-08-30).
   const seed = `${brigade.id}${Number(/** @type {any} */ (brigade).salt) > 0 ? `#${Number(/** @type {any} */ (brigade).salt)}` : ""}`;
   /** @type {Record<string, Record<string, any>[]>} */
   const poolsBySlot = {};
@@ -840,8 +840,8 @@ export function planBrigadeWeek(events, brigade, ctx) {
         );
       }
     }
-    // EVERY DINNER HAS MEAT (David, 2026-09-25: "each dinner has a meat
-    // protein. that will be a dealbreaker with elliot so cauliflower is not a
+    // EVERY DINNER HAS MEAT (the owner, 2026-09-25: "each dinner has a meat
+    // protein. that will be a dealbreaker with the housemate so cauliflower is not a
     // meal"): the dinner pool keeps only dishes anchored on chicken, turkey,
     // beef or pork. Nothing qualifying = say so and keep the pool, never an
     // empty dinner.
@@ -853,7 +853,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
           "dinner: no dish with meat passes every member's screen, so the full pool is used",
         );
     }
-    // LEFTOVER-FIRST DINNERS (David, 2026-10-17: "make them what the engine
+    // LEFTOVER-FIRST DINNERS (the owner, 2026-10-17: "make them what the engine
     // chooses for dinners"). A kitchen that does not cook every night eats
     // each pot two or three times, so its dinners come from the dishes
     // written for that: tagged "leftover-first" (big pot or the 9x13, hold
@@ -909,7 +909,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // THE DINNER SCHEDULE, decided before any dish is (phase 1). Every no-cook
   // night in the run is handed to one cook night: the candidates are the
   // run's cook nights up to MAX_LEFTOVER_DAYS earlier, and the pick is the
-  // MOST RECENT pot. David, 2026-09-13: "have leftovers be on consecutive
+  // MOST RECENT pot. The owner, 2026-09-13: "have leftovers be on consecutive
   // days, so if I make Tuesday, the same meal will be leftover on Wednesday."
   // The 2026-09-05 round-robin (Sunday's pot on Tuesday and Thursday,
   // Monday's on Wednesday) put a different dinner between a pot and its own
@@ -923,7 +923,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
   const leftoverPlan = new Map();
   /** @type {Map<string, string[]>} cook date -> the no-cook dates it feeds */
   const fedBy = new Map();
-  // THE SUNDAY BATCH (David, 2026-09-24: "Tue + Wed: ONE separate meal,
+  // THE SUNDAY BATCH (the owner, 2026-09-24: "Tue + Wed: ONE separate meal,
   // batch-cooked on SUNDAY"). `brigade.batches` names weekdays eaten from a
   // second pot cooked on `cookDay`. The first such night in the run is the
   // batch's own table, stamped `preparedOn` its cook date; the later ones are
@@ -934,7 +934,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
   const preparedOnMap = new Map();
   /** @type {Set<string>} */
   const batchNights = new Set();
-  // SUNDAY'S DINNER IS THE BATCH (David, 2026-10-18: "Sunday dinner is always
+  // SUNDAY'S DINNER IS THE BATCH (the owner, 2026-10-18: "Sunday dinner is always
   // the batch"; 2.0, I-14). With `sundayBatch` on, Sunday cooks ONE pot: no
   // second Sunday dish is planned, and the no-cook nights after it eat
   // Sunday's dinner by the most-recent-pot rule below, so with Sun Fri Sat
@@ -944,7 +944,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // Sunday (kept by SET MY WEEK, cooked, or bought) stays exactly as it is.
   // planBrigadeWeek reads only `true`; the app applies the default ON
   // (sundayBatchOn) before it plans, so every rule here plans as written.
-  // SUNDAY COOKS TWO POTS (David, 2026-10-25: "meal A eaten Sun and Mon;
+  // SUNDAY COOKS TWO POTS (the owner, 2026-10-25: "meal A eaten Sun and Mon;
   // meal B for Tue, Wed, Thu, fully prepped Sunday ... EXCEPT the meat"). With
   // `sundayTwoPots` on (the app applies the default through sundayTwoPotsOn)
   // and at least three nights after Sunday that do not cook, Sunday's dinner
@@ -1170,7 +1170,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
   const composedDays = [];
   /** @type {Map<number, Record<string, any>>} the bake each snack batch of this run uses */
   const snackBakes = new Map();
-  // A SET MEAL IS KEPT ONLY IF ITS FOOD WAS BOUGHT (David, 2026-09-06: "there's
+  // A SET MEAL IS KEPT ONLY IF ITS FOOD WAS BOUGHT (the owner, 2026-09-06: "there's
   // an overlap... I don't even know what we're making Sunday"). The plain SET
   // used to keep every fully-set day as "already bought", which protected a
   // Sunday bulgogi nobody had shopped for. `ctx.bought` says whether a table's
@@ -1180,7 +1180,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // Since 2.0 the app's SET passes `keepSet` (below), so this rule now decides
   // only PICK DIFFERENT MEALS and past pots; the plain SET keeps set meals.
   //
-  // a PINNED table is a dish a person chose for that night by hand (David,
+  // a PINNED table is a dish a person chose for that night by hand (the owner,
   // 2026-09-07: "switch the beef kofta with the lentil bolognese"): kept
   // through every plain SET whatever the pantry says, and never cost-swept.
   //
@@ -1295,9 +1295,9 @@ export function planBrigadeWeek(events, brigade, ctx) {
     }
     // A BOUGHT DAY KEEPS ITS DISHES, NOT ITS PORTIONS (2026-10-16). This
     // path used to skip the whole day once its food read as bought, which
-    // froze the old seat sizes and the old rotating cook: after David turned
+    // froze the old seat sizes and the old rotating cook: after the owner turned
     // "take turns" off and moved his cook nights, Thursday kept a plan made
-    // for the old rule and landed 3,100 kcal, Friday 5,145, with Elliot still
+    // for the old rule and landed 3,100 kcal, Friday 5,145, with the housemate still
     // named cook. Only a day whose every meal is cooked (or pinned by hand)
     // is left alone now; a bought day is composed again with each bought
     // dish pinned below, so only the portions and the cook move.
@@ -1386,7 +1386,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
     /** @type {{ batchNo: number, cands: Record<string, any>[] } | null} a snack batch not yet locked: its bake is chosen once the day's dishes are known */
     let pendingBake = null;
     for (const slot of liveSlots) {
-      // A PINNED DISH IS THE SLOT'S ONLY CANDIDATE (David, 2026-09-07): the
+      // A PINNED DISH IS THE SLOT'S ONLY CANDIDATE (the owner, 2026-09-07): the
       // day composes and sizes every plate around it. Without this the keep
       // rule compared the committee's pick to the pinned dish, found them
       // different, and overwrote Friday's kofta with a minestrone.
@@ -1483,7 +1483,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         const need = Math.max(...[date, ...feeds].map((d) => dayOffset(d) - dayOffset(from)));
         const safe = pool.filter((r) => safeDaysOf(r) >= need);
         if (safe.length > 0) pool = safe;
-        // THE DISH HAS TO FIT THE PAN (David, 2026-10-17: "confirm every dish
+        // THE DISH HAS TO FIT THE PAN (the owner, 2026-10-17: "confirm every dish
         // scales ... if a bake can't hold 8, say so"). A recipe may declare
         // `maxServings`, what its pot or the 4.3 L Pyrex holds; a cook night
         // only picks a dish that holds every portion its pot must feed (each
@@ -1522,11 +1522,11 @@ export function planBrigadeWeek(events, brigade, ctx) {
         const batch = pool.filter(isBatchDish);
         if (batch.length >= 3) pool = batch;
         // a Sunday BATCH sits in the fridge for days before it is eaten: it
-        // must reheat well (David, 2026-09-24: "not fish, not crispy things,
+        // must reheat well (the owner, 2026-09-24: "not fish, not crispy things,
         // nothing that turns mushy"), so batch-style dishes only, never fish,
         // and a dish that keeps a day past the need when there is one.
         // The same holds for a cook night whose OWN pot feeds three or more
-        // nights (David, 2026-10-18: "Sunday dinner is always the batch"):
+        // nights (the owner, 2026-10-18: "Sunday dinner is always the batch"):
         // with no separate batch, Sunday's dinner pot is the one that sits in
         // the fridge until Thursday, so it gets the batch rules too (P4, P7).
         if (prepDay || feeds.length >= 3) {
@@ -1554,7 +1554,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         }
         dayPools[slot] = pool;
       }
-      // SNACKS ARE BATCHES (David, 2026-09-24: "a batch of muffins lasts
+      // SNACKS ARE BATCHES (the owner, 2026-09-24: "a batch of muffins lasts
       // about 3 to 4 days"). One bake feeds SNACK_BATCH_DAYS days in a row;
       // the pool collapses to that bake so the day only sizes portions. A new
       // bake every day bought a jar of syrup, two bags of chips and a bag of
@@ -1606,13 +1606,13 @@ export function planBrigadeWeek(events, brigade, ctx) {
           // found live 2026-09-25): cost alone picked the 210-kcal protein
           // muffin for the whole batch, and three servings of it cannot
           // carry an afternoon, so Fri, Sat and Sun sat under the floor until
-          // David unticked it by hand. The batch is still ONE bake, still the
+          // The owner unticked it by hand. The batch is still ONE bake, still the
           // cheapest, but "cheapest" is judged among bakes that let every
           // seat land on the batch's first day; the lock happens below, once
           // the day's other dishes are known (dinner is picked after snack).
           // A different bake from last batch is still preferred, but it no
           // longer outranks the floor: the previous bake goes LAST in line,
-          // so it is chosen again only when nothing else lands (David,
+          // so it is chosen again only when nothing else lands (the owner,
           // 2026-08-30: "repetition is a feature, not a cost").
           const cands = [
             ...ranked.filter((r) => r.id !== prev?.id),
@@ -1661,7 +1661,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
       // "Your meals" card when a meal is switched off): treated like a blocked
       // slot, SKIPPED with auto, recomputed every run, so switching it back on
       // seats them again. Explicit opt-out ONLY: the first cut keyed on the
-      // profile's mealSlots list, and David's profile had never listed
+      // profile's mealSlots list, and the owner's profile had never listed
       // "snack" (the brigade added that slot on 08-28), so he was silently
       // off the bake for one build. A brigade slot nobody opted out of is
       // eaten by everyone, as before.
@@ -1865,7 +1865,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
     });
   }
 
-  // THE WEEK-LEVEL COST SWEEP (David's yes, 2026-08-30). Runs AFTER the
+  // THE WEEK-LEVEL COST SWEEP (the owner's yes, 2026-08-30). Runs AFTER the
   // whole week composes, so it sees the final freshness landscape a per-day
   // greedy cannot: a swap is accepted only when the day gets strictly
   // cheaper, no seat's day-status degrades, and the incoming dish is fresh
@@ -1951,7 +1951,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
       }
       return metric;
     };
-    // THE TRIP, NOT THE PLATE (David, 2026-09-24: "the planner NEEDS to have
+    // THE TRIP, NOT THE PLATE (the owner, 2026-09-24: "the planner NEEDS to have
     // pantry, ingredient overlap and budget, that is like the whole point").
     // With tripItems, a swap is scored by what it adds to THIS trip: every
     // food the kitchen lacks costs its whole package, once for the whole
@@ -2101,7 +2101,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
               const nextServed = new Map(served);
               nextServed.set(cd.date, String(alt.id));
               // the budget may repeat a breakfast or a snack, never a dinner
-              // (David, 2026-09-25: "Fri and Sat are two separate meals ... no
+              // (the owner, 2026-09-25: "Fri and Sat are two separate meals ... no
               // dinner repeats across the week except the batch")
               if (
                 (!relaxVariety || slot === "dinner") &&
@@ -2274,8 +2274,8 @@ export function planBrigadeWeek(events, brigade, ctx) {
       }
       plateScreen(seatRows, meal, date, slot);
       // WHO COOKS THIS POT, one answer on every row it touches (2.0, I-14;
-      // P3d: the Sunday card said Elliot cooks "plus the batch", Monday's
-      // batch named David, and the leftover nights named whoever's turn the
+      // P3d: the Sunday card said the housemate cooks "plus the batch", Monday's
+      // batch named the owner, and the leftover nights named whoever's turn the
       // eating night was, so each phone told its owner "you cooked it"). A
       // batch is cooked on its PREP day, so that day's cook owns it (Tribunal
       // loop 2, 2026-10-18); a leftover night cooks nothing, so it names the
@@ -2292,7 +2292,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
                 : date,
             );
       // meal B: a Sunday-prepped pot whose meat is cooked fresh (cadence.js)
-      // "once" = the first B night cooks all of B's meat (the default, David's
+      // "once" = the first B night cooks all of B's meat (the default, the owner's
       // latest: "maybe make the ground beef ... on Tuesday"); "daily" = each
       // night cooks its own share (`meatDaily` on the rule)
       const wantFresh =
@@ -2334,7 +2334,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
           ? { preparedOn: preparedOnMap.get(date) }
           : {}),
         ...(wantFresh ? { proteinFresh: wantFresh } : {}),
-        // ONE LIST, ONE BUYER (David, 2026-10-18: "taking turns on cooking
+        // ONE LIST, ONE BUYER (the owner, 2026-10-18: "taking turns on cooking
         // should not be dependent or even affect who buys the list ... there
         // should only be one list compiled and one list bought"): when cooks
         // take turns, every table is bought by the kitchen's shopper (the
@@ -2364,7 +2364,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         if (!solved) continue;
         // a seat the plate screen took off a dish does not eat it: the
         // report subtracts that plate, and the day can no longer read as met
-        // (Tribunal Engineer, round 2: Elliot screened off a pinned dinner
+        // (Tribunal Engineer, round 2: the housemate screened off a pinned dinner
         // still reported "band")
         let offKcal = 0;
         let offProtein = 0;

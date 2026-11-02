@@ -39,7 +39,7 @@ test("cookPlan single mode scales an everyday recipe down to the meal", () => {
     p.ingredients.map((i) => i.qty),
     [14, 1],
   );
-  // no serving counts in anything a person reads (David, 2026-08-10)
+  // no serving counts in anything a person reads (the owner, 2026-08-10)
   assert.match(p.note, /YOUR plate/);
   assert.ok(!/serving/i.test(p.note), p.note);
 });
@@ -77,7 +77,7 @@ test("cookPlan full mode: cooking the whole recipe (or cookbook browse) doesn't 
 });
 
 test("cooking MORE than the recipe makes scales every ingredient UP (family batch)", () => {
-  // David 2026-08-03: "cook ×5.75 of a 2-serving recipe" showed the
+  // The owner 2026-08-03: "cook ×5.75 of a 2-serving recipe" showed the
   // 2-serving amounts with a multiplier to do in your head. The cook reads
   // real numbers now.
   const recipe = {
@@ -100,7 +100,7 @@ test("cooking MORE than the recipe makes scales every ingredient UP (family batc
   assert.equal(cookPlan(recipe, 2).mode, "full");
 });
 
-// ---- assembled per bowl (David 2026-09-07, the yogurt bowl's 1 cup vs 1.5 cup) --
+// ---- assembled per bowl (the owner 2026-09-07, the yogurt bowl's 1 cup vs 1.5 cup) --
 
 import { readFileSync } from "node:fs";
 import { isPerBowl } from "../app/lib/portions.js";
@@ -176,7 +176,7 @@ test("THE LIVE YOGURT BOWL is per bowl, and its list scales with the seat", () =
   assert.equal(yogurt.qty, 0.75);
 });
 
-// Mise 2.0, D-03 (David, Sun 10/18: he needed the curry for 4 and could not
+// Mise 2.0, D-03 (the owner, Sun 10/18: he needed the curry for 4 and could not
 // tell how to scale it). The real recipe's shape: 4 portions, one skillet.
 const CURRY_D03 = {
   id: "one-pot-coconut-curry-chicken",

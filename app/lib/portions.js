@@ -21,7 +21,7 @@ export function isBatchRecipe(recipe) {
 }
 
 /**
- * ASSEMBLED PER BOWL (David, 2026-09-07, from the recipe page: "a Greek yogurt
+ * ASSEMBLED PER BOWL (the owner, 2026-09-07, from the recipe page: "a Greek yogurt
  * bowl is not really something you cook together, it's something you assemble
  * separately... so it makes sense just to give you the one portion, but make
  * sure that's known"). A dish written for ONE eater with nothing going through
@@ -127,7 +127,7 @@ export function cookPlan(recipe, plannedServings) {
 
   // cooking MORE than the recipe makes (a family-dinner batch: 5.75 servings
   // of a 2-serving recipe): scale every ingredient UP so the cook reads real
-  // amounts, never "the recipe ×2.9 in your head" (David, 2026-08-03)
+  // amounts, never "the recipe ×2.9 in your head" (the owner, 2026-08-03)
   if (eat > makes) {
     const ratio = eat / makes;
     return {
@@ -206,7 +206,7 @@ export const COOK_FOR_MIN = 1;
 export const COOK_FOR_MAX = 24;
 
 /**
- * COOK THIS FOR N (Mise 2.0, D-03; David's live guest test, Sun 10/18: he
+ * COOK THIS FOR N (Mise 2.0, D-03; the owner's live guest test, Sun 10/18: he
  * needed the coconut curry for 4 and could not tell how to scale it). The
  * recipe page only ever showed amounts already scaled to a plan or a table,
  * with the yield deliberately unprinted (NO SERVING COUNTS, 2026-08-10), so a

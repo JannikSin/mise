@@ -38,7 +38,7 @@ test("the retired fitness routes land on Plan, not on nothing", () => {
 });
 
 test("recipe detail carries the id, and old cook-mode URLs land on the recipe", () => {
-  // Cook Mode removed 2026-08-19 (David: "get rid of that entirely"); the
+  // Cook Mode removed 2026-08-19 (the owner: "get rid of that entirely"); the
   // /cook suffix survives in bookmarks and muscle memory, so it aliases
   assert.deepEqual(parseRoute("#/recipe/beef-bulgogi-rice-bowl"), {
     view: "recipe",

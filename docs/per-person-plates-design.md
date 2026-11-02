@@ -1,9 +1,9 @@
 # Per-person plates v2.2: the transform, the serve step, and the table roles
-> **2026-08-19 UPDATE: Cook Mode (CookView) is REMOVED** (David: "get rid of that entirely"). Every reference to CookView / the Cook Mode serve step below now lives on the RECIPE PAGE: the serve tile carries who-gets-what and the table COOKED button in one tile (same structural guarantee, one page), the plan-entry COOKED write is the cook timer's END, and old /recipe/<id>/cook URLs alias to the recipe route.
+> **2026-08-19 UPDATE: Cook Mode (CookView) is REMOVED** (the owner: "get rid of that entirely"). Every reference to CookView / the Cook Mode serve step below now lives on the RECIPE PAGE: the serve tile carries who-gets-what and the table COOKED button in one tile (same structural guarantee, one page), the plan-entry COOKED write is the cook timer's END, and old /recipe/<id>/cook URLs alias to the recipe route.
 
 
 Date: 2026-08-10. Status: **PLAN ONLY, nothing built.** Version history: v1
-(Opus 5) was torn down on David's order ("not built with the correct
+(Opus 5) was torn down on the owner's order ("not built with the correct
 mission"). v2 was rebuilt through a five-seat council with anonymous
 cross-review and a chairman verdict. v2 went through a Tribunal plan gate:
 Red Team BLOCK (3 holes), Engineer 7 blockers; v2.1 closed all of them. The
@@ -12,7 +12,7 @@ plating) and v2.2 splits them; every re-review finding is folded in, and
 the closing Loyalist pass (verdict: PASS WITH CONCERNS, all concerns folded
 in: §3 gates only the engine, the §7.1 denominator is pre-buy, the kill
 review extends on short evidence, the head gains the tailoring control
-David asked for, and two overrules moved to §14 for his decision) is the
+The owner asked for, and two overrules moved to §14 for his decision) is the
 final state of this plan. The corrections are marked inline.
 
 **The one-breath truth model (v2.2):** the FROZEN POT is the contract for
@@ -20,7 +20,7 @@ money and buying. PLATES are always the per-seat solved amounts, derived
 from durable stored inputs, never a redistribution of the pot. A missing
 seat's food is a named remainder, never spread across the table. Prior history: the 2026-08-10 morning council BLOCKED
 transforms, its same-day Tribunal blocked the replacement plan, v74-v76
-shipped the bug fixes, David reaffirmed the transform direction three
+shipped the bug fixes, the owner reaffirmed the transform direction three
 times. Do not relitigate WHETHER; this spec is HOW.
 
 **Read this whole file before writing code.** It is written for a fresh
@@ -28,15 +28,15 @@ session with none of the conversation that produced it. Every invariant in
 §8 exists because something was verified to break without it.
 
 **Privacy note (Tribunal, Lawyer):** this file lives in the PUBLIC repo, so
-it names no family member but David, carries no real targets, and names no
-medical procedure. Seats are called A (gain phase, the builder, David),
+it names no family member but the owner, carries no real targets, and names no
+medical procedure. Seats are called A (gain phase, the builder, the owner),
 B (loss phase, carries an avoid list), C (recomp), D (unconfigured). Real
 numbers live in the private data repo (`profiles/<id>/fitness/targets.json`).
 Two pre-existing public-repo leaks are listed in §15 as day-one cleanup.
 
 ---
 
-## 0. The mission, in David's words
+## 0. The mission, in the owner's words
 
 > "You take that recipe, and then you multiply it by your profile, which gives
 > it what it should change. And then you do that for each person that's in the
@@ -48,7 +48,7 @@ Two pre-existing public-repo leaks are listed in §15 as day-one cleanup.
 > "There should be, after you say finished cooking, a setting-the-table or
 > plating instruction. It lists out plainly and clearly what each person gets."
 
-> "I don't want the recipe to say this has 9.75 servings because David needs
+> "I don't want the recipe to say this has 9.75 servings because the owner needs
 > three and dad needs 2.75. What are you trying to do, make me fat? I'm eating
 > ONE serving. Mine."
 
@@ -57,7 +57,7 @@ Two pre-existing public-repo leaks are listed in §15 as day-one cleanup.
 
 ### 0.1 The identity this document is built around
 
-David's design IS a matrix multiplication, and the spec says so plainly
+The owner's design IS a matrix multiplication, and the spec says so plainly
 because it is the organizing idea of everything below:
 
 ```
@@ -90,7 +90,7 @@ Verified in code and live data on 2026-08-10. Re-verify before trusting.
    term.** This is the single most important fact in this file: any plan
    whose step 1 "surfaces existing plate data" ships plates correct on the
    axis nobody complained about and silent on the axis the engine exists
-   for. That is what v1 did, and it is the mechanical reason David's
+   for. That is what v1 did, and it is the mechanical reason the owner's
    "engineered to never ship" complaint was correct.
 4. **The AI tailor exists** (`worker/src/lib.js` `TAILOR_TOOL`, auto-runs
    v76, once per table gated by a `tried` map) and its numbers feed the day
@@ -124,7 +124,7 @@ Verified in code and live data on 2026-08-10. Re-verify before trusting.
 
 ## 2. The core decision: deterministic, not AI
 
-David's "multiply by your profile" is a deterministic function. Build the
+The owner's "multiply by your profile" is a deterministic function. Build the
 transform as pure closed-form arithmetic:
 
 |                         | AI tailor (today)                                         | Transform (this spec)                                                                         |
@@ -160,12 +160,12 @@ pot exists.
 
 **Do this before any ENGINE code, schema, or data entry. It does NOT gate
 deploy 1**: the serve step needs no engine, no macro table, no solve, and
-it is the thing David asked for in plain words; making it wait on an
+it is the thing the owner asked for in plain words; making it wait on an
 engine-feasibility evening would be v1's disease in one line (Loyalist).
 Evening 0 and sessions 1-3 can run in either order or the same week.
 
 1. **Write the pass thresholds down first**, in this file, before computing
-   anything. Suggested bars, David confirms or edits: shared tables must
+   anything. Suggested bars, the owner confirms or edits: shared tables must
    carry **≥ 40%** of seat B's weekly calories; and the paper ceiling below
    must show the clamped solve moving seat B's plate **≥ +10 g protein per
    1000 kcal over the recipe's native density on the median dish** (the
@@ -200,7 +200,7 @@ Evening 0 and sessions 1-3 can run in either order or the same week.
   density down (no carbs to grow) and clamps in place.
 - **Clamp census: 1 of 20 binds** (seat A's dinner appetite 3.13 vs the
   3.0 cap on salmon-spinach). Minor.
-- **OVERRIDDEN by David the same night, in his words: "build the
+- **OVERRIDDEN by the owner the same night, in his words: "build the
   engine."** The gate's finding stands on the record (the engine's value
   on her CURRENT dinners is small); the build proceeds on his authority,
   with his added invariant now load-bearing everywhere: **A SHOPPED WEEK
@@ -254,8 +254,8 @@ serve veg lines fold to one, aside seats on solved tables speak solved
 amounts.
 
 REMAINING BEFORE THE FIRST TAG IS EVER WRITTEN (hard rule; the drip may
-not start without these): David's one-hour classification session, and
-the explicit-override escape hatch for a bought week (David specified
+not start without these): the owner's one-hour classification session, and
+the explicit-override escape hatch for a bought week (the owner specified
 it; deliberately deferred until someone actually needs to change a
 bought week — the freeze itself is live as rung 0f).
 
@@ -264,12 +264,12 @@ DEFERRED WITH THE DRIP (known gaps, none fire at zero tags):
 - §12's full instrument (hit/clamped/degenerate shares, median density
   miss over pinned tagged ids, persisted to instrument.json, home in the
   SYS view). Tonight ships only the tailored/uniform count line on
-  Tables, David-gated. The kill review must not run on the line alone.
+  Tables, the owner-gated. The kill review must not run on the line alone.
 - §9's remaining head controls (change that meal's cook, adjust a seat's
   servings from the head card). Only REDO PLATES gating shipped.
 - §11.1's named remainder: a DEPARTED seat's perSeat share is dropped
   and flags `estimate`, not billed to a named person. Billing an absent
-  person without their tap needs David's ruling.
+  person without their tap needs the owner's ruling.
 - Target-staleness detection at claim time: parsePot now returns the
   input fingerprint, but nothing compares a frozen target sha against
   the current one yet. A stale-but-synced cache freezes silently.
@@ -552,7 +552,7 @@ keeps driving the buy under a flag that promises no per-person plates).
 non-developer: **"Could you give one person double the chicken and less
 rice out of this pan, without cooking twice?"** Yes = plated. No = mixed.
 
-Process: David CLASSIFIES all 107 in one sitting, producing an ordered
+Process: the owner CLASSIFIES all 107 in one sitting, producing an ordered
 queue; **part labels are read in the same sitting for the
 plated-classified set only** (Ledger: labels on mixed recipes are dead
 data under rung 0, ~75% of the 1004 rows can never matter). Tags are
@@ -652,8 +652,8 @@ for a seat that skips after the buy.
 | ----------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MACRO` per 100 g | ~118 foods x 2-4                    | **AI-drafted** (§4.4 normalization cancels proportional error), guarded by §6.2                                                                                                                                                                                       |
 | `PLATE_GRAMS`     | **~25 entries**, plated dishes only | **HAND-ENTERED.** Normalization does NOT protect gram weights: a wrong weight changes the physical pot, plate, list, and money. Lives in `app/lib/synth.js`, NOT in `FOOD_UNITS`, whose own header says "never nutrition-grade" (Engineer M7: v2 left these homeless) |
-| `PLATE_ADDABLE`   | ~15 foods                           | AI-drafted, David skims                                                                                                                                                                                                                                               |
-| `assembly` tags   | 107 classified, ~25 written         | David, §5.1                                                                                                                                                                                                                                                           |
+| `PLATE_ADDABLE`   | ~15 foods                           | AI-drafted, the owner skims                                                                                                                                                                                                                                               |
+| `assembly` tags   | 107 classified, ~25 written         | the owner, §5.1                                                                                                                                                                                                                                                           |
 | `part` labels     | plated set only, ~250 rows          | keyword-derived, human-read at classification (§5.1)                                                                                                                                                                                                                  |
 
 Each `MACRO` entry states RAW or COOKED, matching how the bank writes the
@@ -712,7 +712,7 @@ cook-route table id. This also creates the adoption signal §12 needs.
 SERVE
 Amounts for tonight's table.
 
-DAVID
+OWNER
 300 g chicken
 2 cups rice
 
@@ -772,7 +772,7 @@ in prose but not in the copy spec does not exist.)
 Plus one **private projection** (Lawyer): each configured seat can see
 their own achieved numbers in their own profile view. The serve screen
 never shows a macro; a person's numbers render only to that person.
-Without this, the only backstop against a systematic miss is David's
+Without this, the only backstop against a systematic miss is the owner's
 attention.
 
 ### 7.5 The per-table recipe: the numbers change, the words never
@@ -919,7 +919,7 @@ success and failure render identically is itself a violation (this is why
 
 ## 9. Head of the table
 
-David's concept. Mechanics rebuilt twice: v2 on the council's finding that
+The owner's concept. Mechanics rebuilt twice: v2 on the council's finding that
 no creator field exists, v2.1 on the Engineer's finding (B5) that stamping
 a device id at materialization would break `materializeBrigade`'s
 byte-identity contract, which exists so two offline devices produce
@@ -943,7 +943,7 @@ identical tables and merge as a no-op.
   controls nobody else's shows: tap a name to change that meal's cook,
   REDO PLATES, and **adjust a seat's servings** (the existing hand-edit
   path, which is what §4.3's manual-override rule exists for). The
-  Loyalist caught that "the head tailors it" was David's explicit ask and
+  Loyalist caught that "the head tailors it" was the owner's explicit ask and
   v2.2 depended on a hand-edit no surface offered; this is that surface.
   Everyone else: absent, not greyed.
 - No staleness rule. No presence data exists; a heartbeat is the write
@@ -1119,12 +1119,12 @@ assert where the property has meaning).
 
 The morning council attached a metric, the measurement came back at
 +0.03, and v1 dropped the metric rather than the plan. That is the
-structural tell David reacted to. Reinstated in the only form the data
+structural tell the owner reacted to. Reinstated in the only form the data
 supports (there is NO intake record in the app; the in-app check-in was
 deliberately retired 2026-08-09; a computed-plate metric alone is a
 tautology):
 
-- **Engine fidelity, owned by David, automatic.** From the clamped
+- **Engine fidelity, owned by the owner, automatic.** From the clamped
   multipliers: share of seats {hit within 5% | clamped | degenerate} plus
   median protein-density miss, over the live-tagged subset (pinned ids),
   with `synthMode` DERIVED live per table at instrument time, never read
@@ -1138,7 +1138,7 @@ tautology):
   reads the persisted weekly aggregates, and the soak is sized to the
   14-day retention window.** **Aggregate counts only, never per-seat, on
   any shared surface** (Lawyer: "2 of 4 clamped" is identifiable in a
-  household of four; per-seat detail is David-only, off shared UI).
+  household of four; per-seat detail is the owner-only, off shared UI).
 - Pre-launch: the **validation run** as `tools/validate-synth.mjs`,
   reading local `seed-data` plus a local private-data checkout (Engineer
   M8), all 107 x 4 seats, three counts printed; only the aggregate counts
@@ -1152,11 +1152,11 @@ tautology):
   only: "Did your plates feel right this week?", persistent leave-me-alone
   answer, stored in her own profile file, purgeable (Lawyer). She never
   finds a score of how she ate.
-- **Outcome, outside the app:** her weight trend over six weeks, and David
+- **Outcome, outside the app:** her weight trend over six weeks, and the owner
   asking her once whether she is full.
 
 **Kill criterion, with teeth: written into Crystal (Mise lane file) on
-deploy-1 day. Puller: David. Date: 2026-11-15.** Criterion: seat B's
+deploy-1 day. Puller: the owner. Date: 2026-11-15.** Criterion: seat B's
 six-week weight trend, `cookedAt` adoption on tailored tables, engine
 fidelity against §3's pre-registered ceiling. Any failing: transform off
 by default (tags stay in data), app keeps pot line + serve step.
@@ -1179,12 +1179,12 @@ teardown's parallel tracks (a scheduling fiction for one builder at
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | **Evening 0 (any time before session 4, NOT blocking deploy 1)** | §3 GO/NO-GO on paper: thresholds written first, share query, ceiling, clamp-bind census                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | kills or confirms the ENGINE before any engine code |
 | **Sessions 1-3**                                                 | **Deploy 1: the serve step** from stored-seat mass share (§7.1), `cookedAt` plumbing incl. its `materializeBrigade` carry-forward (§7.2, §10), the §8.2 seating closure + soft-tier synonym map, the §8.8 owner-device occasion sweep trigger, Today one line, stacked list deleted. Real scope, priced (v2's "Tue-Wed" ignored §1.9)                                                                                                                                                                                                                                                                                                                                                                                  | ship, then stop                                     |
-| **Deploy-1 day, 15 min**                                         | Kill criterion into Crystal (§12); §15 public-repo scrub decisions to David                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |                                                     |
+| **Deploy-1 day, 15 min**                                         | Kill criterion into Crystal (§12); §15 public-repo scrub decisions to the owner                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |                                                     |
 | **~2 weeks**                                                     | **The soak. Nothing lands.** Watch `cookedAt` on cooked tables; low adoption = the problem is the screen, no engine lands on top of it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | adoption                                            |
 | **Sessions 4-9, two commits, both inert**                        | **Deploy 2a:** `synth.js` (solve §4.3, rung ladder, clamps/caps, PLATE_GRAMS, MACRO), the `seatServingsFor` raw accessor + `seats[].rawServings`, the `store.js` read change exposing `{data, sha, dirty}`, the `keyOf` export + §8.1 assert, all §6.2 + §4.3 tests, validation run. **Deploy 2b (days later):** the six §11 consumer fixes + frozen-pot machinery incl. carry-forward test (§10) + `targetsById` state map + SystemView prop threading + `instrument.json` + SCHEMAS.md. Both no-ops by rung 0 and solved-only freezing; inertness asserted at pot/list/ledger (§11); validation counts in the 2a commit message. Fix `docs/merge-invariant.test.js.txt` header to point at §8.1 (it cites v1's §7.1) | validation counts                                   |
-| **One hour, same week**                                          | David classifies all 107 (assembly + plated-set part labels), ordered queue                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |                                                     |
+| **One hour, same week**                                          | the owner classifies all 107 (assembly + plated-set part labels), ordered queue                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |                                                     |
 | **Then, ~5/week**                                                | **The drip:** tags written as dishes come up, solvable first, stove-confirmed once each. First tag also retires the AI tailor (§11.6). ~25 total                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | per-recipe flag, reversible forward                 |
-| **2026-11-15**                                                   | Kill review fires                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | David pulls or extends                              |
+| **2026-11-15**                                                   | Kill review fires                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | the owner pulls or extends                              |
 
 **Out of scope, cut by council: cook rotation.** Zero correctness content,
 real money exposure, moves the same subsystem deploy 2b moves. The
@@ -1198,12 +1198,12 @@ if fairness is the argument, balance cook-minutes (`totalTime` x
 
 ---
 
-## 14. Still open, David's decisions
+## 14. Still open, the owner's decisions
 
 - **§3 thresholds**: confirm/edit the two bars and the clamp-bind rate
   BEFORE evening 0's arithmetic.
 - **The head's on-screen label** (Loyalist flagged this as an unflagged
-  overrule): David said "Head of the Table"; the panel shipped the
+  overrule): the owner said "Head of the Table"; the panel shipped the
   concept in the schema but banned the words from the UI ("<name>'s
   table") on taste grounds. The function is his ask; the label is his
   call. Say the word and it renders.
@@ -1217,7 +1217,7 @@ if fairness is the argument, balance cook-minutes (`totalTime` x
   (skipped seats are excluded from the ledger). Under §11.1 the skipped
   seat's named remainder is costed at mass share on SOLVED tables, so
   "skip mine" starts costing money on the ~25 tagged dishes and not the
-  other ~80. Fairer, but a behavior change David should sign off on, and
+  other ~80. Fairer, but a behavior change the owner should sign off on, and
   it could be extended to uniform tables for consistency.
 - **§12 weekly question wording**, and whether it starts at deploy 2b or
   first tag.
@@ -1229,7 +1229,7 @@ if fairness is the argument, balance cook-minutes (`totalTime` x
 
 ## 15. Public-repo hygiene, pre-existing, surfaced by the Tribunal's Lawyer
 
-RESOLVED 2026-08-10 evening, on David's order: git history was rewritten
+RESOLVED 2026-08-10 evening, on the owner's order: git history was rewritten
 with git-filter-repo. Every historical version of this document was
 dropped from history (v1 carried a full personal health profile), the
 dated medical-prep occasion id and its example block were genericized in
@@ -1238,14 +1238,14 @@ macro numbers to a family member were reworded. HEAD was sanitized in the
 same pass (schema example, code comments, test fixtures) with all 531
 tests green. A pre-rewrite mirror backup exists locally. Residual: GitHub
 can retain unreachable old commits server-side until support is asked to
-purge them; no forks exist. Practical profile ids (mom, dad, lena) stay
-by David's explicit ruling; the scrub targeted health data, not names.
+purge them; no forks exist. Practical profile ids (mom, dad, wren) stay
+by the owner's explicit ruling; the scrub targeted health data, not names.
 
 ---
 
-## 16. The AI end-state, and what this build does NOW to be ready (David, 2026-08-10 evening)
+## 16. The AI end-state, and what this build does NOW to be ready (the owner, 2026-08-10 evening)
 
-David's stated end-state: the app runs with heavy integrated AI, served by
+The owner's stated end-state: the app runs with heavy integrated AI, served by
 a local model on his 256 GB Mac Studio (80 GB-class open models, running
 24/7), handling vision (receipts, fridge scans) AND meal curation/tables,
 and the finished product never needs a Claude Code session again. This
@@ -1253,7 +1253,7 @@ build does not include that model; it must slot in cleanly when ready.
 
 ### 16.1 Two layers, and why the deterministic core survives his question
 
-David asked whether determinism is the wrong call when he wants "the best
+The owner asked whether determinism is the wrong call when he wants "the best
 solution, which is like a heuristic problem." The answer is a split, not a
 choice:
 
@@ -1268,7 +1268,7 @@ choice:
 - **The judgment layer is where the AI lives, and it decides WHAT to
   optimize, never does the arithmetic:** choosing the week's dishes,
   proposing targets and weights, proposing `assembly`/`part` tags for
-  David to confirm, natural-language requests ("make this week lighter"),
+  The owner to confirm, natural-language requests ("make this week lighter"),
   and all vision. Everything it proposes flows through the deterministic
   screens and clamps before touching data. This is already the app's
   pattern (/dinnerweek proposes, code enforces) and it is precisely what

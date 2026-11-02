@@ -7,7 +7,7 @@
 //   POST /dinner  { messages, people, candidates } -> { reply, decision }
 //   POST /onboard { messages, survey }            -> { reply, profile }
 //   POST /remedy  { text }                        -> { protocol: {teas, foods, avoid, notes} }
-// Auth: the caller proves they are David by presenting the SAME fine-grained
+// Auth: the caller proves they are the owner by presenting the SAME fine-grained
 // PAT the app already holds — the Worker verifies it can see the private
 // mise-data repo. No second secret to manage; revoking the PAT kills both.
 // The Anthropic key exists ONLY as a Worker secret (never in the app).
@@ -113,13 +113,13 @@ const DATA_REPO = "JannikSin/mise-data";
  * `isAuthorized` proves a token can see a PRIVATE repo, which is the only
  * thing standing between this Worker and anyone on the internet: without an
  * allowlist, presenting a token for any private repo you own would buy you
- * David's Anthropic key. Membership is therefore a deliberate decision, never
+ * The owner's Anthropic key. Membership is therefore a deliberate decision, never
  * a side effect of someone pointing an install somewhere new.
  *
- * Defaults to the family repo alone, so this change is a NO-OP until David
+ * Defaults to the family repo alone, so this change is a NO-OP until the owner
  * sets `MISE_DATA_REPOS`. Adding the roommate is then one env var, and the
  * questions that gate it (does he join this household or his own, and whose
- * data he can see) stay David's to answer.
+ * data he can see) stay the owner's to answer.
  * @param {any} env
  * @returns {string[]} lowercased "owner/repo"
  */
@@ -215,7 +215,7 @@ async function isAuthorized(token, repo = DATA_REPO) {
     },
   });
   // GITHUB SAYING NO vs GITHUB BEING UNREACHABLE (plenum round five,
-  // 2026-08-28: David hand-cancelled 35 tables in a burst, GitHub's
+  // 2026-08-28: the owner hand-cancelled 35 tables in a burst, GitHub's
   // secondary rate limit 403'd his perfectly good token for a few minutes,
   // and this function reported it as "unauthorized" — a lie that reads as
   // a broken token). A rate-limited or erroring probe is RETRY, never NO.
@@ -302,7 +302,7 @@ const INVITE_STATUS_TTL_MS = 60 * 24 * 60 * 60 * 1000;
 // in-memory map, per isolate, and in the Cache API too where it is available
 // (Tribunal 2026-10-18: on a *.workers.dev host with no route the Cache API
 // may store nothing, so the map is the counter that always holds). Per
-// isolate is a soft boundary, which is the bar David set; the synchronous
+// isolate is a soft boundary, which is the bar the owner set; the synchronous
 // per-name limiter in /guest/login is the guard parallel guesses cannot race.
 /** @type {Map<string, { value: any, until: number }>} */
 const memCache = new Map();
@@ -462,7 +462,7 @@ async function postNtfy(topic, n) {
  * One high-priority ntfy a day when the switched live cron cannot run (fix
  * loop 1, E10). Plain words, no data: the next hour tries again by itself.
  * @param {string} topic
- * @param {string} dateIso David's date
+ * @param {string} dateIso the owner's date
  * @param {string} why
  */
 async function cronAlarm(topic, dateIso, why) {
@@ -476,7 +476,7 @@ async function cronAlarm(topic, dateIso, why) {
   });
 }
 
-/** local wall clock in David's timezone */
+/** local wall clock in the owner's timezone */
 function chicagoNow() {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Chicago",
@@ -889,7 +889,7 @@ export default {
     //    limit (per isolate, so a soft limit; the code is the hard one).
     //  - a status grant that expires (60 days after the claim), reads only
     //    the invitee's own seats, and never reports internal detail.
-    // GUEST LOG IN (v1.6, David 2026-10-18): "type your name + a quick
+    // GUEST LOG IN (v1.6, the owner 2026-10-18): "type your name + a quick
     // passkey"; once in, a guest sees only their own meals and those recipes.
     // Same open-route guards as the invite routes (origin picks the branch,
     // per-address rate limit, bounded body, the dedicated credential), plus:
@@ -1174,7 +1174,7 @@ export default {
         const dinners =
           house === "guesthouse" ? sanitizeInviteDinners(body.dinners, nowIso.slice(0, 10)) : [];
 
-        // SIGN UP (v1.6, David 2026-10-18: "set your login name and passkey").
+        // SIGN UP (v1.6, the owner 2026-10-18: "set your login name and passkey").
         // Optional: an old link with no login still claims as before. The
         // invite was validated above (exists, branch, unspent, unexpired), so a
         // spent code cannot probe names; a taken name is refused HERE, before
@@ -1555,7 +1555,7 @@ export default {
       if (hall) return hall;
     }
 
-    // THE WALK'S NARRATION (P6, David 2026-10-18: "show everything and also
+    // THE WALK'S NARRATION (P6, the owner 2026-10-18: "show everything and also
     // narrate everything"): the phone pulls the speech out of his fridge
     // video and sends a small 16 kHz WAV; Workers AI's Whisper turns it into
     // the text the pantry dictation parser already reads. Text only comes

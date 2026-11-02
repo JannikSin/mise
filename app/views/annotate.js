@@ -220,7 +220,7 @@ export function AnnotateView({
     if (file) await run(file);
   };
 
-  // USE IT THIS WEEK (David, 2026-10-18): which night, and what happened.
+  // USE IT THIS WEEK (the owner, 2026-10-18): which night, and what happened.
   // The nights offered are the Plan week on screen, from today on.
   const todayIso = localIsoDate(new Date());
   const nights = plan?.week ? datesOfWeek(String(plan.week)).filter((d) => d >= todayIso) : [];

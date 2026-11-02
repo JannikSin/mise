@@ -4,7 +4,7 @@ import { datesOfWeek } from "../lib/plan.js";
 import { parseLocalIso } from "../lib/dates.js";
 
 /**
- * PEOPLE (David, 2026-10-16): "instead of table call it people ... you should
+ * PEOPLE (the owner, 2026-10-16): "instead of table call it people ... you should
  * have all the people that have profiles on here ... within a certain group
  * ... click on a profile and then link it to yourself, so like if you're
  * roommates ... this could also be where you could add guests to the meal ...

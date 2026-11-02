@@ -213,7 +213,7 @@ export function composeManifest({ engine, targets, recipes, dailyDays, recentPla
   };
 
   // plating (synth.js): PARKED by council 2026-08-12, unparked 2026-08-19 on
-  // David's word, and rolling out one recipe at a time exactly as the council
+  // The owner's word, and rolling out one recipe at a time exactly as the council
   // designed. The tag IS the rollout mechanism, so the manifest keeps saying
   // how far it has got — an engine nobody counts is how this one went dark
   // for a week in the first place.

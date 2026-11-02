@@ -2,12 +2,12 @@
 
 - **Status:** accepted
 - **Date:** 2026-10-12
-- **Deciders:** David
+- **Deciders:** the owner
 - **Tenet invoked:** 3 (buy whole, use completely) and 4 (cook once, eat several times)
 
 ## Context
 
-David wants to cook for friends without guests reshaping the week. The week is cooked on the
+The owner wants to cook for friends without guests reshaping the week. The week is cooked on the
 weekend in batches: five days for two people is ten portions. A Tuesday dinner for four
 should be the Tuesday batch made larger, not a new dish.
 

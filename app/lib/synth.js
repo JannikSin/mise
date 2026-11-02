@@ -1,4 +1,4 @@
-// THE TRANSFORM (docs/per-person-plates-design.md, "the engine"): David's
+// THE TRANSFORM (docs/per-person-plates-design.md, "the engine"): the owner's
 // matrix multiplication, implemented exactly as §0.1 states it —
 //
 //   plate_p = T_p · r      (a diagonal per-seat transform over role-space)
@@ -9,7 +9,7 @@
 // could beat it, only vary. The AI layer proposes dishes upstream; this
 // module does arithmetic and refuses loudly when it cannot (spec §8.9).
 //
-// THE SHOPPED-WEEK FREEZE (David, 2026-08-10): a week that has been bought
+// THE SHOPPED-WEEK FREEZE (the owner, 2026-08-10): a week that has been bought
 // is untouchable. Callers pass `weekShopped`; when true the transform runs
 // rung 0f and returns uniform regardless of tags. No change may affect a
 // bought week unless explicitly, explicitly, explicitly stated.
@@ -468,7 +468,7 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
     ...(note ? { note } : {}),
   });
 
-  // rung 0f, THE SHOPPED-WEEK FREEZE (David): a bought week is untouchable
+  // rung 0f, THE SHOPPED-WEEK FREEZE (the owner): a bought week is untouchable
   if (weekShopped) return uniform("0f-week-shopped");
   // rung 0: the tag is the rollout mechanism; absent = mixed = today
   if (assembly !== "plated") return uniform("0-mixed");
@@ -532,7 +532,7 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
   // it thought it could not touch) and reported the plate as 269 kcal. The
   // engine has never run on a real meal, so nothing ever compared the
   // instruction it prints against the numbers it prints beside it: it was
-  // telling David to eat 700 g of chicken thigh and calling it 41 g of
+  // telling the owner to eat 700 g of chicken thigh and calling it 41 g of
   // protein. Found 2026-08-19 while unparking P8.
   const rawCper = rawC / servings;
   const rawPper = rawP / servings;
@@ -577,7 +577,7 @@ export function solveSeat({ recipe, assembly, seat, targets, slotShare, weekShop
   // internally inconsistent: once alpha is pinned to its floor, the joint
   // solution it was half of no longer holds, and beta goes on carrying a
   // value derived from that dead solution. On every bean-and-grain bowl in
-  // the bank this overshot David's lunch by about 300 kcal while a perfectly
+  // the bank this overshot the owner's lunch by about 300 kcal while a perfectly
   // legal beta sat unused inside the clamps.
   //
   // When one knob is pinned, re-derive the OTHER against the target it
@@ -829,7 +829,7 @@ export function freezePotString({
     inputs: fingerprint,
     synthMode: "solved",
     // perSeat rides along so MONEY can bill pay-for-what-you-eat exactly
-    // (David, 2026-08-10: "if it's split two thirds a third, one person
+    // (the owner, 2026-08-10: "if it's split two thirds a third, one person
     // should pay two thirds") — each seat's share of each row, costed per
     // row at recording time. Rounded to 3dp; the pot qty stays the truth.
     rows: out.rows.map((/** @type {any} */ r) => {

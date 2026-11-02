@@ -1,4 +1,4 @@
-// Full-week generator (David's "one tap owns the whole week" flow):
+// Full-week generator (the owner's "one tap owns the whole week" flow):
 // every unpinned entry is cleared and all 7 days x 5 slots are rebuilt from
 // scratch around whatever the user pinned. Dinner is still the biggest
 // ingredient-mass decision so it's chosen first as a "committee" that
@@ -269,12 +269,12 @@ export function pickCommittee(candidates, opts = {}) {
   const salt = opts.salt ?? 0;
   const useSoon = opts.useSoonFoods ?? [];
   // everything countable already in the kitchen (fridge-first shopping,
-  // David 2026-08-01): a weaker pull than useSoon's expiry rescue, but every
+  // The owner 2026-08-01): a weaker pull than useSoon's expiry rescue, but every
   // recipe that cooks owned food is food not bought
   const onHand = opts.onHandFoods ?? [];
   // foods from OTHER cooks' family-dinner nights: a soft push-AWAY (never a
   // filter), so my own meals cluster around my own cook nights and the
-  // family's week stays varied across cooks (David, 2026-08-01)
+  // family's week stays varied across cooks (the owner, 2026-08-01)
   const avoidOverlap = opts.avoidOverlapFoods ?? [];
   const weekFoodPool = opts.weekFoodPool ?? new Set();
   const coverageSoFar = opts.coverageSoFar ?? {};
@@ -284,7 +284,7 @@ export function pickCommittee(candidates, opts = {}) {
   // (protein g x 4 / daily kcal). Absent = the old profile-blind gram count.
   //
   // This exists because a gram count is the wrong unit for a small profile
-  // (David, 2026-08-10). A small loss profile can need 110 g inside 1550 kcal, 28% of
+  // (the owner, 2026-08-10). A small loss profile can need 110 g inside 1550 kcal, 28% of
   // her calories from protein, while her breakfast and snack pools sit near
   // 20%. Picking on absolute grams handed her meals that could not reach her
   // protein without extra calories, so the top-up pass added them and her day
@@ -301,7 +301,7 @@ export function pickCommittee(candidates, opts = {}) {
       ? opts.reviewSkippedIds
       : new Set(opts.reviewSkippedIds ?? []);
   // recipes cooked in the last week or two: a real penalty so consecutive
-  // weeks ROTATE (David is fine eating one dish all week, but wants next week
+  // weeks ROTATE (the owner is fine eating one dish all week, but wants next week
   // to look different). Strong enough to lose to any fresh option, soft enough
   // that a thin pool can still fall back to a repeat rather than fail.
   const recent =
@@ -358,7 +358,7 @@ export function pickCommittee(candidates, opts = {}) {
    *  which is monotonically increasing in protein density with NO satiation
    *  point: a recipe at exactly the needed density scored 0 and one at twice
    *  the density scored +1.5 and beat it. Only the clamp stopped "more
-   *  protein" always winning. On David's bank (median density 0.27 against a
+   *  protein" always winning. On the owner's bank (median density 0.27 against a
    *  0.195 need) that pinned most of the bank at the clamp and produced
    *  234 g/day against a 180 g target, 34 of 35 days over his ceiling.
    *
@@ -416,7 +416,7 @@ export function pickCommittee(candidates, opts = {}) {
   const committee = [best];
   const committeeFoods = new Set([...foodSlugsOf(best), ...weekFoodPool]);
 
-  // ROTATE THE PROTEIN (David, 2026-09-05: "switch up the proteins for each
+  // ROTATE THE PROTEIN (the owner, 2026-09-05: "switch up the proteins for each
   // meal, so chicken is fine for 1 night a week but mix in ground beef and
   // ground turkey for the rest and maybe fish"). Each further seat is
   // offered FIRST to dishes anchored on a protein the committee does not
@@ -1025,7 +1025,7 @@ export function calorieTrimPass(plan, recipesById, bounds, slotPools = null) {
  * has not written one, and a null ceiling means this pass does not run at all.
  * A number nobody chose would silently start taking food off every profile in
  * the app, and the manifest says "no protein ceiling set" so the absence is
- * visible rather than merely absent. David ratified 215 g on 2026-08-19
+ * visible rather than merely absent. The owner ratified 215 g on 2026-08-19
  * (System/Council-2026-08-19-Protein); until then the data had a ceiling and
  * the code had none, which is the state this closes.
  *
@@ -1042,7 +1042,7 @@ export function calorieTrimPass(plan, recipesById, bounds, slotPools = null) {
  *
  * NOT Stage 2. The council-gated proteinTerm shoulder and the per-meal protein
  * floor are a separate build that changes how the generator SCORES; this pass
- * only enforces a number David has already ratified.
+ * only enforces a number the owner has already ratified.
  * @param {import("./plan.js").Plan} plan
  * @param {Map<string, any>} recipesById
  * @param {{
@@ -1091,7 +1091,7 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
     if (e.recipeId) usedCount.set(e.recipeId, (usedCount.get(e.recipeId) ?? 0) + 1);
   }
 
-  // WHAT GETS TRIMMED FIRST (David 2026-08-24).
+  // WHAT GETS TRIMMED FIRST (the owner 2026-08-24).
   //
   // Was: snack, then breakfast/lunch/smoothie, then dinner LAST. That
   // protected the cooked meal and shaved the cheap assembled ones, which is
@@ -1134,7 +1134,7 @@ export function proteinTrimPass(plan, recipesById, bounds, slotPools = null) {
         dayBought(next.entries, recipesById, date);
       // AIM AT WHAT THE CALLER PASSED, capped at the ceiling. History, so
       // this comment can never contradict the code again (council
-      // 2026-08-26): from 08-24 to 08-26 the caller passed the FLOOR (David:
+      // 2026-08-26): from 08-24 to 08-26 the caller passed the FLOOR (the owner:
       // "I only want to eat 180") and this line faithfully aimed there — a
       // floor used as a setpoint. Its premise expired within days: the fixed
       // slots (94 g, untrimmable) plus a 90 g swipe credit made a 180 aim
@@ -1373,7 +1373,7 @@ function foodGroupGapsReport(entries, recipesById, dates, dailyDozenPerDay) {
  *    juice does not become a good Tuesday snack once somebody audits it.
  *  - `remedy`: sick-day food (BRAT plates, healing broths). Reachable by hand
  *    and through remedies.js protocolFor, but a well week must never plan
- *    recovery food (David, 2026-08-25: a BRAT plate landed in a normal week).
+ *    recovery food (the owner, 2026-08-25: a BRAT plate landed in a normal week).
  *    Same no-promotion rule as occasion-only: rice and applesauce do not
  *    become a good Tuesday lunch once somebody audits them.
  * @param {Record<string, any>[]} recipes
@@ -1426,7 +1426,7 @@ const COMMITTEE_SIZES = { dinner: 4, lunch: 3, breakfast: 2, smoothie: 1 };
  * full snack pool regardless of targets.mealSlots.
  */
 const MEAL_PRIORITY = /** @type {const} */ (["dinner", "lunch", "breakfast", "smoothie"]);
-/** Proactively-filled slots when targets.mealSlots is absent — David's exact current behavior. */
+/** Proactively-filled slots when targets.mealSlots is absent — the owner's exact current behavior. */
 const DEFAULT_MEAL_SLOTS = /** @type {const} */ (["breakfast", "lunch", "dinner", "smoothie"]);
 
 /**
@@ -1506,7 +1506,7 @@ export function poolAdequacy(recipes, targets) {
  * Full-week generation: clears every UNPINNED entry, rebuilds 7 days around
  * the proactively-filled meal slots. Which slots get proactively filled is
  * profile-driven: `targets.mealSlots` (ordered list) names them; absent
- * defaults to `["breakfast", "lunch", "dinner", "smoothie"]` (David's exact
+ * defaults to `["breakfast", "lunch", "dinner", "smoothie"]` (the owner's exact
  * current behavior). Snack is never in that list — it's always the reactive
  * top-up pool (macroTopUp, foodGroupFloorPass), never proactively committee-
  * picked. Pinned entries are never touched and seed the greedy scoring
@@ -1515,7 +1515,7 @@ export function poolAdequacy(recipes, targets) {
  * breakfast, smoothie — each committee sees the growing week-wide food pool
  * and coverage. Lunches cycle their committee like breakfasts do — no recipe
  * is ever hard-pinned by id (the office-lunch-box special case died 2026-08-01;
- * David: never again. A profile that wants it banned outright lists it in
+ * The owner: never again. A profile that wants it banned outright lists it in
  * targets.avoidRecipes).
  * Deterministic per (weekId, salt); RE-ROLL is salt+1 over the same pinned
  * base.
@@ -1557,7 +1557,7 @@ export function generateWeek({
   const recentSet = new Set(recentRecipeIds);
   const dates = datesOfWeek(weekId);
   const isPast = (/** @type {string} */ d) => Boolean(today) && d < /** @type {string} */ (today);
-  // OCCASION days are HELD (David, 2026-08-10). A dated override — a medical
+  // OCCASION days are HELD (the owner, 2026-08-10). A dated override — a medical
   // prep, a holiday, a travel stretch — replaces those days with a fixed
   // script the person already accepted, and generation hands off completely:
   // same treatment as a day already eaten. Without this the macro top-up
@@ -1600,7 +1600,7 @@ export function generateWeek({
     Array.isArray(haveEquipment) && !canMake(haveEquipment, r.equipment);
   /** @type {string[]} slots where the time cap emptied the pool and was relaxed (Q12 honest-failure) */
   const timeBudgetRelaxed = [];
-  // targets.snackPortable (spec 2026-08-25, David: "i need the snack to be
+  // targets.snackPortable (spec 2026-08-25, the owner: "i need the snack to be
   // something easy and smth i can bring in my backpack"): a profile that
   // declares it draws every auto-planned snack — floor pass, macro top-up,
   // buffer, trim swaps — from recipes flagged `portable: true` (survives a
@@ -1663,7 +1663,7 @@ export function generateWeek({
     .map((e) => {
       if (!e.out) return e;
       // A CURRENCY placeholder is RE-STAMPED from the profile's CURRENT
-      // stated tray on every generate (found 2026-08-25: David's live week
+      // stated tray on every generate (found 2026-08-25: the owner's live week
       // carried seven swipes frozen at the pre-stated 550 kcal / 48 g
       // derivation, under-crediting every day by ~250 kcal / 17 g that the
       // grocery list then bought again — pinned entries preserve their
@@ -1711,7 +1711,7 @@ export function generateWeek({
   };
 
   // P3, no invented person. These two lines read `?? 210` and `?? 3400`,
-  // which are DAVID'S targets from an earlier phase. A profile whose targets
+  // which are OWNER'S targets from an earlier phase. A profile whose targets
   // could not be read did not fail: it quietly generated a week aimed at him,
   // and every downstream floor, top-up and trim pass then enforced a stranger's
   // numbers on somebody else. The fallbacks were dormant on the one device
@@ -1790,7 +1790,7 @@ export function generateWeek({
       return r ? [...foodSlugsOf(r)] : [];
     }),
   );
-  // FAMILY DINNERS shape the week two ways (David, 2026-08-01: "my lunch
+  // FAMILY DINNERS shape the week two ways (the owner, 2026-08-01: "my lunch
   // ingredients should overlap with what I cook for dinner, so when someone
   // else cooks it is different food"). Derived table entries carry
   // viewRecipeId (never recipeId — that would make every guest shop the
@@ -1875,7 +1875,7 @@ export function generateWeek({
   // slot holds a swipe placeholder or a hand-pin gets no fixed fill, and
   // charging the credit there would double-discount against awayCredit).
   // They join the remaining-need arithmetic below exactly as away/swipe
-  // credits do, and for the same reason: David's fixed bowl and smoothie
+  // credits do, and for the same reason: the owner's fixed bowl and smoothie
   // bank 94 g before a committee meets, and scoring lunch/dinner against
   // the whole-day density wedged days over the protein ceiling with no
   // legal trim (found 2026-08-25, first fixed-slots week). WEEKLY totals.
@@ -1964,7 +1964,7 @@ export function generateWeek({
     }
   }
 
-  // PORTIONS ARE SIZED TO THE PERSON, not hardcoded to one serving (David,
+  // PORTIONS ARE SIZED TO THE PERSON, not hardcoded to one serving (the owner,
   // 2026-08-10: his mother's plan ran over her calorie ceiling all seven days
   // while she was trying to lose weight).
   //
@@ -1990,7 +1990,7 @@ export function generateWeek({
     ...targets,
     macros: { ...(targets?.macros ?? {}), calories: caloriesTarget * PROACTIVE_SHARE },
   };
-  // SWIPE DAYS COOK LESS (7.11, David 2026-08-19: two swipe meals still read
+  // SWIPE DAYS COOK LESS (7.11, the owner 2026-08-19: two swipe meals still read
   // 282 g protein because the cooked slots were sized for a FULL day and the
   // ceiling trim only pulls back to the ceiling). A day with away credits
   // sizes its remaining cooked slots against the calories that REMAIN,
@@ -2071,13 +2071,13 @@ export function generateWeek({
   const dinnerSequence = twoPassSequence(committees.dinner, dinnerRotation);
   let dinnerCursor = 0;
 
-  // COOK NIGHTS AND LEFTOVER NIGHTS (P7, David 2026-09-05: "i want to only
+  // COOK NIGHTS AND LEFTOVER NIGHTS (P7, the owner 2026-09-05: "i want to only
   // have to cook maybe 3 dinners a week... make a larger quantity and then
   // have leftovers cause especially for busy nights that's easier").
   // `targets.cookDays` names the weekdays (0 Sun … 6 Sat) dinner is cooked;
   // every other live night eats an earlier cook night's pot. The schedule is
   // decided first, dates only: each no-cook night eats the MOST RECENT pot
-  // within MAX_LEFTOVER_DAYS (David, 2026-09-13: "if I make Tuesday, the
+  // within MAX_LEFTOVER_DAYS (the owner, 2026-09-13: "if I make Tuesday, the
   // same meal will be leftover on Wednesday"; the earlier round-robin put
   // another dinner between a pot and its own leftovers). A cook night that
   // feeds later nights then takes the first dish in the rotation whose
@@ -2254,7 +2254,7 @@ export function generateWeek({
   // 2026-07-10 Opus audit) — must run BEFORE macroTopUp so the calorie/
   // protein top-up sees each day's post-floor totals, not the other way
   // around.
-  // Step 3.4: pick the weekly BUFFER snack (David, 2026-07-20) — ONE
+  // Step 3.4: pick the weekly BUFFER snack (the owner, 2026-07-20) — ONE
   // batch-prepped, measured stand-by for the whole week, the answer to
   // "still hungry" that isn't an unplanned raid. Criteria per the Greger
   // consult (2026-07-20): batchable is a PREREQUISITE, not a bonus (a snack
@@ -2317,7 +2317,7 @@ export function generateWeek({
       (r.effort === "assembly" ? 1 : 0) -
       bandMiss * 1.5 +
       overlapWith(r, weekFoodPool) * 0.5 +
-      // "each week can be its own snack" (David, 2026-08-25). Two rotation
+      // "each week can be its own snack" (the owner, 2026-08-25). Two rotation
       // pressures, BOTH gated on snackStyle "weekly": the week id in the
       // jitter (a new week reshuffles the tie-breaks), and the committees'
       // own recency penalty — the weekly snack rides into recentRecipeIds
@@ -2338,7 +2338,7 @@ export function generateWeek({
   }
 
   // [spec 2026-08-25 part 2] targets.snackStyle: "weekly" — ONE snack for
-  // the whole week, David's design stated in his own words: "should there
+  // the whole week, the owner's design stated in his own words: "should there
   // just be a snack category for the week and i should know i should have it
   // whenever and keep it in the backpack... maybe it is smth i batch prep
   // for the week and each week can be its own snack". The weekly buffer pick
@@ -2418,7 +2418,7 @@ export function generateWeek({
     slotPools,
   );
 
-  // Step 4.6: protein CEILING trim (P5, David's ratified 215 g, 2026-08-19).
+  // Step 4.6: protein CEILING trim (P5, the owner's ratified 215 g, 2026-08-19).
   // The money mirror of 4.5: protein is the expensive macro, so grams above
   // the ceiling are budget bought for nothing. Skipped entirely when the
   // profile writes no ceiling; a derived one would take food off people who
@@ -2429,7 +2429,7 @@ export function generateWeek({
     {
       proteinCeiling: ceilings.protein,
       // THE AIM, not the floor (council 2026-08-26). History: from 08-24 to
-      // 08-26 this passed the floor, implementing David's "I only want to
+      // 08-26 this passed the floor, implementing the owner's "I only want to
       // eat 180 grams" faithfully — and the premise expired within days
       // when the fixed slots (94 g bought, untrimmable) plus a 90 g swipe
       // credit made a 180 aim infeasible and the pass gave up silently

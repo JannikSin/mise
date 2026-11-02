@@ -2,12 +2,12 @@
 
 - **Status:** accepted
 - **Date:** 2026-09-07 (Parallax round, three Tribunal loops, PASS WITH CONCERNS); first release run 2026-09-21
-- **Deciders:** David ("like Apple does: they test on a sandbox"), Tribunal
+- **Deciders:** the owner ("like Apple does: they test on a sandbox"), Tribunal
 - **Tenet invoked:** the bought week is never disturbed
 
 ## Context
 
-On the evening of 2026-09-07 seven shell versions shipped to the live app while David
+On the evening of 2026-09-07 seven shell versions shipped to the live app while the owner
 cooked from it; one buried the Plan tab, one re-planned his dinners, a write raced his
 phone, and GitHub throttled the token. His words: "I almost have two apps: one is work in
 progress and one is the functioning one." The full plan with every finding is
@@ -20,10 +20,10 @@ progress and one is the functioning one." The full plan with every finding is
   the service worker's eviction rule with the live app; the two builds would evict each
   other.
 - **A second data REPO for the sandbox.** Needs the token re-scoped by hand, a step only
-  David can do.
+  The owner can do.
 - **`main` live on Pages, `next` on a Cloudflare Pages origin, the data on a `sandbox`
   branch of the same repo decided by ORIGIN, a Sunday fast-forward against a `ship/` tag
-  David's yes produced.**
+  The owner's yes produced.**
 
 ## Decision
 
@@ -39,4 +39,4 @@ before it counts.
 **What gets worse:** every change waits up to a week to reach the live app unless it is a
 hotfix; two hosts, two icons and a re-seed are more machinery than one Pages site; and a
 laptop-side deploy guard treats even the sanctioned release as a production deploy, so
-the push is David's own command (2026-09-21).
+the push is the owner's own command (2026-09-21).

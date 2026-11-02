@@ -12,7 +12,7 @@
 //      probe.local.json (slug, email, target; no password). Run probe.sql
 //      with psql against that project.
 //   2. node tools/make-probe.mjs --create-user probe.local.json [--send]
-//      with SUPABASE_URL and SUPABASE_SECRET_KEY set (typed by David): creates
+//      with SUPABASE_URL and SUPABASE_SECRET_KEY set (typed by the owner): creates
 //      the auth user with a random password and its email marked confirmed
 //      (no email is sent), so the link trigger ties it to the profile; then
 //      puts the email and the password into the Worker's secrets with

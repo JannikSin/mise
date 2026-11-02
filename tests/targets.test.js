@@ -213,7 +213,7 @@ test("targetsFromQuestionnaire: default-valued prefs stay omitted (lean file)", 
   }
 });
 test("protein anchors to GOAL weight on a loss phase, not the weight being carried", () => {
-  // David's dad: 6'4", 300 lb, heading for 200, age 56. Keying 0.9 g/lb to
+  // The owner's dad: 6'4", 300 lb, heading for 200, age 56. Keying 0.9 g/lb to
   // 300 lb asks for 270 g of protein, which is neither achievable nor useful,
   // and at a deficit it swallows the whole calorie budget.
   const base = {

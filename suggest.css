@@ -1,6 +1,6 @@
 /* suggest.css: styling for the ✎ change button.
    A separate file, not a <style> block injected by suggest.js, because every one
-   of David's apps ships style-src 'self' with no 'unsafe-inline'. A linked
+   of the owner's apps ships style-src 'self' with no 'unsafe-inline'. A linked
    same-origin sheet passes that; an injected <style> is silently dropped, which is
    what left this button unstyled in every app before 2026-08-26. */
 .sg-btn{position:fixed;left:8px;bottom:76px;opacity:.8;z-index:2147483000;width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.28);background:#1b1d24;color:#fff;font:600 19px/1 system-ui,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;padding:0}

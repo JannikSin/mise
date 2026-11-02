@@ -4,7 +4,7 @@ import { useState } from "preact/hooks";
 import { askTurn } from "../lib/worker.js";
 
 /**
- * ASK — the general question box (David, 2026-08-03: "I need a chat so I can
+ * ASK — the general question box (the owner, 2026-08-03: "I need a chat so I can
  * ask questions on the app where all of the context is"). One thread, no
  * history persisted anywhere: the value is the live context snapshot main.js
  * composes (targets, today's meals, the week's dinners with cooks and

@@ -1,4 +1,4 @@
-// Mise 2.0 G2: the operator tools that write a SQL script for David to run
+// Mise 2.0 G2: the operator tools that write a SQL script for the owner to run
 // (add-member, delete-member, make-probe) and the person export. The scripts
 // run here against PGlite; nothing contacts a real service.
 import test from "node:test";

@@ -88,7 +88,7 @@ const ALL = [
 ];
 const TARGETS = { macros: { calories: 3400, protein: 210 } };
 const MONDAY_W29 = "2026-07-13";
-/** the week's FIRST day: weeks open on Sunday (David 2026-09-05) */
+/** the week's FIRST day: weeks open on Sunday (the owner 2026-09-05) */
 const FIRST_W29 = "2026-07-12";
 
 test("foodSlugsOf excludes staples", () => {
@@ -879,7 +879,7 @@ test("generateWeek defaults to breakfast/lunch/dinner/smoothie when targets.meal
 });
 
 test("REAL pool integration: generated week meets calorie and protein floors every day", () => {
-  // David's directive is "meet the calorie goal and protein goal every day":
+  // The owner's directive is "meet the calorie goal and protein goal every day":
   // against the actual seed recipes and actual targets.json, the portion
   // lever plus snack top-up must clear both floors on all 7 days
   const recipesDir = fileURLToPath(new URL("../seed-data/generated/recipes/", import.meta.url));
@@ -1196,7 +1196,7 @@ test("no recipe is ever hard-pinned by id: lunches cycle, nothing owns 3 straigh
   }
 });
 
-test("MY cook night seeds overlap; OTHER cooks' dinners push away (David 2026-08-01)", () => {
+test("MY cook night seeds overlap; OTHER cooks' dinners push away (Owner 2026-08-01)", () => {
   const lunch = (id, food) => ({
     id,
     name: id,
@@ -1257,7 +1257,7 @@ test("MY cook night seeds overlap; OTHER cooks' dinners push away (David 2026-08
 
 // --- Written macro floors are the enforced floors (council 2026-08-07) -----
 // The generator used to enforce a hardcoded 95% of TARGET and ignore the
-// floor fields the questionnaire writes. That silently held David to 199.5g
+// floor fields the questionnaire writes. That silently held the owner to 199.5g
 // protein against a written 185, and mom to 1472.5 kcal against a written
 // 1400. A ratio can never be right here: the 1400 is hand-edited.
 
@@ -1311,7 +1311,7 @@ test("a profile with no written floors derives them, matching the questionnaire"
   });
 });
 
-test("David's real targets enforce 3500/155, not 3515/166.25", async () => {
+test("Owner's real targets enforce 3500/155, not 3515/166.25", async () => {
   const { enforcedFloors } = await import("../app/lib/targets.js");
   // 175/155 ratified 2026-08-18 (council: protein set from goal weight, Morton 2018 band)
   assert.deepEqual(
@@ -1335,7 +1335,7 @@ test("a zero floor is a real floor, not a missing one", async () => {
   assert.equal(enforcedFloors({ calories: 2000, protein: 150, proteinFloor: 0 }).protein, 0);
 });
 
-// --- portions are sized to the person (David, 2026-08-10) -----------------
+// --- portions are sized to the person (the owner, 2026-08-10) -----------------
 // His mother ran over her calorie ceiling all seven days while trying to lose
 // weight. The bank is shared and written at one size, so filling every slot
 // with exactly 1 serving over-fed the smallest profile before a single pass
@@ -1497,7 +1497,7 @@ test("macroTopUp tight restricts the snack pool to overlap/cheap, and reports it
 });
 
 // ---- 7.11 (P5): the swipe arbitrage is REAL in the generator ---------------
-// David 2026-08-19: marking a swipe raised his day to 254 g protein and a
+// The owner 2026-08-19: marking a swipe raised his day to 254 g protein and a
 // regenerate never swapped anything leaner. The engine now (a) aims the
 // committees at the REMAINING need after away credits, (b) permutes the
 // leanest assigned picks onto the credit days, (c) reports it all under
@@ -1714,7 +1714,7 @@ test("macroTopUp: a day already at its protein TARGET fills calories with the le
 });
 
 test("generateWeek: a heavy-credit swipe day SIZES its cooked slots smaller (same slot occupancy)", () => {
-  // David 2026-08-19 round two: two swipe meals still read 282 g because the
+  // The owner 2026-08-19 round two: two swipe meals still read 282 g because the
   // cooked slots were sized for a FULL day. The fill pass now sizes a credit
   // day's remaining slots against (target − credit), renormalized over the
   // remaining slot weights. This fixture isolates the SIZING: floors are
@@ -1781,7 +1781,7 @@ test("generateWeek: a heavy-credit swipe day SIZES its cooked slots smaller (sam
   );
 });
 
-// ---- the swipe credit must come off the GROCERY bill (David 2026-08-24) ---
+// ---- the swipe credit must come off the GROCERY bill (the owner 2026-08-24) ---
 // "I can get sixty or eighty grams of protein in one meal on a swipe. That
 // means I should be buying sixty to eighty grams less." He was right and the
 // app was not doing it: 7 swipes budgeted still bought 195 g/day and ate 244
@@ -2141,7 +2141,7 @@ test("a swipe whose freeText names a COMPOSED tray keeps its measured macros", (
   assert.equal(e.estProtein, 74);
 });
 
-// ---- cook nights and protein rotation (David, 2026-09-05) -------------------
+// ---- cook nights and protein rotation (the owner, 2026-09-05) -------------------
 
 test("pickCommittee with rotateProtein seats a beef and a fish dish over the second and third chicken dish", () => {
   // no shared food with the chicken cluster, so overlap alone would never seat them
@@ -2180,7 +2180,7 @@ test("generateWeek with targets.cookDays: no-cook nights eat leftovers of a cook
   const sun = dinner("2026-09-06");
   const mon = dinner("2026-09-07");
   assert.ok(sun && mon && !sun.leftoverOf && !mon.leftoverOf, "cook nights cook");
-  // the MOST RECENT pot, on consecutive days (David 2026-09-13): Monday's pot
+  // the MOST RECENT pot, on consecutive days (the owner 2026-09-13): Monday's pot
   // is Tuesday, Wednesday and Thursday; Sunday's is Sunday's alone
   assert.equal(dinner("2026-09-08").leftoverOf, "2026-09-07");
   assert.equal(dinner("2026-09-08").recipeId, mon.recipeId, "Tuesday eats Monday's pot");

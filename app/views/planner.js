@@ -24,7 +24,7 @@ import { isParked } from "../lib/parked.js";
 import { houseDishName } from "../lib/house-recipes.js";
 
 /**
- * TODAY'S TOPPINGS on the plan row (David, 2026-09-06: "each day just has
+ * TODAY'S TOPPINGS on the plan row (the owner, 2026-09-06: "each day just has
  * different ingredients"). A rotating recipe (the yogurt bowl) keeps its
  * spine and picks its trimmings per date; until now the pick was only visible
  * on the recipe page, so the row said the same bowl every morning.
@@ -92,7 +92,7 @@ function potLines(entry, entries, tables, dayName) {
 }
 
 /**
- * The weekly plan (blueprint §6.3), rebuilt 2026-07-27 around what David
+ * The weekly plan (blueprint §6.3), rebuilt 2026-07-27 around what the owner
  * actually does with it.
  *
  * Everything that made this a DRAG-AND-DROP planner is gone: the recipe tray,
@@ -195,7 +195,7 @@ export function PlannerView({
   profileId = "",
 }) {
   const rootRef = useRef(/** @type {HTMLElement | null} */ (null));
-  // scoreboard accordion (David's layout pick, 2026-07-23): which days are
+  // scoreboard accordion (the owner's layout pick, 2026-07-23): which days are
   // expanded. Absent = default (today open, everything else collapsed);
   // native <details> does the rest, this map only remembers user toggles
   const [openDays, setOpenDays] = useState(/** @type {Record<string, boolean>} */ ({}));
@@ -222,7 +222,7 @@ export function PlannerView({
       (d) => brigadeDays.has(d) || ruleCovers(brigade.active, d),
     );
   // P3, no invented person. These two lines used to read `?? 3400` and
-  // `?? 210`, which are DAVID'S targets from an earlier phase: any profile
+  // `?? 210`, which are OWNER'S targets from an earlier phase: any profile
   // whose targets file could not be read was silently measured against his
   // numbers, and every meter on this screen reported a stranger's progress
   // toward a stranger's goal. The fallbacks were dormant on the one device
@@ -298,7 +298,7 @@ export function PlannerView({
           </button>`
         }
         ${
-          // RECIPE FROM A LINK (David, 2026-10-18: "give you the link to the
+          // RECIPE FROM A LINK (the owner, 2026-10-18: "give you the link to the
           // recipe online and you generate a recipe that complies with
           // everything and you add it into the system"): the front door to
           // Recipe Scan, which was reachable only from the parked cookbook
@@ -322,7 +322,7 @@ export function PlannerView({
       ${
         // an OCCASION is the loudest thing on this screen while it runs. It is
         // reached from Settings and otherwise invisible, so the day it matters
-        // it has to come and find you (David: "hidden-ish, not awful to find").
+        // it has to come and find you (the owner: "hidden-ish, not awful to find").
         occasionBanner &&
         html`<div class="occbanner" role="status">
           <b>${occasionBanner.emoji} ${occasionBanner.name}${occasionBanner.when}</b>
@@ -439,7 +439,7 @@ export function PlannerView({
           )
       }
       ${
-        // SUNDAY PREP, ROUGHLY (David, 2026-10-18): the week's Sunday cooking
+        // SUNDAY PREP, ROUGHLY (the owner, 2026-10-18): the week's Sunday cooking
         // against his own rough limit, said, never enforced (P7)
         (() => {
           const b = /** @type {any} */ (brigade);
@@ -504,13 +504,13 @@ export function PlannerView({
         // read as a miss, which would be the invented person wearing a warning
         const kcalOk = kcalTarget ? totals.calories / kcalTarget >= 0.9 : true;
         const pOk = proteinTarget ? totals.protein / proteinTarget >= 0.9 : true;
-        // the dinner whisper is GONE (David 2026-08-19: "why dinner over any
+        // the dinner whisper is GONE (the owner 2026-08-19: "why dinner over any
         // other meal? We don't need it" — his ruling supersedes the
         // Historian's 2026-07 condition). The collapsed row keeps only the
         // honest-state badges below.
         const isOpen = openDays[date] ?? date === defaultOpenDate;
         const dayName = parseLocalIso(date).toLocaleDateString([], { weekday: "short" });
-        // honest-state (David, 2026-07-23): a past DATE never implies eaten.
+        // honest-state (the owner, 2026-07-23): a past DATE never implies eaten.
         // "✓ eaten" only when every cookable meal that day carries a cooked
         // confirmation from the DONE button; "not logged" only when there WAS
         // something to confirm (an out/table-only day has nothing to log and
@@ -562,7 +562,7 @@ export function PlannerView({
             </summary>
             <div class="daymeals">
               ${
-                // ONE TAP FOR THE DAY (David, 2026-10-17: "ATE IT must be
+                // ONE TAP FOR THE DAY (the owner, 2026-10-17: "ATE IT must be
                 // easier"): every meal of today or an earlier day that is not
                 // yet confirmed, the swipe included, in one press
                 (() => {
@@ -598,12 +598,12 @@ export function PlannerView({
                 ${SLOTS.map(({ key, label, full }) => {
                   const outEntry = outEntryAt(plan.entries, date, key);
                   const stacked = entriesAt(plan.entries, date, key).filter((e) => !e.out);
-                  // David, 2026-10-16: "get rid of the smoothie category
+                  // The owner, 2026-10-16: "get rid of the smoothie category
                   // altogether". A slot shows when it is one of this person's
                   // meals or a shared meal, or when it already holds food.
                   if (!outEntry && stacked.length === 0 && !shownSlots.has(key)) return null;
                   if (past) {
-                    // READ-ONLY, BUT NEVER BLANK (David, 2026-09-05: "when a
+                    // READ-ONLY, BUT NEVER BLANK (the owner, 2026-09-05: "when a
                     // day is passed and a meal is passed it just writes wayne
                     // kitchen and you can no longer see what was cooked"). A
                     // brigade meal carries its dish as viewRecipeId, not
@@ -698,7 +698,7 @@ export function PlannerView({
                     <div class="slotrow ${outEntry ? "isout" : ""}" key=${key}>
                       <span class="t" aria-label=${full}>${label}</span>
                       ${
-                        // A MEAL SWIPE IS A MEAL (David, 2026-10-16: "a meal
+                        // A MEAL SWIPE IS A MEAL (the owner, 2026-10-16: "a meal
                         // swipe is a meal swipe, it's not eating out ... it can
                         // be almost a recipe and have the same UI as a recipe
                         // would"). It reads like any meal row, and opening it
@@ -813,7 +813,7 @@ export function PlannerView({
                                 ${
                                   // SWITCH replaces the meal with another
                                   // eligible recipe for this slot instead of
-                                  // only deleting it (David: "instead of being
+                                  // only deleting it (the owner: "instead of being
                                   // able to only get rid of I want an automatic
                                   // replacement"). Tapping again keeps cycling.
                                   // A table entry is not ours to rewrite: it
@@ -886,7 +886,7 @@ export function PlannerView({
                         </button>`
                       }
                       ${
-                        // THE SWIPE'S COOKED BUTTON (P1, P11, David
+                        // THE SWIPE'S COOKED BUTTON (P1, P11, the owner
                         // 2026-08-29): one tap says the swipe was actually
                         // spent and its allocated macros actually eaten —
                         // more valuable than any estimate. SCAN MY PLATE's
@@ -924,7 +924,7 @@ export function PlannerView({
         tables=${brigade?.tables ?? []}
       />
       ${
-        // HOW THE WEEK WAS BUILT, folded away (David, 2026-10-16: "I don't
+        // HOW THE WEEK WAS BUILT, folded away (the owner, 2026-10-16: "I don't
         // need to know the details of the engine. It should be implicit.").
         // Every report the engine writes is still here for whoever debugs a
         // week; none of it stands between him and the seven days.

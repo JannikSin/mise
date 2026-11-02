@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-08-18 (numbering fixed), 2026-08-19 (the ledger test)
-- **Deciders:** David, session koenig
+- **Deciders:** the owner, session koenig
 - **Tenet invoked:** real data before green tests
 
 ## Context

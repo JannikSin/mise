@@ -1,11 +1,11 @@
-// Adherence: the accountability score (David, 2026-07-24). Derived ONLY
+// Adherence: the accountability score (the owner, 2026-07-24). Derived ONLY
 // from confirmations that already exist — cookedAt on plan entries and the
 // week's shoppedAt receipt stamp. Nothing new to track, nothing stored
 // (pure derivation), transparent components, and numbers rather than
 // verdict language (the Apple Watch pipeline rule).
 //
 // 2026-08-09: the daily-log component retired with the in-app check-in —
-// David's personal tracking (sleep, weight, water, supplements, the Daily
+// The owner's personal tracking (sleep, weight, water, supplements, the Daily
 // Dozen) lives in Crystal now, and scoring the family on a chore the app no
 // longer renders would be the exact rig the 2026-08-02 council killed.
 
@@ -28,7 +28,7 @@ export function weekAdherence({ plan, weekId, today }) {
   const elapsed = datesOfWeek(weekId).filter((d) => d < today);
   const elapsedSet = new Set(elapsed);
 
-  // OCCASION days are excluded like OUT and table meals (David, 2026-08-10).
+  // OCCASION days are excluded like OUT and table meals (the owner, 2026-08-10).
   // An occasion is a day the app has no opinion about — a medical prep, a
   // holiday, a trip — and scoring compliance on one is the same rig the
   // 2026-08-02 council killed: a medical-prep week would have counted

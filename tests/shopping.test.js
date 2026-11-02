@@ -360,7 +360,7 @@ test("per-serving scaling divides by the recipe's own servings", () => {
 });
 
 test("staple-flagged ingredients are BOUGHT unless the pantry registry owns them", () => {
-  // David, 2026-08-09: "staples run out — assume I don't have it if it was
+  // The owner, 2026-08-09: "staples run out — assume I don't have it if it was
   // not in the pantry scan." The recipe author's `staple: true` guess no
   // longer suppresses buying; only pantry onHand does.
   const empty = deriveShoppingList(PLAN, RECIPES, { staples: [], perishables: [] });
@@ -445,7 +445,7 @@ test("regeneration preserves check-state and manual items", () => {
 });
 
 test("a KNOWN food in two units becomes ONE row (the broccoli complaint)", () => {
-  // David, 2026-07-25: the list showed the same food several times. A food in
+  // The owner, 2026-07-25: the list showed the same food several times. A food in
   // the canonical table now merges across units and reads in its own unit.
   const recipes = new Map([
     [
@@ -541,7 +541,7 @@ test("running-low staple is suppressed when a recipe already shops that food", (
 });
 
 test("sectionOf classifies common foods across the wider aisle taxonomy", () => {
-  // David, 2026-07-25: "the items are not sorted in any helpful way". Seven
+  // The owner, 2026-07-25: "the items are not sorted in any helpful way". Seven
   // buckets became fourteen real aisles, shared with the pantry groups.
   assert.equal(sectionOf("chicken breast"), "meat");
   assert.equal(sectionOf("salmon fillet"), "seafood");
@@ -560,7 +560,7 @@ test("sectionOf classifies common foods across the wider aisle taxonomy", () => 
 });
 
 test("the aisle taxonomy: the specific food beats the general keyword", () => {
-  // Every case here is a real row from David's first Wayne camera scan
+  // Every case here is a real row from the owner's first Wayne camera scan
   // (2026-08-26), where a general keyword in an earlier rule stole the food.
   assert.equal(sectionOf("cayenne pepper"), "spices"); // produce claimed `pepper`
   assert.equal(sectionOf("black pepper"), "spices");
@@ -581,7 +581,7 @@ test("the aisle taxonomy: the specific food beats the general keyword", () => {
 });
 
 test("the aisle taxonomy reads PLURALS, because that is what a label says", () => {
-  // David, 2026-08-27: most of the fresh half of his first Wayne pantry landed
+  // The owner, 2026-08-27: most of the fresh half of his first Wayne pantry landed
   // in OTHER. Every keyword was singular inside a word boundary, so a camera
   // that faithfully wrote "bananas" and "pumpkin seeds" classified nothing.
   for (const [singular, plural] of [
@@ -943,7 +943,7 @@ test("formatStoreQty shows imperial first with the authoritative metric in paren
   assert.equal(formatStoreQty(3, "cup"), "3 cups");
 });
 
-test("count-noun units pluralise above one, abbreviations never (David 2026-09-07)", () => {
+test("count-noun units pluralise above one, abbreviations never (Owner 2026-09-07)", () => {
   // "if it's greater than one, it should say cups, not cup"
   assert.equal(formatStoreQty(1, "cup"), "1 cup");
   assert.equal(formatStoreQty(0.75, "cup"), "0.75 cup");
@@ -960,9 +960,9 @@ test("count-noun units pluralise above one, abbreviations never (David 2026-09-0
 
 test("householdOthers merges only same-household profiles, absent household = home", () => {
   const profiles = [
-    { id: "david", name: "David" }, // no household -> "home"
+    { id: "david", name: "Owner" }, // no household -> "home"
     { id: "mom", name: "Mom" }, // no household -> "home"
-    { id: "lena", name: "Lena", household: "lena" },
+    { id: "wren", name: "Wren", household: "wren" },
   ];
   // pre-household behavior preserved: david still sees mom, and only mom
   assert.deepEqual(
@@ -973,8 +973,8 @@ test("householdOthers merges only same-household profiles, absent household = ho
     householdOthers(profiles, "mom").map((p) => p.id),
     ["david"],
   );
-  // lena is alone in her household -> no EVERYONE tab
-  assert.deepEqual(householdOthers(profiles, "lena"), []);
+  // wren is alone in her household -> no EVERYONE tab
+  assert.deepEqual(householdOthers(profiles, "wren"), []);
   // an unknown active id defaults to "home" rather than crashing
   assert.deepEqual(
     householdOthers(profiles, "ghost").map((p) => p.id),
@@ -1129,12 +1129,12 @@ test("withAutoUseSoon flags perishables in their last 3 days, preserves manual f
 });
 
 test("householdOf and pantryPathFor: household keys the shared pantry (B2)", () => {
-  const profiles = [{ id: "david" }, { id: "mom" }, { id: "lena", household: "lena-apt" }];
+  const profiles = [{ id: "david" }, { id: "mom" }, { id: "wren", household: "wren-apt" }];
   assert.equal(householdOf(profiles, "david"), "home");
-  assert.equal(householdOf(profiles, "lena"), "lena-apt");
+  assert.equal(householdOf(profiles, "wren"), "wren-apt");
   assert.equal(householdOf(profiles, "ghost"), "home"); // unknown id = default
   assert.equal(pantryPathFor("home"), "households/home/pantry.json");
-  assert.equal(pantryPathFor("lena-apt"), "households/lena-apt/pantry.json");
+  assert.equal(pantryPathFor("wren-apt"), "households/wren-apt/pantry.json");
   assert.equal(pantryPathFor(""), "households/home/pantry.json");
   // one household = one file: david and mom resolve to the SAME pantry
   assert.equal(
@@ -1152,15 +1152,15 @@ test("a declared household starts with an EMPTY pantry, never the legacy one", (
   assert.equal(inheritsLegacyPantry("home"), true);
   assert.equal(inheritsLegacyPantry(""), true); // absent household field
   assert.equal(inheritsLegacyPantry("wayne"), false);
-  assert.equal(inheritsLegacyPantry("thornton"), false);
-  assert.equal(inheritsLegacyPantry("lena-apt"), false);
+  assert.equal(inheritsLegacyPantry("birch"), false);
+  assert.equal(inheritsLegacyPantry("wren-apt"), false);
   const profiles = [{ id: "david", household: "wayne" }, { id: "mom" }];
   assert.equal(inheritsLegacyPantry(householdOf(profiles, "david")), false);
   assert.equal(inheritsLegacyPantry(householdOf(profiles, "mom")), true);
 });
 
 test("shelf life now knows WHERE the food is, and never lengthens an unknown", () => {
-  // David asked how the expiry matching works. It keyed on the food name
+  // The owner asked how the expiry matching works. It keyed on the food name
   // alone, so spinach was six days whether it sat in the fridge or the
   // freezer. Location is optional and its absence must behave exactly as
   // before, because expirePerishables DELETES rows on every load.
@@ -1374,7 +1374,7 @@ test("SUBSTITUTE leaves alone what it must not touch", () => {
 });
 
 test("a PARTIAL shop buys only the days you picked, and leaves the plan alone", () => {
-  // David, 2026-07-26: guests over, fridge full, still eating to plan. Opting
+  // The owner, 2026-07-26: guests over, fridge full, still eating to plan. Opting
   // the meals OUT was wrong because the meals are still happening; only the
   // shopping is partial.
   const recipes = new Map([
@@ -1454,7 +1454,7 @@ test("a partial shop can narrow to particular meals too", () => {
 });
 
 test("FAMILY day picks: one member's partial-week derive keeps ticks + manual rows and merges with a full list", () => {
-  // David, 2026-08-09: buy the first three days for mom, the whole week for
+  // The owner, 2026-08-09: buy the first three days for mom, the whole week for
   // everyone else. Mom's contribution is re-derived from HER plan for just
   // those dates, with her stored list as `previous` so aisle ticks and manual
   // rows survive; the merge then sums as usual.
@@ -1653,7 +1653,7 @@ test("consumeForCook: food that is not on any shelf changes nothing", () => {
   assert.deepEqual(out.used, []);
 });
 
-// ---- fridge-first trips (David 2026-08-01: "only buy stuff that we need") ----
+// ---- fridge-first trips (the owner 2026-08-01: "only buy stuff that we need") ----
 
 const tripItem = (id, food, qty, unit, extra = {}) => ({
   id,
@@ -1815,7 +1815,7 @@ test("HOUSEHOLD REGRESSION (Red Team R1): the merged trip banks exactly what was
   // 4 profiles, 500 g chicken each = 2000 g summed; the shelf holds 500 g.
   // The FAMILY tab renders BUY 1500 g; the receipt must bank 1500 g — not 0,
   // not 2000. This is the 4-person topology the app actually ships into.
-  const lists = ["david", "lena", "mom", "dad"].map((profileId) => ({
+  const lists = ["david", "wren", "mom", "dad"].map((profileId) => ({
     profileId,
     list: {
       generatedFrom: "2026-W32",
@@ -1885,10 +1885,10 @@ test("BANKED FOOD ROUND-TRIPS (Tribunal B1): next week's need subtracts from a k
 });
 
 test("PER-SOURCE BOUGHT (Tribunal B2): a solo-tab tick banks one portion, not four", () => {
-  // David ticks his own 500 g row on his personal tab; the receipt reads only
+  // The owner ticks his own 500 g row on his personal tab; the receipt reads only
   // eggs. Only HIS portion banks; the other three rows are neither banked nor
   // cleared. (mirrors main.js handleReceiptApprove's boughtOf + merge shape)
-  const lists = ["david", "lena", "mom", "dad"].map((profileId) => ({
+  const lists = ["david", "wren", "mom", "dad"].map((profileId) => ({
     profileId,
     list: {
       items: [
@@ -1917,7 +1917,7 @@ test("PER-SOURCE BOUGHT (Tribunal B2): a solo-tab tick banks one portion, not fo
   assert.equal(changed, false);
 });
 
-test("count units display as ×N — never 'each' (David 2026-08-02)", () => {
+test("count units display as ×N — never 'each' (Owner 2026-08-02)", () => {
   // "banana 7 each" read as per-person/per-serving; it was always the week's
   // total. ×7 leaves nothing to interpret.
   assert.equal(formatStoreQty(7, "each"), "×7");
@@ -1978,7 +1978,7 @@ test("normalize merge keeps the promoted unit (2000 g is 2 kg, never '2 g')", ()
 });
 
 // --- the shared pot is shopped from the BANK, never a personal variant -----
-// David, 2026-08-10 (found by the Tribunal). deriveShoppingList resolves an
+// The owner, 2026-08-10 (found by the Tribunal). deriveShoppingList resolves an
 // entry's recipeId through the MERGED pool, where a profile's own variant wins
 // by id. The shared-table pot line carries the bank recipe's id, so when the
 // buyer owned a same-id variant the HOUSE was shopped from that one person's
@@ -2261,7 +2261,7 @@ test("perishableStatus reads the stamped expiry when present", () => {
   );
 });
 
-// THE SEVEN BROCCOLIS (David, 2026-08-24: "last time I ended up with like
+// THE SEVEN BROCCOLIS (the owner, 2026-08-24: "last time I ended up with like
 // seven things of frozen broccoli"). Both halves of that bug get a test.
 test("rows sharing ONE product become ONE cart line, not seven", () => {
   const items = [
@@ -2371,7 +2371,7 @@ test("isStapleRow: stock-up shelf rows are staples, this week's food is not", ()
   );
 });
 
-test("the shelf as SAID subtracts from the trip: gallons, tubs, dozens, plurals (David, 2026-09-06)", () => {
+test("the shelf as SAID subtracts from the trip: gallons, tubs, dozens, plurals (Owner, 2026-09-06)", () => {
   const pantry = {
     items: [
       { id: "m1", food: "milk", qty: "2 gallons", added: "2026-09-06", location: "fridge" },
@@ -2445,7 +2445,7 @@ test("a dictated count of cans keeps a year on the pantry shelf, not the fridge'
   assert.equal(shelfLifeDays("lemon", "pantry"), 10);
 });
 
-test("recipeBought: a dish is bought when its fresh ingredients are on the shelf or ticked (David, 2026-09-06)", () => {
+test("recipeBought: a dish is bought when its fresh ingredients are on the shelf or ticked (Owner, 2026-09-06)", () => {
   const bulgogi = {
     id: "chicken-bulgogi-rice-bowl",
     ingredients: [

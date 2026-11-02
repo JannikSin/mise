@@ -10,7 +10,7 @@ test("expandTillName strips pack sizes and brand noise, expands the shorthand", 
 });
 
 test("THE ALMOND BUG: the list decides, not the brand's reputation", () => {
-  // David, 2026-07-26. Blue Diamond is famous for almond milk, so reading the
+  // The owner, 2026-07-26. Blue Diamond is famous for almond milk, so reading the
   // abbreviation cold gives the wrong answer. His list said almonds and never
   // said almond milk, so the answer was on the list the whole time.
   const expected = ["sliced almonds", "baby spinach", "greek yogurt"];

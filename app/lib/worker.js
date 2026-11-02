@@ -114,7 +114,7 @@ async function post(path, body) {
       );
     }
     // fetch network failures are technical strings ("Failed to fetch") —
-    // never show those to David
+    // never show those to the owner
     throw new Error("no connection, try again when you have signal", { cause: err });
   }
   const data = await res.json().catch(() => ({}));
@@ -139,7 +139,7 @@ export async function scanPhoto(file) {
 }
 
 /**
- * THE WALK'S NARRATION, the browser half (P6, David 2026-10-18: "show
+ * THE WALK'S NARRATION, the browser half (P6, the owner 2026-10-18: "show
  * everything and also narrate everything"). Decodes the video file's own
  * audio track with the Web Audio API (Safari and Chrome both decode the
  * AAC inside .mov/.mp4), turns it into a small 16 kHz WAV (narrationWav),
@@ -183,7 +183,7 @@ export async function transcribeNarration(wav) {
 }
 
 /**
- * WALK THE FRIDGE, the browser half (P6, David 2026-10-18): stills from a
+ * WALK THE FRIDGE, the browser half (P6, the owner 2026-10-18): stills from a
  * video he filmed along the shelves, taken at the times `timesFor` picks
  * (frameTimes in scan.js) with a hidden <video> and a <canvas>, each a JPEG
  * Blob that scanPhoto then downscales like any photo. A browser that cannot
@@ -303,7 +303,7 @@ export async function scanFrames(frames, onProgress, scan = scanPhoto) {
  * price-catalogue freshness loop. Same downscale + auth path as the pantry
  * scan; returns empty when the model finds nothing.
  *
- * Takes one file or SEVERAL overlapping photos of one long receipt (David,
+ * Takes one file or SEVERAL overlapping photos of one long receipt (the owner,
  * 2026-08-10: a Costco receipt does not fit in a frame). All of them go in
  * ONE request on purpose: the model reads the strip as a single continuous
  * receipt and so can tell that the bottom of photo 2 is the top of photo 3.
@@ -447,9 +447,9 @@ export async function claimInvite(code, entry, targets, dinners = [], login = un
   };
 }
 
-// GUEST SESSION (v1.6, David 2026-10-18: "type your name + a quick passkey").
+// GUEST SESSION (v1.6, the owner 2026-10-18: "type your name + a quick passkey").
 // The signed session opens only this guest's own meals. Namespaced, because
-// janniksin.github.io localStorage is shared with David's other apps.
+// janniksin.github.io localStorage is shared with the owner's other apps.
 const GUEST_SESSION = "mise.guest.session";
 
 /** @returns {string} the stored guest session, or "" */
@@ -665,7 +665,7 @@ const KROGER_SENDS = "mise.kroger.sends";
 const KROGER_SENT_UPCS = "mise.kroger.sentUpcs";
 
 /**
- * A DURABLE RECORD OF WHAT WAS PUSHED (David, 2026-08-25: "I'm logged in to my
+ * A DURABLE RECORD OF WHAT WAS PUSHED (the owner, 2026-08-25: "I'm logged in to my
  * account on the Pay Less app, but I see nothing").
  *
  * Kroger's cart API is add-only with NO read-back at any public tier, so the

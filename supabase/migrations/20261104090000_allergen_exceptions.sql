@@ -1,4 +1,4 @@
--- Mise 2.0, allergen exceptions (P8 plates, P3 knows-you; David's ruling
+-- Mise 2.0, allergen exceptions (P8 plates, P3 knows-you; the owner's ruling
 -- 2026-10-27). A person may clear named terms from one allergy chip for
 -- themselves (app/lib/targets.js ALLERGEN_EXCEPTIONS: tree nuts, except pine
 -- nuts and pesto). The new targets key `allergenExceptions` rides on the plate

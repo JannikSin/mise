@@ -47,7 +47,7 @@ export function potFeeds(entry, entries, tables) {
 /**
  * The WEEK-level half of what used to be the Cook tab.
  *
- * David, 2026-07-25: Home only ever linked to Cook, and Cook and Plan showed
+ * The owner, 2026-07-25: Home only ever linked to Cook, and Cook and Plan showed
  * the same week twice. Plan absorbed Cook, so the per-day meal list now lives
  * in Plan's expanded day rows, where it was always a duplicate. What is left
  * here is everything about the WEEK rather than one day, rendered below
@@ -72,7 +72,7 @@ export function CookBlocks({ recipes, plan, tableConflicts, daily, pantry, onPat
   const weekDates = datesOfWeek(plan.week);
 
   // batch-prep block, day-aware (docs/day-aware-weeks-design.md). Since the
-  // week opens on SUNDAY (David 2026-09-05) the batch day is the shown week's
+  // week opens on SUNDAY (the owner 2026-09-05) the batch day is the shown week's
   // own first day, so the block always describes the week you are looking
   // at: "Sunday batch" while that Sunday is today or ahead, "catch-up" once
   // it has passed with the week still underway. A fully past week shows

@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-10-12
-- **Deciders:** session tweener; targets ruled by David (3,700 kcal, 190 g)
+- **Deciders:** session tweener; targets ruled by the owner (3,700 kcal, 190 g)
 - **Tenet invoked:** 1 (what remains is verified)
 
 ## Context

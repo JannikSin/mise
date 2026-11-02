@@ -1,4 +1,4 @@
-// Variety without moving the macros (David 2026-08-24): the bowl and the
+// Variety without moving the macros (the owner 2026-08-24): the bowl and the
 // smoothie are eaten every single day, which is right nutritionally and is
 // exactly how a person gets bored.
 import test from "node:test";
@@ -91,7 +91,7 @@ test("perDay larger than the pool takes the whole pool, never undefined entries"
 });
 
 test("THE LIVE BOWL AND SMOOTHIE rotate, and hold their macros all week", () => {
-  // per-recipe spine: the bowl's spine is the yogurt ALONE since David's
+  // per-recipe spine: the bowl's spine is the yogurt ALONE since the owner's
   // 2026-08-29 ruling took the whey out of the yogurt bowls ("take the whey
   // out... we would be meeting our protein almost exactly"); the smoothie
   // keeps its scoop — it is a protein shake, that is the point of it.
@@ -112,7 +112,7 @@ test("THE LIVE BOWL AND SMOOTHIE rotate, and hold their macros all week", () => 
       assert.ok(
         !r.rotation.keep.some((k) => /** @type {RegExp} */ (spine.never).test(k.food)) &&
           !r.rotation.pool.some((p) => /** @type {RegExp} */ (spine.never).test(p.food)),
-        `${id} must not carry whey anywhere (David 2026-08-29)`,
+        `${id} must not carry whey anywhere (Owner 2026-08-29)`,
       );
     }
     for (const d of ["2026-08-31", "2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"]) {

@@ -189,7 +189,7 @@ const PER_LB_MIN_G = {
  * @returns {{ cost: number, eaten: number, estimate: boolean, size?: string, packs?: number, lbs?: number, variable?: boolean } | null}
  *   `packs` + `size` = the buyable amount for packaged rows; `lbs` = the
  *   charged weight for per-lb rows. Together they are the "buy" half of the
- *   list's need → buy line (David, 2026-08-19).
+ *   list's need → buy line (the owner, 2026-08-19).
  */
 export function itemCost(item, catalogue, store) {
   const entry = catalogue?.items ? matchPrice(item.food, catalogue.items) : null;
@@ -367,7 +367,7 @@ function perGram(food, sp) {
 }
 
 /**
- * PRICE SANITY (David, 2026-09-25: "fix pricing errors"). For a fresh-aisle
+ * PRICE SANITY (the owner, 2026-09-25: "fix pricing errors"). For a fresh-aisle
  * food, the store's row is suspect when its price per gram is more than 3x
  * the median of the other stores' rows for the same item: that is a wrong
  * product form (dried mushrooms, a jerky-size beef pack), not a pricier
@@ -507,7 +507,7 @@ export function storeSlugFromReceipt(storeText, knownStores) {
  * The cost of refusing was severe and silent. The catalogue held 24 items
  * against weekly receipts of 30 to 50 lines, so the overwhelming majority of
  * every scan was read, priced and discarded, and nothing ever said so. That
- * is why David scanned receipts for weeks and saw no improvement, and why a
+ * is why the owner scanned receipts for weeks and saw no improvement, and why a
  * week for four once priced at sixteen dollars: `tripTotal` was summing the
  * handful of rows it knew and not labelling its coverage.
  *

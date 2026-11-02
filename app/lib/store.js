@@ -86,14 +86,14 @@ function isHeld(rec) {
 
 /** Fallback the app boots into when profiles.json is missing (fresh
  *  install) or unreachable — a legacy/pre-multi-profile install still opens
- *  straight into David's data at the root, unscoped. */
+ *  straight into the owner's data at the root, unscoped. */
 const DEFAULT_PROFILES = {
-  profiles: [{ id: "david", name: "David", emoji: "🏋️", phase: "gain" }],
+  profiles: [{ id: "david", name: "Owner", emoji: "🏋️", phase: "gain" }],
 };
 
 /**
  * The signed-in profile id (Phase: multi-profile). Defaults to "david" so an
- * unset key (pre-feature localStorage) reads exactly as David always has.
+ * unset key (pre-feature localStorage) reads exactly as the owner always has.
  * @returns {string}
  */
 export function activeProfile() {
@@ -152,7 +152,7 @@ export function canSwitchProfile() {
 }
 
 /**
- * THE ONE PLACE THE SCOPING RULE EXISTS. David stays at the data-repo root
+ * THE ONE PLACE THE SCOPING RULE EXISTS. The owner stays at the data-repo root
  * (his live synced mise-data repo is never migrated); every other profile's
  * files live under `profiles/<id>/`. `profiles.json` is the one path that is
  * NEVER scoped — it has to be readable before a profile is even chosen.
@@ -199,7 +199,7 @@ export function hasOwnRecipes(id) {
 }
 
 // ---------------------------------------------------------------------------
-// THE FOOD PROFILE IS NOT FITNESS DATA (David, 2026-08-22)
+// THE FOOD PROFILE IS NOT FITNESS DATA (the owner, 2026-08-22)
 //
 // Mise and Anvil are separate apps. Everything Mise needs to plan food —
 // macros, calorie floor and ceiling, protein band, phase, meal slots, food
@@ -255,7 +255,7 @@ export async function readTargetsOf(id, readFn = read) {
  * the current terms for its stored `allergens` ids. Only ever ADDS terms
  * (stricter), keeps the stored order first, and returns the input untouched
  * when there is nothing to add. The person's own `allergenExceptions` are
- * honoured (David 2026-10-27, P8): a term they cleared from a chip is not
+ * honoured (the owner 2026-10-27, P8): a term they cleared from a chip is not
  * re-added by that chip, while a term already in the stored list stays.
  * @param {any} t
  * @returns {any}
@@ -352,15 +352,15 @@ async function defaultProfilesRead(path) {
   // refused one with no server copy asks the network
   const view = rec ? localView(rec) : null;
   if (rec && view) {
-    // A CACHED PROFILE LIST IS NOT A FROZEN ONE (David, 2026-08-28).
+    // A CACHED PROFILE LIST IS NOT A FROZEN ONE (the owner, 2026-08-28).
     //
     // This return used to be bare, which made profiles.json the ONE file in
     // the app that never refreshed: every other read goes through `read()`,
     // which fires `revalidate` on the way past. So a device that had cached
     // the list once kept serving that version forever. The symptom that found
-    // it: David moved into the Wayne house and Elliot was added, both landing
-    // in profiles.json — and his laptop went on reporting him in "thornton"
-    // with no Elliot anywhere, which silently pointed the whole app (pantry,
+    // it: the owner moved into the Wayne house and the housemate was added, both landing
+    // in profiles.json — and his laptop went on reporting him in "birch"
+    // with no the housemate anywhere, which silently pointed the whole app (pantry,
     // ledger, events, the shopping trip) at the wrong kitchen and left the
     // "add housemate" picker with nobody to offer.
     //
@@ -378,7 +378,7 @@ async function defaultProfilesRead(path) {
       return remote;
     }
   } catch {
-    // offline or no token — fall through to the David-only default
+    // offline or no token — fall through to the owner-only default
   }
   return null;
 }
@@ -386,7 +386,7 @@ async function defaultProfilesRead(path) {
 /**
  * Reads the ROOT profiles.json — every profile chooser (the gate, System's
  * "switch profile") calls this. Cache-first via defaultProfilesRead. Falls
- * back to a single default David profile when the file is missing (fresh
+ * back to a single default the owner profile when the file is missing (fresh
  * install) or unreachable, so a fresh or pre-multi-profile install still boots.
  * @param {(path: string) => Promise<{ data: Record<string, unknown>, sha: string } | null>} [readFn]
  * @returns {Promise<{ profiles: Record<string, any>[] }>}
@@ -421,7 +421,7 @@ export async function readProfiles(readFn = defaultProfilesRead) {
       return /** @type {any} */ (remote).data;
     }
   } catch {
-    // offline, no token, or read failure — fall back to David-only below
+    // offline, no token, or read failure — fall back to the owner-only below
   }
   // fallback: true tells choosers this is the built-in default, NOT the real
   // list — they must say so ("your other profiles are safe, reconnect") and
@@ -437,7 +437,7 @@ export async function readProfiles(readFn = defaultProfilesRead) {
  * The one safe WRITE path for profiles.json (G2). Loads the REAL list
  * (cache first, then network), applies `fn`, writes the result — so a
  * mutation can only ever be expressed against the true current profiles,
- * never against the David-only fallback. Returns false (writing nothing)
+ * never against the owner-only fallback. Returns false (writing nothing)
  * when the real list cannot be established:
  *  - network error / no token and nothing cached → refuse (the file may
  *    hold profiles this device has never seen);
@@ -557,7 +557,7 @@ const fileCheckedAt = new Map();
 /** @type {Map<string, number>} */
 const passDoneAt = new Map();
 
-// THE SYNC SCOPE (Mise 2.0, A-03; David, 2026-10-18: "Nobody in West
+// THE SYNC SCOPE (Mise 2.0, A-03; the owner, 2026-10-18: "Nobody in West
 // Lafayette should be able to see my family"). A phone that has not verified
 // the admin syncs only its own household: a path under another household, or
 // under a profile outside its house and the guests at its tables (guests:
@@ -586,7 +586,7 @@ let scopeGuests = new Set(
   })(),
 );
 let scopeKey = "all";
-// David's own files sit at the data root (pathFor): they belong to the scope
+// The owner's own files sit at the data root (pathFor): they belong to the scope
 // only when he does. The shared bank, prices and the roster stay readable.
 // Keep in step with pathFor and docs/SCHEMAS.md: an unlisted root file is
 // readable by every phone. `david` is hard-coded exactly as in pathFor.
@@ -771,7 +771,7 @@ function isOwnTargetsPath(path) {
 
 /**
  * A read that WAITS for GitHub before it answers, for a decision that cannot
- * be taken on a guess. Seating a guest is one (Mise 2.0, D-01; David's live
+ * be taken on a guess. Seating a guest is one (Mise 2.0, D-01; the owner's live
  * guest test, Sun 10/18 about 10 pm: a guest signed up and he added her to
  * that night's curry from People, and "it doesn't work"). Her targets had just
  * been written from her own phone, so his phone had never cached them: the
@@ -826,7 +826,7 @@ export async function readMeta(path, opts) {
 }
 
 // ONE FETCH PER FILE, AND A MISSING FILE IS REMEMBERED (Mise 2.0, A-02 /
-// I-03: a new phone asked GitHub for Elliot's absent week plan 2,113 times,
+// I-03: a new phone asked GitHub for the housemate's absent week plan 2,113 times,
 // because every emit re-reads and every read refetched, and a 404 left no
 // trace). A read joins the fetch already in flight; a file checked in the
 // last 30 s is not asked for again, a missing one not for 5 minutes. A local
@@ -1413,7 +1413,7 @@ async function flush() {
         // (A5). THREE states, not two (2026-08-22). A 404 on a write means
         // the token authenticates fine but cannot SEE the data repo, which is
         // what a fine-grained PAT left on GitHub's default "Public
-        // repositories" radio does — the trap that cost David five tokens on
+        // repositories" radio does — the trap that cost the owner five tokens on
         // 2026-08-16. That case used to fall through to "can't reach GitHub
         // right now (auto-retrying)" and retry forever, while the cache-first
         // read made the app look like it had saved. `checkDataRepo` was given

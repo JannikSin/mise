@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 // the app. That is fine while something on it can be pressed, and catastrophic
 // when nothing can: the page still paints and still scrolls, because the
 // compositor owns scrolling, so it reads as "the app is dead" with no error
-// anywhere (David, 2026-07-26: "none of the buttons work. i can scroll on the
+// anywhere (the owner, 2026-07-26: "none of the buttons work. i can scroll on the
 // plan page but that is it").
 //
 // The tour did exactly that: its card, and with it the END button, rendered
@@ -26,7 +26,7 @@ const css = readFileSync(new URL("../app/styles.css", import.meta.url), "utf8").
 );
 
 /** Selector → the escape that must always render on that layer. */
-// .cook left the registry 2026-08-19: Cook Mode is gone (David: "get rid of
+// .cook left the registry 2026-08-19: Cook Mode is gone (the owner: "get rid of
 // that entirely"), the serve step lives on the recipe page as a normal tile
 const KNOWN_BLOCKERS = {
   ".modal-overlay": {

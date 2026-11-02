@@ -7,7 +7,7 @@
 
 ## Context
 
-Every PWA David owns lives under one origin, janniksin.github.io, and Cache Storage is
+Every PWA the owner owns lives under one origin, janniksin.github.io, and Cache Storage is
 scoped per origin. Mise's activate step deleted every cache that was not its own version,
 so Tally, Finesse, Bonmot, Grandstand and aimap lost their shells on every Mise deploy,
 for 22 days, and Mise was the last app still doing it.

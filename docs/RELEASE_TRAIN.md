@@ -7,7 +7,7 @@
 > and final loop PASSED WITH CONCERNS and named ten build corrections (ENG-L3-1..10),
 > folded in here. This revision goes to the Loyalist. Nothing in this document is built yet.
 
-## Why (David, 2026-09-07, his words)
+## Why (the owner, 2026-09-07, his words)
 
 "I want to be able to use the app this week on the meals that I bought stuff for, and I
 don't want any issue of 'no, I updated something and it messed up all of the recipes.' I
@@ -42,7 +42,7 @@ Two branches of the code, two origins, one data repo with two branches, one rele
 | Phone | the Mise icon he has | a second icon named **Mise NEXT**, different colour, installed once from the sandbox origin |
 | Who writes the code branch | the Sunday release, or a named hotfix | every weekday session |
 
-**Why a second origin and not a second path.** Every PWA David owns lives under
+**Why a second origin and not a second path.** Every PWA the owner owns lives under
 `janniksin.github.io`, ONE origin. localStorage, IndexedDB and Cache Storage are scoped
 per origin, so a sandbox at `/mise-next/` would share `mise.pat`, `mise.dataRepo`, the
 `mise` IndexedDB and, worst, the service worker's eviction rule (`sw.js` deletes every
@@ -64,7 +64,7 @@ BLOCK.** `wrangler pages deploy .` does not read `.gitignore`; its whole exclude
 `_worker.js`, `_redirects`, `_headers`, `_routes.json`, `functions`, `.DS_Store`,
 `node_modules`, `.git`, `.wrangler` (read out of the installed wrangler 4.125.0). The
 working tree holds 242 ignored files, among them `seed-data/` with real health targets and
-a profile tree for David's mother, the planning docs with his stats, and the standard home
+a profile tree for the owner's mother, the planning docs with his stats, and the standard home
 of `.dev.vars`. So `tools/sandbox-deploy.ps1`:
 1. stages `git archive next` into a scratch directory, so only tracked files can exist;
 2. copies out of that ONLY the shell set `sw.js` already enumerates (`index.html`,
@@ -90,7 +90,7 @@ of `.dev.vars`. So `tools/sandbox-deploy.ps1`:
    `--project-name mise-next --branch next` on EVERY call: wrangler 4.125.0 silently
    delegates `pages deploy` to a Workers deploy when it detects a coding agent and the
    account has no Pages project, and `--branch` is in its unsupported-args list, which is
-   the opt-out (ENG-N3). If the create step is delegated anyway, David creates the project
+   the opt-out (ENG-N3). If the create step is delegated anyway, the owner creates the project
    in the dashboard once. The script's header says so, because the flags are load-bearing;
 6. verifies the served `sw.js` version and that the deployment URL equals the allowlisted
    origin before it prints "install from here".
@@ -101,12 +101,12 @@ The root `deploy` script in `package.json` (`wrangler deploy` against `wrangler.
 `assets: { directory: "." }`, an assets-only Worker with no `main`) would publish the
 working tree to a public `workers.dev` origin in two words. It is REMOVED on BOTH
 branches tonight, `main` under the hotfix rule (ENG-L3-NEW-7: leaving it on the live
-branch for a week keeps the hazard live where David works), and `.assetsignore` is
+branch for a week keeps the hazard live where the owner works), and `.assetsignore` is
 committed at the REPO ROOT, the only place a Workers assets config reads it
 (`worker/wrangler.toml` has no assets block, ENG-L3-2).
 
 **Why a branch of the same data repo, not a second repo (Parallax).** A second private
-repo needs the fine-grained token re-scoped by hand, a step only David can do; a `sandbox`
+repo needs the fine-grained token re-scoped by hand, a step only the owner can do; a `sandbox`
 BRANCH of `mise-data` is inside the token's existing scope. The seed is a force-push of
 `main` onto `sandbox`, run on release morning and on demand.
 
@@ -206,7 +206,7 @@ keys through, pinned by tests (an unknown future field survives a round-trip; to
 test fails). Rules: a schema change is a new optional field plus a read-time heal; a
 rename keeps writing the old field for as long as any shipped shell reads it (the
 `TARGETS_PATH` / `LEGACY_TARGETS_PATH` mirror is the house precedent); a true rename or
-deletion (HIST 4) is a one-off script run by David outside the train, announced as a hold
+deletion (HIST 4) is a one-off script run by the owner outside the train, announced as a hold
 week, never riding a Sunday. Of the queued builds, `checkedAt`, table `pinned`, kitchen
 zones and a pack-sizes file all fit; recipe `components` fits only as long as
 `ingredients` keeps being written.
@@ -232,13 +232,13 @@ traffic is what tripped the throttle tonight; autosave debouncing rides `next`.
 | When | What | Where |
 |---|---|---|
 | Mon to Sat | Sessions branch off `next`, merge into `next` after the repo gates (tests, lint, typecheck, and a READ-ONLY dry run against fixtures or the `sandbox` branch, never a write, LED 3), deploy the sandbox once per session, post the URL and what changed | `next`, sandbox |
-| Mon to Sat | David uses the live app for the week he bought for. He opens **Mise NEXT** when he wants to see a change, against a copy of his real data. The roommate's install never sees `next` | live, sandbox |
-| Saturday evening | The Crystal digest lists what is on `next` and not on `main`, runs the full gate suite once more against the seeded `sandbox` data as a pre-flight (HIST 1), and asks David for his yes | Crystal |
-| Sunday morning | The release runs (below), then David generates the new week on the live app, runs the ENOUGH pass, builds, buys | `main`, live |
+| Mon to Sat | the owner uses the live app for the week he bought for. He opens **Mise NEXT** when he wants to see a change, against a copy of his real data. The roommate's install never sees `next` | live, sandbox |
+| Saturday evening | The Crystal digest lists what is on `next` and not on `main`, runs the full gate suite once more against the seeded `sandbox` data as a pre-flight (HIST 1), and asks the owner for his yes | Crystal |
+| Sunday morning | The release runs (below), then the owner generates the new week on the live app, runs the ENOUGH pass, builds, buys | `main`, live |
 
 ## The release, exactly
 
-`tools/release.ps1`, run from the laptop by the Sunday session (or by David) as the first
+`tools/release.ps1`, run from the laptop by the Sunday session (or by the owner) as the first
 act of Sunday morning. Week one is by hand and watched. Only after one clean manual run
 does the merge step get considered for GitHub Actions (with `GITHUB_TOKEN` only, an
 explicit Pages build request because a token push does not trigger the Pages build, cron
@@ -249,7 +249,7 @@ in every version: a data-repo token with write access cannot be scoped to one br
 behind the least-reviewed branch (RT 6, LED 1, LAW 3, ENG 8).
 
 Steps, each of which fails loud and stops:
-1. **Opt-in, bound to a commit (RT 7, RT-N4, ENG-N6).** The release needs David's yes
+1. **Opt-in, bound to a commit (RT 7, RT-N4, ENG-N6).** The release needs the owner's yes
    recorded off the branch AND pinned to what he saw: an ANNOTATED tag `ship/YYYY-MM-DD`
    on the exact `next` commit the Saturday digest quoted back to him, whose message
    records that commit and his words. The release fast-forwards `main` to the TAGGED
@@ -259,7 +259,7 @@ Steps, each of which fails loud and stops:
    range and the yes and the range are the same object. `.release-hold`, pushed to `next`,
    is an additional kill switch; a file written locally counts for nothing.
 2. **Provenance, stated honestly.** Every commit in `main..next` has author and committer
-   equal to David's git identity. Sessions commit as David, so this is a typo and
+   equal to the owner's git identity. Sessions commit as the owner, so this is a typo and
    misconfiguration guard, not a security control; the security control is step 1.
 3. **Gates on `next`** in a throwaway worktree: `npm ci`, lint, typecheck, tests.
 4. **Shell gate (ENG 6).** If any shell file changed between `main` and `next`, `sw.js`'s
@@ -271,19 +271,19 @@ Steps, each of which fails loud and stops:
 5. **Fast-forward to the TAGGED commit** (`ship/<date>^{commit}`), the same ref step 1
    checked (ENG-L3-NEW-5); the server rejects anything that is not a fast-forward. No
    merge commit, no tag-bump commit, ever, on `main` (a commit made outside the hook ships
-   an unbumped shell). If a harmless commit landed on `next` after his yes, David re-tags
+   an unbumped shell). If a harmless commit landed on `next` after his yes, the owner re-tags
    (the digest can be re-run in a minute); Sunday never ships what he did not tag.
 6. **Tag** `release/YYYY-MM-DD`, recording the shipped `CACHE_VERSION` in the tag message.
 7. **Pages build and live verify.** Request the Pages build, wait for it, then fetch the
    live `sw.js` with a cache-buster and require the new version string. Fail loud.
-8. **Re-seed** `sandbox` from `main` (the script above), then **notify** David what
+8. **Re-seed** `sandbox` from `main` (the script above), then **notify** the owner what
    shipped.
 
 **Hotfix rule (ENG 2).** A change may go to `main` midweek only when a live bug blocks the
 week he bought for. It branches off `main`, merges to `main`, and then **`main` is merged
 into `next`** (never cherry-picked; a cherry-pick makes `main` stop being an ancestor of
 `next` and breaks every future fast-forward). The one expected conflict is
-`CACHE_VERSION`: take the higher number. David is told before it ships, not after.
+`CACHE_VERSION`: take the higher number. The owner is told before it ships, not after.
 
 **Rollback (ENG 2, RT 9).** `tools/release.ps1 --rollback` (a) prints the tag it returns
 to, (b) refuses if `main` holds any commit that is not an ancestor of that tag (a hotfix
@@ -309,7 +309,7 @@ to `ALLOWED_ORIGINS`; never a suffix or pattern test (`*.pages.dev` is a public 
 - Cloudflare's edge logs request metadata for any Pages origin, as any CDN does. That is
   not a tracker in the sense of the app's CSP rule (nothing runs in the page), and Web
   Analytics stays off; it is written here so the distinction is known.
-- This document is committed to the public repo; it names no one but David.
+- This document is committed to the public repo; it names no one but the owner.
 
 ## Options the Parallax round named and where they went
 
@@ -319,8 +319,8 @@ to `ALLOWED_ORIGINS`; never a suffix or pattern test (`*.pages.dev` is a public 
 | Sunday merge on GitHub Actions | Deferred: manual and watched first; Actions only for the merge step, never for the re-seed |
 | Freeze the bought week's data files against any release step | Adopted as a rule (release touches code only) |
 | LAN sandbox from the laptop as a bridge | Dropped: its origin is not in the Worker allowlist, so it is a half-app (ENG 10) |
-| David's live install pointed at sandbox data via the existing SYS setting | Subsumed: that setting is how the sandbox install is configured |
-| Feature flags instead of a sandbox | Rejected: a broken shell still reaches every phone, and David asked to see builds |
+| the owner's live install pointed at sandbox data via the existing SYS setting | Subsumed: that setting is how the sandbox install is configured |
+| Feature flags instead of a sandbox | Rejected: a broken shell still reaches every phone, and the owner asked to see builds |
 | Env-namespaced single codebase | Rejected: a bug in the switch points live at sandbox data; a second origin isolates without code |
 | Ask the roommate to stay off the app during edit windows | Unnecessary once `next` exists |
 | Manual "ship it" per session | Subsumed by the Sunday window plus the hotfix rule |
@@ -363,10 +363,10 @@ day is "when the sandbox looks right", not Sunday.
 
 | Day | Build |
 |---|---|
-| Mon (tonight) | Items 1 to 6 above; sandbox live and checked in the laptop's Chrome; David installs Mise NEXT when he likes |
+| Mon (tonight) | Items 1 to 6 above; sandbox live and checked in the laptop's Chrome; the owner installs Mise NEXT when he likes |
 | Tue | Write coalescing (tailoring loop to one write, autosave debounce); quantity accountant: pack sizes for condiments and dry goods, several rows of one food sum, near-names audited |
 | Wed | CHANGE DISH and SWAP WITH on a shared table, protein rotation seeded from pinned nights, the tailoring clobber of a concurrent brigade edit |
 | Thu | USE WHAT'S LEFT as one pre-planned slot per week; snacks as bakes (a tray covers days, the list buys one tray) |
 | Fri | Order-screenshot import (Instacart, Kroger, Costco) prototyped on the local vision lane, then wired |
-| Sat | Kitchen map as tappable 2D zones (if David says yes); sandbox acceptance on his phone; the Saturday digest's pre-flight and his yes |
-| Sun | Release by the script, watched. Then David: GENERATE, the ENOUGH pass, BUILD, buy |
+| Sat | Kitchen map as tappable 2D zones (if the owner says yes); sandbox acceptance on his phone; the Saturday digest's pre-flight and his yes |
+| Sun | Release by the script, watched. Then the owner: GENERATE, the ENOUGH pass, BUILD, buy |

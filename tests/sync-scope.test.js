@@ -1,4 +1,4 @@
-// Mise 2.0, A-03 (David, 2026-10-18: "Nobody in West Lafayette should be able
+// Mise 2.0, A-03 (the owner, 2026-10-18: "Nobody in West Lafayette should be able
 // to see my family"): a phone outside the family syncs only its own house.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -17,21 +17,21 @@ const { setSyncScope, setScopeGuests, inSyncScope, read, readCollection } = awai
 );
 
 const ROSTER = [
-  { id: "david", name: "David", household: "wayne", family: "thornton", admin: true },
-  { id: "mom", name: "Mom", household: "thornton", family: "thornton" },
-  { id: "lena", name: "Lena", household: "thornton", family: "thornton" },
-  { id: "dad", name: "Dad", household: "thornton", family: "thornton" },
-  { id: "elliot", name: "Elliot", household: "wayne" },
+  { id: "david", name: "Owner", household: "wayne", family: "birch", admin: true },
+  { id: "mom", name: "Mom", household: "birch", family: "birch" },
+  { id: "wren", name: "Wren", household: "birch", family: "birch" },
+  { id: "dad", name: "Dad", household: "birch", family: "birch" },
+  { id: "flatmate", name: "Flatmate", household: "wayne" },
   { id: "mara", name: "Mara", household: "guesthouse" },
 ];
 
-test("Elliot's phone syncs Wayne only; David's phone syncs everything", () => {
-  assert.deepEqual(syncScopeFor(ROSTER, "elliot"), {
-    profileIds: ["david", "elliot"],
+test("Flatmate's phone syncs Wayne only; Owner's phone syncs everything", () => {
+  assert.deepEqual(syncScopeFor(ROSTER, "flatmate"), {
+    profileIds: ["david", "flatmate"],
     houses: ["wayne"],
   });
   assert.equal(syncScopeFor(ROSTER, "david", true), null, "the admin, on his own phone");
-  // Tribunal Red Team BLOCK (2.0 loop 1): David has no passkey, and the
+  // Tribunal Red Team BLOCK (2.0 loop 1): the owner has no passkey, and the
   // offline fallback row made any phone his with one tap
   assert.deepEqual(
     syncScopeFor(ROSTER, "david"),
@@ -44,18 +44,18 @@ test("Elliot's phone syncs Wayne only; David's phone syncs everything", () => {
     "a chosen profile missing from the roster syncs nothing, never everything",
   );
   assert.equal(
-    syncScopeFor(ROSTER.map((p) => ({ ...p, admin: undefined })), "elliot"),
+    syncScopeFor(ROSTER.map((p) => ({ ...p, admin: undefined })), "flatmate"),
     null,
     "no admin yet: nothing is hidden",
   );
 });
 
 test("out of scope reads never reach GitHub or the cache", async () => {
-  await setSyncScope(syncScopeFor(ROSTER, "elliot"));
+  await setSyncScope(syncScopeFor(ROSTER, "flatmate"));
   for (const p of [
-    "households/thornton/events.json",
+    "households/birch/events.json",
     "profiles/mom/profile/targets.json",
-    "profiles/lena/plans/2026-W43.json",
+    "profiles/wren/plans/2026-W43.json",
     "profiles/dad/occasions.json",
     "profiles/mara/profile/targets.json",
   ]) {
@@ -65,7 +65,7 @@ test("out of scope reads never reach GitHub or the cache", async () => {
   assert.deepEqual(await readCollection("profiles/mom/recipes", { raw: true }), []);
   for (const p of [
     "households/wayne/events.json",
-    "profiles/elliot/plans/2026-W43.json",
+    "profiles/flatmate/plans/2026-W43.json",
     "plans/2026-W43.json",
     "fitness/targets.json",
     "recipes/chili.json",
@@ -77,7 +77,7 @@ test("out of scope reads never reach GitHub or the cache", async () => {
 });
 
 test("a guest seated at Wayne's table stays readable, so the plate screen can check them", async () => {
-  await setSyncScope(syncScopeFor(ROSTER, "elliot"));
+  await setSyncScope(syncScopeFor(ROSTER, "flatmate"));
   await setScopeGuests(["mara"]);
   assert.equal(inSyncScope("profiles/mara/profile/targets.json"), true);
   assert.equal(inSyncScope("profiles/mara/fitness/targets.json"), true, "the legacy targets path");
@@ -90,7 +90,7 @@ test("a guest seated at Wayne's table stays readable, so the plate screen can ch
   assert.equal(inSyncScope("profiles/mara/profile/targets.json"), false);
 });
 
-test("a phone outside David's house cannot read his root files; the shared bank stays", async () => {
+test("a phone outside Owner's house cannot read his root files; the shared bank stays", async () => {
   await setSyncScope({ profileIds: ["mara"], houses: ["guesthouse"] });
   assert.equal(inSyncScope("plans/2026-W43.json"), false);
   assert.equal(inSyncScope("fitness/targets.json"), false);
@@ -102,16 +102,16 @@ test("a phone outside David's house cannot read his root files; the shared bank 
 
 test("recipe titles drop a hidden person's name", () => {
   const out = withoutHiddenNames(
-    [{ id: "a", name: "Lena's Mediterranean Herb Chicken" }, { id: "b", name: "Chili" }],
-    ["Lena", "Mom", "Dad"],
+    [{ id: "a", name: "Wren's Mediterranean Herb Chicken" }, { id: "b", name: "Chili" }],
+    ["Wren", "Mom", "Dad"],
   );
   assert.deepEqual(out.map((r) => r.name), ["Mediterranean Herb Chicken", "Chili"]);
   const same = [{ id: "b", name: "Chili" }];
-  assert.equal(withoutHiddenNames(same, ["Lena"]), same);
+  assert.equal(withoutHiddenNames(same, ["Wren"]), same);
 });
 
 test("guest passkey hashes and invite codes are the admin's phone only", async () => {
-  await setSyncScope(syncScopeFor(ROSTER, "elliot"));
+  await setSyncScope(syncScopeFor(ROSTER, "flatmate"));
   assert.equal(inSyncScope("guests.json"), false);
   assert.equal(inSyncScope("invites.json"), false);
   await setSyncScope(null);

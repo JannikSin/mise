@@ -9,10 +9,10 @@
 // prices.json (receipt-refreshed when the scanner runs); rows the catalogue
 // cannot price make the total a FLOOR and mark the entry `estimate`.
 //
-// ONLY CONFIRMED MONEY MOVES THE BALANCE (David, 2026-10-05, zermatt: "it
+// ONLY CONFIRMED MONEY MOVES THE BALANCE (the owner, 2026-10-05, zermatt: "it
 // should only add money there when it is confirmed who paid and how much,
 // cause totals differ based on what is available"). Shelf-price estimates
-// are wrong in both amount and direction: Elliot buys, David Zelles him
+// are wrong in both amount and direction: the housemate buys, the owner Zelles him
 // after, but a meal record bills the COOK. So meal records (no `kind`) are
 // WHO-ATE-WHAT only: they weight a trip's split and never become a debt.
 // The balance is built from two confirmed kinds, both typed by a person:
@@ -44,7 +44,7 @@ export function normalizeLedger(raw) {
 /**
  * What one cooked serving of a recipe costs to EAT at a store — the
  * ingredients' consumed fractions (`itemCost().eaten`), never whole packs.
- * This is the composer's cost signal (David's yes, 2026-08-30: "let the
+ * This is the composer's cost signal (the owner's yes, 2026-08-30: "let the
  * composer see cost"): recipeServingCost below charges whole packages, so a
  * pinch from an $8 spice jar reads as +$8 per pot and the ranking would
  * flee every seasoned dish; the eaten figure is the marginal cost of
@@ -86,7 +86,7 @@ export function recipeEatenCost(recipe, catalogue, store) {
 /**
  * The packages a recipe puts on THIS trip, one row per food the kitchen does
  * not already hold, keyed by canonical food so two recipes needing the same
- * thing share one package (David, 2026-09-24: "the planner NEEDS to have
+ * thing share one package (the owner, 2026-09-24: "the planner NEEDS to have
  * pantry, ingredient overlap and budget"). The composer sums these over the
  * week's picks: a food already bought for another meal costs nothing more.
  * @param {Record<string, any>} recipe
@@ -120,7 +120,7 @@ export function recipeTripItems(recipe, catalogue, store, has) {
 }
 
 /**
- * What a recipe costs THIS TRIP, per serving (David, 2026-09-24: "how can 3
+ * What a recipe costs THIS TRIP, per serving (the owner, 2026-09-24: "how can 3
  * days of food be $121"). recipeEatenCost prices the fraction eaten, so a
  * $12 bottle bought for two tablespoons scored $0.98 and the planner picked
  * it happily. Here every ingredient the kitchen does not already hold costs
@@ -193,7 +193,7 @@ export function recipeServingCost(recipe, catalogue, store) {
  * The ledger entry a finished table produces: total = per-serving cost x
  * every KNOWN non-skipped seat's servings; each seat's share is
  * proportional to what their diet said they'd eat (2 servings owes twice
- * what 1 does — David's rule). The payer is the cook.
+ * what 1 does — the owner's rule). The payer is the cook.
  * @param {import("./tables.js").TableEvent} t
  * @param {string} cookId
  * @param {Record<string, any>} recipe
@@ -206,10 +206,10 @@ export function ledgerEntryFor(t, cookId, recipe, catalogue, store, profilesById
   const seats = (t.seats ?? []).filter((s) => s.status !== "skipped" && profilesById.has(s.id));
   if (seats.length === 0) return null;
 
-  // PAY FOR WHAT YOU EAT, exactly (David, 2026-08-10 + per-person-plates
+  // PAY FOR WHAT YOU EAT, exactly (the owner, 2026-08-10 + per-person-plates
   // spec §11.1): a SOLVED table's frozen pot carries each seat's share of
   // each row, so shares are costed per row per seat through itemCost —
-  // David eating 2.5x the chicken and 0.7x the rice is not a
+  // The owner eating 2.5x the chicken and 0.7x the rice is not a
   // servings-proportional split, and chicken is the expensive row. A seat
   // whose food was SET ASIDE still appears in perSeat and still pays: the
   // food is theirs, it went in the fridge for them. Falls back to the
@@ -311,7 +311,7 @@ export function ledgerEntryFor(t, cookId, recipe, catalogue, store, profilesById
 export function recordEntries(ledger, candidates) {
   // THE WHOLE-PACK HEAL (pierogi, 2026-10-04): entries recorded before the
   // eaten basis billed every ingredient's whole package to every meal (one
-  // shared yogurt bowl at $107.32; "Elliot owes ~$1,772"). An UNSETTLED
+  // shared yogurt bowl at $107.32; "the housemate owes ~$1,772"). An UNSETTLED
   // entry without a basis is replaced by its re-costed candidate; settled
   // ones are history and stay exactly as they were paid.
   const byId = new Map(candidates.map((e) => [e.id, e]));
@@ -418,7 +418,7 @@ export function eatenWeights(meals) {
 
 /**
  * WE BOUGHT GROCERIES: a confirmed receipt total split by what each person
- * eats (David's rule: pay for what you eat, never an automatic even split),
+ * eats (the owner's rule: pay for what you eat, never an automatic even split),
  * or evenly when the person entering it says so. Rounding lands on the payer
  * so the shares always add to the receipt to the cent. Null when the input
  * cannot make an honest entry (no amount, nobody to split with).

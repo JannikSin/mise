@@ -3,7 +3,7 @@ import { useState } from "preact/hooks";
 import { localIsoDate } from "../lib/dates.js";
 import { purchaseEntry } from "../lib/money.js";
 
-// HOUSE MONEY, CONFIRMED ONLY (David, 2026-10-05, zermatt): the balance moves
+// HOUSE MONEY, CONFIRMED ONLY (the owner, 2026-10-05, zermatt): the balance moves
 // when a person says who paid and how much, from the receipt or the Zelle.
 // Meal records only weight a trip's split ("pay for what you eat"); a
 // shelf-price guess is never a debt. Two forms a stranger can use, a list of

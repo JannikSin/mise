@@ -10,7 +10,7 @@
 //   - zero rows from profiles, households and memberships (no client grant);
 //   - a roster() with no probe rows and `family` null on every row;
 //   - svc.guard_hits() = 0 (whole-word guard terms in what each house can read).
-// The result goes to David's phone by ntfy as CHECK NAMES AND COUNTS ONLY,
+// The result goes to the owner's phone by ntfy as CHECK NAMES AND COUNTS ONLY,
 // never a row, a name or a path. It reports a pass too, so a probe that has
 // stopped running is noticed (an automation is not done until it is seen
 // firing).

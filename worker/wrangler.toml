@@ -12,7 +12,7 @@ preview_urls = false
 #   MISE_INVITE_TOKEN (SEPARATE fine-grained PAT, mise-data only, contents read+write:
 #                     the join-by-link claim creates one profile with it; without it the
 #                     open invite routes answer 503 and nothing is written)
-#   NTFY_TOPIC       (unguessable ntfy.sh topic David's phone subscribes to)
+#   NTFY_TOPIC       (unguessable ntfy.sh topic the owner's phone subscribes to)
 #   KROGER_CLIENT_ID / KROGER_CLIENT_SECRET  (Kroger Developer API, /kroger/*)
 #   KROGER_STATE_SECRET  (any long random string; HMACs the OAuth state, which
 #                         is the ONLY thing stopping /kroger/cart/callback
@@ -42,7 +42,7 @@ crons = ["0 * * * *"]
 [observability]
 enabled = true
 
-# THE CART WAS DARK FROM THE DAY IT SHIPPED (David, 2026-08-25: "it said not
+# THE CART WAS DARK FROM THE DAY IT SHIPPED (the owner, 2026-08-25: "it said not
 # linked and push failed"). krogerCartConfigured() requires FOUR values and only
 # two were ever set — KROGER_CLIENT_ID and KROGER_CLIENT_SECRET — so
 # /kroger/cart/link answered 503 "cart push not set up yet" every single time
@@ -50,7 +50,7 @@ enabled = true
 # URL) so it lives here in the open, where its absence is visible, rather than
 # as an invisible dashboard secret.
 #
-# STILL NEEDS DAVID: this exact URL must also be registered as a redirect URI on
+# STILL NEEDS OWNER: this exact URL must also be registered as a redirect URI on
 # his Kroger developer app, and that app needs the cart.basic:write scope.
 [vars]
 KROGER_REDIRECT_URI = "https://mise-worker.janniksin.workers.dev/kroger/cart/callback"

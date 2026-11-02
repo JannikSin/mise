@@ -1,4 +1,4 @@
-// Keeping the screen on, properly (David, 2026-07-27: "nothing is worse than
+// Keeping the screen on, properly (the owner, 2026-07-27: "nothing is worse than
 // being mid cooking with egg all over hands and having to look at the phone
 // for the next time-critical step and realising it went to sleep").
 //
@@ -12,7 +12,7 @@
 // and the two do not fail together:
 //
 //   * The Screen Wake Lock API is a request the OS may refuse or revoke. iOS
-//     Low Power Mode refuses it. That is exactly David's symptom: Netflix
+//     Low Power Mode refuses it. That is exactly the owner's symptom: Netflix
 //     never dims, Mise dimmed, and it dimmed hardest in Low Power Mode.
 //   * Playing video is not a request. While a video element is actually
 //     playing frames, the screen stays lit, INCLUDING in Low Power Mode.

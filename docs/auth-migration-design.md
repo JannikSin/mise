@@ -10,7 +10,7 @@ Grounding: this design was written after reading `app/lib/store.js`, `app/lib/gi
 
 ## 0. Current-state inventory (what actually has to move)
 
-Per-profile data today is a set of small JSON files in `mise-data` (David at repo root, Mom under `profiles/mom/`), all shapes documented in `docs/SCHEMAS.md`:
+Per-profile data today is a set of small JSON files in `mise-data` (the owner at repo root, Mom under `profiles/mom/`), all shapes documented in `docs/SCHEMAS.md`:
 
 | File                              | Shape (top level)                                                                                                                                              | Notes                                                                                                                                                         |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -33,7 +33,7 @@ Data-flow facts that shape the design:
 - The Worker authenticates by checking the presented PAT can see the private repo; the app sends the PAT in `x-mise-auth`.
 - The app is gated by `localStorage mise.activeProfile`; anyone with the PAT can open any profile. There is no real auth today.
 
-Questionnaire answers (sex, age, height, weight, activity, goal) are computed into targets by `targetsFromQuestionnaire` and then DISCARDED; they are not persisted anywhere today. The new `profiles` table gives them a home; for David and Mom they are backfilled manually or left null.
+Questionnaire answers (sex, age, height, weight, activity, goal) are computed into targets by `targetsFromQuestionnaire` and then DISCARDED; they are not persisted anywhere today. The new `profiles` table gives them a home; for the owner and Mom they are backfilled manually or left null.
 
 ---
 
@@ -58,7 +58,7 @@ create table public.profiles (
   last_name text not null,
   username citext not null unique,
   emoji text not null default '',
-  -- questionnaire answers, now persisted (nullable: David/Mom predate this)
+  -- questionnaire answers, now persisted (nullable: the owner/Mom predate this)
   sex text check (sex in ('m','f')),
   age int check (age between 10 and 100),
   height_in int check (height_in between 36 and 95),   -- total inches
@@ -70,7 +70,7 @@ create table public.profiles (
   targets jsonb not null default '{}'::jsonb,  -- the whole fitness/targets.json document
   training_enabled boolean not null default true, -- NEW explicit flag; today this is implied
                                                   -- by targets.tracks containing "pushups".
-                                                  -- true for David, false for Mom.
+                                                  -- true for the owner, false for Mom.
   household_id uuid references public.households(id),
   rev bigint not null default 1,
   updated_at timestamptz not null default now()
@@ -78,7 +78,7 @@ create table public.profiles (
 create unique index profiles_username_lower on public.profiles (lower(username::text));
 
 -- shared recipe bank: readable by every signed-in user, writable by nobody
--- through the API (service-role only, i.e. David's maintenance scripts)
+-- through the API (service-role only, i.e. The owner's maintenance scripts)
 create table public.recipes (
   id text primary key,          -- kebab-case slug, unchanged
   data jsonb not null,          -- full recipe document incl. phases/tags
@@ -182,7 +182,7 @@ create policy own_profile_update on public.profiles for update to authenticated 
 
 -- recipe bank: read-only to any signed-in user; no write policies exist,
 -- so anon-key clients can never insert/update/delete. Bank maintenance
--- happens with the service-role key from David's scripts only.
+-- happens with the service-role key from the owner's scripts only.
 create policy bank_read on public.recipes for select to authenticated using (true);
 
 -- household exception (the ONE deliberate cross-user grant):
@@ -214,8 +214,8 @@ create policy household_read on public.households
 Notes for the implementer:
 
 - `my_household()` returns null for householdless users; `x = null` is never true in SQL, so a user with no household sees only their own rows. Keep that property; do not "fix" it with coalesce.
-- The `household_profiles_read` policy supersedes `own_profile_select` (policies are OR-ed). It exposes name, emoji, phase, and also targets/questionnaire columns to household members. David and Mom already see each other's everything today, so this is acceptable for v1; if it ever isn't, split profiles into a base table and a private detail table.
-- The tribunal test: create a third account in NO household and verify it can read zero rows of David's data in every table, then put it in a second household and re-verify.
+- The `household_profiles_read` policy supersedes `own_profile_select` (policies are OR-ed). It exposes name, emoji, phase, and also targets/questionnaire columns to household members. The owner and Mom already see each other's everything today, so this is acceptable for v1; if it ever isn't, split profiles into a base table and a private detail table.
+- The tribunal test: create a third account in NO household and verify it can read zero rows of the owner's data in every table, then put it in a second household and re-verify.
 - Never ship a policy `to public` or `using (true)` except `bank_read` (which is `to authenticated`).
 
 ## 3. Auth flows
@@ -226,7 +226,7 @@ Notes for the implementer:
 
 - Working import URL: `https://esm.sh/@supabase/supabase-js@2.110.7` (pin the exact version). `import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.7"` is the community-verified pattern.
 - The officially documented jsDelivr URL `https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm` is currently BROKEN for v2 at runtime ("Cannot read properties of null (reading 'AuthClient')") because jsDelivr's ESM rewrite mishandles submodules that `export default null` (supabase discussion #41118). Do not use it.
-- Mise convention decision: this repo forbids third-party CDN references (strict CSP, vendored deps). So the recommended route is to VENDOR the bundle exactly like Preact: download the fully-bundled ESM output once (`npx esbuild node_modules/@supabase/supabase-js/dist/module/index.js --bundle --format=esm --outfile=vendor/supabase/supabase.module.js`, a one-time step for the migrating agent, not a runtime build), record the version in `vendor/VERSIONS.md`, and map it in the import map as `"supabase": "./vendor/supabase/supabase.module.js"`. CSP `script-src` stays `'self'`; only `connect-src` gains `https://<project-ref>.supabase.co`. If David prefers the CDN anyway, esm.sh is the URL and `script-src` must add `https://esm.sh`.
+- Mise convention decision: this repo forbids third-party CDN references (strict CSP, vendored deps). So the recommended route is to VENDOR the bundle exactly like Preact: download the fully-bundled ESM output once (`npx esbuild node_modules/@supabase/supabase-js/dist/module/index.js --bundle --format=esm --outfile=vendor/supabase/supabase.module.js`, a one-time step for the migrating agent, not a runtime build), record the version in `vendor/VERSIONS.md`, and map it in the import map as `"supabase": "./vendor/supabase/supabase.module.js"`. CSP `script-src` stays `'self'`; only `connect-src` gains `https://<project-ref>.supabase.co`. If the owner prefers the CDN anyway, esm.sh is the URL and `script-src` must add `https://esm.sh`.
 
 Client setup (`app/lib/supabase.js`, new):
 
@@ -261,7 +261,7 @@ $$ select au.email from auth.users au join profiles p on p.id = au.id
 grant execute on function public.email_for_username(text) to anon;
 ```
 
-then `signInWithPassword({ email, password })`. Known cost: this RPC lets an unauthenticated caller map usernames to emails (see Risks). Supabase's built-in auth rate limiting applies to the sign-in itself; the RPC is additionally protected only by obscurity of usernames. Accepted for a family app; the alternative (email-only login) deletes the risk and one RPC if David will accept it.
+then `signInWithPassword({ email, password })`. Known cost: this RPC lets an unauthenticated caller map usernames to emails (see Risks). Supabase's built-in auth rate limiting applies to the sign-in itself; the RPC is additionally protected only by obscurity of usernames. Accepted for a family app; the alternative (email-only login) deletes the risk and one RPC if the owner will accept it.
 
 ### Password reset
 
@@ -275,22 +275,22 @@ Built-in flow, no custom email infrastructure (Supabase's default SMTP allows a 
 
 supabase-js persists the session (JWT + refresh token) in localStorage and auto-refreshes. Boot logic in `main.js`: `await supabase.auth.getSession()`; session present renders `App`, absent renders the auth gate. `onAuthStateChange` handles `SIGNED_OUT` (render gate) and `PASSWORD_RECOVERY`. The `mise.activeProfile` localStorage key and the profile chooser die: the account IS the profile, and `scoped()` in store.js is deleted since RLS now does the scoping server-side. "Switch profile" in System becomes "sign out". The Anthropic Worker gets `(await supabase.auth.getSession()).data.session.access_token` instead of the PAT.
 
-## 4. Migrating David and Mom
+## 4. Migrating the owner and Mom
 
-One Node one-off script, run by David locally (never committed with real data; lives as `scripts/migrate-to-supabase.mjs` in the app repo, reads secrets from env): uses the service-role key (bypasses RLS) plus a local clone of `mise-data`.
+One Node one-off script, run by the owner locally (never committed with real data; lives as `scripts/migrate-to-supabase.mjs` in the app repo, reads secrets from env): uses the service-role key (bypasses RLS) plus a local clone of `mise-data`.
 
-Accounts: pre-create both with `supabase.auth.admin.createUser({ email, password: <temp>, email_confirm: true, user_metadata: {...} })`, hand David and Mom their temp passwords in person, and have the app's System account panel offer "change password" (`auth.updateUser`). Show a persistent "change your temporary password" hint until they do (soft-forced reset; hard forcing adds state for zero real benefit in a family of two). Alternative if no temp passwords should ever exist: `admin.generateLink({ type: 'recovery' })` per user and send them the links; both paths reuse the same set-new-password screen, so this is a one-line choice at run time.
+Accounts: pre-create both with `supabase.auth.admin.createUser({ email, password: <temp>, email_confirm: true, user_metadata: {...} })`, hand the owner and Mom their temp passwords in person, and have the app's System account panel offer "change password" (`auth.updateUser`). Show a persistent "change your temporary password" hint until they do (soft-forced reset; hard forcing adds state for zero real benefit in a family of two). Alternative if no temp passwords should ever exist: `admin.generateLink({ type: 'recovery' })` per user and send them the links; both paths reuse the same set-new-password screen, so this is a one-line choice at run time.
 
 Data moves, per user:
 
-1. `profiles` row: id = auth user id; names/usernames chosen at run time (e.g. `david`, `mom`); `targets` = that profile's `fitness/targets.json`; `phase` from targets; `training_enabled`: David true, Mom false; questionnaire columns backfilled from known values or left null; both `household_id` = the one created `households` row.
-2. `week_plans`: every `plans/*.json` (David root, Mom `profiles/mom/plans/`) upserted with `week` from filename.
+1. `profiles` row: id = auth user id; names/usernames chosen at run time (e.g. `david`, `mom`); `targets` = that profile's `fitness/targets.json`; `phase` from targets; `training_enabled`: the owner true, Mom false; questionnaire columns backfilled from known values or left null; both `household_id` = the one created `households` row.
+2. `week_plans`: every `plans/*.json` (the owner root, Mom `profiles/mom/plans/`) upserted with `week` from filename.
 3. `shopping_lists`, `pantries`, `workouts`, `daily_logs`: the corresponding file verbatim into `data`.
 4. `recipes` bank: every root `recipes/<id>.json`.
-5. `profile_recipes` for Mom: for each file in `profiles/mom/recipes/`, DIFF against the bank copy first. 29 of her 58 files are byte-identical shadow duplicates kept only for pre-bank app compatibility (documented in SCHEMAS.md); every device runs post-migration code after cutover, so import ONLY the files whose content differs from the bank. Log the skipped list for David to eyeball.
+5. `profile_recipes` for Mom: for each file in `profiles/mom/recipes/`, DIFF against the bank copy first. 29 of her 58 files are byte-identical shadow duplicates kept only for pre-bank app compatibility (documented in SCHEMAS.md); every device runs post-migration code after cutover, so import ONLY the files whose content differs from the bank. Log the skipped list for the owner to eyeball.
 6. `fitness/activities.json` and `meta.json`: not migrated (no consumer).
 
-Verification step in the same script: sign in as each user with the anon key + temp password and assert row counts per table match file counts, and that David's client cannot select Mom's `daily_logs` (RLS smoke test). Print a summary table.
+Verification step in the same script: sign in as each user with the anon key + temp password and assert row counts per table match file counts, and that the owner's client cannot select Mom's `daily_logs` (RLS smoke test). Print a summary table.
 
 Rollback story: `mise-data` is untouched by the migration (read-only source). Keep it for 30 days after cutover, then archive the repo and revoke the PAT.
 
@@ -336,7 +336,7 @@ Explicit non-goals for v1: no Supabase Realtime, no per-item normalization, no C
 Verified current Supabase free-tier numbers (July 2026): 500 MB database, 50,000 monthly active users, 1 GB file storage, 5 GB egress, 500k edge function invocations, max 2 active projects, and free projects are PAUSED after 7 days with no API requests (data kept, manual restore in dashboard).
 
 - Mise reality: 2 users, total data today is a few MB of JSON. Database and MAU limits are three to five orders of magnitude away. Egress from daily app use is KBs per day.
-- The one live risk is the inactivity pause: the app is used daily, but a three-week family vacation with the app unopened pauses the project and the PWA then boots to cached data with failing syncs until David restores it in the dashboard. Acceptable for v1; if it ever bites, the fixes are (a) any weekly cron pinging PostgREST, or (b) Pro at $25/month, which also removes pausing and adds backups.
+- The one live risk is the inactivity pause: the app is used daily, but a three-week family vacation with the app unopened pauses the project and the PWA then boots to cached data with failing syncs until the owner restores it in the dashboard. Acceptable for v1; if it ever bites, the fixes are (a) any weekly cron pinging PostgREST, or (b) Pro at $25/month, which also removes pausing and adds backups.
 - Paid tier triggers, concretely: project pause tolerance (above), wanting daily backups (free tier has none; the old system got versioning for free from git, see Risks), or >500 MB (not plausible with JSON documents of this size).
 - Cloudflare Worker and GitHub Pages costs: unchanged, $0.
 
@@ -344,9 +344,9 @@ Verified current Supabase free-tier numbers (July 2026): 500 MB database, 50,000
 
 Phase 0 blocks everything; A, B, C are then parallelizable by three agents with one integration point (the adapter's module interface, defined in A1, is frozen first).
 
-Phase 0. Project setup (single agent or David + agent, ~an hour)
+Phase 0. Project setup (single agent or the owner + agent, ~an hour)
 
-1. Create Supabase project; record `SUPABASE_URL`, anon key, service-role key (service key goes only into David's local env, never the repo).
+1. Create Supabase project; record `SUPABASE_URL`, anon key, service-role key (service key goes only into the owner's local env, never the repo).
 2. Run one `schema.sql` (tables, indexes, triggers, `write_doc`, RPCs, all RLS from sections 1 and 2). Commit `schema.sql` under `supabase/` in the app repo as the source of truth; update `docs/SCHEMAS.md` to describe tables instead of files (same commit rule as today).
 3. Auth settings: disable email confirmation, set Site URL `https://janniksin.github.io/mise/`, add redirect URL, leave built-in SMTP.
 4. Run the Supabase database linter and fix anything it flags on the policies.
@@ -369,7 +369,7 @@ Phase C. Worker + migration + cutover (agent 3)
 
 1. `worker/src/index.js`: `isAuthorized` swap (section 5); `wrangler.toml` vars; deploy; curl-test 401 without token, 200 with a real session token.
 2. `app/lib/worker.js`: send the Supabase access token.
-3. `scripts/migrate-to-supabase.mjs` (section 4) + run it with David; verify counts and the cross-user RLS smoke test.
+3. `scripts/migrate-to-supabase.mjs` (section 4) + run it with the owner; verify counts and the cross-user RLS smoke test.
 4. Cutover: deploy app; on each device sign in once; confirm data appears; watch one full day of use. Then delete `app/lib/github.js`, archive `mise-data` after 30 days, revoke the PAT (this also kills old-app access instantly, see Risks).
 5. Docs: rewrite `docs/SCHEMAS.md` data-layout section, update `docs/OPERATORS_MANUAL.md` (new secrets, new restore procedure), changelog.
 
@@ -397,7 +397,7 @@ Nine independent reviewers audited this plan. Verdict: BLOCKED-until-fixed. The 
 ### 12.1 BLOCKERS (Red Team hard block + Ledger critical) — close before a third account can exist
 
 **B1. The Anthropic proxy must authorize entitled users, not any authenticated user.**
-Root problem: this design (a) disables email confirmation and (b) changes the Worker `isAuthorized` to accept any token `/auth/v1/user` validates. Combined, any stranger signs up with a throwaway email, gets a live token instantly, and calls `/scan` and `/remedy` on David's `ANTHROPIC_API_KEY` as a free Claude endpoint. No exploit needed. Required fixes, all of them:
+Root problem: this design (a) disables email confirmation and (b) changes the Worker `isAuthorized` to accept any token `/auth/v1/user` validates. Combined, any stranger signs up with a throwaway email, gets a live token instantly, and calls `/scan` and `/remedy` on the owner's `ANTHROPIC_API_KEY` as a free Claude endpoint. No exploit needed. Required fixes, all of them:
 
 - Worker verifies the Supabase JWT AND checks the uid against an entitlement (allowlist table, custom claim, or household membership) via the service-role key. "Authenticated" is not "entitled."
 - Re-enable email confirmation before login (also gates the legal age/consent items).
@@ -409,7 +409,7 @@ Root problem: this design (a) disables email confirmation and (b) changes the Wo
 
 **B3. Email-only login. Delete the username-to-email RPC.** `email_for_username` granted to `anon` is an email-harvest oracle at public scale. Keep `username` as a display field only. Removes an RPC, the citext dependency, and the oracle.
 
-**B4. Household membership needs an invite, not self-service.** `own_profile_update` lets a user set their own `household_id` to any value. If a household UUID leaks, an attacker joins and reads co-members' health data. Fix: forbid client writes to `household_id` (column privilege or BEFORE UPDATE trigger), move joins to an invite-token RPC. Until then, set David and Mom's household server-side in the migration script and ship households admin-only.
+**B4. Household membership needs an invite, not self-service.** `own_profile_update` lets a user set their own `household_id` to any value. If a household UUID leaks, an attacker joins and reads co-members' health data. Fix: forbid client writes to `household_id` (column privilege or BEFORE UPDATE trigger), move joins to an invite-token RPC. Until then, set the owner and Mom's household server-side in the migration script and ship households admin-only.
 
 ### 12.2 LEGAL GATE (Lawyer) — before public signup opens
 
@@ -444,7 +444,7 @@ BLOCKED-until-fixed. Not a redesign: the data-isolation architecture is approved
 
 ## 13. 2026-07-22 revision — social-era alignment (supersedes §1 where conflicting)
 
-Written against David's social vision (vault: Life/Mise-Social-Architecture.md)
+Written against the owner's social vision (vault: Life/Mise-Social-Architecture.md)
 and everything shipped since §1 was drafted (family field, household-shared
 pantry, day-aware weeks, Tables). §12 remains binding; this section updates
 the target schema and sequencing. RE-COUNCIL THIS DOC before the build starts.
@@ -472,7 +472,7 @@ the target schema and sequencing. RE-COUNCIL THIS DOC before the build starts.
   `availability (user_id, date, slots jsonb)`. Chat/media tables do not get
   designed until the user benchmark (below).
 
-### 13.2 Benchmarks (David, 2026-07-22)
+### 13.2 Benchmarks (the owner, 2026-07-22)
 
 - **Now → ~100 users**: invite-only. Auth + isolation + cross-install
   Tables + friends + availability. No chat, no images, no feed.

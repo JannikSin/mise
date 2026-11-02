@@ -1,4 +1,4 @@
-// Plate tailoring, the deterministic half (David 2026-09-13: "ai tailoring
+// Plate tailoring, the deterministic half (the owner 2026-09-13: "ai tailoring
 // needs to be fixed and better"; the 09-07 bowl told him to add protein powder).
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -113,8 +113,8 @@ test("screenTailorToDish drops powders, supplements and foods the pot does not h
         },
       },
       cook: [
-        "Portion David's plate first, then add his extra pasta and chicken",
-        "Blend a protein shake for David on the side",
+        "Portion Owner's plate first, then add his extra pasta and chicken",
+        "Blend a protein shake for Owner on the side",
       ],
     },
     PASTA,
@@ -133,7 +133,7 @@ test("screenTailorToDish drops powders, supplements and foods the pot does not h
   assert.deepEqual(out.seats.mom.plate, [
     "no garlic: this plate is portioned out before the garlic goes in",
   ]);
-  assert.deepEqual(out.cook, ["Portion David's plate first, then add his extra pasta and chicken"]);
+  assert.deepEqual(out.cook, ["Portion Owner's plate first, then add his extra pasta and chicken"]);
 });
 
 test("a dish that genuinely lists a powder may keep it", () => {

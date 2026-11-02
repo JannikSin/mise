@@ -43,7 +43,7 @@ test("rung 0: no tag = uniform = today. THE ROLLOUT MECHANISM", () => {
   assert.equal(r.beta, 1);
 });
 
-test("rung 0f: A SHOPPED WEEK IS FROZEN (David's rule), tags or no tags", () => {
+test("rung 0f: A SHOPPED WEEK IS FROZEN (Owner's rule), tags or no tags", () => {
   const r = solveSeat({ recipe: RECIPE, assembly: "plated", seat: seat(1), targets: TARGETS, slotShare: SLOT_SHARE, weekShopped: true });
   assert.equal(r.synthMode, "uniform");
   assert.equal(r.rung, "0f-week-shopped");

@@ -105,7 +105,7 @@ export function setPin(pins, food, store, product, todayIso, confirmed) {
     description: product.description,
     size: product.size,
     soldBy: product.soldBy,
-    // THE STORE'S OWN ANSWER, KEPT (David, 2026-08-22). `trimProduct` has
+    // THE STORE'S OWN ANSWER, KEPT (the owner, 2026-08-22). `trimProduct` has
     // always returned the per-store aisle, brand and categories on every
     // lookup, free, under the scope we already hold, and this writer used to
     // drop all three on the floor. The list then sorted by a hardcoded
@@ -609,7 +609,7 @@ export function rankCandidates(products, food, redList = [], section = "", need 
  * @returns {number | null}
  */
 function coverSpend(p, food, qty, unit) {
-  // the EFFECTIVE price ranks the pick: a promo is the card price David
+  // the EFFECTIVE price ranks the pick: a promo is the card price the owner
   // actually pays (he scans his rewards number), so a sale item legitimately
   // wins the cover-the-need comparison while the sale lasts
   const reg =
@@ -712,8 +712,8 @@ export function applyLivePrice(catalogue, store, food, product, todayIso) {
     items.push(row);
   }
   const perLb = product.soldBy === "WEIGHT";
-  // SALES ARE REAL PRICES (David 2026-08-19: "can you find sales?"): the
-  // API's promo field is the card/sale price at this location, and David
+  // SALES ARE REAL PRICES (the owner 2026-08-19: "can you find sales?"): the
+  // API's promo field is the card/sale price at this location, and the owner
   // scans his rewards number at the till, so when a promo undercuts the
   // regular price the promo IS what he pays. The regular price rides along
   // so the row can say it's a sale and the refresh can see it end.
@@ -768,7 +768,7 @@ export function isStalePrice(sp, todayIso) {
 // ---- substitution classes (fix list 3.4) ----------------------------------
 
 /**
- * Gate on swap CLASS, not dollar amount (David, 2026-08-18): a swap that
+ * Gate on swap CLASS, not dollar amount (the owner, 2026-08-18): a swap that
  * keeps the ingredient's identity (fresh to frozen, brand to brand, pack to
  * pack) is a FORM swap and may auto-apply at any value. A swap that changes
  * what the dish is (salmon to tilapia, butter to oil) is a DISH swap and must
@@ -798,7 +798,7 @@ export function allergenHits(product, avoid) {
 /**
  * WHERE TO WALK, in the words a person standing in the store would use.
  *
- * David, 2026-08-24: "I was just at Pay Less the other day and it would be
+ * The owner, 2026-08-24: "I was just at Pay Less the other day and it would be
  * nice if I could have navigated that better." The pin's `aisle` is a
  * merchandising label; the aisle NUMBER and SIDE are what get you there.
  *

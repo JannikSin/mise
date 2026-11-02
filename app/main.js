@@ -249,7 +249,7 @@ export const APP = { name: "Mise", version: "0.3.0" };
 
 let checkGen = 0;
 
-// Five tabs (David, 2026-07-25). Home only ever linked to Cook, and Cook and
+// Five tabs (the owner, 2026-07-25). Home only ever linked to Cook, and Cook and
 // Plan showed the same week twice, so Plan absorbed Cook and Home retired.
 // CARNET holds everything that is neither planning nor shopping: the daily
 // check-in, the scanners, the chatbot, tables and brigades.
@@ -258,9 +258,9 @@ const TABS = [
   { hash: "#/list", view: "list", icon: "☑", label: "List" },
   // "Table" not "Today": under a brigade the page lists the whole week's
   // shared meals, and the app's own vocabulary has always been SET A TABLE
-  // (David, 2026-08-30: "that's clearly not today, that's clearly the
+  // (the owner, 2026-08-30: "that's clearly not today, that's clearly the
   // whole week")
-  // "People" (David, 2026-10-16): who eats from the kitchen and who comes to
+  // "People" (the owner, 2026-10-16): who eats from the kitchen and who comes to
   // dinner; the week's meals are read on Plan
   { hash: "#/tables", view: "tables", icon: "◫", label: "People" },
   { hash: "#/system", view: "system", icon: "☰", label: "Settings" },
@@ -388,7 +388,7 @@ function App() {
     setTargets(/** @type {any} */ (await readTargetsOf(me)));
   }, []);
 
-  // YOUR WEEKLY FOOD BUDGET (P5, David 2026-09-24): a field, not a session.
+  // YOUR WEEKLY FOOD BUDGET (P5, the owner 2026-09-24): a field, not a session.
   // Through writeTargetsOf, so the canonical and legacy targets stay mirrored.
   const handleSaveBudget = useCallback(async (/** @type {number} */ usd) => {
     const me = activeProfile();
@@ -418,7 +418,7 @@ function App() {
     [],
   );
 
-  // YOUR BUY DAY (P4, P7, David 2026-09-25: "sunday was not a good day to
+  // YOUR BUY DAY (P4, P7, the owner 2026-09-25: "sunday was not a good day to
   // buy... lets switch the buy day to friday"). BUILD shops the seven days
   // that open on it. Same path as the budget, so both targets stay mirrored.
   const handleSaveBuyDay = useCallback(async (/** @type {number} */ day) => {
@@ -428,7 +428,7 @@ function App() {
     setTargets(/** @type {any} */ (await readTargetsOf(me)));
   }, []);
 
-  // WHICH MEALS YOU PLAN (P2). David, 2026-09-13: "get rid of smoothie". The
+  // WHICH MEALS YOU PLAN (P2). The owner, 2026-09-13: "get rid of smoothie". The
   // slot list was written once at onboarding and nothing in the app could
   // change it; this is the button. A fixed dish in a dropped slot goes with
   // it, or the generator would keep a "smoothie every day" rule for a slot
@@ -460,7 +460,7 @@ function App() {
     setTargets(/** @type {any} */ (await readTargetsOf(me)));
   }, []);
 
-  // NEVER SUGGEST THIS AGAIN (P3, P12). David, 2026-08-24, about a recipe the
+  // NEVER SUGGEST THIS AGAIN (P3, P12). The owner, 2026-08-24, about a recipe the
   // generator kept buying $12 of dates for: "I don't need almond date flax
   // energy bites like what the fuck even is this."
   //
@@ -746,7 +746,7 @@ function App() {
   houseEventsRef.current = houseEvents;
   const [allProfiles, setAllProfiles] = useState(/** @type {Record<string, any>[]} */ ([]));
   // CAPABILITIES (council 2026-08-02, shaped like targets.tracks): the list
-  // of extra surfaces this profile HAS. Absent = everything (David, legacy
+  // of extra surfaces this profile HAS. Absent = everything (the owner, legacy
   // installs). The family defaults to [] — plan, list, dinners, settings,
   // and nothing else. Values consumed today: "scoreboard", "money"
   // ("checkin" retired 2026-08-09 — tracking lives in Crystal, the value is
@@ -759,7 +759,7 @@ function App() {
 
   const allProfilesRef = useRef(allProfiles);
   allProfilesRef.current = allProfiles;
-  // WHO SEES WHOM (David, 2026-10-18; app/lib/privacy.js): logic keeps the
+  // WHO SEES WHOM (the owner, 2026-10-18; app/lib/privacy.js): logic keeps the
   // raw lists, every VIEW gets these. A non-admin's screens show their own
   // household plus guests seated at their own tables; the admin sees all.
   const visibleProfiles = useMemo(
@@ -792,7 +792,7 @@ function App() {
       const verified = localStorage.getItem(verifiedKey(me)) === "1";
       // a passkeyed profile this phone never opened through its passkey
       // (the offline fallback row, or an old session) asks for it now
-      // ...and so does the admin row on a phone that was never his: David
+      // ...and so does the admin row on a phone that was never his: the owner
       // has no passkey yet, and the offline fallback row made any phone his
       // with one tap (Tribunal Red Team BLOCK, 2.0 loop 1). His own phone
       // carries ADMIN_DEVICE_KEY from v1.8, so he is never locked out.
@@ -909,7 +909,7 @@ function App() {
       // into the household file once, so no data is lost and old devices
       // keep limping on the legacy path until they update.
       //
-      // THE SEED IS SCOPED TO THE PRE-B2 HOUSEHOLD (David, 2026-08-26). It used
+      // THE SEED IS SCOPED TO THE PRE-B2 HOUSEHOLD (the owner, 2026-08-26). It used
       // to fire for ANY household with no file yet, which made a one-time
       // migration into a permanent trap: moving into the Wayne house created
       // households/wayne/pantry.json by COPYING the old house's legacy pantry,
@@ -1102,7 +1102,7 @@ function App() {
     // Profiles have not resolved yet, so the household is not known. This used
     // to fall back to the legacy per-profile `pantry.json`, which since B2 is a
     // DIFFERENT KITCHEN: a scan landing there is lost from this household and
-    // injected into another one (David, 2026-08-26). Resolve the household
+    // injected into another one (the owner, 2026-08-26). Resolve the household
     // first instead — the read is cache-first, so the write is late by
     // milliseconds rather than misfiled forever.
     void (async () => {
@@ -1224,7 +1224,7 @@ function App() {
       readProfiles().then((p) => {
         const self = p.profiles.find((pr) => pr.id === me);
         if (alive && self?.emoji) setOwnEmoji(self.emoji);
-        // same household only: Lena's solo-apartment list never mixes
+        // same household only: Wren's solo-apartment list never mixes
         // into the home HOUSEHOLD trip (and vice versa)
         const others = householdOthers(p.profiles, me);
         if (others.length === 0) {
@@ -1315,7 +1315,7 @@ function App() {
       const prevOthers = otherListsRef.current;
       // a row counts BOUGHT per source list: till-confirmed, or ticked in
       // that list itself. Merging first and then marking any-source-checked
-      // over-banked (Tribunal B2): a row David ticked on his solo tab that
+      // over-banked (Tribunal B2): a row the owner ticked on his solo tab that
       // the receipt never read would have banked all four portions while
       // three of them stayed on housemates' lists.
       const onReceipt = new Set((lines ?? []).map((l) => canonicalFood(l.name)));
@@ -1685,7 +1685,7 @@ function App() {
           avoid: targetsRef.current?.avoidIngredients ?? [],
           todayIso: localIsoDate(new Date()),
           api: { pricesById: krogerPricesById, search: krogerSearch },
-          // one plain line, not a progress counter (David, 2026-10-18)
+          // one plain line, not a progress counter (the owner, 2026-10-18)
           onProgress: () => setRepriceNote("checking today's prices…"),
         });
         // the run took long enough for the user to have tapped $?, confirmed
@@ -1708,7 +1708,7 @@ function App() {
           if (res.pinsChanged) handleSavePins(res.pins);
           if (res.pricesChanged) handleSavePrices(res.prices);
         }
-        // THE ONE LINE (2026-10-18): what David reads after BUILD. The
+        // THE ONE LINE (2026-10-18): what the owner reads after BUILD. The
         // engine's detail (re-priced, auto-picked, misses) stays out of it.
         const where = String(normalizePins(book).stores?.[store]?.name ?? "your store");
         setRepriceNote(
@@ -1733,10 +1733,10 @@ function App() {
       const cur = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       const now = new Date();
       const start = planStartIso(now);
-      // THE BUY DAY (David, 2026-09-25): BUILD shops the seven days that open
+      // THE BUY DAY (the owner, 2026-09-25): BUILD shops the seven days that open
       // on the buy day, Friday by default, reading both week plans the trip
       // spans. A past week (browsing back) keeps its whole-week derive.
-      // JUST SOME DAYS (David, 2026-10-23): the picked days, up to a week from
+      // JUST SOME DAYS (the owner, 2026-10-23): the picked days, up to a week from
       // the first day still to plan, replace the trip when there are any
       const trip = buildDays(
         tripFor(cur.week, localIsoDate(now), start, buyDayOf(targetsRef.current)),
@@ -1976,7 +1976,7 @@ function App() {
   // is watched by the coverage banner, not by a cage of refusals.
 
   // SWITCH: the meal keeps its slot and its servings and becomes a different
-  // recipe. Replaces the old ✕, which could only delete (David, 2026-07-27).
+  // recipe. Replaces the old ✕, which could only delete (the owner, 2026-07-27).
   // Works on a shopped week too (7.2): the coverage banner is the guard.
   const handleSwitchEntry = useCallback(
     (/** @type {string} */ id) => {
@@ -2008,7 +2008,7 @@ function App() {
     // the cook's device carries the table's pooled total (cookTotal) so a
     // shared POT is cooked at the right size. A per-bowl dish has no pot:
     // the yogurt bowl opened as "1.5 cup greek yogurt" for a two-seat table
-    // (David 2026-09-07) when each seat builds its own bowl. Own seat only.
+    // (the owner 2026-09-07) when each seat builds its own bowl. Own seat only.
     const recipe = allRecipesRef.current.find((r) => r.id === rid);
     const perBowl = isPerBowl(recipe);
     setPeek({
@@ -2110,7 +2110,7 @@ function App() {
           ? recordCook(plan, entryId, localIsoDate(new Date()), seconds)
           : toggleEntryCooked(plan, entryId, localIsoDate(new Date())),
       );
-      // cooking it EATS it (David, 2026-07-26): the meal's ingredients come
+      // cooking it EATS it (the owner, 2026-07-26): the meal's ingredients come
       // off the shelves they were put on. Only on the way IN — un-ticking a
       // meal cannot un-cook the food, so nothing is put back.
       if (!entry || entry.cookedAt) return;
@@ -2163,7 +2163,7 @@ function App() {
   // what the last GENERATE's brigade run did, for the Plan tab's own tile
   const [brigadeRun, setBrigadeRun] = useState(/** @type {Record<string, any> | null} */ (null));
 
-  // TWO BUTTONS, one meaning each (David, 2026-09-24: the label that flipped
+  // TWO BUTTONS, one meaning each (the owner, 2026-09-24: the label that flipped
   // from GENERATE to PICK DIFFERENT MEALS after one tap hid which one a tap
   // was). SET (reroll false) fills what is missing and keeps anything bought
   // or cooked; PICK DIFFERENT MEALS (reroll true) re-rolls the rest.
@@ -2196,7 +2196,7 @@ function App() {
       }
       const bs = buildStateRef.current;
       if (reroll || bs.salt === 0) bs.salt++;
-      // THE BRIGADE FIRST (David, 2026-09-05: "when on the plan tab you click
+      // THE BRIGADE FIRST (the owner, 2026-09-05: "when on the plan tab you click
       // generate my week it generates the week in the brigade. there is no
       // reason that it should be necessary to go to the table tab"). When my
       // house runs a standing brigade that covers this week's live days and I
@@ -2282,7 +2282,7 @@ function App() {
         // no readable prior week is a working state, not a failure: a skipped
         // review never blocks the next week (canon P11)
       }
-      // BUDGET THE SWIPES BEFORE GENERATING (P5, P10, David 2026-08-24).
+      // BUDGET THE SWIPES BEFORE GENERATING (P5, P10, the owner 2026-08-24).
       // The arbitrage only pays off on swipes that are IN the plan when the
       // committees run, and nothing ever put one there: a seven-swipe meal
       // plan only worked if he remembered to tap seven slots first, and if he
@@ -2336,7 +2336,7 @@ function App() {
         today: planStartIso(new Date()),
       });
       let built = result.plan;
-      // AUTO-APPLY substitutions (David, 2026-08-02: "there is no point in
+      // AUTO-APPLY substitutions (the owner, 2026-08-02: "there is no point in
       // saying these are potential swaps if you don't do them"). Still MY week
       // ONLY — the Tribunal veto on writing other people's plans stands;
       // house-wide convergence happens because every phone's own generate does
@@ -2387,7 +2387,7 @@ function App() {
       // not a readout: "You review a week that already meets the number." So the
       // week is priced here, against the real store, and changed until it fits
       // or until it can say plainly that it cannot and by how much. Runs LAST,
-      // after the house swap pass, so it prices the week David will actually
+      // after the house swap pass, so it prices the week the owner will actually
       // see. Measured on his real bank: about $93/week, and then it stops and
       // says how far short it is rather than pretending.
       /** @type {Record<string, any> | undefined} */
@@ -2537,7 +2537,7 @@ function App() {
   // households/<h>/pantry-notes.json, newest last
   const [pantryNotes, setPantryNotes] = useState(/** @type {Record<string, any> | null} */ (null));
 
-  // THE SHELF CHECK (P6/P11, David 2026-09-06): confirm, correct or remove a
+  // THE SHELF CHECK (P6/P11, the owner 2026-09-06): confirm, correct or remove a
   // counted row before GENERATE reads the shelf. A downward correction and a
   // GONE are write-offs in the waste ledger (reason "shelf-check"): food that
   // left without a COOKED tap is waste or an untapped meal, and the review
@@ -2586,7 +2586,7 @@ function App() {
     },
     [me],
   );
-  // ENOUGH FOR THE WEEK? (David, 2026-09-07): the person states a count for a
+  // ENOUGH FOR THE WEEK? (the owner, 2026-09-07): the person states a count for a
   // food the generated week needs; a lower count than believed is a write-off.
   const handleSetCount = useCallback(
     (/** @type {string} */ food, /** @type {string} */ saidQty) => {
@@ -2899,7 +2899,7 @@ function App() {
   );
   const viewPlan = merged.plan;
 
-  // SETTLED HISTORY (David, 2026-09-05: "i want to always see what was
+  // SETTLED HISTORY (the owner, 2026-09-05: "i want to always see what was
   // cooked... if you skipped a meal or recipe or changed one you can look
   // back"). A shared meal is a derived row that lives 14 days in the house's
   // events file and then vanishes. Once its date is past, it is copied into
@@ -3035,7 +3035,7 @@ function App() {
       nights: myBuys.length,
       // how many people this one buy feeds — the budget tile judges MY
       // per-seat share of the eaten figure, never the whole kitchen's bill,
-      // against my personal weeklyBudgetUsd (David, 2026-08-30)
+      // against my personal weeklyBudgetUsd (the owner, 2026-08-30)
       seats: Math.max(1, (active.memberIds ?? []).length),
       shopperName: cookName,
       othersBuy: [...others].sort(([a], [b]) => a.localeCompare(b)).map(([date, name]) => ({ date, name })),
@@ -3153,7 +3153,7 @@ function App() {
     [],
   );
 
-  // GROCERY CLAIMS (David, 2026-08-03, replacing the manual famdinner rows he
+  // GROCERY CLAIMS (the owner, 2026-08-03, replacing the manual famdinner rows he
   // rightly stopped trusting): a family dinner rides NOBODY's list until
   // someone claims it. Claiming writes buyerId on the table; the buyer's
   // DERIVED list then carries the batch natively — no manual rows, nothing
@@ -3272,7 +3272,7 @@ function App() {
   }, [hasToken]);
 
   /**
-   * THE SHOPPED-WEEK FREEZE (David, 2026-08-10): a bought week is
+   * THE SHOPPED-WEEK FREEZE (the owner, 2026-08-10): a bought week is
    * untouchable. A table is treated as shopped when its date falls in the
    * current plan week and that plan is marked shopped. Future weeks are
    * unshopped by definition; past dates are frozen by definition.
@@ -3741,7 +3741,7 @@ function App() {
   /**
    * Screen a draft occasion's food against the OCCASION OWNER's diet and
    * avoid list, not the device owner's. This is the whole reason it exists:
-   * David builds his mother's prep week on his own phone, so every recipe the
+   * The owner builds his mother's prep week on his own phone, so every recipe the
    * picker offered was filtered through HIS allergens. Hers are the ones that
    * matter. Returns recipeId -> reasons, empty when clean.
    * @param {string} profileId
@@ -3910,7 +3910,7 @@ function App() {
     [writeHouseEvents],
   );
 
-  // AN OPEN RULE ROLLS ITSELF (David, 2026-10-18: "the shared kitchen
+  // AN OPEN RULE ROLLS ITSELF (the owner, 2026-10-18: "the shared kitchen
   // shouldn't have an end date"). When an open rule no longer reaches three
   // weeks out, its 28-day window moves forward and is saved, so it never
   // lapses and no phone, old or new, ever sees it end. A rule written before
@@ -3949,14 +3949,14 @@ function App() {
   }, [houseEvents, writeHouseEvents]);
 
   /**
-   * ONE MORE PERSON ON ONE DAY (canon P8, David 2026-09-05). Seats a real
+   * ONE MORE PERSON ON ONE DAY (canon P8, the owner 2026-09-05). Seats a real
    * profile on this day's shared meals, each plate sized from THEIR targets
    * (seatServingsFor, the same rule the pot uses), so the cook's total and the
    * buy grow by exactly those plates. Returns a plain line saying how much
    * more food that is; the next PICK DIFFERENT MEALS re-solves the day
    * jointly with them at the table.
    */
-  // USE IT THIS WEEK (David, 2026-10-18: "give you the link to the recipe
+  // USE IT THIS WEEK (the owner, 2026-10-18: "give you the link to the recipe
   // online and you generate a recipe that complies with everything and you
   // add it into the system"). P12, P3. A recipe scanned from a link goes on
   // one night's dinner: the shared dinner when the kitchen eats together that
@@ -4190,7 +4190,7 @@ function App() {
       const run = regenerate
         ? { ...brigade, salt: (Number(/** @type {any} */ (brigade).salt) || 0) + 1 }
         : brigade;
-      // THE COMPOSER SEES COST (David's yes, 2026-08-30): per-serving eaten
+      // THE COMPOSER SEES COST (the owner's yes, 2026-08-30): per-serving eaten
       // cost at my store for every bank recipe, computed once per run.
       // Unpriced recipes get the bank MEDIAN — neither free nor banned —
       // and with no catalogue or store the composer runs exactly as before.
@@ -4203,7 +4203,7 @@ function App() {
       /** @type {((food: string, qty: number, unit: string) => number) | undefined} */
       let priceNeed;
       if (cat && store) {
-        // TRIP cost, not eaten cost (David, 2026-09-24: "how can 3 days of
+        // TRIP cost, not eaten cost (the owner, 2026-09-24: "how can 3 days of
         // food be $121"): what each recipe adds to THIS trip, whole packages
         // for what the kitchen lacks, nothing for what it holds
         const has = kitchenHas(pantryRef.current, shoppingRef.current);
@@ -4235,7 +4235,7 @@ function App() {
       const budgetUsd =
         budgets.length > 0 ? budgets.reduce((a, b) => a + b, 0) / budgets.length : undefined;
       const bankById = recipesById(bankRecipesRef.current);
-      // `bought` (David, 2026-09-06) still decides PICK DIFFERENT MEALS and
+      // `bought` (the owner, 2026-09-06) still decides PICK DIFFERENT MEALS and
       // past pots; a plain SET keeps every set table via keepSet (2.0, I-01)
       const pantryNow = pantryRef.current;
       const listNow = shoppingRef.current;
@@ -4245,7 +4245,7 @@ function App() {
       const planned = {
         ...run,
         sundayBatch: sundayBatchOn(run),
-        // TWO SUNDAY POTS unless the rule saved one (David, 2026-10-25)
+        // TWO SUNDAY POTS unless the rule saved one (the owner, 2026-10-25)
         sundayTwoPots: sundayTwoPotsOn(run),
       };
       const { events, made, thin, report, swept, notes, nights } = planBrigadeWeek(cur, planned, {
@@ -4390,7 +4390,7 @@ function App() {
       if (live.length === 0) throw new Error("everyone skipped this table, nothing to tailor");
       const facts = await handleDinerFacts(live.map((s) => s.id));
       const today = localIsoDate(new Date());
-      // A PER-PORTION DISH IS ARITHMETIC, NOT AI (David, 2026-09-13: "ai
+      // A PER-PORTION DISH IS ARITHMETIC, NOT AI (the owner, 2026-09-13: "ai
       // tailoring needs to be fixed"). The 09-07 bowl came back telling him to
       // add a scoop of protein powder (out of the bowl since 08-29) and to
       // build the base from every topping "as cooked", because the model was
@@ -4591,7 +4591,7 @@ function App() {
     [writeHouseEvents, decisionRecipeId, tableFromDecision],
   );
 
-  // Adherence scoreboard (David, 2026-07-24): every household member's
+  // Adherence scoreboard (the owner, 2026-07-24): every household member's
   // CURRENT-week score from the same raw files the honest-state features
   // write (plan cookedAt/shoppedAt + daily logs). Same yardstick for
   // everyone — that's what makes the leaderboard a competition. Purely
@@ -4746,7 +4746,7 @@ function App() {
 
   const moneyBalances = useMemo(() => balancesFor(ledger, me), [ledger, me]);
 
-  // CONFIRMED MONEY (David, 2026-10-05): a person records who paid and how
+  // CONFIRMED MONEY (the owner, 2026-10-05): a person records who paid and how
   // much; the meal records above only weight the split.
   const myHouseNow = /** @type {string} */ (
     allProfiles.find((p) => p.id === me)?.household ?? "home"
@@ -4848,7 +4848,7 @@ function App() {
   // BOTH failure modes and they need opposite instructions — "invalid" means
   // renew it, "norepo" means the token is fine and its repository access is
   // wrong, and telling someone to renew in the norepo case is the instruction
-  // that cost David five tokens on 2026-08-16.
+  // that cost the owner five tokens on 2026-08-16.
   const syncDead = savingDead(repo?.auth, sync.pending);
   // throttling is not a broken token and must not send anyone to regenerate a
   // working one; it says so and gets out of the way
@@ -4886,7 +4886,7 @@ function App() {
 
   const loading = recipes.length === 0 && hasToken;
 
-  // Cook Mode is gone (David 2026-08-19): the recipe page carries the timer
+  // Cook Mode is gone (the owner 2026-08-19): the recipe page carries the timer
   // (entry COOKED write) and the serve tile (table COOKED write). The serve
   // model derives here exactly as the old cook route did (spec §7.1).
   const routeTable = route.table
@@ -5238,7 +5238,7 @@ function App() {
       />`
     }
     ${
-      // GUEST PROFILE (guesthouse spec §8, David's yes 2026-08-29): the
+      // GUEST PROFILE (guesthouse spec §8, the owner's yes 2026-08-29): the
       // same questionnaire the gate uses, stamped guesthouse, never a
       // sign-in — hand the phone over, they fill it, the reload lands
       // back on Tables with them seatable
@@ -5477,7 +5477,7 @@ function App() {
 /**
  * ?fresh=1 — the one-tap cure for a wedged install.
  *
- * David, 2026-07-26: after a deploy his phone painted the Plan page but no
+ * The owner, 2026-07-26: after a deploy his phone painted the Plan page but no
  * button responded. That is the signature of a half-updated service worker:
  * the old SW keeps serving some cached modules while the page runs newer
  * ones, so the tree renders and then never wires up. The controllerchange
@@ -5523,7 +5523,7 @@ if (location.search.includes("fresh")) {
 /**
  * Show the error instead of dying quietly.
  *
- * David, 2026-07-26: "none of the buttons work. i can scroll on the plan page
+ * The owner, 2026-07-26: "none of the buttons work. i can scroll on the plan page
  * but that is it." That is what a throw during re-render looks like from the
  * outside: the last good screen stays painted, scrolling still works because
  * the compositor owns it, and every tap runs a handler that dies on the way
@@ -5563,8 +5563,8 @@ window.addEventListener("error", (e) => showCrash("error", e.error ?? e.message)
 window.addEventListener("unhandledrejection", (e) => showCrash("promise", e.reason));
 
 /**
- * A GUEST'S PHONE (David, 2026-10-18: his invite link "just pulls up to the
- * GitHub thing ... It just says David as a profile and then add another
+ * A GUEST'S PHONE (the owner, 2026-10-18: his invite link "just pulls up to the
+ * GitHub thing ... It just says the owner as a profile and then add another
  * profile"). A fresh phone has no chosen profile, so the boot below used to
  * render the profile chooser, with the built-in default profile, before the
  * router ever saw #/join: an invited guest never reached the invite form.
@@ -5578,7 +5578,7 @@ function GuestLinkRoot() {
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
-  // v1.6 (David, 2026-10-18): Welcome to Mise with LOG IN / SIGN UP; once
+  // v1.6 (the owner, 2026-10-18): Welcome to Mise with LOG IN / SIGN UP; once
   // in, only the guest's own meals and their recipes
   const [session, setSession] = useState(() => guestSession());
   const signedIn = (/** @type {string} */ s) => {

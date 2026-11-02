@@ -2,7 +2,7 @@
 
 - **Status:** accepted; built 2026-10-18 (v1.8): Settings > Your profile edits the file as a merge; `base.goal.date` added; Anvil reading `body`/`base` from Mise is still Anvil's change
 - **Date:** 2026-10-12
-- **Deciders:** David (chose option A); session tweener
+- **Deciders:** the owner (chose option A); session tweener
 - **Tenet invoked:** 7 (fitted to the person)
 
 ## Context

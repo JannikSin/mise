@@ -11,10 +11,10 @@
 > Cook, Adapt) and a done test for each. Numbering changed TWICE on 2026-08-18; the decoder for older notes
 > is at the top of `Crystal\Lanes\Mise-Fix-List.md`. Current: P1 numbers, P2 decided, P3 knows-you, P4 store,
 > P5 budget, P6 pantry, P7 time, P8 plates, P9 good-cook, P10 eat-anywhere, P11 review, P12 bank.
-> **The locked week is abolished (David, 2026-08-18): shopping locks the INGREDIENTS and stores the plan as
+> **The locked week is abolished (the owner, 2026-08-18): shopping locks the INGREDIENTS and stores the plan as
 > a fallback; the plan itself stays changeable so long as every bought perishable is used before it dies.**
 > **Every change must name the promise number it serves.** A change that serves no promise does not get
-> built; it goes to `Crystal\Lanes\Mise-Later.md`. David will keep having ideas and saying them out loud.
+> built; it goes to `Crystal\Lanes\Mise-Later.md`. The owner will keep having ideas and saying them out loud.
 > Saying an idea is not commissioning it. Park it and keep going.
 > **No feature ships dark:** anything built behind a gate gets a date and an owner in the same commit.
 > The standing example of the failure WAS `app/lib/synth.js`: 804 tested lines wired into main.js, gated on
@@ -31,16 +31,16 @@
 > behaviour; every gap is a printed `todo` with a NAMED OWNER, which is the gate register; and
 > **when a promise's status changes, the status line changes in the SAME commit as the code.**
 > Score at the end of 2026-08-19: **10 proven, 2 partial, 0 not built.** The suite prints it on every run.
-> The two open gaps are P9 (a layout decision David owns) and P12's second nutrition philosophy (the
+> The two open gaps are P9 (a layout decision the owner owns) and P12's second nutrition philosophy (the
 > pending council's question). Neither is a build.
 
 > as-of: 2026-09-21 (tahiti). The live-state facts in this file (the promise ledger score, what is parked, which engine has run on real data) were last written on that date; the Crystal doctor files a ticket when this line is fourteen days old. Move the date when you re-verify them. The rules and the architecture are stable and carry no date. Rule: Crystal `System/Initial-Conditions`.
 > **2026-09-21 (tahiti):** the first release train run shipped `next` to live (shell v202 to v208, tag `release/2026-09-21`); ledger 11 proven, 1 partial (P9); 971 tests. The parts audit (Crystal `Lanes/Mise-Parts-Audit`) found two cooked confirmations across every plan file, so the one-tap cooked mark now sits on the Plan rows themselves; the July documents and one-off tools are archived.
 > **2026-09-05 (paddington):** weeks now OPEN ON SUNDAY (`isoWeekId`/`datesOfWeek`, straddle read in main.js); the brigade engine and the solo generator both honour COOK NIGHTS (`cookDays`, leftover nights stamped `leftoverOf`, round-robin pots, safe-window enforced), rotate the dinner PROTEIN across cook nights, and a brigade can narrow a slot to named recipes (`slotRecipes`); guest seats (real profiles) are composed and carried; past shared meals settle into each member's own plan (`fromTable`) so history outlives table retention. Every engine change above was run on the live wayne data before shipping (28 tables, every seat in band).
 
-> **Crystal notice:** if this session shipped real work, also append a line to `C:\Users\DATar\Sanity\Obsidian\Crystal\System\Changelog.md` and a narrative + hot-list entry to `C:\Users\DATar\Sanity\Obsidian\Crystal\Accomplishments\Log.md` before ending. Crystal is David's personal assistant and the daily brief it narrates back to him only reflects what gets written there. See Crystal's `System/Lessons-Learned.md` L13.
+> **Crystal notice:** if this session shipped real work, also append a line to `C:\Users\DATar\Sanity\Obsidian\Crystal\System\Changelog.md` and a narrative + hot-list entry to `C:\Users\DATar\Sanity\Obsidian\Crystal\Accomplishments\Log.md` before ending. Crystal is the owner's personal assistant and the daily brief it narrates back to him only reflects what gets written there. See Crystal's `System/Lessons-Learned.md` L13.
 
-> **Pickup lessons (David's first real curbside order, 2026-08-19):** the flow itself works
+> **Pickup lessons (the owner's first real curbside order, 2026-08-19):** the flow itself works
 > (park, name the spot, they bring it out). Two standing corrections: (1) counted produce
 > quantities must reconcile as PIECES vs BUNDLES before any cart push — his banana line became
 > THREE bundles when one covers the need (rule 3.7 applies to every quantity, not just weights);
@@ -103,7 +103,7 @@ Every non-trivial change, in order:
 3. Reviewer subagents (`code-reviewer`, `security-reviewer`, `ui-reviewer` in `.claude/agents/`) critique in parallel — before commit, not after.
 4. Open the running app, exercise the feature, and confirm it. "Code looks right" is not verification; "I watched it work" is.
 5. Commit with a clear message. Never force-push. Never commit directly to data files with real user data during development — use fixtures.
-6. **PUSH, then verify the LIVE host.** Pages serves `origin/main`. Until you push, nothing you built exists for David or his family, and "not pushed yet" is not a status line, it is unfinished work. After pushing, curl the live files and confirm the deploy actually landed.
+6. **PUSH, then verify the LIVE host.** Pages serves `origin/main`. Until you push, nothing you built exists for the owner or his family, and "not pushed yet" is not a status line, it is unfinished work. After pushing, curl the live files and confirm the deploy actually landed.
 
 ### Rendering is not working (learned the hard way, 2026-07-25/26)
 
@@ -133,9 +133,9 @@ ACT. The checks that would have caught each:
 - **Batch deploys.** Several pushes in quick succession each bump the service
   worker shell and make it churn on a phone. Ship a coherent set, once.
 
-For architecture-level decisions (new phase, schema redesign, dependency addition): run `council this:` first and show David the verdict.
+For architecture-level decisions (new phase, schema redesign, dependency addition): run `council this:` first and show the owner the verdict.
 
-## Part 4 — Working With David
+## Part 4 — Working With the owner
 
 - Settle strategy before executing. Never start building until he explicitly says go.
 - When he asks "A or B?", give a direct call with one-sentence reasoning, then nuance if needed.
@@ -146,7 +146,7 @@ For architecture-level decisions (new phase, schema redesign, dependency additio
 
 Two branches, two origins, one data repo with two branches. **`main` is the LIVE app** on
 janniksin.github.io and is written only by the Sunday release or a named hotfix (a live bug
-that blocks the week David bought for: smallest diff, own test, then `main` merged INTO
+that blocks the week the owner bought for: smallest diff, own test, then `main` merged INTO
 `next`, never cherry-picked). **`next` is the SANDBOX** on https://mise-next.pages.dev
 (Cloudflare Pages, production branch `next`), deployed by `tools/sandbox-deploy.ps1`, which
 stages `git archive next`, copies ONLY the app shell, refuses any personal or secret path,
@@ -159,15 +159,15 @@ server included) refuses writes. Schema changes are read-time heals: a new optio
 plus a tolerant reader; never a rename in place. Weekday sessions work on `next`, run the
 gates in the working tree, deploy the sandbox once per session, and verify the sandbox
 host; `main` and the live host are touched on Sunday morning by `tools/release.ps1`
-(built Saturday, week one by hand and watched) against the `ship/YYYY-MM-DD` tag David's
+(built Saturday, week one by hand and watched) against the `ship/YYYY-MM-DD` tag the owner's
 yes produced. "Never force-push" has exactly one exception: `release.ps1 --rollback`.
 
-**Release versions (David, 2026-10-05).** What a person reads is `Mise vX.Y` in SYS, from
+**Release versions (the owner, 2026-10-05).** What a person reads is `Mise vX.Y` in SYS, from
 `app/lib/release.js`, never the shell number. Live was v1.0 on 2026-10-05. The sandbox has NO
 number of its own: it shows `v<live> + work in progress`, and its changes collect in plain
 language under the top entry, version `unreleased`. The number is chosen AT SHIP TIME and
 sized to the improvement (1.1, 1.15, 1.5, 2.0; compared as decimals): the session taking
-David's yes proposes it with a one-line reason, he confirms, then rename `unreleased` to that
+The owner's yes proposes it with a one-line reason, he confirms, then rename `unreleased` to that
 number and date it with the ship day before tagging. `release.ps1` gate 4b refuses a ship whose
 top entry is unnamed, not above live, or not dated the ship day. Right after a release, `next`
 opens a fresh `unreleased` entry. A hotfix to `main` adds its line to the current live

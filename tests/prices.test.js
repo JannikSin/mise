@@ -174,7 +174,7 @@ test("applyReceipt confirms matched prices AND learns unknown foods, but not til
   // CHANGED 2026-08-17. This used to assert that an unmatched line never
   // invents a catalogue row. That rule capped the catalogue at 24 items
   // against 30-to-50-line receipts, so almost every scan was read, priced
-  // and thrown away, which is why David scanned for weeks and saw nothing
+  // and thrown away, which is why the owner scanned for weeks and saw nothing
   // improve. Names reaching here are already decoded and user-approved, so
   // a food we do not know is a food worth learning.
   assert.equal(catalogue.items.length, 3);

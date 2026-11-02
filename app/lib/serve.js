@@ -158,7 +158,7 @@ export function buildServe(t, recipe, profilesOrder, rulesBySeat, synth) {
     const notes = [...(soft.length > 0 ? [`no ${soft.join(", no ")}`] : []), ...label];
     // SOLVED plates (spec §7.3): when the engine ran for this table, each
     // seat's line is their actual amounts — protein in grams to the nearest
-    // 25 (a scale exists and David wants it used), starch in household
+    // 25 (a scale exists and the owner wants it used), starch in household
     // quarters, vegetables as adjectives, flavor rows silent. The engine
     // upgrading this screen changes ZERO layout: same seat blocks, richer
     // lines. Falls back to the pan fraction whenever the solve is uniform.

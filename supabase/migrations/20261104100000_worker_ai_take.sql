@@ -3,7 +3,7 @@
 -- its own file (the PGlite test is tests/db-ai-take.test.js).
 --
 -- One call per AI request instead of one per weight slot (annotate was 8
--- round trips). The day is passed by the Worker as David's date in
+-- round trips). The day is passed by the Worker as the owner's date in
 -- America/Chicago, so the allowance resets at midnight Chicago, as the
 -- Worker's message says; a day more than one away from the server's UTC date
 -- is refused, so a caller cannot reach back to an old row or forward to a

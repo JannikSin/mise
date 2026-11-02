@@ -1,4 +1,4 @@
-// Kroger cart push (David, 2026-08-22: "as long as you put it in the cart, I
+// Kroger cart push (the owner, 2026-08-22: "as long as you put it in the cart, I
 // will place the order"). The security-critical part is the signed state: it
 // is the ONLY thing standing between the one unauthenticated GET route this
 // Worker serves and an open redirect.

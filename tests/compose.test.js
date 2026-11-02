@@ -16,7 +16,7 @@ import { brigadeTableId, validBrigade } from "../app/lib/tables.js";
 import { recipeProteinClass } from "../app/lib/foodclass.js";
 
 // ---------------------------------------------------------------------------
-// fixtures: synthetic, David/Rowan/thornton-SHAPED, never real data files
+// fixtures: synthetic, the owner/Rowan/birch-SHAPED, never real data files
 // ---------------------------------------------------------------------------
 
 /** @param {string} id @param {string} meal @param {number} kcal @param {number} p */
@@ -257,11 +257,11 @@ test("PLAN A BRIGADE WEEK: every wayne day lands BOTH seats in band", () => {
     const david = report.find((r) => r.date === date && r.seatId === "david");
     assert.ok(
       david.dayKcal >= 3700 && david.dayKcal <= 3800,
-      `David's ${date} full day ${david.dayKcal} kcal inside [3700, 3800]`,
+      `Owner's ${date} full day ${david.dayKcal} kcal inside [3700, 3800]`,
     );
     assert.ok(
       david.dayProtein >= 190 && david.dayProtein <= 215,
-      `David's ${date} protein ${david.dayProtein} inside [190, 215]`,
+      `Owner's ${date} protein ${david.dayProtein} inside [190, 215]`,
     );
   }
 });
@@ -338,16 +338,16 @@ test("a member's own pinned entry takes them off that slot's pot for the day", (
 test("THORNTON SHAPE: three seats with a 1.9x spread never lose a day (Red Team block)", () => {
   const mom = { macros: { calories: 1550, caloriesFloor: 1350, protein: 95 } };
   const dad = { macros: { calories: 2900, caloriesFloor: 2700, protein: 150 } };
-  const lena = { macros: { calories: 2000, caloriesFloor: 1800, protein: 110 } };
+  const wren = { macros: { calories: 2000, caloriesFloor: 1800, protein: 110 } };
   const profiles = new Map([
     ["mom", { id: "mom", household: "t" }],
     ["dad", { id: "dad", household: "t" }],
-    ["lena", { id: "lena", household: "t" }],
+    ["wren", { id: "wren", household: "t" }],
   ]);
   const brigade = {
     id: "fam",
     name: "Family table",
-    memberIds: ["mom", "dad", "lena"],
+    memberIds: ["mom", "dad", "wren"],
     slots: ["breakfast", "dinner"],
     from: "2026-08-31",
     until: "2026-09-27",
@@ -360,7 +360,7 @@ test("THORNTON SHAPE: three seats with a 1.9x spread never lose a day (Red Team 
     targetsById: new Map([
       ["mom", mom],
       ["dad", dad],
-      ["lena", lena],
+      ["wren", wren],
     ]),
     plansById: new Map(),
     bankById,
@@ -371,7 +371,7 @@ test("THORNTON SHAPE: three seats with a 1.9x spread never lose a day (Red Team 
     "every day materializes — no whole-day refusals",
   );
   for (const row of report) {
-    const t = { mom, dad, lena }[row.seatId];
+    const t = { mom, dad, wren }[row.seatId];
     assert.ok(
       row.dayKcal <= t.macros.calories + 100,
       `${row.seatId} ${row.date} never lands crazy over (${row.dayKcal})`,
@@ -580,7 +580,7 @@ test("a seat with no usable targets gets a NAMED report row, never silence", () 
 });
 
 // ---------------------------------------------------------------------------
-// THE WEEK-LEVEL COST SWEEP (David's yes, 2026-08-30: "let the composer see
+// THE WEEK-LEVEL COST SWEEP (the owner's yes, 2026-08-30: "let the composer see
 // cost... the composer needs to work to reduce it"). A per-day cheapest-first
 // preference was built first and measured $23 WORSE on the live wayne week,
 // so cost lives at the week level: swaps accepted only when the day gets
@@ -699,7 +699,7 @@ test("cost sweep: a cooked table is never re-planned for money", () => {
 
 // ---------------------------------------------------------------------------
 // COOK NIGHTS, LEFTOVER NIGHTS, PROTEIN ROTATION, NAMED SLOTS, GUEST SEATS
-// (David, 2026-09-05). A Sunday-opening week: Sun Sep 6 … Sat Sep 12 2026.
+// (the owner, 2026-09-05). A Sunday-opening week: Sun Sep 6 … Sat Sep 12 2026.
 // ---------------------------------------------------------------------------
 
 const SUN_WEEK = [
@@ -730,7 +730,7 @@ const dinnerOn = (events, date) =>
   events.tables.find((t) => t.fromBrigade === "wk" && t.date === date && t.slot === "dinner");
 
 test("COOK NIGHTS: no-cook nights eat the MOST RECENT pot on consecutive days (Mon feeds Tue, Wed, Thu), every plate still solved", () => {
-  // David, 2026-09-13: "if I make Tuesday, the same meal will be leftover on
+  // The owner, 2026-09-13: "if I make Tuesday, the same meal will be leftover on
   // Wednesday". The round-robin this replaced put Monday's dinner between
   // Sunday's pot and Sunday's own leftovers.
   const { events, nights, report } = planBrigadeWeek({ tables: [] }, COOK_BRIGADE, sunCtx());
@@ -828,7 +828,7 @@ test("a mid-week SET never keeps a no-cook night on a PAST pot that was never co
 });
 
 test("THE SUNDAY BATCH: Mon eats Sunday's dinner, Tue + Wed eat a second Sunday pot that keeps from Sunday", () => {
-  // David, 2026-09-24: cook Thu Fri Sat Sun fresh; Mon = Sunday's leftovers;
+  // The owner, 2026-09-24: cook Thu Fri Sat Sun fresh; Mon = Sunday's leftovers;
   // Tue + Wed = one separate dish batch-cooked on Sunday
   const b = { ...COOK_BRIGADE, cookDays: [0, 4, 5, 6], batches: [{ cookDay: 0, feeds: [2, 3] }] };
   const { events, nights } = planBrigadeWeek({ tables: [] }, b, sunCtx());
@@ -1072,7 +1072,7 @@ test("plate screen fails closed: a member whose profile cannot be read is not se
   }
 });
 
-// David's rhythm (2026-10-17): leftover-first dinners lead, and a pot must fit its pan.
+// The owner's rhythm (2026-10-17): leftover-first dinners lead, and a pot must fit its pan.
 test("on a kitchen that does not cook every night, dinners come from the leftover-first dishes", () => {
   const lf = new Set(["din-bulgogi", "din-gyros", "din-soup"]);
   const bank = new Map(
@@ -1213,7 +1213,7 @@ test("GUEST SEATS: a profile seated on one night is sized from their own targets
     macros: { calories: 1550, caloriesFloor: 1400, protein: 110 },
     mealSlots: ["breakfast", "lunch", "dinner"],
   };
-  const profiles = new Map([...WAYNE_PROFILES, ["mom", { id: "mom", household: "thornton" }]]);
+  const profiles = new Map([...WAYNE_PROFILES, ["mom", { id: "mom", household: "birch" }]]);
   const targets = new Map([
     ["david", davidTargets],
     ["rowan", rowanTargets],
@@ -1322,7 +1322,7 @@ test("a bought day keeps its dishes but its portions and cook follow the rule ag
   }
 });
 
-test("a set meal whose food was never bought is planned again on a plain SET; bought ones are kept (David, 2026-09-06)", () => {
+test("a set meal whose food was never bought is planned again on a plain SET; bought ones are kept (Owner, 2026-09-06)", () => {
   const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
   const dinners = first.events.tables.filter((t) => t.slot === "dinner");
   assert.ok(dinners.length >= 3);
@@ -1441,7 +1441,7 @@ test("keepSet: a kept meal someone at the table cannot eat is still swapped at t
   );
 });
 
-test("a PINNED table is kept through a plain SET whatever the pantry says (David, 2026-09-07)", () => {
+test("a PINNED table is kept through a plain SET whatever the pantry says (Owner, 2026-09-07)", () => {
   const first = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
   const dinners = first.events.tables.filter((t) => t.slot === "dinner");
   const pin = dinners[dinners.length - 1];
@@ -1474,7 +1474,7 @@ test("a PINNED table is kept through a plain SET whatever the pantry says (David
 });
 
 test("a brigade slot a member turned OFF (targets.skipSlots) is SKIPPED auto for that member only; slots merely unlisted are still eaten", () => {
-  // explicit opt-out only: David's profile never listed "snack" and he eats
+  // explicit opt-out only: the owner's profile never listed "snack" and he eats
   // the brigade's bake; the first cut keyed on mealSlots and dropped him
   const noSmoothie = {
     ...davidTargets,
@@ -1493,7 +1493,7 @@ test("a brigade slot a member turned OFF (targets.skipSlots) is SKIPPED auto for
   for (const t of smoothies) {
     const d = t.seats.find((s) => s.id === "david");
     const e = t.seats.find((s) => s.id === "rowan");
-    assert.equal(d?.status, "skipped", `${t.date}: David is off the smoothie`);
+    assert.equal(d?.status, "skipped", `${t.date}: Owner is off the smoothie`);
     assert.equal(/** @type {any} */ (d)?.auto, true, "machine-stamped, so SYS can seat him again");
     assert.notEqual(e?.status, "skipped", `${t.date}: Rowan still gets his smoothie`);
   }
@@ -1520,7 +1520,7 @@ test("a brigade slot a member turned OFF (targets.skipSlots) is SKIPPED auto for
 });
 
 test("SNACKS ARE BATCHES: one bake feeds three days in a row, so a week has at most three bakes", () => {
-  // David, 2026-09-24: "a batch of muffins lasts about 3 to 4 days"; a bake a
+  // The owner, 2026-09-24: "a batch of muffins lasts about 3 to 4 days"; a bake a
   // day bought syrup, two bags of chips and cranberries for three days
   const { events } = planBrigadeWeek({ tables: [] }, BRIGADE, wayneCtx());
   const snacks = events.tables
@@ -1540,7 +1540,7 @@ test("SNACKS ARE BATCHES: one bake feeds three days in a row, so a week has at m
 });
 
 test("THE TRIP: a food the week already buys is counted once (overlap), the trip never gets dearer, and the budget cap speaks only when over", () => {
-  // David, 2026-09-24: "the planner NEEDS to have pantry, ingredient overlap
+  // The owner, 2026-09-24: "the planner NEEDS to have pantry, ingredient overlap
   // and budget". Every dinner needs the same $30 package: the week buys it once.
   const shared = (id) => (String(id).startsWith("din-") ? [{ key: "shared-pack", cost: 30 }] : []);
   const one = planBrigadeWeek(
@@ -1636,7 +1636,7 @@ test("THE POT, NOT THE RECIPE: with priceNeed the trip sums every food at the si
   );
 });
 
-test("the budget may repeat a breakfast or a snack, never a dinner (David, 2026-09-25)", () => {
+test("the budget may repeat a breakfast or a snack, never a dinner (Owner, 2026-09-25)", () => {
   // over budget, the relaxed pass trades variety for cost; on the live week it
   // put the same dinner on Friday and Saturday. Dinners repeat no more than
   // the same week planned with no budget at all.
@@ -1668,7 +1668,7 @@ test("the budget may repeat a breakfast or a snack, never a dinner (David, 2026-
   );
 });
 
-test("EVERY DINNER HAS MEAT: with dinnerMeat on, every dinner is anchored on chicken, turkey, beef or pork (David, 2026-09-25)", () => {
+test("EVERY DINNER HAS MEAT: with dinnerMeat on, every dinner is anchored on chicken, turkey, beef or pork (Owner, 2026-09-25)", () => {
   // "each dinner has a meat protein. that will be a dealbreaker with rowan so
   // cauliflower is not a meal"
   const anchor = {
@@ -1743,7 +1743,7 @@ const bakeCost = (/** @type {string} */ id) =>
 
 test("CALORIE FLOOR: the snack bake is the cheapest one that LANDS the day, never the cheapest one that starves it", () => {
   // 2026-09-25: cost alone picked the 210-kcal protein muffin for the batch,
-  // and Fri, Sun, Mon sat under the floor until David unticked it by hand
+  // and Fri, Sun, Mon sat under the floor until the owner unticked it by hand
   const { events, report } = planBrigadeWeek(
     { tables: [] },
     FLOOR_BRIGADE,

@@ -6,7 +6,7 @@ import { rotateComponents, rotates, rotationNoun } from "../lib/rotate.js";
 import { localIsoDate } from "../lib/dates.js";
 
 /**
- * The recipe a planned meal opens into (David, 2026-07-27: with dragging gone,
+ * The recipe a planned meal opens into (the owner, 2026-07-27: with dragging gone,
  * "when you click on an item you should get a pop up of the recipe and be able
  * to see ingredients and cook").
  *
@@ -15,7 +15,7 @@ import { localIsoDate } from "../lib/dates.js";
  * the kitchen and then dismiss. Cooking is still a full page: once you press
  * COOK you want the whole screen and the wake lock.
  *
- * NOT GATED. It used to be: steps waited behind a scanned receipt. David,
+ * NOT GATED. It used to be: steps waited behind a scanned receipt. The owner,
  * 2026-07-27: "it is not good for people to not be able to access recipes when
  * not given receipt yet cause sometimes we do have the food." The receipt is
  * now a NOTE on the card, not a lock on it.
@@ -62,13 +62,13 @@ export function RecipePeek({
   // Cook Mode is gone (2026-08-19): both buttons land on the recipe page,
   // which carries the timer (entry) and the serve tile (table). The params
   // ride on BOTH links — FULL RECIPE used to drop them, which is exactly how
-  // David ended up on a recipe page with no timer and nowhere to find one.
+  // The owner ended up on a recipe page with no timer and nowhere to find one.
   const cookHref = `#/recipe/${encodeURIComponent(recipe.id)}?from=plan&servings=${
     servings && servings > 0 ? servings : (recipe.servings ?? 1)
   }${entryId ? `&entry=${encodeURIComponent(entryId)}` : ""}${
     tableId ? `&table=${encodeURIComponent(tableId)}` : ""
   }${date ? `&date=${encodeURIComponent(date)}` : ""}`;
-  // TODAY'S BOWL, ONE LIST (David 2026-09-07): a rotating recipe used to open
+  // TODAY'S BOWL, ONE LIST (the owner 2026-09-07): a rotating recipe used to open
   // as its whole pool at the table's pooled total ("all 12 ingredients", 1.5
   // cup), then the recipe page said 7 of 12 at 1 cup. The card now shows the
   // same thing the page does: this day's picks, scaled to this eater's bowl.

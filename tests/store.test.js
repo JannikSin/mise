@@ -46,11 +46,11 @@ test("scoped: profiles.json is never scoped, even for a non-david profile", () =
   assert.equal(scoped("profiles.json"), "profiles.json"); // unset key too
 });
 
-test("readProfiles falls back to a default David profile when the file is missing", async () => {
+test("readProfiles falls back to a default Owner profile when the file is missing", async () => {
   const missing = async () => null;
   const result = await readProfiles(missing);
   assert.deepEqual(result, {
-    profiles: [{ id: "david", name: "David", emoji: "🏋️", phase: "gain" }],
+    profiles: [{ id: "david", name: "Owner", emoji: "🏋️", phase: "gain" }],
     // the marker choosers use to say "this is the built-in default, not the
     // real list" — and that patchProfiles-based writers refuse to build on
     fallback: true,
@@ -76,7 +76,7 @@ test("readProfiles returns the file's profiles when present", async () => {
   const found = async () => ({
     data: {
       profiles: [
-        { id: "david", name: "David", emoji: "🏋️", phase: "gain" },
+        { id: "david", name: "Owner", emoji: "🏋️", phase: "gain" },
         { id: "mom", name: "Mom", emoji: "🌿", phase: "loss" },
       ],
     },
@@ -88,9 +88,9 @@ test("readProfiles returns the file's profiles when present", async () => {
 });
 
 test("patchProfiles patches the REAL list, never the caller's snapshot", async () => {
-  // remote knows lena; the caller's device might not — the patch must
+  // remote knows wren; the caller's device might not — the patch must
   // land on the full list (the 2026-07-20 clobber regression)
-  const real = { profiles: [{ id: "david" }, { id: "lena" }] };
+  const real = { profiles: [{ id: "david" }, { id: "wren" }] };
   /** @type {any[]} */
   const writes = [];
   const ok = await patchProfiles((list) => [...list, { id: "mom" }], {
@@ -100,7 +100,7 @@ test("patchProfiles patches the REAL list, never the caller's snapshot", async (
   assert.equal(ok, true);
   assert.deepEqual(
     writes[0][1].profiles.map((/** @type {any} */ p) => p.id),
-    ["david", "lena", "mom"],
+    ["david", "wren", "mom"],
   );
 });
 
@@ -145,7 +145,7 @@ test("patchProfiles seeds a confirmed-fresh repo only with allowSeed", async () 
 // ---- the write path stops lying about why a write failed (2026-08-22) -----
 // A fine-grained PAT left on GitHub's default "Public repositories" radio
 // authenticates perfectly and 404s on the private data repo. On the READ path
-// that got its own `norepo` state on 2026-08-16, after it cost David five
+// that got its own `norepo` state on 2026-08-16, after it cost the owner five
 // tokens. The WRITE path kept mapping it to "can't reach GitHub right now
 // (auto-retrying)" and retrying forever, while the cache-first read made the
 // app look like it had saved. That is the bug that swallowed the roommate's
@@ -192,7 +192,7 @@ test("the three states are genuinely distinct, so no two failures read alike", (
 // the table proof that collapsing them changed nothing: for every profile and
 // every document type, pathFor reproduces the rule that was open-coded.
 
-const PROFILES = ["david", "mom", "lena", "dad"];
+const PROFILES = ["david", "mom", "wren", "dad"];
 const DOCS = [
   "profiles.json", "shopping.json", "pantry.json", "occasions.json",
   "meta.json", "pins.json", "prices.json",
@@ -225,10 +225,10 @@ test("scoped is exactly pathFor bound to the active profile", () => {
 test("hasOwnRecipes is false ONLY for david, and that is not an optimization", () => {
   assert.equal(hasOwnRecipes("david"), false);
   assert.equal(pathFor("david", "recipes"), "recipes", "which IS the shared bank root");
-  for (const id of ["mom", "lena", "dad", "roommate"]) assert.equal(hasOwnRecipes(id), true);
+  for (const id of ["mom", "wren", "dad", "roommate"]) assert.equal(hasOwnRecipes(id), true);
 });
 
-// ---- the food profile leaves fitness/ (David, 2026-08-22) ----------------
+// ---- the food profile leaves fitness/ (the owner, 2026-08-22) ----------------
 
 test("readTargetsOf prefers the new path and never reads the legacy one once migrated", async () => {
   const asked = [];
@@ -258,7 +258,7 @@ test("readTargetsOf FALLS BACK to fitness/targets.json when the new path is abse
   assert.deepEqual(asked, ["profile/targets.json", "fitness/targets.json"], "new first, legacy second");
 });
 
-test("readTargetsOf scopes the fallback per profile, never reading David's file for Mom", async () => {
+test("readTargetsOf scopes the fallback per profile, never reading Owner's file for Mom", async () => {
   const asked = [];
   const readFn = (p) => {
     asked.push(p);
@@ -279,7 +279,7 @@ test("writeTargetsOf writes the new path AND mirrors the legacy one for Anvil", 
   assert.deepEqual(wrote[0][1], wrote[1][1], "the mirror cannot drift: same object, one writer");
 });
 
-test("the mirror is scoped too, so Mom's write never lands on David's spine", async () => {
+test("the mirror is scoped too, so Mom's write never lands on Owner's spine", async () => {
   const wrote = [];
   const writeFn = async (p) => { wrote.push(p); };
   await writeTargetsOf("mom", { macros: {} }, /** @type {any} */ (writeFn));

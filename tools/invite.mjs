@@ -11,7 +11,7 @@
 //
 // Without --send it prints what it would do and touches nothing. With --send
 // it needs SUPABASE_URL and SUPABASE_SECRET_KEY in the environment (typed by
-// David, never committed) and MISE_REDIRECT_URL (the exact Site URL).
+// The owner, never committed) and MISE_REDIRECT_URL (the exact Site URL).
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

@@ -29,7 +29,7 @@ const FOOD_GROUP_KEYS = [
 ];
 const METHOD_ENUM = ["estimated", "book-verified"];
 
-// Mom's pool is Mediterranean/European only, no East Asian dishes (David's hard
+// Mom's pool is Mediterranean/European only, no East Asian dishes (the owner's hard
 // constraint). This is the closed list of cuisine strings this check rejects.
 const ASIAN_CUISINES = [
   "korean",

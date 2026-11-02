@@ -7,16 +7,16 @@ import { leftOffFor } from "../app/lib/tailor.js";
 
 test("item 8: a List row says check the label for peanut, naming who in the house avoids it", () => {
   const seats = [
-    { name: "Elliot", avoid: ["peanut"] },
+    { name: "Flatmate", avoid: ["peanut"] },
     { name: "you", avoid: [] },
   ];
-  assert.equal(labelLineFor(["semi-sweet chocolate chips"], seats), "Check the label for peanut (Elliot)");
-  assert.equal(labelLineFor(["granola"], seats), "Check the label for peanut (Elliot)");
+  assert.equal(labelLineFor(["semi-sweet chocolate chips"], seats), "Check the label for peanut (Flatmate)");
+  assert.equal(labelLineFor(["granola"], seats), "Check the label for peanut (Flatmate)");
   assert.equal(labelLineFor(["brown rice"], seats), "", "a plain food says nothing");
   assert.equal(labelLineFor(["semi-sweet chocolate chips"], [{ name: "you", avoid: [] }]), "", "nobody avoids peanut");
   assert.equal(
     labelLineFor(["chocolate chips"], [...seats, { name: "Sam", avoid: ["peanuts"] }]),
-    "Check the label for peanut (Elliot, Sam)",
+    "Check the label for peanut (Flatmate, Sam)",
   );
   assert.ok(!labelLineFor(["chocolate chips"], seats).includes("—"));
 });
@@ -55,16 +55,16 @@ test("item 15: a plain SET applies a grown breakfast list to unbought breakfasts
       r("pork-bowl", "dinner", "ground pork"),
     ].map((x) => [x.id, x]),
   );
-  const PROFILES = new Map([["david", { id: "david", household: "wayne" }], ["elliot", { id: "elliot", household: "wayne" }]]);
+  const PROFILES = new Map([["david", { id: "david", household: "wayne" }], ["flatmate", { id: "flatmate", household: "wayne" }]]);
   const TARGETS = new Map([
     ["david", { macros: { calories: 3000, protein: 180 }, mealSlots: ["breakfast", "dinner"] }],
-    ["elliot", { macros: { calories: 2400 }, mealSlots: ["breakfast", "dinner"] }],
+    ["flatmate", { macros: { calories: 2400 }, mealSlots: ["breakfast", "dinner"] }],
   ]);
   const WEEK = ["2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06", "2026-11-07"];
   const rule = {
     id: "k",
     name: "K",
-    memberIds: ["david", "elliot"],
+    memberIds: ["david", "flatmate"],
     slots: ["breakfast", "dinner"],
     cookId: "david",
     from: "2026-10-13",

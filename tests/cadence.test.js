@@ -16,7 +16,7 @@ import {
   freshNightLines,
 } from "../app/lib/cadence.js";
 
-// THE TWO SUNDAY POTS (David, 2026-10-25): Fri and Sat each their own dish;
+// THE TWO SUNDAY POTS (the owner, 2026-10-25): Fri and Sat each their own dish;
 // Sunday cooks meal A (Sun and Mon) and preps meal B (Tue to Thu), all but
 // the meat.
 
@@ -56,11 +56,11 @@ const BANK = new Map(
 
 const PROFILES = new Map([
   ["david", { id: "david", household: "wayne" }],
-  ["elliot", { id: "elliot", household: "wayne" }],
+  ["flatmate", { id: "flatmate", household: "wayne" }],
 ]);
 const TARGETS = new Map([
   ["david", { macros: { calories: 3700, protein: 190 }, mealSlots: ["breakfast", "lunch", "dinner"] }],
-  ["elliot", { macros: { calories: 2400 }, mealSlots: ["breakfast", "lunch", "dinner"] }],
+  ["flatmate", { macros: { calories: 2400 }, mealSlots: ["breakfast", "lunch", "dinner"] }],
 ]);
 const WEEK = [
   "2026-11-01",
@@ -75,7 +75,7 @@ const WEEK = [
 const LIVE = {
   id: "20974b9d",
   name: "Wayne kitchen",
-  memberIds: ["david", "elliot"],
+  memberIds: ["david", "flatmate"],
   slots: ["dinner"],
   cookId: "david",
   rotateCooks: true,
@@ -171,7 +171,7 @@ test("no fresh-meat dish passing everyone: B is cooked whole on Sunday, and said
 test("allergy screening still fails closed for meal B", () => {
   const targets = new Map([
     ["david", { ...TARGETS.get("david"), avoidIngredients: ["beef", "turkey"] }],
-    ["elliot", TARGETS.get("elliot")],
+    ["flatmate", TARGETS.get("flatmate")],
   ]);
   const { events } = planBrigadeWeek({ tables: [] }, asPlanned(LIVE), ctx({ targetsById: targets }));
   for (const t of dinners(events)) {
@@ -306,8 +306,8 @@ test("the List says where meal B's meat goes", async () => {
   const daily = mealBShoppingLines([{ ...e, proteinFresh: "daily" }], day, (id) => id, "2026-11-01").join(" ");
   assert.match(daily, /fridge Tue's share and freeze Wed and Thu's/);
   assert.deepEqual(mealBShoppingLines([{ ...e, proteinFresh: "once" }], day, (id) => id, "2026-11-06"), [], "a past pot says nothing");
-  const housemate = mealBShoppingLines([{ ...e, proteinFresh: "once" }], day, (id) => id, "2026-11-01", "David").join(" ");
-  assert.match(housemate, /David buys it Sun/);
+  const housemate = mealBShoppingLines([{ ...e, proteinFresh: "once" }], day, (id) => id, "2026-11-01", "Owner").join(" ");
+  assert.match(housemate, /Owner buys it Sun/);
   assert.doesNotMatch(housemate, /Buy it/);
 });
 
@@ -383,7 +383,7 @@ test("shrike item 7: swapping Sunday's pot refuses a dish that does not keep to 
   const { useRecipeOnTable } = await import("../app/lib/tables.js");
   const { events } = planBrigadeWeek({ tables: [] }, asPlanned({ ...LIVE, sundayTwoPots: false }), ctx());
   const sun = dinners(events)[0];
-  const targets = new Map([["david", TARGETS.get("david")], ["elliot", TARGETS.get("elliot")]]);
+  const targets = new Map([["david", TARGETS.get("david")], ["flatmate", TARGETS.get("flatmate")]]);
   const oneDay = { ...dish("plate", "chicken breast"), safeDays: 1, name: "Chicken plate" };
   const no = useRecipeOnTable(events, sun.id, oneDay, targets, (id) => id);
   assert.ok("refused" in no && no.refused.some((r) => /keeps 1 day, and this pot is eaten for 4 days/.test(r)), JSON.stringify(no));

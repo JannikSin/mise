@@ -30,7 +30,7 @@ const FRESH_AISLES = new Set(["produce", "meat", "seafood", "dairy", "bakery"]);
 
 /**
  * Which shopping trip a store section belongs to when a profile shops more
- * than once a week (survey-v2 David-ask #3, targets.shopsPerWeek > 1): a
+ * than once a week (survey-v2 the owner-ask #3, targets.shopsPerWeek > 1): a
  * shelf-stable "pantry" run (grains, canned, spices, ... — buy in bulk, less
  * often) versus a "fresh" run (produce, meat, dairy — buy close to when you
  * cook). Shops-per-week of 1 ignores this entirely and shows one list.
@@ -43,7 +43,7 @@ export function tripOf(section) {
 
 /**
  * Is this list row a STAPLE — a shelf-stable buy that mostly outlives the
- * week (David, 2026-08-30: "non staples first and then staples after,
+ * week (the owner, 2026-08-30: "non staples first and then staples after,
  * because we're going to buy some of the staples on Amazon at larger
  * quantities")? Decided per ROW, never per section: six cans of crushed
  * tomatoes cooked into this week's chili are this week's food; the salt jar
@@ -217,7 +217,7 @@ export function priceFlag(cost, opts = {}) {
  * Which aisle a food belongs to.
  *
  * Was seven keyword buckets with everything unmatched falling to "other"
- * (David, 2026-07-25: "the items are not sorted in any helpful way"). Now
+ * (the owner, 2026-07-25: "the items are not sorted in any helpful way"). Now
  * delegates to the shared aisle taxonomy in ingredients.js, so the list
  * sections, the pantry groups, and the canonical merge key are all one
  * vocabulary rather than three that can drift.
@@ -230,7 +230,7 @@ export function sectionOf(food) {
 
 // Foods the "plenty" suppression must recognize as one thing even though
 // their canonical keys differ (measured offenders, list audit 2026-08-30:
-// the list told David to buy salt, cinnamon and chickpeas his pantry
+// the list told the owner to buy salt, cinnamon and chickpeas his pantry
 // asserted PLENTY of). Applied AFTER canonicalFood, only inside plentyKey —
 // deliberately NOT in NAME_ALIASES, which would silently rekey every list
 // row, tick and price pin in the house.
@@ -304,7 +304,7 @@ const FREE_FOODS = new Set(["water", "ice", "ice-cube", "ice-cubes", "tap-water"
  *   buffer pseudo-entry has no date and always shops (its portions are
  *   already scaled to remaining days by generateWeek).
  * @param {{ dates?: string[], slots?: string[] }} [only] shop for PART of the
- *   week. David, 2026-07-26: guests came, the fridge was full, and he still
+ *   week. The owner, 2026-07-26: guests came, the fridge was full, and he still
  *   wanted to stay on the plan — so he needed to buy for three days rather
  *   than either seven or none. Opting the meals OUT was wrong, because the
  *   meals are still happening; only the SHOPPING is partial. Absent = the
@@ -392,7 +392,7 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
       // a nameless ingredient row (partial/hand-edited recipe JSON) cannot be
       // shopped — skip it rather than emit an "undefined" row.
       // The recipe-side `staple: true` tag no longer suppresses buying
-      // (David, 2026-08-09: "staples run out — assume I don't have it if it
+      // (the owner, 2026-08-09: "staples run out — assume I don't have it if it
       // was not in the pantry scan"). Ownership is asserted ONLY by the
       // pantry registry (onHand, written by scans and P+), never by a
       // recipe author's guess about what the kitchen keeps.
@@ -492,7 +492,7 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
 }
 
 /**
- * THE TRIP AS ONE PLAN (David, 2026-09-25: the buy day moved to Friday).
+ * THE TRIP AS ONE PLAN (the owner, 2026-09-25: the buy day moved to Friday).
  * Plans stay Sunday-to-Saturday weeks, so a Friday-to-Thursday shop reads
  * two plan files: this merges their entries dated inside the trip into one
  * plan deriveShoppingList can take. The week-long buffer snack rides with the
@@ -686,7 +686,7 @@ export function formatRecipeQty(qty, unit) {
 }
 
 /**
- * Count-noun units that take an -s above one ("1.5 cups", "2 scoops"). David,
+ * Count-noun units that take an -s above one ("1.5 cups", "2 scoops"). The owner,
  * 2026-09-07: "if it's greater than one, it should say cups, not cup."
  * Abbreviations (tbsp, tsp, g, oz, lb, ml) never change.
  */
@@ -755,7 +755,7 @@ export function unitLabel(qty, unit) {
  */
 export function formatStoreQty(qty, unit) {
   // count units: "banana 7 each" read as "7 per person? per serving?"
-  // (David, 2026-08-02). It never was — every list qty is the WEEK'S TOTAL,
+  // (the owner, 2026-08-02). It never was — every list qty is the WEEK'S TOTAL,
   // already multiplied through servings and, on HOUSEHOLD, summed across
   // people. "×7" says "seven bananas, full stop" and leaves nothing to
   // interpret.
@@ -767,7 +767,7 @@ export function formatStoreQty(qty, unit) {
 }
 
 /**
- * Store-pack language (David, 2026-08-01: "I want 2 lbs of this or a bag of
+ * Store-pack language (the owner, 2026-08-01: "I want 2 lbs of this or a bag of
  * this"). A metric quantity is honest but nobody shops in grams of spinach —
  * they buy bags, bunches and heads. Each entry: substrings to match on the
  * food name, the typical US store pack in grams (or ml / count), and the
@@ -894,7 +894,7 @@ export function packHint(food, qty, unit, catalogue = null, store = "") {
 /**
  * THE CART LINES for a trip, deduped by product and counted in real packages.
  *
- * David, 2026-08-24: "make sure that you're buying like real stuff cuz last
+ * The owner, 2026-08-24: "make sure that you're buying like real stuff cuz last
  * time I ended up with like seven things of frozen broccoli."
  *
  * He had. Two bugs, pulling in opposite directions, which is why neither read
@@ -1163,7 +1163,7 @@ export function moreThanSentLines(raised, storeName) {
  */
 
 /**
- * One tap on a HOUSEHOLD-trip day chip (David, 2026-08-09: "buy the first three
+ * One tap on a HOUSEHOLD-trip day chip (the owner, 2026-08-09: "buy the first three
  * days for mom"). `current` empty = the whole week, so the first un-tap
  * starts from all of `allDates`. Returns the next picks array — [] means
  * back to the whole week — or null when the tap must be ignored (no dates
@@ -1225,7 +1225,7 @@ export function pantryPathFor(household) {
  * shared pantry existed carry no `household` field, so `householdOf` answers
  * "home" for them. It is therefore the ONLY household whose kitchen the
  * legacy per-profile `pantry.json` actually described, and the only one
- * allowed to inherit it (David, 2026-08-26 — the Wayne house started life
+ * allowed to inherit it (the owner, 2026-08-26 — the Wayne house started life
  * holding 52 staples it had never owned because every empty household
  * inherited that file). Every other slug is a kitchen somebody declared
  * AFTER the split: a new kitchen, and a new kitchen starts empty.
@@ -1293,7 +1293,7 @@ export function mergeProfileLists(lists) {
 }
 
 /**
- * Fridge-first shopping (David, 2026-08-01: "use everything in the fridge…
+ * Fridge-first shopping (the owner, 2026-08-01: "use everything in the fridge…
  * only buy stuff that we need"): before a trip, food the kitchen already
  * holds comes off what is bought. Works on any row shape carrying
  * `{ food, qty, unit }` — per-profile ShoppingItems and CombinedItems alike —
@@ -1418,7 +1418,7 @@ const PERISHABLE_SHELF_DAYS = [
 
 /**
  * Has the kitchen got the food for this dish? The brigade's plain SET keeps a
- * table only when this says yes (David, 2026-09-06: a Sunday bulgogi nobody
+ * table only when this says yes (the owner, 2026-09-06: a Sunday bulgogi nobody
  * had shopped for was kept as "already bought"). The rule is about the FRESH
  * ingredients, the ones that decide whether the dish is possible tonight:
  * every perishable non-staple ingredient must be on the shelf (a dated row or
@@ -1497,7 +1497,7 @@ export const PANTRY_LOCATIONS = /** @type {PantryLocation[]} */ ([
 /**
  * How long the same food keeps somewhere OTHER than the fridge, by keyword.
  *
- * David asked how the expiry matching works, and the honest answer was that
+ * The owner asked how the expiry matching works, and the honest answer was that
  * it did not know where the food was: spinach is six days in the fridge and
  * months in the freezer, and one table could not tell them apart.
  *
@@ -1664,7 +1664,7 @@ export function perishableStatus(p, todayIso) {
 
 /**
  * Auto-flag `useSoon` on any perishable within its last 3 days, so the week
- * generator favors recipes that cook the expiring food first — without David
+ * generator favors recipes that cook the expiring food first — without the owner
  * hand-flagging anything. Manual useSoon flags are preserved; the input is
  * never mutated.
  * @param {Record<string, any>} pantry
@@ -1786,10 +1786,10 @@ export function isDatedItem(/** @type {Record<string, any>} */ it) {
  * Heal one item row: a stable id, the aisle, and location on tracked rows (a
  * sweep must be able to see them, and the settled check requires them).
  *
- * THE AISLE IS DERIVED ON READ, NOT STORED AND STUCK (David, 2026-08-27). It
+ * THE AISLE IS DERIVED ON READ, NOT STORED AND STUCK (the owner, 2026-08-27). It
  * used to be written once, at scan time, and then kept forever behind
  * `?? aisleOf(...)`, so fixing the taxonomy could never reach a row that was
- * already wrong: David's first Wayne camera scan filed cayenne pepper under
+ * already wrong: the owner's first Wayne camera scan filed cayenne pepper under
  * PRODUCE (the produce rule claimed `pepper` first) and almond butter under
  * DAIRY, and rescanning the shelf was the only cure. `normalizeShoppingList`
  * has re-derived ITS sections on every read since the aisle list widened,
@@ -1803,7 +1803,7 @@ function healItem(it) {
   const id = typeof it.id === "string" && it.id ? it.id : slug(String(it.food ?? ""));
   const aisle = aisleOf(String(it.food ?? ""));
   const dated = isDatedItem(it);
-  // THE QUANTITY IS READ AS SAID, STORED AS COUNTABLE (David, 2026-09-06:
+  // THE QUANTITY IS READ AS SAID, STORED AS COUNTABLE (the owner, 2026-09-06:
   // "it needs to convert 2 gallons into 7.6 liters, it needs to know that 5
   // lemons is 5 each"). A dated row's qty is dictated in pack language, and
   // pack language cannot be subtracted, so the shelf said "3 tubs" of yogurt
@@ -2070,7 +2070,7 @@ export function ownItemToPantry(shopping, pantry, itemId) {
   const foodSlug = slug(item.food);
   const canon = canonicalFood(item.food);
   const items = [...pantryItems(pantry)];
-  // a food the shelf already COUNTS is not asserted PLENTY on top (David,
+  // a food the shelf already COUNTS is not asserted PLENTY on top (the owner,
   // 2026-09-07: seventeen P+ taps laid bare "plenty" rows over counted eggs,
   // yogurt and milk, and the list would have skipped them whatever the count
   // said). The counted rows are confirmed instead.
@@ -2171,7 +2171,7 @@ export function applyJustBought(shopping, pantry, today, opts = {}) {
       // field no code wrote): readers prefer it over re-deriving from the
       // shelf-life regex, so a hand-corrected date sticks
       expires: expiryFrom(today, b.food, location),
-      // WHERE it went, not just that it arrived (David, 2026-07-26: "the
+      // WHERE it went, not just that it arrived (the owner, 2026-07-26: "the
       // fridge is kind of a thing but not really"). Without this every bought
       // item landed unsorted, which is the one location no shelf view shows
       // and no sweep touches — the shelves stayed empty however much he
@@ -2203,7 +2203,7 @@ export function locationForBuy(section) {
  * The receipt IS the trip: every list row the till confirms is bought, so it
  * leaves the list and lands on a shelf.
  *
- * David, 2026-07-26: ticking in the aisle should mean "got it", and uploading
+ * The owner, 2026-07-26: ticking in the aisle should mean "got it", and uploading
  * the receipt should mean "the trip is done" — the list empties and the food
  * shows up in the fridge/pantry. Rows he ticked that the scan never read still
  * count as bought (applyJustBought clears every ticked row): a missed OCR line
@@ -2230,7 +2230,7 @@ export function applyReceiptStock(shopping, pantry, lines, today) {
 }
 
 /**
- * The receipt ends the WHOLE HOUSE's trip, not just the scanner's (David,
+ * The receipt ends the WHOLE HOUSE's trip, not just the scanner's (the owner,
  * 2026-08-01: "when a receipt is pictured it will exit everyone's list").
  * One person shops the HOUSEHOLD trip and photographs the till roll; every
  * housemate's rows the till confirms — plus rows already ticked in the
@@ -2301,7 +2301,7 @@ function commonUnit(a, b, key) {
 /**
  * Cooking a meal takes its ingredients off the shelves.
  *
- * David, 2026-07-26: "as each recipe is reported to be cooked I want the
+ * The owner, 2026-07-26: "as each recipe is reported to be cooked I want the
  * ingredients subtracted from their respective places." This replaces the
  * old blanket "no decrement-on-cook ledger, ever" rule in docs/SCHEMAS.md,
  * with the honesty fences that made that rule attractive kept intact:
@@ -2378,7 +2378,7 @@ export function consumeForCook(pantry, ingredients) {
 /**
  * SUBSTITUTE: converge MY week toward what the rest of the house already buys.
  *
- * David asked for a button that "regenerates lists to match each other more".
+ * The owner asked for a button that "regenerates lists to match each other more".
  * The obvious reading of that (edit everyone's week so the lists converge) was
  * vetoed at the Tribunal plan gate, and correctly: applying a swap to another
  * person's plan means writing their plan file from my device, which the tables

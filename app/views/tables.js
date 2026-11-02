@@ -188,7 +188,7 @@ export function TablesView({
     setTailorBusy(null);
   };
 
-  // TAILORING IS THE DEFAULT, not a button (David, 2026-08-10: "the norm
+  // TAILORING IS THE DEFAULT, not a button (the owner, 2026-08-10: "the norm
   // should be following exactly what you should be doing"). Every upcoming
   // shared table in my house tailors itself once, unless somebody explicitly
   // said everyone eats the same tonight.
@@ -288,7 +288,7 @@ export function TablesView({
       rotateCooks: Boolean(seed?.rotateCooks),
       from: editing && seed?.from ? seed.from : todayIso,
       until: editing && seed?.until ? seed.until : until.toISOString().slice(0, 10),
-      // no end date is the default (David, 2026-10-18): any save of the rule
+      // no end date is the default (the owner, 2026-10-18): any save of the rule
       // keeps it going, paused only for school breaks
       open: seed?.open !== false,
       sundayMinutes: Number(seed?.sundayMinutes) > 0 ? String(seed?.sundayMinutes) : "",
@@ -299,7 +299,7 @@ export function TablesView({
       slotRecipes: { ...(seed?.slotRecipes ?? {}) },
       // ON unless saved off (2.0, I-14); ON, there is no second Sunday pot
       sundayBatch: sundayBatchOn(seed),
-      // two Sunday pots unless saved off (David, 2026-10-25); B's meat is
+      // two Sunday pots unless saved off (the owner, 2026-10-25); B's meat is
       // cooked once on Tuesday unless he chose each night
       sundayTwoPots: sundayTwoPotsOn(seed),
       meatDaily: /** @type {any} */ (seed)?.meatDaily === true,
@@ -586,7 +586,7 @@ export function TablesView({
       </p>`
     }
     ${
-      // David-facing diagnostic (the §12 instrument's visible edge): gated
+      // The owner-facing diagnostic (the §12 instrument's visible edge): gated
       // by the scoreboard capability so family phones never see engine
       // jargon; label says "upcoming" because myTables is not week-bounded
       showScoreboard &&
@@ -598,7 +598,7 @@ export function TablesView({
     }
     ${myTables.map(({ house, t }, idx) => {
       // one small day header per date, so a 28-table brigade week reads as
-      // seven days instead of one undifferentiated pile (David, 2026-08-30)
+      // seven days instead of one undifferentiated pile (the owner, 2026-08-30)
       const prev = myTables[idx - 1];
       const dayHead =
         !prev || prev.t.date !== t.date
@@ -618,7 +618,7 @@ export function TablesView({
       const skipped = mySeat?.status === "skipped";
       const conflicted = conflictIds.has(t.id);
       // EFFECTIVE cook, mirroring lib cookOf: a skipped named cook hands the
-      // role to the first present seat (David 2026-08-09), and the card must
+      // role to the first present seat (the owner 2026-08-09), and the card must
       // show who actually cooks, not the original rota name
       const namedOk = (t.seats ?? []).some((s) => s.id === t.cookId && s.status !== "skipped");
       const cookShown = /** @type {string} */ (
@@ -656,7 +656,7 @@ export function TablesView({
             // the HEAD (spec §9): one named person whose plate decisions win
             // for this table. Resolution chain lives in resolveHead; only a
             // human tap ever writes headId (B5). Shown as "<name>'s table",
-            // David's register, not a title. The second line tells a
+            // The owner's register, not a title. The second line tells a
             // non-head where the REDO PLATES button went, instead of
             // letting it silently vanish on them.
             headId &&
@@ -687,7 +687,7 @@ export function TablesView({
           })()}
           <div class="d num">
             ${
-              // NO SERVING COUNTS (David, 2026-08-10). "David ×2.5 · Mom ×0.75
+              // NO SERVING COUNTS (the owner, 2026-08-10). "the owner ×2.5 · Mom ×0.75
               // · cook total ×9.75" reads as "am I eating two and a half
               // servings?" and "am I cooking nine servings?", neither of which
               // means anything to a person. A serving is a denominator for the
@@ -868,7 +868,7 @@ export function TablesView({
       />
 
       ${
-        // THE TABLE TAB'S WEEK (decision 0018, David 2026-10-16: "the whole
+        // THE TABLE TAB'S WEEK (decision 0018, the owner 2026-10-16: "the whole
         // table tab ... I don't ever look at it ... don't show every
         // individual meal"). The meal cards, rota, batch tile, scoreboard and
         // one-off tables stay built behind one parked flag; the week is read
@@ -879,7 +879,7 @@ export function TablesView({
         <h1>${activeBrigade ? "Table" : "Today"}<span>.</span></h1>
         <div class="sub">
           ${
-            // David, 2026-08-30: "it's showing all of the quote-unquote
+            // The owner, 2026-08-30: "it's showing all of the quote-unquote
             // family dinners for the entire week... that's clearly not
             // today". Under a brigade this page IS the week's shared meals,
             // so the page stops calling itself Today.
@@ -912,7 +912,7 @@ export function TablesView({
         !isParked("tableweek") &&
         html`
       ${
-        // the week's cook rota at the TOP of the page (David, 2026-08-09:
+        // the week's cook rota at the TOP of the page (the owner, 2026-08-09:
         // "is it clear who cooks each day?") — one glance, not a scroll past
         // 21 meal cards to the brigade card
         activeBrigade &&
@@ -940,7 +940,7 @@ export function TablesView({
         </p>`
       }
       ${
-        // BATCH PREP, on the page where David actually looks (2026-08-30:
+        // BATCH PREP, on the page where the owner actually looks (2026-08-30:
         // "I need a place to see where I batch prep all these things...
         // I'm looking in today and I don't see anything"). The coming
         // week's make-ahead components, cook-once deduped by recipe; the
@@ -981,7 +981,7 @@ export function TablesView({
       ${
         // the household competition: same yardstick for everyone (cooked
         // confirmations + the receipt), numbers not judgment. The daily
-        // check-in retired 2026-08-09 (David: personal tracking lives in
+        // check-in retired 2026-08-09 (the owner: personal tracking lives in
         // Crystal, not the family app), so logs left the score with it.
         showScoreboard &&
         (scoreboard ?? []).length > 0 &&
@@ -1207,7 +1207,7 @@ export function TablesView({
             </div>
           `;
         }
-        // THE SUNDAY TRAP, Table-tab edition (David, 2026-08-30: his re-roll
+        // THE SUNDAY TRAP, Table-tab edition (the owner, 2026-08-30: his re-roll
         // ran on the dying W35 — one upcoming day — burned a salt, and the
         // 28 visible W36 meals never changed). Same rule the List's BUILD
         // learned: these buttons target the week holding MORE upcoming
@@ -1217,7 +1217,7 @@ export function TablesView({
         const dayAfter = parseLocalIso(/** @type {string} */ (datesOfWeek(weekId)[6] ?? todayIso));
         dayAfter.setDate(dayAfter.getDate() + 1);
         const nextWeekId = isoWeekId(dayAfter);
-        // 2026-10-13 (David: "can we have it start this week?"): the week on
+        // 2026-10-13 (the owner: "can we have it start this week?"): the week on
         // screen is planned from today whenever it has a day left; next week is
         // its own button. The old rule picked whichever week had MORE days
         // left, so a Tuesday-night run silently planned the next Sunday on.
@@ -1360,7 +1360,7 @@ export function TablesView({
               </div>
               <input
                 aria-label="Brigade name"
-                placeholder="e.g. Mom + Lena"
+                placeholder="e.g. Mom + Wren"
                 value=${brigadeForm.name}
                 onInput=${(/** @type {any} */ e) =>
                   setBrigadeForm({ ...brigadeForm, name: e.currentTarget.value })}
@@ -1407,7 +1407,7 @@ export function TablesView({
                 )}
               </div>
               ${
-                // COOK NIGHTS (David, 2026-09-05: "i want to only have to cook
+                // COOK NIGHTS (the owner, 2026-09-05: "i want to only have to cook
                 // maybe 3 dinners a week... busy nights are tuesday wednesday
                 // thursday"). Tap the nights dinner is cooked; every other
                 // night eats leftovers of the nearest pot that is still safe.
@@ -1443,7 +1443,7 @@ export function TablesView({
                     }
                   </p>
                   ${
-                    // WHAT SUNDAY COOKS, one of three: TWO POTS (David,
+                    // WHAT SUNDAY COOKS, one of three: TWO POTS (the owner,
                     // 2026-10-25, the default: A for Sun and Mon, B prepped
                     // all but the meat for Tue to Thu), ONE POT for Mon to
                     // Thu (2.0, I-14), or the 2026-09-24 second pot for the
@@ -1591,7 +1591,7 @@ export function TablesView({
                   </p>`
               }
               ${
-                // NAMED RECIPES per shared slot (David, 2026-09-05: "breakfast
+                // NAMED RECIPES per shared slot (the owner, 2026-09-05: "breakfast
                 // should just be variations of greek yogurt bowls"). Optional;
                 // nothing ticked = the whole pool. Every member's screens still
                 // apply.
@@ -1667,7 +1667,7 @@ export function TablesView({
                 </button>
               </div>
               ${
-                // ONE LIST, ONE BUYER (David, 2026-10-18): taking turns moves
+                // ONE LIST, ONE BUYER (the owner, 2026-10-18): taking turns moves
                 // the cooking, never the shopping, so the shopper is picked
                 // either way
                 brigadeForm.rotateCooks &&
@@ -1745,7 +1745,7 @@ export function TablesView({
         </div>`
       }
       ${
-        // bottom of the page on purpose (David, 2026-08-09): the daily
+        // bottom of the page on purpose (the owner, 2026-08-09): the daily
         // check-offs moved to Crystal; remedies stay in Mise because they
         // cook from the pantry, but they don't lead the family page
         !isParked("remedies") &&

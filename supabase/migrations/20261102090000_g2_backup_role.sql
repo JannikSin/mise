@@ -2,7 +2,7 @@
 -- the keep-alive (plan section 3; RT M6: the backup uses a read-only DB role,
 -- not the secret key).
 --
--- The role is created WITHOUT login. David turns login on with a password in
+-- The role is created WITHOUT login. The owner turns login on with a password in
 -- step 10 (`node tools/backup-setup.mjs role-sql` prints the one statement to
 -- paste, with a fresh random password, and the connection string for the
 -- Actions secret). It reads every table the snapshot carries

@@ -1,4 +1,4 @@
-// THE SHELF CHECK AND WHAT'S LEFT (P6, P11; David, 2026-09-06/07).
+// THE SHELF CHECK AND WHAT'S LEFT (P6, P11; the owner, 2026-09-06/07).
 //
 // "Best case scenario is the pantry self-updates by all of the stuff that I
 // supposedly cook with automatically getting subtracted. Then I can do a
@@ -13,7 +13,7 @@
 // reason "shelf-check"), because food that left without a COOKED tap is
 // either waste or an untapped meal, and either way the review must see it.
 //
-// Use-what's-left (2026-09-07) was cut on 2026-10-12 (David: leftovers are a
+// Use-what's-left (2026-09-07) was cut on 2026-10-12 (the owner: leftovers are a
 // planning failure to fix upstream, not a button; Mise decision 0016).
 
 import { aisleOf, canonicalFood, convertUnit, dimensionOf, normalizeQty } from "./ingredients.js";
@@ -181,7 +181,7 @@ export function goneShelfRow(pantry, id) {
 }
 
 /**
- * ENOUGH FOR THE WEEK? (David, 2026-09-07: "I don't want to just say yeah
+ * ENOUGH FOR THE WEEK? (the owner, 2026-09-07: "I don't want to just say yeah
  * plenty soy sauce because I think I have enough for a dish, but what if the
  * generator has four soy sauce dishes? Then it is not enough. So it has to
  * happen after the week is generated and before the list is bought.")

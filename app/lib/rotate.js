@@ -1,6 +1,6 @@
 // VARIETY WITHOUT MOVING THE MACROS (P2, P9).
 //
-// David, 2026-08-24: "let's say for the yogurt bowl there are 10 toppings that
+// The owner, 2026-08-24: "let's say for the yogurt bowl there are 10 toppings that
 // I could put on, just recommend per each day seven to put on... so then that
 // adds a little bit of variety while not sacrificing macros, and certain ones
 // can stay in every time like the protein powder."

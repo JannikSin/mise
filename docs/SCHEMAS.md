@@ -52,7 +52,7 @@ profiles/<id>/...         same file set as above, for every profile except "davi
 ```
 
 **Multi-profile scoping** (`app/lib/store.js`): the signed-in profile lives in
-localStorage as `mise.activeProfile` (default `"david"`). David's files stay
+localStorage as `mise.activeProfile` (default `"david"`). The owner's files stay
 at the data-repo root — his live synced `mise-data` repo is never migrated.
 Every other profile's files live under `profiles/<id>/`, e.g. Mom's shopping
 list is `profiles/mom/shopping.json`, her targets are
@@ -69,9 +69,9 @@ reads another profile.
 - **Unscoped (everything):** no profile is marked `admin` yet, or the admin on a
   phone that verified him (`mise.verified.<id>`) or carries `mise.adminDevice`.
 - **Any other phone:** its own household's profiles (`profiles/<id>/**`) and
-  `households/<own house>/**`; David's root files (`plans/`, `fitness/`,
+  `households/<own house>/**`; the owner's root files (`plans/`, `fitness/`,
   `profile/`, `health/`, `shopping.json`, `occasions.json`, `pantry.json`, the
-  `ROOT_PROFILE_FILES` list) only when David is in that house. Guests seated at
+  `ROOT_PROFILE_FILES` list) only when the owner is in that house. Guests seated at
   its tables from a week back to three weeks ahead are admitted through their
   targets files only (`mise.scopeGuests` keeps them across launches).
 - **No profile chosen, an unverified admin, or a profile missing from the
@@ -109,7 +109,7 @@ the bank covers it.
 They are LOAD-BEARING backward compatibility: any device still running
 pre-bank app code reads only the profile directory and would lose those
 recipes if the duplicates were deleted. Delete them only after every device
-has post-bank code, and only with David's explicit OK. Her other 29 files
+has post-bank code, and only with the owner's explicit OK. Her other 29 files
 are REAL loss-adjusted variants (different nutrition), not duplicates —
 diff against the bank before touching anything.
 
@@ -126,14 +126,14 @@ is copied in only when the active profile's household resolves to `"home"`
 profile with no `household` field resolves to and therefore the only kitchen
 that file ever described. Before this, ANY empty household inherited it, so
 declaring a new household silently furnished it with someone else's shelves:
-David's Wayne house opened holding 52 staples at "plenty" that were never in
+The owner's Wayne house opened holding 52 staples at "plenty" that were never in
 it, and the shopping list refused to buy them because the pantry said it had
 them. A DECLARED HOUSEHOLD IS A NEW KITCHEN. Scan it in (List → PANTRY →
 FRESH START); do not expect it to arrive stocked.
 
 **Combined household shopping list**: a read-time merge of every profile's
 `shopping.json` (`app/lib/shopping.js` `mergeProfileLists`) shown as the
-HOUSEHOLD tab in List (named EVERYONE before 2026-07-25, FAMILY until 2026-08-26; docs and code now both say HOUSEHOLD, because the tab merges a HOUSEHOLD and a household is not always a family — David's Wayne-house roommate is not kin). No third file exists; ticking a combined item writes
+HOUSEHOLD tab in List (named EVERYONE before 2026-07-25, FAMILY until 2026-08-26; docs and code now both say HOUSEHOLD, because the tab merges a HOUSEHOLD and a household is not always a family — the owner's Wayne-house roommate is not kin). No third file exists; ticking a combined item writes
 the tick through to each source profile's own list. Swap suggestions
 (`swapCandidates`) flag single-profile items in partial-container sections
 (dairy/produce/spices/other) — report only, recipes are never auto-edited.
@@ -144,7 +144,7 @@ data to the app repo.
 
 ## Profiles — `profiles.json` (data-repo ROOT, never scoped)
 
-**Who sees whom (v1.8).** One row may carry `admin: true` (David). Once any row
+**Who sees whom (v1.8).** One row may carry `admin: true` (the owner). Once any row
 does, a non-admin's screens show only their own `household` plus guests seated
 at their own tables (app/lib/privacy.js); the admin sees all. Any row may carry
 `passkey: { salt, hash }` (PBKDF2-SHA-256, 10,000 rounds, hex; v1.9, set in
@@ -161,15 +161,15 @@ app: a data-token holder can read this file directly.
 ```jsonc
 {
   "profiles": [
-    { "id": "david", "name": "David", "emoji": "🏋️", "phase": "gain" },
+    { "id": "david", "name": "the owner", "emoji": "🏋️", "phase": "gain" },
     { "id": "mom", "name": "Mom", "emoji": "🌿", "phase": "loss", "trainingEnabled": false },
     {
-      "id": "lena",
-      "name": "Lena",
+      "id": "wren",
+      "name": "Wren",
       "emoji": "🥑",
       "phase": "recomp",
       "trainingEnabled": false,
-      "household": "lena",
+      "household": "wren",
     },
   ],
 }
@@ -188,7 +188,7 @@ app: a data-token holder can read this file directly.
   deliberately, zero data migration. Groups profiles into one grocery
   trip: the List view's HOUSEHOLD tab merges only profiles that share the
   active profile's household (`app/lib/shopping.js` `householdOthers`, wired
-  in `app/main.js`). A profile alone in its household (e.g. Lena in her own
+  in `app/main.js`). A profile alone in its household (e.g. Wren in her own
   apartment) sees no HOUSEHOLD tab at all; absent-field profiles keep merging
   exactly as before the field existed. Not asked in the gate questionnaire —
   edited from the SYS App tile ("MOVE HOUSEHOLD", `app\views\system.js`),
@@ -197,7 +197,7 @@ app: a data-token holder can read this file directly.
   a week and move back.
 - `capabilities?`: string[] (council 2026-08-02, shaped like
   `targets.tracks`): the EXTRA app surfaces this profile has. ABSENT =
-  everything (David, legacy installs — zero migration). `[]` = the family
+  everything (the owner, legacy installs — zero migration). `[]` = the family
   minimum: Plan, List, Today's family dinners, Settings, and nothing else.
   Values consumed today: `"scoreboard"` (household scoreboard) and
   `"money"` (List's who-owes-who tile). `"checkin"` retired 2026-08-09 with
@@ -221,7 +221,7 @@ app: a data-token holder can read this file directly.
   `patchProfiles` in `app/lib/store.js`**, which loads the REAL current list
   (cache, then network) and applies an id-targeted patch. It REFUSES to write
   when the list can't be established, because a whole-array replacement built
-  from the David-only fallback is exactly the bug that erased a profile on
+  from the owner-only fallback is exactly the bug that erased a profile on
   2026-07-20: any device that hadn't synced would clobber every profile it
   didn't know about via the SYS toggles or ADD PROFILE. `allowSeed` (passed
   only by the two profile-creation flows) permits the from-scratch write on a
@@ -235,7 +235,7 @@ app: a data-token holder can read this file directly.
   Recipes come from the shared bank, so no per-profile recipe seeding is
   needed.
 - If the file is missing or unreachable, `store.js`'s `readProfiles()` falls
-  back to a single default David profile so a fresh or pre-multi-profile
+  back to a single default the owner profile so a fresh or pre-multi-profile
   install still boots straight into the app.
 
 ## Vitals — `health/vitals.json`
@@ -244,7 +244,7 @@ app: a data-token holder can read this file directly.
 longer carries the `/vitals` ingest route. That route was never configured in
 production — `VITALS_KEY` and `MISE_DATA_WRITE_TOKEN` were never set, and the
 seven rows in this file dated 2026-07-12 to 07-18 are the seeded demo rows,
-never a real export. anvil reads this file until David re-points Health Auto
+never a real export. anvil reads this file until the owner re-points Health Auto
 Export at anvil's own Worker, after which it can be deleted from this repo.
 
 ```jsonc
@@ -283,7 +283,7 @@ unpriced coverage renders loud: "N of M rows UNPRICED, total is a floor");
 bills table events from it. Entries: `{ id, name, prices: { <store-slug>:
 { price, size, estimate?, at?, regular?, sale? } } }` with `updated`,
 `region`, `stores` at the top. `estimate: true` = derived/recent estimate,
-absent = tracker-confirmed shelf price. `sale: true` (2026-08-19, David's
+absent = tracker-confirmed shelf price. `sale: true` (2026-08-19, the owner's
 "can you find sales" ask) = `price` is the Kroger promo/card price and
 `regular` carries the non-sale price beside it; the next refresh clears
 both when the sale ends. `at` (Tier 3.5, 2026-08-19) = ISO date this
@@ -306,7 +306,7 @@ cheapest covered store.
 
 ### Aisle maps — optional `aisles` key on `prices.json`
 
-David, 2026-07-25: the store toggle should change the GROUPING, not just the
+The owner, 2026-07-25: the store toggle should change the GROUPING, not just the
 prices, so the list walks the store in order.
 
 ```jsonc
@@ -341,7 +341,7 @@ particularly on client-side caching, since this app is offline-first.
 
 ## Equipment — `recipe.equipment[]` and `targets.equipment[]`
 
-**Added 2026-08-22 (David: "you can't tell me to make something for equipment
+**Added 2026-08-22 (the owner: "you can't tell me to make something for equipment
 that I don't have").** `weekbuilder.js` has excluded recipes a profile lacks
 gear for since survey-v2, but **not one of the 126 bank recipes declared any
 equipment**, so `r.equipment ?? []` was empty every time and the filter
@@ -401,7 +401,7 @@ excluded nothing, forever. A working filter over data nobody wrote.
 
 ## Guests — `guests.json` (data-repo ROOT, written by the Worker only)
 
-Guest log in (v1.6, David 2026-10-18: "type your name + a quick passkey").
+Guest log in (v1.6, the owner 2026-10-18: "type your name + a quick passkey").
 
 ```jsonc
 {
@@ -430,7 +430,7 @@ Guest log in (v1.6, David 2026-10-18: "type your name + a quick passkey").
   read of this file answers "try again", never a sign-out. The limit counts
   every try on a name, right or wrong, so anyone who knows a guest's name can
   lock them out for a few minutes (and a guest signing in on several phones
-  inside ten minutes can too); accepted for the light boundary David asked for.
+  inside ten minutes can too); accepted for the light boundary the owner asked for.
 - Kept apart from `invites.json`, whose housekeeping drops spent invites
   after 30 days and would delete logins.
 - Deleting a row signs that guest out within a minute (`/guest/me` checks
@@ -570,7 +570,7 @@ missing, because knowing where a thing sits is useful without a price.
   //   freezer. A profile whose targets.equipment lacks any listed
   //   item won't be auto-planned this recipe. Backfill only obvious
   //   cases (smoothies need "blender").
-  "rating": 4, // ? 1..5, David's own
+  "rating": 4, // ? 1..5, the owner's own
   "phases": ["gain"], // ? recipe-bank visibility: which targets.phase values
   //   this recipe serves (gain | loss | recomp | cut).
   //   ABSENT = serves every profile. Only tag the
@@ -614,7 +614,7 @@ missing, because knowing where a thing sits is useful without a price.
       "food": "chicken thigh",
       "note": "boneless, thin-sliced", // ?
       "optional": false, // ? default false
-      "staple": false, // ? LEGACY LABEL ONLY (2026-08-09, David: "staples
+      "staple": false, // ? LEGACY LABEL ONLY (2026-08-09, the owner: "staples
       //   run out"): the tag no longer suppresses buying — ownership is
       //   asserted only by pantry.json onHand (scans + P+). Kept in the
       //   schema as a display hint and for the weekbuilder's overlap scoring.
@@ -750,7 +750,7 @@ household's pantry on the next load (B3), because the path derives from
 profiles.json every time. Always read/written raw, never profile-scoped
 (`pantryPathFor` in app/lib/shopping.js).
 
-LEGACY: pre-B2 pantries lived per-profile at `pantry.json` (David at root,
+LEGACY: pre-B2 pantries lived per-profile at `pantry.json` (the owner at root,
 others under `profiles/<id>/`). New code falls back to that path when the
 household file is absent and seeds the household file from it once; devices
 still running pre-B2 code keep using the legacy path until they update, so
@@ -785,7 +785,7 @@ the next new-code write). New code never reads the mirrors — everything
 routes through `pantryItems()`; `normalizePantry()` migrates a legacy
 two-tier file to `items` on first load and is an identity function on an
 already-packed file. **Mirror drop: dated and owned (PF.1, no-dark-features
-rule): David confirms every device has updated, then the next Mise session
+rule): the owner confirms every device has updated, then the next Mise session
 after 2026-09-01 removes the mirrors from `packPantry` and the reconcile
 from `normalizePantry` in one commit. Until then the mirrors are
 load-bearing for old devices; the reconcile can resurrect a deletion merged
@@ -811,7 +811,7 @@ window and one more reason the window is short.**
       // same household pantry agree), persisted next write.
       "food": "half cabbage",
       "qty": "0.5 each", // ? "<number> <canonical unit>" wherever the words can be
-      // read as one (2026-09-06, David: "it needs to convert 2 gallons into
+      // read as one (2026-09-06, the owner: "it needs to convert 2 gallons into
       // 7.6 liters, it needs to know that 5 lemons is 5 each"). healItem runs
       // normalizeQty (ingredients.js) on EVERY read: unit spellings collapse
       // ("2 lbs" -> "2 lb"), generic packs convert ("1 dozen" -> "12 each",
@@ -825,7 +825,7 @@ window and one more reason the window is short.**
       "said": "1 dozen", // ? the words as dictated, kept when normalizeQty
       // rewrote qty, so the PANTRY tab shows "1 dozen (12 each)". Never read
       // by any engine; display only.
-      "checkedAt": "2026-09-07", // ? THE SHELF CHECK (2026-09-07, David): the last
+      "checkedAt": "2026-09-07", // ? THE SHELF CHECK (2026-09-07, the owner): the last
       // day a person confirmed or corrected this row's count. Set by the
       // List tab's PANTRY card "ENOUGH FOR THE WEEK?" (weekNeedsCheck /
       // setPantryCount, app/lib/shelfcheck.js): after GENERATE and before the
@@ -870,7 +870,7 @@ settled check counts the aisle as part of mirror consistency, so a file whose
 stored aisles disagree with the current taxonomy is repacked rather than passed
 through by reference.
 
-David's first Wayne camera scan (2026-08-26) is why: `cayenne pepper` filed
+The owner's first Wayne camera scan (2026-08-26) is why: `cayenne pepper` filed
 under PRODUCE because the produce rule claimed `pepper` before the spices rule
 could see `cayenne`; `almond butter` filed under DAIRY on `butter`; and
 `bananas`, `lemons` and `pumpkin seeds` filed under OTHER because every keyword
@@ -1032,7 +1032,7 @@ before every plan write).
       "date": "2026-07-24",
       "slot": "dinner", // plan slot keys
       "recipeId": "doner-style-kebab-bowl", // must resolve in the BANK
-      "buyerId": "mom", // ? GROCERY CLAIM (David 2026-08-03): who volunteered
+      "buyerId": "mom", // ? GROCERY CLAIM (the owner 2026-08-03): who volunteered
       //   to BUY this dinner's ingredients ("I'll buy this" on the card, or
       //   the List's claim-all button). Cooking and buying are separate
       //   jobs. Set/cleared via setTableBuyer (clearing removes the field).
@@ -1097,19 +1097,19 @@ before every plan write).
       //   BILLING a guest stays parked in Mise-Later, so their cost rides
       //   the cook's ledger. Absent = 0.
       "leftoverOf": "b-wayne-kitchen-2026-09-06-dinner", // ? A NO-COOK NIGHT
-      //   (David 2026-09-05, P7): this meal is eaten from the named COOK
+      //   (the owner 2026-09-05, P7): this meal is eaten from the named COOK
       //   table's pot. deriveTables adds this table's seated servings (and
       //   guest plates) to that table's cook total and buy, pushes NO
       //   shopping pseudo-entry for this table, and stamps the derived plan
       //   entry `leftoverOf` so the Plan tab reads "leftovers". Written only
       //   by planBrigadeWeek under a brigade's `cookDays`. Absent = a night
       //   that cooks its own pot.
-      "preparedOn": "2026-09-27", // ? A BATCH POT (brigade `batches`, David
+      "preparedOn": "2026-09-27", // ? A BATCH POT (brigade `batches`, the owner
       //   2026-09-24, P7): this night's dish is cooked on that earlier date
       //   (the Sunday batch) and kept in the fridge; its later nights carry
       //   `leftoverOf` this table. Its safe window runs from `preparedOn`. A
       //   past prep date counts only if the pot was cooked or bought.
-      "proteinFresh": "once", // ? MEAL B (David 2026-10-25, two Sunday
+      "proteinFresh": "once", // ? MEAL B (the owner 2026-10-25, two Sunday
       //   pots): a batch pot prepped Sunday ALL BUT THE MEAT, from a dish
       //   cadence.js freshProteinOk passes. "once" = this night cooks the
       //   meat for every night the pot feeds; "daily" = each night cooks its
@@ -1161,7 +1161,7 @@ Rules (binding, from the Tribunal gate):
   cook's shopping sum.
 - The COOK = the table's explicit `cookId` when it names an in-house
   profile whose seat is NOT skipped. A skipped named cook hands the role to
-  the first non-skipped in-house seat (David 2026-08-09, superseding the
+  the first non-skipped in-house seat (the owner 2026-08-09, superseding the
   2026-08-01 "still cooks and still pays" rule: SKIP MINE means "I'm not
   there", and the house must still eat).
 - SHOPPING follows the BUYER, not the cook (claims, 2026-08-03): only the
@@ -1194,7 +1194,7 @@ Rules (binding, from the Tribunal gate):
   `recipes/special-<slug>-<date>.json` tagged `"ai-special"` (normal recipe
   schema, `nutrition.method` and `foodGroups.method` = `"estimated"`), so
   macros, shopping, and every seat's plan work unchanged.
-- THE GUESTHOUSE (2026-08-29 plenum, David's named yes on the spec's two
+- THE GUESTHOUSE (2026-08-29 plenum, the owner's named yes on the spec's two
   gates): a guest profile is an ordinary profiles.json entry with
   `household: "guesthouse"` plus a normal `profiles/<id>/profile/
 targets.json`, created by the guest themselves on the host's phone at
@@ -1268,14 +1268,14 @@ path, and no brigade-specific behaviour anywhere downstream.
   "brigades": [
     {
       "id": "e5f6a7b8",
-      "name": "Mom + Lena",
-      "memberIds": ["mom", "lena"], // 2+, all in THIS house. ORDER MATTERS
+      "name": "Mom + Wren",
+      "memberIds": ["mom", "wren"], // 2+, all in THIS house. ORDER MATTERS
       //   when rotateCooks: the cook cycles through this array; the brigade
       //   form stores it in the picker's display order so the chips read as
       //   the rotation.
       "slots": ["dinner"], // plan slot keys
       "cookId": "mom", // ? who shops; absent = first member
-      "rotateCooks": true, // ? cooks take turns (David 2026-08-01: "each person
+      "rotateCooks": true, // ? cooks take turns (the owner 2026-08-01: "each person
       //   is responsible for 1-2 dinners"). The materialized table's cookId
       //   cycles through memberIds in order, one per calendar day from
       //   `from`, derived from the DATE (never a loop counter) so any device
@@ -1291,7 +1291,7 @@ path, and no brigade-specific behaviour anywhere downstream.
       //   engine is deterministic (same inputs, same week), so a re-roll
       //   must change an input or the button returns the identical seven
       //   days. Absent = 0.
-      "cookDays": [0, 1, 5, 6], // ? COOK NIGHTS (David 2026-09-05, P7): the
+      "cookDays": [0, 1, 5, 6], // ? COOK NIGHTS (the owner 2026-09-05, P7): the
       //   weekdays dinner is COOKED, 0 Sun … 6 Sat. Every other night in the
       //   run eats LEFTOVERS: the schedule is decided first (dates only),
       //   round-robin over the run's cook nights up to 4 days earlier, fewest
@@ -1302,13 +1302,13 @@ path, and no brigade-specific behaviour anywhere downstream.
       //   qualify); a no-cook night no safe pot reaches cooks after all and
       //   is reported (`nights.uncovered`). Absent = cook every night.
       "batches": [{ "cookDay": 0, "feeds": [2, 3] }], // ? THE SUNDAY BATCH
-      //   (David 2026-09-24, P7): a second pot cooked on `cookDay` for the
+      //   (the owner 2026-09-24, P7): a second pot cooked on `cookDay` for the
       //   no-cook weekdays in `feeds` (Mon still eats Sunday's dinner by the
       //   most-recent-pot rule; Tue + Wed eat the batch). The pot is the
       //   first fed night's table, stamped `preparedOn`; batch-style dishes
       //   only, never fish, never the prep day's own dinner. Absent = none.
       //   Read only while `sundayBatch` is off, for a cookDay 0 entry.
-      "sundayBatch": false, // ? SUNDAY'S DINNER IS THE BATCH (David
+      "sundayBatch": false, // ? SUNDAY'S DINNER IS THE BATCH (the owner
       //   2026-10-18, Mise 2.0 I-14): Sunday cooks ONE pot and the no-cook
       //   nights after it (Mon to Thu with Sun Fri Sat cook nights) eat it
       //   under the batch rules; no second Sunday dish is planned. Absent =
@@ -1317,7 +1317,7 @@ path, and no brigade-specific behaviour anywhere downstream.
       //   is ever stored (People > EDIT "Sunday dinner is the batch for Mon
       //   to Thu"). A second Sunday pot already set, cooked or bought for a
       //   Sunday stays as it is. planBrigadeWeek itself reads only `true`.
-      "sundayTwoPots": false, // ? SUNDAY COOKS TWO POTS (David 2026-10-25):
+      "sundayTwoPots": false, // ? SUNDAY COOKS TWO POTS (the owner 2026-10-25):
       //   with the batch on and three or more no-cook nights after Sunday,
       //   Sunday's dinner is meal A (Sun, and Mon by leftovers) and meal B is
       //   prepped Sunday for the rest up to Thursday (tables.js twoPotSplit),
@@ -1327,16 +1327,16 @@ path, and no brigade-specific behaviour anywhere downstream.
       //   for Mon to Thu, is ever stored. planBrigadeWeek reads only `true`.
       "meatDaily": true, // ? meal B's meat is cooked each night it is eaten
       //   (raw meat for the later nights frozen Sunday). Absent = cooked once
-      //   on B's first night for all of them (David's latest, 2026-10-25:
+      //   on B's first night for all of them (the owner's latest, 2026-10-25:
       //   "maybe make the ground beef ... on Tuesday").
-      "dinnerMeat": true, // ? EVERY DINNER HAS MEAT (David 2026-09-25: "a
-      //   dealbreaker with elliot so cauliflower is not a meal"): the dinner
+      "dinnerMeat": true, // ? EVERY DINNER HAS MEAT (the owner 2026-09-25: "a
+      //   dealbreaker with the housemate so cauliflower is not a meal"): the dinner
       //   pool keeps only dishes whose anchor protein (foodclass.js
       //   recipeProteinClass) is chicken, turkey, beef or pork; fish and
       //   legumes sit out. Nothing qualifying = the full pool with a note.
       //   Absent or false = any protein. Tables EDIT "Every dinner has meat".
       "slotRecipes": { "breakfast": ["berry-walnut-greek-yogurt-bowl"] }, // ?
-      //   NAMED SLOTS (David 2026-09-05: "breakfast should just be variations
+      //   NAMED SLOTS (the owner 2026-09-05: "breakfast should just be variations
       //   of greek yogurt bowls"): per slot, the only recipe ids the pot may
       //   draw from. Every member's screens and the auto-plan fence still
       //   apply; a list that screens down to nothing falls back to the full
@@ -1403,7 +1403,7 @@ Rules (binding, from the Tribunal plan gate):
 
 ## Money ledger — `households/<h>/ledger.json`
 
-**ONLY CONFIRMED MONEY MOVES THE BALANCE (David, 2026-10-05, zermatt).** Entries
+**ONLY CONFIRMED MONEY MOVES THE BALANCE (the owner, 2026-10-05, zermatt).** Entries
 WITHOUT a `kind` are meal records (who ate what, priced at shelf estimates and billed
 to the cook): they never count toward a balance and SETTLED never touches them; they
 only WEIGHT a trip's split. The balance is built from two kinds a person types on the
@@ -1435,7 +1435,7 @@ balances settle in the real world, then SETTLED flips the flag.
       "shares": { "david": 9, "mom": 4.5 }, // payer's own share = their own dinner, not a debt
       "settled": false,
       "kind": "purchase", // ? "purchase" | "payment" = confirmed money; absent = a meal record (never a debt)
-      "toId": "elliot", // ? payment only: who received it
+      "toId": "flatmate", // ? payment only: who received it
       "split": "eaten", // ? purchase only: "eaten" (default) | "even"
       "basis": "eaten", // ? 2026-10-04: billed at each ingredient's EATEN share (itemCost().eaten).
       // Absent = the old whole-package billing (a jar of honey per bowl); an UNSETTLED
@@ -1476,7 +1476,7 @@ even the same slot — merge without losing either entry.
   //   number, not estimates. Absent = no receipt-confirmed spend recorded.
   "unlocked": ["turkey-chili"], // ? recipes opened by hand this week ("I already
   //   have this"), for cooking out of the pantry without a shop. Absent = none.
-  //   THE RECIPE GATE (David, 2026-07-25): with no receipt, a recipe shows its
+  //   THE RECIPE GATE (the owner, 2026-07-25): with no receipt, a recipe shows its
   //   name, macros and ingredients but NOT its steps, and cook mode refuses.
   //   The gate asks whether the HOUSE has shopped, not the person: a brigade
   //   has one cook and one receipt, so keying it to each profile's own plan
@@ -1536,7 +1536,7 @@ even the same slot — merge without losing either entry.
       //   the swipe-day permutation and the cook-blocks batch list treat it as
       //   food already cooked. Written by generateWeek. Absent = cooked fresh.
       "fromTable": "b-wayne-kitchen-2026-09-01-dinner", // ? SETTLED HISTORY
-      //   (David 2026-09-05: "i want to always see what was cooked"). Once a
+      //   (the owner 2026-09-05: "i want to always see what was cooked"). Once a
       //   shared meal's date is past, main.js copies it into MY plan as a real
       //   entry (recipeId + servings, cookedAt when the table carried one)
       //   stamped with the table id, so it outlives the 14-day table
@@ -1548,7 +1548,7 @@ even the same slot — merge without losing either entry.
 }
 ```
 
-**WEEKS OPEN ON SUNDAY (David, 2026-09-05).** `plans/<week>.json` is keyed by
+**WEEKS OPEN ON SUNDAY (the owner, 2026-09-05).** `plans/<week>.json` is keyed by
 the app's week id (`isoWeekId`, app/lib/dates.js): the ISO 8601 number of the
 week whose Monday falls inside the seven days Sun … Sat, so "2026-W36" is Sun
 Aug 30 … Sat Sep 5 2026 and the number printed on Plan matches every calendar.
@@ -1574,18 +1574,18 @@ table it has already attempted, so a failing table cannot loop on an AI call.
 recipe remains the denominator its macros are quoted against, and seat
 `servings` remains the pot-share scalar. Neither is an amount of food anybody
 should eat, and printing them invited exactly the wrong reading: the app used
-to say "cooking 0.75 of 3", "cook x9.75", and "David x2.5 - Mom x0.75", which a
-person reads as "am I eating two and a half servings?" (David: "what are you
+to say "cooking 0.75 of 3", "cook x9.75", and "the owner x2.5 - Mom x0.75", which a
+person reads as "am I eating two and a half servings?" (the owner: "what are you
 trying to do, make me fat?"). Every user-facing surface now names WHOSE food it
 is and lets the ingredient amounts carry the quantity. Keep it that way.
 
-**`pinned` on a TABLE (2026-09-07, David: "switch the beef kofta with the lentil
+**`pinned` on a TABLE (2026-09-07, the owner: "switch the beef kofta with the lentil
 bolognese").** A dish a person set for that night by hand. The brigade's plain SET
 keeps a pinned table whatever the pantry says about its food (the bought rule
 does not apply), and the cost sweep never trades it away. Set today by data edit;
 a CHANGE DISH control on the Table tab is the owed UI (Tasks).
 
-**`useItUp` (2026-09-07, David: "one of them really should just be what's left in
+**`useItUp` (2026-09-07, the owner: "one of them really should just be what's left in
 the fridge, and I generate something from there").** A pinned entry the person
 chose from the Plan tab's USE WHAT'S LEFT picks. The picker was cut on 2026-10-12
 (decision 0016); old plan files may still carry the field, and nothing reads it.
@@ -1595,7 +1595,7 @@ cook/buyer's derived shopping pseudo-entry carries the BANK recipe's id and the
 whole pot's serving total. `deriveShoppingList` resolves `recipeId` through the
 MERGED pool, where a profile's own variant wins by id — so a buyer who owned a
 same-id variant had the HOUSE shopped from their own smaller plate, scaled by a
-seat total computed from the bank's calories (David, 2026-08-10; 17 of one
+seat total computed from the bank's calories (the owner, 2026-08-10; 17 of one
 profile's 27 seated meals were this case). Pot lines are therefore flagged and
 resolved against the bank map `deriveShoppingList` takes as its final argument.
 The flag travels on the ENTRY rather than being handled by swapping the lookup
@@ -1699,9 +1699,9 @@ verbatim.
       "unit": "g",
       "section": "meat", // produce | meat | dairy | dry-goods | frozen | spices | other
       "checked": false,
-      "manual": false, // true = David added by hand, survives regeneration
+      "manual": false, // true = the owner added by hand, survives regeneration
       "fromRecipes": ["chicken-bulgogi-bowl"], // ?
-      "needIt": true, // ? Mise 2.0, I-10: David answered NEED IT on this long-lasting
+      "needIt": true, // ? Mise 2.0, I-10: the owner answered NEED IT on this long-lasting
       //   basic under CHECK YOU HAVE THESE, so it shops in its aisle and goes to
       //   the cart. Absent = not answered: a basic the pantry does not list
       //   (checkFirstIds) stays on the list and in the total but out of the
@@ -1720,7 +1720,7 @@ verbatim.
 
 ## Food profile — `profile/targets.json` (was `fitness/targets.json`)
 
-**Renamed 2026-08-22 (David).** Mise and Anvil are separate apps, and
+**Renamed 2026-08-22 (the owner).** Mise and Anvil are separate apps, and
 everything in this file is Mise's: macros, the calorie floor and ceiling, the
 protein band, phase, meal slots, food groups, avoided ingredients, the weekly
 budget. It sat under `fitness/` only because it predates the split.
@@ -1785,13 +1785,13 @@ Seeded from the FITNESS.md system; edited rarely.
     // ? the floor week generation ENFORCES. Written wins over any formula
     //   (a written 1400 stays hand-set); absent = max(1200, calories - 200), the
     //   same derivation the questionnaire writes. Never a ratio of target —
-    //   the generator enforced 0.95 x target until 2026-08-10, holding David
+    //   the generator enforced 0.95 x target until 2026-08-10, holding the owner
     //   to 199.5 g against his written 185. See targets.js enforcedFloors.
     "protein": 190, // grams. THE FLOOR (proteinFloor is deleted; council
-    //   2026-08-19 "protein IS the floor", value raised to 190 on David's
+    //   2026-08-19 "protein IS the floor", value raised to 190 on the owner's
     //   yes 2026-08-26). The retired tokens 210, 185, 175 and 155 must not
     //   reappear in fixtures or docs as current values.
-    "proteinFloor": 155, // ? LEGACY, deleted on David's profile. When absent
+    "proteinFloor": 155, // ? LEGACY, deleted on the owner's profile. When absent
     //   the floor IS `protein` itself (targets.js enforcedFloors; the old
     //   `protein - 25` derivation silently defeated the 08-19 verdict and
     //   is gone). Write it only to place a soft floor BENEATH the number.
@@ -1865,7 +1865,7 @@ Seeded from the FITNESS.md system; edited rarely.
   //   Expanded terms are only ever ADDED, and a write-back of targets
   //   persists them.
   "avoidRecipes": ["office-lunch-box"],
-  // ? recipe IDS banned outright for this profile (David 2026-08-01:
+  // ? recipe IDS banned outright for this profile (the owner 2026-08-01:
   //   "never wants to see the office lunch box again"). Exact-id filter in
   //   mergeRecipePool — unlike every other screen it ALSO removes own
   //   recipes, so the recipe vanishes from this profile's cookbook,
@@ -1873,7 +1873,7 @@ Seeded from the FITNESS.md system; edited rarely.
   //   list (a shared pot never serves a meal one member banned).
   //   Absent = none. Hand-edited for now; no SYS UI yet.
   "slotAvoid": { "breakfast": ["egg"] },
-  // ? PER-SLOT ingredient exclusions (David 2026-08-30: "I don't want eggs
+  // ? PER-SLOT ingredient exclusions (the owner 2026-08-30: "I don't want eggs
   //   in the morning" — while the egg in his dinner fried rice stays
   //   legal). Same case-insensitive substring semantics as avoidIngredients,
   //   scoped to the named slot; enforced in brigadePool (intersected across
@@ -1907,13 +1907,13 @@ Seeded from the FITNESS.md system; edited rarely.
   //   Snack is never listed here — it's always the reactive
   //   calorie/protein top-up pool, filled only as needed.
   //   Absent = ["breakfast", "lunch", "dinner", "smoothie"]
-  //   (David's current behavior). A loss-phase profile with
+  //   (the owner's current behavior). A loss-phase profile with
   //   no smoothie (e.g. profiles/mom) lists
   //   ["breakfast", "lunch", "dinner"] so the generator
   //   doesn't force a 4th proactive meal past the calorie
   //   ceiling.
   "cookDays": [0, 1, 5, 6],
-  // ? COOK NIGHTS for a SOLO week (P7, David 2026-09-05): the weekdays
+  // ? COOK NIGHTS for a SOLO week (P7, the owner 2026-09-05): the weekdays
   //   (0 Sun … 6 Sat) dinner is cooked; every other live night eats an
   //   earlier cook night's pot, scheduled round-robin over the run's cook
   //   nights up to 4 days back and written with `leftoverOf: <cook date>`.
@@ -1924,7 +1924,7 @@ Seeded from the FITNESS.md system; edited rarely.
   //   shared dinners instead. Absent = cook every night.
   "fixedSlots": { "breakfast": "berry-walnut-greek-yogurt-bowl" },
   // ? "this recipe, every day" per slot, DECLARED ON THE PROFILE
-  //   (spec 2026-08-25: David eats the same yogurt bowl every
+  //   (spec 2026-08-25: the owner eats the same yogurt bowl every
   //   morning by choice). NOT the office-lunch-box special case:
   //   no id lives in code, any profile can fix any slot it lists
   //   in mealSlots, and the named recipe must survive the same
@@ -1953,7 +1953,7 @@ Seeded from the FITNESS.md system; edited rarely.
   //   the manifest. ABSENT = no filter.
   "snackStyle": "weekly",
   // ? enum weekly | absent. "weekly" = ONE snack recipe for the whole
-  //   week (spec 2026-08-25 part 2, David: "each week can be its own
+  //   week (spec 2026-08-25 part 2, the owner: "each week can be its own
   //   snack... smth i batch prep for the week"): the buffer pick is
   //   selected FIRST and becomes the only snack candidate every pass
   //   may place, so planned snack entries and the stand-by batch are
@@ -1976,7 +1976,7 @@ Seeded from the FITNESS.md system; edited rarely.
   //   ids: nuts | peanuts | gluten | dairy | eggs | soy |
   //   shellfish | fish | sesame (ALLERGEN_TERMS in targets.js).
   "allergenExceptions": { "nuts": ["pine nut", "pesto"] },
-  // ? terms this person cleared from a chip FOR THEMSELVES (P8, P3; David's
+  // ? terms this person cleared from a chip FOR THEMSELVES (P8, P3; the owner's
   //   ruling 2026-10-27: off tree nuts, but pine nuts and pesto with no nuts
   //   but pine nuts are fine). ABSENT = none, the conservative default.
   //   Only the pairs in ALLERGEN_EXCEPTIONS (targets.js) are honoured, today
@@ -2034,9 +2034,9 @@ Seeded from the FITNESS.md system; edited rarely.
   //   `eaten` — P5's stocking rule: whole packages are the trip, the consumed
   //   share is what the budget answers to), and over/under of eaten vs this.
   //   Absent = no budget line. Swap-to-fit generation is still Tier 7.11
-  //   work; per David's 2026-08-18 ruling budget is a PROFILE option.
+  //   work; per the owner's 2026-08-18 ruling budget is a PROFILE option.
   "buyDay": 5, // ? 0 Sun … 6 Sat, the day this shopper buys the week's food
-  //   (David, 2026-09-25: Sunday was busy with meetings, the shop moved to
+  //   (the owner, 2026-09-25: Sunday was busy with meetings, the shop moved to
   //   Friday). ABSENT or invalid = 5 (Friday, dates.js DEFAULT_BUY_DAY). BUILD
   //   shops THE TRIP: the seven days opening on this day (tripDates/tripFor),
   //   never starting in the past (2.0, I-05): a BUILD after the buy day shops
@@ -2064,7 +2064,7 @@ Seeded from the FITNESS.md system; edited rarely.
       "venue": "buffet", // ? buffet = all-you-can-eat: a slot this covers
       //   ABSORBS the expensive macros (buffetMacroEstimate: protein x1.5,
       //   calories x1.15 vs pool average) so the grocery list buys less of
-      //   the costliest thing it prices — David's swipe-protein arbitrage,
+      //   the costliest thing it prices — the owner's swipe-protein arbitrage,
       //   generalized. Absent venue = a plain prepaid balance.
       // "estCalories": 1200, "estProtein": 90,
       //   ? THE STATED TRAY (2026-08-24, raised 2026-08-25): what this
@@ -2075,7 +2075,7 @@ Seeded from the FITNESS.md system; edited rarely.
       //   it). GENERATE RE-STAMPS every currency placeholder from the
       //   CURRENT stated numbers (weekbuilder pinnedEntries), so raising
       //   them here reaches an already-planned week on its next generate —
-      //   they froze at plan time before 2026-08-25, which left David's
+      //   they froze at plan time before 2026-08-25, which left the owner's
       //   live week crediting a stale 550/48 against a stated 800/65.
       "toGo": true, // ? redeemable as a takeout container instead of eating
       //   in (a box of chicken breasts IS pantry stock). v1 records the
@@ -2091,7 +2091,7 @@ Seeded from the FITNESS.md system; edited rarely.
   // ? ordered list of Home check-in markers this profile
   //   shows (app/views/home.js reads it). Valid values:
   //   sleep | weight | waist | pushups | water |
-  //   supplements | dailyDozen. Absent = the full David
+  //   supplements | dailyDozen. Absent = the full the owner
   //   list above (back-compat for legacy/pre-multi-
   //   profile installs and the pre-load window).
   "dailyDozen": {
@@ -2215,12 +2215,12 @@ One row per day; 10-second morning check-in.
       //   targets.tracks show this marker on Home
       "sleepHours": 7.5, // ?
       "pushups": 60, // ? running count through the day
-      "water": 3.5, // ? LITERS in 0.25 steps (a cup ≈ 0.25 L — David's rule)
+      "water": 3.5, // ? LITERS in 0.25 steps (a cup ≈ 0.25 L — the owner's rule)
       "supplements": { "creatine": true, "magnesium": true, "multi": false, "fishOil": true },
       "calories": 3350, // ? auto-filled from day's plan, adjustable
       "protein": 205, // ? grams
       "dozen": {
-        // ? hand-tracked Daily Dozen servings, David checks
+        // ? hand-tracked Daily Dozen servings, the owner checks
         //   these off himself — recipes can't reliably deliver
         //   beverages/greens/other fruit/other veg alone
         "beverages": 3, // number of servings logged today, default 0
@@ -2238,7 +2238,7 @@ One row per day; 10-second morning check-in.
 
 `dozen`'s keys are a subset of `fitness/targets.json`'s `dailyDozen` keys. LEGACY as of
 2026-08-09: the in-app daily check-in (weight/sleep/water/supplements/dozen check-offs)
-retired — David's personal tracking lives in Crystal now, and Mise relies on the recipes
+retired — the owner's personal tracking lives in Crystal now, and Mise relies on the recipes
 being good (`generateWeek` still closes food-group gaps via `foodGroupGaps`). Old fields
 stay readable; the vitals ingest still writes sleep/weight from the watch export, the
 Cook tab's batch block writes `batched`, the buffer counter writes `buffer`, and **since
@@ -2533,7 +2533,7 @@ write to them is refused (P0403) and a read finds nothing. Writing
 visible row for the admin. New rows, house moves, families and admin flags are
 refused (P0403).
 
-**Deploy gates** (fix loop 1, F4, F6; David's step 6 in every project):
+**Deploy gates** (fix loop 1, F4, F6; the owner's step 6 in every project):
 sign-ups OFF, anonymous sign-ins OFF, Confirm email ON; exposed schemas are
 `public` and `svc` only, never `private`. An invite links its profile only once
 the email is confirmed (`link_pending` fires on insert and on update of
@@ -2571,7 +2571,7 @@ claim no longer calls `guest_login_add` after the invite is spent.
 or `'global'`: ONE call per AI request adds the request's weight `p_n` (1 to 10) to
 the person's `public.ai_usage` row for `p_day` and, unless that row is now over
 `p_user_cap`, to the global row (`ffffffff-ffff-4fff-8fff-ffffffffffff`). `p_day` is
-David's date in America/Chicago, sent by the Worker, and must be within one day of
+The owner's date in America/Chicago, sent by the Worker, and must be within one day of
 the server's date, so the allowance resets at midnight Chicago. A refused call still
 counts. service_role only. `svc.ai_count` stays for the migration's tooling.
 
@@ -2592,7 +2592,7 @@ many bank recipes each guard term and listed name hits, labelled by field
 (`guardTerms[i]`, `people[i].names[j]`), never the term or a recipe, and stops
 with gate `term-load` when a term hits more than 5% of the bank and more than
 one recipe (a common word as well as a name); `--reviewed-term-load` goes on
-after David has looked (fix loop 2, N5). The snapshot must be a git clone with
+after the owner has looked (fix loop 2, N5). The snapshot must be a git clone with
 a clean tree whose HEAD is `origin/main` (gate `git`): the file list and every
 `legacy_sha` come from `git ls-tree -r HEAD`, the committed blob sha GitHub
 gives the phones, never from the working-tree bytes, which `core.autocrlf`
@@ -2656,7 +2656,7 @@ profile or a house's rows) and `tools/make-probe.mjs` (`probe-<6 hex>`, kind
 `probe`, one house or none; its account is created confirmed through the Auth
 admin API and its email and password go only into the Worker secrets
 `PROBE_EMAIL`/`PROBE_PASSWORD` or `PROBE_SANDBOX_EMAIL`/`PROBE_SANDBOX_PASSWORD`)
-each write one SQL transaction for David to run with psql.
+each write one SQL transaction for the owner to run with psql.
 `tools/export-person.mjs` writes one person's own rows, `account.json` and
 `plate.json` from a snapshot.
 

@@ -376,7 +376,7 @@ test("R1: authenticate judges a branchless PAT as switched once any branch is", 
 });
 
 // ---- fix loop 1, item 10 (Engineer F9): ONE svc call per AI request, the
-// weight in it, David's Chicago day, the caps from env; and the 429 says the
+// weight in it, the owner's Chicago day, the caps from env; and the 429 says the
 // truth about when it resets.
 test("E9: /annotate costs one quota round trip carrying weight 4 and the Chicago day", async () => {
   const { key, sb, calls } = await world();

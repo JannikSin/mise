@@ -1,4 +1,4 @@
-// /transcribe, the walk's narration (P6, David 2026-10-18: "show everything
+// /transcribe, the walk's narration (P6, the owner 2026-10-18: "show everything
 // and also narrate everything"), driven end to end through worker.fetch with
 // GitHub auth stubbed and Workers AI stubbed as the env.AI binding.
 import test from "node:test";

@@ -2,12 +2,12 @@
 
 - **Status:** accepted; amended by 0019 (2026-10-18): the cart button and the re-roll are back
 - **Date:** 2026-10-16
-- **Deciders:** David (his Mise notes, 2026-10-16 evening); built by session bagel
+- **Deciders:** the owner (his Mise notes, 2026-10-16 evening); built by session bagel
 - **Tenet invoked:** 1 (choices removed), and "a short list used every week beats a long list that could be used"
 
 ## Context
 
-David's notes after looking at the blind rebuild: "it didn't show me things that I didn't need
+The owner's notes after looking at the blind rebuild: "it didn't show me things that I didn't need
 to see". The Plan tab opened on the engine's reports (shared meals set, assumptions, "this week
 shares, no overlap found", the generation manifest), several of which an engine audit the same
 night found false on a shared-kitchen week (the manifest counted none of the shared meals, the

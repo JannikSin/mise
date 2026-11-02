@@ -30,9 +30,9 @@ test("a real targets file maps through unchanged", () => {
     avoidIngredients: ["peanut", "shrimp"],
     avoidRecipes: ["office-lunch-box"],
   };
-  assert.deepEqual(dinerFacts("david", "David", t), {
+  assert.deepEqual(dinerFacts("david", "Owner", t), {
     id: "david",
-    name: "David",
+    name: "Owner",
     goal: "gain",
     calories: 3700,
     protein: 210,
@@ -74,7 +74,7 @@ test("the medical-preset expansion catches a derivative in the scanned text", ()
 
 test("unconfirmedReason refuses the scan for an unread profile (C1), and only then", () => {
   const failed = dinerFacts("mom", "Mom", null);
-  const clean = dinerFacts("lena", "Lena", {});
+  const clean = dinerFacts("wren", "Wren", {});
   assert.ok(unconfirmedReason([failed, clean]).includes("Mom"));
   assert.equal(unconfirmedReason([clean]), "");
 });

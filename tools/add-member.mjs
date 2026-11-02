@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Mise 2.0 G2: add a household MEMBER (plan B4: members are created only by
 // the migration or this tool; invites are guest-only). Public code, no names:
-// the person comes from a local file on David's laptop.
+// the person comes from a local file on the owner's laptop.
 //
 //   node tools/add-member.mjs --person person.local.json                (dry run: what it would do, counts only)
 //   node tools/add-member.mjs --person person.local.json --sql add.sql  (writes the script)

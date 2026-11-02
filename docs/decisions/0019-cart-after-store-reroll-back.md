@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-10-18
-- **Deciders:** David (his answers to the principles check, relayed by weber); built by session monolith; Tribunal final gate 2026-10-18
+- **Deciders:** the owner (his answers to the principles check, relayed by weber); built by session monolith; Tribunal final gate 2026-10-18
 - **Tenet invoked:** 6 (priced and ready to buy), 1 (choices removed, what remains verified)
 
 ## Context
@@ -10,8 +10,8 @@
 The principles check of 2026-10-18 found tenet 6 the only tenet failing outright: Mise
 priced the list but could not put it in the Pay Less cart. Decision 0018 had parked the
 cart buttons with the live-price controls, and the cart had never once worked from the app
-(the Kroger redirect URI was never registered on David's developer app; the Worker side
-was verified ready the same day). David: "I don't want you to order. I just want you to
+(the Kroger redirect URI was never registered on the owner's developer app; the Worker side
+was verified ready the same day). The owner: "I don't want you to order. I just want you to
 add it to the cart", and only once the week is set and he is going to the store. Separately,
 on 2026-10-17 he asked for "a button that picks different meals if I don't like what I
 see", which 0018 had parked.

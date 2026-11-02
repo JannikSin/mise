@@ -1,6 +1,6 @@
 // Stress checks (2026-08-07): the app at family scale and against dirty data.
 // Scenarios: 500+ item pantries, 10+ profiles, cross-profile diet conflicts,
-// malformed/partial JSON from the data repo, and the Lena-incident class
+// malformed/partial JSON from the data repo, and the Wren-incident class
 // (concurrent profile edits: id-targeted patch vs whole-array write).
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -188,7 +188,7 @@ const FOURTEEN = Array.from({ length: 14 }, (_, i) => ({
   phase: "maintain",
 }));
 
-test("stress: patchProfiles touches ONLY the targeted profile among 14 (Lena-class)", async () => {
+test("stress: patchProfiles touches ONLY the targeted profile among 14 (Wren-class)", async () => {
   /** @type {Record<string, any> | null} */
   let written = null;
   const ok = await patchProfiles(
@@ -215,7 +215,7 @@ test("stress: concurrent profile edits on two devices merge without losing anyon
   // three changes and all 15 people.
   const base = { profiles: FOURTEEN };
   const local = {
-    profiles: FOURTEEN.map((p) => (p.id === "p3" ? { ...p, name: "Lena" } : p)),
+    profiles: FOURTEEN.map((p) => (p.id === "p3" ? { ...p, name: "Wren" } : p)),
   };
   const remote = {
     profiles: [
@@ -241,7 +241,7 @@ test("stress: concurrent profile edits on two devices merge without losing anyon
   });
   const merged = /** @type {any} */ (pushed.data).profiles;
   assert.equal(merged.length, 15, "all 15 profiles survive the merge");
-  assert.equal(merged.find((/** @type {any} */ p) => p.id === "p3").name, "Lena");
+  assert.equal(merged.find((/** @type {any} */ p) => p.id === "p3").name, "Wren");
   assert.equal(merged.find((/** @type {any} */ p) => p.id === "p7").phase, "gain");
   assert.ok(merged.some((/** @type {any} */ p) => p.id === "p14b"));
 });
@@ -430,8 +430,8 @@ test("stress: generateWeek tolerates an empty/absent-field pantry, and REFUSES n
   // The targets half INVERTED on 2026-08-19 (session koenig, P3, promise
   // ledger job 2). This test used to assert that null targets still produced
   // a full week, and it passed for months — because the generator quietly
-  // substituted `?? 210` and `?? 3400`, which are David's own numbers. So
-  // "tolerates null targets" actually meant "aims a stranger's week at David
+  // substituted `?? 210` and `?? 3400`, which are the owner's own numbers. So
+  // "tolerates null targets" actually meant "aims a stranger's week at the owner
   // and says nothing." Tolerance of unreadable INPUT is robustness; tolerance
   // of an unreadable PERSON is the invented-person bug P3 forbids.
   for (const targets of [null, {}, { macros: {} }, { macros: { calories: 3700 } }]) {

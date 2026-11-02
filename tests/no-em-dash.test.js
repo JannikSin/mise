@@ -1,4 +1,4 @@
-// NO EM DASHES ON SCREEN (David: no em dash in anything he reads). Scans every
+// NO EM DASHES ON SCREEN (the owner: no em dash in anything he reads). Scans every
 // .js under app/ and worker/src, skips comments (// and /* */, so JSDoc too),
 // and fails on any em dash left in code, which is where on-screen strings,
 // toasts, aria-labels and worker replies live. Comments may keep them.

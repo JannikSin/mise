@@ -1,6 +1,6 @@
 // THE TARGETS PAIR MAY NEVER DISAGREE (Historian, tribunal 2026-08-30).
 //
-// Second occurrence of this bug class: scorch (2026-08-29) wrote David's
+// Second occurrence of this bug class: scorch (2026-08-29) wrote the owner's
 // ordered fixes — proteinAim 190, the fixed-breakfast removal — ONLY to the
 // legacy mirror `fitness/targets.json`, while the app reads the canonical
 // `profile/targets.json` first (store.js readTargetsOf). The engine kept
@@ -21,10 +21,10 @@ const DATA = join(import.meta.dirname, "..", "..", "mise-data");
 
 const PAIRS = [
   ["profile/targets.json", "fitness/targets.json"],
-  ["profiles/elliot/profile/targets.json", "profiles/elliot/fitness/targets.json"],
+  ["profiles/flatmate/profile/targets.json", "profiles/flatmate/fitness/targets.json"],
   ["profiles/mom/profile/targets.json", "profiles/mom/fitness/targets.json"],
   ["profiles/dad/profile/targets.json", "profiles/dad/fitness/targets.json"],
-  ["profiles/lena/profile/targets.json", "profiles/lena/fitness/targets.json"],
+  ["profiles/wren/profile/targets.json", "profiles/wren/fitness/targets.json"],
 ];
 
 test("canonical and legacy targets never diverge (the scorch 08-29 incident)", (t) => {

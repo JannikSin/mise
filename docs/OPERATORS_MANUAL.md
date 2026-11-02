@@ -8,7 +8,7 @@ Companion documents: `CLAUDE.md` (the rules — binding), `DOCTRINE.md` (the job
 
 ## 1. What this machine is
 
-Mise is David's personal kitchen + fitness PWA. One user, one iPhone, zero budget, zero tolerance for data leaks. Everything follows from those four facts.
+Mise is the owner's personal kitchen + fitness PWA. One user, one iPhone, zero budget, zero tolerance for data leaks. Everything follows from those four facts.
 
 **The architecture in one paragraph:** a static, zero-build Preact app served from GitHub Pages (public repo `mise`, owner JannikSin) reads and writes all user data as small JSON files in a **private** repo (`mise-data`) through the GitHub Contents API, authenticated by a fine-grained PAT that lives only in the browser's localStorage. An IndexedDB layer caches every file and queues writes offline, so the whole app works in a store with no signal. A tiny Cloudflare Worker (`mise-worker.janniksin.workers.dev`) proxies two AI calls (fridge-photo scan, live remedies) using the same PAT as its auth credential. There is no server, no database, no build step, no dependency to rot.
 
@@ -16,7 +16,7 @@ Mise is David's personal kitchen + fitness PWA. One user, one iPhone, zero budge
 
 **Data path:** `app/lib/store.js` is the only door — `read`/`readCollection`/`write` → IndexedDB cache + offline write queue → `app/lib/github.js` (Contents API, always passes the file SHA; on 409 it re-fetches, merges field-wise via `app/lib/merge.js`, retries). Never read data any other way — Pages URLs and raw.githubusercontent serve stale caches.
 
-**Domain logic** (all pure, all unit-tested): `plan.js` (week entries, `SLOT_KEYS`/`SLOT_META`, `dayTotals`, `recipesById`), `weekbuilder.js` (ingredient-overlap committee builder — protein shortfall is a red flag, David's #1 rule), `shopping.js` (plan → deduped list, `slug`, `sectionOf`), `targets.js` (calorie/protein targets, the allergen table, the daily check-in row), `remedies.js` (offline rules engine), `dates.js` (`localIsoDate`, `parseLocalIso`, `isoWeekId` — **the only place date strings are made or parsed; never hand-roll one**), `quiz.js`, `scan.js`, `drag.js` (pointer-events drag engine, INSTANT drag, locked by the Task 0 iPhone spike).
+**Domain logic** (all pure, all unit-tested): `plan.js` (week entries, `SLOT_KEYS`/`SLOT_META`, `dayTotals`, `recipesById`), `weekbuilder.js` (ingredient-overlap committee builder — protein shortfall is a red flag, the owner's #1 rule), `shopping.js` (plan → deduped list, `slug`, `sectionOf`), `targets.js` (calorie/protein targets, the allergen table, the daily check-in row), `remedies.js` (offline rules engine), `dates.js` (`localIsoDate`, `parseLocalIso`, `isoWeekId` — **the only place date strings are made or parsed; never hand-roll one**), `quiz.js`, `scan.js`, `drag.js` (pointer-events drag engine, INSTANT drag, locked by the Task 0 iPhone spike).
 
 **Worker** (`worker/src/`): `lib.js` holds every pure piece (CORS allowlist, forced-tool Anthropic request builders, response validators, fixed-window rate limiter); `index.js` is the thin fetch handler (origin gate → PAT verified against the private repo with a 10-min token-hash cache → rate limit → size cap on actual bytes → Anthropic → validate → JSON out). `ANTHROPIC_API_KEY` is a Worker secret; endpoints return 503 until it's set.
 
@@ -27,9 +27,9 @@ These are in `CLAUDE.md`; the ones people break first:
 1. **Two-repo split.** Code repo never contains personal data — not in fixtures, not in test output, not in a commit message. Development uses `fixtures/`, never real data files.
 2. **Secrets exist in exactly two places:** browser localStorage (PAT) and Worker env (API key). A secret in a file in this repo is an incident, not a mistake.
 3. **Schema changes update `docs/SCHEMAS.md` in the same commit.** The post-edit hook self-heals drift checks; the `schema-guard` agent runs pre-commit.
-4. **No new dependencies.** The stack decision is LOCKED: vendored Preact + htm, JSDoc + tsc, no bundler ever. If you think you need a package, you need a justification David approves first.
+4. **No new dependencies.** The stack decision is LOCKED: vendored Preact + htm, JSDoc + tsc, no bundler ever. If you think you need a package, you need a justification the owner approves first.
 5. **"Code looks right" is not verification.** You watch it work (Playwright E2E against the real app) or it isn't done.
-6. **Never start building until David says go.** Settle strategy first, always.
+6. **Never start building until the owner says go.** Settle strategy first, always.
 
 ## 3. Operating procedures
 
@@ -45,8 +45,8 @@ These are in `CLAUDE.md`; the ones people break first:
 
 - **PowerShell 5.1**: no `&&` / `||` chaining; commit messages via single-quoted here-strings (`@'…'@`, closing `'@` at column 0). The working directory **persists across commands** — a failed `cd worker; …` chain strands every later command in `worker/`; always `Set-Location` back or use absolute paths.
 - **Hook races on batched edits**: when several Edits to one file land in one message, the hook lints intermediate states — an "unused import" error from edit 1 that edit 3 resolves. Don't chase these; after the batch, run `npx eslint <files>` and `npx tsc -p jsconfig.json --noEmit` directly and trust only that. Also: eslint `--fix` can const-ify a `let` between your edits (`prefer-const`); if a variable must stay `let`, say why with an eslint-disable comment.
-- **wrangler is non-interactive** here even when David runs it with `!`; prompts silently take the fallback. Anything needing interaction (subdomain registration, OAuth) goes through the Cloudflare dashboard.
-- **Production deploys need David's explicit word** — the permission classifier blocks `wrangler deploy` and similar until he says deploy. Never try to extract wrangler's OAuth token to call the CF API directly; that's a credential-boundary violation and gets blocked.
+- **wrangler is non-interactive** here even when the owner runs it with `!`; prompts silently take the fallback. Anything needing interaction (subdomain registration, OAuth) goes through the Cloudflare dashboard.
+- **Production deploys need the owner's explicit word** — the permission classifier blocks `wrangler deploy` and similar until he says deploy. Never try to extract wrangler's OAuth token to call the CF API directly; that's a credential-boundary violation and gets blocked.
 - **Test fixtures that are images must be real images** — generate with System.Drawing, don't hand-type base64.
 
 ### 3.3 E2E harness (Playwright MCP)
@@ -62,7 +62,7 @@ Push to `main` → GitHub Pages builds. Don't trust timing: nudge with `gh api r
 
 ### 3.5 Deploying the Worker
 
-`cd worker; npx wrangler deploy` — but only David can authorize it (his `!` prompt or explicit "deploy"). Config in `worker/wrangler.toml` (account id committed, that's fine; secrets never). New env vars: secrets via dashboard or `wrangler secret put`; models via plain vars `SCAN_MODEL`/`REMEDY_MODEL`. After deploy, probe security from outside: no auth → 401, wrong origin → 403, OPTIONS → 204 with correct ACAO, unknown path → 404.
+`cd worker; npx wrangler deploy` — but only the owner can authorize it (his `!` prompt or explicit "deploy"). Config in `worker/wrangler.toml` (account id committed, that's fine; secrets never). New env vars: secrets via dashboard or `wrangler secret put`; models via plain vars `SCAN_MODEL`/`REMEDY_MODEL`. After deploy, probe security from outside: no auth → 401, wrong origin → 403, OPTIONS → 204 with correct ACAO, unknown path → 404.
 
 ### 3.6 The weekly scheduled task (retired 2026-09-21)
 
@@ -70,9 +70,9 @@ GENERATE MY WEEK plans the week inside the app, so the Cowork drafting task is g
 
 ## 4. The working method (what made this succeed)
 
-David asked me to distill what makes Fable effective so the next model can run the machine the same way. It isn't intelligence; it's discipline applied in a specific order.
+The owner asked me to distill what makes Fable effective so the next model can run the machine the same way. It isn't intelligence; it's discipline applied in a specific order.
 
-1. **Settle strategy before touching code.** Every task started as a proposal — options, one recommendation, one-sentence reasoning — and waited for "go". The costliest failures in any build are the ones where the model built the wrong thing fast. When David asks "A or B?", give the direct call first, nuance second.
+1. **Settle strategy before touching code.** Every task started as a proposal — options, one recommendation, one-sentence reasoning — and waited for "go". The costliest failures in any build are the ones where the model built the wrong thing fast. When the owner asks "A or B?", give the direct call first, nuance second.
 2. **Define "done" as something observable.** Not "the code is written" but "the test that failed now passes, and I watched the feature work on the running app." Every task got a verify step before the work step. If you can't say what you'll observe when it works, you don't understand the task yet.
 3. **Red before green.** Write the failing test first — it proves the test can fail, and it turns vague intent ("cap dinner repeats") into an executable spec. All pure logic in this repo has node:test coverage that was written failing.
 4. **Proportional paranoia.** A one-line fix gets a direct lint+test check. A new subsystem, or anything touching tokens or user data, gets the full three-reviewer panel plus live security probes against the deployed endpoint. Review findings are work items, not commentary — fix before commit, every time. The reviewers caught real bugs every single round (rate limiting missing, spoofable content-length, data-loss on tab switch); assume yours will too.
@@ -81,9 +81,9 @@ David asked me to distill what makes Fable effective so the next model can run t
 7. **Surgical diffs, simplicity first.** Touch only what the task requires. No abstractions for single-use code, no speculative flexibility. When something adjacent is broken, mention it — don't fix it silently. When 200 lines could be 50, rewrite before shipping, not "later".
 8. **Trim the fat, keep the muscle.** Batch edits into single messages, read targeted line ranges instead of whole files, skip ceremony on trivial changes — but never skip security review, never skip tests, never skip watching it work. Efficiency is about cutting waste, not cutting verification.
 9. **One canonical home for every fact.** Dates are made only in `dates.js`, slugs only in `shopping.js`, slot names only in `plan.js`, schemas only in `SCHEMAS.md`. When you find the same logic in two places, consolidate it the day you notice.
-10. **Report faithfully.** Failures verbatim, skipped steps named, costs visible. David can handle bad news; he can't handle discovering it later.
+10. **Report faithfully.** Failures verbatim, skipped steps named, costs visible. The owner can handle bad news; he can't handle discovering it later.
 
-## 5. Working with David
+## 5. Working with the owner
 
 He's a non-developer with excellent product instincts — a college athlete building his own operating system for eating, training, and recovering. Explain in outcomes ("the list works with no signal in the store"), never jargon ("IndexedDB write queue"). Ask **one** focused question at a time. Give direct calls on A/B questions. His protein target is sacred: any generated week that misses it must scream (red flag), never whisper. He says "boil the ocean" when he wants completeness — that means: do the whole thing, no stubs, no "for later", tests and docs included.
 
@@ -109,33 +109,33 @@ The strict rule from the blueprint: **no phase starts until the previous one is 
 
 **Phase 5 — Career digest + live Claude.** The Worker already IS the live-Claude infrastructure — `/remedy` proved the pattern (forced tool schema, validated output, PAT auth). A general `/ask` endpoint is the same ~60 lines with a different system prompt. The career digest is another scheduled-task product: weekly research written to `digest.json`, rendered as a read-only view.
 
-**Tagged for later (David, 2026-08-01):** produce-picking guidance on the
+**Tagged for later (the owner, 2026-08-01):** produce-picking guidance on the
 shopping list — per-item "how to pick a good one" notes (thump a watermelon,
 avocado gives slightly at the stem, heavy-for-size citrus). Natural shape: a
 static `PICK_TIPS` table beside `PACK_HINTS` in `app/lib/shopping.js`,
 rendered as a tap-to-expand hint on produce rows. Static data, no Worker, no
-schema change. Not built yet — David called it "maybe not necessary" and
+schema change. Not built yet — the owner called it "maybe not necessary" and
 asked for the tag only.
 
 **Thinking further out** (the 30-steps-ahead view): every phase adds (a) a data file + schema, (b) at most one tab, (c) at most one Worker endpoint, (d) optionally one scheduled-task prompt. If a proposed feature doesn't decompose into those four pieces, it's fighting the architecture — redesign the feature, not the architecture. The things that must never change without a council run: the two-repo split, the PAT-only data path, offline-first, zero-build, and the small-files rule.
 
 ## 8. State of the build (2026-09-21)
 
-Live at https://janniksin.github.io/mise/ on shell v208, released by the first run of `tools/release.ps1` (the release train, `docs/RELEASE_TRAIN.md`; sandbox at https://mise-next.pages.dev/). 971 node tests green; the promise ledger reads 11 proven, 1 partial (P9, a layout decision David owns). The Worker is deployed with the invite routes; they answer 503 until `MISE_INVITE_TOKEN` is set.
+Live at https://janniksin.github.io/mise/ on shell v208, released by the first run of `tools/release.ps1` (the release train, `docs/RELEASE_TRAIN.md`; sandbox at https://mise-next.pages.dev/). 971 node tests green; the promise ledger reads 11 proven, 1 partial (P9, a layout decision the owner owns). The Worker is deployed with the invite routes; they answer 503 until `MISE_INVITE_TOKEN` is set.
 
-Outstanding, David-side: `MISE_INVITE_TOKEN`; the Kroger cart push needs its redirect URI registered on his Kroger developer app (the code side is done, the cart has been dark since it shipped); the local model (`LOCAL_BASE_URL`) is still unset, so food data goes to Anthropic against the 2026-07-20 council.
+Outstanding, the owner-side: `MISE_INVITE_TOKEN`; the Kroger cart push needs its redirect URI registered on his Kroger developer app (the code side is done, the cart has been dark since it shipped); the local model (`LOCAL_BASE_URL`) is still unset, so food data goes to Anthropic against the 2026-07-20 council.
 
 The July planning set (`START_HERE`, `FIRST_SESSION_PROMPT`, `INSTALL_GUIDE`, `HANDOFF_CONTEXT`, `MISE_BLUEPRINT`, `docs/BUILD_PLAN`) is local-only and gitignored, since it carries personal data; the mockups, the training set and the weekly Cowork prompt are under `docs/archive/`. All of it is history, not instruction. Sections 1, 2, 6 and 7 of this manual describe the July architecture and are kept for orientation; where they disagree with `CLAUDE.md`, `DOCTRINE.md` or `docs/SCHEMAS.md`, those win.
 
 ## 9. Mise 2.0 on Supabase: where everything is (2026-10-31)
 
 2.0 moves the data from the private GitHub repo to Supabase (Free plan, two
-projects: live and sandbox). The full plan, with David's steps, is the
+projects: live and sandbox). The full plan, with the owner's steps, is the
 schelkin 2.0 plan (revision 3) in the fleet folder; this section is the index
 of what is in the repo. Every tool below is public code and names no one: the
-people come from `people.local.json` / `person.local.json` on David's laptop,
+people come from `people.local.json` / `person.local.json` on the owner's laptop,
 which are never committed. Tools that change a database write ONE reviewable
-SQL transaction for David to run; none connects on its own.
+SQL transaction for the owner to run; none connects on its own.
 
 | Need | Where |
 |---|---|
@@ -156,7 +156,7 @@ SQL transaction for David to run; none connects on its own.
 | Split a kind out of the `docs` table later | `docs/SCHEMAS.md`, "Escape hatch" |
 
 Rules that carry over unchanged: the release train (`docs/RELEASE_TRAIN.md`),
-`next` to the sandbox first, the live switch only on David's yes. Rules that
+`next` to the sandbox first, the live switch only on the owner's yes. Rules that
 are new: the daily log and workouts never go to Supabase (Anvil keeps reading
 GitHub); a house sees another person's plate card, never their full profile;
 the shared bank names no one; secret keys live only in Worker secrets.

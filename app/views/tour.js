@@ -178,7 +178,7 @@ export function TourOverlay({ startStep, onProgress, onEnd }) {
         // every tap, and the card below only renders once a step target has
         // been measured — so a step whose element never resolves used to
         // leave an invisible, inescapable blocker over the whole app, which
-        // reads exactly like a dead app that still scrolls (David,
+        // reads exactly like a dead app that still scrolls (the owner,
         // 2026-07-26). This button does not depend on any of that.
         html`<button
           class="tour-escape"

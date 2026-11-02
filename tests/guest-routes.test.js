@@ -1,4 +1,4 @@
-// Guest LOG IN / SIGN UP, the ROUTES (Mise v1.6, P8 + P3; David 2026-10-18:
+// Guest LOG IN / SIGN UP, the ROUTES (Mise v1.6, P8 + P3; the owner 2026-10-18:
 // "not too much security, just a little bit of a boundary"; guests never see
 // other people's accounts or who else he has over). Drives worker.fetch()
 // against the same in-memory GitHub as tests/invite-routes.test.js, so the
@@ -97,7 +97,7 @@ const SEED = () => ({
     "invites.json": { invites: [invite()] },
     "profiles.json": {
       profiles: [
-        { id: "david", name: "David Thornton", household: "wayne" },
+        { id: "david", name: "Owner Birch", household: "wayne" },
         { id: "sam", name: "Sam Rivera", household: "guesthouse" },
       ],
     },
@@ -161,7 +161,7 @@ test("sign up stores the login with the host house and returns a session; the gu
     assert.equal(view.rows[0].cook, "your host", "never a housemate's name on a guest page (audit 2026-10-18)");
     assert.equal(view.rows[0].dish, "Coconut Curry");
     assert.deepEqual(view.recipes["coconut-curry"].steps, ["Sear the chicken."]);
-    for (const leak of ["Sam", "Rivera", "Thornton", "wayne", "secret-dish", "audited", "nobody"]) {
+    for (const leak of ["Sam", "Rivera", "Birch", "wayne", "secret-dish", "audited", "nobody"]) {
       assert.ok(!text.includes(leak), `no ${leak} in a guest's view`);
     }
   });

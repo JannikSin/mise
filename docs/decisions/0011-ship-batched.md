@@ -9,7 +9,7 @@
 
 Every push to `main` bumps the service worker's `CACHE_VERSION`, and every bump makes
 each phone download the whole shell and swap it on next open. Several pushes in quick
-succession made the app churn on David's phone mid-use.
+succession made the app churn on the owner's phone mid-use.
 
 ## Options considered
 

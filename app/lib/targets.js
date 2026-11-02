@@ -336,7 +336,7 @@ export const ALLERGEN_TERMS = {
 
 /**
  * The ONLY terms a person may clear from an allergy chip for themselves
- * (P8 plates, P3 knows-you; David's ruling 2026-10-27 for a housemate who is
+ * (P8 plates, P3 knows-you; the owner's ruling 2026-10-27 for a housemate who is
  * off tree nuts but eats pine nuts and pesto with no nuts but pine nuts in
  * it). Keyed by preset id. Default stays conservative: with no exception
  * stored, the chip refuses every term it lists. An exception removes a term
@@ -653,7 +653,7 @@ export function avoidTermsFromAllergens(allergens, freeText, exceptions) {
 const ACTIVITY_MULT = [1.2, 1.375, 1.55, 1.725, 1.9];
 
 /**
- * P3's soft targets sanity gate (fix list 7.12, David's ruling 2026-08-18):
+ * P3's soft targets sanity gate (fix list 7.12, the owner's ruling 2026-08-18):
  * a stated calorie target is never taken on faith. Maintenance is computed
  * from `targets.body` (Mifflin-St Jeor × activity), the stated target is
  * compared against the physiological band, and the result is REPORTED —
@@ -698,9 +698,9 @@ export function targetsSanity(targets) {
  * hand-written profile behave identically.
  *
  * NEVER a ratio of the target. The generator enforced 95% of target for
- * months, which held David to 199.5 g protein against his written 185 and
+ * months, which held the owner to 199.5 g protein against his written 185 and
  * over-fed mom by 72.5 kcal/day, invisibly, because no screen showed the
- * enforced number. (Council 2026-08-07; David, 2026-08-10.)
+ * enforced number. (Council 2026-08-07; the owner, 2026-08-10.)
  * @param {Record<string, any> | null | undefined} macros a targets.macros block
  * @returns {{ calories: number, protein: number }}
  */
@@ -713,12 +713,12 @@ export function enforcedFloors(macros) {
     // `protein` IS the floor when no override is written (council
     // 2026-08-19: "Set protein to 180 g as a FLOOR, add proteinCeiling: 215,
     // delete proteinFloor" / "proteinFloor is DELETED. protein IS the floor
-    // now." — the VALUE moved to 190 on David's yes, council 2026-08-26,
+    // now." — the VALUE moved to 190 on the owner's yes, council 2026-08-26,
     // which also split the AIM out of this field entirely: the floor never
     // steers, the engine aims at macros.proteinAim ?? the ceiling). The old fallback here was `protein - 25`, a leftover of the
     // retired ONE-number semantics where `protein` was a target with a soft
     // floor beneath it. That derivation silently defeated the verdict:
-    // David's profile deleted `proteinFloor` exactly as ordered and the
+    // The owner's profile deleted `proteinFloor` exactly as ordered and the
     // generator then enforced 155 against a ratified 180 for four days, with
     // the council's own kill-signal (deliveredG < 200/week) watching a floor
     // that had already been lowered. CARRYING OUT THE INSTRUCTION IS WHAT
@@ -821,7 +821,7 @@ export function targetsFromQuestionnaire(q, todayIso, prefs = {}) {
     .filter((s) => !(s === "breakfast" && prefs.skipBreakfast))
     .concat(wantSmoothie && hasBlender ? ["smoothie"] : []);
 
-  // exceptions only for a chip the person picked (P8, David 2026-10-27)
+  // exceptions only for a chip the person picked (P8, the owner 2026-10-27)
   const exceptions = Object.fromEntries(
     Object.entries(allergenExceptionsOf(prefs.allergenExceptions)).filter(([id]) =>
       (prefs.allergens ?? []).includes(id),
@@ -914,7 +914,7 @@ export function targetsFromQuestionnaire(q, todayIso, prefs = {}) {
   };
 }
 
-// EDITING A PROFILE YOU ALREADY HAVE (David, 2026-10-18: "one profile per
+// EDITING A PROFILE YOU ALREADY HAVE (the owner, 2026-10-18: "one profile per
 // person ... I kind of like the fuller questions"; decision 0013: "targets are
 // set from Mise's Settings; hand edits of the mirrored targets pair end").
 // P3. The survey re-run is MERGED into the file, never written over it: the

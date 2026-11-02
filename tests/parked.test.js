@@ -2,13 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PARKED, isParked } from "../app/lib/parked.js";
 
-// Mise decision 0016 (David, 2026-10-12): menu scan, remedies and occasions are
+// Mise decision 0016 (the owner, 2026-10-12): menu scan, remedies and occasions are
 // parked. Their routes and tests stay; only the doors on the screens close.
-// Decision 0018 (David, 2026-10-16) parks seven more: house money, the Kroger
+// Decision 0018 (the owner, 2026-10-16) parks seven more: house money, the Kroger
 // cart buttons, the re-roll, recipe browsing, the dinner chat, the tour, the
 // Table tab's per-meal week. Decision 0019 (2026-10-18, v1.4) brings back the re-roll and
 // the cart button (after GOING TO THE STORE); only the live-price controls stay parked.
-test("the parked set is exactly what David parked on 2026-10-12 and 2026-10-16, less the re-roll", () => {
+test("the parked set is exactly what Owner parked on 2026-10-12 and 2026-10-16, less the re-roll", () => {
   assert.deepEqual(
     [...PARKED].sort(),
     [

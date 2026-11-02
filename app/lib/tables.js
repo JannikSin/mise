@@ -13,8 +13,8 @@ import { allergenFamilyOf } from "./targets.js";
  * @typedef {{ id: string, servings: number, rawServings?: number, status?: "in" | "skipped", auto?: boolean, edited?: boolean, blocked?: string }} Seat seat id = profileId; `auto: true` marks a MACHINE-stamped skip (recomputed every run, unlike a human decline which carries); `blocked` (2026-10-16) is the reason the allergy/diet screen skipped this seat on this dish (always with auto: true); `edited: true` marks a HUMAN servings edit (patchSeat) that binds the composer while the dish is unchanged
  * @typedef {{ portionGrams?: number, plate: string[], estCalories: number, estProtein: number }} TailorSeat scale-first: portionGrams = weighed grams of the finished dish on this plate (absent/0 on pre-scale tailors)
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
- * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, buyerFrom?: "rule", fromBrigade?: string, fromWeekRun?: boolean, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string, leftoverOf?: string, preparedOn?: string, proteinFresh?: "once" | "daily" }} TableEvent `buyerFrom: "rule"` marks a buyer filled from a take-turns rule's shopper (it follows the rule; a hand claim carries no marker). `fromWeekRun` is LEGACY: written only by the retired AI week run; read solely by planBrigadeWeek's shadow sweep, which clears such tables from a brigade's span. `leftoverOf` names the COOK table this meal is eaten from (a no-cook night, David 2026-09-05): its seats size the pot, it is never bought or cooked on its own. `preparedOn` (2026-09-24) marks a BATCH pot: this night's dish is cooked on that earlier date (the Sunday batch) and its later nights eat it as leftovers; its safe window runs from that date. `proteinFresh` (2026-10-25) marks a batch pot prepped all but the meat: "once" = this night cooks the meat for every night the pot feeds, "daily" = each night cooks its own share.
- * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]>, batches?: { cookDay: number, feeds: number[] }[], dinnerMeat?: boolean, open?: boolean, breaks?: string, sundayMinutes?: number, sundayBatch?: boolean, sundayTwoPots?: boolean, meatDaily?: boolean }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool. `batches` (David, 2026-09-24) = a second pot cooked on `cookDay` and eaten on the weekdays in `feeds` (the Sunday batch for Tue + Wed); absent = no batch. `dinnerMeat` (David, 2026-09-25) = every dinner the brigade plans is anchored on chicken, turkey, beef or pork; absent = any protein. `open` (David, 2026-10-18) = no end date: the 28-day record rolls forward (rolledRule). `breaks` = a SCHOOL_BREAKS key; the rule plans nothing on those dates. `sundayMinutes` (David, 2026-10-18) = his rough limit on Sunday cooking, shown against the estimate, never enforced. `sundayBatch` (2.0, I-14) = Sunday's dinner is the batch for Mon to Thu: Sunday cooks one pot and no second dish; absent = ON, applied by the app through sundayBatchOn before it plans (planBrigadeWeek reads only `true`), false = off. `sundayTwoPots` (David, 2026-10-25) = with the batch on, Sunday cooks TWO pots: A for Sun and Mon, B for Tue to Thu prepped all but the meat, which is cooked fresh each night; absent = ON (sundayTwoPotsOn), false = the one pot for Mon to Thu. `meatDaily` = meal B's meat is cooked each night it is eaten; absent = cooked once, on B's first night, for all of them.
+ * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, buyerFrom?: "rule", fromBrigade?: string, fromWeekRun?: boolean, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string, leftoverOf?: string, preparedOn?: string, proteinFresh?: "once" | "daily" }} TableEvent `buyerFrom: "rule"` marks a buyer filled from a take-turns rule's shopper (it follows the rule; a hand claim carries no marker). `fromWeekRun` is LEGACY: written only by the retired AI week run; read solely by planBrigadeWeek's shadow sweep, which clears such tables from a brigade's span. `leftoverOf` names the COOK table this meal is eaten from (a no-cook night, the owner 2026-09-05): its seats size the pot, it is never bought or cooked on its own. `preparedOn` (2026-09-24) marks a BATCH pot: this night's dish is cooked on that earlier date (the Sunday batch) and its later nights eat it as leftovers; its safe window runs from that date. `proteinFresh` (2026-10-25) marks a batch pot prepped all but the meat: "once" = this night cooks the meat for every night the pot feeds, "daily" = each night cooks its own share.
+ * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]>, batches?: { cookDay: number, feeds: number[] }[], dinnerMeat?: boolean, open?: boolean, breaks?: string, sundayMinutes?: number, sundayBatch?: boolean, sundayTwoPots?: boolean, meatDaily?: boolean }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool. `batches` (the owner, 2026-09-24) = a second pot cooked on `cookDay` and eaten on the weekdays in `feeds` (the Sunday batch for Tue + Wed); absent = no batch. `dinnerMeat` (the owner, 2026-09-25) = every dinner the brigade plans is anchored on chicken, turkey, beef or pork; absent = any protein. `open` (the owner, 2026-10-18) = no end date: the 28-day record rolls forward (rolledRule). `breaks` = a SCHOOL_BREAKS key; the rule plans nothing on those dates. `sundayMinutes` (the owner, 2026-10-18) = his rough limit on Sunday cooking, shown against the estimate, never enforced. `sundayBatch` (2.0, I-14) = Sunday's dinner is the batch for Mon to Thu: Sunday cooks one pot and no second dish; absent = ON, applied by the app through sundayBatchOn before it plans (planBrigadeWeek reads only `true`), false = off. `sundayTwoPots` (the owner, 2026-10-25) = with the batch on, Sunday cooks TWO pots: A for Sun and Mon, B for Tue to Thu prepped all but the meat, which is cooked fresh each night; absent = ON (sundayTwoPotsOn), false = the one pot for Mon to Thu. `meatDaily` = meal B's meat is cooked each night it is eaten; absent = cooked once, on B's first night, for all of them.
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
 
@@ -36,7 +36,7 @@ export const SERVINGS_MAX = 10;
  */
 export function normalizeEvents(raw) {
   const brigades = Array.isArray(raw?.brigades) ? raw.brigades.filter(validBrigade) : [];
-  // ONE LIST WHEN COOKS TAKE TURNS (David, 2026-10-18: "The list is one
+  // ONE LIST WHEN COOKS TAKE TURNS (the owner, 2026-10-18: "The list is one
   // entity and is bought altogether no matter who cooks"). planBrigadeWeek
   // names the rule's shopper as buyer, but only when it re-plans; tables made
   // before that carried no buyer and fell back to each night's cook, which
@@ -89,7 +89,7 @@ export function normalizeEvents(raw) {
 /** A brigade may not run longer than this without being renewed (Red Team). */
 const MAX_BRIGADE_DAYS = 28;
 
-// NO END DATE, WITH SCHOOL BREAKS (David, 2026-10-18: "The shared kitchen
+// NO END DATE, WITH SCHOOL BREAKS (the owner, 2026-10-18: "The shared kitchen
 // shouldn't have an end date ... Thanksgiving break ... and then also winter
 // break"). An `open` rule keeps the 28-day record every app version accepts
 // and rolls itself forward (rolledRule), because an older phone drops a
@@ -142,7 +142,7 @@ export function brigadeCovers(b, date) {
 }
 
 /**
- * SUNDAY PREP, ROUGHLY (David, 2026-10-18: "There should be a time limit ...
+ * SUNDAY PREP, ROUGHLY (the owner, 2026-10-18: "There should be a time limit ...
  * It can be a little bit vague now and we can set it more later"). The
  * hands-on minutes of everything the kitchen cooks on Sunday: each distinct
  * dish cooked that day (its dinner pot, a batch prepared that day, the day's
@@ -238,7 +238,7 @@ export function validBrigade(b) {
   if (b.until < b.from) return false;
   const span = (+new Date(`${b.until}T12:00:00`) - +new Date(`${b.from}T12:00:00`)) / 86400000;
   if (span > MAX_BRIGADE_DAYS) return false;
-  // one person is a kitchen too (David cooks for one since 2026-10-09; Mise
+  // one person is a kitchen too (the owner cooks for one since 2026-10-09; Mise
   // decision 0013): a standing week of one is a brigade with one seat
   if (!Array.isArray(b.memberIds) || b.memberIds.length < 1) return false;
   if (!b.memberIds.every((/** @type {any} */ m) => typeof m === "string" && m.length > 0))
@@ -337,7 +337,7 @@ export function cookOf(t, house, profilesById) {
   // pays": mergeKeyedArrays rebuilds seat order from map insertion order, so
   // a 409 could hand the bill to someone else. Brigade-materialized tables
   // always carry cookId; hand-made ones fall back to the original rule.
-  // A SKIPPED named cook does NOT cook (David, 2026-08-09, superseding
+  // A SKIPPED named cook does NOT cook (the owner, 2026-08-09, superseding
   // Tribunal 2026-08-01's "cooking is not eating"): in this family SKIP MINE
   // means "I'm not there", so the role falls to the first non-skipped
   // in-house seat and the house still eats. The 08-01 concern (billing
@@ -362,7 +362,7 @@ export function cookOf(t, house, profilesById) {
  *
  * An explicit in-house `buyerId` claim always wins (the 2026-08-03 model,
  * untouched for hand-set tables and multi-shopper houses). An UNCLAIMED
- * BRIGADE table defaults to its NAMED cook — David 2026-08-30: "when you're
+ * BRIGADE table defaults to its NAMED cook — the owner 2026-08-30: "when you're
  * in a brigade you shouldn't have the option to buy just for yourself; the
  * brigade buys" — and that is what the brigade form always promised
  * ("everyone cooks one or two dinners and shops for their own nights").
@@ -374,7 +374,7 @@ export function cookOf(t, house, profilesById) {
  * and a positional buyer flips between devices (measured double-buy,
  * Tribunal plan gate 2026-08-30). A skipped or moved-out named cook leaves
  * the table unclaimed and visible to the claim buttons. The in-house check
- * is also the cross-house guard: a cook who moved out (David on his
+ * is also the cross-house guard: a cook who moved out (the owner on his
  * parents' old family brigade) stops buying that kitchen automatically.
  * @param {TableEvent} t
  * @param {string} house the house whose events file holds this table
@@ -461,7 +461,7 @@ export function deriveTables(houses, ctx) {
   const takenSlots = new Set(
     ctx.ownEntries.filter((e) => e.pinned || e.out).map((e) => `${e.date}|${e.slot}`),
   );
-  // SETTLED HISTORY (David, 2026-09-05: "i want to always see what was
+  // SETTLED HISTORY (the owner, 2026-09-05: "i want to always see what was
   // cooked"): once a shared meal is in the past, main.js copies it into my
   // own plan as a real entry stamped `fromTable: <id>` so it outlives the
   // 14-day table retention. A table my plan has already settled derives
@@ -469,7 +469,7 @@ export function deriveTables(houses, ctx) {
   const settled = new Set(
     ctx.ownEntries.map((e) => /** @type {any} */ (e).fromTable).filter(Boolean),
   );
-  // LEFTOVER NIGHTS (David, 2026-09-05: cook a bigger pot, eat it again on
+  // LEFTOVER NIGHTS (the owner, 2026-09-05: cook a bigger pot, eat it again on
   // the busy nights). A table stamped `leftoverOf` is eaten from an earlier
   // COOK table's pot: its seats join THAT table's cook total and buy, and it
   // is never bought or cooked on its own. Summed up front because the cook
@@ -565,7 +565,7 @@ export function deriveTables(houses, ctx) {
           });
           if (buyer === ctx.profileId) {
             // potFromBank: the SHARED POT is always the bank recipe, never the
-            // buyer's personal variant of the same id (David, 2026-08-10).
+            // buyer's personal variant of the same id (the owner, 2026-08-10).
             // Without this flag deriveShoppingList resolves this id through the
             // MERGED pool, where a profile's own variant wins by id — so when
             // mom claimed a family dinner the house was shopped from her
@@ -779,8 +779,8 @@ export function deriveTables(houses, ctx) {
         // A LEFTOVER NIGHT NAMES THE POT'S COOK (2.0, I-14; P3d): it cooks
         // nothing, so it reads the cook of the table it eats from, the same
         // answer on every phone. Tables written before the fix carried the
-        // eating night's turn, and David's phone said "you cooked it" on a
-        // pot Elliot made.
+        // eating night's turn, and the owner's phone said "you cooked it" on a
+        // pot the housemate made.
         ...(() => {
           const src = isLeftover ? tableById.get(String(t.leftoverOf)) : undefined;
           const potCook = src && ctx.profilesById ? cookOf(src, house, ctx.profilesById) : null;
@@ -797,7 +797,7 @@ export function deriveTables(houses, ctx) {
         pinned: true,
         // council 2026-07-23: a tailored plate's estimate replaces recipe ×
         // servings in the day meters, so tailoring is never theater — the
-        // meter must count the plate David actually eats
+        // meter must count the plate the owner actually eats
         estCalories:
           myTailor && myTailor.estCalories > 0
             ? myTailor.estCalories
@@ -963,7 +963,7 @@ export function setTableBuyer(events, tableId, buyerId, today) {
 }
 
 /**
- * "Everyone eats the same tonight" — the EXCEPTION, not the default (David,
+ * "Everyone eats the same tonight" — the EXCEPTION, not the default (the owner,
  * 2026-08-10). Tailoring now runs automatically on every upcoming table,
  * because following the plan should be what happens when nobody does
  * anything. Setting this flag opts one meal out: no per-person plates, one
@@ -1078,7 +1078,7 @@ export function clampGuests(t) {
  * same pot with two extra plates on a sensible default profile, not a
  * special event and not a separate feature").
  *
- * SUPERSEDED IN PART (David's named yes, 2026-08-29, session plenum, per
+ * SUPERSEDED IN PART (the owner's named yes, 2026-08-29, session plenum, per
  * the guesthouse spec's ratification gate): a guest MAY now have a profile
  * — a full one, in the `guesthouse` household, filled in by the guest
  * themselves at #/guest and seated like anyone else, never a sign-in.
@@ -1239,7 +1239,7 @@ export const BRIGADE_SERVINGS_MAX = 3;
 /**
  * How many servings of `recipe` this member eats at `slot`, from their own
  * targets. This is the "same meal, different plates" rule: one pot, and
- * gain-phase David and maintenance Mom take different amounts out of it.
+ * gain-phase the owner and maintenance Mom take different amounts out of it.
  *
  * The slot's share of the day renormalizes over the member's OWN meal slots,
  * so someone who skips breakfast gets a correspondingly bigger dinner rather
@@ -1320,7 +1320,7 @@ export function seatScreen(recipe, targets) {
 }
 
 /**
- * USE IT THIS WEEK (David, 2026-10-18: "a nice platform where I could just
+ * USE IT THIS WEEK (the owner, 2026-10-18: "a nice platform where I could just
  * give you the link to the recipe online and you generate a recipe that
  * complies with everything and you add it into the system"). P12, P3.
  * A recipe brought in by link goes on one shared dinner, pinned so SET MY
@@ -1415,7 +1415,7 @@ export function plateRefusal(meal, targets) {
  * ONE NAMED RECIPE AGAINST EVERYONE IN THE RULE (post-mortem 5, 10/18: the
  * oats used peanut butter, a housemate has a peanut allergy, and nothing said
  * so when the rule was set). Each member is screened with plateRefusal; the
- * reason reads the way David would say it, "<name>: peanut". A member whose
+ * reason reads the way the owner would say it, "<name>: peanut". A member whose
  * profile is still loading (`targets` undefined) or could not be read
  * (null) is `unchecked`, never passed: the dish is not counted as usable.
  * @param {Record<string, any>} recipe
@@ -1477,7 +1477,7 @@ export function namedSlotLine(chosen, recipeOf, checkOf) {
 }
 
 /**
- * SUNDAY'S DINNER IS THE BATCH (David, 2026-10-18, post-mortem P3a; 2.0,
+ * SUNDAY'S DINNER IS THE BATCH (the owner, 2026-10-18, post-mortem P3a; 2.0,
  * I-14): one Sunday pot, eaten Mon to Thu, no second dish cooked beside it.
  * ON unless the rule saved `sundayBatch: false`. The app applies this default
  * where it plans (SET MY WEEK) and where it shows the rule, so a rule saved
@@ -1490,7 +1490,7 @@ export function sundayBatchOn(b) {
 }
 
 /**
- * SUNDAY COOKS TWO POTS (David, 2026-10-25): meal A is Sunday's dinner and
+ * SUNDAY COOKS TWO POTS (the owner, 2026-10-25): meal A is Sunday's dinner and
  * Monday's leftovers; meal B is prepped Sunday, everything but the meat, and
  * eaten Tue to Thu with the meat cooked fresh each night. ON wherever the
  * Sunday batch is on, unless the rule saved `sundayTwoPots: false` (one pot
@@ -1565,7 +1565,7 @@ export function batchesOnSave(form, feeds) {
 export function brigadePool(bankById, members, slot) {
   const out = [];
   // per-slot avoids, intersected like everything else: "no eggs at
-  // breakfast" (David, 2026-08-30) must not ban the egg in his fried rice
+  // breakfast" (the owner, 2026-08-30) must not ban the egg in his fried rice
   // at dinner, so the term list is scoped to the slot it screens
   const slotTerms = members
     .flatMap((m) => m.slotAvoid?.[slot] ?? [])
@@ -1680,7 +1680,7 @@ export function removeBrigade(events, id, today) {
 /**
  * Change a standing brigade IN PLACE, keeping its id, so the tables it
  * already materialized stay its own and the next SET THIS WEEK reshapes
- * them (David, 2026-09-05: cook nights and the breakfast rule are settings
+ * them (the owner, 2026-09-05: cook nights and the breakfast rule are settings
  * on the arrangement, not a reason to end it and start another). The
  * patched record must still pass validBrigade or nothing changes. Pure.
  * @param {HouseEvents} events
@@ -1725,7 +1725,7 @@ export function updateBrigade(events, id, patch, today) {
 }
 
 /**
- * Seat one more PERSON at a table (a guest with a profile, canon P8, David
+ * Seat one more PERSON at a table (a guest with a profile, canon P8, the owner
  * 2026-09-05: "add people to certain days... see how much more food we need
  * for that meal based on their profile"). Id-keyed like every seat edit; a
  * profile already seated is left alone. A brigade regeneration carries a
@@ -1754,7 +1754,7 @@ export function addSeat(events, tableId, seat, today) {
 
 /**
  * SEAT A GUEST ON ONE DAY, and say what happened in plain words (Mise 2.0,
- * D-01; David's live guest test, Sun 10/18 about 10 pm: a guest signed up,
+ * D-01; the owner's live guest test, Sun 10/18 about 10 pm: a guest signed up,
  * he added her to that night's curry from People, and "it doesn't work"). The
  * People and Plan buttons call this through main.js. Pure: the caller reads
  * the guest's targets first (readNow, so a profile made minutes ago is

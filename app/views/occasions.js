@@ -29,7 +29,7 @@ function prettyDay(iso) {
  *
  * Deliberately not a tab. This is a screen you visit a handful of times a
  * year, reached from Settings, and it announces itself on the Plan tab once
- * an occasion is actually running (David: "hidden-ish, but not awful to
+ * an occasion is actually running (the owner: "hidden-ish, but not awful to
  * find"). Everything on it is editable before you commit it, because the
  * whole point of the feature is that a new situation must not require a
  * developer.

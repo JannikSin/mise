@@ -1,6 +1,6 @@
 # Day-Aware Weeks, Design
 
-Date: 2026-07-21. Approved by David in session (catch-up batch option chosen).
+Date: 2026-07-21. Approved by the owner in session (catch-up batch option chosen).
 
 ## Problem
 
@@ -83,7 +83,7 @@ is generator behavior, not a new flag.
 
 ## Phase-next (explicitly not built now)
 
-Recording actuals for past days: David wants to eventually log rough real
+Recording actuals for past days: the owner wants to eventually log rough real
 intake (protein/calories) for past days, because weekly totals matter, a
 light Monday can be compensated later in the week and vice versa. Landing
 zone when built: per-day fields on `fitness/daily.json` days[] (alongside the

@@ -179,7 +179,7 @@ export async function repriceList({ items, pins, prices, store, avoid = [], toda
   const rows = [...byKey.values()];
 
   // ---- phase 1: byId refresh for every pinned row not checked TODAY.
-  // THIS WEEK'S SALES (David, 2026-10-18: "Is it able to look for deals on
+  // THIS WEEK'S SALES (the owner, 2026-10-18: "Is it able to look for deals on
   // Kroger? Because it should."): a sale lasts about a week, so a price
   // checked 13 days ago (still "fresh" by STALE_PRICE_DAYS) misses this
   // week's promo. Every row on the list that has a pin is re-checked on
@@ -248,7 +248,7 @@ export async function repriceList({ items, pins, prices, store, avoid = [], toda
     })
     .map((it) => ({ it, est: itemCost(it, cat, store)?.cost ?? null }))
     .sort((a, b) => {
-      // DARK ROWS FIRST (David, 2026-08-30: "I know Payless sells
+      // DARK ROWS FIRST (the owner, 2026-08-30: "I know Payless sells
       // blueberries... why would that not get priced?"). A row this store
       // has an estimate for already counts toward the total; a row it knows
       // NOTHING about silently turns the total into a floor. The old
@@ -294,7 +294,7 @@ export async function repriceList({ items, pins, prices, store, avoid = [], toda
     }
   }
 
-  // the one line David reads (2026-10-18): how many rows on THIS list were
+  // the one line the owner reads (2026-10-18): how many rows on THIS list were
   // checked today, and how many of them are on sale
   let checkedToday = 0;
   let onSale = 0;

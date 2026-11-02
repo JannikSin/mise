@@ -1,4 +1,4 @@
-// Mise 2.0, D-01 (David's live guest test, Sun 10/18 about 10 pm): Mara
+// Mise 2.0, D-01 (the owner's live guest test, Sun 10/18 about 10 pm): Mara
 // signed up as a guest, he added her to that night's coconut curry from
 // People, and "it doesn't work". Her targets had never reached his phone, so
 // the cached-first read answered null and the plate screen refused her as
@@ -233,7 +233,7 @@ test("a dinner holding either food of her typed pair refuses her seat", async ()
 });
 
 test("a guest's targets this phone never cached are fetched before the screen decides", async () => {
-  await setSyncScope(null); // David's phone, the admin's
+  await setSyncScope(null); // The owner's phone, the admin's
   resetFileChecks();
   idb.clear();
   fetched.length = 0;

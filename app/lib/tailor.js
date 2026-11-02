@@ -1,6 +1,6 @@
 // PLATE TAILORING, THE DETERMINISTIC HALF (P8 plates).
 //
-// David, 2026-09-13: "ai tailoring needs to be fixed and better." The 09-07
+// The owner, 2026-09-13: "ai tailoring needs to be fixed and better." The 09-07
 // breakfast table's tailor told him to add a scoop of protein powder (out of
 // the bowl since 08-29) and to build the base from every topping "as cooked".
 // Two causes, both fixed here:

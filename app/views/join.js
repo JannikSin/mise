@@ -4,7 +4,7 @@ import { ProfileGateView } from "./profile-gate.js";
 import { claimInvite, guestLogin, guestMe, inviteStatus } from "../lib/worker.js";
 import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 
-// JOIN BY LINK (guesthouse spec §8, David 2026-09-14: "more onboarding
+// JOIN BY LINK (guesthouse spec §8, the owner 2026-09-14: "more onboarding
 // planning and implementation"). The host taps "invite by link" on a day's
 // WHO row; the invitee opens the link on THEIR phone, fills the same
 // questionnaire every profile fills, and the Worker writes the profile for
@@ -16,7 +16,7 @@ import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 // read the kitchen's data, which is the point.
 
 // The code is a bearer credential for one person's meal schedule, and on
-// janniksin.github.io localStorage is shared with David's other apps, so it
+// janniksin.github.io localStorage is shared with the owner's other apps, so it
 // is NOT stored anywhere on the device: the link itself carries it, and a
 // home-screen bookmark of the status page keeps the URL (security review
 // 2026-09-14, M5).
@@ -30,11 +30,11 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
       kind: "form",
     }),
   );
-  // WHICH DINNERS CAN YOU MAKE (David, 2026-10-18: "just give me the form and
+  // WHICH DINNERS CAN YOU MAKE (the owner, 2026-10-18: "just give me the form and
   // I'll give it to them"). The guest picks; the host seats them with one tap
   // on People, and that tap runs the allergy screen. Optional.
   const [dinners, setDinners] = useState(/** @type {string[]} */ ([]));
-  // SIGN UP sets a login (v1.6, David 2026-10-18: "set your login name +
+  // SIGN UP sets a login (v1.6, the owner 2026-10-18: "set your login name +
   // passkey"), so next time the guest types it instead of needing the link
   const [loginName, setLoginName] = useState("");
   const [pin, setPin] = useState("");
@@ -293,7 +293,7 @@ export function StatusView({ code }) {
 }
 
 // ---- the guest's side (v1.6, P8 + P3) ------------------------------------
-// David, 2026-10-18: "Welcome to Mise ... LOG IN or SIGN UP ... even seeing
+// The owner, 2026-10-18: "Welcome to Mise ... LOG IN or SIGN UP ... even seeing
 // other people's names isn't preferable." No screen here lists anyone. Once
 // in, a guest sees only their own upcoming meals and those recipes; the host
 // adds them to dinners from his own phone.
@@ -426,7 +426,7 @@ export function GuestHomeView({ session, onSignOut }) {
     ${!data && !error && html`<p class="hint">loading…</p>`}
     ${error && html`<p class="hint scanerr">${error}</p>`}
     ${
-      // their own profile, read only (David, 2026-10-18: a guest sees "their
+      // their own profile, read only (the owner, 2026-10-18: a guest sees "their
       // own profile"); editing comes later
       data?.profile &&
       (() => {

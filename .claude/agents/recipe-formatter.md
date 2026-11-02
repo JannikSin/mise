@@ -10,5 +10,5 @@ Given a raw recipe (text description, URL, or rough notes):
 2. Produce a valid JSON object matching it exactly.
 3. Estimate nutrition per serving using USDA FoodData Central logic (no API calls — estimate from known macros of ingredients).
 4. Tag purpose[] honestly: recovery / pre-activity / long-satiety / sick-day / everyday.
-5. Mark staple: true on any ingredient David always has (spices, oils, rice, oats, garlic, onion).
+5. Mark staple: true on any ingredient the owner always has (spices, oils, rice, oats, garlic, onion).
 Output: the JSON only, no commentary, ready to save to recipes/.

@@ -15,7 +15,7 @@
 #      only step with the database URL;
 #   4. checks the snapshot with an inline script of THIS file (never public
 #      code) and prints COUNTS ONLY (never a row);
-#   5. encrypts it with age to David's public key;
+#   5. encrypts it with age to the owner's public key;
 #   6. keeps the last 30 nights on ONE orphan branch `backups`, rewritten as a
 #      single commit each night (no history past 30 days);
 #   7. on any failure, one ntfy push with no data in it.
@@ -25,9 +25,9 @@
 # Public code never runs while the database URL or the plaintext is present.
 # This is also the second keep-alive (a real database read every night).
 #
-# Secrets (names only, set by David in the private repo, never committed):
+# Secrets (names only, set by the owner in the private repo, never committed):
 #   MISE_BACKUP_DB_URL        the live project's pooler connection string for mise_backup
-#   MISE_BACKUP_AGE_RECIPIENT David's age public key (age1...)
+#   MISE_BACKUP_AGE_RECIPIENT the owner's age public key (age1...)
 #   NTFY_TOPIC                optional, the phone alert topic
 # Variable: MISE_CODE_REF (REQUIRED): the full commit SHA of the mise code
 # whose tools/db-snapshot.mjs writes the snapshot SQL. Move it by hand after

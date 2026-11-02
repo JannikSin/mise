@@ -1,7 +1,7 @@
 // Mise 2.0: which targets fields other people may see (plan section 4.1).
 // P8 plates, P3 knows-you. A cook needs a person's PLATE CARD to cook for them,
 // split a pot and keep a dish safe for them; everything else in their targets
-// stays with them and the admin (David's decision 1, 2026-10-27: plate cards
+// stays with them and the admin (the owner's decision 1, 2026-10-27: plate cards
 // for everyone, the family house included; full profiles for the admin only).
 //
 // Plain exported lists, no logic: `private.plate_of` in

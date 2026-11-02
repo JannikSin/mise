@@ -20,7 +20,7 @@ export function parseRoute(hash) {
     case "today":
     case "home":
       return { view: "plan" };
-    // "guest" is the guest onboarding form (guesthouse spec §8): David hands
+    // "guest" is the guest onboarding form (guesthouse spec §8): the owner hands
     // his phone over, the guest fills their own profile, nobody signs in
     case "cookbook":
     case "annotate":
@@ -75,7 +75,7 @@ export function parseRoute(hash) {
         return { view: "plan" }; // malformed percent-sequence in the hash
       }
       /** @type {{ view: string, id: string, from?: string, servings?: number, entry?: string, table?: string, date?: string }} */
-      // Cook Mode is GONE (David 2026-08-17 "get rid of that entirely",
+      // Cook Mode is GONE (the owner 2026-08-17 "get rid of that entirely",
       // executed 2026-08-19 with the serve step rehomed to the recipe page):
       // old /cook URLs land on the recipe, params intact
       const route = { view: "recipe", id: decoded };

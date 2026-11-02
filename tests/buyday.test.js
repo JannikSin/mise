@@ -10,7 +10,7 @@ import {
 import { buildDays, pickableDays, tripFor } from "../app/lib/plan.js";
 import { deriveShoppingList, tripPlan } from "../app/lib/shopping.js";
 
-// THE BUY DAY (David, 2026-09-25): "sunday was not a good day to buy ... lets
+// THE BUY DAY (the owner, 2026-09-25): "sunday was not a good day to buy ... lets
 // switch the buy day to friday ... buy the ingredients for the next 7 days
 // starting this friday"
 
@@ -175,7 +175,7 @@ test("BUILD after Friday dinner buys Saturday onward: the day already eaten is s
   assert.equal(yogurt?.qty, 200); // only Thursday's bowl is left to buy
 });
 
-// JUST SOME DAYS (David, 2026-10-23: "you should be able to select the days
+// JUST SOME DAYS (the owner, 2026-10-23: "you should be able to select the days
 // that you want to buy and build for up to a week")
 test("the day chips offer the seven days from the first day still to plan", () => {
   assert.deepEqual(pickableDays("2026-10-23"), [

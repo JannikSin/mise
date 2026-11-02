@@ -28,7 +28,7 @@ making that one plan the best plan possible. A feature must be able to lose to t
 
 ## Tenets, in order, unless you know better ones
 
-Amended 2026-10-12 on David's approval (decision 0015). The order breaks ties.
+Amended 2026-10-12 on the owner's approval (decision 0015). The order breaks ties.
 
 1. **Choices are removed, and what remains is verified.** Every plan, recipe and nutrition
    rule is checked against the person's targets, budget, kitchen and time, and traces to a
@@ -65,11 +65,11 @@ Absolute, testable, each with its cause and the thing that enforces it.
 | No feature ships dark: a gate carries a date and an owner in the same commit | `synth.js`, 804 lines inert (incidents) | `tests/promises.test.js` prints every gap with its owner |
 | A promise's status line changes in the same commit as its code | 210 g live in five places (incidents) | `tests/promises.test.js` fails the build on disagreement |
 | Every full-screen overlay has an escape that always renders | the tour stranded the app (incidents) | `tests/overlays.test.js` |
-| No tracker, analytic or third-party script | the strict CSP; no dependency without David's stated yes | the CSP in `index.html`; `tests/manifest.test.js` |
+| No tracker, analytic or third-party script | the strict CSP; no dependency without the owner's stated yes | the CSP in `index.html`; `tests/manifest.test.js` |
 | The service worker deletes only `mise-` caches | 22 days of sibling eviction (0006) | the filter in `sw.js`; no test yet |
 | An estimate is never frozen at plan time and shown later as current | 550 kcal per swipe credited for a week (incidents) | re-derivation in `plan.js`; no test yet |
 | `main` is written only by the release or a named hotfix, and the deploy ships an allowlist | seven shells in one evening (0008) | `tools/release.ps1` refuses without a `ship/` tag; `tools/sandbox-deploy.ps1` copies the shell set only |
-| An invited guest adds portions to the batch already planned for that day; a guest never adds a separate meal and never appears uninvited | David's ruling, 2026-10-12 (decision 0014) | not yet; owed by the redo, gate register `P8 GAP` |
+| An invited guest adds portions to the batch already planned for that day; a guest never adds a separate meal and never appears uninvited | the owner's ruling, 2026-10-12 (decision 0014) | not yet; owed by the redo, gate register `P8 GAP` |
 | One profile per person; each app writes only its own section (base, food, training) | two apps writing one number: 210 g against 190 g (decision 0013) | not yet; owed by the redo, gate register `P3 GAP` |
 | Every confirmation is valid after the fact | the cooked tap sat behind a stopwatch (incidents) | the Plan-row tap; `tests/promises.test.js` P7 |
 | A release changes code only; no release step writes a plan, a list or a household file | the bought week (0008) | `tools/release.ps1` touches no data path; the re-seed writes the `sandbox` branch only |
@@ -78,13 +78,13 @@ Absolute, testable, each with its cause and the thing that enforces it.
 
 **The job, the non-goals and the invariants change only by amendment.** An amendment names
 the clause, states the reason the clause exists, states why that reason no longer holds, and
-carries **David's named yes**. A superseded clause is **struck through and kept**, with the
+carries **the owner's named yes**. A superseded clause is **struck through and kept**, with the
 date and what replaced it. It is never deleted, because the next person to propose the same
 change needs to find the argument that was already had.
 
 **Tenets are open season, by design.** They end with *unless you know better ones*.
 Proposing a better tenet is not a challenge to the doctrine, it is the doctrine working. A
-tenet still needs David's yes to change, but it does not need an incident.
+tenet still needs the owner's yes to change, but it does not need an incident.
 
 **Invariants retire only when their cause is gone**, never because they are inconvenient. If
 the incident that created an invariant can no longer occur, say why, and strike it.
@@ -92,9 +92,9 @@ the incident that created an invariant can no longer occur, say why, and strike 
 **A session may not work around a clause silently.** Doing so once means either the clause
 was wrong or the work was wrong, and either way it gets said out loud.
 
-**The kill conditions are not amendable by a session at all.** Only David changes those.
+**The kill conditions are not amendable by a session at all.** Only the owner changes those.
 
-## Kill conditions (PROPOSED 2026-08-28, not adopted; David's named yes required)
+## Kill conditions (PROPOSED 2026-08-28, not adopted; the owner's named yes required)
 
 Review **2026-12-18**, with the fall term. Mise has failed at the job, and the honest
 response is to shrink it rather than extend it, if by then:

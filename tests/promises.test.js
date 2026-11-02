@@ -115,7 +115,7 @@ import { composeTray, itemsForMeal, parseItem } from "../app/lib/dininghall.js";
  *    in the same commit") machine-checked for the first time.
  * 3. When a promise's status changes, the status line changes in the SAME
  *    commit as the code.
- * 4. The authority document is read out of the Obsidian vault, where David
+ * 4. The authority document is read out of the Obsidian vault, where the owner
  *    reads it. A second copy inside the repo would be the exact disease this
  *    file exists to prevent. If the vault is absent the meta-tests FAIL rather
  *    than skip: a silent skip is the rot mode.
@@ -125,7 +125,7 @@ const DOC =
   "C:\\Users\\DATar\\Sanity\\Obsidian\\Crystal\\Lanes\\Mise-Core-Purpose.md";
 
 // The LIVE bank and the LIVE price catalogue, not the shipped seed. P12 is a
-// promise about the bank David actually eats out of, and seed-data/generated
+// promise about the bank the owner actually eats out of, and seed-data/generated
 // is a first-run fixture that has already drifted 19 recipes away from it.
 const BANK_DIR = new URL("../../mise-data/recipes/", import.meta.url);
 const CATALOGUE = new URL("../../mise-data/prices.json", import.meta.url);
@@ -196,7 +196,7 @@ const PROMISES = [
       assert.deepEqual(report.calorieShortDays, [], "a generated day fell under the calorie floor");
 
       // The floors enforced are the ones the profile WROTE, never a ratio of
-      // the target. That regression held David to 199.5 g against his written
+      // the target. That regression held the owner to 199.5 g against his written
       // 185 for months, invisibly, because no screen showed the enforced number.
       const floors = enforcedFloors(TARGETS.macros);
       assert.equal(floors.calories, 3500);
@@ -442,7 +442,7 @@ const PROMISES = [
       assert.equal(unconfirmedReason([{ name: "Dee" }]), "");
 
       // AND NO ENGINE ASSUMES A DEFAULT PERSON. Until 2026-08-19 the generator
-      // read `?? 210` / `?? 3400`, David's own targets, so an unreadable
+      // read `?? 210` / `?? 3400`, the owner's own targets, so an unreadable
       // profile did not fail: it silently produced HIS week for somebody else.
       for (const t of [null, {}, { macros: {} }, { macros: { protein: 175 } }]) {
         assert.throws(
@@ -660,7 +660,7 @@ const PROMISES = [
 
       // THE PROTEIN CEILING. P5 calls over-delivered protein a budget leak,
       // because protein is the expensive macro and grams above the number are
-      // bought for nothing. David ratified 215 g on 2026-08-19; until this
+      // bought for nothing. The owner ratified 215 g on 2026-08-19; until this
       // pass landed, targets.json carried the ceiling and no code read it, so
       // the data was ahead of the engine and nothing could tell.
       const headroom = { ...TARGETS.macros, caloriesFloor: 3000 };
@@ -811,7 +811,7 @@ const PROMISES = [
     name: "P6 the kitchen knows what it owns, what it holds, and the day it empties",
     fn: () => {
       // SUBTRACTION: an owned food does not get bought again. This is the bug
-      // that had David buying oats, whey, onions and wine he already had.
+      // that had the owner buying oats, whey, onions and wine he already had.
       const items = [
         { food: "rolled oats", qty: 500, unit: "g" },
         { food: "chicken thigh", qty: 2, unit: "lb" },
@@ -1372,7 +1372,7 @@ const PROMISES = [
 
       // ─────────────────────────────────────────────────────────────────
       // AND THE REAL BANK. A fixture proves the engine works; only the bank
-      // proves it works on David's food. Every recipe carrying the tag must
+      // proves it works on the owner's food. Every recipe carrying the tag must
       // SOLVE: a tagged dish that degrades to "this dish is one thing
       // nutritionally" is a promise made and quietly withdrawn.
       // ─────────────────────────────────────────────────────────────────
@@ -1959,7 +1959,7 @@ const UNBUILT = [
     id: "P9",
     name: "P9 GAP every bank recipe teaches inside the step where it matters",
     why:
-      "owner David, blocked on the five-way HBP layout pick. 103 of 126 recipes already carry a real " +
+      "owner Owner, blocked on the five-way HBP layout pick. 103 of 126 recipes already carry a real " +
       "teaching clause in-step, so this is a 23-recipe content pass plus a layout decision, not an " +
       "engineering job. The first half of the done test, a first-time cook reaching a result that " +
       "tastes good, is not machine-checkable and this ledger does not pretend otherwise.",
@@ -1979,14 +1979,14 @@ const UNBUILT = [
     why:
       "owner monolith (decisions 0016, 0018, 0019). Since v1.4 the List sends the set week's " +
       "list to the cart in one press after GOING TO THE STORE, and the Worker's /kroger/cart " +
-      "routes answer as configured; closed only when David's first real send is checked in the " +
+      "routes answer as configured; closed only when Owner's first real send is checked in the " +
       "Pay Less app, which waits on the redirect URI being registered on his Kroger app.",
   },
   {
     id: "P8",
     name: "P8 GAP an invited guest scales that day's planned batch and never adds a meal",
     why:
-      "owner tweener, the 2026-10-12 redo (decision 0014, David's guests rule). Guest seats are " +
+      "owner tweener, the 2026-10-12 redo (decision 0014, Owner's guests rule). Guest seats are " +
       "composed on brigade tables, but nothing yet guarantees that inviting a guest only scales " +
       "the day's existing batch, and the standing week cannot hold a guest at all.",
   },
@@ -2139,7 +2139,7 @@ test("META: the scoreboard, printed so the number can never be a matter of opini
 
 // ───────────────────────────────────────────────────────────────────────────
 // THE PROTEIN OVERSHOOT (2026-08-23, session quake). Against the LIVE bank
-// and David's LIVE profile, because this was never an engine bug in the
+// and the owner's LIVE profile, because this was never an engine bug in the
 // abstract: it was this bank, at this calorie target, with these swipes.
 //
 // Before this work, on 5 salts of a real week: 234 g/day bought, 34 of 35
@@ -2207,7 +2207,7 @@ test("no day is over the protein ceiling, with swipes or without", () => {
   const targets = JSON.parse(readFileSync(LIVE_PROFILE, "utf8"));
   const byId = new Map(recipes.map((r) => [r.id, r]));
   const ceiling = enforcedCeilings(targets.macros).protein;
-  assert.equal(ceiling, 215, "David ratified 215 g on 2026-08-19");
+  assert.equal(ceiling, 215, "Owner ratified 215 g on 2026-08-19");
 
   const scenarios = [
     ["no swipes", []],
@@ -2240,8 +2240,8 @@ test("the fix did not trade an overshoot for an undershoot", () => {
   const floors = enforcedFloors(targets.macros);
   // the ratified floor, not the derived 155 that the deleted proteinFloor
   // key used to produce (council 2026-08-19: "protein IS the floor now";
-  // value raised to 190 on David's named yes, council 2026-08-26)
-  assert.equal(floors.protein, 190, "an absent proteinFloor derives `protein` (190 since David's yes, council 2026-08-26)");
+  // value raised to 190 on the owner's named yes, council 2026-08-26)
+  assert.equal(floors.protein, 190, "an absent proteinFloor derives `protein` (190 since Owner's yes, council 2026-08-26)");
 
   const misses = [];
   for (const pins of [[], swipePins(recipes, "lunch", LIVE_DATES)]) {
@@ -2392,7 +2392,7 @@ test("a trim can never leave a day under its calorie floor (P1)", () => {
   // trim removed. Invisible while the generator over-delivered (days sat at
   // 3,600-3,700 and no trim reached the floor); picking to a protein target
   // instead of past it lands days near the floor, and the first real week
-  // generated on David's device came back with TWO days under 3,500 kcal and
+  // generated on the owner's device came back with TWO days under 3,500 kcal and
   // `snackServingsAdded: 0`. Step 4.65 restores the floor after the trims.
   //
   // The review signals are the point of this fixture, not decoration: they

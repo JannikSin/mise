@@ -35,7 +35,7 @@ if (VENDORED) {
   process.stderr.write(
     `BLOCKED: ${rel} is a vendored, version-pinned library. Vendored libs are ` +
       `never patched in place - they are replaced wholesale with a new pinned ` +
-      `version, with David's approval. If the library seems to have a bug, ` +
+      `version, with Owner's approval. If the library seems to have a bug, ` +
       `re-check the calling code first.`
   );
   process.exit(2);

@@ -189,7 +189,7 @@ function aisleOrderFor(prices, store, pins = null) {
     : [];
   const order = [...curated, ...SECTION_ORDER.filter((a) => !curated.includes(a))];
   // The store's own answer fills every section a human never curated
-  // (David, 2026-08-22: "know where it is, don't discard the answer"). A
+  // (the owner, 2026-08-22: "know where it is, don't discard the answer"). A
   // hand-curated label still WINS, because someone stood in the shop; the
   // derived one only fills gaps, so curating never gets overwritten by data.
   const derived = aisleLabelsFromPins(pins, store);
@@ -350,11 +350,11 @@ export function ShoppingView({
 }) {
   const [tab, setTab] = useState(/** @type {"list" | "pantry" | "combined"} */ ("list"));
   const [manual, setManual] = useState("");
-  // typed pantry add (David 2026-08-29: "I can just type in things" — a
+  // typed pantry add (the owner 2026-08-29: "I can just type in things" — a
   // mis-scanned item should never mean re-shooting the shelf until the
   // camera gets it right). Same applyScanItems path as an approved scan.
   const [pantryTyped, setPantryTyped] = useState("");
-  // SAY WHAT YOU HAVE (David, 2026-09-06): a whole shelf dictated or pasted
+  // SAY WHAT YOU HAVE (the owner, 2026-09-06): a whole shelf dictated or pasted
   // in one go, parsed to a preview he can prune, then landed through the
   // same approve path as a photo scan. `said` is the text, `heard` the
   // preview (null = not previewed yet).
@@ -364,7 +364,7 @@ export function ShoppingView({
     /** @type {{ food: string, text: string } | null} */ (null),
   );
   const [showMinor, setShowMinor] = useState(false);
-  // collapsed by default (David, 2026-09-07: "I already did the pantry update
+  // collapsed by default (the owner, 2026-09-07: "I already did the pantry update
   // on Sunday... have me updating it next week"): the card is one line until
   // opened, and never a gate on BUILD or GENERATE
   const [needOpen, setNeedOpen] = useState(false);
@@ -386,7 +386,7 @@ export function ShoppingView({
     }
     return names;
   }, [pantry, recipeIndex]);
-  // WALK THE FRIDGE (David, 2026-10-18: "record a video, roll it past all
+  // WALK THE FRIDGE (the owner, 2026-10-18: "record a video, roll it past all
   // the shelves inside the fridge, and narrate everything"): the frames'
   // thumbnails, each frame's scanned items, progress, and what he said. Its
   // READ IT BACK lands in `heard`, the same preview SAY WHAT YOU HAVE uses.
@@ -399,7 +399,7 @@ export function ShoppingView({
   // which shelf the next photo is of. Tagging the shot turns an additive scan
   // into a SWEEP: those photos become the whole truth about that location.
   const [scanLocation, setScanLocation] = useState("fridge");
-  // Buying for PART of the week (David, 2026-07-26: guests over, fridge full,
+  // Buying for PART of the week (the owner, 2026-07-26: guests over, fridge full,
   // still on the plan). Empty = the whole week, which is the default and the
   // old behaviour. The meals stay planned either way; only the shopping is
   // partial, which is why this is not the OUT toggle.
@@ -409,7 +409,7 @@ export function ShoppingView({
   // camera scan: null | "busy" | { error } | { items, kept: boolean[] }
   const [scan, setScan] = useState(/** @type {any} */ (null));
   const fileRef = useRef(/** @type {HTMLInputElement | null} */ (null));
-  // FRESH START (David, 2026-08-01: "start from a nothing pantry and scan
+  // FRESH START (the owner, 2026-08-01: "start from a nothing pantry and scan
   // into the pantry and fridge"): wipe everything, then walk the kitchen one
   // shelf at a time. `fresh` = step index into FRESH_STEPS, null = not
   // running. Wizard scans are ADDITIVE ("add" mode) — the wipe already
@@ -468,7 +468,7 @@ export function ShoppingView({
   const [receipt, setReceipt] = useState(/** @type {any} */ (null));
   const receiptRef = useRef(/** @type {HTMLInputElement | null} */ (null));
   // Photos of ONE receipt, in order top to bottom. A long till roll does not
-  // fit in a frame (David, 2026-08-10), so shots accumulate here and are read
+  // fit in a frame (the owner, 2026-08-10), so shots accumulate here and are read
   // together in a single request — see scanReceipt for why reading them
   // separately cannot dedupe the overlap correctly.
   const [shots, setShots] = useState(/** @type {File[]} */ ([]));
@@ -529,7 +529,7 @@ export function ShoppingView({
     if (!file || walk?.busy) return;
     for (const u of walk?.thumbs ?? []) URL.revokeObjectURL(u);
     setWalk({ busy: "reading the video…" });
-    // the narration is in the same file (David, 2026-10-18: "show everything
+    // the narration is in the same file (the owner, 2026-10-18: "show everything
     // and also narrate everything"): listened to alongside the frames, then
     // put in the box he can still correct. Every miss says why in one line
     // and leaves the box for typing.
@@ -611,7 +611,7 @@ export function ShoppingView({
   const items = shopping.items ?? [];
   const checkedCount = items.filter((i) => i.checked).length;
 
-  // fridge-first (David, 2026-08-01): food the kitchen already holds comes
+  // fridge-first (the owner, 2026-08-01): food the kitchen already holds comes
   // off the trip at render time. Only where THIS list IS the trip — a
   // profile alone in its house, or the BRIGADE'S SHOPPER, whose list is the
   // whole kitchen's one buy (hiding the HOUSEHOLD tab under a brigade
@@ -647,7 +647,7 @@ export function ShoppingView({
   // store but never locked to it. Persisted per profile in localStorage.
   // THE DEFAULT STORE IS THE PROFILE'S DECLARED ONE (targets.stores[0]),
   // never "whichever catalogue is arithmetically cheapest": with no stores
-  // declared, ranked[0] silently priced David's West Lafayette week at
+  // declared, ranked[0] silently priced the owner's West Lafayette week at
   // Mariano's Vernon Hills, 120 miles away (Tribunal, 2026-08-30). A tapped
   // chip still wins per trip — but a tap made BEFORE the profile declared
   // its store (the ranked[0] era) must not outrank the declaration forever.
@@ -732,7 +732,7 @@ export function ShoppingView({
     if (!costMemo.has(item)) costMemo.set(item, itemCost(item, prices, homeStore));
     return costMemo.get(item) ?? null;
   };
-  // STRICT COLUMNS (David 2026-08-19: "literally make columns"): every row
+  // STRICT COLUMNS (the owner 2026-08-19: "literally make columns"): every row
   // reads NEED (the recipes' summation) · BUY (packs × the store's real
   // pack, or the weighed amount) · $/unit · TOTAL, in fixed tracks that
   // repeat identically under a per-trip header. The buy column is always
@@ -843,7 +843,7 @@ export function ShoppingView({
     const pin = pinFor(pins, item.food, homeStore);
     // fromTile: opened from the price tile's REVIEW line, so the sheet
     // renders right there under the tapped button, never three screens down
-    // under the row (David, 2026-08-19)
+    // under the row (the owner, 2026-08-19)
     if (pin) setPricePick({ item, busy: false, candidates: [], confirm: pin, fromTile });
   };
   // from the tile's REVIEW queue, finishing one row auto-advances to the
@@ -871,13 +871,13 @@ export function ShoppingView({
   // PROVISIONAL re-pin — a form swap by construction (rankCandidates only
   // returns the same food, fix list 3.4); anything dish-changing can only
   // enter through the pick sheet, which is the ask.
-  // ---- Kroger cart push (David, 2026-08-22) --------------------------------
+  // ---- Kroger cart push (the owner, 2026-08-22) --------------------------------
   // Mise builds the list; Kroger's own app does checkout. There is NO order
   // placement and NO pickup-slot endpoint in the public API at any tier, so
   // this hands off and never claims to have ordered anything.
   const [cartNote, setCartNote] = useState("");
   const [cartOff, setCartOff] = useState(false);
-  // THE SEVEN BROCCOLIS (David, 2026-08-24: "last time I ended up with like
+  // THE SEVEN BROCCOLIS (the owner, 2026-08-24: "last time I ended up with like
   // seven things of frozen broccoli"). Kroger's cart endpoint is ADD-ONLY and
   // ADDITIVE, with no read-back at the public tier -- the same push twice puts
   // the food in twice. Nothing here stopped a second tap: no disabled state,
@@ -898,14 +898,14 @@ export function ShoppingView({
   const shoppedOn = String(/** @type {any} */ (plan)?.fallback?.savedAt ?? "");
   const cartWeek = String(/** @type {any} */ (plan)?.week ?? weekId);
   const sentCount = Math.max(cartSent, cartSendsFor(cartWeek));
-  // THE CART, BACK (David, 2026-10-18: "I don't want you to order. I just
+  // THE CART, BACK (the owner, 2026-10-18: "I don't want you to order. I just
   // want you to add it to the cart", and only once the week is set and he is
   // going to the store). The live-price controls stay parked (decision 0018);
   // the cart opens only after GOING TO THE STORE has saved the shopped week.
   const cartOpen = shoppedOn !== "";
   // rows we can actually send: a UPC only exists once a food is pinned here
   //
-  // TWO BUGS LIVED IN THE ONE LINE THIS REPLACES (David, 2026-08-24: "last
+  // TWO BUGS LIVED IN THE ONE LINE THIS REPLACES (the owner, 2026-08-24: "last
   // time I ended up with like seven things of frozen broccoli"):
   //
   //  1. NO DEDUPE BY UPC. Several rows legitimately pin to the SAME product --
@@ -963,7 +963,7 @@ export function ShoppingView({
       )
     : [];
 
-  // A THREE-ITEM TEST PUSH (David, 2026-08-24: "push a few things onto the
+  // A THREE-ITEM TEST PUSH (the owner, 2026-08-24: "push a few things onto the
   // payless cart so that i can check to see them... just a few test items and
   // tell me the quantities as well ... and the price").
   //
@@ -1106,7 +1106,7 @@ export function ShoppingView({
       if (book !== book0 && onSavePins) onSavePins(book);
       const unpriceable = failed.length - repinned;
       // the worker processes at most 60 UPCs per call and now SAYS so —
-      // without this line 29 of David's 89 pins silently read as refreshed
+      // without this line 29 of the owner's 89 pins silently read as refreshed
       const beyondCap = Math.max(0, upcs.length - requested);
       setRefreshNote(
         `${updated} refreshed${repinned > 0 ? `, ${repinned} re-pinned (tap REVIEW to confirm)` : ""}${unpriceable > 0 ? `, ${unpriceable} gone from the store` : ""}${beyondCap > 0 ? `, ${beyondCap} over this call's cap, tap REFRESH again` : ""}`,
@@ -1120,7 +1120,7 @@ export function ShoppingView({
   // cheapest first by UNIT price, allergen-screened on the OUTPUT — a
   // hitting product renders its warning and cannot be pinned (fix list
   // 3.4). Inline tile, never an overlay — rendered directly UNDER the
-  // tapped row (David, 2026-08-19: at the bottom of the page it opened
+  // tapped row (the owner, 2026-08-19: at the bottom of the page it opened
   // three screens below his thumb and read as the button doing nothing).
   const pickSheet = () =>
     pricePick &&
@@ -1282,9 +1282,9 @@ export function ShoppingView({
     return sum > 0 ? `$${sum.toFixed(2)}${partial ? "~" : ""}` : "";
   };
 
-  // survey-v2 David-ask #3: split the list into shopping trips when the
+  // survey-v2 the owner-ask #3: split the list into shopping trips when the
   // profile shops more than once a week. One trip = today's single list —
-  // ordered this week's food first, STAPLES LAST (David, 2026-08-30: the
+  // ordered this week's food first, STAPLES LAST (the owner, 2026-08-30: the
   // stock-up rows may be bought in bulk online instead, so they read as
   // their own block with their own subtotal).
   const stapleItems = tripItems.filter((i) => isStapleRow(i, prices, homeStore));
@@ -1303,7 +1303,7 @@ export function ShoppingView({
           },
         ].filter((t) => t.groups.length > 0)
       : [{ key: "all", label: "", groups: sections }];
-  // ONE LIST, one heading per aisle (David, 2026-10-16: "it's saying meat and
+  // ONE LIST, one heading per aisle (the owner, 2026-10-16: "it's saying meat and
   // then it repeats meat and then it's saying dairy and then it repeats
   // dairy"). The staples used to be a second block with its own aisles; a
   // staple row now carries a small stock-up tag in its own aisle instead.
@@ -1316,7 +1316,7 @@ export function ShoppingView({
   const emojiFor = new Map();
   emojiFor.set(me, ownEmoji || "you");
   for (const o of others) emojiFor.set(o.profileId, o.emoji);
-  // FAMILY (David, 2026-07-25): the EVERYONE trip became a per-person picker,
+  // FAMILY (the owner, 2026-07-25): the EVERYONE trip became a per-person picker,
   // because you do not always shop for the whole house. Toggled-off people
   // simply drop out of the merge. Persisted per profile, same pattern as the
   // store pick. Absent = everyone on, which is the old behaviour exactly.
@@ -1341,7 +1341,7 @@ export function ShoppingView({
     }
   };
   const tripOthers = others.filter((o) => !tripOff.has(o.profileId));
-  // FAMILY days (David, 2026-08-09): buy only SOME days for one member of the
+  // FAMILY days (the owner, 2026-08-09): buy only SOME days for one member of the
   // EVERYONE trip — mom eats at home the first three days, the rest of the
   // house shops the whole week. Per person, per week (the picks are dates, so
   // a new week starts clean), persisted like the member toggle. Absent/empty
@@ -1652,7 +1652,7 @@ export function ShoppingView({
               )}
             </div>
             ${
-              // "give me a score on how well i did at the store" (David).
+              // "give me a score on how well i did at the store" (the owner).
               // Same spirit as the adherence score: three plain numbers over
               // what is already known, and the names behind each, so a low
               // score explains itself instead of just accusing.
@@ -1789,7 +1789,7 @@ export function ShoppingView({
               // a brigade trip feeds every seat, but weeklyBudgetUsd
               // is MY number — judging the whole kitchen's eaten
               // total against one person's budget read "over by $35"
-              // on a two-person week that was fine (David,
+              // on a two-person week that was fine (the owner,
               // 2026-08-30). The even split is the honest headline
               // here; exact who-ate-what money lives in house money.
               const seats =
@@ -1799,7 +1799,7 @@ export function ShoppingView({
               // his share of THIS trip, the number he pays (2026-10-16); the
               // old eaten-only share read $13 beside a $59 trip
               const share = homeSummary.total / seats;
-              // David, 2026-10-16: "is that for both people? We each pay $100
+              // The owner, 2026-10-16: "is that for both people? We each pay $100
               // or it's $100 total?" It is EACH person's budget; say so, and
               // say what his share of this week's food comes to.
               const label = seats > 1 ? `your share (1 of ${seats})` : "this week's food";
@@ -1836,7 +1836,7 @@ export function ShoppingView({
           }
           ${pricePick?.fromTile ? pickSheet() : ""}
           ${
-            // decision 0018 (David, 2026-10-16: "all I want to see is the price,
+            // decision 0018 (the owner, 2026-10-16: "all I want to see is the price,
             // I want to choose the store and then see the price, that's it"):
             // the live-price controls and the Kroger cart stay built, doors shut
             !isParked("liveprices") &&
@@ -1897,7 +1897,7 @@ export function ShoppingView({
             cartOpen &&
             html`
           ${
-            // NO FEATURE SHIPS DARK, and this one did (David,
+            // NO FEATURE SHIPS DARK, and this one did (the owner,
             // 2026-08-25: "it said not linked and push failed"). The
             // Worker was missing KROGER_STATE_SECRET and
             // KROGER_REDIRECT_URI, so /kroger/cart/link answered 503
@@ -1998,7 +1998,7 @@ export function ShoppingView({
             )
           }
           ${
-            // WHAT ACTUALLY HAPPENED (David, 2026-08-25: "I'm logged in
+            // WHAT ACTUALLY HAPPENED (the owner, 2026-08-25: "I'm logged in
             // to my account on the Pay Less app, but I see nothing").
             // Kroger cannot be read back, so this shows what WE sent and
             // what Kroger said about it, durably. The UPCs are printed
@@ -2301,7 +2301,7 @@ export function ShoppingView({
           }
           ${
             // the saved-plan confirmation stays; the always-on explainers went
-            // (David, 2026-10-16: "it's giving a lot of random data that i
+            // (the owner, 2026-10-16: "it's giving a lot of random data that i
             // don't need")
             /** @type {any} */ (plan)?.fallback &&
             html`<p class="hint lockhint">Shopped plan saved ✓</p>`
@@ -2454,7 +2454,7 @@ export function ShoppingView({
           }
           ${
             // fallback placement for the pick sheet: the sheet normally
-            // renders directly under its row (David, 2026-08-19: the
+            // renders directly under its row (the owner, 2026-08-19: the
             // bottom-of-page tile looked like the ? button did nothing), but
             // if the row left the list mid-pick it still needs a home. A
             // fromTile sheet already renders inside the price tile — without
@@ -2720,7 +2720,7 @@ export function ShoppingView({
           <div class="chips wrapchips" role="group" aria-label="Which shelf">
             ${
               // the shelf chips are the VIEW, not just the camera's target
-              // (David, 2026-07-26: "the fridge is kind of a thing but not
+              // (the owner, 2026-07-26: "the fridge is kind of a thing but not
               // really"). Picking one shows what is on it and points the next
               // photo at it. "unsorted" only appears when rows are actually
               // stranded there, so it never reads as a fifth shelf.
@@ -3434,8 +3434,8 @@ export function ShoppingView({
             })}
             ${
               // EVERY profile not in this house is shown greyed with the
-              // reason, family field or not (David, 2026-08-02: dad and
-              // lena were simply invisible here while their household was
+              // reason, family field or not (the owner, 2026-08-02: dad and
+              // wren were simply invisible here while their household was
               // stale, and invisible reads as broken — an explained absence
               // says exactly what to fix in Settings)
               (profiles ?? [])
@@ -3563,7 +3563,7 @@ export function ShoppingView({
             <span class="num">${combined.length}</span> items are already shared.
           </p>
           ${
-            // SUBSTITUTE (David: "regenerate lists to match each other more").
+            // SUBSTITUTE (the owner: "regenerate lists to match each other more").
             // Only ever rewrites MY week: applying a swap to someone else’s
             // plan means writing their plan file from this device, which the
             // Tribunal vetoed, because a recipe arriving that way passes no
@@ -3722,7 +3722,7 @@ export function ShoppingView({
             `
           }
           ${
-            // THE receipt button (David, 2026-08-10: his mother stood at the
+            // THE receipt button (the owner, 2026-08-10: his mother stood at the
             // till with the HOUSEHOLD list open and there was nothing to press).
             // HOUSEHOLD is where the house shops, so HOUSEHOLD is where the receipt
             // gets scanned. It was only ever on the personal list, which is

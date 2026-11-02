@@ -35,7 +35,7 @@ test("an EMPTY declared kitchen is a different thing and means what it says", ()
 });
 
 test("A DUTCH OVEN UNLOCKS DUTCH OVEN THINGS, and also counts as a pot", () => {
-  // David's exact ask, both directions in one assertion
+  // The owner's exact ask, both directions in one assertion
   assert.equal(canMake(["stovetop", "dutch-oven"], ["stovetop", "dutch-oven"]), true);
   assert.equal(canMake(["stovetop", "dutch-oven"], ["stovetop", "pot"]), true, "it IS a pot");
   assert.equal(canMake(["stovetop", "pot"], ["stovetop", "dutch-oven"]), false, "but a pot is not one");

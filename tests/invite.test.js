@@ -98,7 +98,7 @@ test("inviteStatusRows: only this person's live seats in the window, with their 
   const tables = [
     { date: "2026-09-15", slot: "dinner", recipeId: "pasta", cookId: "david", seats: [{ id: "priya", servings: 1.25 }], tailor: { seats: { priya: { plate: ["add 100 g pasta"] } } } },
     { date: "2026-09-16", slot: "dinner", recipeId: "stew", cookId: "david", seats: [{ id: "priya", servings: 1, status: "skipped" }] },
-    { date: "2026-09-17", slot: "dinner", recipeId: "curry", cookId: "elliot", seats: [{ id: "david", servings: 1 }] },
+    { date: "2026-09-17", slot: "dinner", recipeId: "curry", cookId: "flatmate", seats: [{ id: "david", servings: 1 }] },
     { date: "2026-10-30", slot: "dinner", recipeId: "far", cookId: "david", seats: [{ id: "priya", servings: 1 }] },
     { date: "2026-09-13", slot: "dinner", recipeId: "past", cookId: "david", seats: [{ id: "priya", servings: 1 }] },
   ];

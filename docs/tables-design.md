@@ -1,9 +1,9 @@
 # Tables + Brigades (shared meals), Design v2 (post-Tribunal)
 
-Date: 2026-07-21. Status: David approved direction; council-reviewed
+Date: 2026-07-21. Status: the owner approved direction; council-reviewed
 (5 advisors + 5 peer reviews); Tribunal plan gate ran — Red Team BLOCKED v1
 on the diet-screen bypass, all findings folded in below (see "Tribunal
-amendments"). Naming locked by David: functional now, fancy later.
+amendments"). Naming locked by the owner: functional now, fancy later.
 
 ## North star
 
@@ -38,7 +38,7 @@ solo half).
 
 1. **One source of truth, derived pins.** Tables and Brigades live ONLY in
    the house's `events.json`. No fan-out writes into other profiles' plan
-   files, ever (the Lena lesson). Each profile's app, at plan load and at
+   files, ever (the Wren lesson). Each profile's app, at plan load and at
    GENERATE, derives VIRTUAL pinned entries from events addressed to it:
    same shape as a pinned plan entry, marked `table: <eventId>`, never
    persisted into the plan file itself. Cancel/edit = one file edit,
@@ -88,7 +88,7 @@ solo half).
     {
       "id": "b1",
       "name": "Apartment dinners",
-      "memberIds": ["david", "lena"],
+      "memberIds": ["david", "wren"],
       "slots": ["dinner"],
       "from": "2026-07-27",
       "until": "2026-08-03",

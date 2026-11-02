@@ -19,6 +19,9 @@ FIRST_SESSION_PROMPT.md
 START_HERE.md
 INSTALL_GUIDE.md
 docs/BUILD_PLAN.md
+# the 2.0 migration's people file names real people (tools/migrate-to-supabase.mjs --people)
+people.local.json
+*.people.local.json
 spike/
 claude-config/
 .claude/settings.local.json

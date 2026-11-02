@@ -1,6 +1,6 @@
 // WHAT THE KITCHEN CAN DO (P6, P7).
 //
-// Two directions, and David named both: the app must not tell you to make
+// Two directions, and the owner named both: the app must not tell you to make
 // something you have no equipment for, and owning a thing must EXPAND what it
 // offers you. A Dutch oven should unlock Dutch oven food.
 //

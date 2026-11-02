@@ -181,7 +181,7 @@ test("no lock and no video at all still says what to do by hand", async () => {
 });
 
 test("a refused lock falls through to the silent video, which is the real fix", async () => {
-  // This is David's actual symptom: iOS Low Power Mode refuses the lock. The
+  // This is the owner's actual symptom: iOS Low Power Mode refuses the lock. The
   // whole point of 2026-08-24 is that refusal is survivable, not fatal.
   const env = stub({ fail: "NotAllowedError", video: "plays" });
   try {

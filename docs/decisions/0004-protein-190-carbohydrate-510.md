@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-08-26
-- **Deciders:** the protein-architecture council; David ratified
+- **Deciders:** the protein-architecture council; the owner ratified
 - **Tenet invoked:** none
 
 ## Context

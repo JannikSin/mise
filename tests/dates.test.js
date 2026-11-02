@@ -27,7 +27,7 @@ test("localIsoDate is the LOCAL day with zero padding", () => {
 });
 
 test("planStartIso: today before 7:30 pm, tomorrow after, across a month and a week end", () => {
-  // David, 2026-09-24: a Thursday 11 pm generate must not plan or buy Thursday
+  // The owner, 2026-09-24: a Thursday 11 pm generate must not plan or buy Thursday
   assert.equal(planStartIso(new Date(2026, 8, 24, 16, 45)), "2026-09-24");
   assert.equal(planStartIso(new Date(2026, 8, 24, 19, 29)), "2026-09-24");
   assert.equal(planStartIso(new Date(2026, 8, 24, 19, 30)), "2026-09-25");

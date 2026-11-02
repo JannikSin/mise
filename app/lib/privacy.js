@@ -1,4 +1,4 @@
-// WHO SEES WHOM (David, 2026-10-18: "I don't want everybody to see
+// WHO SEES WHOM (the owner, 2026-10-18: "I don't want everybody to see
 // everybody's profile. Other than me, who should have admin privileges, no
 // other profile should be able to see people not in their immediate place.
 // Nobody in West Lafayette should be able to see my family."). P3 and P8.
@@ -26,7 +26,7 @@ export const DEVICE_HOUSE_KEY = "mise.deviceHouse";
 export const isAdmin = (p) => p?.admin === true;
 
 /**
- * A profile's own passkey (David, 2026-10-18: "everybody else should also
+ * A profile's own passkey (the owner, 2026-10-18: "everybody else should also
  * have their own passkey"). `passkey` since v1.9; v1.8 wrote `adminKey` on
  * the admin row only, still honoured so no older key is ever ignored.
  * @param {Record<string, any> | undefined | null} p
@@ -38,7 +38,7 @@ export const keyOf = (p) => p?.passkey ?? p?.adminKey ?? undefined;
  * localStorage key: this phone opened `id` through a real check (its passkey,
  * or a profile with none, from the real profile list). Tribunal Red Team,
  * 2026-10-18: an offline phone with an empty cache offered the built-in
- * David row with no passkey, one tap signed in, and the phone then marked
+ * The owner row with no passkey, one tap signed in, and the phone then marked
  * itself the admin's. Now a passkeyed profile that was never verified here
  * goes back to the chooser, and only a verified admin open marks the phone.
  * @param {string} id
@@ -50,7 +50,7 @@ const houseOf = (p) => String(p?.household ?? "home");
 
 /**
  * Before any profile is marked admin (the release writes admin:true on
- * David's row), nothing is hidden: hiding his own family from him would be
+ * The owner's row), nothing is hidden: hiding his own family from him would be
  * the worse failure. Once a row says admin, the boundary applies.
  * @param {Record<string, any>[]} profiles
  */
@@ -84,7 +84,7 @@ export function visibleProfilesFor(profiles, me, houseEvents, todayIso) {
     }
   }
   // anyone seated at your own table is already known to you, the admin too
-  // (Tribunal Realist: Mom would otherwise see David's seat as "david")
+  // (Tribunal Realist: Mom would otherwise see the owner's seat as "david")
   return list.filter((p) => houseOf(p) === house || seated.has(p.id));
 }
 
@@ -221,7 +221,7 @@ export async function checkAdminKey(key, pin) {
  * with it. Without one: yes, except the admin row, which then opens only on a
  * device that has been the admin before (where he sets one in Settings).
  * A profile from ANOTHER household than this device's (Tribunal Red Team,
- * 2026-10-18: Elliot typing "Mom" became Mom) also needs the admin's
+ * 2026-10-18: the housemate typing "Mom" became Mom) also needs the admin's
  * passkey, unless this is the admin's own device.
  * @param {Record<string, any> | undefined} target
  * @param {string} pin
@@ -299,8 +299,8 @@ export function syncScopeFor(profiles, me, trustedAdmin = false) {
   // everything (Tribunal Engineer, 2.0 loop 1)
   if (!mine) return { profileIds: [], houses: [] };
   // the admin syncs everything only on a phone that verified him or has been
-  // his before: the offline fallback row made any phone "David" with one tap,
-  // and David has no passkey (Tribunal Red Team BLOCK, 2.0 loop 1)
+  // his before: the offline fallback row made any phone "the owner" with one tap,
+  // and the owner has no passkey (Tribunal Red Team BLOCK, 2.0 loop 1)
   if (isAdmin(mine)) return trustedAdmin ? null : { profileIds: [], houses: [] };
   const house = houseOf(mine);
   return {
@@ -311,7 +311,7 @@ export function syncScopeFor(profiles, me, trustedAdmin = false) {
 
 /**
  * A recipe title never names someone this phone does not show (2.0, A-03:
- * Elliot's Cookbook listed "Lena's Mediterranean Herb Chicken"). Drops a
+ * The housemate's Cookbook listed "Wren's Mediterranean Herb Chicken"). Drops a
  * leading "<Name>'s " for each hidden name; display only, the bank is
  * untouched. Returns the same array when nothing changes.
  * @param {Record<string, any>[]} recipes

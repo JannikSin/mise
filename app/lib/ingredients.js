@@ -1,5 +1,5 @@
 // Canonical ingredient identity: one food name, one unit family, one row on
-// the shopping list. The bug this exists to kill (David, 2026-07-25): the
+// the shopping list. The bug this exists to kill (the owner, 2026-07-25): the
 // list showed broccoli several times, because deriveShoppingList keyed merged
 // items on `slug(food)-slug(unit)` and the bank writes free-text food names
 // in whatever unit each recipe happened to use.
@@ -99,7 +99,7 @@ const UNIT_ALIASES = {
   quarts: "qt",
   litre: "l",
   litres: "l",
-  // the pack sizes David actually says (2026-09-06): "2 gallons of milk" is a
+  // the pack sizes the owner actually says (2026-09-06): "2 gallons of milk" is a
   // volume, and a pantry row that cannot be read as one buys milk again
   gal: "gal",
   gallon: "gal",
@@ -187,7 +187,7 @@ const NAME_ALIASES = {
   "semisweet-chocolate-chips": "chocolate-chips",
   // the pantry says "Whey protein (5 lb tub)", recipes say "whey protein
   // powder" — two keys meant the PLENTY tub never suppressed the list row
-  // and David was told to buy whey he owns in bulk (2026-08-18)
+  // and the owner was told to buy whey he owns in bulk (2026-08-18)
   "whey-protein": "whey-protein-powder",
   // plurals that appear as their own keys in the bank (2026-08-19 audit) —
   // each split key was silently pricing/pinning the same food twice
@@ -196,14 +196,14 @@ const NAME_ALIASES = {
   "bay-leaves": "bay-leaf",
   eggs: "egg",
   "chicken-thighs": "chicken-thigh",
-  // David 2026-08-19: fresh vs frozen mixed berries as two rows is
+  // The owner 2026-08-19: fresh vs frozen mixed berries as two rows is
   // "pointless" — every bank use (smoothies, bowls) takes frozen, and the
   // split double-charged one bag as two ($14.49 twice on the same list)
   "frozen-mixed-berries": "mixed-berries",
   "sweet-potatoes": "sweet-potato",
   // the pantry is DICTATED in the plural ("5 lemons", "bananas"), the bank asks
   // in the singular ("lemon", each). One key or the shelf never subtracts
-  // (David, 2026-09-06: lemons and yogurt he owned were bought again).
+  // (the owner, 2026-09-06: lemons and yogurt he owned were bought again).
   lemons: "lemon",
   limes: "lime",
   bananas: "banana",
@@ -218,7 +218,7 @@ const NAME_ALIASES = {
   "cheddar-cheese": "sharp-cheddar",
   tuna: "canned-tuna",
   // the bank says "milk" 13 times and "whole milk" twice; the shelf holds one
-  // jug, and the list should buy one jug (David's two gallons, 2026-09-06)
+  // jug, and the list should buy one jug (the owner's two gallons, 2026-09-06)
   "whole-milk": "milk",
   // the shelf says "spinach", the bank says "baby spinach" 27 times: one bag
   spinach: "baby-spinach",
@@ -249,7 +249,7 @@ const FOOD_UNITS = {
   "brown-rice": { unit: "g", cup: 190 },
   "shelled-edamame": { unit: "g", cup: 155 },
   "greek-yogurt": { unit: "g", cup: 245 },
-  // David, 2026-08-30: "cottage cheese is good though, don't avoid it" — a
+  // The owner, 2026-08-30: "cottage cheese is good though, don't avoid it" — a
   // cup against a 24 oz tub couldn't convert, the whole $4.99 tub counted
   // as eaten, and the cost sweep read his best pre-bed protein as expensive
   "cottage-cheese": { unit: "g", cup: 226 },
@@ -459,7 +459,7 @@ export function canonicalFood(food) {
   // parentheticals are packaging or prep, never identity: "Oats (large
   // container)" is oats. prices.js words() has always stripped them; this
   // matcher not doing the same is why onHand pantry rows failed to subtract
-  // and David bought food he already owned (fix list 0.3, 2026-08-18).
+  // and the owner bought food he already owned (fix list 0.3, 2026-08-18).
   const stripped = (food ?? "").replace(/\s*\([^)]*\)/g, "").replace(PREP_SUFFIX, "");
   const key = slugify(stripped);
   return NAME_ALIASES[key] ?? key;
@@ -509,7 +509,7 @@ const GENERIC_PACKS = {
 
 /**
  * What ONE of the thing on the shelf measures, per food, per pack word: the
- * language David dictates ("3 tubs of greek yogurt", "5 cartons of broth",
+ * language the owner dictates ("3 tubs of greek yogurt", "5 cartons of broth",
  * "two bricks of cheddar") turned into the unit the arithmetic can subtract.
  * Ordinary US retail sizes, chosen on the SMALL side on purpose: under-
  * counting the shelf buys a little extra; over-counting it runs the kitchen
@@ -757,7 +757,7 @@ const AISLE_RULES = [
   ],
   // BEFORE produce, which claims the entire `pepper` family. Cayenne was
   // ALREADY listed in the spices rule further down and could never reach it,
-  // because produce matched `pepper` first and the first match wins. David
+  // because produce matched `pepper` first and the first match wins. The owner
   // scanned his spice cabinet on 2026-08-26 and cayenne pepper filed under
   // PRODUCE. Paprika, peppercorns and a jar of red pepper flakes are shakers
   // on a rack, not fresh peppers on a produce table. Same shape as the
@@ -769,7 +769,7 @@ const AISLE_RULES = [
   // BEFORE dairy, which claims every `butter`. A nut or seed butter is a jar
   // on a shelf, not a refrigerated case, and TAHINI (a sesame butter) is
   // already filed under condiments below, so its siblings belong beside it.
-  // "almond butter" filed under DAIRY in David's first Wayne scan.
+  // "almond butter" filed under DAIRY in the owner's first Wayne scan.
   [
     "condiments",
     /\b(almond|peanut|cashew|sunflower|hazelnut|pistachio|nut|seed|sesame|soy) butters?\b/,
@@ -804,11 +804,11 @@ const AISLE_RULES = [
     "spices",
     /\bdried (?:[a-z]+ )?(?:herbs?|herbes|oregano|basil|thyme|rosemary|parsley|mint|dill|sage|tarragon|chives?|bay)\b/,
   ],
-  // PLURALS (David, 2026-08-27). Every keyword below used to be singular
+  // PLURALS (the owner, 2026-08-27). Every keyword below used to be singular
   // inside \b...\b, so "bananas", "lemons" and "pumpkin seeds" matched
   // nothing and fell through to OTHER while "banana", "lemon" and "seed"
   // classified fine. A camera scan writes what the LABEL says and labels are
-  // plural, so most of the fresh half of David's first Wayne pantry landed
+  // plural, so most of the fresh half of the owner's first Wayne pantry landed
   // unsorted. The trailing (?:e?s)? covers -s and -es; irregular plurals
   // (berries, cherries) stay spelled out.
   [

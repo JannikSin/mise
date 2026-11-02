@@ -1,4 +1,4 @@
-// THE WALK'S OWN NARRATION (P6, David 2026-10-18: "show everything and also
+// THE WALK'S OWN NARRATION (P6, the owner 2026-10-18: "show everything and also
 // narrate everything"): the pure audio steps between the phone's decoder and
 // the Worker's transcriber.
 import test from "node:test";

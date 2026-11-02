@@ -161,7 +161,7 @@ test("search budget: at most SEARCH_BUDGET searches, most expensive unpriced row
 test("DARK rows beat estimated ones for the search budget (the blueberries rule)", async () => {
   // 12 rows the store already estimates + 3 it knows NOTHING about: the
   // dark three must all make the cut even though their est is unknowable
-  // (David, 2026-08-30: "I know Payless sells blueberries... why would
+  // (the owner, 2026-08-30: "I know Payless sells blueberries... why would
   // that not get priced?")
   const estimated = Array.from({ length: 12 }, (_, i) => `est-food-${i}`);
   const dark = ["blueberries", "celery", "basil pesto"];

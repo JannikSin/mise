@@ -3,7 +3,7 @@
 //
 // 1.95 derived the session key from MISE_INVITE_TOKEN, the GitHub write PAT.
 // On Supabase there is no such PAT, so the key is its own Worker secret,
-// GUEST_SESSION_KEY (from `openssl rand -base64 32`, David's step 9). The
+// GUEST_SESSION_KEY (from `openssl rand -base64 32`, the owner's step 9). The
 // payload carries typ:"guest", and the verifier refuses anything else, so a
 // guest session can never be replayed as some other kind of signed blob. A
 // 1.95 session does not verify here (different key and label): the switch

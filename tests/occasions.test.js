@@ -302,7 +302,7 @@ test("summarize reads like a person wrote it", () => {
   assert.equal(summarize(one), "Nov 26");
 });
 
-// --- repeatable presets (David, 2026-08-10) -------------------------------
+// --- repeatable presets (the owner, 2026-08-10) -------------------------------
 // "this weekend my parents are at a friend's lake house" is three travel
 // days, not one, and nobody should have to create three occasions to say so.
 

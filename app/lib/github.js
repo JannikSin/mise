@@ -231,7 +231,7 @@ export function tokenBroken(auth) {
 
 /**
  * Is anything this device writes going to reach the kitchen? A broken token
- * is the loud case; a MISSING one was silent (David, 2026-09-06: an evening
+ * is the loud case; a MISSING one was silent (the owner, 2026-09-06: an evening
  * of P+ taps on a device that had never been given the token, every row
  * vanished from the list as if saved, nothing reached the household pantry,
  * and the header showed only a small "N UNSAVED"). "missing" is the honest

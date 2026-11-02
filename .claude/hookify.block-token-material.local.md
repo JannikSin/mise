@@ -15,4 +15,4 @@ You are writing what looks like a real GitHub PAT or Anthropic API key into a fi
 
 Mise rule (CLAUDE.md Part 2, rule 7): secrets live ONLY in browser localStorage or Cloudflare Worker env - never in code, never in the repo, never in any file on disk.
 
-Use a placeholder like YOUR_PAT_HERE instead. If this is a real token that was pasted into the conversation, tell David it should be rotated.
+Use a placeholder like YOUR_PAT_HERE instead. If this is a real token that was pasted into the conversation, tell the owner it should be rotated.

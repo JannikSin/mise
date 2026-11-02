@@ -102,7 +102,7 @@ export async function aiCount(project, sub, fetchImpl) {
  * svc.ai_take(p_sub uuid, p_n int, p_day date, p_user_cap int, p_global_cap int)
  * returns text (fix loop 1, E9; supabase/migrations/20261104100000_worker_ai_take.sql):
  * adds p_n to the person's row and, unless that row is over its cap, to the
- * global row, for David's day, in ONE call. 'ok' | 'user' | 'global'.
+ * global row, for the owner's day, in ONE call. 'ok' | 'user' | 'global'.
  * @param {SvcProject} project
  * @param {{ sub: string, n: number, day: string, userCap: number, globalCap: number }} a
  * @param {FetchImpl} [fetchImpl]

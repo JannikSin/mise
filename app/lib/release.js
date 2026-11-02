@@ -1,21 +1,21 @@
-// RELEASE VERSIONS (David, 2026-10-05: "we should have version numbers each
+// RELEASE VERSIONS (the owner, 2026-10-05: "we should have version numbers each
 // update so call what we have now v1, and we work from there"). One number a
 // person reads, separate from the service-worker shell number (mise-shell-v224
 // and on), which moves on every commit and means nothing to anyone using the
 // app.
 //
-// The sandbox carries NO number of its own (David: "it is a work in progress
+// The sandbox carries NO number of its own (the owner: "it is a work in progress
 // newer version... it might be 1.1 or 1.15 or 1.5 or 2.0, it varies based on
 // improvement shown"). It shows the live number plus "work in progress", and
 // its changes collect under the top entry, version "unreleased".
 //
 // THE RULE: the number is chosen AT SHIP TIME, sized to the improvement. The
-// session taking David's yes proposes it with a one-line reason, he confirms,
+// session taking the owner's yes proposes it with a one-line reason, he confirms,
 // and the session renames "unreleased" to that number and dates it with the
 // ship day. Versions compare as decimals (1.1 < 1.15 < 1.5 < 2.0).
 // tools/release.ps1 refuses a release whose top entry is not a number above
 // live's or is not dated the ship day. Right after a release, next opens a
-// fresh "unreleased" entry. Notes are for David: outcome, not mechanism.
+// fresh "unreleased" entry. Notes are for the owner: outcome, not mechanism.
 //
 // RELEASE CHECKLIST, v1.6: deploy the Worker BEFORE the app. The guest LOG IN
 // and SIGN UP screens call /guest/login, /guest/me and the login field of
@@ -101,7 +101,7 @@ export const RELEASES = [
       "Walk the fridge now listens: film the shelves while you say what you see, and what you said lands in the box for you to check. If the phone cannot hear it, the box stays for typing and says why.",
       "Sunday dinner is the batch for Mon to Thu: in the kitchen rule, Sunday cooks one pot that keeps and reheats, those nights eat it, and every phone names the same cook. Turn it off to cook a second Sunday pot instead.",
       "Sunday cooking can have a rough minutes limit in the kitchen rule; Plan shows the week's Sunday prep against it.",
-      "Passkeys show the digits you type, take the whole width, and clear after a wrong try. Everyone can set their own in Settings (typed twice; changing one asks for the current one first), and David can clear one that someone forgot.",
+      "Passkeys show the digits you type, take the whole width, and clear after a wrong try. Everyone can set their own in Settings (typed twice; changing one asks for the current one first), and the admin can clear one that someone forgot.",
       "Allergies catch more, for every profile including ones saved before: a dairy allergy now catches mozzarella, cheddar, queso and pesto; fish catches Worcestershire; eggs catch mayonnaise; gluten catches gnocchi; nuts catch pine nuts and pesto.",
       "When cooks take turns, the whole week is one list bought by the shopper, the other cook's nights included.",
       "Walk the fridge can read your video again.",
@@ -115,7 +115,7 @@ export const RELEASES = [
     date: "2026-10-18",
     notes: [
       "Settings has YOUR PROFILE: the full set of questions, filled in with what Mise already knows about you. Change anything and save; nothing else in your profile is touched. Your calorie target sits next to what Mise suggests from your numbers, and a target far from it asks you to say why.",
-      "Each person sees only their own household, plus guests at their own table. David, as admin, sees everyone. David's profile has a passkey, so nobody can open it from another phone.",
+      "Each person sees only their own household, plus guests at their own table. The admin sees everyone. The admin's profile has a passkey, so nobody can open it from another phone.",
       "One profile per person: Settings, Your profile, with the fuller questions. Anvil will read the same profile once Anvil's own update lands; until then Anvil keeps its own copy.",
     ],
   },

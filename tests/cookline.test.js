@@ -1,4 +1,4 @@
-// WHO COOKS THIS, on the plan row (David 2026-09-13: "should be more clear
+// WHO COOKS THIS, on the plan row (the owner 2026-09-13: "should be more clear
 // about who cooks each meal").
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -7,20 +7,20 @@ import { cookLine } from "../app/lib/plan.js";
 const day = (iso) => ({ "2026-09-07": "Mon", "2026-09-08": "Tue" })[iso] ?? iso;
 
 test("a shared cook night names the cook, 'you' on the cook's own device", () => {
-  const e = { table: "t1", cookId: "david", cookName: "David" };
+  const e = { table: "t1", cookId: "david", cookName: "Owner" };
   assert.equal(cookLine(e, "david", day), "🍳 you cook");
-  assert.equal(cookLine(e, "elliot", day), "🍳 David cooks");
+  assert.equal(cookLine(e, "flatmate", day), "🍳 Owner cooks");
 });
 
 test("a leftover night names the pot's day and who cooked it", () => {
   const e = {
     table: "t2",
     cookId: "david",
-    cookName: "David",
+    cookName: "Owner",
     leftoverOf: "b-wayne-kitchen-2026-09-07-dinner",
     leftoverDate: "2026-09-07",
   };
-  assert.equal(cookLine(e, "elliot", day), "♻ leftovers of Mon, David cooked it");
+  assert.equal(cookLine(e, "flatmate", day), "♻ leftovers of Mon, Owner cooked it");
   assert.equal(cookLine(e, "david", day), "♻ leftovers of Mon, you cooked it");
   // a solo plan stamps the cook DATE itself
   assert.equal(cookLine({ leftoverOf: "2026-09-07" }, "david", day), "♻ leftovers of Mon");
@@ -28,7 +28,7 @@ test("a leftover night names the pot's day and who cooked it", () => {
 
 test("a per-portion shared dish says everyone makes their own; a plain solo meal says nothing", () => {
   assert.equal(
-    cookLine({ table: "t3", cookId: "david", cookName: "David" }, "elliot", day, true),
+    cookLine({ table: "t3", cookId: "david", cookName: "Owner" }, "flatmate", day, true),
     "🥣 each makes their own",
   );
   assert.equal(cookLine({ recipeId: "x", servings: 1 }, "david", day), "");
@@ -47,15 +47,15 @@ test("the Sunday batch reads on every row it touches", () => {
       {
         table: "t",
         cookId: "david",
-        cookName: "David",
+        cookName: "Owner",
         leftoverOf: "x",
         leftoverDate: "2026-09-29",
         leftoverPrepared: "2026-09-27",
       },
-      "elliot",
+      "flatmate",
       dn,
     ),
-    "🥘 Sun batch, reheat, David cooked it",
+    "🥘 Sun batch, reheat, Owner cooked it",
   );
   assert.equal(
     cookLine(

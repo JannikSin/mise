@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-07-06 (recorded 2026-09-21 from CLAUDE.md Part 2 and the July blueprint)
-- **Deciders:** David, the July stack council
+- **Deciders:** the owner, the July stack council
 - **Tenet invoked:** the app must work for a household that is not his
 
 ## Context
@@ -30,7 +30,7 @@ gitignored on the laptop.
 ## Consequences
 
 Publishing personal data becomes a two-repo mistake instead of a one-command one, and
-"a feature that only works because of a fact about David" has nowhere to hide its fact.
+"a feature that only works because of a fact about the owner" has nowhere to hide its fact.
 
 **What gets worse:** every device needs the token pasted into SYS (the iPad taps of
 2026-09-06 never saved for exactly this reason), and every tool that reads data needs

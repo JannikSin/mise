@@ -1,10 +1,10 @@
 # Guided Tour (Tutorial), Design v3
 
 Date: 2026-07-21. Status: SHIPPED (commits c284c21 + e83d6d7). Council-reviewed,
-reshaped by David's call (see Phase 1 below): ONE tour, offered once at a
+reshaped by the owner's call (see Phase 1 below): ONE tour, offered once at a
 profile's first login, replayable from SYS, nothing living on the individual
 pages. Built, reviewer-fixed (2 code + 6 UI findings), live-verified in
-Chrome. Outstanding: a run-through on David's physical iPhone (scroll
+Chrome. Outstanding: a run-through on the owner's physical iPhone (scroll
 behavior under the overlay is intercepted touchmove, believed iOS-safe, but
 the council's rule stands: watch it on the real phone).
 
@@ -13,7 +13,7 @@ the council's rule stands: watch it on the real phone).
 Mise has accumulated real capability (generate/re-roll, pin, eating-out, lock,
 buffer tally, batch prep, pantry subtraction, just-bought, profiles) and none
 of it is discoverable. Nothing explains the buttons. A new profile (Mom) or
-future-David-after-a-month has to rediscover the system by poking it.
+future-the owner-after-a-month has to rediscover the system by poking it.
 
 ## Council verdict (5 advisors, 5 anonymous peer reviews, chairman synthesis)
 
@@ -38,7 +38,7 @@ future-David-after-a-month has to rediscover the system by poking it.
 - Interruption: a PWA gets backgrounded mid-tour (call, force-quit). Per-tab mini-tours mostly dissolve this; remaining rule is resume-at-step from the same localStorage record.
 - Maintenance ownership: who updates steps when views change? Answer: the selector test IS the enforcement; a view change that breaks a step breaks CI.
 
-## David's call (2026-07-21, supersedes the council's per-tab trigger)
+## The owner's call (2026-07-21, supersedes the council's per-tab trigger)
 
 A tour is a first-week thing, not a living UI feature. So: no per-page
 triggers, no per-tab first-visit offers, no "?" buttons taking up space.

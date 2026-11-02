@@ -1,4 +1,4 @@
-// RECIPE FROM A LINK, "USE IT THIS WEEK" (David, 2026-10-18: "give you the
+// RECIPE FROM A LINK, "USE IT THIS WEEK" (the owner, 2026-10-18: "give you the
 // link to the recipe online and you generate a recipe that complies with
 // everything and you add it into the system"). P12, P3: a scanned recipe
 // goes on a shared dinner only when every seated person's screen passes.

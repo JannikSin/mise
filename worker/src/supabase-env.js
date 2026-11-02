@@ -4,7 +4,7 @@
 // THE SWITCH IS ONE PLAIN VAR, `SUPABASE_BACKEND`, a comma list of data
 // branches ("sandbox", later "sandbox,main"). Absent, the Worker is 1.95
 // exactly: every route reads GitHub and only the PAT is accepted. The sandbox
-// origin goes first (David's step 12, Sat 10/31); the live origin follows on
+// origin goes first (the owner's step 12, Sat 10/31); the live origin follows on
 // the switch morning.
 //
 // Each project needs its URL (a plain var, public by design) and its secret

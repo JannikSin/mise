@@ -2,7 +2,7 @@
 
 - **Status:** accepted (supersedes the July "locked week", which predates this log)
 - **Date:** 2026-08-18
-- **Deciders:** David
+- **Deciders:** the owner
 - **Tenet invoked:** take the choices away, but never the food
 
 ## Context

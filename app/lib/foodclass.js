@@ -359,7 +359,7 @@ export function proteinSourceOf(food) {
 }
 
 /**
- * THE PROTEIN CLASS of one food, for rotating a week's dinners (David,
+ * THE PROTEIN CLASS of one food, for rotating a week's dinners (the owner,
  * 2026-09-05: "chicken is fine for 1 night a week but mix in ground beef and
  * ground turkey for the rest and maybe fish... if it is 4 dinners a week it
  * can be one of each"). Coarser than proteinSourceOf on purpose: the question

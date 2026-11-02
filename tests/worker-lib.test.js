@@ -140,7 +140,7 @@ test("buildReceiptRequest forces the record_receipt tool with the image", () => 
   assert.equal(req.messages[0].content[0].source.data, "abc");
 });
 
-// --- multi-photo receipts (David, 2026-08-10) -----------------------------
+// --- multi-photo receipts (the owner, 2026-08-10) -----------------------------
 // A long till roll does not fit in one frame. Several overlapping photos of
 // ONE receipt travel in ONE request so the model can read the strip as a
 // continuous list; reading them separately and de-duplicating afterwards
@@ -283,7 +283,7 @@ test("sanitizePeople caps strings, numbers, lists; drops nameless and non-object
   const people = sanitizePeople([
     {
       id: "david",
-      name: "  David ",
+      name: "  Owner ",
       goal: "gain",
       calories: 3700.4,
       protein: 210,
@@ -296,7 +296,7 @@ test("sanitizePeople caps strings, numbers, lists; drops nameless and non-object
     { name: "x".repeat(100), calories: -5, protein: "lots" },
   ]);
   assert.equal(people.length, 2);
-  assert.equal(people[0].name, "David");
+  assert.equal(people[0].name, "Owner");
   assert.equal(people[0].calories, 3700);
   assert.deepEqual(people[0].avoid, ["onion", "shallot"]);
   assert.ok(people[1].name.length <= 40);
@@ -314,7 +314,7 @@ test("buildMenuRequest forces record_menu with the image and every diner line", 
     image: "IMG",
     mediaType: "image/jpeg",
     diners: sanitizePeople([
-      { name: "David", goal: "gain", calories: 3700, protein: 210 },
+      { name: "Owner", goal: "gain", calories: 3700, protein: 210 },
       { name: "Mom", goal: "loss", calories: 1500, protein: 100, avoid: ["cilantro"] },
     ]),
     model: "m",
@@ -322,7 +322,7 @@ test("buildMenuRequest forces record_menu with the image and every diner line", 
   assert.equal(req.tool_choice.name, "record_menu");
   assert.equal(req.messages[0].content[0].source.data, "IMG");
   const text = req.messages[0].content[1].text;
-  assert.match(text, /David: goal gain/);
+  assert.match(text, /Owner: goal gain/);
   assert.match(text, /never serve: cilantro/);
 });
 
@@ -330,7 +330,7 @@ test("validateMenuReport caps picks at 3 per diner and sanitizes numbers", () =>
   const out = validateMenuReport({
     diners: [
       {
-        name: "David",
+        name: "Owner",
         picks: [
           { item: "Steak burrito", why: "protein dense", estCalories: 1100.6, estProtein: 55 },
           { item: "Chicken bowl", why: "backup", estCalories: 900, estProtein: 60 },
@@ -362,7 +362,7 @@ test("buildTailorRequest carries the dish, macros and seat ids", () => {
       ingredients: ["lentils", "pasta", "tomatoes"],
     },
     seats: sanitizePeople([
-      { id: "david", name: "David", goal: "gain", calories: 3700, protein: 210 },
+      { id: "david", name: "Owner", goal: "gain", calories: 3700, protein: 210 },
       { id: "mom", name: "Mom", goal: "loss", calories: 1500, protein: 100 },
     ]),
     model: "m",
@@ -374,7 +374,7 @@ test("buildTailorRequest carries the dish, macros and seat ids", () => {
   assert.match(text, /\[mom\]/);
 });
 
-test("the tailor prompt forbids powders, supplements and foods the pot does not hold (David 2026-09-13)", () => {
+test("the tailor prompt forbids powders, supplements and foods the pot does not hold (Owner 2026-09-13)", () => {
   const req = buildTailorRequest({
     recipe: {
       name: "x",
@@ -447,7 +447,7 @@ test("buildDinnerRequest folds people, asks and candidates into the system", () 
     people: sanitizePeople([
       {
         id: "david",
-        name: "David",
+        name: "Owner",
         goal: "gain",
         calories: 3700,
         protein: 210,
@@ -738,12 +738,12 @@ test("specialAvoidHits refuses a special whose ingredients hit any participant's
   };
   assert.deepEqual(
     specialAvoidHits(special, [
-      { name: "David", avoid: [] },
-      { name: "Lena", avoid: ["peanut"] },
+      { name: "Owner", avoid: [] },
+      { name: "Wren", avoid: ["peanut"] },
     ]),
-    ["Lena: peanut"],
+    ["Wren: peanut"],
   );
-  assert.deepEqual(specialAvoidHits(special, [{ name: "David", avoid: ["onion"] }]), []);
+  assert.deepEqual(specialAvoidHits(special, [{ name: "Owner", avoid: ["onion"] }]), []);
 });
 
 test("isoWeekIdOf matches the app's ISO week math", () => {
@@ -933,9 +933,9 @@ test("shared meals ping on cook nights only: the cook dinner, never a leftover n
 
 test("/ask: request grounds in the sanitized snapshot, response is plain text", () => {
   const ctx = sanitizeAskContext({
-    name: "David",
+    name: "Owner",
     targets: "3700 kcal / 210g protein daily",
-    dinners: ["2026-08-04 Baked salmon — cook Lena, groceries David | batch prep: none"],
+    dinners: ["2026-08-04 Baked salmon — cook Wren, groceries Owner | batch prep: none"],
     kitchen: Array.from({ length: 100 }, (_, i) => `item ${i}`),
     junk: { nested: "dropped" },
     notes: 42,
@@ -957,7 +957,7 @@ test("/ask: request grounds in the sanitized snapshot, response is plain text", 
   assert.ok(parseAskResponse({}).reply.length > 0, "empty response degrades honestly");
 });
 
-test("no 3 pm Afternoon fuel ping (David's alert budget, 2026-10-18)", () => {
+test("no 3 pm Afternoon fuel ping (Owner's alert budget, 2026-10-18)", () => {
   const plan = {
     week: "2026-W30",
     shoppedAt: "2026-07-20",

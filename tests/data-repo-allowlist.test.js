@@ -22,7 +22,7 @@ test("with no config, only the family repo is allowed", () => {
 test("an unlisted repo silently falls back — it never buys access", () => {
   // THE WHOLE DEFENCE. isAuthorized only proves the caller can see a private
   // repo; without this, presenting a token for any private repo you happen to
-  // own would spend David's Anthropic key.
+  // own would spend the owner's Anthropic key.
   assert.equal(repoForRequest(req("someone/their-private-repo"), {}), "JannikSin/mise-data");
   assert.equal(repoForRequest(req("JannikSin/mise"), {}), "JannikSin/mise-data");
 });

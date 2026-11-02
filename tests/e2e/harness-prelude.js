@@ -170,7 +170,7 @@ const freshBoot = async () => {
   await page.goto(BASE + "/index.html");
   await page.evaluate(async () => {
     localStorage.clear();
-    // multi-profile gate: e2e scenarios exercise David's app, not the
+    // multi-profile gate: e2e scenarios exercise the owner's app, not the
     // chooser, so land straight past it exactly like an existing device.
     localStorage.setItem("mise.activeProfile", "david");
     const regs = await navigator.serviceWorker.getRegistrations();

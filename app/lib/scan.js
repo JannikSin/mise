@@ -15,7 +15,7 @@ import {
 import { canonicalFood, knownFoods } from "./ingredients.js";
 
 /**
- * SAY WHAT YOU HAVE (David, 2026-09-06: "I can just voice type in what I
+ * SAY WHAT YOU HAVE (the owner, 2026-09-06: "I can just voice type in what I
  * have... I have soy sauce, I have sesame oil... run through all the things
  * that I have and then we can get the pantry up to date"). One dictated or
  * pasted run-through becomes pantry items, through the SAME apply path as an
@@ -57,7 +57,7 @@ import { canonicalFood, knownFoods } from "./ingredients.js";
 export function readPantryNote(text, known = []) {
   const said = String(text ?? "").trim();
   const vocab = noteVocab(known);
-  // RUN-ON PHRASES SPLIT AT THE NEXT QUANTITY (David's dictation, 2026-09-06:
+  // RUN-ON PHRASES SPLIT AT THE NEXT QUANTITY (the owner's dictation, 2026-09-06:
   // "milk a huge thing of soy sauce about a container of basil pesto" landed
   // as ONE pantry row holding two gallons). A spoken list rarely carries the
   // commas; what it carries is a new amount in front of each new food, so a
@@ -269,7 +269,7 @@ export function readPantryNote(text, known = []) {
         return;
       }
     const frozen = /\bfrozen\b/i.test(name);
-    // A COUNT IS INVENTORY (David, 2026-09-06: "it should know how many
+    // A COUNT IS INVENTORY (the owner, 2026-09-06: "it should know how many
     // lemons"). Anything said with an amount becomes a counted, dated row
     // even when the food is shelf-stable, because a staple row has no
     // quantity at all and "5 lemons" would have landed as a bare PLENTY.
@@ -351,7 +351,7 @@ const DESCRIBES = new Set(
 );
 
 // EVERYDAY FOODS a kitchen holds that the bank's own table may not name yet
-// (figs, dates and protein powder were in David's 10/18 note). The view adds
+// (figs, dates and protein powder were in the owner's 10/18 note). The view adds
 // the pantry's foods and every bank ingredient on top of these.
 const COMMON_FOODS = (
   "rice, white rice, jasmine rice, basmati rice, pasta, spaghetti, penne, macaroni, " +
@@ -647,7 +647,7 @@ export function applyScanItems(pantry, items, todayIso, location) {
       // between shelves and reset its age. Same food on another shelf gets
       // its own new row.
       const key = slug(name);
-      // A NUMBER REPLACES A WORD (David, 2026-09-07): a counted row of a food
+      // A NUMBER REPLACES A WORD (the owner, 2026-09-07): a counted row of a food
       // retires its bare PLENTY assertion, or the list would keep skipping
       // the food on the strength of the word while the count said otherwise.
       if (item.qty) {
@@ -688,7 +688,7 @@ export function applyScanItems(pantry, items, todayIso, location) {
 }
 
 /**
- * WALK THE FRIDGE (David, 2026-10-18: "can I record a video, roll it past all
+ * WALK THE FRIDGE (the owner, 2026-10-18: "can I record a video, roll it past all
  * the shelves inside the fridge, and narrate everything? Can you process that
  * and update things?"). P6, the pantry is spent before it is replaced.
  *
@@ -771,7 +771,7 @@ export function mergeFridgeWalk(frames, narration, known) {
 }
 
 // ---------------------------------------------------------------------------
-// THE WALK'S OWN NARRATION (P6, David 2026-10-18: "show everything and also
+// THE WALK'S OWN NARRATION (P6, the owner 2026-10-18: "show everything and also
 // narrate everything"). He talks while he films, so the words are already in
 // the video; v1.7 made him type them again. These three pure steps turn the
 // decoded audio into a small WAV the Worker can transcribe: one channel,

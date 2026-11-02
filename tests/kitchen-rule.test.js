@@ -8,7 +8,7 @@
 //
 // I-14 (talbot P3a, P3d): the live rule cooked Sunday's dinner AND a batch
 // for Mon to Thu, so Sunday was two dinners; and the batch's cook read
-// differently on David's phone and Rowan's.
+// differently on the owner's phone and Rowan's.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { planBrigadeWeek } from "../app/lib/compose.js";
@@ -76,7 +76,7 @@ const rowanTargets = {
   avoidIngredients: ["peanut"],
 };
 const PROFILES = new Map([
-  ["david", { id: "david", name: "David", household: "wayne" }],
+  ["david", { id: "david", name: "Owner", household: "wayne" }],
   ["rowan", { id: "rowan", name: "Rowan", household: "wayne" }],
 ]);
 const TARGETS = new Map([
@@ -96,7 +96,7 @@ const WEEK = [
 const [SUN, MON, TUE, WED, THU] = WEEK;
 // THE LIVE RULE'S SHAPE (20974b9d): cook Sun Fri Sat, take turns, and the
 // old "Sunday also cooks a batch for Mon to Thu". `from` one day before the
-// Sunday, so Sunday is Rowan's turn and Monday is David's, as on 10/18.
+// Sunday, so Sunday is Rowan's turn and Monday is the owner's, as on 10/18.
 const LIVE = {
   id: "wk",
   name: "Wayne kitchen",
@@ -148,7 +148,7 @@ const dayName = (/** @type {string} */ iso) =>
 // ---------------------------------------------------------------------------
 
 const SEATED = [
-  { id: "david", name: "David", targets: davidTargets },
+  { id: "david", name: "Owner", targets: davidTargets },
   { id: "rowan", name: "Rowan", targets: rowanTargets },
 ];
 
@@ -339,7 +339,7 @@ test("I-14: a Sunday already set or bought is kept as it is when the setting tur
 const linesOn = (/** @type {any} */ events, /** @type {string} */ me) =>
   Object.fromEntries(phone(events, me).map((e) => [e.date, cookLine(e, me, dayName)]));
 
-test("I-14: David's phone and Rowan's compute the same cook for Sunday's dinner pot on every night it feeds", () => {
+test("I-14: Owner's phone and Rowan's compute the same cook for Sunday's dinner pot on every night it feeds", () => {
   for (const rule of [asOnePot(LIVE), { ...LIVE, sundayBatch: false }]) {
     const { events } = planBrigadeWeek({ tables: [] }, rule, ctx());
     const sunCook = dinner(events, SUN).cookId;
@@ -355,15 +355,15 @@ test("I-14: David's phone and Rowan's compute the same cook for Sunday's dinner 
     const dl = linesOn(events, "david");
     const el = linesOn(events, "rowan");
     for (const d of [MON, TUE, WED, THU]) {
-      assert.match(dl[d], /Rowan cooked it$/, `David's phone, ${d}: ${dl[d]}`);
+      assert.match(dl[d], /Rowan cooked it$/, `Owner's phone, ${d}: ${dl[d]}`);
       assert.match(el[d], /you cooked it$/, `Rowan's phone, ${d}: ${el[d]}`);
     }
   }
 });
 
 test("I-14: tables written before the fix (each night credited to its own turn) read the same cook on both phones, and SET MY WEEK repairs them", () => {
-  // the 10/18 shape: the Monday batch credited to Monday's turn (David), the
-  // leftover nights to their own turns, so David's phone said "you cooked it"
+  // the 10/18 shape: the Monday batch credited to Monday's turn (the owner), the
+  // leftover nights to their own turns, so the owner's phone said "you cooked it"
   const { events } = planBrigadeWeek({ tables: [] }, { ...LIVE, sundayBatch: false }, ctx());
   const turn = (/** @type {string} */ d) =>
     Math.round((Date.parse(d) - Date.parse(LIVE.from)) / 86400000) % 2 === 0 ? "david" : "rowan";
@@ -374,8 +374,8 @@ test("I-14: tables written before the fix (each night credited to its own turn) 
   assert.equal(dinner(stale, MON).cookId, "david", "the stale batch names Monday's turn");
   const dl = linesOn(stale, "david");
   const el = linesOn(stale, "rowan");
-  // Sunday's card no longer credits the batch to Rowan while the batch says David
-  assert.match(el[SUN], /^🍳 you cook · David cooks the batch for Mon/, el[SUN]);
+  // Sunday's card no longer credits the batch to Rowan while the batch says the owner
+  assert.match(el[SUN], /^🍳 you cook · Owner cooks the batch for Mon/, el[SUN]);
   assert.match(dl[SUN], /^🍳 Rowan cooks · you cook the batch for Mon/, dl[SUN]);
   // every night eating the batch names the batch's cook, on both phones
   for (const d of [TUE, WED, THU]) {

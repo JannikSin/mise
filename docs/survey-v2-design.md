@@ -110,7 +110,7 @@ Under 5 minutes fully answered; under 3 skipping section 3.
 
 ## Why plans now genuinely differ
 
-Two public users, same body stats: a vegan gluten-free beginner with 15-minute nights gets a pool filtered to roughly the 16-recipe diversity set plus assembly bowls, smoothie committee of pea/soy blends, snacks topping up from edamame and roasted chickpeas. An omnivore confident cook with no exclusions gets today's David-shaped week. The committees, the shopping list, the Daily Dozen coverage report, and the macro top-ups all diverge because the POOL and the SCORING diverge, not because any new generation engine was built: every mechanism above is either live today or a bounded extension of `mergeRecipePool`, `pool()`, or `bonus()`.
+Two public users, same body stats: a vegan gluten-free beginner with 15-minute nights gets a pool filtered to roughly the 16-recipe diversity set plus assembly bowls, smoothie committee of pea/soy blends, snacks topping up from edamame and roasted chickpeas. An omnivore confident cook with no exclusions gets today's the owner-shaped week. The committees, the shopping list, the Daily Dozen coverage report, and the macro top-ups all diverge because the POOL and the SCORING diverge, not because any new generation engine was built: every mechanism above is either live today or a bounded extension of `mergeRecipePool`, `pool()`, or `bonus()`.
 
 ## Implementation order (for whoever builds it)
 

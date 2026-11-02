@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-08-19 (his first real curbside order)
-- **Deciders:** David, after the order arrived
+- **Deciders:** the owner, after the order arrived
 - **Tenet invoked:** none
 
 ## Context

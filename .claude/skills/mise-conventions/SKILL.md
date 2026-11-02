@@ -50,7 +50,7 @@ divergence — if it fires, heal the pair before anything else. Second
 occurrence of this bug class (first: "210 g live in 5 places", DOCTRINE
 Article 5); there is no third.
 
-## Forbidden without David's explicit approval
+## Forbidden without the owner's explicit approval
 
 - New dependencies (runtime OR dev). State the justification, wait for yes.
 - Schema changes without updating docs/SCHEMAS.md in the same commit.

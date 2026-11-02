@@ -1,4 +1,4 @@
-// Guest log in (Mise v1.6, P8 + P3; David 2026-10-18: "not too much security,
+// Guest log in (Mise v1.6, P8 + P3; the owner 2026-10-18: "not too much security,
 // just a little bit of a boundary"). The pure half: names, passkeys, the
 // passkey hash, the signed session, and the lockout arithmetic.
 import test from "node:test";
@@ -81,7 +81,7 @@ test("five wrong tries lock a login for fifteen minutes, then the count starts a
 });
 
 test("a guest sees first names and a whitelisted recipe, nothing else", () => {
-  assert.equal(firstNameOf("David Thornton"), "David");
+  assert.equal(firstNameOf("Owner Birch"), "Owner");
   assert.equal(findGuestLogin({ logins: [{ nameKey: "sam" }] }, "sam")?.nameKey, "sam");
   assert.equal(findGuestLogin(null, "sam"), null);
   const r = guestRecipe({

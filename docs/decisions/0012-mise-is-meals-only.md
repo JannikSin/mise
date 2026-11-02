@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-10-12
-- **Deciders:** David (session tweener)
+- **Deciders:** the owner (session tweener)
 - **Tenet invoked:** none
 
 ## Context
@@ -10,7 +10,7 @@
 The 2026-10-12 audit found Mise carrying work that is not food: supplement and water ticks
 on the shared daily row, and two workout files (`fitness/workouts.json`,
 `fitness/activities.json`) that Anvil replaced. The Crystal brief, Mise and Anvil can all
-offer the same routine ticks, so one row has several places to be ticked. David's ruling:
+offer the same routine ticks, so one row has several places to be ticked. The owner's ruling:
 Mise is meals only, and Anvil owns the supplements and the daily routine.
 
 ## Options considered

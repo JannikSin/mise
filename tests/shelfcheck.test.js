@@ -89,7 +89,7 @@ test("STILL HAVE stamps the row; EDIT normalizes the words and writes off a lowe
   assert.equal(goneShelfRow(PANTRY, "rice").waste, null, "a state item is not a shelf row");
 });
 
-test("weekNeedsCheck: the week's need against the shelf, in the list's own arithmetic (David, 2026-09-07)", () => {
+test("weekNeedsCheck: the week's need against the shelf, in the list's own arithmetic (Owner, 2026-09-07)", () => {
   const pantry = {
     items: [
       { id: "soy-sauce", food: "soy sauce", section: "condiments", state: "plenty" },

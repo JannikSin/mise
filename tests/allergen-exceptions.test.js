@@ -1,4 +1,4 @@
-// Allergen exceptions (P8 plates, P3 knows-you; David's ruling 2026-10-27).
+// Allergen exceptions (P8 plates, P3 knows-you; the owner's ruling 2026-10-27).
 // A synthetic housemate ("housemate-1") with a peanut allergy is off tree nuts
 // too, but eats pine nuts and pesto with no nuts but pine nuts in it. One person
 // may clear exactly those two terms from the nuts chip for themselves; every

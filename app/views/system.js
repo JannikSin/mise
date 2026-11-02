@@ -152,7 +152,7 @@ export function SystemView({
 
   // ---- WHICH MEALS YOU PLAN (P2) -----------------------------------------
   // Until 2026-09-13 the meal slots were set once at onboarding and could only
-  // be changed by editing targets.json: David dropped the daily smoothie by
+  // be changed by editing targets.json: the owner dropped the daily smoothie by
   // telling a session, which is the standing-rule failure. Same shape as the
   // kitchen above: a draft, one SAVE, the next GENERATE MY WEEK honours it.
   const declaredSlots = Array.isArray(targets?.mealSlots) ? targets.mealSlots : null;
@@ -179,7 +179,7 @@ export function SystemView({
     }
   };
 
-  // YOUR WEEKLY FOOD BUDGET (P5). David, 2026-09-24: "under $50 per person,
+  // YOUR WEEKLY FOOD BUDGET (P5). The owner, 2026-09-24: "under $50 per person,
   // target about $40 ... this was said many times before". It was set once
   // at onboarding and nothing in the app could change it, so every session
   // asked again. The List's budget tile judges your share against it and the
@@ -206,7 +206,7 @@ export function SystemView({
     }
   };
 
-  // YOUR BUY DAY (P4, P7). David, 2026-09-25: Sunday was a bad day to buy
+  // YOUR BUY DAY (P4, P7). The owner, 2026-09-25: Sunday was a bad day to buy
   // (meetings), so the shop moved to Friday. One tap saves; BUILD on the List
   // then shops the seven days that open on this day.
   const buyDay = buyDayOf(targets);
@@ -256,7 +256,7 @@ export function SystemView({
   // cache first and refreshes behind it, so the first answer on a device that
   // has been away is the OLD list. Without this subscription the refreshed
   // file lands in IndexedDB and never reaches the screen — which is how this
-  // view kept insisting David lived in "thornton" days after he moved.
+  // view kept insisting the owner lived in "birch" days after he moved.
   useEffect(() => {
     let alive = true;
     const load = () => {
@@ -309,9 +309,9 @@ export function SystemView({
 
   // household (profiles.json household, absent = "home"): which grocery trip
   // this profile's list merges into. Editable so a member can move for a week
-  // (Lena visiting joins "home", then moves back to hers).
+  // (Wren visiting joins "home", then moves back to hers).
   //
-  // MOVING IS A CHOICE FROM A LIST, NOT A SPELLING TEST (David, 2026-08-28).
+  // MOVING IS A CHOICE FROM A LIST, NOT A SPELLING TEST (the owner, 2026-08-28).
   // This was a bare text box holding the raw slug, so moving into an existing
   // house meant knowing its slug and typing it byte-for-byte: one typo and
   // you silently founded an empty house with its own empty pantry, next to
@@ -355,12 +355,12 @@ export function SystemView({
   // ---- HOUSEHOLD MANAGEMENT (P6, spec 2026-08-25) ------------------------
   // "Do this from the app": creating a house was already MOVE HOUSE above,
   // but renaming one for EVERYONE and adding a housemate could only be done
-  // by editing JSON, which meant David could not do it. Standing rule: ship
+  // by editing JSON, which meant the owner could not do it. Standing rule: ship
   // the button, never fix the data backstage.
   // the admin's own controls (privacy.js): before any admin is marked,
   // everyone keeps today's controls; once marked, only the admin edits houses
   const canEditHouses = !boundaryOn(allProfiles ?? []) || isAdmin(profile);
-  // YOUR PASSKEY, everyone's (David, 2026-10-18: "everybody else should also
+  // YOUR PASSKEY, everyone's (the owner, 2026-10-18: "everybody else should also
   // have their own passkey"). Typed twice and shown as digits: v1.8 hid both,
   // so one stray tap saved a passkey nobody knew.
   const [newPin, setNewPin] = useState("");
@@ -612,7 +612,7 @@ export function SystemView({
 
   // family (profiles.json family, optional): the top-level grouping the
   // profile gate organizes people under. Family = who you ARE (fixed-ish);
-  // household = who you shop with right now (movable). David's structure,
+  // household = who you shop with right now (movable). The owner's structure,
   // 2026-07-21.
   const [familyDraft, setFamilyDraft] = useState(/** @type {string | null} */ (null));
   const family = /** @type {string} */ (profile?.family ?? "");
@@ -1122,7 +1122,7 @@ export function SystemView({
       </div>
 
       ${
-        /* EVERYTHING ELSE, folded (David, 2026-10-16: "there's so much in
+        /* EVERYTHING ELSE, folded (the owner, 2026-10-16: "there's so much in
            settings ... do an audit of things that are actually necessary").
            Nothing here is gone: houses and family (People does the everyday
            part), the data repo and branch, the test buttons, version notes. */ ""
@@ -1130,7 +1130,7 @@ export function SystemView({
       <details class="tile moresettings">
         <summary class="k">More · houses, data repo, tests, version notes</summary>
         ${
-          // houses, housemates and family are the admin's (David, 2026-10-18:
+          // houses, housemates and family are the admin's (the owner, 2026-10-18:
           // "Other than me, who should have admin privileges ..."): a
           // non-admin never sees other households here, nor moves into one
           canEditHouses
@@ -1242,7 +1242,7 @@ export function SystemView({
           </div>`
         }
         ${
-          // INVITE BY LINK (David, 2026-10-05: "invite through a link, so I can
+          // INVITE BY LINK (the owner, 2026-10-05: "invite through a link, so I can
           // send it through iMessage or Gmail"; each person makes their own
           // profile). The machinery is the 2026-09-14 join-by-link: one person,
           // one single-use code, seven days; the Worker writes their profile,
@@ -1342,7 +1342,7 @@ export function SystemView({
           <span class="k">Family</span>
           <input
             aria-label="Family this person belongs to"
-            placeholder="e.g. thornton"
+            placeholder="e.g. birch"
             value=${familyShown}
             onInput=${(/** @type {any} */ e) => setFamilyDraft(e.currentTarget.value)}
           />

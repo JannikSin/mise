@@ -712,7 +712,7 @@ summary.block-title {
   font-size: 12.5px;
   font-weight: 600;
   /* was nowrap + ellipsis, which is how a planned meal rendered as
-     "matcha gree…" (David, 2026-07-27). A recipe name is the single most
+     "matcha gree…" (the owner, 2026-07-27). A recipe name is the single most
      load-bearing string on this screen, so it gets two lines before it
      truncates, and the row grows to fit rather than the name shrinking. */
   overflow-wrap: anywhere;
@@ -1540,7 +1540,7 @@ summary.block-title {
   cursor: default;
 }
 
-/* STRICT LIST COLUMNS (David 2026-08-19: "literally make columns"). Line 1
+/* STRICT LIST COLUMNS (the owner 2026-08-19: "literally make columns"). Line 1
    is box + food + the action buttons; line 2 is four fixed tracks — NEED
    (the recipes' summation) · BUY (packs × the store's pack) · $/unit ·
    TOTAL. The same tracks repeat in .colhead and in every row, and the
@@ -2374,7 +2374,7 @@ button.linktext {
   color: var(--red);
 }
 
-/* Plan scoreboard (David's layout pick, 2026-07-23): the week as seven
+/* Plan scoreboard (the owner's layout pick, 2026-07-23): the week as seven
    one-line days, meters always visible, native <details> accordion */
 details.dayrow {
   background: var(--panel);
@@ -2485,7 +2485,7 @@ details.dayrow summary:focus-visible {
   min-width: 64px;
 }
 
-/* Receipt review states (David, 2026-07-26: "i am unable to check any of the
+/* Receipt review states (the owner, 2026-07-26: "i am unable to check any of the
    boxes ... i cannot tell"). The rows were toggling correctly, but a kept line
    drew its ✓ in --on-signal on an UNFILLED box, i.e. dark on dark, and an
    excluded line drew nothing: both states looked identical. A kept line now
@@ -2505,7 +2505,7 @@ details.dayrow summary:focus-visible {
 /* The tour's unconditional way out. .tour is fixed inset:0 and eats every
    tap, and its card only renders once a step's target is measured, so a step
    that never resolves left an invisible full-screen blocker with nothing to
-   press (David, 2026-07-26: "none of the buttons work ... i can scroll"). */
+   press (the owner, 2026-07-26: "none of the buttons work ... i can scroll"). */
 .tour-escape {
   position: fixed;
   top: calc(10px + env(safe-area-inset-top));
@@ -2597,7 +2597,7 @@ details.dayrow summary:focus-visible {
   display: block;
 }
 
-/* KROGER PUSH LOG (David, 2026-08-25: "I'm logged in to my account on the Pay
+/* KROGER PUSH LOG (the owner, 2026-08-25: "I'm logged in to my account on the Pay
    Less app, but I see nothing"). Kroger's cart cannot be read back, so this is
    the only record of what was sent. Collapsed by default — it is a diagnostic,
    not something to read every shop. */
@@ -2784,7 +2784,7 @@ details.dayrow summary:focus-visible {
   flex: none;
 }
 
-/* the passkey box (David, 2026-10-18): full width so the digits show, OPEN
+/* the passkey box (the owner, 2026-10-18): full width so the digits show, OPEN
    underneath instead of beside it squeezing the box to nothing */
 .pin-form {
   display: flex;

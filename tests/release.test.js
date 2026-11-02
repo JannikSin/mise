@@ -4,7 +4,7 @@ import { RELEASES, LIVE_VERSION, UNRELEASED, versionLabel } from "../app/lib/rel
 
 const shipped = RELEASES.filter((r) => r.version !== UNRELEASED);
 
-// THE RULE (David, 2026-10-05): the number is chosen at ship time, sized to the
+// THE RULE (the owner, 2026-10-05): the number is chosen at ship time, sized to the
 // improvement, and only ever moves up (as a decimal: 1.1 < 1.15 < 1.5 < 2.0).
 test("shipped versions are decimal numbers, newest first, strictly rising, down to 1.0", () => {
   assert.equal(shipped.at(-1)?.version, "1.0");

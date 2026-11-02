@@ -45,7 +45,7 @@ import { CHECK_LABEL_TERMS } from "./targets.js";
 export const SLOT_KEYS = ["breakfast", "lunch", "dinner", "smoothie", "snack"];
 
 /**
- * WHO COOKS THIS, on the plan row (David, 2026-09-13: "should be more clear
+ * WHO COOKS THIS, on the plan row (the owner, 2026-09-13: "should be more clear
  * about who cooks each meal"). One short chip per shared or leftover meal:
  * the cook by name ("you cook" on the cook's own device), a leftover night
  * names the day of the pot it eats and who cooked it, and a dish everyone
@@ -231,7 +231,7 @@ export function dietOf(recipe) {
  * too. The avoid screen SKIPS optional:true ingredients — an optional yogurt
  * topping must not drop a recipe from a dairy-free pool. Own recipes are
  * exempt from both — they were authored for this profile and already respect
- * its rules (Mom's 58 were hand-swept for onion; David's bank recipes were
+ * its rules (Mom's 58 were hand-swept for onion; the owner's bank recipes were
  * not, which is exactly why this screen exists).
  * @param {Record<string, any>[]} bank recipes/ at the data-repo root
  * @param {Record<string, any>[]} own the profile's scoped recipes/ (empty for david — his own ARE the bank)
@@ -239,7 +239,7 @@ export function dietOf(recipe) {
  * @param {string[]} [avoid] the profile's targets.avoidIngredients
  * @param {string} [diet] the profile's targets.diet (absent = omnivore, no diet filter)
  * @param {string[]} [avoidRecipes] the profile's targets.avoidRecipes: recipe
- *   ids banned outright ("never show me the office lunch box again", David
+ *   ids banned outright ("never show me the office lunch box again", the owner
  *   2026-08-01). Unlike every other screen this one also applies to OWN
  *   recipes — a ban is a ban — so the recipe vanishes from this profile's
  *   cookbook, generator, and swap suggestions everywhere the merged pool is
@@ -258,7 +258,7 @@ export function mergeRecipePool(bank, own, phase, avoid, diet, avoidRecipes) {
   }
   for (const r of own) {
     if (banned.has(r.id)) continue;
-    // OWN recipes are screened too (David, 2026-08-10). They used to be exempt
+    // OWN recipes are screened too (the owner, 2026-08-10). They used to be exempt
     // on the reasoning that a human authored them for this profile and had
     // already respected its rules. That held only while a human wrote every
     // one: the exemption followed the DIRECTORY, not any actual verification,
@@ -331,7 +331,7 @@ export function autoPlanEligible(recipe) {
  * recipe's `rotation.keep` and its WHOLE `rotation.pool`, because the plate
  * and the recipe page print the day's rotation picks, not the ingredients
  * (shrike audit 10/25, S-B1: the berry-greens smoothie's pool carried peanut
- * butter, the screen read only `ingredients`, and Elliot's plate said "0.5 tbsp
+ * butter, the screen read only `ingredients`, and the housemate's plate said "0.5 tbsp
  * peanut butter" four days of seven). The whole pool, not today's picks: the
  * screen has no date, and a pool row is on some day's plate, so it fails closed.
  * @param {Record<string, any>} recipe
@@ -531,7 +531,7 @@ export function prepSundayOf(weekId) {
 }
 
 /**
- * The trip BUILD shops while `viewWeek` is on screen (the buy day, David
+ * The trip BUILD shops while `viewWeek` is on screen (the buy day, the owner
  * 2026-09-25). On the current week: the trip holding the first day still
  * to plan (`startIso`, planStartIso: after 7:30 pm that is tomorrow, so a
  * Thursday-night build already buys the next Friday's trip). On a future
@@ -564,7 +564,7 @@ export function tripFor(viewWeek, todayIso, startIso, buyDay) {
 }
 
 /**
- * The days BUILD's day chips offer (David, 2026-10-23: "you should be able to
+ * The days BUILD's day chips offer (the owner, 2026-10-23: "you should be able to
  * select the days that you want to buy and build for up to a week"): the
  * seven days from the first day still to plan, whatever the buy day. Picking
  * none still builds the trip (tripFor).
@@ -687,7 +687,7 @@ export function togglePinById(plan, id) {
 export const OUT_TEXT = "eating out";
 
 /**
- * Deliberate UNDERSHOOT on the eating-out macro estimate (David's call,
+ * Deliberate UNDERSHOOT on the eating-out macro estimate (the owner's call,
  * 2026-07-20): you don't know what the restaurant serves until you've eaten
  * it, so credit slightly less than average and let the generator's snack
  * top-up close the small remaining gap — a snack you can skip if dinner ran
@@ -783,7 +783,7 @@ export const SWIPE_TEXT = "dining swipe";
 
 /**
  * The macro credit a BUFFET slot is assumed to deliver (7.11, P5+P10,
- * David's arbitrage 2026-08-19): all-you-can-eat means the slot ABSORBS the
+ * The owner's arbitrage 2026-08-19): all-you-can-eat means the slot ABSORBS the
  * expensive macros — pile the protein there because its marginal cost is
  * zero, and the grocery list buys less of the costliest thing it prices.
  * So where a restaurant slot deliberately undershoots, a buffet slot
@@ -794,7 +794,7 @@ export const SWIPE_TEXT = "dining swipe";
  * @returns {{ estCalories: number, estProtein: number }}
  */
 export function buffetMacroEstimate(recipes, slot, currency = /** @type {any} */ (null)) {
-  // A CURRENCY MAY STATE ITS OWN TRAY (David 2026-08-24: "I can get sixty or
+  // A CURRENCY MAY STATE ITS OWN TRAY (the owner 2026-08-24: "I can get sixty or
   // eighty grams of protein in one meal on a swipe"). The derived figure
   // below is the average slot scaled up, which for lunch lands at 49 g and
   // badly understates what an all-you-care-to-eat buffet actually delivers —
@@ -832,7 +832,7 @@ export function buffetMacroEstimate(recipes, slot, currency = /** @type {any} */
  * The swipe machinery has always been complete and always been MANUAL: the
  * generator does the arbitrage beautifully for swipes that are already in the
  * plan, and nothing ever put one there. So a seven-swipe meal plan only paid
- * off if David remembered to tap seven slots before pressing GENERATE, and if
+ * off if the owner remembered to tap seven slots before pressing GENERATE, and if
  * he did not, the week bought protein he had already paid for.
  *
  * One a day, on a preferred slot, up to the currency's weekly allowance.
@@ -906,7 +906,7 @@ export function planSwipes(plan, dates, opts) {
 }
 
 /**
- * THE WEEK RUN EATS ITS SWIPES (P5, P10, David 2026-08-28 plenum: "put
+ * THE WEEK RUN EATS ITS SWIPES (P5, P10, the owner 2026-08-28 plenum: "put
  * swipes for lunch every day and have that in there").
  *
  * planSwipes budgets the week when HE generates, but the week-of-meals run
@@ -953,7 +953,7 @@ export function weekRunSwipes(meals, buffet, plan, today) {
 }
 
 /**
- * WHAT A DAY ALREADY DELIVERS OUTSIDE A WEEK RUN'S MEALS (P2, P5, David
+ * WHAT A DAY ALREADY DELIVERS OUTSIDE A WEEK RUN'S MEALS (P2, P5, the owner
  * 2026-08-28 plenum, round two: "342 grams of protein instead of the 190
  * target"). The week run balanced each person's WHOLE day over just the
  * meals it was planning, so two cooked meals were written at 1,400 kcal
@@ -1063,7 +1063,7 @@ export function currencyUsed(plan, currencyId) {
 }
 
 /**
- * A SWIPE IS CONFIRMED BY EATING IT (P1, P11, David 2026-08-29 plenum:
+ * A SWIPE IS CONFIRMED BY EATING IT (P1, P11, the owner 2026-08-29 plenum:
  * "an eaten button for the swipes... it tracks the actual swipes that I
  * use... and it confirms that I will be eating the previously allocated
  * protein calories"). `eatenAt` on a swipe entry is the cookedAt of a meal
@@ -1162,7 +1162,7 @@ export function restoreFallback(plan) {
 }
 
 /**
- * The next recipe to offer for a planned meal (David, 2026-07-27: SWITCH
+ * The next recipe to offer for a planned meal (the owner, 2026-07-27: SWITCH
  * replaces the old ✕, "instead of being able to only get rid of I want an
  * automatic replacement").
  *
@@ -1311,14 +1311,14 @@ export function setPlanShopped(plan, dateIso, spend) {
 /**
  * Is this recipe's METHOD still behind the receipt?
  *
- * David, 2026-07-25: recipes should not show until the receipt is there. He
+ * The owner, 2026-07-25: recipes should not show until the receipt is there. He
  * chose the soft version: the meal name, its macros and its ingredients stay
  * visible all week, and only the steps wait, with a per-meal override for the
  * nights you cook out of the pantry.
  *
  * `houseShopped` is the whole reason this takes three arguments. `shoppedAt`
  * lives on a profile's OWN week plan, but a brigade has one cook and one
- * receipt: Mom, Dad and Lena never scan anything, so keying the gate to
+ * receipt: Mom, Dad and Wren never scan anything, so keying the gate to
  * each person's own plan would hide every instruction from three of the four
  * of them permanently. The gate asks whether the HOUSE has shopped.
  * @param {Plan | null | undefined} plan
@@ -1368,7 +1368,7 @@ export function toggleEntryCooked(plan, entryId, dateIso) {
 
 /**
  * The one entry id a settled table may have, so two devices settling the same
- * past table write the same row and the keyed merge collapses them (David's
+ * past table write the same row and the keyed merge collapses them (the owner's
  * Sunday showed every shared meal twice, 2026-09-07).
  * @param {string} tableId
  * @returns {string}
@@ -1563,7 +1563,7 @@ export function dayTotals(entries, recipesById, date) {
  * buffet swipe delivers 49-56 g at a marginal cash cost of zero, and
  * charging it against a spend ceiling is a category error.
  *
- * Measured before this existed (2026-08-23, session quake): on David's real
+ * Measured before this existed (2026-08-23, session quake): on the owner's real
  * week, seven dinner swipes cut BOUGHT protein from 234 g/day to 196 g while
  * the app reported 35 of 35 days over ceiling — WORSE than the 34 of 35 it
  * reported with no swipes at all. The 7.11 swipe arbitrage had been working

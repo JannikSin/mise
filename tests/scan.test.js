@@ -129,7 +129,7 @@ test("SHELF-AWARE refresh (Tribunal B3): a fridge scan never rewrites the freeze
   assert.equal(again.perishables.find((p) => p.location === "fridge").qty, "700 g");
 });
 
-// ---- SAY WHAT YOU HAVE (David, 2026-09-06) ------------------------------------
+// ---- SAY WHAT YOU HAVE (the owner, 2026-09-06) ------------------------------------
 
 test("parsePantryDictation reads a spoken run-through into pantry rows", () => {
   const rows = parsePantryDictation(
@@ -186,7 +186,7 @@ test("a dictated 'low on' staple lands LOW through applyScanItems, never plenty"
   assert.equal(rice.onHand, false, "the legacy mirror reads LOW as not-on-hand, by design");
 });
 
-test("parsePantryDictation splits a run-on at the next quantity (David's 2026-09-06 dictation)", () => {
+test("parsePantryDictation splits a run-on at the next quantity (Owner's 2026-09-06 dictation)", () => {
   const rows = parsePantryDictation(
     "cottage cheese two bricks of sharp cheddar cheese, milk a huge thing of soy sauce about a container of basil pesto, what I think is kale, we, there’s lots of rice, boy Scout popcorn a huge thing of Chia seeds a huge thing of whey protein powder",
   );
@@ -231,7 +231,7 @@ test("a dictated COUNT is inventory: it lands as a countable dated row, cans on 
   assert.equal(row("coconut milk").qty, "6 can");
 });
 
-test("a dictated COUNT retires the bare PLENTY assertion for the same food (David, 2026-09-07)", () => {
+test("a dictated COUNT retires the bare PLENTY assertion for the same food (Owner, 2026-09-07)", () => {
   const before = { items: [{ id: "eggs", food: "eggs", section: "dairy", state: "plenty" }] };
   const next = applyScanItems(before, parsePantryDictation("a dozen eggs"), "2026-09-07", "fridge");
   const eggs = next.items.filter((i) => i.food === "eggs");
@@ -239,7 +239,7 @@ test("a dictated COUNT retires the bare PLENTY assertion for the same food (Davi
   assert.equal(eggs[0].qty, "12 each");
 });
 
-// WALK THE FRIDGE (David, 2026-10-18: "record a video, roll it past all the
+// WALK THE FRIDGE (the owner, 2026-10-18: "record a video, roll it past all the
 // shelves inside the fridge, and narrate everything")
 test("frame times sit in the middle of even slices, never at the ends, and a clip with no length gives none", () => {
   assert.deepEqual(frameTimes(16), [1, 3, 5, 7, 9, 11, 13, 15]);
@@ -299,7 +299,7 @@ test("a frame that fails is skipped and counted; only all failing fails the walk
 });
 
 // ---- I-06: VOICE NOTE LIMITS (post-mortem 10/18, failure 2) --------------------
-// David's 7:02 pm phrases, as the phone's dictation wrote them.
+// The owner's 7:02 pm phrases, as the phone's dictation wrote them.
 const NOTE_1018 =
   "okay so there is pasta there's rice there's flat seed, um we need more vanilla extract. one other stuff, it's about it. that's it in the fridge in the freezer. we're out of milk and I think we have figs and dates and protein powder, running low on olive oil. there's zorblax";
 

@@ -1,4 +1,4 @@
-// suggest.js: the dev-stage change button. Drop it in any of David's apps.
+// suggest.js: the dev-stage change button. Drop it in any of the owner's apps.
 //
 // One floating button on every page. Tap it, say what you want changed, keep
 // going. The note carries which app and which page you were on, so a later
@@ -9,7 +9,7 @@
 // apps with eight different module setups (importmaps, app/main.js, plain
 // modules) all take a plain <script src="./suggest.js"></script>.
 //
-// No key, no login, nothing to paste (David, 2026-08-26). The Worker accepts a
+// No key, no login, nothing to paste (the owner, 2026-08-26). The Worker accepts a
 // keyless POST on the two Desk write routes, so a note or a recording sends the
 // moment he taps Send. If a Crystal key happens to already be in localStorage
 // it rides along as provenance; it is never required and never asked for.
@@ -17,10 +17,10 @@
 // The mic is here on purpose: most of these notes are spoken while walking, so
 // every app gets the recorder, not just the ones that grew one.
 //
-// Every note carries WHO sent it (David, 2026-09-26: "want each note to know
+// Every note carries WHO sent it (the owner, 2026-09-26: "want each note to know
 // who sent it"). The panel has a "Your name" box, filled once and remembered on
 // that phone. All the apps share one origin, so one entry covers every app;
-// David's own phone (Crystal key present) starts out as "David". Send and the
+// The owner's own phone (Crystal key present) starts out as "the owner". Send and the
 // mic both wait for a name, so no note arrives anonymous.
 //
 // Retire it for one app by deleting the script tag. Silence it everywhere for
@@ -46,14 +46,14 @@
     try { localStorage.setItem(QUEUE_KEY, JSON.stringify(v)); return true; }
     catch (e) { return false; }
   }
-  // Optional. Present on David's own phone because Crystal shares this origin;
+  // Optional. Present on the owner's own phone because Crystal shares this origin;
   // absent everywhere else and that is fine. Never gate on it.
   function keyOf() { return localStorage.getItem("crystal.key") || ""; }
 
   // The sender's name, one line, typed once. Never throws.
   var NAME_KEY = "suggest.name";
   function nameGet() {
-    try { return localStorage.getItem(NAME_KEY) || (keyOf() ? "David" : ""); }
+    try { return localStorage.getItem(NAME_KEY) || (keyOf() ? "Owner" : ""); }
     catch (e) { return ""; }
   }
   function nameSet(v) {
@@ -289,7 +289,7 @@
             });
         };
         rec.start(5000);
-        // No short cutoff (David, 2026-09-26: "dont cap a long voice note").
+        // No short cutoff (the owner, 2026-09-26: "dont cap a long voice note").
         // The only stop is the Worker's 20 MB audio ceiling, derived the same
         // way as Crystal's bubble: 14 MB at 64 kbps is about 30 minutes.
         setTimeout(function () { if (rec && rec.state === "recording") rec.stop(); }, REC_MAX_MS);

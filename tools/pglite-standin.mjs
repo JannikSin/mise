@@ -1,6 +1,6 @@
 // Mise 2.0: a local PGlite database that stands in for a fresh Supabase
 // project, used by the PGlite test suite (tests/_pglite.js) and by
-// `migrate-to-supabase.mjs --target pglite` for a dry run on David's laptop.
+// `migrate-to-supabase.mjs --target pglite` for a dry run on the owner's laptop.
 // Never a real project: nothing here talks to the network.
 //
 // The stand-in creates the three API roles, an `auth` schema with

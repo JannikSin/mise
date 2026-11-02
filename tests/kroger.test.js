@@ -201,7 +201,7 @@ test("3.6: WEIGHT-sold items cover a need at pay-what-it-weighs", () => {
   assert.equal(ranked[0].spend, 3.58);
 });
 
-// ---- the store's own answer is kept (David, 2026-08-22) --------------------
+// ---- the store's own answer is kept (the owner, 2026-08-22) --------------------
 // `trimProduct` has always returned the per-store aisle, brand and categories
 // on every lookup, free. `setPin` used to drop all three, so the list sorted
 // by a taxonomy identical for every store on earth while Kroger's real answer
@@ -387,7 +387,7 @@ test("refreshPinFacts is a no-op on an unpinned food and on a same-day repeat", 
   );
 });
 
-// WHERE TO WALK (David, 2026-08-24: "it would be nice if I could have
+// WHERE TO WALK (the owner, 2026-08-24: "it would be nice if I could have
 // navigated that better"). Kroger populates these unevenly, so the degrade
 // path matters more than the happy path.
 test("aisle number and side beat the merchandising label", () => {

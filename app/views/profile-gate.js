@@ -64,7 +64,7 @@ const ALLERGEN_PRESETS = [
   "sesame",
 ];
 /**
- * Plain words for the terms a person may clear from a chip (P8, David
+ * Plain words for the terms a person may clear from a chip (P8, the owner
  * 2026-10-27). Keys must match ALLERGEN_EXCEPTIONS in app/lib/targets.js.
  * @type {Record<string, string>}
  */
@@ -99,7 +99,7 @@ function splitList(/** @type {string} */ s) {
 
 /**
  * @param {{ guest?: boolean, onDone?: (id: string) => void, invite?: { code: string, house: string }, busy?: boolean, onInviteSubmit?: (entry: Record<string, any>, targets: Record<string, any>) => Promise<void>, lead?: any, extraValid?: boolean, onExtraInvalid?: () => void, edit?: { id: string, targets: Record<string, any>, onSave: (fresh: Record<string, any>, stated: Parameters<MergeFn>[2]) => Promise<boolean> } }} [props] guest
- * mode (guesthouse spec §8, David's yes 2026-08-29 plenum): the SAME
+ * mode (guesthouse spec §8, the owner's yes 2026-08-29 plenum): the SAME
  * questionnaire, but the profile lands in the `guesthouse` household, the
  * device stays signed in as its owner, and onDone fires instead of a
  * profile switch. A guesthouse profile is never a sign-in identity (§5),
@@ -255,7 +255,7 @@ export function ProfileGateView({
       return;
     }
     if (!(await maySwitchTo(target, withPin, adminDevice, { profiles, deviceHouse }))) {
-      // a miss wipes the box (David, 2026-10-18: old digits stayed, so every
+      // a miss wipes the box (the owner, 2026-10-18: old digits stayed, so every
       // retry was the old digits plus the right passkey and never matched)
       setPin("");
       setPinErr(
@@ -1189,7 +1189,7 @@ export function ProfileGateView({
         </p>`
       }
       ${
-        // family = the top-level grouping (David's structure, 2026-07-21):
+        // family = the top-level grouping (the owner's structure, 2026-07-21):
         // people belong to a family; households are the movable shopping
         // unit inside SYS. Headers only appear once 2+ families exist.
         (() => {
@@ -1233,7 +1233,7 @@ export function ProfileGateView({
       }
       ${
         askPin &&
-        // digits shown, not dots (David, 2026-10-18: "This isn't something
+        // digits shown, not dots (the owner, 2026-10-18: "This isn't something
         // people are looking over your shoulder for. You can show the
         // numbers"); the box gets the full width, OPEN sits under it
         html`<form

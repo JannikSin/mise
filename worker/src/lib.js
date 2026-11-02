@@ -132,7 +132,7 @@ const RECEIPT_SYSTEM =
   "loyalty rows. If a size is printed on the line, include it, else leave it blank.";
 
 /**
- * The multi-photo rule (David, 2026-08-10). A long receipt does not fit in one
+ * The multi-photo rule (the owner, 2026-08-10). A long receipt does not fit in one
  * frame, so the app now sends several overlapping photos of the SAME receipt.
  * They go in ONE request rather than one request each, because the overlap
  * problem then solves itself: the model sees the whole strip at once and can
@@ -554,7 +554,7 @@ export function buildMenuRequest({ image, mediaType, diners, model }) {
 }
 
 // ---- /hallplate: a PHOTO of the tray at the dining court → matched menu
-// items + portions + macros (P1, P10, David 2026-08-29 plenum: "I can take a
+// items + portions + macros (P1, P10, the owner 2026-08-29 plenum: "I can take a
 // picture of my plate and since you should know what is there you should be
 // able to match the stuff very well and then calc the macros"). The model
 // only IDENTIFIES and counts portions; every macro for a matched item is
@@ -1215,7 +1215,7 @@ const APP_URL = "https://janniksin.github.io/mise/";
 export const EVENING_HOUR = 22;
 
 /** meal slots the cook reminders cover, with their local reminder hour */
-// No 3 pm "Afternoon fuel" ping (David, 2026-10-18, his alert budget): the
+// No 3 pm "Afternoon fuel" ping (the owner, 2026-10-18, his alert budget): the
 // snack is in the backpack from the morning, so the reminders are the day
 // ahead, cook nights, the store run and the evening ATE IT? only.
 const MEAL_HOURS = /** @type {const} */ ([
@@ -1242,7 +1242,7 @@ export function isoWeekIdOf(dateIso) {
 }
 
 /**
- * Everything to send for ONE local hour. Honest-state rules (David,
+ * Everything to send for ONE local hour. Honest-state rules (the owner,
  * 2026-07-23): cook reminders exist only when the week's groceries are
  * CONFIRMED (plan.shoppedAt, set by scanning the receipt) and the meal
  * isn't already marked cooked; a missing plan or an OUT slot sends nothing.
@@ -1271,9 +1271,9 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
         : String(e.freeText ?? "");
 
   // the day ahead. The "Log: ..." nag retired 2026-08-09 with the in-app
-  // check-in (David: personal tracking lives in Crystal now) — mornings with
+  // check-in (the owner: personal tracking lives in Crystal now) — mornings with
   // no meals to name send nothing at all.
-  // The kitchen's shared meals (e.table) stay out of this one: David's rule,
+  // The kitchen's shared meals (e.table) stay out of this one: the owner's rule,
   // 2026-10-18, is a ping on cook nights and the evening ATE IT? only.
   if (hour === 7) {
     const brk = todayEntries("breakfast").filter((e) => !e.out && !e.table);
@@ -1295,7 +1295,7 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
   // cook reminders, only for confirmed-shopped weeks and uncooked meals
   for (const [slot, mealHour] of MEAL_HOURS) {
     if (hour !== mealHour) continue;
-    // A shared meal pings only on a COOK NIGHT (David, 2026-10-18: "a ping on
+    // A shared meal pings only on a COOK NIGHT (the owner, 2026-10-18: "a ping on
     // cook nights", three a week): its dinner, never a leftover or batch
     // reheat, never the shared breakfast or snack, and only when the night is
     // HIS to cook (`mine` false = the table names someone else; absent = his).
@@ -1354,11 +1354,11 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
   // evening catch-up: planned meals still unconfirmed. The not-logged-yet
   // nag retired with the in-app check-in (2026-08-09) — Crystal owns the
   // personal tracking now.
-  // ATE IT? (David, 2026-10-17: "ATE IT must be easier"; audit M62). One
+  // ATE IT? (the owner, 2026-10-17: "ATE IT must be easier"; audit M62). One
   // evening ping for today's meals not yet marked eaten: his own, the
   // kitchen's shared ones, and the swipe. No longer gated on a receipt scan,
   // which in 31 weeks happened twice, so the ping never fired.
-  // At 22:00 Chicago, which is 11:00 pm at Purdue (David, 2026-10-18: "about
+  // At 22:00 Chicago, which is 11:00 pm at Purdue (the owner, 2026-10-18: "about
   // 11:00 pm").
   if (hour === EVENING_HOUR) {
     // a batch-only reminder is a cooking job, not a meal to mark eaten
@@ -1600,7 +1600,7 @@ export function validateProtocol(input) {
 }
 
 // ---------------------------------------------------------------------------
-// /ask — the general in-app question box (David, 2026-08-03: "I need a chat
+// /ask — the general in-app question box (the owner, 2026-08-03: "I need a chat
 // so I can ask questions on the app where all of the context is"). Freeform
 // text answers grounded in a compact client-composed snapshot of the
 // household's live state. No tools, no writes: it explains, it never edits.
@@ -3175,7 +3175,7 @@ export function sanitizeInviteTargets(input) {
 }
 
 /**
- * The dinners a guest says they can make (David, 2026-10-18: "just give me the
+ * The dinners a guest says they can make (the owner, 2026-10-18: "just give me the
  * form and I'll give it to them"). Dates only, YYYY-MM-DD, from yesterday
  * (a phone a timezone behind) to two weeks out, unique, sorted, at most 14.
  * Anything else is dropped, never refused: the dates are a wish the host
@@ -3286,7 +3286,7 @@ export function inviteStatusRows(tables, profileId, dishName, personName, todayI
 }
 
 // ---- guest log in: name + 4-digit passkey (Mise v1.6, P8 + P3) ---------------
-// David, 2026-10-18: the guest link opens "Welcome to Mise" with LOG IN or
+// The owner, 2026-10-18: the guest link opens "Welcome to Mise" with LOG IN or
 // SIGN UP; "not too much security, just a little bit of a boundary". The
 // point is that a guest never sees other people's accounts or who else he has
 // over. A 4-digit passkey is 10,000 guesses, so the real control is the online
@@ -3507,7 +3507,7 @@ export function guestRecipe(r) {
 }
 
 /**
- * The guest's own profile as they see it (v1.6, David 2026-10-18: a guest
+ * The guest's own profile as they see it (v1.6, the owner 2026-10-18: a guest
  * sees "their own profile"), built from a whitelist of their targets file,
  * capped, read only. Editing comes later.
  * @param {Record<string, any> | null} t profiles/<id>/profile/targets.json

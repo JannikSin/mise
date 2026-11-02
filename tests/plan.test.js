@@ -119,7 +119,7 @@ test("shiftWeek moves across plain and year-boundary weeks", () => {
   assert.equal(shiftWeek("2026-W53", 1), "2027-W01");
 });
 
-test("datesOfWeek returns Sunday-Saturday dates: the week opens on Sunday (David 2026-09-05)", () => {
+test("datesOfWeek returns Sunday-Saturday dates: the week opens on Sunday (Owner 2026-09-05)", () => {
   assert.deepEqual(datesOfWeek("2026-W28"), [
     "2026-07-05",
     "2026-07-06",
@@ -831,7 +831,7 @@ test("buffetMacroEstimate overshoots protein against the pool average; currencyU
   assert.equal(currencyUsed(plan, "swipes"), 2, "plain eating-out is not a swipe");
 });
 
-// ---- budgeting the week's swipes (P5, P10, David 2026-08-24) --------------
+// ---- budgeting the week's swipes (P5, P10, the owner 2026-08-24) --------------
 // The swipe machinery was complete and MANUAL: the generator does the
 // arbitrage beautifully for swipes already in the plan, and nothing ever put
 // one there. A seven-swipe meal plan only paid off if he remembered to tap
@@ -946,7 +946,7 @@ test("no currency, or a zero allowance, changes nothing at all", () => {
 
 // THE WEEK RUN EATS ITS SWIPES (P5, P10, 2026-08-28 plenum). The brigade's
 // week-of-meals run used to set a cooked table on every covered lunch and
-// seat David at it; the pinned derived entry then blocked the swipe forever,
+// seat the owner at it; the pinned derived entry then blocked the swipe forever,
 // so the arbitrage lost to the pot every single week.
 
 const WEEK_MEALS = WEEK_DATES.flatMap((date) => [

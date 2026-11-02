@@ -5,7 +5,7 @@ const DAYS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 /**
  * The app's week id, e.g. "2026-W28".
  *
- * WEEKS START ON SUNDAY (David, 2026-09-05: "most calendars start the week on
+ * WEEKS START ON SUNDAY (the owner, 2026-09-05: "most calendars start the week on
  * Sunday", and his cooking rhythm — batch and cook Fri–Mon, eat leftovers
  * Tue–Thu — only fits inside one week when Sunday opens it). The id is the
  * ISO 8601 number of the week whose MONDAY falls inside these seven days, so
@@ -49,7 +49,7 @@ export function localIsoDate(d) {
 export const DINNER_CUTOFF_MINUTES = 19 * 60 + 30;
 
 /**
- * The first day a GENERATE plans and a BUILD buys for (David, 2026-09-24:
+ * The first day a GENERATE plans and a BUILD buys for (the owner, 2026-09-24:
  * "a generate must start from today, or tomorrow if dinner is past"). Before
  * the cutoff that is today; after it, tomorrow, so a late-night run never
  * plans or buys a dinner that already did not happen.
@@ -65,7 +65,7 @@ export function planStartIso(now, cutoffMinutes = DINNER_CUTOFF_MINUTES) {
 
 /**
  * The day the week's food is bought, 0 Sun … 6 Sat. FRIDAY by default
- * (David, 2026-09-25: "sunday was not a good day to buy. cause busy with
+ * (the owner, 2026-09-25: "sunday was not a good day to buy. cause busy with
  * mtgs and all that. so really lets switch the buy day to friday"). Each
  * shopper can change it in SYS (`targets.buyDay`).
  */
