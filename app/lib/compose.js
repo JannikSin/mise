@@ -29,6 +29,7 @@ import {
 import { freshProteinOk } from "./cadence.js";
 import { buffetMacroEstimate, recipeConflicts, weekRunSwipes } from "./plan.js";
 import { recipeProteinClass } from "./foodclass.js";
+import { RATIO_STEPS, partOf, withRatio } from "./synth.js";
 
 /** the anchor proteins that count as MEAT for `brigade.dinnerMeat` (fish does not) */
 const MEAT_CLASSES = new Set(["chicken", "turkey", "beef", "pork"]);
@@ -50,6 +51,8 @@ const BATCH_TAGS = new Set([
   "one-pot",
   "freezer-friendly",
 ]);
+/** grams of protein-aim distance one RATIO_STEPS step must save to be taken */
+const RATIO_STEP_COST = 3;
 /** a protein class repeated within this many days counts against a cook night's pick */
 const PROTEIN_WINDOW_DAYS = 6;
 /** how a same-class repeat weighs against a same-recipe repeat (1/gap) in the variety tie-break */
@@ -73,6 +76,9 @@ const FAMILY_TAGS = new Set([
   "egg-drop",
   "donburi",
 ]);
+/** two stored platings are the same (absent = as written) */
+const sameRatio = (/** @type {any} */ a, /** @type {any} */ b) =>
+  (a?.protein ?? 1) === (b?.protein ?? 1) && (a?.carbfat ?? 1) === (b?.carbfat ?? 1);
 /** a recipe's family tags */
 const familiesOf = (/** @type {Record<string, any> | undefined} */ r) =>
   (r?.tags ?? []).filter((/** @type {string} */ t) => FAMILY_TAGS.has(t));
@@ -315,7 +321,10 @@ export function solveSeatDay(dishes, bands, sigma, fixed = {}) {
  *   recentBySlot?: Record<string, Map<string, number>>,
  *   recentClassBySlot?: Record<string, Set<string>>,
  *   recentFamilyBySlot?: Record<string, Set<string>>,
- * }} day seats may exclude slots they do not eat from the pot (their own
+ *   lockedSlots?: Set<string>,
+ * }} day `lockedSlots` = slots whose dish is food that exists or is promised
+ *   (pinned, cooked, bought, a leftover night, a set snack bake): their pick
+ *   is used exactly as given, its plating never re-proportioned. seats may exclude slots they do not eat from the pot (their own
  *   pinned entry or a carried skip covers them there instead). A seat's
  *   `fixed` binds ONLY while that slot's pick IS the named recipe — a
  *   hand-set 1.25 servings of chili must never ride onto a swapped
@@ -370,7 +379,7 @@ export function composeDay(day) {
   };
 
   /** @param {Record<string, Record<string, any>>} picks */
-  const evaluate = (picks) => {
+  const evaluateExact = (picks) => {
     const allDishes = slots.map((slot) => ({
       slot,
       recipe: /** @type {Record<string, any>} */ (picks[slot]),
@@ -380,6 +389,7 @@ export function composeDay(day) {
     let considered = 0;
     let inBand = 0;
     let floors = 0;
+    let misses = 0;
     let score = 0;
     for (const seat of day.seats) {
       const dishes = allDishes.filter((d) => !seat.exclude?.has(d.slot));
@@ -400,6 +410,9 @@ export function composeDay(day) {
       seatsOut[seat.id] = solved;
       if (solved.status === "band") inBand++;
       if (solved.status === "floor") floors++;
+      // under the calorie floor is a miss whatever the status says ("over"
+      // also covers over-the-ceiling-AND-under-the-floor)
+      if (seat.bands && solved.kcal < seat.bands.kcalFloorLo) misses++;
       score += Math.abs(solved.protein - (seat.bands?.pAim ?? solved.protein));
     }
     if (considered === 0) return null;
@@ -410,7 +423,75 @@ export function composeDay(day) {
       if (classRepeats(s, picks[s])) repeats += PROTEIN_REPEAT_COST;
       if (familyRepeats(s, picks[s])) repeats += PROTEIN_REPEAT_COST;
     }
-    return { picks, seats: seatsOut, considered, inBand, floors, repeats, score };
+    return { picks, seats: seatsOut, considered, inBand, floors, misses, repeats, score, shift: 0 };
+  };
+
+  // THE TRANSFORM IN THE PLANNER (2026-11-02, David: "it should not be an
+  // issue to tailor to a certain ratio of protein and calories ... that is
+  // what we built that transformation matrix for"). Whole servings move
+  // calories and protein together along each dish's fixed ratio, so a pool
+  // of protein-dense dishes reached the calorie floor only by blowing past
+  // the protein ceiling (264 g a day on the live 11/2 week). A dish's pot
+  // may instead be cooked on one of RATIO_STEPS: the same recipe with less
+  // of its protein bucket and more of its starch. When the written recipes
+  // do not land every seat, each free slot's dish is tried along that
+  // ladder, and the tuple keeps the plating that lands the most seats, then
+  // the one nearest protein aim, then the smallest change. A LOCKED slot
+  // (pinned, cooked, bought, a leftover night, a snack bake already set)
+  // is food that exists or is promised: its plating never moves here.
+  /** @param {Record<string, Record<string, any>>} picks */
+  const evaluate = (picks) => {
+    const base = evaluateExact(picks);
+    if (!base || base.inBand === base.considered) return base;
+    const free = slots.filter((s) => !day.lockedSlots?.has(s) && !picks[s]?.ratio);
+    /** @type {Record<string, Record<string, any>[]>} */
+    const ladders = {};
+    for (const s of free) {
+      const steps = /** @type {Record<string, any>[]} */ (
+        RATIO_STEPS.slice(1)
+          .map((st) => withRatio(picks[s], st))
+          .filter((v) => v && v !== picks[s])
+      );
+      if (steps.length > 0) ladders[s] = [/** @type {Record<string, any>} */ (picks[s]), ...steps];
+    }
+    const open = Object.keys(ladders);
+    if (open.length === 0) return base;
+    // COORDINATE DESCENT, one slot's step at a time (code review: the full
+    // product was 5^4 solves per tuple, 132 s for a day that cannot land).
+    // Each pass tries every step of each slot with the others held, and
+    // keeps the best; it stops when a pass changes nothing.
+    let best = base;
+    /** @type {Record<string, number>} */
+    const at = Object.fromEntries(open.map((s) => [s, 0]));
+    for (let pass = 0; pass < 2 * RATIO_STEPS.length; pass++) {
+      let moved = false;
+      for (const s of open) {
+        const ladder = /** @type {Record<string, any>[]} */ (ladders[s]);
+        for (let k = 0; k < ladder.length; k++) {
+          if (k === at[s]) continue;
+          const vp = { ...picks };
+          let shift = 0;
+          for (const o of open) {
+            const ko = o === s ? k : /** @type {number} */ (at[o]);
+            shift += ko;
+            vp[o] = /** @type {Record<string, any>} */ (ladders[o]?.[ko]);
+          }
+          const r = evaluateExact(vp);
+          if (!r) continue;
+          // each step off the written recipe must buy at least RATIO_STEP_COST
+          // g nearer protein aim, so the plan moves a recipe only as far as it must
+          r.shift = shift;
+          r.score += RATIO_STEP_COST * shift;
+          if (rankOf(r, best) < 0) {
+            best = r;
+            at[s] = k;
+            moved = true;
+          }
+        }
+      }
+      if (!moved) break;
+    }
+    return best;
   };
 
   /** @type {NonNullable<ReturnType<typeof evaluate>>[]} */
@@ -474,16 +555,33 @@ export function composeDay(day) {
 }
 
 /**
- * Best candidate: seats in band first, then floor-seats, then FEWEST repeats
- * (variety is a tie-break the bands outrank), then protein score.
+ * The one candidate order: fewest seats under their calorie floor first (the
+ * floor is health, decision 0017; a plating that lands one seat by starving
+ * another never wins), then seats in band, floor-seats, FEWEST repeats,
+ * protein score, and the smallest change to the written recipes.
+ * @param {any} a
+ * @param {any} b
+ */
+function rankOf(a, b) {
+  return (
+    (a.misses ?? 0) - (b.misses ?? 0) ||
+    b.inBand - a.inBand ||
+    b.floors - a.floors ||
+    a.repeats - b.repeats ||
+    a.score - b.score ||
+    (a.shift ?? 0) - (b.shift ?? 0)
+  );
+}
+
+/**
+ * Best candidate by rankOf: no seat under its floor first, then seats in
+ * band, then floor-seats, then FEWEST repeats (variety is a tie-break the
+ * bands outrank), then protein score.
  * @param {any[]} candidates
  */
 function finish(candidates) {
   if (candidates.length === 0) return null;
-  candidates.sort(
-    (a, b) =>
-      b.inBand - a.inBand || b.floors - a.floors || a.repeats - b.repeats || a.score - b.score,
-  );
+  candidates.sort(rankOf);
   const best = candidates[0];
   return { picks: best.picks, seats: best.seats, allInBand: best.inBand === best.considered };
 }
@@ -696,6 +794,9 @@ export function planBrigadeWeek(events, brigade, ctx) {
     nights: { cook: [], leftover: [], uncovered: [] },
   };
   if (!validBrigade(brigade)) return empty;
+  // a table's dish as its pot holds it: the bank recipe on its stored plating
+  const tableDish = (/** @type {any} */ t) =>
+    t ? withRatio(ctx.bankById.get(String(t.recipeId)), t.ratio) : undefined;
 
   const members = brigade.memberIds
     .filter((id) => (ctx.profilesById.get(id)?.household ?? "home") === ctx.house)
@@ -899,12 +1000,21 @@ export function planBrigadeWeek(events, brigade, ctx) {
   // and the nights whose protein class the variety rule remembers
   /** @type {Record<string, Map<string, string>>} */
   const cookedBySlot = {};
+  // the DISH each cook night's pot holds, plating included (2026-11-02): a
+  // leftover night eats that pot, so it eats the same proportions
+  /** @type {Record<string, Map<string, Record<string, any>>>} */
+  const cookedDishBySlot = {};
   for (const slot of liveSlots) {
     const own = [...byId.values()].filter((t) => t.fromBrigade === brigade.id && t.slot === slot);
     servedBySlot[slot] = new Map(own.map((t) => [t.date, t.recipeId]));
     cookedBySlot[slot] = new Map(
       own.filter((t) => !(/** @type {any} */ (t).leftoverOf)).map((t) => [t.date, t.recipeId]),
     );
+    cookedDishBySlot[slot] = new Map();
+    for (const t of own) {
+      const dish = tableDish(t);
+      if (!(/** @type {any} */ (t).leftoverOf) && dish) cookedDishBySlot[slot]?.set(t.date, dish);
+    }
   }
   // THE DINNER SCHEDULE, decided before any dish is (phase 1). Every no-cook
   // night in the run is handed to one cook night: the candidates are the
@@ -1166,7 +1276,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
     ]),
   );
 
-  /** @type {{ date: string, existingBySlot: Record<string, import("./tables.js").TableEvent | undefined>, seats: any[], eating: any[], composed: ReturnType<typeof composeDay>, picks: Record<string, Record<string, any>>, leftoverBySlot: Record<string, { date: string, recipeId: string, recipe: Record<string, any> }>, dayPools: Record<string, Record<string, any>[]> }[]} */
+  /** @type {{ date: string, existingBySlot: Record<string, import("./tables.js").TableEvent | undefined>, seats: any[], eating: any[], composed: ReturnType<typeof composeDay>, picks: Record<string, Record<string, any>>, leftoverBySlot: Record<string, { date: string, recipeId: string, recipe: Record<string, any> }>, dayPools: Record<string, Record<string, any>[]>, lockedSlots: Set<string> }[]} */
   const composedDays = [];
   /** @type {Map<number, Record<string, any>>} the bake each snack batch of this run uses */
   const snackBakes = new Map();
@@ -1317,8 +1427,14 @@ export function planBrigadeWeek(events, brigade, ctx) {
         const t = existingBySlot[slot];
         const srcId = /** @type {any} */ (t)?.leftoverOf;
         const src = typeof srcId === "string" ? byId.get(srcId) : undefined;
-        if (!t || !src || src.recipeId === t.recipeId) continue;
-        const dish = ctx.bankById.get(src.recipeId);
+        if (
+          !t ||
+          !src ||
+          (src.recipeId === t.recipeId &&
+            sameRatio(/** @type {any} */ (src).ratio, /** @type {any} */ (t).ratio))
+        )
+          continue;
+        const dish = tableDish(src);
         if (!dish) continue;
         const seatRows = (t.seats ?? []).map((s) => {
           const rawExact = seatServingsRaw(ctx.targetsById.get(s.id), slot, dish);
@@ -1338,8 +1454,15 @@ export function planBrigadeWeek(events, brigade, ctx) {
         delete keep.cookedAt; // you cannot have cooked a dish that was never on this night
         delete keep.tailor;
         delete keep.pot;
+        delete keep.ratio; // the pot's plating, below, or none
         plateScreen(seatRows, dish, date, slot);
-        byId.set(t.id, { ...keep, recipeId: src.recipeId, seats: seatRows });
+        const srcRatio = /** @type {any} */ (src).ratio;
+        byId.set(t.id, {
+          ...keep,
+          recipeId: src.recipeId,
+          ...(srcRatio ? { ratio: { ...srcRatio } } : {}),
+          seats: seatRows,
+        });
         servedBySlot[slot]?.set(date, src.recipeId);
         made++;
         notes.push(
@@ -1385,6 +1508,8 @@ export function planBrigadeWeek(events, brigade, ctx) {
     const dayPools = { ...poolsBySlot };
     /** @type {{ batchNo: number, cands: Record<string, any>[] } | null} a snack batch not yet locked: its bake is chosen once the day's dishes are known */
     let pendingBake = null;
+    /** slots whose dish (and its plating) is already fixed for this day */
+    const lockedSlots = new Set();
     for (const slot of liveSlots) {
       // A PINNED DISH IS THE SLOT'S ONLY CANDIDATE (David, 2026-09-07): the
       // day composes and sizes every plate around it. Without this the keep
@@ -1436,17 +1561,20 @@ export function planBrigadeWeek(events, brigade, ctx) {
           ctx.bought &&
           boughtFor(existingBySlot[slot]) &&
           boughtSafe(existingBySlot[slot]))
-          ? ctx.bankById.get(String(existingBySlot[slot]?.recipeId))
+          ? tableDish(existingBySlot[slot])
           : undefined;
       if (pinnedDish) {
         startBySlot[slot] = pinnedDish;
         dayPools[slot] = [pinnedDish];
+        lockedSlots.add(slot);
         continue;
       }
       if (LEFTOVER_SLOTS.has(slot) && !isCookDay(date) && !preparedOnMap.has(date)) {
         const srcDate = leftoverPlan.get(date) ?? null;
         const srcId = srcDate ? cookedBySlot[slot]?.get(srcDate) : undefined;
-        const recipe = srcId ? ctx.bankById.get(srcId) : undefined;
+        const recipe = srcId
+          ? (cookedDishBySlot[slot]?.get(String(srcDate)) ?? ctx.bankById.get(srcId))
+          : undefined;
         const gap = srcDate
           ? dayOffset(date) - dayOffset(preparedOnMap.get(srcDate) ?? srcDate)
           : Infinity;
@@ -1454,6 +1582,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
           leftoverBySlot[slot] = { date: srcDate, recipeId: String(srcId), recipe };
           startBySlot[slot] = recipe;
           dayPools[slot] = [recipe];
+          lockedSlots.add(slot);
           continue;
         }
         nights.uncovered.push(date);
@@ -1626,6 +1755,8 @@ export function planBrigadeWeek(events, brigade, ctx) {
         if (bake) {
           startBySlot[slot] = bake;
           dayPools[slot] = [bake];
+          // a bake already chosen on an earlier day is in the oven: locked
+          if (!pendingBake) lockedSlots.add(slot);
         }
         continue;
       }
@@ -1773,6 +1904,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
             slots: liveSlots,
             poolsBySlot: pools,
             startBySlot: starts,
+            lockedSlots,
             // a forced leftover is not a repeat to be avoided, so its slot
             // carries no recency at all — otherwise the walk would spend its
             // whole budget trying to swap the one dish it cannot swap
@@ -1830,7 +1962,9 @@ export function planBrigadeWeek(events, brigade, ctx) {
             !a || landed(t.r) > landed(a.r) ? t : a,
           undefined,
         );
-      const chosen = best?.cand ?? pendingBake.cands[0];
+      // the bake is locked WITH its plating: the batch's later days eat the
+      // same muffins the first day's plan proportioned
+      const chosen = best?.r?.picks?.snack ?? best?.cand ?? pendingBake.cands[0];
       if (chosen) {
         snackBakes.set(pendingBake.batchNo, chosen);
         startBySlot.snack = chosen;
@@ -1845,8 +1979,13 @@ export function planBrigadeWeek(events, brigade, ctx) {
       const rid = picks[slot]?.id;
       if (!rid) continue;
       servedBySlot[slot]?.set(date, rid);
-      if (leftoverBySlot[slot]) cookedBySlot[slot]?.delete(date);
-      else cookedBySlot[slot]?.set(date, rid);
+      if (leftoverBySlot[slot]) {
+        cookedBySlot[slot]?.delete(date);
+        cookedDishBySlot[slot]?.delete(date);
+      } else {
+        cookedBySlot[slot]?.set(date, rid);
+        cookedDishBySlot[slot]?.set(date, /** @type {Record<string, any>} */ (picks[slot]));
+      }
     }
     if (liveSlots.some((s) => LEFTOVER_SLOTS.has(s))) {
       const lo = [...Object.values(leftoverBySlot)][0];
@@ -1862,6 +2001,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
       picks,
       leftoverBySlot,
       dayPools,
+      lockedSlots,
     });
   }
 
@@ -1891,11 +2031,22 @@ export function planBrigadeWeek(events, brigade, ctx) {
     };
     // resolve one exact tuple: composeDay over singleton pools evaluates
     // just that tuple with the same solve, statuses and hand-edit rules
-    const resolve = (/** @type {any} */ cd, /** @type {Record<string, any>} */ picks) =>
+    // every slot but the one being swapped keeps its dish AND its plating:
+    // a feeding dinner or a first-day bake re-proportioned here would drift
+    // from the nights composed against it (code review, 2026-11-02)
+    const resolve = (
+      /** @type {any} */ cd,
+      /** @type {Record<string, any>} */ picks,
+      /** @type {string} */ swapped,
+    ) =>
       composeDay({
         slots: liveSlots,
         poolsBySlot: Object.fromEntries(liveSlots.map((s) => [s, picks[s] ? [picks[s]] : []])),
         startBySlot: picks,
+        lockedSlots: new Set([
+          ...(cd.lockedSlots ?? []),
+          ...liveSlots.filter((s) => s !== swapped),
+        ]),
         seats: cd.eating.map((/** @type {any} */ s) => ({
           id: s.id,
           targets: s.targets,
@@ -1982,15 +2133,19 @@ export function planBrigadeWeek(events, brigade, ctx) {
       /** @type {Needs} */ m,
       /** @type {string} */ id,
       /** @type {number} */ servings,
+      /** @type {{ protein: number, carbfat: number } | undefined} */ ratio,
     ) => {
       const per = Math.max(1, Number(ctx.bankById.get(id)?.servings) || 1);
       for (const it of itemsOf(id)) {
         for (const n of it.need ?? []) {
           const byUnit = m.get(it.key) ?? new Map();
           const cur = byUnit.get(n.unit);
+          // the pot as PLATED (code review): the buy is the ratio'd rows
+          const part = ratio ? partOf({ food: n.food }) : "flavor";
+          const k = part === "protein" ? (ratio?.protein ?? 1) : part === "carbfat" ? (ratio?.carbfat ?? 1) : 1;
           byUnit.set(n.unit, {
             food: n.food,
-            qty: (cur?.qty ?? 0) + (n.qty * servings) / per,
+            qty: (cur?.qty ?? 0) + (n.qty * k * servings) / per,
           });
           m.set(it.key, byUnit);
         }
@@ -2010,7 +2165,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
           if (d === skipCd && sl === skipSlot) continue;
           if (d.leftoverBySlot?.[sl]) continue;
           const r = d.picks?.[sl];
-          if (r) addNeeds(m, String(r.id), potServings(d, sl));
+          if (r) addNeeds(m, String(r.id), potServings(d, sl), r.ratio);
         }
       }
       return m;
@@ -2042,12 +2197,13 @@ export function planBrigadeWeek(events, brigade, ctx) {
       /** @type {Map<string, number>} */ keys,
       /** @type {any} */ cd,
       /** @type {string} */ slot,
+      /** @type {{ protein: number, carbfat: number } | undefined} */ ratio = undefined,
     ) => {
       if (!priceNeed) return marginal(id, keys);
       const rest = weekNeeds(cd, slot);
       /** @type {Needs} */
       const mine = new Map();
-      addNeeds(mine, id, potServings(cd, slot));
+      addNeeds(mine, id, potServings(cd, slot), ratio);
       let add = 0;
       for (const [key, byUnit] of mine) {
         const before = rest.get(key);
@@ -2076,7 +2232,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
             if (!cur) continue;
             const pool = cd.dayPools?.[slot] ?? poolsBySlot[slot] ?? [];
             const keys = ctx.tripItems ? weekKeys(cd, slot) : null;
-            const curM = keys ? marginalAt(String(cur.id), keys, cd, slot) : 0;
+            const curM = keys ? marginalAt(String(cur.id), keys, cd, slot, cur.ratio) : 0;
             const curDayCost = dayCost(cd);
             const cheaper = keys
               ? pool
@@ -2110,7 +2266,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
                 continue;
               if (familyClashes(slot, cd, alt) > familyClashes(slot, cd, cur)) continue;
               const nextPicks = { ...cd.picks, [slot]: alt };
-              const re = resolve(cd, nextPicks);
+              const re = resolve(cd, nextPicks, slot);
               if (!re) continue;
               const ok = cd.eating.every(
                 (/** @type {any} */ s) =>
@@ -2127,7 +2283,9 @@ export function planBrigadeWeek(events, brigade, ctx) {
               }
               swept.swaps += 1;
               swept.saved += saved;
-              cd.picks = nextPicks;
+              // the resolved tuple, plating included: resolve may have
+              // re-proportioned the cheaper dish to land the day
+              cd.picks = re.picks;
               cd.composed = re;
               servedBySlot[slot]?.set(cd.date, String(alt.id));
               changed = true;
@@ -2186,9 +2344,10 @@ export function planBrigadeWeek(events, brigade, ctx) {
       // pick was captured at compose time, and nothing may let the two differ
       if (lo) {
         const srcDay = composedDays.find((d) => d.date === lo.date);
-        const srcRecipeId = srcDay?.picks[slot]?.id ?? byId.get(wantLeftoverOf ?? "")?.recipeId;
-        const finalDish = srcRecipeId ? ctx.bankById.get(srcRecipeId) : undefined;
-        if (finalDish && finalDish.id !== meal.id) meal = finalDish;
+        // ...nor a different plating: it is the same pot
+        const finalDish = srcDay?.picks[slot] ?? tableDish(byId.get(wantLeftoverOf ?? ""));
+        if (finalDish && (finalDish.id !== meal.id || !sameRatio(finalDish.ratio, meal.ratio)))
+          meal = finalDish;
       }
       // an existing bought table with the same dish stays byte-identical
       // only when its cook and portions already match what this run solved
@@ -2303,6 +2462,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
           : undefined;
       if (
         keepIfSame &&
+        sameRatio(/** @type {any} */ (existing)?.ratio, meal.ratio) &&
         existing?.cookId === cookNow &&
         /** @type {any} */ (existing)?.proteinFresh === wantFresh &&
         (existing?.seats ?? []).length === seatRows.length &&
@@ -2323,6 +2483,9 @@ export function planBrigadeWeek(events, brigade, ctx) {
         date,
         slot,
         recipeId: meal.id,
+        // THE PLATING (2026-11-02): the pot's protein and starch multipliers
+        // when the plan re-proportioned the recipe; absent = as written
+        ...(meal.ratio ? { ratio: { ...meal.ratio } } : {}),
         seats: seatRows,
         // the pot's cook (above): a batch's prep-day cook, a leftover
         // night's pot cook, else the night's own turn
@@ -2350,7 +2513,10 @@ export function planBrigadeWeek(events, brigade, ctx) {
         ...(sameDish && existing?.cookedAt ? { cookedAt: existing.cookedAt } : {}),
         ...(sameDish && existing?.sameForEveryone ? { sameForEveryone: true } : {}),
         ...(pinnedHere ? { pinned: true } : {}),
-        ...(sameDish && /** @type {any} */ (existing)?.pot
+        // a frozen pot was frozen on the old plating: a new one voids it
+        ...(sameDish &&
+        sameRatio(/** @type {any} */ (existing)?.ratio, meal.ratio) &&
+        /** @type {any} */ (existing)?.pot
           ? { pot: /** @type {any} */ (existing).pot }
           : {}),
         fromBrigade: brigade.id,

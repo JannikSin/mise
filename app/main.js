@@ -215,7 +215,7 @@ import {
   tablesToLeave,
 } from "./lib/occasions.js";
 import { buildServe } from "./lib/serve.js";
-import { freezePotString, parsePot, synthesize } from "./lib/synth.js";
+import { freezePotString, parsePot, synthesize, withRatio } from "./lib/synth.js";
 import {
   normalizeLedger,
   ledgerPathFor,
@@ -3263,7 +3263,11 @@ function App() {
    * @param {import("./lib/tables.js").TableEvent} t
    */
   const liveSynthFor = (/** @type {import("./lib/tables.js").TableEvent} */ t) => {
-    const recipe = bankRecipesRef.current.find((r) => r.id === t.recipeId);
+    // on its planned plating (t.ratio): the plates are that dish, as sized
+    const recipe = withRatio(
+      bankRecipesRef.current.find((r) => r.id === t.recipeId),
+      /** @type {any} */ (t).ratio,
+    );
     if (!recipe || recipe.assembly !== "plated" || t.sameForEveryone) return null;
     // rung 0f for render-time consumers: on a BOUGHT week with NO frozen
     // pot, the food in the house is uniform quantities — a solved plate
@@ -3332,7 +3336,10 @@ function App() {
 
   /** Freeze a table's pot per spec 10. Solved-only: null in uniform mode. */
   const potStringFor = async (/** @type {import("./lib/tables.js").TableEvent} */ t) => {
-    const recipe = bankRecipesRef.current.find((r) => r.id === t.recipeId);
+    const recipe = withRatio(
+      bankRecipesRef.current.find((r) => r.id === t.recipeId),
+      /** @type {any} */ (t).ratio,
+    );
     if (!recipe || t.sameForEveryone) return null;
     const seats = [...(t.seats ?? []), ...guestSeats(t)];
     const targetsById = new Map();
@@ -4345,7 +4352,12 @@ function App() {
     async (/** @type {string} */ house, /** @type {string} */ tableId) => {
       const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
       const t = cur?.tables.find((x) => x.id === tableId);
-      const recipe = t ? recipesById(bankRecipesRef.current).get(t.recipeId) : null;
+      const recipe = t
+        ? withRatio(
+            recipesById(bankRecipesRef.current).get(t.recipeId),
+            /** @type {any} */ (t).ratio,
+          )
+        : null;
       if (!cur || !t || !recipe) throw new Error("table or recipe missing, sync first");
       const live = (t.seats ?? []).filter((s) => s.status !== "skipped");
       if (live.length === 0) throw new Error("everyone skipped this table, nothing to tailor");
@@ -4661,7 +4673,7 @@ function App() {
           const cook = cookOf(t, house, profilesById);
           const payer = /** @type {any} */ (t).buyerId ?? cook?.id;
           if (!payer || payer !== me) continue; // the payer records
-          const recipe = bankById.get(t.recipeId);
+          const recipe = withRatio(bankById.get(t.recipeId), /** @type {any} */ (t).ratio);
           if (!recipe) continue;
           // price the debt at MY store, not whatever sits first in the shared
           // catalogue (that was trader-joes — a store nobody here shops at)
@@ -4726,7 +4738,7 @@ function App() {
           if (house !== myHouseNow) continue;
           for (const t of events.tables) {
             if (typeof t.date !== "string" || t.date < from || t.date > to) continue;
-            const recipe = bankById.get(t.recipeId);
+            const recipe = withRatio(bankById.get(t.recipeId), /** @type {any} */ (t).ratio);
             if (!recipe) continue;
             const e = ledgerEntryFor(t, me, recipe, priceCatalogue, myPriceStore(), profilesById);
             if (e) {
@@ -4847,7 +4859,10 @@ function App() {
     routeTable && !routeTable.sameForEveryone
       ? buildServe(
           routeTable,
-          bankRecipes.find((r) => r.id === routeTable.recipeId),
+          withRatio(
+            bankRecipes.find((r) => r.id === routeTable.recipeId),
+            /** @type {any} */ (routeTable).ratio,
+          ),
           allProfiles,
           serveRules,
           liveSynthFor(routeTable),
@@ -5030,7 +5045,12 @@ function App() {
     ${
       route.view === "recipe" &&
       html`<${RecipeView}
-        recipe=${recipeById(route.id)}
+        recipe=${
+          // a table's page shows the dish on the plating its plan bought
+          routeTable
+            ? withRatio(recipeById(route.id), /** @type {any} */ (routeTable).ratio)
+            : recipeById(route.id)
+        }
         loading=${loading}
         from=${route.from}
         servings=${route.servings}
