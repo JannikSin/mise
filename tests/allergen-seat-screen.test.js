@@ -1,11 +1,9 @@
 // The seat screen and the tree-nut review (terrigen nut list, 2026-10-27;
 // P8 plates). Synthetic recipes only. Coconut is not a tree nut (FDA allergen
 // guidance, January 2025), so the nuts chip leaves it alone. The seat screen
-// (recipeConflicts, app/lib/plan.js, off limits to the 2.0 allergen lane until
-// the 1.96 rebase) never reads optional rows or a rotating recipe's add-ins,
-// so an optional almond garnish and a rotating walnut topping pass a nut
-// allergy today: a todo with a named owner, the exact change in
-// ~/.claude/fleet/terrigen-lane-allergen.md.
+// (recipeConflicts, app/lib/plan.js) reads optional rows and a rotating
+// recipe's add-ins like required rows, so an optional almond garnish and a
+// rotating walnut topping refuse a nut allergy (fail closed).
 import test from "node:test";
 import assert from "node:assert/strict";
 import { targetsFromQuestionnaire } from "../app/lib/targets.js";
@@ -25,7 +23,6 @@ test("coconut is not a tree nut (FDA, January 2025): coconut milk passes a nut a
 
 test(
   "the seat screen counts optional rows and rotating add-ins",
-  { todo: "OWNER terrigen: 1.96 rebase, plan.js recipeConflicts reads optional rows and rotation.keep/pool (terrigen-lane-allergen.md)" },
   () => {
     const garnish = { id: "g", ingredients: [{ food: "chicken thighs" }, { food: "slivered almonds", optional: true }] };
     const bowl = { id: "b", ingredients: [{ food: "greek yogurt" }], rotation: { perDay: 1, keep: [{ food: "greek yogurt" }], pool: [{ food: "walnuts" }, { food: "blueberries" }] } };

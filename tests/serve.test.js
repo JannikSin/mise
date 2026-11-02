@@ -113,10 +113,9 @@ test("a hard-conflicted seat STAYS IN the denominator and renders SET ASIDE", ()
   assert.equal(ann?.fraction, "about half the pan", "denominator unchanged by the conflict");
 });
 
-test("an optional avoided row is the SOFT tier: plate line with a named note", () => {
-  // §8.2: optional rows never unseat (hard screen skips them), but the cook
-  // must be told — an optional red-onion garnish must not be silently plated
-  // to the person avoiding onion.
+test("an optional avoided row is screened like a required one: no plate for that seat", () => {
+  // 2.0 allergy fix: the hard screen reads optional rows too (fail closed),
+  // so an optional red-onion garnish refuses the person avoiding onion.
   const t = table({
     seats: [
       { id: "a", servings: 1 },
@@ -127,8 +126,8 @@ test("an optional avoided row is the SOFT tier: plate line with a named note", (
     b: { avoidIngredients: ["onion"] },
   });
   const ben = m.rows.find((r) => r.id === "b");
-  assert.equal(ben?.kind, "plate");
-  assert.equal(ben?.note, "no red onion");
+  assert.equal(ben?.kind, "aside");
+  assert.match(String(ben?.note), /^not for .+: contains onion\. Do not plate it\.$/);
 });
 
 test("family synonyms reach the soft tier only", () => {

@@ -338,10 +338,11 @@ test("mergeRecipePool: avoidIngredients screens EVERY recipe, own ones included"
   assert.equal(mergeRecipePool(bank, [], "loss").length, 3);
 });
 
-test("mergeRecipePool: avoid screen skips optional ingredients (gap-analysis fix)", () => {
+test("mergeRecipePool: avoid screen counts optional ingredients (fail closed)", () => {
   const bank = [
-    // near-vegan chili whose only dairy is an OPTIONAL yogurt topping — must
-    // survive a dairy-free screen (this is the bug the gap analysis flagged)
+    // near-vegan chili whose only dairy is an OPTIONAL yogurt topping: an
+    // optional row still lands on a plate, so a dairy-free screen refuses it
+    // (2.0 allergy fix; reverses the gap-analysis carve-out)
     {
       id: "plant-chili",
       ingredients: [
@@ -356,6 +357,10 @@ test("mergeRecipePool: avoid screen skips optional ingredients (gap-analysis fix
   const pool = mergeRecipePool(bank, [], undefined, ["yogurt", "cheese"]);
   assert.deepEqual(
     pool.map((r) => r.id),
+    [],
+  );
+  assert.deepEqual(
+    mergeRecipePool(bank, [], undefined, ["cheese"]).map((r) => r.id),
     ["plant-chili"],
   );
 });

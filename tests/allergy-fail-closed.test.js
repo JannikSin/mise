@@ -223,12 +223,12 @@ const PRE_BED = {
   ],
 };
 
-test("item 5: an optional peanut row is left off the peanut seat's plate and named, kept for the others", () => {
-  assert.deepEqual(
-    recipeConflicts(PRE_BED, undefined, PEANUT),
-    [],
-    "optional rows still do not unseat",
-  );
+test("item 5: an optional peanut row refuses the peanut seat (fail closed), and the plate still strips it", () => {
+  // 2.0 allergy fix: an optional row is screened like a required one, so a
+  // garnish never decides an allergic seat on its own word
+  assert.deepEqual(recipeConflicts(PRE_BED, undefined, PEANUT), ["contains peanut"]);
+  // the plate's own strip stays as the second wall, for any path that plates
+  // without asking the seat screen first
   const out = bowlTailor(
     PRE_BED,
     [
@@ -273,7 +273,7 @@ test("item 5: a left-off rotation row comes off the seat's macros; an unread all
   assert.equal(unread.seats.avery.plate.length, 1);
 });
 
-test("item 5: the serve step names the optional row for the peanut seat", () => {
+test("item 5: the serve step does not plate an optional-peanut dish for the peanut seat", () => {
   const t = /** @type {any} */ ({
     id: "t1",
     slot: "dinner",
@@ -294,7 +294,9 @@ test("item 5: the serve step names the optional row for the peanut seat", () => 
     { avery: { avoidIngredients: ["peanuts"] }, blake: {} },
     null,
   );
-  assert.equal(serve.rows.find((r) => r.id === "avery")?.note, "no peanut butter");
+  const avery = serve.rows.find((r) => r.id === "avery");
+  assert.equal(avery?.kind, "aside");
+  assert.match(String(avery?.note), /^not for .+: contains peanut\. Do not plate it\.$/);
   assert.equal(serve.rows.find((r) => r.id === "blake")?.note, undefined);
   assert.deepEqual(
     softAvoidMatches(PRE_BED, ["peanuts"]),

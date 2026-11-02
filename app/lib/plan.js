@@ -394,8 +394,10 @@ export function recipeConflicts(recipe, diet, avoid, avoidRecipes) {
       : null;
   if (admits && !admits.has(dietOf(recipe))) reasons.push(`not ${diet}`);
   const hitOf = avoidMatcher(avoid);
+  // optional rows count, same as required ones: a garnish still lands on a
+  // plate, so an avoided food in it refuses the seat (fail closed; tree-nut
+  // review 10/27, the almond garnishes)
   for (const ing of plateRows(recipe)) {
-    if (ing.optional) continue; // optional ingredients never trigger the avoid screen
     const hit = hitOf(ing.food);
     if (hit && !reasons.includes(`contains ${hit}`)) reasons.push(`contains ${hit}`);
   }

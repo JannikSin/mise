@@ -34,6 +34,7 @@ export const RELEASES = [
       "Each person signs in to Mise with their own email and password, instead of every phone sharing one key.",
       "A house sees only its own people, plans and pantry, and a guest sees only their own seats at the table.",
       "Edits made while a phone is offline, or while someone signs out or another person signs in, are kept and saved under the person who made them.",
+      "A dish whose optional extra is something you cannot eat, like an almond garnish for a nut allergy, is no longer picked for you or plated for you, the same as if it were a main ingredient.",
     ],
   },
   {
