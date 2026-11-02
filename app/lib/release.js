@@ -31,6 +31,15 @@ export const RELEASES = [
     version: UNRELEASED,
     date: "",
     notes: [
+      "Each person signs in to Mise with their own email and password, instead of every phone sharing one key.",
+      "A house sees only its own people, plans and pantry, and a guest sees only their own seats at the table.",
+      "Edits made while a phone is offline, or while someone signs out or another person signs in, are kept and saved under the person who made them.",
+    ],
+  },
+  {
+    version: "1.96",
+    date: "2026-10-31",
+    notes: [
       "Sunday cooks two dinners: one for Sunday and Monday, and a second for Tuesday to Thursday, all prepped Sunday except the meat. Friday and Saturday each get their own dish. It is the new default when you cook Sunday, Friday and Saturday; in the kitchen rule, Sunday cooks can also be one pot for Mon to Thu, or nights you pick.",
       "The second dish's meat is cooked once on Tuesday by default, or each night if you choose. Only dishes whose meat cooks in about 15 minutes are picked for it, like ground beef, sliced chicken, shrimp or tofu.",
       "Plan says what to do each night: Sunday lists the prep and where the meat goes (fridge or freezer), Tuesday says how much meat to cook, and Wednesday and Thursday say reheat until steaming hot, 165 F, and what to move from the freezer the night before.",
