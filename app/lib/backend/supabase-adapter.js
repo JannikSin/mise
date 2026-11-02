@@ -1,5 +1,5 @@
 // THE SUPABASE ADAPTER (Mise 2.0, plan section 5). Talks to the tables and
-// functions of supabase/schema.sql (the db lane owns that file) through an
+// functions of supabase/migrations/ (the db lane owns those files) through an
 // injected client, so tests run against a fake and nothing here imports a
 // vendored library.
 //

@@ -5,6 +5,10 @@
 //
 //   psql "<migration connection string>" -X -At -v ON_ERROR_STOP=1 \
 //        -f <(node tools/db-snapshot.mjs sql) > now.json
+//   On Windows PowerShell (no process substitution, and `>` would write
+//   UTF-16), let psql write the file itself (gate20 Realist R6):
+//   node tools/db-snapshot.mjs sql | psql "<migration connection string>" -X -At -v ON_ERROR_STOP=1 -o now.json
+//   psql comes with the PostgreSQL client tools; `psql --version` checks it.
 //   node tools/export-from-supabase.mjs --snapshot now.json --merge-into ../mise-data           (dry run)
 //   node tools/export-from-supabase.mjs --snapshot now.json --merge-into ../mise-data --write   (writes files)
 //   node tools/export-from-supabase.mjs --snapshot now.json --out <empty dir> --write           (a fresh tree)
@@ -30,7 +34,11 @@
 //   3. profiles.json rows lose passkey and adminKey (never imported), and the
 //      keys are id, the display fields, household, family, admin;
 //   4. a house copy of root prices.json or pins.json that nobody edited is
-//      folded back into the root file instead of written per house.
+//      folded back into the root file instead of written per house;
+//   5. an edited house copy of prices.json or pins.json for a house other
+//      than the root profile's home is written to households/<h>/, which a
+//      1.9x build never reads: the data is kept but stops being used until it
+//      is folded by hand (gate20 Engineer L1).
 //
 // Output is counts only unless --show-paths: a path can carry a slug.
 import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, readdirSync } from "node:fs";

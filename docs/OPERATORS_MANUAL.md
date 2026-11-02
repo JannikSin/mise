@@ -152,7 +152,7 @@ SQL transaction for the owner to run; none connects on its own.
 | Nightly backup | `.github/workflows/mise-backup.yml` (read-only `mise_backup` role, encrypted with age); set up with `tools/backup-setup.mjs` |
 | A snapshot by hand | `tools/db-snapshot.mjs` |
 | Restore a backup (the restore drill runs on the sandbox) | `tools/restore-backup.mjs --snapshot <file> --admins <slug>` |
-| Roll back to the GitHub build inside 30 days | `tools/export-from-supabase.mjs --snapshot <file> --merge-into ../mise-data`, then `tools/release.ps1 --rollback` to a 1.x tag; `mise-data` is never written by the migration, so it is still there |
+| Roll back to the GitHub build inside 30 days | `tools/export-from-supabase.mjs --snapshot <file> --merge-into ../mise-data`, then `tools/release.ps1 -Rollback -To release/YYYY-MM-DD` (a 1.x release tag); `mise-data` is never written by the migration, so it is still there |
 | Split a kind out of the `docs` table later | `docs/SCHEMAS.md`, "Escape hatch" |
 
 Rules that carry over unchanged: the release train (`docs/RELEASE_TRAIN.md`),
