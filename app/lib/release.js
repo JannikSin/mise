@@ -35,6 +35,8 @@ export const RELEASES = [
       "The amounts you see follow that choice everywhere: the day's calories and protein on Plan, the recipe page's amounts, the plates, and the shopping list, which buys the smaller amount of meat and the larger amount of starch.",
       "Muffins and other baked batters are never re-proportioned (they would not hold together); only how many you eat changes.",
       "Calorie and protein estimates for recipes with dry oats, raw rice, pasta and protein powder are more accurate: oats and rice were being counted as if already cooked, and protein powder was not counted as protein at all.",
+      "A phone that has never been connected to a kitchen no longer opens on David's name. It offers two choices instead: Connect your kitchen (paste the access token right there) or Continue as guest, which tries the app on that phone only and never saves anything to the kitchen's data.",
+      "Passkey boxes and the access token box show dots, not the digits or letters, as you type or paste, so you see how many you have entered; the number pad still opens for passkeys. Spaces or line breaks that come along with a paste are removed before saving, and a token that does not work now says why: rejected by GitHub (401), no access to the kitchen's data (403/404), or the sandbox data missing.",
     ],
   },
   {

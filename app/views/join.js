@@ -129,6 +129,8 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
       />
       <input
         class="pin-input"
+        type="password"
+        pattern="[0-9]*"
         aria-label="4-digit passkey"
         placeholder="4 digits you choose"
         inputmode="numeric"
@@ -371,6 +373,8 @@ export function WelcomeView({ code, member = false, notice = "", onSignedIn }) {
           />
           <input
             class="pin-input"
+            type="password"
+            pattern="[0-9]*"
             aria-label="4-digit passkey"
             placeholder="4-digit passkey"
             inputmode="numeric"

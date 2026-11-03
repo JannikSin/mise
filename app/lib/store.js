@@ -11,7 +11,14 @@ import { dbDeleteIfClean, dbGet, dbGetAll, dbUpdate, dbDelete } from "./db.js";
 import { listDir, readFile, writeFile, dataBranch } from "./github.js";
 import { pushFile, afterPushRecord, ConflictError } from "./sync.js";
 import { avoidTermsFromAllergens, typedAvoidTerms } from "./targets.js";
-import { syncScopeFor, verifiedKey, ADMIN_DEVICE_KEY, keyOf, isAdmin } from "./privacy.js";
+import {
+  syncScopeFor,
+  verifiedKey,
+  ADMIN_DEVICE_KEY,
+  keyOf,
+  isAdmin,
+  LOCAL_GUEST,
+} from "./privacy.js";
 
 const io = { read: readFile, write: writeFile };
 
@@ -883,13 +890,16 @@ async function revalidatePass(scopedDir) {
  */
 export async function write(path, data, opts) {
   const scopedPath = opts?.raw ? path : scoped(path);
+  // a guest's edits are kept on this phone and never queued, so connecting
+  // and switching profile later cannot push them (P3, 2026-11-02)
+  const queue = activeProfile() !== LOCAL_GUEST;
   fileCheckedAt.delete(scopedPath);
   await dbUpdate(scopedPath, (cur) => ({
     path: scopedPath,
     data,
     base: cur?.base ?? null,
     sha: cur?.sha ?? null,
-    dirty: true,
+    dirty: queue,
     queuedAt: cur?.dirty && cur.queuedAt ? cur.queuedAt : Date.now(),
     rev: (cur?.rev ?? 0) + 1,
     // stamped with the branch it was written under (release train): a queued
@@ -978,13 +988,14 @@ export async function flushNow({ timeoutMs = 20000 } = {}) {
  * @returns {Promise<void>}
  */
 async function flush() {
-  if (status.flushing || !navigator.onLine) return;
+  // a guest with no token keeps every write on this phone (P3, 2026-11-02)
+  if (status.flushing || !navigator.onLine || activeProfile() === LOCAL_GUEST) return;
   status.flushing = true;
   status.conflicts = 0;
   emit();
   try {
     const queued = (await dbGetAll())
-      .filter((r) => r.dirty)
+      .filter((r) => r.dirty && !r.path.startsWith(`profiles/${LOCAL_GUEST}/`))
       .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
     const here = dataBranch();
     status.mismatched = 0;

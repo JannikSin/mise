@@ -1,7 +1,14 @@
 import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 import { readProfiles, patchProfiles, writeTargetsOf } from "../lib/store.js";
-import { getToken } from "../lib/github.js";
+import {
+  getToken,
+  setToken,
+  clearToken,
+  checkDataRepo,
+  branchProbe,
+  tokenProblem,
+} from "../lib/github.js";
 import {
   targetsFromQuestionnaire,
   avoidTermsFromAllergens,
@@ -14,7 +21,8 @@ import {
   ADMIN_DEVICE_KEY,
   DEVICE_HOUSE_KEY,
   boundaryOn,
-  chooserProfiles,
+  chooserRows,
+  LOCAL_GUEST,
   isAdmin,
   maySwitchTo,
   profilesNamed,
@@ -203,6 +211,30 @@ export function ProfileGateView({
   const [pin, setPin] = useState("");
   const [pinErr, setPinErr] = useState("");
   const [typedName, setTypedName] = useState("");
+  // NO TOKEN, NO NAMES (David, 2026-11-02, P3): a phone that was never
+  // connected lists nobody, so nobody lands in the admin's profile
+  const noToken = !guest && !invite && !edit && !getToken();
+  const [connecting, setConnecting] = useState(false);
+  const [tokenDraft, setTokenDraft] = useState("");
+  const [tokenErr, setTokenErr] = useState("");
+  const [checking, setChecking] = useState(false);
+  // check the token before opening the kitchen: a refused one would only
+  // bring back the built-in default list (David, 2026-11-02)
+  const saveToken = async () => {
+    if (!tokenDraft.trim() || checking) return;
+    setToken(tokenDraft);
+    setChecking(true);
+    setTokenErr("");
+    const r = await checkDataRepo();
+    const problem = tokenProblem(r.auth, r.auth === "ok" ? await branchProbe() : "n/a");
+    setChecking(false);
+    if (!problem) {
+      location.reload();
+      return;
+    }
+    if (r.auth !== "ok") clearToken();
+    setTokenErr(problem);
+  };
   const adminDevice = stored(ADMIN_DEVICE_KEY) === "1";
   // a new profile joins this device's own house unless this is the admin's
   // device (Tribunal Red Team: "+ add profile" could be typed into the family)
@@ -1119,15 +1151,66 @@ export function ProfileGateView({
               : "You've been invited to join a shared kitchen. Fill this in once, on your own phone."
             : guest
               ? "guest profile, fill this in and the table sets your plate to your own numbers"
-                : "who's checking in?"
+                : noToken
+                  ? "this phone isn't connected to a kitchen yet"
+                  : "who's checking in?"
           }
         </div>
       </div>
-      ${lead} ${loading && html`<p class="hint">loading profiles…</p>`}
+      ${lead} ${loading && !noToken && html`<p class="hint">loading profiles…</p>`}
+      ${
+        noToken &&
+        html`<div class="slots">
+            <button class="ask" onClick=${() => setConnecting(true)}>
+              Connect your kitchen
+              <small>paste your access token</small>
+            </button>
+            <button
+              class="ask"
+              onClick=${() => {
+                localStorage.setItem("mise.activeProfile", LOCAL_GUEST);
+                location.reload();
+              }}
+            >
+              Continue as guest
+              <small>try it on this phone, nothing is saved anywhere else</small>
+            </button>
+          </div>
+          ${
+            connecting &&
+            html`<form
+                class="token-form"
+                onSubmit=${(/** @type {any} */ e) => {
+                  e.preventDefault();
+                  void saveToken();
+                }}
+              >
+                <input
+                  type="password"
+                  aria-label="Fine-grained personal access token"
+                  placeholder="paste fine-grained PAT"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck=${false}
+                  ref=${(/** @type {HTMLInputElement | null} */ el) => el?.focus()}
+                  value=${tokenDraft}
+                  onInput=${(/** @type {any} */ e) => setTokenDraft(e.currentTarget.value)}
+                />
+                <button class="primary" type="submit" disabled=${checking}>
+                  ${checking ? "CHECKING…" : "SAVE"}
+                </button>
+              </form>
+              ${tokenErr && html`<p class="hint scanerr" role="alert">⚠ ${tokenErr}</p>`}
+              <p class="hint">
+                Stored only on this device. Your kitchen's profiles appear once it is saved.
+              </p>`
+          }`
+      }
       ${
         fallback &&
         !loading &&
         !invite &&
+        !noToken &&
         html`<p class="hint">
           ⚠ couldn't load the profile list (offline or token not set), so this is the built-in
           default. Any other profiles still exist and are safe; they'll appear once this device
@@ -1144,7 +1227,8 @@ export function ProfileGateView({
           // not see Priya, so nobody is ever "inside" the guesthouse. And
           // only this device's own household (privacy.js, 2026-10-18): a
           // fresh device lists no one and asks for a name below.
-          const offerable = chooserProfiles(profiles, stored(DEVICE_HOUSE_KEY), adminDevice);
+          const offerable =
+            chooserRows(profiles, getToken(), stored(DEVICE_HOUSE_KEY), adminDevice) ?? [];
           const fams = [...new Set(offerable.map(famOf))];
           // family headings are the admin's view: on a roommate's phone the
           // heading named the admin's family (Tribunal Realist, 2026-10-18)
@@ -1163,7 +1247,7 @@ export function ProfileGateView({
               )}
             </div>
           `;
-          if (guest || invite) return "";
+          if (guest || invite || noToken) return "";
           if (!showHeaders) return block(offerable);
           return fams
             .sort((a, b) => (a || "zz").localeCompare(b || "zz"))
@@ -1179,9 +1263,10 @@ export function ProfileGateView({
       }
       ${
         askPin &&
-        // digits shown, not dots (David, 2026-10-18: "This isn't something
-        // people are looking over your shoulder for. You can show the
-        // numbers"); the box gets the full width, OPEN sits under it
+        // dots, not digits (David, 2026-11-02: "cause it is a password. so
+        // i mean should see how many characters but not the actual
+        // character"; this replaces his 10/18 "you can show the numbers");
+        // the number pad stays; the box gets the full width, OPEN under it
         html`<form
           class="tile pin-form"
           onSubmit=${(/** @type {any} */ e) => {
@@ -1195,7 +1280,7 @@ export function ProfileGateView({
             <input
             id="open-passkey"
             class="pin-input"
-            type="text"
+            type="password"
               inputmode="numeric"
             pattern="[0-9]*"
               autocomplete="off"
@@ -1212,6 +1297,7 @@ export function ProfileGateView({
         // belongs to a household, a typed name could reach another one
         !guest &&
         !invite &&
+        !noToken &&
         boundaryOn(profiles) &&
         stored(DEVICE_HOUSE_KEY) === null &&
         html`<div class="tile">
@@ -1241,12 +1327,12 @@ export function ProfileGateView({
       ${pinErr && html`<p class="hint scanerr" role="status">${pinErr}</p>`}
       <button
         class="secondary linkbtn"
-        hidden=${guest || Boolean(invite)}
+        hidden=${guest || Boolean(invite) || noToken}
         onClick=${() => setChatMode(true)}
       >
         prefer to chat? set up by conversation →
       </button>
-      ${form}
+      ${!noToken && form}
     </div>
   `;
 }

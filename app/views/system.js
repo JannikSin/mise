@@ -9,6 +9,7 @@ import {
   dataRepoOverridden,
   dataBranch,
   readFile,
+  tokenProblem,
 } from "../lib/github.js";
 import { buyDayOf, formatSyncTime } from "../lib/dates.js";
 import {
@@ -710,7 +711,7 @@ export function SystemView({
                 html`<input
                   class="pin-input"
                   aria-label="Current passkey"
-                  type="text"
+                  type="password"
                   inputmode="numeric"
                   pattern="[0-9]*"
                   autocomplete="off"
@@ -723,7 +724,7 @@ export function SystemView({
               <input
               class="pin-input"
               aria-label="New passkey"
-              type="text"
+              type="password"
                 inputmode="numeric"
               pattern="[0-9]*"
               autocomplete="off"
@@ -735,7 +736,7 @@ export function SystemView({
             <input
               class="pin-input"
               aria-label="Same passkey again"
-              type="text"
+              type="password"
               inputmode="numeric"
               pattern="[0-9]*"
               autocomplete="off"
@@ -1080,7 +1081,7 @@ export function SystemView({
           html`
             ${
               repo?.auth === "invalid" &&
-              html`<p class="hint">Your saved token stopped working, paste a new one.</p>`
+              html`<p class="hint">${tokenProblem("invalid")}</p>`
             }
             ${
               repo?.auth === "norepo" &&
@@ -1097,6 +1098,9 @@ export function SystemView({
                 type="password"
                 aria-label="Fine-grained personal access token"
                 placeholder="paste fine-grained PAT"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck=${false}
                 value=${draft}
                 onInput=${(/** @type {{ currentTarget: HTMLInputElement }} */ e) =>
                   onDraft(e.currentTarget.value)}

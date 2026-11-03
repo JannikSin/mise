@@ -134,6 +134,30 @@ export function chooserProfiles(profiles, deviceHouse, adminDevice) {
 }
 
 /**
+ * The profile id of a phone with no data token that chose CONTINUE AS GUEST
+ * (David, 2026-11-02: "dont want it to automatically have it go and work to
+ * be in my profile"). P3: nobody lands in someone else's profile. It lives on
+ * this phone only; github.js refuses every write made under it.
+ */
+export const LOCAL_GUEST = "local-guest";
+
+/**
+ * The rows the sign-in chooser lists, or null when this phone has NO data
+ * token: then it lists nobody (the built-in default would be the admin's own
+ * name) and offers CONNECT YOUR KITCHEN or CONTINUE AS GUEST instead. A phone
+ * WITH a token that is offline still lists its cached household as before.
+ * @param {Record<string, any>[]} profiles
+ * @param {string | null} token
+ * @param {string | null} deviceHouse
+ * @param {boolean} adminDevice
+ * @returns {Record<string, any>[] | null}
+ */
+export function chooserRows(profiles, token, deviceHouse, adminDevice) {
+  if (!String(token ?? "").trim()) return null;
+  return chooserProfiles(profiles, deviceHouse, adminDevice);
+}
+
+/**
  * A typed name on a fresh device: the profiles it could mean, never a list.
  * @param {Record<string, any>[]} profiles
  * @param {string} typed

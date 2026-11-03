@@ -2,6 +2,7 @@
 // Views import from here (or, later, from store.js) — never fetch directly.
 
 import { ConflictError } from "./sync.js";
+import { LOCAL_GUEST } from "./privacy.js";
 
 const API = "https://api.github.com";
 // B4 (friend groups): each install can point at its OWN private data repo.
@@ -124,10 +125,37 @@ export function getToken() {
 
 /** @param {string} token */
 export function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token.trim());
+  // a token has no spaces: a pasted one often carries a newline or a space
+  // inside it, which GitHub then rejects (David, 2026-11-02)
+  localStorage.setItem(TOKEN_KEY, token.replace(/\s+/g, ""));
   // fine-grained PATs are created with 1-year expiry (setup ceremony);
   // the save date drives the renew-soon warning (blueprint §4.5)
   localStorage.setItem(`${TOKEN_KEY}.savedAt`, new Date().toISOString());
+}
+
+/** Forget this phone's token (a just-pasted one GitHub refused). */
+export function clearToken() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(`${TOKEN_KEY}.savedAt`);
+}
+
+/**
+ * What is wrong with a token, in words someone can act on, or "" when the
+ * token works (David, 2026-11-02: "is not working" said nothing about why).
+ * @param {string | undefined} auth checkDataRepo's auth
+ * @param {string} [branch] branchProbe's answer
+ */
+export function tokenProblem(auth, branch = "n/a") {
+  if (auth === "invalid") {
+    return "GitHub rejected this token (401). Check it was copied whole, or make a new one.";
+  }
+  if (auth === "norepo") {
+    return `This token works but has no access to ${DATA_REPO.owner}/${DATA_REPO.repo} (403/404). On GitHub give it that repository with Contents read and write; the token itself stays the same.`;
+  }
+  if (auth === "ok" && branch === "missing") {
+    return "The token works, but the sandbox data branch is missing: run tools/seed-sandbox-data.ps1, then reload.";
+  }
+  return "";
 }
 
 /**
@@ -202,10 +230,13 @@ export async function checkDataRepo() {
         } catch {
           // a non-JSON error body just means we fall through to "invalid"
         }
+        // 401 is a dead token; any other refusal (403) is missing access
         auth =
           authed.status === 403 && /rate limit|abuse|secondary/i.test(why)
             ? "throttled"
-            : "invalid";
+            : authed.status === 401
+              ? "invalid"
+              : "norepo";
       }
     } catch {
       auth = "unknown"; // offline
@@ -277,6 +308,10 @@ export async function writeFile(path, data, sha) {
   if (branch === null) {
     // an origin the train does not know: reads may work, writes never do
     throw new Error(`write ${path}: unknown data branch for this origin, writes are refused`);
+  }
+  if (localStorage.getItem("mise.activeProfile") === LOCAL_GUEST) {
+    // a guest on a phone with no token stays on this phone (P3, 2026-11-02)
+    throw new Error(`write ${path}: guest profile, saved on this phone only`);
   }
   const res = await fetch(contentsUrl(path), {
     method: "PUT",
