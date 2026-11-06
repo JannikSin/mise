@@ -19,6 +19,7 @@
 import { aisleOf, canonicalFood, convertUnit, dimensionOf, normalizeQty } from "./ingredients.js";
 import {
   isDatedItem,
+  plentyHolds,
   looksPerishable,
   packPantry,
   pantryItems,
@@ -26,6 +27,7 @@ import {
   plentyKey,
   subtractPantryFromTrip,
 } from "./shopping.js";
+import { localIsoDate } from "./dates.js";
 
 /** A confirmation older than this is stale again: a week is one shop cycle. */
 export const SHELF_CHECK_DAYS = 7;
@@ -244,7 +246,9 @@ export function weekNeedsCheck(demand, pantry) {
     if (held.length === 0) continue; // a pure buy: the list already has it
     seen.add(canon);
     const dated = held.filter(isDatedItem);
-    const plenty = held.some((it) => !isDatedItem(it) && it.state === "plenty");
+    const plenty = held.some(
+      (it) => !isDatedItem(it) && it.state === "plenty" && plentyHolds(it, localIsoDate(new Date())),
+    );
     const have =
       dated.length > 0
         ? dated

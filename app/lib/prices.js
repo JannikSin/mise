@@ -142,7 +142,10 @@ export function parsePackSize(size) {
   if (!s || s.includes("per lb")) return null;
   if (s.includes("dozen")) return { qty: 12, unit: "each" };
   const multi = s.match(/^(\d+)\s*[x@]\s/); // "2 x 28 oz", "2 @ 0.79"
-  const mult = multi ? Number(multi[1]) : 1;
+  // "4 ct / 8 fl oz" is four 8 oz cartons in one package (Pay Less broth,
+  // 2026-11-06: read as one 8 oz carton, the list bought 9 packs, $53.91)
+  const perCt = s.match(/^(\d+)\s*ct\s*\/\s*(?=\d)/);
+  const mult = multi ? Number(multi[1]) : perCt ? Number(perCt[1]) : 1;
   const m = s.match(/(\d+(?:\.\d+)?)\s*(fl oz|oz|lbs?|kg|g|ml|l)\b/);
   if (m) return { qty: mult * Number(m[1]), unit: m[2] === "lbs" ? "lb" : String(m[2]) };
   const ct = s.match(/(\d+)\s*ct\b/);

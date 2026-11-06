@@ -751,6 +751,12 @@ exempt class. Every item is either:
   next list (the old `runningLow`); state ABSENT means OUT — the item buys
   whenever a recipe needs it, like any other food. The PANTRY tab cycles
   PLENTY → LOW → OUT with one tap.
+  **A plenty assertion on a perishable expires (2026-11-06):** every write
+  of `state: "plenty"` stamps `since` (local YYYY-MM-DD). For a food that
+  `looksPerishable` and does not keep past 60 days on the shelf (eggs, milk,
+  spinach, not canned broth or tuna), `plentyHolds` counts the assertion
+  only while `since` plus its fridge shelf life is not past; an undated one
+  does not count, so the food buys. Shelf-stable plenty never expires.
 - a **tracked row** (`added` and/or `qty` and/or `location`): counted food.
   It expires by shelf life, subtracts from the trip by real quantity
   (`subtractPantryFromTrip`), gets consumed by cooking (`consumeForCook`),
@@ -783,6 +789,8 @@ window and one more reason the window is short.**
       "food": "Cayenne",
       "section": "spices", // store section, see Shopping
       "state": "plenty", // ? "plenty" | "low"; absent = OUT (buys on need)
+      "since": "2026-11-06", // ? local date the plenty was last asserted; a
+      // perishable's plenty lapses at since + shelf life (plentyHolds)
       "premium": false, // ? true = special occasions (saffron, porcini)
     },
     {
@@ -1328,6 +1336,11 @@ path, and no brigade-specific behaviour anywhere downstream.
       //   recipeProteinClass) is chicken, turkey, beef or pork; fish and
       //   legumes sit out. Nothing qualifying = the full pool with a note.
       //   Absent or false = any protein. Tables EDIT "Every dinner has meat".
+      "snackFirst": true, // ? SNACK FIRST (David 2026-11-06: "i would prefer
+      //   less emphasis on oat jar and more on muffin"): the planner sizes the
+      //   snack at weight 1 and breakfast at 0.6 instead of 0.5 and 1
+      //   (tables.js slotWeightsFor), so the bag snack carries more of the
+      //   day. Bands unchanged. Absent = usual weights. Tables EDIT "Snack first".
       "slotRecipes": { "breakfast": ["berry-walnut-greek-yogurt-bowl"] }, // ?
       //   NAMED SLOTS (David 2026-09-05: "breakfast should just be variations
       //   of greek yogurt bowls"): per slot, the only recipe ids the pot may

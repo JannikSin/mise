@@ -1838,6 +1838,7 @@ function App() {
         const next = it.state === "plenty" ? "low" : it.state === "low" ? undefined : "plenty";
         const rest = { ...it };
         delete rest.state;
+        if (next === "plenty") return { ...rest, state: next, since: localIsoDate(new Date()) };
         return next ? { ...rest, state: next } : rest;
       });
       updatePantry(packPantry(items));

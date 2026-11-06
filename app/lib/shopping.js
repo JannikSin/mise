@@ -16,6 +16,7 @@ import {
 } from "./ingredients.js";
 import { itemCost, matchPrice, parsePackSize, stem } from "./prices.js";
 import { labelChecks } from "./plan.js";
+import { localIsoDate } from "./dates.js";
 
 /**
  * @typedef {{ id: string, food: string, qty: number, unit: string, section: string, checked: boolean, manual: boolean, fromRecipes?: string[], needIt?: boolean }} ShoppingItem
@@ -245,6 +246,16 @@ const PLENTY_ALIASES = /** @type {Record<string, string>} */ ({
   "cayenne-pepper": "cayenne",
   "canned-garbanzo-beans": "chickpeas",
   "extra-virgin-olive-oil": "olive-oil",
+  // Broth (David, 11/6: "i have enough chicken and vegetable broth rn"):
+  // his pantry says "low-sodium chicken broth", the recipes say "chicken
+  // broth", and the list still bought 8.5 cups.
+  "low-sodium-chicken-broth": "chicken-broth",
+  "reduced-sodium-chicken-broth": "chicken-broth",
+  "chicken-stock": "chicken-broth",
+  "low-sodium-chicken-stock": "chicken-broth",
+  "low-sodium-vegetable-broth": "vegetable-broth",
+  "reduced-sodium-vegetable-broth": "vegetable-broth",
+  "vegetable-stock": "vegetable-broth",
 });
 
 /**
@@ -332,9 +343,10 @@ export function deriveShoppingList(plan, recipesById, pantry, previous, fromDate
   // across builds. "low" items need buying; dated qty rows are never
   // name-suppressed here, they subtract by real quantity at render time
   // (subtractPantryFromTrip). No item class is exempt from purchase logic.
+  const today = localIsoDate(new Date());
   const onHandSlugs = new Set(
     pItems
-      .filter((it) => it.state === "plenty")
+      .filter((it) => it.state === "plenty" && plentyHolds(it, today))
       .flatMap((it) => [it.id, slug(it.food), canonicalFood(it.food), plentyKey(it.food)]),
   );
 
@@ -1455,8 +1467,9 @@ export function recipeBought(recipe, pantry, shopping) {
 export function kitchenHas(pantry, shopping) {
   /** @type {Set<string>} */
   const have = new Set();
+  const today = localIsoDate(new Date());
   for (const it of pantryItems(pantry)) {
-    if (!(isDatedItem(it) || it.state === "plenty")) continue;
+    if (!(isDatedItem(it) || (it.state === "plenty" && plentyHolds(it, today)))) continue;
     have.add(canonicalFood(String(it.food)));
     have.add(plentyKey(String(it.food)));
   }
@@ -1479,6 +1492,25 @@ export function kitchenHas(pantry, shopping) {
 export function looksPerishable(food) {
   const f = String(food ?? "").toLowerCase();
   return PERISHABLE_SHELF_DAYS.some(([re]) => re.test(f));
+}
+
+/**
+ * Does a PLENTY assertion still count as food in the kitchen? (David, 11/6:
+ * "have no eggs... did at one point but that was months ago and probably
+ * past the expiry date for those eggs so the system should have noticed
+ * that.") A plenty row of a shelf-stable food (salt, rice, canned broth)
+ * holds for good. A plenty row of a perishable (eggs, milk, spinach) holds
+ * only while `since`, the day it was last asserted, plus the food's shelf
+ * life is not past; an undated one does not count, so it goes on the list.
+ * @param {Record<string, any>} it a pantry row with state "plenty"
+ * @param {string} todayIso local YYYY-MM-DD
+ * @returns {boolean}
+ */
+export function plentyHolds(it, todayIso) {
+  const food = String(it.food ?? "");
+  if (!looksPerishable(food) || shelfLifeDays(food, "pantry") > 60) return true;
+  if (typeof it.since !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(it.since)) return false;
+  return expiryFrom(it.since, food) >= todayIso;
 }
 
 /**
@@ -1532,7 +1564,7 @@ const OTHER_LOCATION_DAYS = [
   // as waste in one to two weeks. A year is the guide's floor for canned and
   // dry goods; the fridge figure still governs the same food in the fridge.
   [
-    /\b(canned|cans?|tinned|jarred|tuna|beans|chickpeas|lentils|tomatoes|tomato paste|broth|stock|coconut milk|pasta|noodles|rice|oats|flour|sugar|quinoa|couscous|cereal|granola|nuts|seeds|honey|syrup|oil|vinegar|sauce|salsa|paste|powder|crackers|popcorn|chips)\b/,
+    /\b(canned|cans?|tinned|jarred|tuna|beans|chickpeas|lentils|tomatoes|tomato paste|broth|stock|coconut milk|pasta|noodles|rice|oats|flour|sugar|quinoa|couscous|cereal|granola|nuts|seeds|honey|syrup|oil|vinegar|sauce|salsa|paste|powder|crackers|popcorn|chips|flax|flaxseeds?|chia|cumin|cinnamon|paprika|turmeric|nutmeg|coriander|allspice|black pepper|ground ginger|spices?)\b/,
     { pantry: 365 },
   ],
 ];
@@ -2090,13 +2122,14 @@ export function ownItemToPantry(shopping, pantry, itemId) {
     const today = new Date().toISOString().slice(0, 10);
     for (const i of countedAt) items[i] = { ...items[i], checkedAt: today };
   } else if (existing >= 0) {
-    items[existing] = { ...items[existing], state: "plenty" };
+    items[existing] = { ...items[existing], state: "plenty", since: localIsoDate(new Date()) };
   } else {
     items.push({
       id: foodSlug,
       food: item.food,
       section: item.section,
       state: "plenty",
+      since: localIsoDate(new Date()),
     });
   }
   return {
@@ -2138,7 +2171,7 @@ export function applyJustBought(shopping, pantry, today, opts = {}) {
         canonicalFood(b.food) === canonicalFood(it.food),
     );
     // buying a state-tracked item restocks its assertion
-    return hit ? { ...it, state: "plenty" } : it;
+    return hit ? { ...it, state: "plenty", since: today } : it;
   });
   const stateItems = items.filter((/** @type {any} */ it) => !isDatedItem(it));
   const stateIds = new Set(stateItems.map((/** @type {any} */ it) => it.id));

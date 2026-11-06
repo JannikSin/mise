@@ -1792,24 +1792,22 @@ export function ShoppingView({
               // on a two-person week that was fine (David,
               // 2026-08-30). The even split is the honest headline
               // here; exact who-ate-what money lives in house money.
-              const seats =
-                brigade?.iShop && (brigade.seats ?? 1) > 1
-                  ? /** @type {number} */ (brigade.seats)
-                  : 1;
-              // his share of THIS trip, the number he pays (2026-10-16); the
-              // old eaten-only share read $13 beside a $59 trip
-              const share = homeSummary.total / seats;
-              // David, 2026-10-16: "is that for both people? We each pay $100
-              // or it's $100 total?" It is EACH person's budget; say so, and
-              // say what his share of this week's food comes to.
-              const label = seats > 1 ? `your share (1 of ${seats})` : "this week's food";
+              // David, 2026-11-06: "100 total". The budget is the WHOLE
+              // store trip for the house (it was read as each person's on
+              // 2026-10-16), so the trip itself is judged, and the eaten
+              // share is shown beside it: what this week's meals use up,
+              // the rest being stock for later weeks.
+              const share = homeSummary.total;
+              const label = "this trip";
               return html`<div class="row">
-                <span class="k"
-                  >budget $${weeklyBudgetUsd.toFixed(0)}${seats > 1 ? " a person" : ""} a week</span
-                >
+                <span class="k">budget $${weeklyBudgetUsd.toFixed(0)} a week for the trip</span>
                 <span class="status num ${share > weeklyBudgetUsd ? "warn" : ""}"
                   >${share > weeklyBudgetUsd ? `${label} $${share.toFixed(2)}, over by $${(share - weeklyBudgetUsd).toFixed(2)}` : `${label} ≈ $${share.toFixed(2)} ✓`}</span
                 >
+              </div>
+              <div class="row">
+                <span class="k">eaten this week</span>
+                <span class="status num">$${homeSummary.eaten.toFixed(2)} · the rest stays as stock</span>
               </div>`;
             })()
           }

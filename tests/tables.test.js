@@ -690,3 +690,25 @@ test("A PLANNED PLATING follows the table everywhere: the day meter counts it an
   assert.equal(/** @type {any} */ (plain.cookExtras[0]).potRows, undefined);
   assert.equal(plain.entries[0].estCalories, 1350);
 });
+
+// David, 11/6: "i would prefer less emphasis on oat jar and more on muffin"
+test("SNACK FIRST sizes the snack like a meal and breakfast smaller; absent keeps the usual weights (P3, P1)", async () => {
+  const T = await import("../app/lib/tables.js");
+  const targets = { macros: { calories: 3700 }, mealSlots: ["breakfast", "lunch", "snack", "dinner"] };
+  const muffin = { nutrition: { calories: 512 } };
+  const jar = { nutrition: { calories: 1406 } };
+  const plain = T.slotWeightsFor({});
+  const first = T.slotWeightsFor({ snackFirst: true });
+  assert.equal(plain, T.SLOT_WEIGHT);
+  const snackPlain = T.seatServingsRaw(targets, "snack", muffin, plain) ?? 0;
+  const snackFirst = T.seatServingsRaw(targets, "snack", muffin, first) ?? 0;
+  const jarPlain = T.seatServingsRaw(targets, "breakfast", jar, plain) ?? 0;
+  const jarFirst = T.seatServingsRaw(targets, "breakfast", jar, first) ?? 0;
+  assert.ok(snackFirst > snackPlain * 1.7, `snack ${snackPlain} -> ${snackFirst}`);
+  assert.ok(jarFirst < jarPlain * 0.7, `jar ${jarPlain} -> ${jarFirst}`);
+  // the default argument is the old behaviour, untouched
+  assert.equal(T.seatServingsRaw(targets, "snack", muffin), snackPlain);
+  const rule = { id: "r", name: "k", memberIds: ["a"], slots: ["breakfast", "snack"], from: "2026-11-08", until: "2026-11-29" };
+  assert.equal(T.validBrigade({ ...rule, snackFirst: true }), true);
+  assert.equal(T.validBrigade({ ...rule, snackFirst: "yes" }), false);
+});

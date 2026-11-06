@@ -2883,3 +2883,68 @@ test("SET TABLE can never pass without a finished allergy check, and offers TRY 
   assert.match(src, /Could not check allergies\. Check the phone has signal, then TRY AGAIN\./);
   assert.match(src, /Checking everyone's allergies, a few seconds\./);
 });
+
+// David, 11/6: "have no eggs... did at one point but that was months ago and
+// probably past the expiry date for those eggs so the system should have
+// noticed that." and "i have enough chicken and vegetable broth rn".
+test("a PLENTY perishable expires: undated eggs buy, eggs asserted 3 days ago do not, undated broth never expires (P6)", async () => {
+  const { plentyHolds, kitchenHas } = await import("../app/lib/shopping.js");
+  const { localIsoDate } = await import("../app/lib/dates.js");
+  const d = new Date();
+  d.setDate(d.getDate() - 3);
+  const threeDaysAgo = localIsoDate(d);
+  const recipes = new Map([
+    [
+      "soup",
+      {
+        id: "soup",
+        servings: 1,
+        ingredients: [
+          { qty: 2, unit: "each", food: "eggs" },
+          { qty: 4, unit: "cup", food: "chicken broth" },
+          { qty: 2, unit: "cup", food: "low-sodium vegetable broth" },
+        ],
+      },
+    ],
+  ]);
+  const plan = {
+    week: "2026-W46",
+    entries: [{ id: "a", date: "2026-11-09", slot: "dinner", recipeId: "soup", servings: 1 }],
+  };
+  const pantryOf = (/** @type {Record<string, any>} */ eggs) => ({
+    items: [
+      { id: "eggs", food: "eggs", section: "dairy", state: "plenty", ...eggs },
+      { id: "low-sodium-chicken-broth", food: "low-sodium chicken broth", section: "canned", state: "plenty" },
+      { id: "vegetable-stock", food: "vegetable stock", section: "canned", state: "plenty" },
+    ],
+  });
+  const foods = (/** @type {any} */ p) => deriveShoppingList(plan, recipes, p).items.map((i) => i.food);
+
+  const undated = foods(pantryOf({}));
+  assert.ok(undated.includes("eggs"), `undated plenty eggs must buy: ${undated}`);
+  assert.ok(!undated.some((f) => /broth/.test(f)), `broth is owned under another name: ${undated}`);
+
+  const fresh = foods(pantryOf({ since: threeDaysAgo }));
+  assert.ok(!fresh.includes("eggs"), `eggs asserted 3 days ago still hold: ${fresh}`);
+
+  const old = foods(pantryOf({ since: "2026-06-01" }));
+  assert.ok(old.includes("eggs"), `eggs asserted in June are past their 28 days: ${old}`);
+
+  assert.equal(plentyHolds({ food: "canned tuna", state: "plenty" }, "2026-11-06"), true);
+  assert.equal(plentyHolds({ food: "coconut milk (canned)", state: "plenty" }, "2026-11-06"), true);
+  assert.equal(plentyHolds({ food: "skim milk", state: "plenty" }, "2026-11-06"), false);
+  // "ground" is a meat word, but ground flax and ground spices keep (11/6: his flax went on the list)
+  assert.equal(plentyHolds({ food: "ground flaxseed", state: "plenty" }, "2026-11-06"), true);
+  assert.equal(plentyHolds({ food: "ground cumin", state: "plenty" }, "2026-11-06"), true);
+  assert.equal(plentyHolds({ food: "ground turkey", state: "plenty" }, "2026-11-06"), false);
+  assert.equal(kitchenHas(pantryOf({}), null)("eggs"), false);
+  assert.equal(kitchenHas(pantryOf({ since: threeDaysAgo }), null)("eggs"), true);
+});
+
+test("asserting PLENTY stamps the day, so the clock has something to run on (P6)", () => {
+  const shopping = { week: "2026-W46", items: [{ id: "eggs", food: "eggs", section: "dairy", qty: 12, unit: "each", checked: false }] };
+  const { pantry } = ownItemToPantry(shopping, { items: [] }, "eggs");
+  const row = pantry.items.find((/** @type {any} */ i) => i.food === "eggs");
+  assert.equal(row.state, "plenty");
+  assert.match(row.since, /^\d{4}-\d{2}-\d{2}$/);
+});
