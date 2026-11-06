@@ -231,7 +231,7 @@ export function TablesView({
   const houseMates = (profiles ?? []).filter((p) => (p.household ?? "home") === myHouse);
   const myBrigades = (houseEvents ?? []).find((h) => h.house === myHouse)?.events?.brigades ?? [];
   const [brigadeForm, setBrigadeForm] = useState(
-    /** @type {null | { editId: string | null, name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string, open: boolean, sundayMinutes: string, cookDays: number[], slotRecipes: Record<string, string[]>, batchFeeds: number[], keptBatches?: { cookDay: number, feeds: number[] }[], sundayBatch: boolean, sundayTwoPots: boolean, meatDaily: boolean, dinnerMeat: boolean }} */ (
+    /** @type {null | { editId: string | null, name: string, memberIds: string[], slots: string[], cookId: string, rotateCooks: boolean, from: string, until: string, open: boolean, sundayMinutes: string, cookDays: number[], slotRecipes: Record<string, string[]>, batchFeeds: number[], keptBatches?: { cookDay: number, feeds: number[] }[], sundayBatch: boolean, sundayTwoPots: boolean, meatDaily: boolean, dinnerMeat: boolean, snackFirst: boolean }} */ (
       null
     ),
   );
@@ -308,6 +308,7 @@ export function TablesView({
       // his Sunday pot (Tribunal Final Gate 1.95)
       ...(sundayBatchOn(seed) && Array.isArray(seed?.batches) ? { keptBatches: seed.batches } : {}),
       dinnerMeat: seed?.dinnerMeat === true,
+      snackFirst: /** @type {any} */ (seed)?.snackFirst === true,
     };
     setBrigadeForm(form);
     setFormStart(JSON.stringify(form));
@@ -406,6 +407,11 @@ export function TablesView({
       // the same for two pots: only the one-pot choice is stored
       ...(brigadeForm.sundayBatch && !brigadeForm.sundayTwoPots ? { sundayTwoPots: false } : {}),
       ...(brigadeForm.meatDaily ? { meatDaily: true } : {}),
+      ...(brigadeForm.snackFirst &&
+      brigadeForm.slots.includes("snack") &&
+      brigadeForm.slots.includes("breakfast")
+        ? { snackFirst: true }
+        : {}),
     };
     if (brigadeForm.editId && onUpdateBrigade) {
       onUpdateBrigade(brigadeForm.editId, {
@@ -425,6 +431,7 @@ export function TablesView({
         sundayBatch: /** @type {any} */ (rule).sundayBatch ?? undefined,
         sundayTwoPots: /** @type {any} */ (rule).sundayTwoPots ?? undefined,
         meatDaily: /** @type {any} */ (rule).meatDaily ?? undefined,
+        snackFirst: /** @type {any} */ (rule).snackFirst ?? undefined,
       });
       setBrigadeNote([
         "Saved. SET MY WEEK on the Plan tab fills empty meals from it and swaps any set meal the rule no longer allows.",
@@ -1586,6 +1593,30 @@ export function TablesView({
                       brigadeForm.dinnerMeat
                         ? "Every dinner is built on chicken, turkey, beef or pork. Fish and bean dinners sit out."
                         : "Optional. Tap it and bean-only, fish and vegetable dinners sit out."
+                    }
+                  </p>`
+              }
+              ${
+                // MUFFIN FIRST (David, 11/6: "i would prefer less emphasis on
+                // oat jar and more on muffin"): the snack is sized like a meal
+                // and breakfast smaller; the bands still hold
+                brigadeForm.slots.includes("snack") &&
+                brigadeForm.slots.includes("breakfast") &&
+                html`<div class="chips wrapchips">
+                    <button
+                      class=${brigadeForm.snackFirst ? "chip on" : "chip"}
+                      aria-pressed=${brigadeForm.snackFirst}
+                      onClick=${() =>
+                        setBrigadeForm({ ...brigadeForm, snackFirst: !brigadeForm.snackFirst })}
+                    >
+                      Snack first
+                    </button>
+                  </div>
+                  <p class="hint">
+                    ${
+                      brigadeForm.snackFirst
+                        ? "The snack carries more of the day and breakfast less: more muffins for the bag, a smaller jar. Calories and protein still land."
+                        : "Optional. Tap it to make the snack bigger and breakfast smaller."
                     }
                   </p>`
               }

@@ -14,7 +14,7 @@ import { allergenFamilyOf } from "./targets.js";
  * @typedef {{ portionGrams?: number, plate: string[], estCalories: number, estProtein: number }} TailorSeat scale-first: portionGrams = weighed grams of the finished dish on this plate (absent/0 on pre-scale tailors)
  * @typedef {{ at: string, seats: Record<string, TailorSeat>, cook: string[] }} TableTailor AI plate-tailoring result
  * @typedef {{ id: string, name: string, date: string, slot: string, recipeId: string, seats: Seat[], tailor?: TableTailor, cookId?: string, buyerId?: string, buyerFrom?: "rule", fromBrigade?: string, fromWeekRun?: boolean, sameForEveryone?: boolean, cookedAt?: string, pot?: string, headId?: string, leftoverOf?: string, preparedOn?: string, proteinFresh?: "once" | "daily", ratio?: { protein: number, carbfat: number } }} TableEvent `buyerFrom: "rule"` marks a buyer filled from a take-turns rule's shopper (it follows the rule; a hand claim carries no marker). `fromWeekRun` is LEGACY: written only by the retired AI week run; read solely by planBrigadeWeek's shadow sweep, which clears such tables from a brigade's span. `leftoverOf` names the COOK table this meal is eaten from (a no-cook night, David 2026-09-05): its seats size the pot, it is never bought or cooked on its own. `preparedOn` (2026-09-24) marks a BATCH pot: this night's dish is cooked on that earlier date (the Sunday batch) and its later nights eat it as leftovers; its safe window runs from that date. `proteinFresh` (2026-10-25) marks a batch pot prepped all but the meat: "once" = this night cooks the meat for every night the pot feeds, "daily" = each night cooks its own share. `ratio` (2026-11-02) is the planned plating: the pot is the recipe through synth.js withRatio.
- * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]>, batches?: { cookDay: number, feeds: number[] }[], dinnerMeat?: boolean, open?: boolean, breaks?: string, sundayMinutes?: number, sundayBatch?: boolean, sundayTwoPots?: boolean, meatDaily?: boolean }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool. `batches` (David, 2026-09-24) = a second pot cooked on `cookDay` and eaten on the weekdays in `feeds` (the Sunday batch for Tue + Wed); absent = no batch. `dinnerMeat` (David, 2026-09-25) = every dinner the brigade plans is anchored on chicken, turkey, beef or pork; absent = any protein. `open` (David, 2026-10-18) = no end date: the 28-day record rolls forward (rolledRule). `breaks` = a SCHOOL_BREAKS key; the rule plans nothing on those dates. `sundayMinutes` (David, 2026-10-18) = his rough limit on Sunday cooking, shown against the estimate, never enforced. `sundayBatch` (2.0, I-14) = Sunday's dinner is the batch for Mon to Thu: Sunday cooks one pot and no second dish; absent = ON, applied by the app through sundayBatchOn before it plans (planBrigadeWeek reads only `true`), false = off. `sundayTwoPots` (David, 2026-10-25) = with the batch on, Sunday cooks TWO pots: A for Sun and Mon, B for Tue to Thu prepped all but the meat, which is cooked fresh each night; absent = ON (sundayTwoPotsOn), false = the one pot for Mon to Thu. `meatDaily` = meal B's meat is cooked each night it is eaten; absent = cooked once, on B's first night, for all of them.
+ * @typedef {{ id: string, name: string, memberIds: string[], slots: string[], cookId?: string, rotateCooks?: boolean, from: string, until: string, salt?: number, cookDays?: number[], slotRecipes?: Record<string, string[]>, batches?: { cookDay: number, feeds: number[] }[], dinnerMeat?: boolean, open?: boolean, breaks?: string, sundayMinutes?: number, sundayBatch?: boolean, sundayTwoPots?: boolean, meatDaily?: boolean, snackFirst?: boolean }} Brigade `cookDays` = weekdays (0 Sun … 6 Sat) dinner is COOKED; every other night eats leftovers of the nearest earlier cook inside the dish's safe window. Absent = cook every night. `slotRecipes` = per slot, the only recipe ids the pot may draw from ("breakfast is yogurt bowls, full stop"); absent = the whole screened pool. `batches` (David, 2026-09-24) = a second pot cooked on `cookDay` and eaten on the weekdays in `feeds` (the Sunday batch for Tue + Wed); absent = no batch. `dinnerMeat` (David, 2026-09-25) = every dinner the brigade plans is anchored on chicken, turkey, beef or pork; absent = any protein. `open` (David, 2026-10-18) = no end date: the 28-day record rolls forward (rolledRule). `breaks` = a SCHOOL_BREAKS key; the rule plans nothing on those dates. `sundayMinutes` (David, 2026-10-18) = his rough limit on Sunday cooking, shown against the estimate, never enforced. `sundayBatch` (2.0, I-14) = Sunday's dinner is the batch for Mon to Thu: Sunday cooks one pot and no second dish; absent = ON, applied by the app through sundayBatchOn before it plans (planBrigadeWeek reads only `true`), false = off. `sundayTwoPots` (David, 2026-10-25) = with the batch on, Sunday cooks TWO pots: A for Sun and Mon, B for Tue to Thu prepped all but the meat, which is cooked fresh each night; absent = ON (sundayTwoPotsOn), false = the one pot for Mon to Thu. `meatDaily` = meal B's meat is cooked each night it is eaten; absent = cooked once, on B's first night, for all of them. `snackFirst` (David, 2026-11-06) = MUFFIN FIRST: the snack is sized like a meal and breakfast smaller (slotWeightsFor); absent = the usual weights.
  * @typedef {{ tables: TableEvent[], brigades?: Brigade[] }} HouseEvents
  */
 
@@ -274,6 +274,7 @@ export function validBrigade(b) {
     }
   }
   if (b.dinnerMeat !== undefined && typeof b.dinnerMeat !== "boolean") return false;
+  if (b.snackFirst !== undefined && typeof b.snackFirst !== "boolean") return false;
   if (b.sundayBatch !== undefined && typeof b.sundayBatch !== "boolean") return false;
   if (b.sundayTwoPots !== undefined && typeof b.sundayTwoPots !== "boolean") return false;
   if (b.meatDaily !== undefined && typeof b.meatDaily !== "boolean") return false;
@@ -1248,6 +1249,20 @@ export function setTableTailor(events, tableId, tailor, today) {
  * with the SAME weights, so the two sizings can never disagree. */
 export const SLOT_WEIGHT = { breakfast: 1, lunch: 1.15, dinner: 1.3, smoothie: 0.7, snack: 0.5 };
 
+/**
+ * MUFFIN FIRST (David, 11/6: "i love muffin and think it should be maximized
+ * for protein and calories too. cause it is perfect to keep in my bag... i
+ * would prefer less emphasis on oat jar and more on muffin"). A kitchen rule
+ * with `snackFirst: true` sizes the snack like a meal and breakfast smaller,
+ * so the bag snack carries more of the day than the jar. Every band still
+ * holds; only where the calories sit moves.
+ * @param {{ snackFirst?: boolean } | null | undefined} brigade
+ * @returns {Record<string, number>}
+ */
+export function slotWeightsFor(brigade) {
+  return brigade?.snackFirst === true ? { ...SLOT_WEIGHT, snack: 1, breakfast: 0.6 } : SLOT_WEIGHT;
+}
+
 /** Brigade portions are tighter than hand-set table portions. */
 export const BRIGADE_SERVINGS_MAX = 3;
 
@@ -1281,9 +1296,10 @@ export function seatServingsFor(targets, slot, recipe) {
  * @param {Record<string, any> | undefined} targets
  * @param {string} slot
  * @param {Record<string, any>} recipe
+ * @param {Record<string, number>} [weights] slot weights (slotWeightsFor the rule)
  * @returns {number | null}
  */
-export function seatServingsRaw(targets, slot, recipe) {
+export function seatServingsRaw(targets, slot, recipe, weights = SLOT_WEIGHT) {
   const perServing = recipe?.nutrition?.calories ?? 0;
   const dayCalories = targets?.macros?.calories ?? 0;
   if (perServing <= 0 || dayCalories <= 0) return null;
@@ -1291,8 +1307,7 @@ export function seatServingsRaw(targets, slot, recipe) {
     Array.isArray(targets?.mealSlots) && targets.mealSlots.length > 0
       ? targets.mealSlots
       : ["breakfast", "lunch", "dinner"];
-  const weightOf = (/** @type {string} */ s) =>
-    SLOT_WEIGHT[/** @type {keyof typeof SLOT_WEIGHT} */ (s)] ?? 1;
+  const weightOf = (/** @type {string} */ s) => /** @type {Record<string, number>} */ (weights)[s] ?? 1;
   const total = slots.reduce((sum, /** @type {string} */ s) => sum + weightOf(s), 0);
   if (total <= 0) return null;
   const slotCalories = dayCalories * (weightOf(slot) / total);

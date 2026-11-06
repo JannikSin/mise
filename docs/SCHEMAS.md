@@ -1336,6 +1336,11 @@ path, and no brigade-specific behaviour anywhere downstream.
       //   recipeProteinClass) is chicken, turkey, beef or pork; fish and
       //   legumes sit out. Nothing qualifying = the full pool with a note.
       //   Absent or false = any protein. Tables EDIT "Every dinner has meat".
+      "snackFirst": true, // ? SNACK FIRST (David 2026-11-06: "i would prefer
+      //   less emphasis on oat jar and more on muffin"): the planner sizes the
+      //   snack at weight 1 and breakfast at 0.6 instead of 0.5 and 1
+      //   (tables.js slotWeightsFor), so the bag snack carries more of the
+      //   day. Bands unchanged. Absent = usual weights. Tables EDIT "Snack first".
       "slotRecipes": { "breakfast": ["berry-walnut-greek-yogurt-bowl"] }, // ?
       //   NAMED SLOTS (David 2026-09-05: "breakfast should just be variations
       //   of greek yogurt bowls"): per slot, the only recipe ids the pot may

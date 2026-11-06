@@ -16,7 +16,7 @@
 import {
   SERVINGS_MIN,
   BRIGADE_SERVINGS_MAX,
-  SLOT_WEIGHT,
+  slotWeightsFor,
   seatServingsRaw,
   brigadePool,
   brigadeTableId,
@@ -322,7 +322,8 @@ export function solveSeatDay(dishes, bands, sigma, fixed = {}) {
  *   recentClassBySlot?: Record<string, Set<string>>,
  *   recentFamilyBySlot?: Record<string, Set<string>>,
  *   lockedSlots?: Set<string>,
- * }} day `lockedSlots` = slots whose dish is food that exists or is promised
+ *   weights?: Record<string, number>,
+ * }} day `weights` = the rule's slot weights (slotWeightsFor); absent = SLOT_WEIGHT. `lockedSlots` = slots whose dish is food that exists or is promised
  *   (pinned, cooked, bought, a leftover night, a set snack bake): their pick
  *   is used exactly as given, its plating never re-proportioned. seats may exclude slots they do not eat from the pot (their own
  *   pinned entry or a carried skip covers them there instead). A seat's
@@ -400,7 +401,7 @@ export function composeDay(day) {
       /** @type {Record<string, number>} */
       const effFixed = {};
       for (const d of dishes) {
-        const raw = seatServingsRaw(seat.targets ?? undefined, d.slot, d.recipe);
+        const raw = seatServingsRaw(seat.targets ?? undefined, d.slot, d.recipe, day.weights);
         if (raw !== null) sigma[d.slot] = raw;
         const f = seat.fixed?.[d.slot];
         if (f && f.recipeId === d.recipe.id) effFixed[d.slot] = f.servings;
@@ -794,6 +795,9 @@ export function planBrigadeWeek(events, brigade, ctx) {
     nights: { cook: [], leftover: [], uncovered: [] },
   };
   if (!validBrigade(brigade)) return empty;
+  // MUFFIN FIRST (snackFirst): where the day's calories sit, one table for
+  // every sizing below so the solve, the pot sizes and the seats agree
+  const slotWeights = slotWeightsFor(brigade);
   // a table's dish as its pot holds it: the bank recipe on its stored plating
   const tableDish = (/** @type {any} */ t) =>
     t ? withRatio(ctx.bankById.get(String(t.recipeId)), t.ratio) : undefined;
@@ -1437,7 +1441,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         const dish = tableDish(src);
         if (!dish) continue;
         const seatRows = (t.seats ?? []).map((s) => {
-          const rawExact = seatServingsRaw(ctx.targetsById.get(s.id), slot, dish);
+          const rawExact = seatServingsRaw(ctx.targetsById.get(s.id), slot, dish, slotWeights);
           const raw3 = rawExact === null ? undefined : Math.round(rawExact * 1000) / 1000;
           const rest = { .../** @type {any} */ (s) };
           delete rest.edited; // a hand-set portion of the drifted dish means nothing on this one
@@ -1622,7 +1626,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         const potEstimate = (/** @type {Record<string, any>} */ r) =>
           potNights.length *
           members.reduce((sum, m) => {
-            const raw = seatServingsRaw(ctx.targetsById.get(m.id), slot, r);
+            const raw = seatServingsRaw(ctx.targetsById.get(m.id), slot, r, slotWeights);
             return sum + (raw === null ? 1 : raw);
           }, 0);
         const fits = pool.filter(
@@ -1811,8 +1815,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
       // arithmetic): a subset brigade must never force-feed a whole day into
       // one pot. Slots already covered (a swipe, a fixed slot, their own
       // pin) are out of both sides — their calories sit in `covered`.
-      const weightOf = (/** @type {string} */ s) =>
-        SLOT_WEIGHT[/** @type {keyof typeof SLOT_WEIGHT} */ (s)] ?? 1;
+      const weightOf = (/** @type {string} */ s) => slotWeights[s] ?? 1;
       const memberSlots = /** @type {string[]} */ (
         Array.isArray(targets?.mealSlots) && targets.mealSlots.length > 0
           ? targets.mealSlots
@@ -1858,8 +1861,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
     for (const [gid, seated] of guestSlots) {
       const targets = ctx.targetsById.get(gid) ?? null;
       const exclude = new Set(liveSlots.filter((s) => !seated.has(s)));
-      const weightOf = (/** @type {string} */ s) =>
-        SLOT_WEIGHT[/** @type {keyof typeof SLOT_WEIGHT} */ (s)] ?? 1;
+      const weightOf = (/** @type {string} */ s) => slotWeights[s] ?? 1;
       const guestMealSlots = /** @type {string[]} */ (
         Array.isArray(targets?.mealSlots) && targets.mealSlots.length > 0
           ? targets.mealSlots
@@ -1902,6 +1904,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
       eating.length > 0
         ? composeDay({
             slots: liveSlots,
+            weights: slotWeights,
             poolsBySlot: pools,
             startBySlot: starts,
             lockedSlots,
@@ -2041,6 +2044,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
     ) =>
       composeDay({
         slots: liveSlots,
+        weights: slotWeights,
         poolsBySlot: Object.fromEntries(liveSlots.map((s) => [s, picks[s] ? [picks[s]] : []])),
         startBySlot: picks,
         lockedSlots: new Set([
@@ -2369,7 +2373,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
         const seat = seats.find((s) => s.id === m.id);
         const old = existing?.seats?.find((s) => s.id === m.id);
         const solvedS = composed?.seats[m.id]?.servings?.[slot];
-        const rawExact = seatServingsRaw(ctx.targetsById.get(m.id), slot, meal);
+        const rawExact = seatServingsRaw(ctx.targetsById.get(m.id), slot, meal, slotWeights);
         const raw3 = rawExact === null ? undefined : Math.round(rawExact * 1000) / 1000;
         const fallback =
           raw3 === undefined
@@ -2411,7 +2415,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
       for (const g of guestRows) {
         const seat = seats.find((s) => s.id === g.id);
         const solvedS = composed?.seats[g.id]?.servings?.[slot];
-        const rawExact = seatServingsRaw(ctx.targetsById.get(g.id), slot, meal);
+        const rawExact = seatServingsRaw(ctx.targetsById.get(g.id), slot, meal, slotWeights);
         const raw3 = rawExact === null ? undefined : Math.round(rawExact * 1000) / 1000;
         const edited = sameDish && /** @type {any} */ (g).edited === true;
         const fixedSeat = seat?.fixed?.[slot];
