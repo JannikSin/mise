@@ -2305,15 +2305,18 @@ export function planBrigadeWeek(events, brigade, ctx) {
     // split per person, against each person's weekly budget scaled to the
     // run's days. Over it, one more sweep may repeat dishes (variety gives
     // way; the bands never do). Still over, it says so in words.
+    // THE WHOLE TRIP (David, 2026-11-06: "100 total"): the weekly budget is
+    // the house's store trip, not each person's, so the cap is judged against
+    // the trip itself. Before this, $100 a person let a $185 trip for two
+    // pass as "fits" and the cheaper, shared-ingredient sweep never ran.
     if (ctx.tripItems && Number(ctx.budgetUsd) > 0) {
       const tripNow = () => [...weekKeys(null, null).values()].reduce((a, b) => a + b, 0);
-      const perPerson = () => tripNow() / Math.max(1, members.length);
       const cap = (Number(ctx.budgetUsd) * dates.length) / 7;
-      if (perPerson() > cap + 0.5) runPasses(true);
-      const share = Math.round(perPerson() * 100) / 100;
+      if (tripNow() > cap + 0.5) runPasses(true);
+      const share = Math.round(tripNow() * 100) / 100;
       budgetCheck = {
         trip: Math.round(tripNow() * 100) / 100,
-        perPerson: share,
+        perPerson: Math.round((share / Math.max(1, members.length)) * 100) / 100,
         cap: Math.round(cap * 100) / 100,
       };
       if (share > cap + 0.5) {
@@ -2324,7 +2327,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
           (sl) => /** @type {any} */ (brigade.slotRecipes?.[sl] ?? []).length > 0,
         );
         notes.push(
-          `over budget: about $${share.toFixed(0)} a person for these ${dates.length} days against $${cap.toFixed(0)} (your $${Number(ctx.budgetUsd).toFixed(0)} a week). ${
+          `over budget: the trip is about $${share.toFixed(0)} for these ${dates.length} days against $${cap.toFixed(0)} (your $${Number(ctx.budgetUsd).toFixed(0)} a week for the house). ${
             locked.length > 0
               ? `${locked.join(" and ").replace(/^./, (c) => c.toUpperCase())} ${locked.length === 1 ? "is" : "are"} limited to named recipes, so the planner can only swap among those; Tables > EDIT can add cheaper ones`
               : "The cheapest week the bands allow is still over; the rest is packages the pantry does not hold"
