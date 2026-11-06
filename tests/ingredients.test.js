@@ -176,6 +176,7 @@ test("plural dictation and singular recipes share one key", () => {
   assert.equal(canonicalFood("sharp cheddar cheese"), canonicalFood("sharp cheddar"));
   assert.equal(canonicalFood("tuna"), canonicalFood("canned tuna"));
   assert.equal(canonicalFood("whole milk"), canonicalFood("milk"));
+  assert.equal(canonicalFood("skim milk"), canonicalFood("milk"));
   // still never merged: juice is a bottle, the fruit is a fruit
   assert.notEqual(canonicalFood("lemons"), canonicalFood("lemon juice"));
 });
