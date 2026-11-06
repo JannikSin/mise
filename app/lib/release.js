@@ -28,19 +28,15 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
-    version: UNRELEASED,
-    date: "",
-    notes: [
-      "A generated week no longer overshoots protein to reach calories. When a day's dishes as written carry too much protein for the calories you need, the plan keeps the same recipes and cooks them with less of the meat, whey or yogurt and more of the rice, oats or pasta, so the day lands near your protein aim and under the ceiling. Replayed on the 11/2 week, David went from about 245 g a day (30 of 36 days over 215 g) to about 200 g (none over), every day still at 3,500 kcal or more.",
-      "The amounts you see follow that choice everywhere: the day's calories and protein on Plan, the recipe page's amounts, the plates, and the shopping list, which buys the smaller amount of meat and the larger amount of starch.",
-      "Muffins and other baked batters are never re-proportioned (they would not hold together); only how many you eat changes.",
-      "Calorie and protein estimates for recipes with dry oats, raw rice, pasta and protein powder are more accurate: oats and rice were being counted as if already cooked, and protein powder was not counted as protein at all.",
-    ],
-  },
-  {
     version: "1.96",
     date: "2026-10-31",
     notes: [
+      "Fix (11/6): a generated week no longer overshoots protein to reach calories. When a day's dishes as written carry too much protein for the calories you need, the plan keeps the same recipes and cooks them with less of the meat, whey or yogurt and more of the rice, oats or pasta, so the day lands near your protein aim and under the ceiling. Replayed on the 11/2 week, David went from about 245 g a day (30 of 36 days over 215 g) to about 200 g (none over), every day still at 3,500 kcal or more.",
+      "Fix (11/6): the amounts you see follow that choice everywhere: the day's calories and protein on Plan, the recipe page's amounts, the plates, and the shopping list, which buys the smaller amount of meat and the larger amount of starch.",
+      "Fix (11/6): muffins and other baked batters are never re-proportioned (they would not hold together); only how many you eat changes.",
+      "Fix (11/6): calorie and protein estimates for recipes with dry oats, raw rice, pasta and protein powder are more accurate: oats and rice were being counted as if already cooked, and protein powder was not counted as protein at all.",
+      "Fix (11/6): eggs, milk, spinach and other fresh food marked plenty in the pantry stop counting once they would have gone off, so the list buys them again. Marking one plenty now starts its clock that day. Canned and dry food marked plenty still never runs out on its own.",
+      "Fix (11/6): broth in the pantry under another name (low-sodium chicken broth, vegetable stock) now covers the recipes that call for chicken or vegetable broth, so the list stops buying it.",
       "Fix (11/6): a store package of several cartons, like Pay Less chicken broth (4 cartons of 8 fl oz), now counts as all of its cartons. Before, the list read it as one carton and asked for 9 packages ($53.91) when 3 cover the week.",
       "Sunday cooks two dinners: one for Sunday and Monday, and a second for Tuesday to Thursday, all prepped Sunday except the meat. Friday and Saturday each get their own dish. It is the new default when you cook Sunday, Friday and Saturday; in the kitchen rule, Sunday cooks can also be one pot for Mon to Thu, or nights you pick.",
       "The second dish's meat is cooked once on Tuesday by default, or each night if you choose. Only dishes whose meat cooks in about 15 minutes are picked for it, like ground beef, sliced chicken, shrimp or tofu.",
