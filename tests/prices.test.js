@@ -295,6 +295,9 @@ test("parsePackSize reads the live catalogue's shapes", () => {
   assert.deepEqual(parsePackSize("5.35 lb @ 0.69/lb"), { qty: 5.35, unit: "lb" });
   assert.deepEqual(parsePackSize("2 @ 0.79"), { qty: 2, unit: "each" });
   assert.deepEqual(parsePackSize("1 L"), { qty: 1, unit: "l" });
+  // a multi-count package of measured cartons is the whole package
+  assert.deepEqual(parsePackSize("4 ct / 8 fl oz"), { qty: 32, unit: "fl oz" });
+  assert.deepEqual(parsePackSize("12 ct El Milagro"), { qty: 12, unit: "each" });
   assert.equal(parsePackSize("per lb"), null);
   assert.equal(parsePackSize(undefined), null);
 });
@@ -478,4 +481,14 @@ test("PRICE SANITY: a fresh row 3x off the other stores by weight is the wrong p
   // the other store's own sane row is left alone
   assert.equal(saneFreshRate(cat.items[0], "mm"), null);
   assert.equal(itemCost({ food: "turmeric", qty: 1, unit: "tsp" }, cat, "pl")?.cost, 7.49);
+});
+
+test("8.5 cups of broth against a 4 ct / 8 fl oz package buys 3 packages, not 9 (2026-11-06)", () => {
+  const cat = {
+    stores: ["pay-less"],
+    items: [{ id: "chicken-broth", name: "chicken broth", prices: { "pay-less": { price: 5.99, size: "4 ct / 8 fl oz" } } }],
+  };
+  const r = itemCost({ food: "chicken broth", qty: 8.5, unit: "cup" }, cat, "pay-less");
+  assert.equal(r?.packs, 3);
+  assert.equal(r?.cost, 17.97);
 });
