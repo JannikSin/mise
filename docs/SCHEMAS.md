@@ -751,6 +751,12 @@ exempt class. Every item is either:
   next list (the old `runningLow`); state ABSENT means OUT — the item buys
   whenever a recipe needs it, like any other food. The PANTRY tab cycles
   PLENTY → LOW → OUT with one tap.
+  **A plenty assertion on a perishable expires (2026-11-06):** every write
+  of `state: "plenty"` stamps `since` (local YYYY-MM-DD). For a food that
+  `looksPerishable` and does not keep past 60 days on the shelf (eggs, milk,
+  spinach, not canned broth or tuna), `plentyHolds` counts the assertion
+  only while `since` plus its fridge shelf life is not past; an undated one
+  does not count, so the food buys. Shelf-stable plenty never expires.
 - a **tracked row** (`added` and/or `qty` and/or `location`): counted food.
   It expires by shelf life, subtracts from the trip by real quantity
   (`subtractPantryFromTrip`), gets consumed by cooking (`consumeForCook`),
@@ -783,6 +789,8 @@ window and one more reason the window is short.**
       "food": "Cayenne",
       "section": "spices", // store section, see Shopping
       "state": "plenty", // ? "plenty" | "low"; absent = OUT (buys on need)
+      "since": "2026-11-06", // ? local date the plenty was last asserted; a
+      // perishable's plenty lapses at since + shelf life (plentyHolds)
       "premium": false, // ? true = special occasions (saffron, porcini)
     },
     {

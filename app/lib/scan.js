@@ -631,10 +631,11 @@ export function applyScanItems(pantry, items, todayIso, location) {
       const id = slug(name);
       const at = next.findIndex((it) => !isDatedItem(it) && it.id === id);
       const state = item.state === "low" ? "low" : "plenty";
+      const since = state === "plenty" ? { since: todayIso } : {};
       if (at >= 0) {
-        next[at] = { ...next[at], state };
+        next[at] = { ...next[at], state, ...since };
       } else {
-        next.push({ id, food: name, section: sectionOf(name), state });
+        next.push({ id, food: name, section: sectionOf(name), state, ...since });
       }
     } else {
       // slug-dedupe so weekly re-scans ("Half-Cabbage" vs "half cabbage")
