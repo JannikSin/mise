@@ -2933,6 +2933,10 @@ test("a PLENTY perishable expires: undated eggs buy, eggs asserted 3 days ago do
   assert.equal(plentyHolds({ food: "canned tuna", state: "plenty" }, "2026-11-06"), true);
   assert.equal(plentyHolds({ food: "coconut milk (canned)", state: "plenty" }, "2026-11-06"), true);
   assert.equal(plentyHolds({ food: "skim milk", state: "plenty" }, "2026-11-06"), false);
+  // "ground" is a meat word, but ground flax and ground spices keep (11/6: his flax went on the list)
+  assert.equal(plentyHolds({ food: "ground flaxseed", state: "plenty" }, "2026-11-06"), true);
+  assert.equal(plentyHolds({ food: "ground cumin", state: "plenty" }, "2026-11-06"), true);
+  assert.equal(plentyHolds({ food: "ground turkey", state: "plenty" }, "2026-11-06"), false);
   assert.equal(kitchenHas(pantryOf({}), null)("eggs"), false);
   assert.equal(kitchenHas(pantryOf({ since: threeDaysAgo }), null)("eggs"), true);
 });

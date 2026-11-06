@@ -1564,7 +1564,7 @@ const OTHER_LOCATION_DAYS = [
   // as waste in one to two weeks. A year is the guide's floor for canned and
   // dry goods; the fridge figure still governs the same food in the fridge.
   [
-    /\b(canned|cans?|tinned|jarred|tuna|beans|chickpeas|lentils|tomatoes|tomato paste|broth|stock|coconut milk|pasta|noodles|rice|oats|flour|sugar|quinoa|couscous|cereal|granola|nuts|seeds|honey|syrup|oil|vinegar|sauce|salsa|paste|powder|crackers|popcorn|chips)\b/,
+    /\b(canned|cans?|tinned|jarred|tuna|beans|chickpeas|lentils|tomatoes|tomato paste|broth|stock|coconut milk|pasta|noodles|rice|oats|flour|sugar|quinoa|couscous|cereal|granola|nuts|seeds|honey|syrup|oil|vinegar|sauce|salsa|paste|powder|crackers|popcorn|chips|flax|flaxseeds?|chia|cumin|cinnamon|paprika|turmeric|nutmeg|coriander|allspice|black pepper|ground ginger|spices?)\b/,
     { pantry: 365 },
   ],
 ];
