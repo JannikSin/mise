@@ -80,6 +80,7 @@ const SLOTS = SLOT_KEYS.map((key) => ({ key, ...(SLOT_META[key] ?? { label: key,
  *   onRemoveFromDinner?: (date: string, profileId: string) => void,
  *   onLinkRoommate?: (profileId: string) => Promise<string>,
  *   onInviteLink?: (kind: "member" | "guest") => Promise<string>,
+ *   onAddAllergy?: (profileId: string, key: string) => Promise<string>,
  *   askConfirm?: (message: string) => Promise<boolean>,
  *   onReadTargets?: (ids: string[]) => Promise<Record<string, any>>
  * }} props `onReadTargets` (2.0, I-08): each id's targets, null when the file
@@ -118,6 +119,7 @@ export function TablesView({
   onRemoveFromDinner = undefined,
   onLinkRoommate = undefined,
   onInviteLink = undefined,
+  onAddAllergy = undefined,
   onReadTargets = undefined,
 }) {
   const byId = recipesById(bankRecipes ?? []);
@@ -871,6 +873,7 @@ export function TablesView({
         onRemoveFromDinner=${onRemoveFromDinner}
         onLinkRoommate=${onLinkRoommate}
         onInviteLink=${onInviteLink}
+        onAddAllergy=${onAddAllergy}
       />
 
       ${

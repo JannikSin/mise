@@ -40,6 +40,7 @@ import {
   ADMIN_DEVICE_KEY,
   keyOf,
   verifiedKey,
+  isAdmin,
 } from "./lib/privacy.js";
 import { normalizeEquipment } from "./lib/equipment.js";
 import {
@@ -4108,6 +4109,22 @@ function App() {
   // JOIN BY LINK (guesthouse spec §8, 2026-09-14): mint a single-use code
   // with THIS device's token and hand back the link to send. The invitee's
   // phone never gets a token; the Worker writes their profile for them.
+  // AN ALLERGY FOR A HOUSEMATE (David, 2026-11-07: "no tree nuts for
+  // elliot"): the kitchen's admin may ADD an allergy to someone in the
+  // kitchen, through their own targets file, the same field their own
+  // profile edits. Add only: taking one off stays the person's own call.
+  const handleAddAllergy = useCallback(
+    async (/** @type {string} */ id, /** @type {string} */ key) => {
+      const cur = /** @type {any} */ (await readTargetsOf(id));
+      if (!cur) return "Could not read their profile, so nothing was changed. Try again once synced.";
+      const have = Array.isArray(cur.allergens) ? cur.allergens : [];
+      if (have.includes(key)) return "Already on their allergies.";
+      await writeTargetsOf(id, { ...cur, allergens: [...have, key] });
+      return "Added. Their plate now leaves it out; SET MY WEEK replans any meal that has it.";
+    },
+    [],
+  );
+
   const handleInviteLink = useCallback(async (/** @type {"member" | "guest"} */ kind) => {
     const me = activeProfile();
     const hostHouse = allProfilesRef.current.find((p) => p.id === me)?.household ?? "home";
@@ -5367,6 +5384,9 @@ function App() {
         onRemoveFromDinner=${handleRemoveGuestSeat}
         onLinkRoommate=${handleLinkRoommate}
         onInviteLink=${hasToken ? handleInviteLink : undefined}
+        onAddAllergy=${
+          hasToken && isAdmin(allProfiles.find((p) => p.id === me)) ? handleAddAllergy : undefined
+        }
         onReadTargets=${handleReadTargets}
       />`
     }

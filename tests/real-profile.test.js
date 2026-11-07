@@ -32,6 +32,7 @@ import {
 import { itemCost, resolveHomeStore, storeSlugOf, tripTotal } from "../app/lib/prices.js";
 import { datesOfWeek, recipesById } from "../app/lib/plan.js";
 import { recipeTripCost, recipeTripItems } from "../app/lib/money.js";
+import { withSwaps } from "../app/lib/swaps.js";
 import {
   LEGACY_TARGETS_PATH,
   TARGETS_PATH,
@@ -58,7 +59,7 @@ const J = (p) => JSON.parse(fs.readFileSync(path.join(DATA, p), "utf8"));
 
 /** Plan his kitchen's week exactly as SET MY WEEK does. */
 function planHisWeek(
-  /** @type {{ snackFirst?: boolean, pantryAdd?: string[], snack?: string[], noSwaps?: boolean }} */ opts = {},
+  /** @type {{ snackFirst?: boolean, pantryAdd?: string[], snack?: string[], noSwaps?: boolean, elliotAllergens?: string[] }} */ opts = {},
 ) {
   const bank = fs
     .readdirSync(path.join(DATA, "recipes"))
@@ -89,6 +90,13 @@ function planHisWeek(
   };
 
   const targetsById = new Map(brigade.memberIds.map((/** @type {string} */ id) => [id, tgt(id)]));
+  // an allergy added the way People > Elliot adds it: the stored chip id,
+  // expanded on read exactly like readTargetsOf does
+  if (opts.elliotAllergens && targetsById.get("elliot")) {
+    const e = targetsById.get("elliot");
+    const allergens = [...new Set([...(e.allergens ?? []), ...opts.elliotAllergens])];
+    targetsById.set("elliot", withCurrentAllergenTerms({ ...e, allergens }));
+  }
   const pantry = J("households/wayne/pantry.json");
   for (const f of opts.pantryAdd ?? []) {
     pantry.items.push({ id: f.replace(/ /g, "-"), food: f, state: "plenty", since: DATES[0] });
@@ -303,5 +311,53 @@ test(
       trip.total < plain.trip.total - 10,
       `$${trip.total.toFixed(2)} vs $${plain.trip.total.toFixed(2)}`,
     );
+  },
+);
+
+test(
+  "his kitchen: no tree nuts for Elliot (David, 11/7), on any plate he is seated at, swaps included",
+  { skip },
+  () => {
+    const nutRe =
+      /\b(almond|walnut|pecan|cashew|pistachio|hazelnut|macadamia|pine nut|brazil nut|nut butter|pesto|marzipan|praline|nutella|mixed nut|trail mix)/i;
+    const costco = [
+      "walnuts",
+      "almonds",
+      "pecans",
+      "dates",
+      "rolled oats",
+      "honey",
+      "baking powder",
+    ];
+    for (const opts of [
+      { elliotAllergens: ["nuts"] },
+      // his muffin named beside the blueberry one, Costco nuts in the pantry
+      {
+        elliotAllergens: ["nuts"],
+        snackFirst: true,
+        snack: ["blueberry-oat-protein-muffins", "wayne-double-chocolate-protein-muffins"],
+        pantryAdd: costco,
+      },
+    ]) {
+      const { out } = planHisWeek(opts);
+      for (const t of out.events.tables.filter((x) => DATES.includes(x.date))) {
+        const seat = (t.seats ?? []).find((s) => s.id === "elliot");
+        if (!seat || seat.status === "skipped") continue;
+        const recipe = J(`recipes/${t.recipeId}.json`);
+        const dish = withSwaps(recipe, t.swaps) ?? recipe;
+        const nutty = (dish.ingredients ?? []).filter(
+          (i) => !i.optional && nutRe.test(String(i.food)),
+        );
+        assert.deepEqual(
+          nutty.map((i) => i.food),
+          [],
+          `${t.date} ${t.slot} ${t.recipeId} seats Elliot (${JSON.stringify(opts.snack ?? "rule")})`,
+        );
+      }
+      // David still lands 190 to 215 g
+      for (const d of out.report.filter((r) => r.seatId === "david" && DATES.includes(r.date))) {
+        assert.ok(d.dayProtein >= 190 && d.dayProtein <= 215, `${d.date} ${d.dayProtein} g`);
+      }
+    }
   },
 );

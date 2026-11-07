@@ -3,6 +3,19 @@ import { useState } from "preact/hooks";
 import { datesOfWeek } from "../lib/plan.js";
 import { parseLocalIso } from "../lib/dates.js";
 
+/** the allergy chips, same ids as the profile survey (targets.js ALLERGEN_TERMS) */
+const ALLERGY_CHIPS = /** @type {[string, string][]} */ ([
+  ["nuts", "tree nuts"],
+  ["peanuts", "peanuts"],
+  ["gluten", "gluten"],
+  ["dairy", "dairy"],
+  ["eggs", "eggs"],
+  ["soy", "soy"],
+  ["shellfish", "shellfish"],
+  ["fish", "fish"],
+  ["sesame", "sesame"],
+]);
+
 /**
  * PEOPLE (David, 2026-10-16): "instead of table call it people ... you should
  * have all the people that have profiles on here ... within a certain group
@@ -26,7 +39,8 @@ import { parseLocalIso } from "../lib/dates.js";
  *   onAddToDinner?: (date: string, profileId: string) => Promise<{ note: string, retry: boolean }>,
  *   onRemoveFromDinner?: (date: string, profileId: string) => void,
  *   onLinkRoommate?: (profileId: string) => Promise<string>,
- *   onInviteLink?: (kind: "member" | "guest") => Promise<string>
+ *   onInviteLink?: (kind: "member" | "guest") => Promise<string>,
+ *   onAddAllergy?: (profileId: string, key: string) => Promise<string>
  * }} props
  */
 export function PeopleSection({
@@ -41,6 +55,7 @@ export function PeopleSection({
   onRemoveFromDinner = undefined,
   onLinkRoommate = undefined,
   onInviteLink = undefined,
+  onAddAllergy = undefined,
 }) {
   const [open, setOpen] = useState(/** @type {string | null} */ (null));
   const [note, setNote] = useState("");
@@ -234,6 +249,30 @@ export function PeopleSection({
                           Eats every shared meal from your kitchen. Change who is in the kitchen
                           with EDIT below.
                         </p>`
+                      }
+                      ${
+                        // an allergy the admin adds for a housemate (2026-11-07)
+                        inKitchen &&
+                        p.id !== me &&
+                        onAddAllergy &&
+                        html`<div class="block">
+                          <p class="hint">
+                            Add an allergy for ${p.name ?? p.id}. Their plate leaves it out from
+                            the next SET MY WEEK. Only they can take one off.
+                          </p>
+                          <div class="chips wrapchips" role="group" aria-label=${`Add an allergy for ${p.name ?? p.id}`}>
+                            ${ALLERGY_CHIPS.map(
+                              ([key, label]) => html`<button
+                                class="chip"
+                                key=${key}
+                                disabled=${busy}
+                                onClick=${() => run(() => onAddAllergy(p.id, key))}
+                              >
+                                + ${label.toUpperCase()}
+                              </button>`,
+                            )}
+                          </div>
+                        </div>`
                       }
                       ${note && html`<p class="hint" role="status">${note}</p>`}
                       ${
