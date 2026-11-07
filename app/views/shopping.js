@@ -2267,9 +2267,10 @@ export function ShoppingView({
                 <div class="block-title">
                   🗓 Covers the month
                   <span class="hint"
-                    >the next ${month.weeks - 1}
-                    ${month.weeks - 1 === 1 ? "week's list skips" : "weeks' lists skip"} these: about
-                    $${month.avoided.toFixed(2)} not bought again this month</span
+                    >${
+                      // one string: htm drops the space at a line break
+                      `the next ${month.weeks - 1} ${month.weeks - 1 === 1 ? "week's list skips" : "weeks' lists skip"} these when they use them: up to $${month.avoided.toFixed(2)} not bought again this month`
+                    }</span
                   >
                 </div>
                 ${month.covers.map(
