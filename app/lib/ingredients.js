@@ -281,6 +281,8 @@ const FOOD_UNITS = {
   "curry-powder": { unit: "tsp", cup: 100 },
   cauliflower: { unit: "g", cup: 107, piece: 575 },
   "brown-lentils": { unit: "g", cup: 192 },
+  // swap targets (swaps.js) land in grams, so each must read grams
+  "sunflower-seeds": { unit: "g", cup: 140 },
   "frozen-spinach": { unit: "g", cup: 156, piece: 283 },
   "dried-porcini-mushrooms": { unit: "g", cup: 40 },
   // a fresh sprig is bought as its dried equivalent, about 1/4 tsp: one jar

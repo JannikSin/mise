@@ -1,3 +1,4 @@
+import { weekSwapLine } from "../lib/swaps.js";
 import { html } from "htm/preact";
 import { useRef, useState } from "preact/hooks";
 import { targetsSanity } from "../lib/targets.js";
@@ -436,6 +437,17 @@ export function PlannerView({
             (/** @type {string} */ n, /** @type {number} */ i) =>
               html`<p class="hint" role="note" key=${`pan-${i}`}>🍲 ${n}</p>`,
           )
+      }
+      ${
+        // USE WHAT YOU HAVE (David, 2026-11-07): the week's swaps and what
+        // they save, read from the tables, so it stays in view (swaps.js)
+        (() => {
+          const b = /** @type {any} */ (brigade);
+          const sw = weekSwapLine(b?.tables ?? [], dates, (id) =>
+            String(byId.get(id)?.name ?? id),
+          );
+          return sw ? html`<p class="hint" role="note" data-testid="swap-line">♻ ${sw.line}</p>` : "";
+        })()
       }
       ${
         // SUNDAY PREP, ROUGHLY (David, 2026-10-18): the week's Sunday cooking

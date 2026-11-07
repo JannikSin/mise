@@ -113,6 +113,8 @@ import {
   slug,
   recipeBought,
   kitchenHas,
+  skipPlentyHeld,
+  subtractPantryFromTrip,
 } from "./lib/shopping.js";
 import { setPantryCount, weekNeedsCheck } from "./lib/shelfcheck.js";
 import {
@@ -216,6 +218,7 @@ import {
 } from "./lib/occasions.js";
 import { buildServe } from "./lib/serve.js";
 import { freezePotString, parsePot, synthesize, withRatio } from "./lib/synth.js";
+import { withSwaps } from "./lib/swaps.js";
 import {
   normalizeLedger,
   ledgerPathFor,
@@ -3279,10 +3282,10 @@ function App() {
    */
   const liveSynthFor = (/** @type {import("./lib/tables.js").TableEvent} */ t) => {
     // on its planned plating (t.ratio): the plates are that dish, as sized
-    const recipe = withRatio(
+    const recipe = withSwaps(withRatio(
       bankRecipesRef.current.find((r) => r.id === t.recipeId),
       /** @type {any} */ (t).ratio,
-    );
+    ), /** @type {any} */ (t).swaps);
     if (!recipe || recipe.assembly !== "plated" || t.sameForEveryone) return null;
     // rung 0f for render-time consumers: on a BOUGHT week with NO frozen
     // pot, the food in the house is uniform quantities — a solved plate
@@ -3351,10 +3354,10 @@ function App() {
 
   /** Freeze a table's pot per spec 10. Solved-only: null in uniform mode. */
   const potStringFor = async (/** @type {import("./lib/tables.js").TableEvent} */ t) => {
-    const recipe = withRatio(
+    const recipe = withSwaps(withRatio(
       bankRecipesRef.current.find((r) => r.id === t.recipeId),
       /** @type {any} */ (t).ratio,
-    );
+    ), /** @type {any} */ (t).swaps);
     if (!recipe || t.sameForEveryone) return null;
     const seats = [...(t.seats ?? []), ...guestSeats(t)];
     const targetsById = new Map();
@@ -4269,6 +4272,15 @@ function App() {
         ...(tripItems ? { tripItems } : {}),
         ...(priceNeed ? { priceNeed } : {}),
         ...(budgetUsd ? { budgetUsd, budgetCarried } : {}),
+        // what the kitchen already holds, for the swap pass (swaps.js): a
+        // PLENTY row that still holds, or counted stock covering the grams
+        held: (food, grams) => {
+          const row = [{ food, qty: grams, unit: "g" }];
+          return (
+            skipPlentyHeld(row, pantryNow, localIsoDate(new Date())).covered.length > 0 ||
+            subtractPantryFromTrip(row, pantryNow).covered.length > 0
+          );
+        },
       });
       const out =
         run === brigade
@@ -4389,10 +4401,10 @@ function App() {
       const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
       const t = cur?.tables.find((x) => x.id === tableId);
       const recipe = t
-        ? withRatio(
+        ? withSwaps(withRatio(
             recipesById(bankRecipesRef.current).get(t.recipeId),
             /** @type {any} */ (t).ratio,
-          )
+          ), /** @type {any} */ (t).swaps)
         : null;
       if (!cur || !t || !recipe) throw new Error("table or recipe missing, sync first");
       const live = (t.seats ?? []).filter((s) => s.status !== "skipped");
@@ -4709,7 +4721,7 @@ function App() {
           const cook = cookOf(t, house, profilesById);
           const payer = /** @type {any} */ (t).buyerId ?? cook?.id;
           if (!payer || payer !== me) continue; // the payer records
-          const recipe = withRatio(bankById.get(t.recipeId), /** @type {any} */ (t).ratio);
+          const recipe = withSwaps(withRatio(bankById.get(t.recipeId), /** @type {any} */ (t).ratio), /** @type {any} */ (t).swaps);
           if (!recipe) continue;
           // price the debt at MY store, not whatever sits first in the shared
           // catalogue (that was trader-joes — a store nobody here shops at)
@@ -4774,7 +4786,7 @@ function App() {
           if (house !== myHouseNow) continue;
           for (const t of events.tables) {
             if (typeof t.date !== "string" || t.date < from || t.date > to) continue;
-            const recipe = withRatio(bankById.get(t.recipeId), /** @type {any} */ (t).ratio);
+            const recipe = withSwaps(withRatio(bankById.get(t.recipeId), /** @type {any} */ (t).ratio), /** @type {any} */ (t).swaps);
             if (!recipe) continue;
             const e = ledgerEntryFor(t, me, recipe, priceCatalogue, myPriceStore(), profilesById);
             if (e) {
@@ -4895,10 +4907,10 @@ function App() {
     routeTable && !routeTable.sameForEveryone
       ? buildServe(
           routeTable,
-          withRatio(
+          withSwaps(withRatio(
             bankRecipes.find((r) => r.id === routeTable.recipeId),
             /** @type {any} */ (routeTable).ratio,
-          ),
+          ), /** @type {any} */ (routeTable).swaps),
           allProfiles,
           serveRules,
           liveSynthFor(routeTable),
@@ -5084,7 +5096,7 @@ function App() {
         recipe=${
           // a table's page shows the dish on the plating its plan bought
           routeTable
-            ? withRatio(recipeById(route.id), /** @type {any} */ (routeTable).ratio)
+            ? withSwaps(withRatio(recipeById(route.id), /** @type {any} */ (routeTable).ratio), /** @type {any} */ (routeTable).swaps)
             : recipeById(route.id)
         }
         loading=${loading}

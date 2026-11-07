@@ -1106,6 +1106,17 @@ before every plan write).
       //   own share (brigade `meatDaily`). Written by planBrigadeWeek on the
       //   batch's head table only; its leftover nights read it through
       //   `leftoverOf`. Absent = the pot is cooked whole on its prep day.
+      "swaps": [{ "from": "almond-butter", "to": "walnuts", "grams": 45, "why": "have", "saved": 7.99 }], // ?
+      //   USE WHAT YOU HAVE (2026-11-07, David: "the whole point of the mise
+      //   app is to make changes to recipies to uswe ingridients you already
+      //   have or already are buying"). Written by planBrigadeWeek's swap pass
+      //   (swaps.js assignSwaps) on the tables that run wrote: each swap trades
+      //   the canonical food `from` for `to`, by weight (`grams` in the recipe
+      //   AS WRITTEN), because `to` is owned ("have") or already on the week's
+      //   buy ("buying"); `saved` is the trip saving when chosen. One dish on
+      //   one plating across the week carries the same swaps (one batch);
+      //   leftover nights carry their pot's. Every reader applies
+      //   withSwaps(withRatio(recipe, ratio), swaps). Absent = as written.
       "ratio": { "protein": 0.75, "carbfat": 1.5 }, // ? THE PLANNED PLATING
       //   (2026-11-02, decision 0020, P1/P5): the pot is the bank recipe with
       //   its protein-bucket rows times `protein` and its carbfat-bucket rows

@@ -30,6 +30,7 @@ import { freshProteinOk } from "./cadence.js";
 import { buffetMacroEstimate, recipeConflicts, weekRunSwipes } from "./plan.js";
 import { recipeProteinClass } from "./foodclass.js";
 import { RATIO_STEPS, partOf, withRatio } from "./synth.js";
+import { assignSwaps, swapNote, withSwaps } from "./swaps.js";
 
 /** the anchor proteins that count as MEAT for `brigade.dinnerMeat` (fish does not) */
 const MEAT_CLASSES = new Set(["chicken", "turkey", "beef", "pork"]);
@@ -735,6 +736,7 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
  *   priceNeed?: (food: string, qty: number, unit: string) => number,
  *   budgetUsd?: number,
  *   budgetCarried?: number,
+ *   held?: (food: string, grams: number) => boolean,
  * }} ctx `costOf` (David's yes, 2026-08-30: "let the composer see cost...
  *   the composer needs to work to reduce it") turns on the WEEK-LEVEL cost
  *   sweep: the week composes exactly as without it, then slot-by-slot swaps
@@ -757,6 +759,7 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
  *   notes: string[],
  *   nights: { cook: string[], leftover: { date: string, from: string }[], uncovered: string[] },
  *   budget?: { trip: number, perPerson: number, cap: number } | null,
+ *   swaps?: { tableId: string, recipeId: string, date: string, slot: string, swap: import("./swaps.js").Swap }[],
  * }} swept: what the cost sweep did — 0/0 when no costOf was given, or when
  *   no swap could beat the blind week. `notes`: honest one-liners about
  *   settings that could not be fully honoured (a named breakfast that fails a
@@ -801,7 +804,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
   const slotWeights = slotWeightsFor(brigade);
   // a table's dish as its pot holds it: the bank recipe on its stored plating
   const tableDish = (/** @type {any} */ t) =>
-    t ? withRatio(ctx.bankById.get(String(t.recipeId)), t.ratio) : undefined;
+    t ? withSwaps(withRatio(ctx.bankById.get(String(t.recipeId)), t.ratio), t.swaps) : undefined;
 
   const members = brigade.memberIds
     .filter((id) => (ctx.profilesById.get(id)?.household ?? "home") === ctx.house)
@@ -896,6 +899,8 @@ export function planBrigadeWeek(events, brigade, ctx) {
   /** @type {{ date: string, seatId: string, kcal: number, protein: number, dayKcal: number, dayProtein: number, share: number, status: string }[]} */
   const report = [];
   let made = 0;
+  /** tables this run wrote: the only ones the swap pass may change */
+  const freshIds = new Set();
 
   // pools + walks per slot, once. The RE-ROLL SALT (brigade.salt, bumped by
   // PICK DIFFERENT MEALS and stored ON the brigade so every device agrees)
@@ -2529,6 +2534,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
           : {}),
         fromBrigade: brigade.id,
       });
+      freshIds.add(id);
       made++;
     }
 
@@ -2592,6 +2598,32 @@ export function planBrigadeWeek(events, brigade, ctx) {
       `${replanned} set ${replanned === 1 ? "meal was" : "meals were"} planned again because nothing for ${replanned === 1 ? "it" : "them"} had been bought or cooked`,
     );
   }
+  // USE WHAT YOU HAVE, OR ARE ALREADY BUYING (David, 2026-11-07: "the whole
+  // point of the mise app is to make changes to recipies to uswe ingridients
+  // you already have or already are buying"): the dishes this run wrote may
+  // trade an ingredient for one the pantry holds or the week already buys,
+  // when it saves money, screens clean and keeps every day in band (swaps.js)
+  /** @type {ReturnType<typeof assignSwaps>["chosen"]} */
+  let swapped = [];
+  if (ctx.held && ctx.priceNeed && freshIds.size > 0) {
+    const inRun = new Set(dates);
+    const weekTables = [...byId.values()].filter(
+      (t) => /** @type {any} */ (t).fromBrigade === brigade.id && inRun.has(t.date),
+    );
+    const res = assignSwaps({
+      tables: /** @type {any} */ (weekTables),
+      fresh: freshIds,
+      dishOf: (t) => withRatio(ctx.bankById.get(String(t.recipeId)), t.ratio),
+      targetsById: ctx.targetsById,
+      report: /** @type {any} */ (report),
+      held: ctx.held,
+      priceNeed: ctx.priceNeed,
+    });
+    for (const t of res.tables) byId.set(String(t.id), /** @type {any} */ (t));
+    swapped = res.chosen;
+    const line = swapNote(swapped, (id) => String(ctx.bankById.get(id)?.name ?? id));
+    if (line) notes.push(line);
+  }
   tables = [...byId.values()];
   return {
     events: { ...events, tables },
@@ -2602,6 +2634,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
     notes,
     nights,
     budget: budgetCheck,
+    swaps: swapped,
   };
 }
 

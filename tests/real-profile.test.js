@@ -26,6 +26,7 @@ import {
   recipeBought,
   kitchenHas,
   deriveShoppingList,
+  skipPlentyHeld,
   subtractPantryFromTrip,
 } from "../app/lib/shopping.js";
 import { itemCost, resolveHomeStore, storeSlugOf, tripTotal } from "../app/lib/prices.js";
@@ -56,7 +57,9 @@ const DAVID = { proteinFloor: 190, proteinCeiling: 215, swipeKcal: 900, swipePro
 const J = (p) => JSON.parse(fs.readFileSync(path.join(DATA, p), "utf8"));
 
 /** Plan his kitchen's week exactly as SET MY WEEK does. */
-function planHisWeek(/** @type {{ snackFirst?: boolean, pantryAdd?: string[] }} */ opts = {}) {
+function planHisWeek(
+  /** @type {{ snackFirst?: boolean, pantryAdd?: string[], snack?: string[], noSwaps?: boolean }} */ opts = {},
+) {
   const bank = fs
     .readdirSync(path.join(DATA, "recipes"))
     .filter((f) => f.endsWith(".json"))
@@ -76,6 +79,8 @@ function planHisWeek(/** @type {{ snackFirst?: boolean, pantryAdd?: string[] }} 
   );
   assert.ok(brigade, "his kitchen rule");
   if (opts.snackFirst) brigade = { ...brigade, snackFirst: true };
+  if (opts.snack)
+    brigade = { ...brigade, slotRecipes: { ...brigade.slotRecipes, snack: opts.snack } };
   const tgt = (/** @type {string} */ id) => {
     for (const f of [TARGETS_PATH, LEGACY_TARGETS_PATH].map((p) => pathFor(id, p))) {
       if (fs.existsSync(path.join(DATA, f))) return withCurrentAllergenTerms(J(f));
@@ -128,6 +133,17 @@ function planHisWeek(/** @type {{ snackFirst?: boolean, pantryAdd?: string[] }} 
         /** @type {string} */ unit,
       ) => itemCost({ food, qty, unit }, cat, store)?.cost ?? 0,
       budgetUsd: 100,
+      ...(opts.noSwaps
+        ? {}
+        : {
+            held: (/** @type {string} */ food, /** @type {number} */ grams) => {
+              const row = [{ food, qty: grams, unit: "g" }];
+              return (
+                skipPlentyHeld(row, pantry, DATES[0]).covered.length > 0 ||
+                subtractPantryFromTrip(row, pantry).covered.length > 0
+              );
+            },
+          }),
     },
   );
   // the List he would get: his cook extras for the week, pantry subtracted
@@ -247,3 +263,45 @@ test("his kitchen: the trip tripwire, never the $271 kind of week again", { skip
     }
   }
 });
+
+test(
+  "his kitchen: with his Costco stock in, the muffin uses his walnuts and dates and the yogurt already bought, still 190 to 215 g",
+  { skip },
+  () => {
+    const costco = [
+      "walnuts",
+      "almonds",
+      "pecans",
+      "ground flaxseed",
+      "chia seeds",
+      "rolled oats",
+      "honey",
+      "baking powder",
+      "dates",
+      "granola",
+    ];
+    const opts = {
+      snackFirst: true,
+      snack: ["wayne-double-chocolate-protein-muffins"],
+      pantryAdd: costco,
+    };
+    const { out, trip } = planHisWeek(opts);
+    const muffin = (out.swaps ?? []).filter(
+      (c) => c.recipeId === "wayne-double-chocolate-protein-muffins",
+    );
+    assert.deepEqual(muffin.map((c) => `${c.swap.from}>${c.swap.to}`).sort(), [
+      "almond-butter>walnuts",
+      "chocolate-chips>dates",
+      "cottage-cheese>greek-yogurt",
+    ]);
+    for (const d of out.report.filter((r) => r.seatId === "david" && DATES.includes(r.date))) {
+      assert.ok(d.dayProtein >= 190 && d.dayProtein <= 215, `${d.date} ${d.dayProtein} g`);
+    }
+    // and the List is cheaper than the same week without swaps
+    const plain = planHisWeek({ ...opts, noSwaps: true });
+    assert.ok(
+      trip.total < plain.trip.total - 10,
+      `$${trip.total.toFixed(2)} vs $${plain.trip.total.toFixed(2)}`,
+    );
+  },
+);

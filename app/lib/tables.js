@@ -6,6 +6,7 @@
 // (main.js strips `e.table` before every plan write).
 import { autoPlanEligible, recipeConflicts, SLOT_KEYS, SLOT_META } from "./plan.js";
 import { parsePot, solveSeat, withRatio } from "./synth.js";
+import { withSwaps } from "./swaps.js";
 import { freshMeatFor } from "./cadence.js";
 import { allergenFamilyOf } from "./targets.js";
 
@@ -518,7 +519,12 @@ export function deriveTables(houses, ctx) {
       const isLeftover = typeof t.leftoverOf === "string" && t.leftoverOf.length > 0;
       // the dish as its pot holds it: a planned plating (t.ratio, 2026-11-02)
       // re-proportions the bank recipe, and every number below follows it
-      const recipe = withRatio(ctx.bankById.get(t.recipeId), /** @type {any} */ (t).ratio);
+      // ...and a table's swaps (swaps.js, 2026-11-07): the food the kitchen
+      // has or already buys, in place of what the bank recipe names
+      const recipe = withSwaps(
+        withRatio(ctx.bankById.get(t.recipeId), /** @type {any} */ (t).ratio),
+        /** @type {any} */ (t).swaps,
+      );
       const live = t.seats.filter((s) => s.status !== "skipped");
       // only seats belonging to REAL profiles count for cooking and for the
       // shopping sum — a poisoned seats array must not flood the list or
@@ -599,7 +605,7 @@ export function deriveTables(houses, ctx) {
                 // other line, absolute grams, no perServing multiply
                 ...(frozen
                   ? { potRows: [...frozen.rows, ...(frozen.topUps ?? [])] }
-                  : recipe.ratio
+                  : recipe.ratio || recipe.swaps
                     ? {
                         // the PLANNED plating is what gets bought (P5: never
                         // buy the protein the plan trimmed off the plate)
