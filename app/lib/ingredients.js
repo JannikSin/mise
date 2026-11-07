@@ -149,6 +149,9 @@ const UNIT_BASE = {
   can: { dim: "count", per: 1 },
   slice: { dim: "count", per: 1 },
   scoop: { dim: "count", per: 1 },
+  // one recipe writes "1 box" of frozen spinach; a count, weighed by the
+  // food's own piece (a 10 oz box), like a can (2026-11-07)
+  box: { dim: "count", per: 1 },
 };
 
 /**
@@ -225,6 +228,10 @@ const NAME_ALIASES = {
   "skim-milk": "milk",
   // the shelf says "spinach", the bank says "baby spinach" 27 times: one bag
   spinach: "baby-spinach",
+  // one shaker: "ground cinnamon" and "cinnamon" were two List rows and, on
+  // the 11/15 week, two jars (2026-11-07, consolidate)
+  "ground-cinnamon": "cinnamon",
+  "unsweetened-cocoa-powder": "cocoa-powder",
 };
 
 /**
@@ -238,6 +245,47 @@ const NAME_ALIASES = {
  * @type {Record<string, { unit: string, cup?: number, piece?: number, can?: number }>}
  */
 const FOOD_UNITS = {
+  // CONSOLIDATE (David, 2026-11-06: "things are cheaper in bulk so repeast
+  // ingredients more"). The drift guard named these: each was written in
+  // more than one unit across his bank, so the List carried it as two or
+  // three rows and priced each against its own package (kale bought twice,
+  // vanilla and almond butter split by teaspoon and gram). Cup weights are
+  // ordinary US-kitchen figures (USDA where it has one), close enough to buy
+  // the right package, never used for macros. 2026-11-07, armstrong.
+  "vanilla-extract": { unit: "tsp", cup: 208 },
+  cinnamon: { unit: "tsp", cup: 125 },
+  "red-pepper-flakes": { unit: "tsp", cup: 85 },
+  "lemon-juice": { unit: "tbsp", cup: 244 },
+  "almond-butter": { unit: "tbsp", cup: 256 },
+  "whole-wheat-flour": { unit: "g", cup: 120 },
+  "baking-soda": { unit: "tsp", cup: 220 },
+  "canola-oil": { unit: "tbsp", cup: 218 },
+  "unsweetened-soy-milk": { unit: "cup", cup: 243 },
+  "brown-sugar": { unit: "g", cup: 220 },
+  "pumpkin-seeds": { unit: "g", cup: 129 },
+  dates: { unit: "g", cup: 147 },
+  kale: { unit: "g", cup: 67 },
+  "sunflower-seed-butter": { unit: "tbsp", cup: 256 },
+  salsa: { unit: "g", cup: 259 },
+  tahini: { unit: "tbsp", cup: 240 },
+  "pumpkin-puree": { unit: "g", cup: 245, can: 425 },
+  "pumpkin-pie-spice": { unit: "tsp", cup: 91 },
+  pasta: { unit: "g" },
+  "ground-nutmeg": { unit: "tsp", cup: 106 },
+  "coconut-milk": { unit: "ml", cup: 226 },
+  "slivered-almonds": { unit: "g", cup: 108 },
+  "plain-low-fat-yogurt": { unit: "g", cup: 245 },
+  "light-coconut-milk": { unit: "ml", cup: 240 },
+  "ground-coriander": { unit: "tsp", cup: 80 },
+  "everything-bagel-seasoning": { unit: "tbsp", cup: 130 },
+  "curry-powder": { unit: "tsp", cup: 100 },
+  cauliflower: { unit: "g", cup: 107, piece: 575 },
+  "brown-lentils": { unit: "g", cup: 192 },
+  "frozen-spinach": { unit: "g", cup: 156, piece: 283 },
+  "dried-porcini-mushrooms": { unit: "g", cup: 40 },
+  // a fresh sprig is bought as its dried equivalent, about 1/4 tsp: one jar
+  // covers both recipes instead of a fresh pack AND a jar
+  thyme: { unit: "tsp", cup: 43, piece: 0.25 },
   // cross-dimension: these are the rows that were splitting
   broccoli: { unit: "g", cup: 91, piece: 600 },
   // GRAMS, not cups (2026-08-23). At 30 g/cup a real week reads "19.5 cup",
@@ -265,7 +313,7 @@ const FOOD_UNITS = {
   "sharp-cheddar": { unit: "g", cup: 113 },
   "sliced-almonds": { unit: "cup", cup: 92 },
   "peanut-butter": { unit: "tbsp", cup: 258 },
-  carrot: { unit: "each", piece: 61 },
+  carrot: { unit: "each", piece: 61, cup: 128 },
   "sweet-potato": { unit: "each", piece: 130 },
   "red-cabbage": { unit: "each", piece: 900 },
   mushroom: { unit: "g", cup: 70 },
@@ -323,7 +371,7 @@ const FOOD_UNITS = {
   paprika: { unit: "tsp", cup: 110 },
   "smoked-paprika": { unit: "tsp", cup: 110 },
   "ground-cumin": { unit: "tsp", cup: 96 },
-  "cocoa-powder": { unit: "tbsp" },
+  "cocoa-powder": { unit: "tbsp", cup: 86 },
   "sesame-seeds": { unit: "tbsp", cup: 144 },
   // was { unit: "tbsp" } with NO cup weight, so it could not convert to
   // anything purchasable and a real week read "31.25 tbsp" (2026-08-23).
@@ -398,10 +446,10 @@ const FOOD_UNITS = {
   // weighed and used to charge one PACKAGE per piece — 3 lemons billed as
   // three 2 lb bags, the 2026-08-18 rescue-cart failure ($43 est → $70 till).
   onion: { unit: "each", piece: 200 },
-  "red-onion": { unit: "each", piece: 200 },
+  "red-onion": { unit: "each", piece: 200, cup: 160 },
   egg: { unit: "each", piece: 50 }, // large egg, USDA — 150 g of eggs is 3, never a 60 ct carton
   tomato: { unit: "each", piece: 123 },
-  cucumber: { unit: "each", piece: 300 },
+  cucumber: { unit: "each", piece: 300, cup: 119 },
   lemon: { unit: "each", piece: 100 },
   lime: { unit: "each", piece: 67 },
   orange: { unit: "each", piece: 150 },
@@ -413,11 +461,11 @@ const FOOD_UNITS = {
   "red-bell-pepper": { unit: "each", piece: 180 },
   "bay-leaf": { unit: "each" },
   scallion: { unit: "each", piece: 15 },
-  celery: { unit: "each", piece: 40 },
-  zucchini: { unit: "each", piece: 200 },
+  celery: { unit: "each", piece: 40, cup: 101 },
+  zucchini: { unit: "each", piece: 200, cup: 124 },
   eggplant: { unit: "each", piece: 450 },
   "cauliflower-head": { unit: "each", piece: 600 },
-  "fennel-bulb": { unit: "each", piece: 230 },
+  "fennel-bulb": { unit: "each", piece: 230, cup: 87 },
   shallot: { unit: "each", piece: 30 },
   "russet-potato": { unit: "each", piece: 300 },
   "scotch-bonnet-chili": { unit: "each", piece: 10 },
