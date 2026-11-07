@@ -414,6 +414,9 @@ export function ShoppingView({
   // shelf at a time. `fresh` = step index into FRESH_STEPS, null = not
   // running. Wizard scans are ADDITIVE ("add" mode) — the wipe already
   // guaranteed a clean slate, and a big fridge takes more than one photo.
+  // Keyed by profile: the wipe was of one person's pantry, so another profile
+  // on the same phone must not resume that walk on a pantry never wiped.
+  const freshKey = `mise.freshStart.${activeProfile()}`;
   const [fresh, setFresh] = useState(
     /** @type {number | null} */ (
       (() => {
@@ -421,7 +424,7 @@ export function ShoppingView({
         // reload or PWA background-kill instead of stranding a half-scanned
         // kitchen with no prompt (Tribunal L7)
         try {
-          const raw = localStorage.getItem("mise.freshStart");
+          const raw = localStorage.getItem(freshKey);
           if (raw == null) return null;
           const n = Number(raw);
           return Number.isInteger(n) && n >= 0 && n < FRESH_STEPS.length ? n : null;
@@ -434,8 +437,8 @@ export function ShoppingView({
   const [freshShots, setFreshShots] = useState(0); // photos approved this step
   useEffect(() => {
     try {
-      if (fresh == null) localStorage.removeItem("mise.freshStart");
-      else localStorage.setItem("mise.freshStart", String(fresh));
+      if (fresh == null) localStorage.removeItem(freshKey);
+      else localStorage.setItem(freshKey, String(fresh));
     } catch {
       // storage blocked: the step just does not survive a reload
     }
