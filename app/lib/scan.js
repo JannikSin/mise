@@ -335,7 +335,16 @@ const FILLER = new Set(
     "else fridge freezer pantry cupboard cabinet counter shelf shelves door drawer " +
     "my our me us left bit little few couple bunch enough plenty much many good fine " +
     "pretty okay right now today also again both each every same different new old " +
-    "need want see look looks looking guess pretty"
+    "need want see look looks looking guess pretty " +
+    // how he actually narrates a bulk shop (David, 11/6, the Costco pantry:
+    // "i have huge bags of walnuts and almonds ... and all of that sorts of
+    // things ... we bought all of this in costco a while ago... that is
+    // suposed to be used and offset the cost"): ten of these became NOT SURE
+    // rows beside the eight real foods (2026-11-07)
+    "huge big large giant bags bag sorts kinds while ago since week weeks month months year " +
+    "costco sams walmart target aldi kroger payless jewel marianos trader joes store stores " +
+    "bought buy buying supposed suposed supose use used using offset cost costs save saving " +
+    "cheap cheaper money which who way ton tons bunches"
   ).split(" "),
 );
 

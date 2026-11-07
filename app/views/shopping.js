@@ -47,6 +47,7 @@ import {
   pantryItems,
   perishableStatus,
   plentyKey,
+  skipPlentyHeld,
   subtractPantryFromTrip,
   swapCandidates,
   formatStoreQty,
@@ -631,10 +632,15 @@ export function ShoppingView({
     toBuy: [...trip.toBuy, ...trip.covered.filter(isDone)],
     covered: trip.covered.filter((i) => !isDone(i)),
   });
+  // a PLENTY row skips its food here too, not only at the next BUILD
+  // (skipPlentyHeld, 2026-11-07): it joins the covered block, never vanishes
+  const ownTrip = (/** @type {any[]} */ rows) => {
+    const counted = subtractPantryFromTrip(rows, pantry);
+    const plenty = skipPlentyHeld(counted.toBuy, pantry, localIsoDate(new Date()));
+    return { toBuy: plenty.toBuy, covered: [...counted.covered, ...plenty.covered] };
+  };
   const soloTrip =
-    others.length === 0 || brigade?.iShop
-      ? keepTicked(subtractPantryFromTrip(items, pantry), (i) => i.checked)
-      : null;
+    others.length === 0 || brigade?.iShop ? keepTicked(ownTrip(items), (i) => i.checked) : null;
   const tripItems = soloTrip ? soloTrip.toBuy : items;
   // CHECK YOU HAVE THESE (Mise 2.0, I-10): the basics the pantry does not
   // mention are asked about, not bought. They stay on the list and in the

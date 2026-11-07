@@ -1305,6 +1305,42 @@ export function mergeProfileLists(lists) {
 }
 
 /**
+ * PLENTY MEANS THE LIST SKIPS IT, on the List as it stands, not only at the
+ * next BUILD (P6; David, 2026-11-06: "need to actually keep trakc of pantry").
+ * Saying he has the Costco oats, honey and baking powder (SAY WHAT YOU HAVE,
+ * a scan, the pantry chip) wrote PLENTY rows, and the already-built List went
+ * on buying all three ($17.96 of oats) until he rebuilt it. BUILD has always
+ * skipped a food the pantry holds as plenty; this is the same test at render
+ * time. A row he typed himself, ticked, or answered NEED IT stays: those are
+ * his word on this trip. Pure.
+ * @template {{ food: string, manual?: boolean, checked?: boolean, needIt?: boolean }} T
+ * @param {T[]} items
+ * @param {Record<string, any> | null | undefined} pantry
+ * @param {string} todayIso
+ * @returns {{ toBuy: T[], covered: T[] }}
+ */
+export function skipPlentyHeld(items, pantry, todayIso) {
+  const held = new Set(
+    pantryItems(pantry)
+      .filter((it) => it.state === "plenty" && plentyHolds(it, todayIso))
+      .flatMap((it) => [slug(String(it.food)), canonicalFood(String(it.food)), plentyKey(String(it.food))]),
+  );
+  /** @type {T[]} */
+  const toBuy = [];
+  /** @type {T[]} */
+  const covered = [];
+  for (const item of items) {
+    const mine = item.manual || item.checked || item.needIt;
+    const has =
+      held.has(slug(item.food)) ||
+      held.has(canonicalFood(item.food)) ||
+      held.has(plentyKey(item.food));
+    (has && !mine ? covered : toBuy).push(item);
+  }
+  return { toBuy, covered };
+}
+
+/**
  * Fridge-first shopping (David, 2026-08-01: "use everything in the fridge…
  * only buy stuff that we need"): before a trip, food the kitchen already
  * holds comes off what is bought. Works on any row shape carrying
@@ -1556,6 +1592,16 @@ const OTHER_LOCATION_DAYS = [
   [/\b(potato|onion|shallot|garlic|squash)\b/, { pantry: 30 }],
   [/\b(banana|avocado|tomato)\b/, { pantry: 5 }],
   [/\b(apple|citrus|lemon|lime|orange)\b/, { pantry: 10 }],
+  // THE COSTCO SHELF (David, 11/6: "huge bags of walnuts and almonds and
+  // pecans ... and dates ... we bought all of this in costco a while ago").
+  // Named nuts and dried fruit matched nothing here, so a counted bag fell to
+  // the 14-day default and would have left the pantry, and gone back on the
+  // List, two weeks after he counted it. Half a year in a cool cupboard is
+  // the usual guide figure for shelled nuts and dried fruit (2026-11-07).
+  [
+    /\b(walnuts?|almonds?|pecans?|cashews?|pistachios?|hazelnuts?|macadamias?|peanuts?|dates|raisins|prunes|figs|dried|craisins)\b/,
+    { pantry: 180, freezer: 365 },
+  ],
   // SHELF-STABLE, LAST so every specific line above wins first (2026-09-06):
   // a dictated count ("6 cans of coconut milk", "8 cans tuna", "3 cans black
   // beans") is stored as a dated row on the pantry shelf, and this function
