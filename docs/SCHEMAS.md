@@ -1480,6 +1480,12 @@ even the same slot — merge without losing either entry.
   //   receipt appends its trip total here via setPlanShopped, so
   //   spent-vs-budgeted (P5) and the weekly review (P11) read a real paid
   //   number, not estimates. Absent = no receipt-confirmed spend recorded.
+  //   GOING TO THE STORE (2026-11-07) also writes ONE row with
+  //   `"estimate": true` and `"cap": 100`: the List's priced trip and the trip
+  //   budget it was shopped against. A re-save replaces that row; receipt rows
+  //   are kept and win over it (budget.js tripSpent). Next week's trip budget
+  //   is the weekly budget less any amount this week went over its `cap`
+  //   (weekBudget; David 2026-11-06 "that means next weeks should be less").
   "unlocked": ["turkey-chili"], // ? recipes opened by hand this week ("I already
   //   have this"), for cooking out of the pantry without a shop. Absent = none.
   //   THE RECIPE GATE (David, 2026-07-25): with no receipt, a recipe shows its
@@ -2021,6 +2027,9 @@ Seeded from the FITNESS.md system; edited rarely.
   //   entry, slugified, is the default store the List view prices against
   //   (main.js -> ShoppingView storeSlug); the shopper can override per trip.
   "weeklyBudgetUsd": 100, // ? the weekly grocery number (P5, PF.3 spend leg).
+  //   Since 2026-11-06 it is the WHOLE HOUSE TRIP, not each person's ("100
+  //   total"). Since 2026-11-07 it is reduced by last week's overage (see plan
+  //   `spend`), and half of it is the aim for what the week's meals eat.
   //   The trip tile shows the trip total, the EATEN-THIS-WEEK share (itemCost
   //   `eaten` — P5's stocking rule: whole packages are the trip, the consumed
   //   share is what the budget answers to), and over/under of eaten vs this.

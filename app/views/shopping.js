@@ -244,7 +244,7 @@ const FRESH_STEPS = [
  *   onOwnItem: (id: string) => void,
  *   onNeedItem?: (ids: string[]) => void,
  *   onScanApprove: (items: { name: string, kind: string, qty: string, state?: string }[], location?: string, mode?: "sweep" | "add") => void,
- *   onGoingShopping: () => void,
+ *   onGoingShopping: (trip?: { store: string, total: number, cap?: number } | null) => void,
  *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList, plan?: import("../lib/plan.js").Plan | null }[],
  *   ownEmoji: string,
  *   recipeIndex?: Map<string, any> | null,
@@ -263,6 +263,7 @@ const FRESH_STEPS = [
  *   onSavePrices?: (next: import("../lib/prices.js").PriceCatalogue) => void,
  *   avoid?: string[],
  *   weeklyBudgetUsd?: number,
+ *   budgetWeek?: { base: number, carried: number, cap: number, eatenCap: number, lastTrip: { total: number, cap: number | null, estimate: boolean } | null } | null,
  *   region?: { country?: string, state?: string },
  *   storeSlug?: string,
  *   brigade?: { id: string, name: string, iShop: boolean, nights: number, seats: number, shopperName: string, othersBuy?: { date: string, name: string }[] } | null,
@@ -324,6 +325,7 @@ export function ShoppingView({
   onSavePrices = undefined,
   avoid = [],
   weeklyBudgetUsd = undefined,
+  budgetWeek = null,
   region = undefined,
   storeSlug = "",
   brigade = null,
@@ -1799,15 +1801,32 @@ export function ShoppingView({
               // the rest being stock for later weeks.
               const share = homeSummary.total;
               const label = "this trip";
+              // LAST WEEK'S OVERAGE COMES OFF THIS WEEK (David, 2026-11-06:
+              // "if necessary can go above but that means next weeks should
+              // be less"), and the eaten food answers to half the budget
+              // ("best ot keep the actual eaten bit at 50 or less")
+              const cap = budgetWeek ? budgetWeek.cap : weeklyBudgetUsd;
+              const carried = budgetWeek?.carried ?? 0;
+              const eatenCap = budgetWeek?.eatenCap ?? weeklyBudgetUsd / 2;
+              const eaten = homeSummary.eaten;
               return html`<div class="row">
-                <span class="k">budget $${weeklyBudgetUsd.toFixed(0)} a week for the trip</span>
-                <span class="status num ${share > weeklyBudgetUsd ? "warn" : ""}"
-                  >${share > weeklyBudgetUsd ? `${label} $${share.toFixed(2)}, over by $${(share - weeklyBudgetUsd).toFixed(2)}` : `${label} ≈ $${share.toFixed(2)} ✓`}</span
+                <span class="k"
+                  >budget $${cap.toFixed(0)} for the trip${carried > 0
+                    ? html` <span class="hint"
+                        >($${weeklyBudgetUsd.toFixed(0)} less $${carried.toFixed(2)} over last
+                        week)</span
+                      >`
+                    : " this week"}</span
+                >
+                <span class="status num ${share > cap ? "warn" : ""}" data-testid="budget-trip"
+                  >${share > cap ? `${label} $${share.toFixed(2)}, over by $${(share - cap).toFixed(2)} · comes off next week` : `${label} ≈ $${share.toFixed(2)} ✓`}</span
                 >
               </div>
               <div class="row">
-                <span class="k">eaten this week</span>
-                <span class="status num">$${homeSummary.eaten.toFixed(2)} · the rest stays as stock</span>
+                <span class="k">eaten this week (aim $${eatenCap.toFixed(0)} or less)</span>
+                <span class="status num ${eaten > eatenCap ? "warn" : ""}" data-testid="budget-eaten"
+                  >$${eaten.toFixed(2)}${eaten > eatenCap ? `, over by $${(eaten - eatenCap).toFixed(2)}` : " ✓"} · the rest stays as stock</span
+                >
               </div>`;
             })()
           }
@@ -2224,7 +2243,16 @@ export function ShoppingView({
               html`<button
                 class="secondary lockbtn ${/** @type {any} */ (plan)?.fallback ? "on" : ""}"
                 aria-label="Going to the store, save this week's plan as the fallback you can always return to"
-                onClick=${onGoingShopping}
+                onClick=${() =>
+                  onGoingShopping?.(
+                    homeSummary && homeSummary.total > 0
+                      ? {
+                          store: homeStore,
+                          total: homeSummary.total,
+                          ...(budgetWeek ? { cap: budgetWeek.cap } : {}),
+                        }
+                      : null,
+                  )}
               >
                 ${/** @type {any} */ (plan)?.fallback ? "🛒 RE-SAVE SHOPPED PLAN" : "🛒 GOING TO THE STORE"}
               </button>`

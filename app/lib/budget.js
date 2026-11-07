@@ -276,3 +276,94 @@ export function swapToFit(args) {
         : `stopped after ${maxSwaps} swaps: still $${over.toFixed(2)} over`,
   };
 }
+
+// THE WEEK'S NUMBER, WITH LAST WEEK'S OVERAGE CARRIED (P5; David, 2026-11-06:
+// "100 total. and i mean it is not a hard hard cap but still.... it is best ot
+// keep the actual eaten bit at 50 or less. and if necessary can go above but
+// that means next weeks should be less.").
+//
+// Three numbers, all for the whole house trip:
+//   cap      the trip budget this week: the weekly budget less whatever the
+//            last shopped trip went over ITS cap (the cap it was shopped
+//            against is stamped on the spend row, so a run of over weeks
+//            keeps carrying instead of forgiving after one).
+//   carried  that overage, shown so the smaller number is never a mystery.
+//   eatenCap half the weekly budget: the food this week's meals actually use.
+//            At $100 that is his $50. It is not reduced by a carry: the carry
+//            is about money already spent on stock, the eaten line is about
+//            what the meals cost.
+// A soft cap: over it the planner sweeps cheaper and the List says by how
+// much. Food is never cut to fit (Mise-Decisions, consolidate rule).
+
+/** The share of the weekly budget the eaten food answers to ($50 of $100). */
+export const EATEN_SHARE = 0.5;
+
+/**
+ * What a shopped week actually cost: receipt totals when any were approved
+ * (the real number), else the List's estimate recorded at GOING TO THE STORE.
+ * Null when the week was never shopped through the app.
+ * @param {Record<string, any> | null | undefined} plan
+ * @returns {{ total: number, cap: number | null, estimate: boolean } | null}
+ */
+export function tripSpent(plan) {
+  const rows = Array.isArray(plan?.spend)
+    ? plan.spend.filter((/** @type {any} */ r) => Number(r?.total) > 0)
+    : [];
+  if (rows.length === 0) return null;
+  const real = rows.filter((/** @type {any} */ r) => r.estimate !== true);
+  const use = real.length > 0 ? real : rows;
+  const total = Math.round(use.reduce((a, r) => a + Number(r.total), 0) * 100) / 100;
+  const caps = rows.map((/** @type {any} */ r) => Number(r.cap)).filter((n) => n > 0);
+  return {
+    total,
+    cap: caps.length > 0 ? (caps[caps.length - 1] ?? null) : null,
+    estimate: real.length === 0,
+  };
+}
+
+/**
+ * This week's trip cap, after last week's overage.
+ * @param {number | undefined} weeklyBudgetUsd
+ * @param {Record<string, any> | null | undefined} prevPlan the previous week's plan
+ * @returns {{ base: number, carried: number, cap: number, eatenCap: number, lastTrip: ReturnType<typeof tripSpent> } | null}
+ */
+export function weekBudget(weeklyBudgetUsd, prevPlan) {
+  const base = Number(weeklyBudgetUsd);
+  if (!(base > 0)) return null;
+  const lastTrip = tripSpent(prevPlan);
+  const lastCap = lastTrip?.cap ?? base;
+  const carried = lastTrip ? Math.round(Math.max(0, lastTrip.total - lastCap) * 100) / 100 : 0;
+  // never below zero: a $300 week does not make the next one "minus $100",
+  // it makes it the cheapest week the bands allow, which the sweep already seeks
+  const cap = Math.round(Math.max(0, base - carried) * 100) / 100;
+  return {
+    base,
+    carried,
+    cap,
+    eatenCap: Math.round(base * EATEN_SHARE * 100) / 100,
+    lastTrip: lastTrip ?? null,
+  };
+}
+
+/**
+ * GOING TO THE STORE records the List's priced trip on the week, as an
+ * estimate (`estimate: true`) stamped with the cap it was shopped against.
+ * A re-save replaces the earlier estimate; approved receipts are kept and,
+ * being real, win in tripSpent. Pure.
+ * @param {Record<string, any>} plan
+ * @param {{ store: string, date: string, total: number, cap?: number }} trip
+ * @returns {Record<string, any>}
+ */
+export function recordTripEstimate(plan, trip) {
+  const kept = Array.isArray(plan.spend)
+    ? plan.spend.filter((/** @type {any} */ r) => r?.estimate !== true)
+    : [];
+  const row = {
+    store: trip.store,
+    date: trip.date,
+    total: Math.round(Number(trip.total) * 100) / 100,
+    estimate: true,
+    ...(Number(trip.cap) > 0 ? { cap: Math.round(Number(trip.cap) * 100) / 100 } : {}),
+  };
+  return { ...plan, spend: [...kept, row] };
+}

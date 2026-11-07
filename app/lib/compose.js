@@ -734,6 +734,7 @@ export function memberCoverage(targets, plan, dates, brigadeSlots, bankById, tod
  *   tripItems?: (recipeId: string) => { key: string, cost: number, need?: { food: string, qty: number, unit: string }[] }[],
  *   priceNeed?: (food: string, qty: number, unit: string) => number,
  *   budgetUsd?: number,
+ *   budgetCarried?: number,
  * }} ctx `costOf` (David's yes, 2026-08-30: "let the composer see cost...
  *   the composer needs to work to reduce it") turns on the WEEK-LEVEL cost
  *   sweep: the week composes exactly as without it, then slot-by-slot swaps
@@ -2327,7 +2328,7 @@ export function planBrigadeWeek(events, brigade, ctx) {
           (sl) => /** @type {any} */ (brigade.slotRecipes?.[sl] ?? []).length > 0,
         );
         notes.push(
-          `over budget: the trip is about $${share.toFixed(0)} for these ${dates.length} days against $${cap.toFixed(0)} (your $${Number(ctx.budgetUsd).toFixed(0)} a week for the house). ${
+          `over budget: the trip is about $${share.toFixed(0)} for these ${dates.length} days against $${cap.toFixed(0)} (your $${Number(ctx.budgetUsd).toFixed(0)} a week for the house${Number(ctx.budgetCarried) > 0 ? `, after $${Number(ctx.budgetCarried).toFixed(0)} carried over from last week's trip` : ""}). ${
             locked.length > 0
               ? `${locked.join(" and ").replace(/^./, (c) => c.toUpperCase())} ${locked.length === 1 ? "is" : "are"} limited to named recipes, so the planner can only swap among those; Tables > EDIT can add cheaper ones`
               : "The cheapest week the bands allow is still over; the rest is packages the pantry does not hold"

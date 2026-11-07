@@ -31,10 +31,8 @@ export const RELEASES = [
     version: UNRELEASED,
     date: "",
     notes: [
-      "A generated week no longer overshoots protein to reach calories. When a day's dishes as written carry too much protein for the calories you need, the plan keeps the same recipes and cooks them with less of the meat, whey or yogurt and more of the rice, oats or pasta, so the day lands near your protein aim and under the ceiling. Replayed on the 11/2 week, David went from about 245 g a day (30 of 36 days over 215 g) to about 200 g (none over), every day still at 3,500 kcal or more.",
-      "The amounts you see follow that choice everywhere: the day's calories and protein on Plan, the recipe page's amounts, the plates, and the shopping list, which buys the smaller amount of meat and the larger amount of starch.",
-      "Muffins and other baked batters are never re-proportioned (they would not hold together); only how many you eat changes.",
-      "Calorie and protein estimates for recipes with dry oats, raw rice, pasta and protein powder are more accurate: oats and rice were being counted as if already cooked, and protein powder was not counted as protein at all.",
+      "Budget carry-over: when a trip goes over the weekly budget, the next week's budget is smaller by that amount (David, 11/6: \"if necessary can go above but that means next weeks should be less\"). GOING TO THE STORE records the List's trip total for the week, a scanned receipt replaces it with the real number, and the List says \"budget $70 for the trip ($100 less $30 over last week)\". The planner aims at the smaller number too.",
+      "The List also shows what this week's meals eat against $50, half the budget (\"best to keep the actual eaten bit at 50 or less\"); the rest of the trip is stock for later weeks.",
       "A phone that has never been connected to a kitchen no longer opens on David's name. It offers two choices instead: Connect your kitchen (paste the access token right there) or Continue as guest, which tries the app on that phone only and never saves anything to the kitchen's data.",
       "Passkey boxes and the access token box show dots, not the digits or letters, as you type or paste, so you see how many you have entered; the number pad still opens for passkeys. Spaces or line breaks that come along with a paste are removed before saving, and a token that does not work now says why: rejected by GitHub (401), no access to the kitchen's data (403/404), or the sandbox data missing.",
     ],

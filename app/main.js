@@ -161,7 +161,7 @@ import {
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
 import { planBrigadeWeek } from "./lib/compose.js";
 import { composeManifest, remanifest } from "./lib/manifest.js";
-import { swapToFit } from "./lib/budget.js";
+import { recordTripEstimate, swapToFit, weekBudget } from "./lib/budget.js";
 import {
   capacityCheck,
   coldLoad,
@@ -2038,14 +2038,26 @@ function App() {
   // GOING TO THE STORE (7.2): stores the week as the fallback plan — the
   // shape you shopped for, always there to return to. The plan itself stays
   // free. (Replaces the old lock toggle; setPlanLocked is legacy-only.)
-  const handleGoingShopping = useCallback(() => {
-    const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
-    updatePlan(saveFallback(p, localIsoDate(new Date())));
-    setUndoToast({
-      message: "Saved what you are shopping for. You can still change the week.",
-      restore: () => updatePlan(p),
-    });
-  }, [updatePlan]);
+  const handleGoingShopping = useCallback(
+    (/** @type {{ store: string, total: number, cap?: number } | null | undefined} */ trip) => {
+      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      const today = localIsoDate(new Date());
+      // the List's priced trip is recorded as this week's spend (an estimate,
+      // replaced by any approved receipt), stamped with the cap it was shopped
+      // against, so next week's budget can carry an overage (P5, 2026-11-06)
+      const saved = saveFallback(p, today);
+      updatePlan(
+        trip && trip.total > 0
+          ? /** @type {any} */ (recordTripEstimate(saved, { ...trip, date: today }))
+          : saved,
+      );
+      setUndoToast({
+        message: "Saved what you are shopping for. You can still change the week.",
+        restore: () => updatePlan(p),
+      });
+    },
+    [updatePlan],
+  );
 
   // ↩ back to the shopped plan: cooked meals stay cooked, everything else
   // returns to the fallback's shape
@@ -2491,6 +2503,8 @@ function App() {
 
   // last week's full plan + the household waste ledger feed the P11 review
   // tile (read side of 7.1) — read-only, absent = the tile stays honest-dark
+  // its spend row also carries last trip's overage into this week's budget
+  // (P5, David 2026-11-06, weekBudget)
   const [prevWeekPlan, setPrevWeekPlan] = useState(
     /** @type {import("./lib/plan.js").Plan | null} */ (null),
   );
@@ -4201,8 +4215,29 @@ function App() {
       const budgets = brigade.memberIds
         .map((id) => Number(targetsById.get(id)?.weeklyBudgetUsd))
         .filter((n) => n > 0);
-      const budgetUsd =
+      const baseBudget =
         budgets.length > 0 ? budgets.reduce((a, b) => a + b, 0) / budgets.length : undefined;
+      // LAST WEEK'S OVERAGE COMES OFF THIS WEEK (David, 2026-11-06: "if
+      // necessary can go above but that means next weeks should be less"):
+      // the members' plans for the week before this run, whichever recorded
+      // the house trip
+      let prevForBudget = null;
+      for (const id of brigade.memberIds) {
+        const raw = /** @type {any} */ (
+          await read(pathFor(id, `plans/${shiftWeek(week, -1)}.json`), { raw: true }).catch(
+            () => null,
+          )
+        );
+        if (Array.isArray(raw?.spend) && raw.spend.length > 0) {
+          prevForBudget = raw;
+          break;
+        }
+      }
+      const wk = weekBudget(baseBudget, prevForBudget);
+      // floored at a dollar: a zero cap would read as "no budget" and skip
+      // the cheaper sweep exactly when it matters most
+      const budgetUsd = wk ? Math.max(1, wk.cap) : baseBudget;
+      const budgetCarried = wk?.carried ?? 0;
       const bankById = recipesById(bankRecipesRef.current);
       // `bought` (David, 2026-09-06) still decides PICK DIFFERENT MEALS and
       // past pots; a plain SET keeps every set table via keepSet (2.0, I-01)
@@ -4233,7 +4268,7 @@ function App() {
         ...(costOf ? { costOf } : {}),
         ...(tripItems ? { tripItems } : {}),
         ...(priceNeed ? { priceNeed } : {}),
-        ...(budgetUsd ? { budgetUsd } : {}),
+        ...(budgetUsd ? { budgetUsd, budgetCarried } : {}),
       });
       const out =
         run === brigade
@@ -5176,6 +5211,7 @@ function App() {
             .filter((x) => x.avoid.length > 0)
         }
         weeklyBudgetUsd=${targets?.weeklyBudgetUsd}
+        budgetWeek=${weekBudget(targets?.weeklyBudgetUsd, prevWeekPlan)}
         region=${targets?.region}
         storeSlug=${storeSlugOf(targets?.stores?.[0])}
         onReceiptApprove=${handleReceiptApprove}
