@@ -276,6 +276,25 @@ test("purchaseEntry even split, and refuses an entry it cannot make honestly", (
   assert.equal(purchaseEntry({ ...base, total: 0, weights: { david: 1, elliot: 1 } }), null);
   // no shared meals = nothing to split by; the caller offers the even split
   assert.equal(purchaseEntry({ ...base, total: 40, weights: {} }), null);
+  // only the payer ate: nobody owes anything, so no entry
+  assert.equal(purchaseEntry({ ...base, total: 40, weights: { elliot: 5 } }), null);
+});
+
+test("purchaseEntry: one housemate ate and the payer did not, so that housemate owes the whole receipt", () => {
+  const e = purchaseEntry({
+    id: "p4",
+    date: "d",
+    payerId: "david",
+    total: 40,
+    split: "eaten",
+    weights: { elliot: 5 },
+    members: ["david", "elliot"],
+  });
+  assert.ok(e);
+  assert.deepEqual(e.shares, { elliot: 40, david: 0 });
+  assert.deepEqual(balancesFor({ entries: [e] }, "david"), [
+    { profileId: "elliot", net: 40, entries: 1, estimate: false },
+  ]);
 });
 
 test("a Zelle payback offsets the debt; removeMoneyEntry undoes a typo, never a meal", () => {
