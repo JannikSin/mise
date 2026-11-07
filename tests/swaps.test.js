@@ -264,3 +264,24 @@ test("swaps: a swap that would push a day over the protein ceiling is refused", 
   // with room under the ceiling the same swap is taken
   assert.equal(run(195).length, 1);
 });
+
+test("swaps: synced swap rows are validated, never trusted (security review)", async () => {
+  const { cleanSwaps } = await import("../app/lib/swaps.js");
+  const bad = [
+    { from: "__proto__", to: "walnuts", grams: 45, saved: 1 },
+    { from: "constructor", to: "toString", grams: 45, saved: 1 },
+    { from: "almond-butter", to: "chicken-thigh", grams: 45, saved: 1 },
+    { from: "almond-butter", to: "walnuts", grams: "x", saved: 1 },
+    null,
+    "almond-butter",
+  ];
+  assert.deepEqual(cleanSwaps(bad), []);
+  // a poisoned row does not throw and does not change the dish
+  assert.equal(withSwaps(muffin, bad), muffin);
+});
+
+test("swaps: never add an animal product (a vegetarian dish stays vegetarian)", async () => {
+  const { SWAP_TABLE } = await import("../app/lib/swaps.js");
+  assert.ok(!(SWAP_TABLE["vegetable-broth"] ?? []).includes("chicken-broth"));
+  assert.ok(!(SWAP_TABLE["unsweetened-soy-milk"] ?? []).includes("milk"));
+});

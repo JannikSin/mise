@@ -136,10 +136,37 @@ export const SWAP_TABLE = {
   "ground-turkey": ["ground-beef"],
   "chicken-breast": ["chicken-thigh"],
   "chicken-thigh": ["chicken-breast"],
-  "vegetable-broth": ["chicken-broth"],
+  // never a swap that ADDS an animal product: a dish's diet class can be a
+  // stored tag the conflict screen trusts, so vegetable broth to chicken
+  // broth (or soy milk to milk) could put meat or dairy into a dish a
+  // vegetarian or vegan seat was cleared for (security review, 2026-11-07)
   "chicken-broth": ["vegetable-broth"],
-  "unsweetened-soy-milk": ["milk"],
 };
+
+/** @param {Record<string, any>} o @param {string} k */
+const own = (o, k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(o, k);
+
+/**
+ * Only well-formed, allow-listed swaps: the table's `swaps` arrives from
+ * synced data, so anything else (a prototype key, a pair the table does not
+ * list, a non-finite number) is dropped, never trusted.
+ * @param {unknown} swaps
+ * @returns {Swap[]}
+ */
+export function cleanSwaps(swaps) {
+  if (!Array.isArray(swaps)) return [];
+  return swaps.filter(
+    (x) =>
+      x &&
+      typeof x === "object" &&
+      own(SWAP_TABLE, x.from) &&
+      /** @type {string[]} */ (SWAP_TABLE[x.from]).includes(x.to) &&
+      own(MACROS, x.from) &&
+      own(MACROS, x.to) &&
+      Number.isFinite(Number(x.grams)) &&
+      Number.isFinite(Number(x.saved ?? 0)),
+  );
+}
 
 // THE DISH KEEPS ITS NAME: a food the recipe is named for is never swapped
 // ("Tuscan White Bean Minestrone" stays white bean; "Almond Butter Cocoa
@@ -187,18 +214,20 @@ const NUT_RE = /\b(almond|walnut|pecan|cashew|pistachio|hazelnut|macadamia|brazi
  * the new food by weight, in that food's list unit, and the nutrition moves
  * by the difference. Apply AFTER withRatio. Unknown swaps are ignored.
  * @param {Record<string, any> | undefined} recipe
- * @param {Swap[] | undefined} swaps
+ * @param {unknown} raw a table's `swaps`, validated here (cleanSwaps)
  * @returns {Record<string, any> | undefined}
  */
-export function withSwaps(recipe, swaps) {
-  if (!recipe || !Array.isArray(swaps) || swaps.length === 0) return recipe;
+export function withSwaps(recipe, raw) {
+  if (!recipe || !Array.isArray(raw) || raw.length === 0) return recipe;
+  const swaps = cleanSwaps(raw);
+  if (swaps.length === 0) return recipe;
   const n = { ...(recipe.nutrition ?? {}) };
   const per = Number(recipe.servings) || 1;
   let changed = false;
   const ingredients = (recipe.ingredients ?? []).map((/** @type {Record<string, any>} */ ing) => {
     const key = canonicalFood(String(ing.food ?? ""));
     const s = swaps.find((x) => x.from === key);
-    if (!s || !MACROS[s.from] || !MACROS[s.to]) return ing;
+    if (!s) return ing;
     const g = toGrams(Number(ing.qty), String(ing.unit), key);
     if (g == null || !(g > 0)) return ing;
     const out = toPreferred(g, "g", s.to) ?? { qty: g, unit: "g" };
@@ -310,17 +339,17 @@ export function assignSwaps(args) {
       (x) => ids.has(String(x.id)) || ids.has(String(x.leftoverOf ?? "")),
     );
     /** @type {Swap[]} */
-    const mine = [...(t.swaps ?? [])];
+    const mine = cleanSwaps(t.swaps);
     for (const ing of base.ingredients ?? []) {
       if (ing.optional) continue;
       const from = canonicalFood(String(ing.food ?? ""));
-      if (!SWAP_TABLE[from] || mine.some((s) => s.from === from)) continue;
+      if (!own(SWAP_TABLE, from) || mine.some((s) => s.from === from)) continue;
       if (namedFor(String(base.name ?? ""), from)) continue;
       const gPer = toGrams(Number(ing.qty), String(ing.unit), from);
       if (gPer == null || !(gPer > 0)) continue;
       const gPot = gPer * scale;
-      for (const to of SWAP_TABLE[from]) {
-        if (to === "chickpeas" || !MACROS[to]) continue;
+      for (const to of /** @type {string[]} */ (SWAP_TABLE[from])) {
+        if (to === "chickpeas" || !own(MACROS, to)) continue;
         const dA = demand.get(from) ?? 0;
         const dB = demand.get(to) ?? 0;
         const have = held(NAME[to] ?? to, dB + gPot);
@@ -442,7 +471,7 @@ export function weekSwapLine(tables, dates, nameOf) {
   const seen = new Map();
   for (const t of tables ?? []) {
     if (!inWeek.has(String(t.date)) || t.leftoverOf) continue;
-    for (const s of Array.isArray(t.swaps) ? t.swaps : []) {
+    for (const s of cleanSwaps(t.swaps)) {
       const key = `${t.recipeId}|${s.from}|${s.to}`;
       if (!seen.has(key)) seen.set(key, { ...s, recipeId: String(t.recipeId) });
     }
