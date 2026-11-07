@@ -1562,6 +1562,9 @@ export const PANTRY_LOCATIONS = /** @type {PantryLocation[]} */ ([
   "unsorted",
 ]);
 
+/** produce that keeps in a cool cupboard, not the fridge */
+const COOL_CUPBOARD = /\b(potato(?:es)?|onions?|shallots?|garlic|squash(?:es)?)\b/;
+
 /**
  * How long the same food keeps somewhere OTHER than the fridge, by keyword.
  *
@@ -1589,7 +1592,9 @@ const OTHER_LOCATION_DAYS = [
   [/\b(tofu|tempeh)\b/, { freezer: 90 }],
   [/\b(bread|pita|tortilla|bun|bagel)\b/, { freezer: 90, pantry: 5 }],
   // the guide's own note: these prefer a cool cupboard to the fridge
-  [/\b(potato|onion|shallot|garlic|squash)\b/, { pantry: 30 }],
+  // plurals too (2026-11-07): "yellow onions" matched nothing and fell to
+  // the 14-day default
+  [/\b(potato(?:es)?|onions?|shallots?|garlic|squash(?:es)?)\b/, { pantry: 30 }],
   [/\b(banana|avocado|tomato)\b/, { pantry: 5 }],
   [/\b(apple|citrus|lemon|lime|orange)\b/, { pantry: 10 }],
   // THE COSTCO SHELF (David, 11/6: "huge bags of walnuts and almonds and
@@ -2196,7 +2201,9 @@ export function ownItemToPantry(shopping, pantry, itemId) {
  * @param {ShoppingList} shopping
  * @param {Record<string, any>} pantry
  * @param {string} today ISO date
- * @param {{ fridgeFirst?: boolean }} [opts] `fridgeFirst: true` banks the
+ * @param {{ fridgeFirst?: boolean, packOf?: (row: Record<string, any>) => string | null }} [opts]
+ *   `packOf` (bulk.js boughtQty): what a bought row puts on the shelf when
+ *   that is the whole package, else null for the row's own need. `fridgeFirst: true` banks the
  *   pantry-REDUCED quantities via subtractPantryFromTrip — pass it ONLY when
  *   `shopping` is the very row set whose rendered trip subtracted this same
  *   pantry (a solo profile's list, or the house's MERGED trip at receipt
@@ -2240,11 +2247,13 @@ export function applyJustBought(shopping, pantry, today, opts = {}) {
     ? subtractPantryFromTrip(boughtPerishables, pantry).toBuy
     : boughtPerishables;
   const newRows = bankRows.map((b) => {
-    const location = locationForBuy(b.section);
+    const location = locationForBuy(b.section, b.food);
     return {
       id: perishableId(),
       food: b.food,
-      qty: `${b.qty} ${b.unit}`,
+      // a food that keeps a month is shelved as the PACKAGE bought, so the
+      // rest of the bag counts next week (bulk.js boughtQty, 2026-11-07)
+      qty: opts.packOf?.(b) ?? `${b.qty} ${b.unit}`,
       added: today,
       // the expiry is STAMPED at buy time (PF.3: `expires` was a documented
       // field no code wrote): readers prefer it over re-deriving from the
@@ -2271,10 +2280,16 @@ export function applyJustBought(shopping, pantry, today, opts = {}) {
  * run is the pantry. Deliberately mechanical: he can still move it by hand,
  * and a shelf photo sweep overwrites the guess wholesale.
  * @param {string} section
+ * @param {string} [food] the bought food, for the cool-cupboard produce
  * @returns {PantryLocation}
  */
-export function locationForBuy(section) {
+export function locationForBuy(section, food) {
   if (section === "frozen") return "freezer";
+  // a cool cupboard, not the fridge, for the produce that keeps there (the
+  // guide's own note above; 2026-11-07, David: "can buy 20 onions cause they
+  // dont go bad quick"): onions, potatoes and garlic bought for the month
+  // were landing in the fridge on a two-week clock
+  if (COOL_CUPBOARD.test(String(food ?? "").toLowerCase())) return "pantry";
   return tripOf(section) === "fresh" ? "fridge" : "pantry";
 }
 

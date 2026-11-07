@@ -69,6 +69,7 @@ import { isParked } from "../lib/parked.js";
 import { mealBShoppingLines } from "../lib/cadence.js";
 import { decodeReceiptLine, shopScore } from "../lib/receipt.js";
 import { formatSyncTime, localIsoDate, parseLocalIso } from "../lib/dates.js";
+import { bulkPrepaid, monthCover } from "../lib/bulk.js";
 import { datesOfWeek, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
 import {
   itemCost,
@@ -245,7 +246,7 @@ const FRESH_STEPS = [
  *   onOwnItem: (id: string) => void,
  *   onNeedItem?: (ids: string[]) => void,
  *   onScanApprove: (items: { name: string, kind: string, qty: string, state?: string }[], location?: string, mode?: "sweep" | "add") => void,
- *   onGoingShopping: (trip?: { store: string, total: number, cap?: number } | null) => void,
+ *   onGoingShopping: (trip?: { store: string, total: number, cap?: number, bulk?: { perWeek: number, weeksLeft: number }[] } | null) => void,
  *   others: { profileId: string, name: string, emoji: string, list: import("../lib/shopping.js").ShoppingList, plan?: import("../lib/plan.js").Plan | null }[],
  *   ownEmoji: string,
  *   recipeIndex?: Map<string, any> | null,
@@ -264,7 +265,7 @@ const FRESH_STEPS = [
  *   onSavePrices?: (next: import("../lib/prices.js").PriceCatalogue) => void,
  *   avoid?: string[],
  *   weeklyBudgetUsd?: number,
- *   budgetWeek?: { base: number, carried: number, cap: number, eatenCap: number, lastTrip: { total: number, cap: number | null, estimate: boolean } | null } | null,
+ *   budgetWeek?: { base: number, carried: number, cap: number, eatenCap: number, lastTrip: { total: number, cap: number | null, estimate: boolean } | null, bulkCharge?: number, bulkCarry?: { perWeek: number, weeksLeft: number }[] } | null,
  *   region?: { country?: string, state?: string },
  *   storeSlug?: string,
  *   brigade?: { id: string, name: string, iShop: boolean, nights: number, seats: number, shopperName: string, othersBuy?: { date: string, name: string }[] } | null,
@@ -717,6 +718,13 @@ export function ShoppingView({
     fallback: ranked[0]?.store ?? "",
   });
   const homeSummary = homeStore ? tripTotal(tripItems, prices, homeStore, region) : null;
+  // BUY FOR THE MONTH (bulk.js, David 2026-11-07): what keeps long enough to
+  // buy for the rest of the month, and the part of this trip that is later
+  // weeks' food (judged against those weeks, not this one)
+  const month = homeStore
+    ? monthCover(tripItems, prices, homeStore, localIsoDate(new Date()))
+    : { covers: [], later: 0, perWeek: 0, weeks: 0, avoided: 0 };
+  const ahead = bulkPrepaid(month);
   // per-store coverage for the chip labels ("aldi · 12/92 priced") — one
   // tripTotal per store per LIST, not per render (Tribunal: 6 stores × 92
   // rows on every checkbox tap measured ~45ms on desktop, several times
@@ -1813,21 +1821,33 @@ export function ShoppingView({
               // ("best ot keep the actual eaten bit at 50 or less")
               const cap = budgetWeek ? budgetWeek.cap : weeklyBudgetUsd;
               const carried = budgetWeek?.carried ?? 0;
+              const owed = budgetWeek?.bulkCharge ?? 0;
               const eatenCap = budgetWeek?.eatenCap ?? weeklyBudgetUsd / 2;
+              // this week's own food: the month rows count one week's share
+              const judged = Math.round((share - ahead.prepaid) * 100) / 100;
               const eaten = homeSummary.eaten;
               return html`<div class="row">
                 <span class="k"
-                  >budget $${cap.toFixed(0)} for the trip${carried > 0
+                  >budget $${cap.toFixed(0)} for the trip${carried > 0 || owed > 0
                     ? html` <span class="hint"
-                        >($${weeklyBudgetUsd.toFixed(0)} less $${carried.toFixed(2)} over last
-                        week)</span
+                        >($${weeklyBudgetUsd.toFixed(0)}${carried > 0 ? ` less $${carried.toFixed(2)} over last week` : ""}${owed > 0 ? ` less $${owed.toFixed(2)} of food already bought for this week` : ""})</span
                       >`
                     : " this week"}</span
                 >
-                <span class="status num ${share > cap ? "warn" : ""}" data-testid="budget-trip"
-                  >${share > cap ? `${label} $${share.toFixed(2)}, over by $${(share - cap).toFixed(2)} · comes off next week` : `${label} ≈ $${share.toFixed(2)} ✓`}</span
+                <span class="status num ${judged > cap ? "warn" : ""}" data-testid="budget-trip"
+                  >${judged > cap ? `${label} $${judged.toFixed(2)}, over by $${(judged - cap).toFixed(2)} · comes off next week` : `${label} ≈ $${judged.toFixed(2)} ✓`}</span
                 >
               </div>
+              ${
+                ahead.prepaid > 0 &&
+                html`<div class="row">
+                  <span class="k">bought ahead for the month</span>
+                  <span class="status num" data-testid="budget-ahead"
+                    >+ $${ahead.prepaid.toFixed(2)} of later weeks' food, $${ahead.perWeek.toFixed(2)} a week
+                    for ${ahead.weeks} weeks</span
+                  >
+                </div>`
+              }
               <div class="row">
                 <span class="k">eaten this week (aim $${eatenCap.toFixed(0)} or less)</span>
                 <span class="status num ${eaten > eatenCap ? "warn" : ""}" data-testid="budget-eaten"
@@ -2239,6 +2259,32 @@ export function ShoppingView({
                 </button>`
             }
             ${
+              // BUY FOR THE MONTH (bulk.js, David 2026-11-07): the packages
+              // that hold more than this week, kept on the shelf so the next
+              // weeks' lists buy less
+              month.covers.length > 0 &&
+              html`<div class="tile monthbuy" data-testid="month-buy">
+                <div class="block-title">
+                  🗓 Covers the month
+                  <span class="hint"
+                    >the next ${month.weeks - 1}
+                    ${month.weeks - 1 === 1 ? "week's list skips" : "weeks' lists skip"} these: about
+                    $${month.avoided.toFixed(2)} not bought again this month</span
+                  >
+                </div>
+                ${month.covers.map(
+                  (c) => html`<div class="d" key=${c.id}>
+                    ${c.food}: ${c.size} holds ${c.weeks} weeks of it; the rest goes on the shelf
+                  </div>`,
+                )}
+                <p class="hint">
+                  These keep a month or more where they are stored. ADD TO PANTRY records the whole
+                  package, so later weeks use it instead of buying again. The budget counts this
+                  week's share; each later week counts its own.
+                </p>
+              </div>`
+            }
+            ${
               checkedCount > 0 &&
               html`<button class="primary" onClick=${onJustBought}>
                 ADD TO PANTRY (${checkedCount}) <span aria-hidden="true">→</span>
@@ -2255,7 +2301,16 @@ export function ShoppingView({
                       ? {
                           store: homeStore,
                           total: homeSummary.total,
-                          ...(budgetWeek ? { cap: budgetWeek.cap } : {}),
+                          // the cap this trip was judged against, raised by
+                          // the food bought ahead, so the carry compares like
+                          // with like; later weeks owe their shares (bulk.js)
+                          ...(budgetWeek ? { cap: budgetWeek.cap + ahead.prepaid } : {}),
+                          bulk: [
+                            ...(budgetWeek?.bulkCarry ?? []),
+                            ...(ahead.perWeek > 0 && ahead.weeks > 1
+                              ? [{ perWeek: ahead.perWeek, weeksLeft: ahead.weeks - 1 }]
+                              : []),
+                          ],
                         }
                       : null,
                   )}

@@ -325,7 +325,10 @@ export function tripSpent(plan) {
  * This week's trip cap, after last week's overage.
  * @param {number | undefined} weeklyBudgetUsd
  * @param {Record<string, any> | null | undefined} prevPlan the previous week's plan
- * @returns {{ base: number, carried: number, cap: number, eatenCap: number, lastTrip: ReturnType<typeof tripSpent> } | null}
+ * @returns {{ base: number, carried: number, cap: number, eatenCap: number, lastTrip: ReturnType<typeof tripSpent>, bulkCharge: number, bulkCarry: { perWeek: number, weeksLeft: number }[] } | null}
+ *   `bulkCharge` is this week's share of food bought ahead for the month
+ *   (bulk.js), already taken off `cap`; `bulkCarry` is what is still owed
+ *   after this week, stamped on this week's plan at GOING TO THE STORE
  */
 export function weekBudget(weeklyBudgetUsd, prevPlan) {
   const base = Number(weeklyBudgetUsd);
@@ -335,10 +338,31 @@ export function weekBudget(weeklyBudgetUsd, prevPlan) {
   const carried = lastTrip ? Math.round(Math.max(0, lastTrip.total - lastCap) * 100) / 100 : 0;
   // never below zero: a $300 week does not make the next one "minus $100",
   // it makes it the cheapest week the bands allow, which the sweep already seeks
-  const cap = Math.round(Math.max(0, base - carried) * 100) / 100;
+  // BOUGHT AHEAD FOR THE MONTH (bulk.js, David 2026-11-07): each later week
+  // the purchase covers carries its share, so the month never spends more
+  // than its weeks' budgets while the first trip is not punished for it
+  const owed = Array.isArray(prevPlan?.bulk)
+    ? prevPlan.bulk.filter(
+        (/** @type {any} */ b) => Number(b?.weeksLeft) > 0 && Number(b?.perWeek) > 0,
+      )
+    : [];
+  const bulkCharge =
+    Math.round(
+      owed.reduce((/** @type {number} */ a, /** @type {any} */ b) => a + Number(b.perWeek), 0) *
+        100,
+    ) / 100;
+  const bulkCarry = owed
+    .map((/** @type {any} */ b) => ({
+      perWeek: Number(b.perWeek),
+      weeksLeft: Number(b.weeksLeft) - 1,
+    }))
+    .filter((/** @type {any} */ b) => b.weeksLeft > 0);
+  const cap = Math.round(Math.max(0, base - carried - bulkCharge) * 100) / 100;
   return {
     base,
     carried,
+    bulkCharge,
+    bulkCarry,
     cap,
     eatenCap: Math.round(base * EATEN_SHARE * 100) / 100,
     lastTrip: lastTrip ?? null,
@@ -351,7 +375,9 @@ export function weekBudget(weeklyBudgetUsd, prevPlan) {
  * A re-save replaces the earlier estimate; approved receipts are kept and,
  * being real, win in tripSpent. Pure.
  * @param {Record<string, any>} plan
- * @param {{ store: string, date: string, total: number, cap?: number }} trip
+ * @param {{ store: string, date: string, total: number, cap?: number, bulk?: { perWeek: number, weeksLeft: number }[] }} trip
+ *   `bulk`: what later weeks still owe for food bought ahead (bulk.js),
+ *   stored on the plan for next week's weekBudget
  * @returns {Record<string, any>}
  */
 export function recordTripEstimate(plan, trip) {
@@ -365,5 +391,8 @@ export function recordTripEstimate(plan, trip) {
     estimate: true,
     ...(Number(trip.cap) > 0 ? { cap: Math.round(Number(trip.cap) * 100) / 100 } : {}),
   };
-  return { ...plan, spend: [...kept, row] };
+  const bulk = (trip.bulk ?? []).filter((b) => Number(b.perWeek) > 0 && Number(b.weeksLeft) > 0);
+  const rest = { ...plan };
+  delete rest.bulk;
+  return { ...rest, spend: [...kept, row], ...(bulk.length > 0 ? { bulk } : {}) };
 }

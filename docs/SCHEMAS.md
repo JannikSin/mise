@@ -1497,6 +1497,13 @@ even the same slot — merge without losing either entry.
   //   are kept and win over it (budget.js tripSpent). Next week's trip budget
   //   is the weekly budget less any amount this week went over its `cap`
   //   (weekBudget; David 2026-11-06 "that means next weeks should be less").
+  "bulk": [{ "perWeek": 3.1, "weeksLeft": 2 }], // ? FOOD BOUGHT AHEAD FOR THE
+  //   MONTH (bulk.js, David 2026-11-07): written at GOING TO THE STORE. Each
+  //   row is a share later weeks still owe for packages bought this week that
+  //   hold their food (a 3 lb bag of onions for 2 a week). Next week's
+  //   weekBudget takes `perWeek` off its cap and stamps the rest forward with
+  //   `weeksLeft` one lower. This week's own spend row is stamped with its cap
+  //   raised by the food bought ahead, so the carry compares like with like.
   "unlocked": ["turkey-chili"], // ? recipes opened by hand this week ("I already
   //   have this"), for cooking out of the pantry without a shop. Absent = none.
   //   THE RECIPE GATE (David, 2026-07-25): with no receipt, a recipe shows its

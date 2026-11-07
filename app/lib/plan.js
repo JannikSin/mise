@@ -1404,6 +1404,7 @@ const KNOWN_PLAN_KEYS = new Set([
   "shoppedAt",
   "fallback",
   "spend",
+  "bulk",
   "unlocked",
   "buffer",
   "manifest",
@@ -1446,6 +1447,8 @@ export function normalizePlan(raw, weekId) {
     // the spend leg (PF.3): normalize used to build an explicit shape, which
     // silently DROPPED recorded receipt totals on the next load
     ...(Array.isArray(raw.spend) ? { spend: raw.spend } : {}),
+    // food bought ahead for the month, owed by later weeks (bulk.js)
+    ...(Array.isArray(raw.bulk) ? { bulk: raw.bulk } : {}),
     ...(Array.isArray(raw.unlocked)
       ? { unlocked: raw.unlocked.filter((/** @type {any} */ r) => typeof r === "string") }
       : {}),

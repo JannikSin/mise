@@ -165,6 +165,7 @@ import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder
 import { planBrigadeWeek } from "./lib/compose.js";
 import { composeManifest, remanifest } from "./lib/manifest.js";
 import { recordTripEstimate, swapToFit, weekBudget } from "./lib/budget.js";
+import { boughtQty } from "./lib/bulk.js";
 import {
   capacityCheck,
   coldLoad,
@@ -1257,6 +1258,17 @@ function App() {
   // receipt → catalogue freshness loop: merge the reviewed receipt lines into
   // the shared prices.json (raw, root file) and persist. Real receipt prices
   // overwrite the estimates for that store.
+  // what a bought row puts on the shelf: the whole package for a food that
+  // keeps a month (bulk.js, David 2026-11-07), priced at my store (the store
+  // choice is defined further down, so it is read through a ref)
+  const myPriceStoreRef = useRef(/** @type {() => string} */ (() => ""));
+  const packOfBought = () => {
+    const cat = priceCatalogueRef.current;
+    const store = myPriceStoreRef.current();
+    return (/** @type {Record<string, any>} */ row) =>
+      boughtQty(/** @type {any} */ (row), cat, store);
+  };
+
   const handleReceiptApprove = useCallback(
     (
       /** @type {string} */ store,
@@ -1313,7 +1325,10 @@ function App() {
           ...prevOthers.map((o) => ({ profileId: o.profileId, list: boughtOf(o.list) })),
         ]).map((i) => ({ ...i, checked: true, manual: false })),
       };
-      const stocked = applyJustBought(mergedTrip, prevPantry, today, { fridgeFirst: true });
+      const stocked = applyJustBought(mergedTrip, prevPantry, today, {
+        fridgeFirst: true,
+        packOf: packOfBought(),
+      });
       // receipt lines NO list carried are still food that entered the kitchen
       // (PF.3: "receipt says bought, pantry says absent" was a live identity
       // hole). Bank them too: a state-tracked pantry item flips to plenty, an
@@ -1620,6 +1635,7 @@ function App() {
       stores: catStores,
     });
   }, [me]);
+  myPriceStoreRef.current = myPriceStore;
 
   // a second BUILD while a run is in flight would double-spend the 18-unit
   // quota budget and race two coalesced pins saves — drop it (with a note),
@@ -1807,6 +1823,7 @@ function App() {
       localIsoDate(new Date()),
       {
         fridgeFirst: otherListsRef.current.length === 0 || Boolean(listBrigadeRef.current?.iShop),
+        packOf: packOfBought(),
       },
     );
     updateShopping(result.shopping);
@@ -5241,6 +5258,7 @@ function App() {
         }
         weeklyBudgetUsd=${targets?.weeklyBudgetUsd}
         budgetWeek=${weekBudget(targets?.weeklyBudgetUsd, prevWeekPlan)}
+
         region=${targets?.region}
         storeSlug=${storeSlugOf(targets?.stores?.[0])}
         onReceiptApprove=${handleReceiptApprove}
