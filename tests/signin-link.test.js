@@ -374,3 +374,32 @@ test("a housemate with no household field counts as the host's 'home' kitchen", 
     },
   );
 });
+
+test("a session minted before sessions carried v is refused (fails closed)", async () => {
+  resetGuestCachesForTests();
+  const { signGuestSession } = await import("../worker/src/lib.js");
+  const row = {
+    nameKey: "elliotp",
+    name: "Elliot P",
+    salt: "a",
+    hash: "b",
+    profileId: "elliot",
+    house: "wayne",
+    hostHouse: "wayne",
+    branch: "sandbox",
+    createdAt: "2026-11-01T00:00:00.000Z",
+  };
+  await withRepo(SEED(undefined, [row]), async () => {
+    // hand-built the old way: no v in the body
+    const old = await signGuestSession(
+      { p: "elliot", b: "sandbox" },
+      ENV.MISE_INVITE_TOKEN,
+      Date.now(),
+    );
+    const b64 = old.split(".")[0].replace(/-/g, "+").replace(/_/g, "/");
+    const body = JSON.parse(atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4)));
+    assert.equal(body.v, "", "v is always present now");
+    const res = await worker.fetch(req("/guest/me", { session: old }, SANDBOX, "8.0.3.1"), ENV);
+    assert.equal(res.status, 401);
+  });
+});

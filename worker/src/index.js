@@ -1178,8 +1178,10 @@ export default {
         const s = await verifyGuestSession(body?.session, writeToken, branch, nowMs);
         const row = s ? (guests.logins ?? []).find((l) => l && l.profileId === s.p) : null;
         if (!s || !row) return json(401, { error: "signed out" }, cors);
-        // a session from a login since replaced (a new sign-in link) is over
-        if (s.v !== undefined && s.v !== String(row.createdAt ?? ""))
+        // a session from a login since replaced (a new sign-in link) is over.
+        // Fails closed: a session from before sessions carried v asks for the
+        // passkey once more (security review 11/9).
+        if (typeof s.v !== "string" || s.v !== String(row.createdAt ?? ""))
           return json(401, { error: "signed out" }, cors);
         const hostHouse = slugOf(row.hostHouse);
         const events = hostHouse

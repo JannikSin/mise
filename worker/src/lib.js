@@ -3548,7 +3548,7 @@ export async function signGuestSession(who, secret, nowMs) {
         p: String(who.p),
         b: String(who.b),
         exp: nowMs + GUEST_SESSION_TTL_MS,
-        ...(who.v ? { v: String(who.v) } : {}),
+        v: String(who.v ?? ""),
       }),
     ),
   );
