@@ -55,6 +55,24 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
       document.getElementById("join-login")?.scrollIntoView({ behavior: "smooth", block: "start" }),
     );
   };
+  // A SIGN-IN LINK (2026-11-09): made for someone already in the kitchen,
+  // it sets only their login. The Worker names them; null = an ordinary invite
+  const [forName, setForName] = useState(/** @type {string | null} */ (null));
+  useEffect(() => {
+    let alive = true;
+    if (!code) return;
+    inviteStatus(code)
+      .then((r) => {
+        if (alive && r?.state === "unclaimed" && typeof r.forName === "string")
+          setForName(r.forName);
+      })
+      .catch(() => {
+        // no answer: the ordinary form shows, and its save reports the error
+      });
+    return () => {
+      alive = false;
+    };
+  }, [code]);
   const nextDinners = Array.from({ length: 14 }, (_, n) => {
     const d = new Date();
     d.setDate(d.getDate() + n);
@@ -149,6 +167,49 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
     }
     ${loginError && html`<p class="hint scanerr" role="status">${loginError}</p>`}
   </div>`;
+  if (forName !== null) {
+    return html`<div class="view">
+      <div class="hero">
+        <h1>Mise<span>.</span></h1>
+        <div class="sub">${forName ? `Hi ${forName}` : "Your sign-in"}</div>
+      </div>
+      <div class="tile">
+        <p class="hint">
+          Your profile is already in this kitchen. This only sets your login, so on this phone you
+          see your own meals, your plate and the recipes.
+        </p>
+      </div>
+      ${loginTile}
+      <div class="actions">
+        <button
+          class="ask"
+          disabled=${state.kind === "busy" || !(nameOk && pinOk)}
+          onClick=${async () => {
+            setLoginError("");
+            setState({ kind: "busy" });
+            try {
+              const r = await claimInvite(code, {}, {}, [], { name: loginName.trim(), pin });
+              if (r.session && onSignedIn) {
+                onSignedIn(r.session);
+                return;
+              }
+              setState({ kind: "done", id: r.id, name: r.name, house: r.house });
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : "could not save";
+              if (/already used|expired|does not exist|no longer fits/.test(msg)) {
+                setState({ kind: "error", message: msg });
+              } else {
+                setState({ kind: "form" });
+                showLoginError(msg);
+              }
+            }
+          }}
+        >
+          ${state.kind === "busy" ? "SAVING…" : "SAVE MY SIGN-IN"}
+        </button>
+      </div>
+    </div>`;
+  }
   const dinnerPicker = !member
       ? html`<div class="tile">
           <div class="k">Which dinners could you come to?</div>

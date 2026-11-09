@@ -3363,7 +3363,7 @@ export function slugForName(name, taken) {
 }
 
 /**
- * @typedef {{ code: string, house: string, hostHouse: string, createdBy: string, createdAt: string, expiresAt: string, usedAt?: string, profileId?: string }} Invite
+ * @typedef {{ code: string, house: string, hostHouse: string, createdBy: string, createdAt: string, expiresAt: string, usedAt?: string, profileId?: string, forProfile?: string, forName?: string }} Invite
  */
 
 /**

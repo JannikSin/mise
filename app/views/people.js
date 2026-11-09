@@ -64,7 +64,7 @@ const ALLERGY_CHIPS = /** @type {[string, string][]} */ ([
  *   onAddToDinner?: (date: string, profileId: string) => Promise<{ note: string, retry: boolean }>,
  *   onRemoveFromDinner?: (date: string, profileId: string) => void,
  *   onLinkRoommate?: (profileId: string) => Promise<string>,
- *   onInviteLink?: (kind: "member" | "guest") => Promise<string>,
+ *   onInviteLink?: (kind: "member" | "guest", forProfile?: string) => Promise<string>,
  *   onAddAllergy?: (profileId: string, key: string) => Promise<string>
  * }} props
  */
@@ -86,6 +86,8 @@ export function PeopleSection({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [invite, setInvite] = useState(/** @type {string} */ (""));
+  // a sign-in link made for one housemate (2026-11-09), shown on their card
+  const [signIn, setSignIn] = useState(/** @type {null | { id: string, url: string }} */ (null));
   // the add that could not run its allergy check (D-01, 10/18): one tap redoes it
   const [retry, setRetry] = useState(/** @type {null | { id: string, dates: string[] }} */ (null));
   const myHouse = /** @type {string} */ (
@@ -135,11 +137,15 @@ export function PeopleSection({
       if (again.length > 0) setRetry({ id, dates: again });
       return notes.filter(Boolean).join(" · ");
     });
-  const share = async (/** @type {"member" | "guest"} */ kind) => {
+  const share = async (
+    /** @type {"member" | "guest"} */ kind,
+    /** @type {string | undefined} */ forProfile = undefined,
+  ) => {
     if (!onInviteLink) return;
     await run(async () => {
-      const url = await onInviteLink(kind);
-      setInvite(url);
+      const url = await onInviteLink(kind, forProfile);
+      if (forProfile) setSignIn({ id: forProfile, url });
+      else setInvite(url);
       const nav = /** @type {any} */ (navigator);
       try {
         if (typeof nav.share === "function") {
@@ -297,6 +303,46 @@ export function PeopleSection({
                               </button>`,
                             )}
                           </div>
+                        </div>`
+                      }
+                      ${
+                        // THEIR OWN SIGN-IN (2026-11-09, David: Elliot as an
+                        // eater, "only i am" a full user). The link gives this
+                        // housemate a login name and passkey for their own
+                        // profile: on their phone they see their meals and
+                        // recipes, with no key to the kitchen's records.
+                        inKitchen &&
+                        p.id !== me &&
+                        p.admin !== true &&
+                        onInviteLink &&
+                        html`<div class="block">
+                          <div class="actions">
+                            <button
+                              class="secondary"
+                              disabled=${busy}
+                              onClick=${() => share("member", p.id)}
+                            >
+                              SIGN-IN LINK FOR ${String(p.name ?? p.id).toUpperCase()}
+                              <small>their phone sees only their meals, no key to your records</small>
+                            </button>
+                          </div>
+                          ${
+                            signIn &&
+                            signIn.id === p.id &&
+                            html`<div class="token-form">
+                                <input
+                                  aria-label=${`Sign-in link for ${p.name ?? p.id}`}
+                                  readonly
+                                  value=${signIn.url}
+                                  onFocus=${(/** @type {any} */ e) => e.currentTarget.select()}
+                                />
+                              </div>
+                              <${InviteQr} link=${signIn.url} />
+                              <p class="hint">
+                                One use, good for seven days. A new link replaces their old
+                                passkey.
+                              </p>`
+                          }
                         </div>`
                       }
                       ${note && html`<p class="hint" role="status">${note}</p>`}

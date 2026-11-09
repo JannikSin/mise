@@ -779,6 +779,124 @@ async function fetchRecipeUrl(rawUrl) {
   throw new Error("too many redirects");
 }
 
+/**
+ * /invite/claim for a SIGN-IN LINK (invite.forProfile, 2026-11-09): an
+ * existing housemate sets a login name and passkey for their own profile, so
+ * their phone needs no family key. The only writes: this invite spent, and
+ * guests.json with ONE login for that profile (an older login for the same
+ * person is replaced, so a new link also resets a forgotten passkey). The
+ * profile, its targets and the kitchen are never touched.
+ * @param {Record<string, any>} invite the matched row (branch already checked)
+ * @param {{ data: any, sha?: string }} inv invites.json as the route read it
+ * @param {any} body
+ * @param {string} writeToken MISE_INVITE_TOKEN
+ * @param {number} nowMs
+ * @param {Record<string, string>} cors
+ * @param {(e: unknown) => Response} fail
+ * @returns {Promise<Response>}
+ */
+async function claimSignIn(invite, inv, body, writeToken, nowMs, cors, fail) {
+  const branch = String(invite.branch);
+  const code = String(invite.code);
+  const id = String(invite.forProfile);
+  const nowIso = new Date(nowMs).toISOString();
+  const nameKey = guestNameKey(body?.login?.name);
+  if (!nameKey || !validGuestPin(body?.login?.pin)) {
+    return json(400, { error: "pick a login name of 2 to 30 letters and a 4-digit passkey" }, cors);
+  }
+  try {
+    // the person must still be in the host's kitchen, and not an admin
+    const profs = await ghReadJsonRef("profiles.json", writeToken, branch);
+    const p = (Array.isArray(profs?.profiles) ? profs.profiles : []).find(
+      (/** @type {any} */ x) => x?.id === id,
+    );
+    const hostHouse = slugOf(invite.hostHouse) || "home";
+    if (!p || slugOf(p.household) !== hostHouse || p.admin === true) {
+      return json(410, { error: "this link no longer fits anyone here, ask for a new one" }, cors);
+    }
+    const guests = await ghReadWithSha("guests.json", writeToken, branch);
+    const taken = findGuestLogin(guests.data, nameKey);
+    if (taken && taken.profileId !== id) {
+      if (!allowRequest(rateState, `claimname:${code}`, Date.now(), 6)) {
+        return json(
+          429,
+          { error: "Too many names tried. Wait a few minutes, or ask your host for help." },
+          cors,
+        );
+      }
+      return json(409, { error: "that login name is taken; add your last initial" }, cors);
+    }
+    const { salt, hash } = await hashGuestPin(String(body.login.pin));
+    const name = String(body.login.name).normalize("NFKC").trim().replace(/\s+/g, " ");
+
+    // spend the code first, against the sha it was read at: the one write
+    // that decides the race (a 409 means someone else spent or wrote first)
+    const stamped = {
+      ...(inv.data ?? {}),
+      invites: (inv.data?.invites ?? []).map((/** @type {any} */ i) =>
+        i?.code === code
+          ? {
+              ...i,
+              usedAt: nowIso,
+              profileId: id,
+              statusUntil: new Date(nowMs + INVITE_STATUS_TTL_MS).toISOString(),
+            }
+          : i,
+      ),
+    };
+    const stampRes = await ghWriteJson(
+      "invites.json",
+      stamped,
+      inv.sha,
+      writeToken,
+      `sign-in link claimed for ${id}`,
+      branch,
+    );
+    if (stampRes.status === 409) return json(410, { error: "this invite was already used" }, cors);
+    if (!stampRes.ok) return fail(new Error(`stamp ${stampRes.status}`));
+
+    const row = {
+      nameKey,
+      name,
+      salt,
+      hash,
+      profileId: id,
+      house: hostHouse,
+      hostHouse,
+      branch,
+      createdAt: nowIso,
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const cur = attempt === 0 ? guests : await ghReadWithSha("guests.json", writeToken, branch);
+      const logins = (Array.isArray(cur.data?.logins) ? cur.data.logins : []).filter(
+        (/** @type {any} */ l) => l && l.profileId !== id,
+      );
+      if (findGuestLogin({ logins }, nameKey)) {
+        console.log("sign-in claim: login name taken in a race");
+        return json(502, { error: "something went wrong, ask for a new link" }, cors);
+      }
+      const next = { ...(cur.data ?? {}), logins: [...logins, row] };
+      const res = await ghWriteJson("guests.json", next, cur.sha, writeToken, `sign-in for ${id}`, branch);
+      if (res.ok) {
+        await cachePut(guestsKey(branch), { logins: next.logins }, 60);
+        const session = await signGuestSession({ p: id, b: branch }, writeToken, nowMs);
+        return json(
+          200,
+          { ok: true, id, name: firstNameOf(p.name ?? id), house: hostHouse, session },
+          cors,
+        );
+      }
+      if (res.status !== 409 || attempt === 1) {
+        console.log("sign-in claim failed after the stamp", res.status);
+        return json(502, { error: "something went wrong, ask for a new link" }, cors);
+      }
+    }
+    return json(502, { error: "something went wrong, ask for a new link" }, cors);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 /** how far back an "Ate everything" link still works, in days */
 const ATE_MAX_AGE_DAYS = 3;
 
@@ -1168,7 +1286,16 @@ export default {
           if (!invite.usedAt || !invite.profileId) {
             return inviteState(invite, nowIso) === "expired"
               ? json(410, { error: "this invite has expired, ask for a new one" }, cors)
-              : json(200, { state: "unclaimed" }, cors);
+              : json(
+                  200,
+                  {
+                    state: "unclaimed",
+                    // a sign-in link for an existing person: the join page
+                    // asks only for a login name and passkey
+                    ...(invite.forProfile ? { forName: firstNameOf(String(invite.forName ?? "")) } : {}),
+                  },
+                  cors,
+                );
           }
           const until = /** @type {any} */ (invite).statusUntil;
           if (typeof until === "string" && until < nowIso) {
@@ -1227,6 +1354,9 @@ export default {
         if (state === "used") return json(410, { error: "this invite was already used" }, cors);
         if (state === "expired")
           return json(410, { error: "this invite has expired, ask for a new one" }, cors);
+        if (invite.forProfile) {
+          return claimSignIn(/** @type {any} */ (invite), inv, body, writeToken, nowMs, cors, fail);
+        }
         const entry = sanitizeInviteEntry(body.entry);
         const targets = sanitizeInviteTargets(body.targets);
         if (!entry) return json(400, { error: "a name and an emoji are required" }, cors);
@@ -1524,6 +1654,24 @@ export default {
       // guesthouse (a dinner guest). Nothing else is accepted.
       const house = body?.house === "member" ? hostHouse : "guesthouse";
       const createdBy = slugOf(body?.by) || "unknown";
+      // A SIGN-IN LINK FOR SOMEONE ALREADY HERE (2026-11-09, David: Elliot as
+      // an eater, not a full user). The link adds a login name and passkey to
+      // an existing housemate's profile and touches nothing else. Only a
+      // person in the host's own kitchen, never an admin, never the host.
+      const forProfile = body?.forProfile === undefined ? "" : slugOf(body.forProfile);
+      if (body?.forProfile !== undefined && !forProfile)
+        return json(400, { error: "who is this link for?" }, cors);
+      /** @type {string} */
+      let forName = "";
+      if (forProfile) {
+        const profs = await ghReadJsonRef("profiles.json", /** @type {string} */ (token), branch);
+        const p = (Array.isArray(profs?.profiles) ? profs.profiles : []).find(
+          (/** @type {any} */ x) => x?.id === forProfile,
+        );
+        if (!p || slugOf(p.household) !== hostHouse || p.admin === true || forProfile === createdBy)
+          return json(400, { error: "a sign-in link is only for someone in your kitchen" }, cors);
+        forName = String(p.name ?? forProfile);
+      }
       const bytes = new Uint8Array(20);
       crypto.getRandomValues(bytes);
       const code = mintInviteCode(bytes);
@@ -1547,6 +1695,7 @@ export default {
           createdBy,
           createdAt: new Date(now).toISOString(),
           expiresAt: new Date(now + INVITE_TTL_MS).toISOString(),
+          ...(forProfile ? { forProfile, forName, house: hostHouse } : {}),
         };
         const res = await ghWriteJson(
           "invites.json",

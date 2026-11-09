@@ -4186,10 +4186,13 @@ function App() {
     [],
   );
 
-  const handleInviteLink = useCallback(async (/** @type {"member" | "guest"} */ kind) => {
+  const handleInviteLink = useCallback(async (
+    /** @type {"member" | "guest"} */ kind,
+    /** @type {string | undefined} */ forProfile = undefined,
+  ) => {
     const me = activeProfile();
     const hostHouse = allProfilesRef.current.find((p) => p.id === me)?.household ?? "home";
-    const { code } = await newInvite(kind, hostHouse, me);
+    const { code } = await newInvite(kind, hostHouse, me, forProfile);
     const base = `${location.origin}${location.pathname}`;
     // a roommate's link says so, so their form skips "which dinners can you make"
     return `${base}#/join?code=${encodeURIComponent(code)}${kind === "member" ? "&as=member" : ""}`;

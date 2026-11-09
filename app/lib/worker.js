@@ -389,10 +389,17 @@ async function postOpen(path, body) {
  * @param {"member" | "guest"} kind a roommate joins the host's kitchen; a guest lives in the guesthouse
  * @param {string} hostHouse the host's household slug
  * @param {string} by the host's profile id
+ * @param {string} [forProfile] a housemate already in the kitchen: the link
+ *   only sets their login name and passkey (2026-11-09)
  * @returns {Promise<{ code: string, house: string, expiresAt: string }>}
  */
-export async function newInvite(kind, hostHouse, by) {
-  const data = await post("/invite/new", { house: kind, hostHouse, by });
+export async function newInvite(kind, hostHouse, by, forProfile = undefined) {
+  const data = await post("/invite/new", {
+    house: kind,
+    hostHouse,
+    by,
+    ...(forProfile ? { forProfile } : {}),
+  });
   return {
     code: String(data.code ?? ""),
     house: String(data.house ?? ""),
@@ -471,7 +478,7 @@ export async function guestMe(session) {
 /**
  * The invitee's read-only status: their upcoming seats and plates.
  * @param {string} code
- * @returns {Promise<{ state: string, name?: string, house?: string, rows?: { date: string, slot: string, dish: string, servings: number, plate: string[], cook: string }[] }>}
+ * @returns {Promise<{ state: string, name?: string, forName?: string, house?: string, rows?: { date: string, slot: string, dish: string, servings: number, plate: string[], cook: string }[] }>}
  */
 export async function inviteStatus(code) {
   return /** @type {any} */ (await postOpen("/invite/status", { code }));
