@@ -995,6 +995,9 @@ export function PlannerView({
                         onSwipeEaten &&
                         /** @type {any} */ (outEntry)?.currency &&
                         date <= todayIso &&
+                        // a day marked eaten in full (the phone's "Ate
+                        // everything") already covers the swipe
+                        !(dayAte(plan, date) && !(/** @type {any} */ (outEntry)?.eatenAt)) &&
                         html`<button
                           class=${/** @type {any} */ (outEntry)?.eatenAt ? "cooktap on" : "cooktap"}
                           aria-pressed=${Boolean(/** @type {any} */ (outEntry)?.eatenAt)}
