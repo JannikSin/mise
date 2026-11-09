@@ -1735,6 +1735,20 @@ label.tile .k {
   border-color: var(--recover);
 }
 
+/* the invite QR (2026-11-09): big enough to scan across a table */
+.inviteqr {
+  margin: 12px 0 0;
+  text-align: center;
+}
+
+.inviteqr svg {
+  display: block;
+  width: min(260px, 100%);
+  height: auto;
+  margin: 0 auto;
+  border-radius: 8px;
+}
+
 button.primary {
   min-height: 44px;
   background: rgba(61, 220, 132, 0.1);

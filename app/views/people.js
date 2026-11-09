@@ -2,6 +2,31 @@ import { html } from "htm/preact";
 import { useState } from "preact/hooks";
 import { datesOfWeek } from "../lib/plan.js";
 import { parseLocalIso } from "../lib/dates.js";
+import { qrEncode, qrSvgPath } from "../lib/qr.js";
+
+/**
+ * The invite link as a QR code (David, 2026-11-09: "that makes it nicer"),
+ * for a person across the table to scan with their own camera. Black on
+ * white whatever the theme: phone cameras read dark-on-light.
+ * @param {{ link: string }} props
+ */
+function InviteQr({ link }) {
+  const m = qrEncode(link);
+  if (!m) return "";
+  const { d, view } = qrSvgPath(m);
+  return html`<figure class="inviteqr">
+    <svg
+      viewBox="0 0 ${view} ${view}"
+      role="img"
+      aria-label="QR code of the invite link"
+      shape-rendering="crispEdges"
+    >
+      <rect width=${view} height=${view} fill="#fff" />
+      <path d=${d} fill="#000" />
+    </svg>
+    <figcaption class="hint">They point their phone camera here and tap the link.</figcaption>
+  </figure>`;
+}
 
 /** the allergy chips, same ids as the profile survey (targets.js ALLERGEN_TERMS) */
 const ALLERGY_CHIPS = /** @type {[string, string][]} */ ([
@@ -319,7 +344,8 @@ export function PeopleSection({
                 value=${invite}
                 onFocus=${(/** @type {any} */ e) => e.currentTarget.select()}
               />
-            </div>`
+            </div>
+            <${InviteQr} link=${invite} />`
           }
           ${!open && note && html`<p class="hint" role="status">${note}</p>`}
           <p class="hint">One person, one link, good for seven days.</p>`
