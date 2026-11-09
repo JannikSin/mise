@@ -928,6 +928,47 @@ summary.block-title {
   cursor: pointer;
 }
 
+/* a day marked eaten in full, and its undo (2026-11-09) */
+.daymeals .atedone {
+  margin: 4px 0 8px;
+  color: var(--signal);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.daymeals .atedone .linktext {
+  min-height: 44px;
+  padding: 0 6px;
+}
+
+/* "Did you eat everything planned yesterday?" (2026-11-09) */
+.atebanner {
+  margin: 0 0 12px;
+}
+
+.atebanner .atebtns {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.atebanner .atebtns button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 52px;
+}
+
+.atebanner .ateall {
+  border: 1px solid var(--signal);
+  background: none;
+  color: var(--signal);
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
 /* the engine's reports, folded under the week (2026-10-16) */
 .engineinfo {
   margin: 18px 0 8px;

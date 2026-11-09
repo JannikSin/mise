@@ -65,6 +65,12 @@ import {
   allowRequest,
   buildNotifications,
   isoWeekIdOf,
+  shiftIsoDays,
+  isIsoDate,
+  openMealCount,
+  ntfyActionsHeader,
+  ateSignature,
+  verifyAteSignature,
   buildAskRequest,
   parseAskResponse,
   sanitizeAskContext,
@@ -88,6 +94,22 @@ import { handleKroger, handleKrogerCallback } from "./kroger.js";
 import { handleHall } from "./hall.js";
 
 const DATA_REPO = "JannikSin/mise-data";
+
+/** this Worker's own address, for links it hands out (the "Ate everything" button) */
+const WORKER_BASE_URL = "https://mise-worker.janniksin.workers.dev";
+
+/**
+ * The key that signs "Ate everything" links: the Worker's write credential
+ * joined with the ntfy topic (no new secret). Empty when either is missing,
+ * which switches the button off and keeps the old notification.
+ * @param {{ MISE_INVITE_TOKEN?: string, NTFY_TOPIC?: string }} env
+ * @returns {string}
+ */
+function ateSecretOf(env) {
+  return env.MISE_INVITE_TOKEN && env.NTFY_TOPIC
+    ? `${env.MISE_INVITE_TOKEN}:${env.NTFY_TOPIC}`
+    : "";
+}
 
 /**
  * Which data repos this Worker will authenticate against (B4, friend groups).
@@ -441,11 +463,15 @@ function chicagoNow() {
  * @param {string} topic ntfy topic
  * @param {{ hour: number, weekday: string, dateIso: string }} now
  * @param {boolean} send false = preview only (the SYS test button)
+ * @param {string} [ateSecret] signs the "Ate everything" buttons (ateSecretOf);
+ *   empty = no buttons, the old notifications
  * @returns {Promise<{ sent: number, preview: { title: string, body: string }[] }>}
  */
-async function runNotifications(token, topic, now, send) {
+async function runNotifications(token, topic, now, send, ateSecret = "") {
   const weekId = isoWeekIdOf(now.dateIso);
   const rawPlan = await ghReadJson(`plans/${weekId}.json`, token);
+  /** @type {Record<string, any> | null} */
+  let events = null;
   // THE KITCHEN'S SHARED MEALS (2026-10-17): his plan file holds only his own
   // meals; the shared ones live in the household's events.json, so every
   // ping used to miss them. Today's tables he is seated at (not skipped) join
@@ -460,7 +486,7 @@ async function runNotifications(token, topic, now, send) {
       "",
   );
   if (/^[a-z0-9-]+$/.test(house)) {
-    const events = await ghReadJson(`households/${house}/events.json`, token);
+    events = await ghReadJson(`households/${house}/events.json`, token);
     // WHOSE NIGHT IT IS (Tribunal Realist, 2026-10-18): on a take-turns
     // kitchen the table names its cook, and the cook ping is for HIM only. A
     // table with no cookId is his (a kitchen of one).
@@ -539,25 +565,72 @@ async function runNotifications(token, topic, now, send) {
     plan = { ...(plan ?? {}), entries: [...(plan?.entries ?? []), shared[shared.length - 1]] };
   }
 
+  // YESTERDAY, for the 7 am catch-up (2026-11-09): counted the way the
+  // evening counts today (his meals, the shared tables he is seated at, the
+  // swipe), from the previous week's plan file when yesterday falls in it.
+  /** @type {{ dateIso: string, open: number, ateDays: string[] } | undefined} */
+  let yesterday;
+  const yIso = shiftIsoDays(now.dateIso, -1);
+  if (!send || now.hour === 7) {
+    const yWeek = isoWeekIdOf(yIso);
+    const yPlan = yWeek === weekId ? rawPlan : await ghReadJson(`plans/${yWeek}.json`, token);
+    /** @type {Record<string, any>[]} */
+    const yShared = [];
+    for (const t of events?.tables ?? []) {
+      if (t?.date !== yIso) continue;
+      const seat = (t.seats ?? []).find((/** @type {any} */ x) => x?.id === "david");
+      if (!seat || seat.status === "skipped") continue;
+      yShared.push({
+        date: t.date,
+        slot: t.slot,
+        table: t.id,
+        ...(t.cookedAt ? { cookedAt: t.cookedAt } : {}),
+      });
+    }
+    yesterday = {
+      dateIso: yIso,
+      open: openMealCount(
+        [...(Array.isArray(yPlan?.entries) ? yPlan.entries : []), ...yShared],
+        yIso,
+      ),
+      ateDays: Array.isArray(yPlan?.ateDays) ? yPlan.ateDays : [],
+    };
+  }
+  // the "Ate everything" button's signed links, today's and yesterday's
+  /** @type {Record<string, string>} */
+  const sigs = {};
+  if (ateSecret) {
+    for (const d of [now.dateIso, yIso]) sigs[d] = await ateSignature(ateSecret, "david", d);
+  }
+  const ateUrl = ateSecret
+    ? (/** @type {string} */ d) => `${WORKER_BASE_URL}/ate?d=${d}&k=${sigs[d] ?? ""}`
+    : undefined;
+
   const notifications = send
-    ? buildNotifications({ ...now, plan, shopping, recipeName })
+    ? buildNotifications({ ...now, plan, shopping, recipeName, ateUrl, yesterday })
     : // preview mode: the whole day's schedule at once, so the SYS button
       // shows what WOULD fire instead of an empty list at off-hours
       [7, 10, 11, 12, 15, 17, 20].flatMap((hour) =>
-        buildNotifications({ ...now, hour, plan, shopping, recipeName }),
+        buildNotifications({ ...now, hour, plan, shopping, recipeName, ateUrl, yesterday }),
       );
 
   let sent = 0;
   if (send && topic) {
     for (const n of notifications) {
+      /** @type {Record<string, string>} */
+      const headers = {
+        Title: n.title,
+        Priority: n.priority,
+        Tags: n.tags,
+        Click: n.click,
+      };
+      // the long-press button (ntfy http action): POSTs the signed link and
+      // clears the notification once it lands
+      const actions = ntfyActionsHeader(n.actions);
+      if (actions) headers.Actions = actions;
       const res = await fetch(`https://ntfy.sh/${topic}`, {
         method: "POST",
-        headers: {
-          Title: n.title,
-          Priority: n.priority,
-          Tags: n.tags,
-          Click: n.click,
-        },
+        headers,
         body: n.body,
       });
       if (res.ok) sent++;
@@ -706,6 +779,77 @@ async function fetchRecipeUrl(rawUrl) {
   throw new Error("too many redirects");
 }
 
+/** how far back an "Ate everything" link still works, in days */
+const ATE_MAX_AGE_DAYS = 3;
+
+/**
+ * POST /ate (GET too, so a plain browser tap works): the "Ate everything"
+ * button on the phone notification (2026-11-09, P11 + P1). An OPEN route, no
+ * PAT and no Origin: the ntfy app sends the request itself. What stands
+ * between it and the data, the same guards as /guest/login:
+ *  - a per-address rate limit, before anything else;
+ *  - no body is read at all; `d` must be a real date, today or up to three
+ *    days back on the Chicago clock, and `k` must be this Worker's HMAC of
+ *    that date, checked BEFORE any read;
+ *  - the dedicated write credential, MISE_INVITE_TOKEN, on the main data
+ *    branch; it writes one field (ateDays) of one plan file, with the sha.
+ * The profile is always "david": Mise's notifications are single-user by
+ * design (one ntfy topic, his), and per-install notifications are out of
+ * scope. Answers are flat plain text and never say what failed inside.
+ * @param {URL} url
+ * @param {Request} request
+ * @param {{ MISE_INVITE_TOKEN?: string, NTFY_TOPIC?: string }} env
+ * @returns {Promise<Response>}
+ */
+async function handleAte(url, request, env) {
+  const text = (/** @type {number} */ status, /** @type {string} */ body) =>
+    new Response(body, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
+  const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+  if (!allowRequest(rateState, `ate:${ip}`, Date.now(), 3)) {
+    return text(429, "Slow down, try again in a few minutes.");
+  }
+  const secret = ateSecretOf(env);
+  const writeToken = env.MISE_INVITE_TOKEN;
+  if (!secret || !writeToken) return text(503, "This button is not switched on yet.");
+  const d = url.searchParams.get("d") ?? "";
+  const k = url.searchParams.get("k") ?? "";
+  const today = chicagoNow().dateIso;
+  const refused = () => text(403, "This link is not valid. Open Mise and mark the day on Plan.");
+  if (!isIsoDate(d) || d > today || d < shiftIsoDays(today, -ATE_MAX_AGE_DAYS)) return refused();
+  if (!(await verifyAteSignature(secret, "david", d, k))) return refused();
+
+  const path = `plans/${isoWeekIdOf(d)}.json`;
+  try {
+    // one retry on 409: another device wrote the file between read and write
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const { data, sha } = await ghReadWithSha(path, writeToken, "main");
+      // a file that exists but does not parse is never overwritten
+      if (sha && !data) throw new Error("plan file unreadable");
+      const days = Array.isArray(data?.ateDays)
+        ? data.ateDays.filter((/** @type {unknown} */ x) => isIsoDate(x))
+        : [];
+      if (days.includes(d)) return text(200, `Marked: ate everything on ${d}.`);
+      const next = data
+        ? { ...data, ateDays: [...new Set([...days, d])].sort() }
+        : { week: isoWeekIdOf(d), entries: [], ateDays: [d] };
+      const res = await ghWriteJson(
+        path,
+        next,
+        sha,
+        writeToken,
+        `ate everything ${d} (phone)`,
+        "main",
+      );
+      if (res.ok) return text(200, `Marked: ate everything on ${d}.`);
+      if (res.status !== 409) throw new Error(`write ${res.status}`);
+    }
+    throw new Error("409 twice");
+  } catch (e) {
+    console.log("ate route failed", e instanceof Error ? e.message : String(e));
+    return text(502, "Could not reach the records, try again in a minute.");
+  }
+}
+
 export default {
   /**
    * Hourly cron (wrangler.toml): compute this hour's notifications and post
@@ -713,12 +857,18 @@ export default {
    * read-only fine-grained PAT for mise-data — the ONE stored credential,
    * revoke it to kill the cron) and NTFY_TOPIC.
    * @param {{ cron: string }} controller
-   * @param {{ MISE_DATA_TOKEN?: string, NTFY_TOPIC?: string }} env
+   * @param {{ MISE_DATA_TOKEN?: string, MISE_INVITE_TOKEN?: string, NTFY_TOPIC?: string }} env
    */
   async scheduled(controller, env) {
     if (!env.MISE_DATA_TOKEN || !env.NTFY_TOPIC) return;
     try {
-      await runNotifications(env.MISE_DATA_TOKEN, env.NTFY_TOPIC, chicagoNow(), true);
+      await runNotifications(
+        env.MISE_DATA_TOKEN,
+        env.NTFY_TOPIC,
+        chicagoNow(),
+        true,
+        ateSecretOf(env),
+      );
     } catch {
       // one bad fetch must not take down the hour's cron; the next hour
       // runs fresh and the SYS test button surfaces persistent breakage
@@ -746,6 +896,13 @@ export default {
     // open redirect. handleKrogerCallback returns null for every other path,
     // so exactly ONE unauthenticated route exists and everything else still
     // requires a POST, an allowed origin and a valid PAT.
+    // THE SECOND, 2026-11-09: /ate, the notification's "Ate everything"
+    // button. The ntfy app sends it with no Origin, so it too must run before
+    // the CORS gate and the PAT gate; its control is the signed link
+    // (handleAte), and it answers GET and POST alike.
+    if (url.pathname === "/ate" && (request.method === "GET" || request.method === "POST")) {
+      return handleAte(url, request, env);
+    }
     if (request.method === "GET") {
       const cb = await handleKrogerCallback(url, env);
       if (cb) return cb;
@@ -1322,6 +1479,7 @@ export default {
           env.NTFY_TOPIC ?? "",
           now,
           false,
+          ateSecretOf(env),
         );
         let pinged = false;
         if (env.NTFY_TOPIC) {

@@ -1504,6 +1504,15 @@ even the same slot — merge without losing either entry.
   //   weekBudget takes `perWeek` off its cap and stamps the rest forward with
   //   `weeksLeft` one lower. This week's own spend row is stamped with its cap
   //   raised by the food bought ahead, so the carry compares like with like.
+  "ateDays": ["2026-11-08"], // ? ATE THE WHOLE DAY (P11, P1, 2026-11-09): local
+  //   YYYY-MM-DD dates the person confirmed they ate everything planned, as
+  //   ONE fact, independent of each meal's cookedAt. Written by ATE EVERYTHING
+  //   on Plan (markDayAte, alongside its per-meal stamps) and by the "Ate
+  //   everything" button on the evening phone notification (the Worker's
+  //   POST /ate, which writes only this field). Sorted, unique, valid dates;
+  //   absent = []. Plan reads a listed day as eaten; adherence counts all its
+  //   cookable meals as confirmed. It does NOT stamp tables or consume the
+  //   pantry. Merge: an atomic string array (local wins a true conflict).
   "unlocked": ["turkey-chili"], // ? recipes opened by hand this week ("I already
   //   have this"), for cooking out of the pantry without a shop. Absent = none.
   //   THE RECIPE GATE (David, 2026-07-25): with no receipt, a recipe shows its

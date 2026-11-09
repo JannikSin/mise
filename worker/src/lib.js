@@ -1214,6 +1214,74 @@ const APP_URL = "https://janniksin.github.io/mise/";
 /** The evening ATE IT? hour, Chicago clock (the cron's): 11:00 pm Eastern. */
 export const EVENING_HOUR = 22;
 
+/** The notification button's words. No comma: ntfy's Actions header splits on them. */
+export const ATE_ACTION_LABEL = "Ate everything";
+
+/**
+ * @typedef {{ label: string, url: string }} NotificationAction one ntfy http
+ *   button: a POST to `url`, the notification cleared on success
+ * @typedef {{ title: string, body: string, tags: string, priority: string, click: string, actions?: NotificationAction[] }} NtfyNote
+ */
+
+/**
+ * The ntfy `Actions` header for a notification's buttons (ntfy's short
+ * syntax: `http, <label>, <url>, method=POST, clear=true`, actions joined by
+ * a semicolon). Empty string when there are none.
+ * @param {NotificationAction[] | undefined} actions
+ * @returns {string}
+ */
+export function ntfyActionsHeader(actions) {
+  return (actions ?? [])
+    .map((a) => `http, ${a.label.replace(/[,;]/g, "")}, ${a.url}, method=POST, clear=true`)
+    .join("; ");
+}
+
+/**
+ * The signature on an "Ate everything" link (2026-11-09): hex HMAC-SHA256
+ * over `ate:<profile>:<date>`, cut to 32 hex characters (128 bits). The
+ * secret is the Worker's own (index.js passes MISE_INVITE_TOKEN joined with
+ * NTFY_TOPIC), so no new secret exists; rotating either voids old links.
+ * @param {string} secret
+ * @param {string} profileId
+ * @param {string} dateIso
+ * @returns {Promise<string>}
+ */
+export async function ateSignature(secret, profileId, dateIso) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(`ate:${profileId}:${dateIso}`),
+  );
+  return [...new Uint8Array(sig)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 32);
+}
+
+/**
+ * Does `sig` sign this profile and date? Compares every character, always.
+ * @param {string} secret
+ * @param {string} profileId
+ * @param {string} dateIso
+ * @param {unknown} sig
+ * @returns {Promise<boolean>}
+ */
+export async function verifyAteSignature(secret, profileId, dateIso, sig) {
+  if (typeof sig !== "string" || !secret) return false;
+  const want = await ateSignature(secret, profileId, dateIso);
+  if (sig.length !== want.length) return false;
+  let diff = 0;
+  for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ sig.charCodeAt(i);
+  return diff === 0;
+}
+
 /** meal slots the cook reminders cover, with their local reminder hour */
 // No 3 pm "Afternoon fuel" ping (David, 2026-10-18, his alert budget): the
 // snack is in the backpack from the morning, so the reminders are the day
@@ -1242,6 +1310,45 @@ export function isoWeekIdOf(dateIso) {
 }
 
 /**
+ * A YYYY-MM-DD moved by whole days (calendar math, no clock or zone).
+ * @param {string} dateIso
+ * @param {number} days
+ * @returns {string}
+ */
+export function shiftIsoDays(dateIso, days) {
+  const [y = 0, m = 1, d = 1] = dateIso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+/**
+ * Is this a real calendar date written YYYY-MM-DD?
+ * @param {unknown} s
+ * @returns {s is string}
+ */
+export function isIsoDate(s) {
+  return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && shiftIsoDays(s, 0) === s;
+}
+
+/**
+ * How many of a day's meals are not yet marked eaten: his own and the
+ * kitchen's shared meals without cookedAt, plus unconfirmed swipes. The
+ * evening ATE IT? and the morning catch-up count the same way. A batch-only
+ * reminder is a cooking job, not a meal to mark eaten.
+ * @param {Record<string, any>[]} entries
+ * @param {string} dateIso
+ * @returns {number}
+ */
+export function openMealCount(entries, dateIso) {
+  const meals = entries.filter(
+    (e) => e.date === dateIso && (e.recipeId || e.table) && !e.out && !e.cookedAt && !e.batchOnly,
+  ).length;
+  const swipes = entries.filter(
+    (e) => e.date === dateIso && e.out && e.currency && !e.eatenAt,
+  ).length;
+  return meals + swipes;
+}
+
+/**
  * Everything to send for ONE local hour. Honest-state rules (David,
  * 2026-07-23): cook reminders exist only when the week's groceries are
  * CONFIRMED (plan.shoppedAt, set by scanning the receipt) and the meal
@@ -1252,13 +1359,31 @@ export function isoWeekIdOf(dateIso) {
  *   dateIso: string,
  *   plan: Record<string, any> | null,
  *   shopping: Record<string, any> | null,
- *   recipeName: (id: string) => string
- * }} args weekday = "Mon".."Sun"
- * @returns {{ title: string, body: string, tags: string, priority: string, click: string }[]}
+ *   recipeName: (id: string) => string,
+ *   ateUrl?: (dateIso: string) => string,
+ *   yesterday?: { dateIso: string, open: number, ateDays?: string[] }
+ * }} args weekday = "Mon".."Sun". `ateUrl` (2026-11-09) signs the "Ate
+ *   everything" button's link; without it no notification carries actions.
+ *   `yesterday` is the previous day's open count and its plan's ateDays, for
+ *   the 7 am catch-up.
+ * @returns {NtfyNote[]}
  */
-export function buildNotifications({ hour, weekday, dateIso, plan, shopping, recipeName }) {
-  /** @type {{ title: string, body: string, tags: string, priority: string, click: string }[]} */
+export function buildNotifications({
+  hour,
+  weekday,
+  dateIso,
+  plan,
+  shopping,
+  recipeName,
+  ateUrl = undefined,
+  yesterday = undefined,
+}) {
+  /** @type {NtfyNote[]} */
   const out = [];
+  const ateDays = Array.isArray(plan?.ateDays) ? plan.ateDays : [];
+  /** @type {(d: string) => { actions?: NotificationAction[] }} */
+  const ateAction = (d) =>
+    ateUrl ? { actions: [{ label: ATE_ACTION_LABEL, url: ateUrl(d) }] } : {};
   const entries = Array.isArray(plan?.entries) ? plan.entries : [];
   const shopped = Boolean(plan?.shoppedAt);
   const todayEntries = (/** @type {string} */ slot) =>
@@ -1288,6 +1413,25 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
         tags: "sunrise",
         priority: "default",
         click: APP_URL,
+      });
+    }
+    // YESTERDAY NOT LOGGED (2026-11-09): last night's "Ate it?" went
+    // unanswered, so the morning offers the same one button for yesterday.
+    // Its own notification, apart from the day ahead.
+    if (
+      yesterday &&
+      yesterday.open > 0 &&
+      !(Array.isArray(yesterday.ateDays) && yesterday.ateDays.includes(yesterday.dateIso))
+    ) {
+      out.push({
+        title: "Yesterday not logged",
+        body: ateUrl
+          ? "Press and hold, then tap Ate everything."
+          : "Open Plan and tap ATE EVERYTHING for yesterday.",
+        tags: "white_check_mark",
+        priority: "default",
+        click: `${APP_URL}#/plan`,
+        ...ateAction(yesterday.dateIso),
       });
     }
   }
@@ -1360,23 +1504,25 @@ export function buildNotifications({ hour, weekday, dateIso, plan, shopping, rec
   // which in 31 weeks happened twice, so the ping never fired.
   // At 22:00 Chicago, which is 11:00 pm at Purdue (David, 2026-10-18: "about
   // 11:00 pm").
-  if (hour === EVENING_HOUR) {
-    // a batch-only reminder is a cooking job, not a meal to mark eaten
-    const meals = entries.filter(
-      (e) =>
-        e.date === dateIso && (e.recipeId || e.table) && !e.out && !e.cookedAt && !e.batchOnly,
-    ).length;
-    const swipes = entries.filter(
-      (e) => e.date === dateIso && e.out && e.currency && !e.eatenAt,
-    ).length;
-    const open = meals + swipes;
+  // The day already confirmed eaten in full (plan.ateDays, 2026-11-09) gets
+  // no ping; otherwise the ping carries the "Ate everything" button, which on
+  // a phone is a long press away and marks the day without opening the app
+  // (an iPhone tap opens Safari, not the installed app, so it landed on a
+  // sign-in screen).
+  if (hour === EVENING_HOUR && !ateDays.includes(dateIso)) {
+    const open = openMealCount(entries, dateIso);
     if (open > 0) {
       out.push({
         title: "Ate it?",
-        body: `${open} of today's meal${open === 1 ? "" : "s"} not marked eaten. One tap: ATE EVERYTHING TODAY on Plan.`,
+        body: `${open} of today's meal${open === 1 ? "" : "s"} not marked eaten. ${
+          ateUrl
+            ? "Press and hold this, then tap Ate everything."
+            : "One tap: ATE EVERYTHING TODAY on Plan."
+        }`,
         tags: "white_check_mark",
         priority: "default",
         click: `${APP_URL}#/plan`,
+        ...ateAction(dateIso),
       });
     }
   }

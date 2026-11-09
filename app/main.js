@@ -156,6 +156,8 @@ import {
   SLOT_KEYS,
   planSwipes,
   toggleSwipeEaten,
+  markDayAte,
+  unmarkDayAte,
   settledEntryId,
   tripFor,
   buildDays,
@@ -5082,6 +5084,13 @@ function App() {
               localIsoDate(new Date()),
             ),
           )}
+        onAteDay=${(/** @type {string} */ date, /** @type {boolean} */ ate) => {
+          // the whole day eaten (plan.ateDays): only the mark. No table is
+          // stamped and the pantry is not touched from here; the per-meal
+          // stamps that ATE EVERYTHING sends first do their own consuming.
+          const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+          updatePlan(ate ? markDayAte(p, date) : unmarkDayAte(p, date));
+        }}
         onGenerateWeek=${handleGenerateWeek}
         bankReady=${bankReady}
         brigade=${plannerBrigade}

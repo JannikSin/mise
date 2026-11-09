@@ -7,7 +7,7 @@ import { CHECK_LABEL_TERMS } from "./targets.js";
 /**
  * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, leftoverOf?: string, leftoverDate?: string, cookId?: string, cookName?: string, estCalories?: number, estProtein?: number, cookedAt?: string, eatenAt?: string, cookSeconds?: number, cookComment?: string, preparedOn?: string, leftoverPrepared?: string, batchAlongside?: { name: string, date: string, cookId?: string, cookName?: string, proteinFresh?: string, freshNights?: string[] }, proteinFresh?: string, freshNights?: string[], freshMeat?: { food: string, qty: number, unit: string }[], occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean, useItUp?: boolean }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
- * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any>, fallback?: { savedAt: string, entries: PlanEntry[] }, spend?: { store: string, date: string, total: number }[], reviewNote?: string }} Plan
+ * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any>, fallback?: { savedAt: string, entries: PlanEntry[] }, spend?: { store: string, date: string, total: number }[], reviewNote?: string, ateDays?: string[] }} Plan
  */
 // cookedAt is optional; absent = not confirmed cooked. Set (local YYYY-MM-DD)
 // by the DONE button at the end of Cook mode — the honest-state rule: a past
@@ -1409,7 +1409,88 @@ const KNOWN_PLAN_KEYS = new Set([
   "buffer",
   "manifest",
   "entries",
+  "ateDays",
 ]);
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * A plan's ateDays, cleaned: valid local ISO dates only, unique, sorted.
+ * @param {unknown} raw
+ * @returns {string[]}
+ */
+function cleanAteDays(raw) {
+  if (!Array.isArray(raw)) return [];
+  const ok = raw.filter(
+    (d) => typeof d === "string" && ISO_DATE_RE.test(d) && localIsoDate(parseLocalIso(d)) === d,
+  );
+  return [...new Set(ok)].sort();
+}
+
+/**
+ * ATE THE WHOLE DAY (P11, P1, 2026-11-09): did the person confirm they ate
+ * everything planned on `date`? One fact for the day, apart from each meal's
+ * cookedAt, so the phone notification can set it without knowing the meals.
+ * @param {Plan | null | undefined} plan
+ * @param {string} date YYYY-MM-DD
+ * @returns {boolean}
+ */
+export function dayAte(plan, date) {
+  return cleanAteDays(/** @type {any} */ (plan)?.ateDays).includes(date);
+}
+
+/**
+ * Mark `date` as eaten in full. Pure; a date already marked is a no-op.
+ * @param {Plan} plan
+ * @param {string} date YYYY-MM-DD
+ * @returns {Plan}
+ */
+export function markDayAte(plan, date) {
+  if (!ISO_DATE_RE.test(date)) return plan;
+  const days = cleanAteDays(plan.ateDays);
+  if (days.includes(date)) return plan;
+  return { ...plan, ateDays: cleanAteDays([...days, date]) };
+}
+
+/**
+ * The day the Plan banner asks about ("Did you eat everything planned
+ * yesterday?"): the OLDEST of yesterday and today (today only from 6:00 pm)
+ * that is in the week on screen, still has meals not marked eaten, is not
+ * marked eaten in full, and was not answered NOT ALL this session.
+ * @param {Plan} plan
+ * @param {string[]} dates the week on screen
+ * @param {string} todayIso
+ * @param {number} hour local clock hour, 0 to 23
+ * @param {(date: string) => number} openCount meals of that day still unconfirmed
+ * @param {Set<string>} [skip] days answered NOT ALL this session
+ * @returns {{ date: string, word: "yesterday" | "today" } | null}
+ */
+export function ateBannerDay(plan, dates, todayIso, hour, openCount, skip = new Set()) {
+  const y = parseLocalIso(todayIso);
+  y.setDate(y.getDate() - 1);
+  /** @type {[string, "yesterday" | "today"][]} */
+  const asks = [[localIsoDate(y), "yesterday"]];
+  if (hour >= 18) asks.push([todayIso, "today"]);
+  for (const [date, word] of asks) {
+    if (!dates.includes(date) || skip.has(date) || dayAte(plan, date)) continue;
+    if (openCount(date) > 0) return { date, word };
+  }
+  return null;
+}
+
+/**
+ * Take the whole-day mark off `date`. Pure. Each meal's own cookedAt stays.
+ * @param {Plan} plan
+ * @param {string} date YYYY-MM-DD
+ * @returns {Plan}
+ */
+export function unmarkDayAte(plan, date) {
+  const days = cleanAteDays(plan.ateDays).filter((d) => d !== date);
+  if (days.length > 0) return { ...plan, ateDays: days };
+  const rest = { ...plan };
+  delete rest.ateDays;
+  return rest;
+}
 
 /**
  * Shape a freshly-read (or absent) plan file: guarantees week + entries and
@@ -1449,6 +1530,8 @@ export function normalizePlan(raw, weekId) {
     ...(Array.isArray(raw.spend) ? { spend: raw.spend } : {}),
     // food bought ahead for the month, owed by later weeks (bulk.js)
     ...(Array.isArray(raw.bulk) ? { bulk: raw.bulk } : {}),
+    // the whole day eaten (2026-11-09): carried, cleaned, never dropped
+    ...(cleanAteDays(raw.ateDays).length > 0 ? { ateDays: cleanAteDays(raw.ateDays) } : {}),
     ...(Array.isArray(raw.unlocked)
       ? { unlocked: raw.unlocked.filter((/** @type {any} */ r) => typeof r === "string") }
       : {}),

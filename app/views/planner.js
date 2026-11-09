@@ -4,7 +4,9 @@ import { useRef, useState } from "preact/hooks";
 import { targetsSanity } from "../lib/targets.js";
 import { mealBLines, mealBSundayLines } from "../lib/cadence.js";
 import {
+  ateBannerDay,
   cookLine,
+  dayAte,
   datesOfWeek,
   dayTotals,
   entriesAt,
@@ -22,6 +24,9 @@ import { CookBlocks } from "./cook-blocks.js";
 import { brigadeRunLines } from "./brigade-lines.js";
 import { rotateComponents, rotates } from "../lib/rotate.js";
 import { isParked } from "../lib/parked.js";
+
+/** days answered NOT ALL on the "Did you eat everything" banner, this app session only */
+const ateBannerSkipped = /** @type {Set<string>} */ (new Set());
 
 /**
  * TODAY'S TOPPINGS on the plan row (David, 2026-09-06: "each day just has
@@ -126,6 +131,7 @@ function potLines(entry, entries, tables, dayName) {
  *   onCooked?: (entry: Record<string, any>) => void,
  *   onToggleOut: (date: string, slot: string) => void,
  *   onSwipeEaten?: (date: string, slot: string) => void,
+ *   onAteDay?: (date: string, ate: boolean) => void,
  *   onGenerateWeek: (reroll?: boolean) => void,
  *   bankReady?: boolean,
  *   buildReport: import("../lib/weekbuilder.js").WeekReport | null,
@@ -175,6 +181,7 @@ export function PlannerView({
   onCooked = undefined,
   onToggleOut,
   onSwipeEaten = undefined,
+  onAteDay = undefined,
   onGenerateWeek,
   bankReady = true,
   buildReport,
@@ -247,6 +254,53 @@ export function PlannerView({
   // the one day expanded by default: today when this week is shown, else the
   // week's first live day (a fully past week opens nothing)
   const defaultOpenDate = dates.includes(todayRef.current ?? "") ? todayRef.current : firstLive;
+
+  // what ATE EVERYTHING marks on a day: every meal of today or an earlier
+  // day not yet confirmed, the swipe included
+  const openOf = (/** @type {string} */ date) => ({
+    meals:
+      date > todayIso
+        ? []
+        : plan.entries.filter(
+            (e) =>
+              e.date === date &&
+              !e.out &&
+              !e.cookedAt &&
+              byId.get(String(e.recipeId ?? /** @type {any} */ (e).viewRecipeId ?? "")),
+          ),
+    swipes:
+      date > todayIso
+        ? []
+        : plan.entries.filter(
+            (e) =>
+              e.date === date &&
+              e.out &&
+              /** @type {any} */ (e).currency &&
+              !(/** @type {any} */ (e).eatenAt),
+          ),
+  });
+  // ATE EVERYTHING: the per-meal stamps exactly as before, plus the day
+  // itself in plan.ateDays (2026-11-09), one write path through updatePlan
+  const ateEverything = (/** @type {string} */ date) => {
+    const { meals, swipes } = openOf(date);
+    for (const e of meals) onCooked?.(e);
+    for (const e of swipes) onSwipeEaten?.(date, String(e.slot));
+    onAteDay?.(date, true);
+  };
+  // "Did you eat everything planned yesterday?" (2026-11-09, P11 + P1)
+  const ateAsk = onAteDay
+    ? ateBannerDay(
+        plan,
+        dates,
+        todayIso,
+        new Date().getHours(),
+        (d) => {
+          const o = openOf(d);
+          return o.meals.length + o.swipes.length;
+        },
+        ateBannerSkipped,
+      )
+    : null;
 
   // MID-WEEK, THE WEEK COMES FIRST (2026-10-17 audit, M78; tenet 5): once
   // the week on screen is today's week and already planned, the days lead
@@ -500,6 +554,36 @@ export function PlannerView({
           slot), details on the People tab.
         </p>`
       }
+      ${
+        ateAsk &&
+        html`<div class="tile atebanner" role="status">
+          <div class="k">Did you eat everything planned ${ateAsk.word}?</div>
+          <div class="atebtns">
+            <button
+              class="ateall"
+              aria-label=${`Yes, I ate everything planned ${ateAsk.word}`}
+              onClick=${() => ateEverything(ateAsk.date)}
+            >
+              YES, ALL OF IT
+            </button>
+            <button
+              class="secondary"
+              aria-label=${`Not all: open ${ateAsk.word} to mark single meals`}
+              onClick=${() => {
+                ateBannerSkipped.add(ateAsk.date);
+                setOpenDays({ ...openDays, [ateAsk.date]: true });
+                requestAnimationFrame(() =>
+                  rootRef.current
+                    ?.querySelector(`[data-day="${ateAsk.date}"]`)
+                    ?.scrollIntoView({ block: "start", behavior: "smooth" }),
+                );
+              }}
+            >
+              NOT ALL
+            </button>
+          </div>
+        </div>`
+      }
       ${dates.map((date) => {
         const past = isPast(date);
         const totals = dayTotals(/** @type {any} */ (plan.entries), byId, date);
@@ -529,12 +613,17 @@ export function PlannerView({
         const cookable = plan.entries.filter(
           (e) => e.date === date && e.recipeId && !e.out && !e.table,
         );
-        const dayEaten = cookable.length > 0 && cookable.every((e) => e.cookedAt);
+        // a day marked eaten in full (plan.ateDays, from ATE EVERYTHING or
+        // the phone's "Ate everything") reads as eaten, every meal on it too.
+        // A day marked from the phone does not consume the pantry.
+        const marked = dayAte(plan, date);
+        const dayEaten = marked || (cookable.length > 0 && cookable.every((e) => e.cookedAt));
         const dayUnlogged = cookable.length > 0 && !dayEaten;
         return html`
           <details
             class="day dayrow ${past ? "past" : ""}"
             key=${date}
+            data-day=${date}
             open=${isOpen}
             onToggle=${(/** @type {any} */ e) =>
               setOpenDays({ ...openDays, [date]: e.currentTarget.open })}
@@ -560,7 +649,7 @@ export function PlannerView({
                   </span>
                 </span>
                 ${
-                  past &&
+                  (past || marked) &&
                   (dayEaten || dayUnlogged) &&
                   html`<span class="dsum-whisper">
                     <span class="eaten">${dayEaten ? "✓ eaten" : "not logged"}</span>
@@ -578,28 +667,25 @@ export function PlannerView({
                 // yet confirmed, the swipe included, in one press
                 (() => {
                   if (date > todayIso) return "";
-                  const meals = plan.entries.filter(
-                    (e) =>
-                      e.date === date &&
-                      !e.out &&
-                      !e.cookedAt &&
-                      byId.get(String(e.recipeId ?? /** @type {any} */ (e).viewRecipeId ?? "")),
-                  );
-                  const swipes = plan.entries.filter(
-                    (e) =>
-                      e.date === date &&
-                      e.out &&
-                      /** @type {any} */ (e).currency &&
-                      !(/** @type {any} */ (e).eatenAt),
-                  );
+                  if (marked)
+                    return html`<p class="atedone" role="status">
+                      ✓ you ate everything${onAteDay ? " · " : ""}${
+                        onAteDay &&
+                        html`<button
+                          class="linktext"
+                          aria-label=${`Undo: ${dayName} ${monthDay(date)} not eaten in full`}
+                          onClick=${() => onAteDay(date, false)}
+                        >
+                          undo
+                        </button>`
+                      }
+                    </p>`;
+                  const { meals, swipes } = openOf(date);
                   if (meals.length + swipes.length < 2 || (!onCooked && !onSwipeEaten)) return "";
                   return html`<button
                     class="ateall"
                     aria-label=${`Ate everything planned ${dayName} ${monthDay(date)}`}
-                    onClick=${() => {
-                      for (const e of meals) onCooked?.(e);
-                      for (const e of swipes) onSwipeEaten?.(date, String(e.slot));
-                    }}
+                    onClick=${() => ateEverything(date)}
                   >
                     ✓ ATE EVERYTHING ${date === todayIso ? "TODAY" : dayName.toUpperCase()}
                   </button>`;
@@ -650,7 +736,7 @@ export function PlannerView({
                                       <span class="n">
                                         ${name}
                                         ${
-                                          entry.cookedAt &&
+                                          (entry.cookedAt || marked) &&
                                           html` <span class="usesoon cookedchip">✓ ate it</span>`
                                         }
                                         ${
@@ -684,6 +770,7 @@ export function PlannerView({
                                     onCooked &&
                                     recipe &&
                                     !entry.cookedAt &&
+                                    !marked &&
                                     html`<button
                                       class="cooktap"
                                       aria-label="Ate ${name}: mark it eaten"
@@ -767,7 +854,7 @@ export function PlannerView({
                                   <span class="chipbody">
                                     <span class="n">
                                       ${name}
-                                      ${entry.cookedAt && html` <span class="usesoon cookedchip">✓ ate it</span>`}
+                                      ${(entry.cookedAt || marked) && html` <span class="usesoon cookedchip">✓ ate it</span>`}
                                       ${
                                         /** @type {any} */ (entry).plate &&
                                         html`<span class="hint plateline"
@@ -812,6 +899,7 @@ export function PlannerView({
                                   onCooked &&
                                   recipe &&
                                   !entry.cookedAt &&
+                                  !marked &&
                                   date <= todayIso &&
                                   html`<button
                                     class="cooktap"

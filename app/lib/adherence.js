@@ -18,7 +18,7 @@ import { datesOfWeek } from "./plan.js";
  * to measure yet drops out and the rest renormalizes, so a Monday score is
  * honest instead of zero.
  * @param {{
- *   plan: { week: string, shoppedAt?: string, entries: Record<string, any>[] } | null,
+ *   plan: { week: string, shoppedAt?: string, ateDays?: string[], entries: Record<string, any>[] } | null,
  *   weekId: string,
  *   today: string
  * }} args
@@ -37,8 +37,11 @@ export function weekAdherence({ plan, weekId, today }) {
   const cookable = (plan?.entries ?? []).filter(
     (e) => elapsedSet.has(e.date) && e.recipeId && !e.out && !e.table && !e.occasion,
   );
+  // a day confirmed eaten in full (plan.ateDays, 2026-11-09) confirms every
+  // cookable meal on it, the phone's "Ate everything" included
+  const ateDays = new Set(Array.isArray(plan?.ateDays) ? plan.ateDays : []);
   const cooked = {
-    done: cookable.filter((e) => e.cookedAt).length,
+    done: cookable.filter((e) => e.cookedAt || ateDays.has(e.date)).length,
     total: cookable.length,
   };
 
