@@ -565,7 +565,7 @@ async function runNotifications(token, topic, now, send, ateSecret = "") {
     plan = { ...(plan ?? {}), entries: [...(plan?.entries ?? []), shared[shared.length - 1]] };
   }
 
-  // YESTERDAY, for the 7 am catch-up (2026-11-09): counted the way the
+  // YESTERDAY, for the 7 am Chicago (8 am Eastern) catch-up (2026-11-09): counted the way the
   // evening counts today (his meals, the shared tables he is seated at, the
   // swipe), from the previous week's plan file when yesterday falls in it.
   /** @type {{ dateIso: string, open: number, ateDays: string[] } | undefined} */
@@ -783,7 +783,7 @@ async function fetchRecipeUrl(rawUrl) {
 const ATE_MAX_AGE_DAYS = 3;
 
 /**
- * POST /ate (GET too, so a plain browser tap works): the "Ate everything"
+ * POST /ate: the "Ate everything"
  * button on the phone notification (2026-11-09, P11 + P1). An OPEN route, no
  * PAT and no Origin: the ntfy app sends the request itself. What stands
  * between it and the data, the same guards as /guest/login:
@@ -893,14 +893,16 @@ export default {
     // returns null and the 403 below would eat it. CORS is not the control
     // here anyway — the control is an HMAC signature this Worker minted
     // during an AUTHENTICATED POST, which is also what stops this being an
-    // open redirect. handleKrogerCallback returns null for every other path,
-    // so exactly ONE unauthenticated route exists and everything else still
-    // requires a POST, an allowed origin and a valid PAT.
-    // THE SECOND, 2026-11-09: /ate, the notification's "Ate everything"
-    // button. The ntfy app sends it with no Origin, so it too must run before
-    // the CORS gate and the PAT gate; its control is the signed link
-    // (handleAte), and it answers GET and POST alike.
-    if (url.pathname === "/ate" && (request.method === "GET" || request.method === "POST")) {
+    // open redirect. handleKrogerCallback returns null for every other path.
+    // THE OPEN ROUTES, all four (2026-11-09), each with its control: the
+    // Kroger callback (GET, its HMAC state); /invite/claim and /invite/status
+    // (POST, the single-use invite code, rate-limited); /ate (POST, below).
+    // Everything else requires a POST, an allowed origin and a valid PAT.
+    // /ate is the notification's "Ate everything" button. The ntfy app sends
+    // it with no Origin, so it runs before the CORS gate and the PAT gate; its
+    // control is the signed link (handleAte). POST only: a GET would let a
+    // link previewer or a prefetch mark a day eaten (security review 11/9).
+    if (url.pathname === "/ate" && request.method === "POST") {
       return handleAte(url, request, env);
     }
     if (request.method === "GET") {

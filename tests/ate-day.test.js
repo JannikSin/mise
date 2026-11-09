@@ -133,7 +133,7 @@ test("evening Ate it? carries the Ate everything button and says how to use it",
   assert.equal(out[0].title, "Ate it?");
   assert.equal(
     out[0].body,
-    "2 of today's meals not marked eaten. Press and hold this, then tap Ate everything.",
+    "2 of today's meals not marked eaten. Press and hold this notification, then tap Ate everything.",
   );
   assert.deepEqual(out[0].actions, [{ label: "Ate everything", url: ateUrl("2026-11-09") }]);
   const one = { ...PLAN, entries: [PLAN.entries[0]] };
@@ -174,7 +174,7 @@ test("7 am: one Yesterday not logged with yesterday's button when yesterday is o
     ["The day ahead", "Yesterday not logged"],
   );
   const y = out[1];
-  assert.equal(y.body, "Press and hold, then tap Ate everything.");
+  assert.equal(y.body, "Press and hold this notification, then tap Ate everything.");
   assert.deepEqual(y.actions, [{ label: "Ate everything", url: ateUrl("2026-11-08") }]);
   assert.equal(out[0].actions, undefined, "the day ahead carries no button");
 });
@@ -368,9 +368,15 @@ test("/ate with a good link adds the date to ateDays on main, passing the sha, a
     assert.deepEqual(repo.files[path].obj, { ...plan, ateDays: [d] });
 
     // idempotent: a second tap answers 200 and writes nothing more
-    const again = await worker.fetch(ateReq(d, k, "GET"), ENV);
+    const again = await worker.fetch(ateReq(d, k), ENV);
     assert.equal(again.status, 200);
     assert.equal(repo.calls.filter((c) => c.method === "PUT").length, 1);
+
+    // a GET (a link previewer, a prefetch) never reaches the route
+    const reads = repo.calls.length;
+    const get = await worker.fetch(ateReq(d, k, "GET"), ENV);
+    assert.notEqual(get.status, 200);
+    assert.equal(repo.calls.length, reads, "a GET reads and writes nothing");
   });
 });
 
@@ -449,4 +455,20 @@ test("/ate refuses when MISE_INVITE_TOKEN is missing, and never reaches the PAT 
     assert.equal(res.status, 503);
     assert.equal(repo.calls.length, 0);
   });
+});
+
+test("ateDays merges as a set: a stale device never drops the phone's mark, and an undo still holds", async () => {
+  const { mergeFieldWise } = await import("../app/lib/merge.js");
+  const base = { week: "2026-W46", entries: [] };
+  // the phone marked Sunday on GitHub; the app, from a stale base, marked Monday
+  const remote = { ...base, ateDays: ["2026-11-08"] };
+  const local = { ...base, ateDays: ["2026-11-09"] };
+  assert.deepEqual(mergeFieldWise(base, local, remote).ateDays, ["2026-11-08", "2026-11-09"]);
+  // an undo on one side wins over the other side leaving it alone
+  const b2 = { ...base, ateDays: ["2026-11-08", "2026-11-09"] };
+  const undone = { ...base, ateDays: ["2026-11-09"] };
+  const phone = { ...base, ateDays: ["2026-11-08", "2026-11-09", "2026-11-10"] };
+  assert.deepEqual(mergeFieldWise(b2, undone, phone).ateDays, ["2026-11-09", "2026-11-10"]);
+  // nobody touched it: unchanged, and absent stays absent
+  assert.equal(mergeFieldWise(base, { ...base, note: 1 }, base).ateDays, undefined);
 });

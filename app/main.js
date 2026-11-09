@@ -1941,10 +1941,15 @@ function App() {
     setWeekId((w) => shiftWeek(w, delta));
   }, []);
 
+  // the List holds its week while it is open (code review 11/9: the hourly
+  // auto-advance used to move it back to today's week mid-shop)
+  const routeViewRef = useRef(route.view);
+  routeViewRef.current = route.view;
   useEffect(() => {
     const BACKOFF_MS = 60 * 60 * 1000;
     const sync = () => {
       if (Date.now() - manualNavRef.current < BACKOFF_MS) return;
+      if (routeViewRef.current === "list") return;
       const current = isoWeekId(new Date());
       setWeekId((w) => (w === current ? w : current));
     };
@@ -1959,25 +1964,32 @@ function App() {
   // THE LIST OPENS ON THE LIST'S WEEK (P4, 2026-11-09): entering the List
   // while the view sits on today's week and the stored list was built for a
   // later week moves the view to the list's week, so BUILD and GOING TO THE
-  // STORE act on the week the list is for (listWeekOnOpen). Leaving the List
-  // puts Plan back on today's week, unless he paged somewhere himself.
+  // STORE act on the week the list is for (listWeekOnOpen). Going back to
+  // Plan puts it on today's week, unless he paged somewhere himself; a recipe
+  // or cook view opened from the List keeps the list's week under it.
   const listMoveRef = useRef(
     /** @type {{ entered: boolean, from?: string, to?: string }} */ ({ entered: false }),
   );
   useEffect(() => {
     const m = listMoveRef.current;
     if (route.view !== "list") {
+      if (route.view !== "plan") {
+        if (m.entered) listMoveRef.current = { ...m, entered: false };
+        return;
+      }
       if (m.to && weekId === m.to && m.from) {
         manualNavRef.current = 0;
         setWeekId(m.from);
       }
-      listMoveRef.current = { entered: false };
+      if (m.entered || m.to) listMoveRef.current = { entered: false };
       return;
     }
     if (m.entered || !listLoaded) return;
     const target = listWeekOnOpen(isoWeekId(new Date()), weekId, shopping.generatedFrom);
     listMoveRef.current =
-      target === weekId ? { entered: true } : { entered: true, from: weekId, to: target };
+      target === weekId
+        ? { ...m, entered: true }
+        : { entered: true, from: m.from ?? weekId, to: target };
     if (target !== weekId) {
       // the hourly auto-advance must not yank the List back mid-shop
       manualNavRef.current = Date.now();

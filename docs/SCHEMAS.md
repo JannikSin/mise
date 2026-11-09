@@ -1512,7 +1512,9 @@ even the same slot — merge without losing either entry.
   //   POST /ate, which writes only this field). Sorted, unique, valid dates;
   //   absent = []. Plan reads a listed day as eaten; adherence counts all its
   //   cookable meals as confirmed. It does NOT stamp tables or consume the
-  //   pantry. Merge: an atomic string array (local wins a true conflict).
+  //   pantry. Merge: a SET (merge.js mergeDateSet): a date added on either side
+  //   stays, a date removed on either side goes, so a stale device never drops
+  //   the phone's mark.
   "unlocked": ["turkey-chili"], // ? recipes opened by hand this week ("I already
   //   have this"), for cooking out of the pantry without a shop. Absent = none.
   //   THE RECIPE GATE (David, 2026-07-25): with no receipt, a recipe shows its

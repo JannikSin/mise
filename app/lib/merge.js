@@ -29,10 +29,32 @@ function mergeObjects(base, local, remote) {
   for (const k of keys) {
     // remote JSON is untrusted input: never merge prototype-polluting keys
     if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
-    const v = mergeValue(base[k], local[k], remote[k]);
+    const v =
+      k === "ateDays"
+        ? mergeDateSet(base[k], local[k], remote[k])
+        : mergeValue(base[k], local[k], remote[k]);
     if (v !== undefined) out[k] = v;
   }
   return out;
+}
+
+/**
+ * plan.ateDays (2026-11-09) is a SET of dates written from two places, the
+ * app and the phone notification's POST /ate. An atomic array let a stale
+ * device's write drop the phone's mark. Set merge: a date stays when either
+ * side added it, and goes when either side removed it.
+ * @param {unknown} bv
+ * @param {unknown} lv
+ * @param {unknown} rv
+ * @returns {unknown}
+ */
+function mergeDateSet(bv, lv, rv) {
+  if (!Array.isArray(lv) && !Array.isArray(rv)) return mergeValue(bv, lv, rv);
+  const b = new Set(Array.isArray(bv) ? bv : []);
+  const l = new Set(Array.isArray(lv) ? lv : []);
+  const r = new Set(Array.isArray(rv) ? rv : []);
+  const out = [...new Set([...l, ...r])].filter((d) => !(b.has(d) && (!l.has(d) || !r.has(d))));
+  return out.length > 0 || Array.isArray(lv) || Array.isArray(rv) ? out.sort() : undefined;
 }
 
 /**

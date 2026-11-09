@@ -667,14 +667,20 @@ export function PlannerView({
                 // yet confirmed, the swipe included, in one press
                 (() => {
                   if (date > todayIso) return "";
+                  // undo only for a day marked from the phone: in-app ATE
+                  // EVERYTHING also stamped every meal (and the pantry), and
+                  // taking the day mark off alone would change nothing on
+                  // screen (code review 11/9); single meals undo on their rows
+                  const canUndo =
+                    onAteDay && !(cookable.length > 0 && cookable.every((e) => e.cookedAt));
                   if (marked)
                     return html`<p class="atedone" role="status">
-                      ✓ you ate everything${onAteDay ? " · " : ""}${
-                        onAteDay &&
+                      ✓ you ate everything${canUndo ? " · " : ""}${
+                        canUndo &&
                         html`<button
                           class="linktext"
                           aria-label=${`Undo: ${dayName} ${monthDay(date)} not eaten in full`}
-                          onClick=${() => onAteDay(date, false)}
+                          onClick=${() => onAteDay?.(date, false)}
                         >
                           undo
                         </button>`

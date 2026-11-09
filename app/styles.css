@@ -933,17 +933,19 @@ summary.block-title {
   margin: 4px 0 8px;
   color: var(--signal);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
+  padding: 0 4px;
 }
 
 .daymeals .atedone .linktext {
   min-height: 44px;
   padding: 0 6px;
+  text-decoration: underline;
 }
 
 /* "Did you eat everything planned yesterday?" (2026-11-09) */
 .atebanner {
-  margin: 0 0 12px;
+  margin: 12px 0;
 }
 
 .atebanner .atebtns {

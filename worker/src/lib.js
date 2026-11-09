@@ -1365,7 +1365,7 @@ export function openMealCount(entries, dateIso) {
  * }} args weekday = "Mon".."Sun". `ateUrl` (2026-11-09) signs the "Ate
  *   everything" button's link; without it no notification carries actions.
  *   `yesterday` is the previous day's open count and its plan's ateDays, for
- *   the 7 am catch-up.
+ *   the 7 am Chicago (8 am Eastern) catch-up.
  * @returns {NtfyNote[]}
  */
 export function buildNotifications({
@@ -1426,7 +1426,7 @@ export function buildNotifications({
       out.push({
         title: "Yesterday not logged",
         body: ateUrl
-          ? "Press and hold, then tap Ate everything."
+          ? "Press and hold this notification, then tap Ate everything."
           : "Open Plan and tap ATE EVERYTHING for yesterday.",
         tags: "white_check_mark",
         priority: "default",
@@ -1516,7 +1516,7 @@ export function buildNotifications({
         title: "Ate it?",
         body: `${open} of today's meal${open === 1 ? "" : "s"} not marked eaten. ${
           ateUrl
-            ? "Press and hold this, then tap Ate everything."
+            ? "Press and hold this notification, then tap Ate everything."
             : "One tap: ATE EVERYTHING TODAY on Plan."
         }`,
         tags: "white_check_mark",
@@ -3125,8 +3125,8 @@ export function parseAskResponse(resp) {
 // ---- invites: join by link (guesthouse spec §8, 2026-09-14) -----------------
 // Three routes. /invite/new is AUTHENTICATED (the host's PAT, like every
 // other route) and mints a single-use code. /invite/claim and /invite/status
-// are the two unauthenticated routes this Worker has besides the Kroger
-// callback: both are gated by the code alone, so the code is 100 bits of
+// are two of the four open routes (index.js lists them all, with the
+// Kroger callback and /ate): both are gated by the code alone, so the code is 100 bits of
 // randomness, single use, and dies after seven days; both are rate-limited
 // per client address; and the only writes a claim can make are CREATING one
 // new profile (never touching an existing one) and marking its own invite
