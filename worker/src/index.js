@@ -811,7 +811,7 @@ async function claimSignIn(invite, inv, body, writeToken, nowMs, cors, fail) {
       (/** @type {any} */ x) => x?.id === id,
     );
     const hostHouse = slugOf(invite.hostHouse) || "home";
-    if (!p || slugOf(p.household) !== hostHouse || p.admin === true) {
+    if (!p || (slugOf(p.household) || "home") !== hostHouse || p.admin === true) {
       return json(410, { error: "this link no longer fits anyone here, ask for a new one" }, cors);
     }
     const guests = await ghReadWithSha("guests.json", writeToken, branch);
@@ -839,7 +839,9 @@ async function claimSignIn(invite, inv, body, writeToken, nowMs, cors, fail) {
               ...i,
               usedAt: nowIso,
               profileId: id,
-              statusUntil: new Date(nowMs + INVITE_STATUS_TTL_MS).toISOString(),
+              // no status page: they have a login now, and a link lying in a
+              // chat must not keep showing their meals (review 11/9)
+              statusUntil: nowIso,
             }
           : i,
       ),
@@ -879,7 +881,7 @@ async function claimSignIn(invite, inv, body, writeToken, nowMs, cors, fail) {
       const res = await ghWriteJson("guests.json", next, cur.sha, writeToken, `sign-in for ${id}`, branch);
       if (res.ok) {
         await cachePut(guestsKey(branch), { logins: next.logins }, 60);
-        const session = await signGuestSession({ p: id, b: branch }, writeToken, nowMs);
+        const session = await signGuestSession({ p: id, b: branch, v: nowIso }, writeToken, nowMs);
         return json(
           200,
           { ok: true, id, name: firstNameOf(p.name ?? id), house: hostHouse, session },
@@ -1165,7 +1167,7 @@ export default {
           }
           await cacheDelete(failKey);
           const session = await signGuestSession(
-            { p: String(row.profileId), b: branch },
+            { p: String(row.profileId), b: branch, v: String(row.createdAt ?? "") },
             writeToken,
             nowMs,
           );
@@ -1176,6 +1178,9 @@ export default {
         const s = await verifyGuestSession(body?.session, writeToken, branch, nowMs);
         const row = s ? (guests.logins ?? []).find((l) => l && l.profileId === s.p) : null;
         if (!s || !row) return json(401, { error: "signed out" }, cors);
+        // a session from a login since replaced (a new sign-in link) is over
+        if (s.v !== undefined && s.v !== String(row.createdAt ?? ""))
+          return json(401, { error: "signed out" }, cors);
         const hostHouse = slugOf(row.hostHouse);
         const events = hostHouse
           ? await ghReadJsonRef(`households/${hostHouse}/events.json`, writeToken, branch)
@@ -1557,7 +1562,7 @@ export default {
           }
           // the fresh file goes in the cache now, so /guest/me finds them at once
           if (saved) await cachePut(guestsKey(branch), { logins: saved.logins }, 60);
-          const session = await signGuestSession({ p: id, b: branch }, writeToken, nowMs);
+          const session = await signGuestSession({ p: id, b: branch, v: nowIso }, writeToken, nowMs);
           return json(200, { ok: true, id, name: entry.name, house, session }, cors);
         }
         return json(200, { ok: true, id, name: entry.name, house }, cors);
@@ -1668,7 +1673,12 @@ export default {
         const p = (Array.isArray(profs?.profiles) ? profs.profiles : []).find(
           (/** @type {any} */ x) => x?.id === forProfile,
         );
-        if (!p || slugOf(p.household) !== hostHouse || p.admin === true || forProfile === createdBy)
+        if (
+          !p ||
+          (slugOf(p.household) || "home") !== hostHouse ||
+          p.admin === true ||
+          forProfile === createdBy
+        )
           return json(400, { error: "a sign-in link is only for someone in your kitchen" }, cors);
         forName = String(p.name ?? forProfile);
       }

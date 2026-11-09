@@ -300,3 +300,77 @@ test("a person who left the kitchen, or became an admin, cannot be claimed", asy
     });
   }
 });
+
+test("a new sign-in link signs the OLD login's session out; the old link's status page is closed", async () => {
+  resetGuestCachesForTests();
+  await withRepo(SEED(), async (repo) => {
+    const first = JSON.parse(
+      await (
+        await worker.fetch(
+          req("/invite/claim", { code: CODE, login: LOGIN }, SANDBOX, "8.0.2.1"),
+          ENV,
+        )
+      ).text(),
+    );
+    const me1 = await worker.fetch(
+      req("/guest/me", { session: first.session }, SANDBOX, "8.0.2.2"),
+      ENV,
+    );
+    assert.equal(me1.status, 200);
+    const status = await worker.fetch(
+      req("/invite/status", { code: CODE }, SANDBOX, "8.0.2.3"),
+      ENV,
+    );
+    assert.equal(status.status, 410, "a claimed sign-in link shows no status page");
+    // the host makes a second link; someone claims it with a new passkey
+    const CODE2 = "q3m7pq2xvta4bcdefgh2";
+    const inv = repo.files.sandbox["invites.json"];
+    inv.obj = {
+      invites: [
+        ...inv.obj.invites,
+        invite({ code: CODE2, forProfile: "elliot", forName: "Elliot Park", house: "wayne" }),
+      ],
+    };
+    await new Promise((r) => setTimeout(r, 5));
+    const second = await worker.fetch(
+      req(
+        "/invite/claim",
+        { code: CODE2, login: { name: "Elliot New", pin: "9090" } },
+        SANDBOX,
+        "8.0.2.4",
+      ),
+      ENV,
+    );
+    assert.equal(second.status, 200);
+    resetGuestCachesForTests();
+    const me2 = await worker.fetch(
+      req("/guest/me", { session: first.session }, SANDBOX, "8.0.2.5"),
+      ENV,
+    );
+    assert.equal(me2.status, 401, "the first session is over");
+  });
+});
+
+test("a housemate with no household field counts as the host's 'home' kitchen", async () => {
+  const profiles = {
+    profiles: [
+      { id: "david", household: "home" },
+      { id: "elliot", name: "Elliot" },
+    ],
+  };
+  await withRepo(
+    { sandbox: { "invites.json": { invites: [] }, "profiles.json": profiles } },
+    async () => {
+      const res = await worker.fetch(
+        authed("/invite/new", {
+          house: "member",
+          hostHouse: "home",
+          by: "david",
+          forProfile: "elliot",
+        }),
+        ENV,
+      );
+      assert.equal(res.status, 200, await res.clone().text());
+    },
+  );
+});

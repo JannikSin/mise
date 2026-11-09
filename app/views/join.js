@@ -22,9 +22,33 @@ import { localIsoDate, parseLocalIso } from "../lib/dates.js";
 // 2026-09-14, M5).
 
 /**
- * @param {{ code: string, house?: string, member?: boolean, onSignedIn?: (session: string) => void }} props
+ * This phone forgets the kitchen: the data key, the chosen profile, every
+ * other Mise setting, and the cached copy of the records. Only Mise's own
+ * keys go: localStorage on this origin is shared with David's other apps.
  */
-export function JoinView({ code, house = "", member = false, onSignedIn = undefined }) {
+function forgetKitchenOnThisPhone() {
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith("mise.")) localStorage.removeItem(k);
+  } catch {
+    // storage refused: the reload shows what is left
+  }
+  try {
+    indexedDB.deleteDatabase("mise");
+  } catch {
+    // no IndexedDB: nothing cached to forget
+  }
+}
+
+/**
+ * @param {{ code: string, house?: string, member?: boolean, onSignedIn?: (session: string) => void, knownName?: string }} props
+ */
+export function JoinView({
+  code,
+  house = "",
+  member = false,
+  onSignedIn = undefined,
+  knownName = undefined,
+}) {
   const [state, setState] = useState(
     /** @type {{ kind: "form" } | { kind: "busy" } | { kind: "done", id: string, name: string, house: string } | { kind: "error", message: string }} */ ({
       kind: "form",
@@ -57,9 +81,13 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
   };
   // A SIGN-IN LINK (2026-11-09): made for someone already in the kitchen,
   // it sets only their login. The Worker names them; null = an ordinary invite
-  const [forName, setForName] = useState(/** @type {string | null} */ (null));
+  const [forName, setForName] = useState(/** @type {string | null} */ (knownName ?? null));
   useEffect(() => {
     let alive = true;
+    if (knownName !== undefined) {
+      setForName(knownName);
+      return;
+    }
     if (!code) return;
     inviteStatus(code)
       .then((r) => {
@@ -72,7 +100,7 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
     return () => {
       alive = false;
     };
-  }, [code]);
+  }, [code, knownName]);
   const nextDinners = Array.from({ length: 14 }, (_, n) => {
     const d = new Date();
     d.setDate(d.getDate() + n);
@@ -167,6 +195,38 @@ export function JoinView({ code, house = "", member = false, onSignedIn = undefi
     }
     ${loginError && html`<p class="hint scanerr" role="status">${loginError}</p>`}
   </div>`;
+  if (forName !== null && !onSignedIn) {
+    // THIS PHONE HOLDS THE KITCHEN'S KEY (review 11/9): Elliot's phone today.
+    // Claiming here would spend the link and leave the key in place, so the
+    // link first makes this phone forget the key and its copy of the
+    // kitchen's records; the page then reloads as a phone with no key.
+    return html`<div class="view">
+      <div class="hero">
+        <h1>Mise<span>.</span></h1>
+        <div class="sub">${forName ? `Hi ${forName}` : "Your sign-in"}</div>
+      </div>
+      <div class="tile">
+        <p class="hint">
+          This phone opens the whole kitchen with the shared key. Your own sign-in replaces it: this
+          phone forgets the key and its copy of the kitchen's records, then you pick a login name
+          and 4 digits. After that it shows your own meals, your plate and the recipes.
+        </p>
+        <div class="actions">
+          <button
+            class="ask"
+            onClick=${() => {
+              if (!window.confirm("Forget the shared key on this phone and use your own sign-in?"))
+                return;
+              forgetKitchenOnThisPhone();
+              location.reload();
+            }}
+          >
+            USE MY OWN SIGN-IN
+          </button>
+        </div>
+      </div>
+    </div>`;
+  }
   if (forName !== null) {
     return html`<div class="view">
       <div class="hero">
@@ -377,8 +437,31 @@ export function WelcomeView({ code, member = false, notice = "", onSignedIn }) {
   const [pin, setPin] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  if (mode === "signup" && code) {
-    return html`<${JoinView} code=${code} member=${member} onSignedIn=${onSignedIn} />`;
+  // a sign-in link (2026-11-09) goes straight to "Hi Elliot": the person has
+  // been here before, and LOG IN would fail until the link sets a login
+  const [forName, setForName] = useState(/** @type {string | null} */ (null));
+  useEffect(() => {
+    let alive = true;
+    if (!code) return;
+    inviteStatus(code)
+      .then((r) => {
+        if (alive && r?.state === "unclaimed" && typeof r.forName === "string")
+          setForName(r.forName);
+      })
+      .catch(() => {
+        // no answer: the ordinary choice shows
+      });
+    return () => {
+      alive = false;
+    };
+  }, [code]);
+  if ((mode === "signup" || forName !== null) && code) {
+    return html`<${JoinView}
+      code=${code}
+      member=${member}
+      onSignedIn=${onSignedIn}
+      knownName=${forName ?? undefined}
+    />`;
   }
   const logIn = async () => {
     setBusy(true);

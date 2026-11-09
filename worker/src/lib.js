@@ -3534,15 +3534,22 @@ async function guestSessionKey(secret) {
 }
 
 /**
- * A signed session: which profile, which data branch, when it ends.
- * @param {{ p: string, b: string }} who
+ * A signed session: which profile, which data branch, when it ends, and
+ * (`v`, 2026-11-09) which login row issued it: /guest/me refuses a session
+ * whose row was since replaced, so a new sign-in link signs the old one out.
+ * @param {{ p: string, b: string, v?: string }} who
  * @param {string} secret
  * @param {number} nowMs
  */
 export async function signGuestSession(who, secret, nowMs) {
   const body = b64url(
     new TextEncoder().encode(
-      JSON.stringify({ p: String(who.p), b: String(who.b), exp: nowMs + GUEST_SESSION_TTL_MS }),
+      JSON.stringify({
+        p: String(who.p),
+        b: String(who.b),
+        exp: nowMs + GUEST_SESSION_TTL_MS,
+        ...(who.v ? { v: String(who.v) } : {}),
+      }),
     ),
   );
   const sig = await crypto.subtle.sign(
@@ -3560,7 +3567,7 @@ export async function signGuestSession(who, secret, nowMs) {
  * @param {string} secret
  * @param {string} branch
  * @param {number} nowMs
- * @returns {Promise<{ p: string, b: string, exp: number } | null>}
+ * @returns {Promise<{ p: string, b: string, exp: number, v?: string } | null>}
  */
 export async function verifyGuestSession(token, secret, branch, nowMs) {
   if (typeof token !== "string" || token.length > 1024) return null;
@@ -3576,7 +3583,7 @@ export async function verifyGuestSession(token, secret, branch, nowMs) {
     if (!ok) return null;
     const s = JSON.parse(new TextDecoder().decode(fromB64url(body)));
     if (typeof s?.p !== "string" || s.b !== branch || !(Number(s.exp) > nowMs)) return null;
-    return { p: s.p, b: s.b, exp: Number(s.exp) };
+    return { p: s.p, b: s.b, exp: Number(s.exp), ...(typeof s.v === "string" ? { v: s.v } : {}) };
   } catch {
     return null;
   }
