@@ -116,6 +116,7 @@ import {
   kitchenHas,
   skipPlentyHeld,
   subtractPantryFromTrip,
+  listWeekOnOpen,
 } from "./lib/shopping.js";
 import { setPantryCount, weekNeedsCheck } from "./lib/shelfcheck.js";
 import {
@@ -1954,6 +1955,35 @@ function App() {
       document.removeEventListener("visibilitychange", sync);
     };
   }, []);
+
+  // THE LIST OPENS ON THE LIST'S WEEK (P4, 2026-11-09): entering the List
+  // while the view sits on today's week and the stored list was built for a
+  // later week moves the view to the list's week, so BUILD and GOING TO THE
+  // STORE act on the week the list is for (listWeekOnOpen). Leaving the List
+  // puts Plan back on today's week, unless he paged somewhere himself.
+  const listMoveRef = useRef(
+    /** @type {{ entered: boolean, from?: string, to?: string }} */ ({ entered: false }),
+  );
+  useEffect(() => {
+    const m = listMoveRef.current;
+    if (route.view !== "list") {
+      if (m.to && weekId === m.to && m.from) {
+        manualNavRef.current = 0;
+        setWeekId(m.from);
+      }
+      listMoveRef.current = { entered: false };
+      return;
+    }
+    if (m.entered || !listLoaded) return;
+    const target = listWeekOnOpen(isoWeekId(new Date()), weekId, shopping.generatedFrom);
+    listMoveRef.current =
+      target === weekId ? { entered: true } : { entered: true, from: weekId, to: target };
+    if (target !== weekId) {
+      // the hourly auto-advance must not yank the List back mid-shop
+      manualNavRef.current = Date.now();
+      setWeekId(target);
+    }
+  }, [route.view, listLoaded, shopping.generatedFrom, weekId]);
 
   // THE FLUID WEEK (7.2, canon P4): the locked week is abolished. Shopping
   // stores the plan as a FALLBACK and the plan stays freely changeable; the

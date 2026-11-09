@@ -2606,3 +2606,25 @@ export function labelLineFor(foods, seats) {
     .map(([head, names]) => `${head.replace(/^check/, "Check")} (${names.join(", ")})`)
     .join(". ");
 }
+
+const WEEK_ID_RE = /^\d{4}-W\d{2}$/;
+
+/**
+ * THE LIST OPENS ON THE LIST'S WEEK (P4, 2026-11-09). The List shares the
+ * week pointer with Plan, and the pointer sits on today's week. A list built
+ * for a LATER week (the next buy day's trip) opened there, so BUILD rebuilt
+ * this week's short trip over it and GOING TO THE STORE stamped this week.
+ * On entering the List: if the view is on today's week and the stored list
+ * was built from a later week, open on the list's week. A week paged to on
+ * purpose, an older list, or no list keeps the week on screen. Week ids are
+ * zero-padded, so they compare in calendar order as strings.
+ * @param {string} current today's week id
+ * @param {string} viewed the week on screen
+ * @param {string | undefined} listWeek shopping.generatedFrom
+ * @returns {string}
+ */
+export function listWeekOnOpen(current, viewed, listWeek) {
+  if (viewed !== current) return viewed;
+  if (typeof listWeek !== "string" || !WEEK_ID_RE.test(listWeek)) return viewed;
+  return listWeek > current ? listWeek : viewed;
+}

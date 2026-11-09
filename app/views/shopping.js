@@ -2204,6 +2204,21 @@ export function ShoppingView({
         />`
       }
       ${
+        // WHICH WEEK THIS LIST IS FOR (P4, 2026-11-09): BUILD replaces the
+        // list, so name the week it was built for, and say when the week on
+        // screen is a different one
+        tab === "list" &&
+        shopping.items.length > 0 &&
+        /^\d{4}-W\d{2}$/.test(String(shopping.generatedFrom ?? "")) &&
+        html`<p class="hint listweek">
+          This list is for the week of ${tripLabel(
+            datesOfWeek(String(shopping.generatedFrom)).slice(0, 1),
+          ).split(" – ")[0]}${
+            shopping.generatedFrom === weekId ? "" : html`, <b>not the week on screen</b>`
+          }.
+        </p>`
+      }
+      ${
         tab === "list" &&
         html`
           <div class="actions wrap">
