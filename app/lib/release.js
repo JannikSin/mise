@@ -28,8 +28,8 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
-    version: UNRELEASED,
-    date: "",
+    version: "1.97",
+    date: "2026-11-13",
     notes: [
       "Log a whole day from your phone: the 11:00 pm \"Ate it?\" notification now has an Ate everything button. Press and hold the notification, tap Ate everything, and the day is marked eaten without opening the app.",
       "Missed it? At 8:00 am a \"Yesterday not logged\" notification offers the same button for yesterday.",
