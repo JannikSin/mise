@@ -3,7 +3,7 @@
 // Anthropic-shape parsers never see a provider difference.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { callModel, providerConfigured } from "../worker/src/provider.js";
+import { callModel, providerConfigured, hasImage, transcribeLocal } from "../worker/src/provider.js";
 
 const BODY = {
   model: "claude-sonnet-5",
@@ -105,6 +105,7 @@ test("local endpoint is tried FIRST and its answer is used", async () => {
   const out = await callModel(BODY, {
     ANTHROPIC_API_KEY: "k",
     LOCAL_BASE_URL: "https://mac.example/v1",
+    LOCAL_PHOTOS: "1",
     LOCAL_MODEL: "qwen3-vl-30b",
   });
   assert.equal(urls.length, 1, "cloud must not be called when local succeeds");
@@ -122,6 +123,7 @@ test("a sleeping Mac falls back to the cloud instead of failing the user", async
   const out = await callModel(BODY, {
     ANTHROPIC_API_KEY: "k",
     LOCAL_BASE_URL: "https://mac.example/v1",
+    LOCAL_PHOTOS: "1",
   });
   assert.equal(urls.length, 2, "must try local then cloud");
   assert.match(urls[1], /api\.anthropic\.com/);
@@ -136,7 +138,7 @@ test("an EMPTY local answer falls back rather than surfacing a blank result", as
       return new Response(JSON.stringify({ choices: [{ message: { content: "   " } }] }), { status: 200 });
     return new Response(JSON.stringify({ content: [{ type: "text", text: "real answer" }] }), { status: 200 });
   };
-  const out = await callModel(BODY, { ANTHROPIC_API_KEY: "k", LOCAL_BASE_URL: "https://mac.example/v1" });
+  const out = await callModel(BODY, { ANTHROPIC_API_KEY: "k", LOCAL_BASE_URL: "https://mac.example/v1", LOCAL_PHOTOS: "1" });
   assert.equal(urls.length, 2, "an empty local reply is a failure, not a result");
   assert.equal(out.content[0].text, "real answer");
 });
@@ -155,4 +157,73 @@ test("with LOCAL_BASE_URL unset nothing changes at all", async () => {
 test("a local endpoint alone counts as configured, with no cloud key", () => {
   assert.equal(providerConfigured({ LOCAL_BASE_URL: "https://mac.example/v1" }), true);
   assert.equal(providerConfigured({}), false);
+});
+
+// --- text and voice on paddington, photos on the cloud (David, 2026-11-11) ---
+
+const TEXT_BODY = { ...BODY, messages: [{ role: "user", content: [{ type: "text", text: "reheat the chili?" }] }] };
+
+test("hasImage finds a photo block and nothing else", () => {
+  assert.equal(hasImage(BODY), true);
+  assert.equal(hasImage(TEXT_BODY), false);
+  assert.equal(hasImage({ messages: [{ role: "user", content: "plain string" }] }), false);
+  assert.equal(hasImage({}), false);
+});
+
+test("a photo request skips the Mac and goes straight to the cloud unless LOCAL_PHOTOS is 1", async () => {
+  /** @type {any[]} */ const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ content: [{ type: "text", text: "sonnet" }] }), { status: 200 });
+  };
+  const out = await callModel(BODY, { ANTHROPIC_API_KEY: "k", LOCAL_BASE_URL: "https://mac.example/v1" });
+  assert.deepEqual(urls, ["https://api.anthropic.com/v1/messages"], "the Mac is never asked about a photo");
+  assert.equal(out.content[0].text, "sonnet");
+});
+
+test("a text request goes to the Mac with photos held back", async () => {
+  /** @type {any[]} */ const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ choices: [{ message: { content: "165 F" } }] }), { status: 200 });
+  };
+  const out = await callModel(TEXT_BODY, { ANTHROPIC_API_KEY: "k", LOCAL_BASE_URL: "https://mac.example/v1" });
+  assert.deepEqual(urls, ["https://mac.example/v1/chat/completions"]);
+  assert.equal(out.content[0].text, "165 F");
+});
+
+test("voice: the WAV goes to the Mac with the key, and its text comes back", async () => {
+  /** @type {any[]} */ const seen = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push({ url: String(url), init });
+    return new Response(JSON.stringify({ text: "  six eggs and a tub of yogurt " }), { status: 200 });
+  };
+  const wav = new Uint8Array([82, 73, 70, 70]);
+  const text = await transcribeLocal(wav, { LOCAL_BASE_URL: "https://mac.example/v1/", LOCAL_API_KEY: "sekret" });
+  assert.equal(text, "six eggs and a tub of yogurt");
+  assert.equal(seen[0].url, "https://mac.example/v1/audio/transcriptions");
+  assert.equal(seen[0].init.headers["content-type"], "audio/wav");
+  assert.equal(seen[0].init.headers.authorization, "Bearer sekret");
+  assert.equal(seen[0].init.body, wav);
+});
+
+test("voice: a Mac that is off, errors, or hears nothing returns null so Workers AI takes it", async () => {
+  const wav = new Uint8Array(4);
+  const env = { LOCAL_BASE_URL: "https://mac.example/v1" };
+  globalThis.fetch = async () => {
+    throw new Error("ECONNREFUSED");
+  };
+  assert.equal(await transcribeLocal(wav, env), null);
+  globalThis.fetch = async () => new Response("{}", { status: 502 });
+  assert.equal(await transcribeLocal(wav, env), null);
+  globalThis.fetch = async () => new Response(JSON.stringify({ text: "   " }), { status: 200 });
+  assert.equal(await transcribeLocal(wav, env), null);
+});
+
+test("voice: unset LOCAL_BASE_URL or LOCAL_VOICE=0 never calls the Mac", async () => {
+  let calls = 0;
+  globalThis.fetch = async () => (calls++, new Response("{}"));
+  assert.equal(await transcribeLocal(new Uint8Array(4), {}), null);
+  assert.equal(await transcribeLocal(new Uint8Array(4), { LOCAL_BASE_URL: "https://mac.example/v1", LOCAL_VOICE: "0" }), null);
+  assert.equal(calls, 0);
 });

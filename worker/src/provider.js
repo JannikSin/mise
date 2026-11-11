@@ -19,12 +19,19 @@
 //   LOCAL_MODEL      model id for that server, e.g. qwen3-vl-30b
 //   LOCAL_API_KEY    optional bearer for the tunnel / llama-server --api-key
 //   LOCAL_TIMEOUT_MS how long to wait before falling back (default 12000)
+//   LOCAL_PHOTOS     "1" sends photo requests (scan, receipt, menu, tray,
+//                    recipe photo) to the local server too. Unset = photos stay
+//                    on the cloud while text and voice go local (David,
+//                    2026-11-11: "not text only paddington but voice too";
+//                    photos move only after the real-photo test passes)
+//   LOCAL_VOICE      "0" keeps /transcribe on Workers AI even with
+//                    LOCAL_BASE_URL set. Unset = voice goes local first
 //   AI_API_KEY    key for the configured provider (falls back to
 //                 ANTHROPIC_API_KEY for the anthropic provider)
 
 /**
  * @param {Record<string, any>} body Anthropic Messages request
- * @param {{ AI_PROVIDER?: string, AI_BASE_URL?: string, AI_MODEL?: string, AI_API_KEY?: string, ANTHROPIC_API_KEY?: string, LOCAL_BASE_URL?: string, LOCAL_MODEL?: string, LOCAL_API_KEY?: string, LOCAL_TIMEOUT_MS?: string|number }} env
+ * @param {{ AI_PROVIDER?: string, AI_BASE_URL?: string, AI_MODEL?: string, AI_API_KEY?: string, ANTHROPIC_API_KEY?: string, LOCAL_BASE_URL?: string, LOCAL_MODEL?: string, LOCAL_API_KEY?: string, LOCAL_TIMEOUT_MS?: string|number, LOCAL_PHOTOS?: string }} env
  * @returns {Promise<Record<string, any>>} Anthropic Messages response shape
  */
 export async function callModel(body, env) {
@@ -42,7 +49,7 @@ export async function callModel(body, env) {
   // Opt-in by design: with LOCAL_BASE_URL unset this behaves exactly as before,
   // which keeps the council's gate intact (user-facing traffic moves local only
   // after it beats the accuracy bar on real receipts).
-  if (env.LOCAL_BASE_URL) {
+  if (env.LOCAL_BASE_URL && (env.LOCAL_PHOTOS === "1" || !hasImage(body))) {
     const localReq = env.LOCAL_MODEL ? { ...body, model: env.LOCAL_MODEL } : body;
     try {
       const out = await callOpenAICompat(localReq, {
@@ -64,6 +71,57 @@ export async function callModel(body, env) {
   const req = env.AI_MODEL ? { ...body, model: env.AI_MODEL } : body;
   if (provider === "openai") return callOpenAICompat(req, env);
   return callAnthropic(req, env.AI_API_KEY ?? env.ANTHROPIC_API_KEY ?? "");
+}
+
+/**
+ * True when any message carries a photo. Photos stay on the cloud until
+ * LOCAL_PHOTOS is "1": the council's bar (2026-07-20) is real receipts
+ * before user-facing photo traffic moves, and that test has not run yet.
+ * @param {Record<string, any>} body Anthropic Messages request
+ */
+export function hasImage(body) {
+  return (body?.messages ?? []).some(
+    (/** @type {any} */ m) => Array.isArray(m?.content) && m.content.some((/** @type {any} */ b) => b?.type === "image"),
+  );
+}
+
+/**
+ * VOICE ON PADDINGTON (David, 2026-11-11). The walk's narration WAV goes to
+ * the Mac's whisper-large-v3-turbo through the same gateway and key as text,
+ * at LOCAL_BASE_URL + /audio/transcriptions (raw audio/wav in, {text} out).
+ * Returns null whenever local is off or did not answer, so the caller falls
+ * back to Workers AI: a basement has no SLA. An empty transcript from the Mac
+ * also counts as no answer, the same rule as an empty chat reply.
+ * @param {Uint8Array} wav
+ * @param {{ LOCAL_BASE_URL?: string, LOCAL_API_KEY?: string, LOCAL_TIMEOUT_MS?: string|number, LOCAL_VOICE?: string }} env
+ * @returns {Promise<string | null>}
+ */
+export async function transcribeLocal(wav, env) {
+  if (!env.LOCAL_BASE_URL || env.LOCAL_VOICE === "0") return null;
+  const base = String(env.LOCAL_BASE_URL).replace(/\/$/, "");
+  try {
+    const res = await fetch(`${base}/audio/transcriptions`, {
+      signal: AbortSignal.timeout(Number(env.LOCAL_TIMEOUT_MS ?? 12000)),
+      method: "POST",
+      headers: {
+        "content-type": "audio/wav",
+        ...(env.LOCAL_API_KEY ? { authorization: `Bearer ${env.LOCAL_API_KEY}` } : {}),
+      },
+      body: /** @type {any} */ (wav),
+    });
+    if (!res.ok) throw new Error(`local voice ${res.status}`);
+    const out = /** @type {any} */ (await res.json());
+    const text = typeof out?.text === "string" ? out.text.trim() : "";
+    if (!text) {
+      console.log("transcribe: local returned empty, falling back");
+      return null;
+    }
+    console.log("transcribe: served locally");
+    return text;
+  } catch (e) {
+    console.log(`transcribe: local unavailable (${e}), falling back`);
+    return null;
+  }
 }
 
 /**

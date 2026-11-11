@@ -89,7 +89,7 @@ import {
   hbpSlug,
 } from "./lib.js";
 
-import { callModel, providerConfigured } from "./provider.js";
+import { callModel, providerConfigured, transcribeLocal } from "./provider.js";
 import { handleKroger, handleKrogerCallback } from "./kroger.js";
 import { handleHall } from "./hall.js";
 
@@ -997,7 +997,7 @@ export default {
 
   /**
    * @param {Request} request
-   * @param {{ ANTHROPIC_API_KEY?: string, SCAN_MODEL?: string, REMEDY_MODEL?: string, MISE_DATA_TOKEN?: string, MISE_INVITE_TOKEN?: string, NTFY_TOPIC?: string, AI?: { run: (model: string, input: any) => Promise<any> } }} env
+   * @param {{ ANTHROPIC_API_KEY?: string, SCAN_MODEL?: string, REMEDY_MODEL?: string, MISE_DATA_TOKEN?: string, MISE_INVITE_TOKEN?: string, NTFY_TOPIC?: string, LOCAL_BASE_URL?: string, LOCAL_API_KEY?: string, LOCAL_TIMEOUT_MS?: string, LOCAL_PHOTOS?: string, LOCAL_VOICE?: string, AI?: { run: (model: string, input: any) => Promise<any> } }} env
    */
   async fetch(request, env) {
     const cors = corsFor(request.headers.get("origin"));
@@ -1768,13 +1768,20 @@ export default {
     // video and sends a small 16 kHz WAV; Workers AI's Whisper turns it into
     // the text the pantry dictation parser already reads. Text only comes
     // back; the audio is never stored.
+    // Paddington first when LOCAL_BASE_URL is set (David, 2026-11-11: voice
+    // too, not text only), Workers AI when the Mac is off or unset.
     if (url.pathname === "/transcribe") {
-      if (!env.AI || typeof env.AI.run !== "function") {
+      const cloud = Boolean(env.AI && typeof env.AI.run === "function");
+      const local = Boolean(env.LOCAL_BASE_URL) && env.LOCAL_VOICE !== "0";
+      if (!cloud && !local) {
         return json(503, { error: "transcription is not switched on yet" }, cors);
       }
       const bytes = wavBytesFrom(body);
       if (bytes === "too-large") return json(413, { error: "that narration is too long" }, cors);
       if (!bytes) return json(400, { error: "a WAV narration (audio/wav) is required" }, cors);
+      const mac = await transcribeLocal(bytes, env);
+      if (mac !== null) return json(200, { text: mac.slice(0, 4000) }, cors);
+      if (!cloud || !env.AI) return json(502, { error: "could not hear that narration, try again" }, cors);
       try {
         const out = await env.AI.run("@cf/openai/whisper", { audio: [...bytes] });
         const text = typeof out?.text === "string" ? out.text.trim().slice(0, 4000) : "";

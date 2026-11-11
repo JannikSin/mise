@@ -85,3 +85,70 @@ test("the wrong type, a non-WAV, or an oversize narration is refused before the 
   // the cap is checked on the size before decoding
   assert.equal(wavBytesFrom({ mediaType: "audio/wav", audio: "A".repeat(Math.ceil((TRANSCRIBE_MAX_BYTES * 4) / 3) + 100) }), "too-large");
 });
+
+// --- voice on paddington first (David, 2026-11-11) ---------------------------
+
+function stubGithubAndMac(/** @type {(url: string, init: any) => Response | Promise<Response>} */ mac) {
+  const real = globalThis.fetch;
+  // @ts-expect-error test stub
+  globalThis.fetch = async (/** @type {any} */ input, /** @type {any} */ init) => {
+    const url = String(input);
+    if (url.startsWith("https://api.github.com/repos/")) {
+      return new Response(JSON.stringify({ private: true }), { status: 200 });
+    }
+    if (url.startsWith("https://mac.example/")) return mac(url, init);
+    throw new Error(`unexpected fetch in test: ${url}`);
+  };
+  return () => (globalThis.fetch = real);
+}
+
+test("with the Mac set, the narration is heard on the Mac and Workers AI is not called", async () => {
+  /** @type {any[]} */ const macSeen = [];
+  const restore = stubGithubAndMac((url, init) => {
+    macSeen.push({ url, n: init.body.length });
+    return new Response(JSON.stringify({ text: "two onions, a bag of rice" }), { status: 200 });
+  });
+  try {
+    let cloud = 0;
+    const env = { LOCAL_BASE_URL: "https://mac.example/v1", AI: { run: async () => (cloud++, { text: "x" }) } };
+    const res = await post({ audio: WAV, mediaType: "audio/wav" }, env);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { text: "two onions, a bag of rice" });
+    assert.equal(macSeen[0].url, "https://mac.example/v1/audio/transcriptions");
+    assert.equal(macSeen[0].n, 44 + 1600 * 2);
+    assert.equal(cloud, 0);
+  } finally {
+    restore();
+  }
+});
+
+test("the Mac asleep: the narration falls back to Workers AI", async () => {
+  const restore = stubGithubAndMac(() => {
+    throw new Error("ECONNREFUSED");
+  });
+  try {
+    const env = { LOCAL_BASE_URL: "https://mac.example/v1", AI: { run: async () => ({ text: "from cloudflare" }) } };
+    const res = await post({ audio: WAV, mediaType: "audio/wav" }, env);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { text: "from cloudflare" });
+  } finally {
+    restore();
+  }
+});
+
+test("Mac only, no AI binding: served by the Mac, and a Mac failure is a plain 502", async () => {
+  let up = true;
+  const restore = stubGithubAndMac(() =>
+    up ? new Response(JSON.stringify({ text: "milk" }), { status: 200 }) : new Response("{}", { status: 503 }),
+  );
+  try {
+    const env = { LOCAL_BASE_URL: "https://mac.example/v1" };
+    assert.deepEqual(await (await post({ audio: WAV, mediaType: "audio/wav" }, env)).json(), { text: "milk" });
+    up = false;
+    const res = await post({ audio: WAV, mediaType: "audio/wav" }, env);
+    assert.equal(res.status, 502);
+    assert.match((await res.json()).error, /could not hear/);
+  } finally {
+    restore();
+  }
+});
