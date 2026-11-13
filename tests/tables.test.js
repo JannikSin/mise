@@ -8,6 +8,7 @@ import {
   patchSeat,
   setTableTailor,
   setTableCooked,
+  unsetTableCooked,
   setTableHead,
   resolveHead,
   setTableSameForEveryone,
@@ -511,6 +512,45 @@ test("setTableCooked is set-once: the serve step's COOKED cannot be re-stamped",
   assert.equal(again.tables[0].cookedAt, "2026-07-24");
   // and it never touches another table
   assert.equal(setTableCooked(base, "nope", "2026-07-24", "2026-07-24").tables[0].cookedAt, undefined);
+});
+
+test("unsetTableCooked takes a mis-tapped COOKED back, and only that (David, 2026-11-12)", () => {
+  const base = {
+    tables: [
+      {
+        id: "t1",
+        name: "kofta",
+        date: "2026-07-24",
+        slot: "dinner",
+        recipeId: "kebab",
+        seats: [{ id: "david", servings: 2 }],
+        pot: "frozen",
+      },
+      {
+        id: "t2",
+        name: "soup",
+        date: "2026-07-24",
+        slot: "lunch",
+        recipeId: "soup",
+        seats: [{ id: "david", servings: 1 }],
+      },
+    ],
+  };
+  const cooked = setTableCooked(
+    setTableCooked(base, "t1", "2026-07-24", "2026-07-24"),
+    "t2",
+    "2026-07-24",
+    "2026-07-24",
+  );
+  const undone = unsetTableCooked(cooked, "t1", "2026-07-24");
+  assert.equal("cookedAt" in undone.tables[0], false, "the stamp is gone");
+  assert.equal(undone.tables[0].pot, "frozen", "the pot stays as written");
+  assert.equal(undone.tables[1].cookedAt, "2026-07-24", "another table keeps its stamp");
+  // and it can be confirmed again afterwards
+  assert.equal(
+    setTableCooked(undone, "t1", "2026-07-25", "2026-07-25").tables[0].cookedAt,
+    "2026-07-25",
+  );
 });
 
 // THE HEAD (spec §9): human-tap-only writer + presence-aware resolution.

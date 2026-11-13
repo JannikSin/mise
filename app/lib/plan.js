@@ -1493,6 +1493,41 @@ export function unmarkDayAte(plan, date) {
 }
 
 /**
+ * TAKE "ATE IT" BACK OFF ONE MEAL (P11, P1; David, 2026-11-12: "i clicked eat
+ * it for a meal that i didnt eat and i cannot unclick it"). The meal's own
+ * cookedAt goes. When the DAY was marked eaten in full, that fact no longer
+ * holds either: the day mark goes, and every OTHER meal and swipe of the day
+ * keeps its tick as its own stamp, so one un-tick never clears the rest. The pantry is
+ * not touched. Pure; returns the same plan when there is nothing to take back.
+ * @param {Plan} plan
+ * @param {string} entryId the meal; may be a shared-table row that is not in
+ *   this plan, in which case only the day is converted
+ * @param {string} date YYYY-MM-DD, the meal's day
+ * @param {string} today stamped on the day's other meals when the day mark goes
+ * @returns {Plan}
+ */
+export function unmarkMealAte(plan, entryId, date, today) {
+  const wasDay = dayAte(plan, date);
+  if (!wasDay && !plan.entries.some((e) => e.id === entryId && e.cookedAt)) return plan;
+  const base = wasDay ? unmarkDayAte(plan, date) : plan;
+  return {
+    ...base,
+    entries: base.entries.map((e) => {
+      if (e.id === entryId) {
+        return e.cookedAt ? (({ cookedAt: _gone, ...rest }) => rest)(e) : e;
+      }
+      if (!wasDay || e.date !== date) return e;
+      // the day mark covered the swipe too (the Plan row hides its button)
+      if (e.out) {
+        const s = /** @type {any} */ (e);
+        return s.currency && !s.eatenAt ? { ...s, eatenAt: today } : e;
+      }
+      return e.recipeId && !e.cookedAt ? { ...e, cookedAt: today } : e;
+    }),
+  };
+}
+
+/**
  * Shape a freshly-read (or absent) plan file: guarantees week + entries and
  * self-heals pre-id legacy entries by assigning ids (persisted on next write).
  * @param {Record<string, any> | null} raw

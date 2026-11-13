@@ -1074,6 +1074,29 @@ export function setTableCooked(events, tableId, dateIso, today) {
 }
 
 /**
+ * Take a table's COOKED confirmation back (David, 2026-11-12: "i clicked eat
+ * it for a meal that i didnt eat and i cannot unclick it"). A mis-tap is not
+ * a cooked dinner, and before this the only tap that could not be undone was
+ * the one on a shared meal. Only the stamp goes: a pot frozen by that tap
+ * stays as written and the next COOKED re-checks it. Pure.
+ * @param {HouseEvents} events
+ * @param {string} tableId
+ * @param {string} today prune anchor, like every other CRUD write
+ * @returns {HouseEvents}
+ */
+export function unsetTableCooked(events, tableId, today) {
+  const base = pruneTables(events, today);
+  return {
+    ...base,
+    tables: base.tables.map((t) =>
+      t.id === tableId && t.cookedAt
+        ? /** @type {TableEvent} */ ((({ cookedAt: _gone, ...rest }) => rest)(t))
+        : t,
+    ),
+  };
+}
+
+/**
  * Name (or clear) the table's head — the ONE person whose plate decisions
  * win for this table (per-person-plates-design §9). Written ONLY by a
  * human tap (B5: a device-stamped head at materialization would break the

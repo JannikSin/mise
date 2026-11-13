@@ -19,6 +19,7 @@ import {
   normalizePlan,
   markDayAte,
   unmarkDayAte,
+  unmarkMealAte,
   dayAte,
   ateBannerDay,
   datesOfWeek,
@@ -471,4 +472,104 @@ test("ateDays merges as a set: a stale device never drops the phone's mark, and 
   assert.deepEqual(mergeFieldWise(b2, undone, phone).ateDays, ["2026-11-09", "2026-11-10"]);
   // nobody touched it: unchanged, and absent stays absent
   assert.equal(mergeFieldWise(base, { ...base, note: 1 }, base).ateDays, undefined);
+});
+
+// ---- ATE IT taken back off one meal (David, 2026-11-12) ---------------------
+
+test("unmarkMealAte takes one meal's tick back and leaves every other meal alone", () => {
+  const plan = {
+    week: "2026-W46",
+    entries: [
+      {
+        id: "a",
+        date: "2026-11-10",
+        slot: "breakfast",
+        recipeId: "r1",
+        servings: 1,
+        cookedAt: "2026-11-10",
+      },
+      {
+        id: "b",
+        date: "2026-11-10",
+        slot: "lunch",
+        recipeId: "r2",
+        servings: 1,
+        cookedAt: "2026-11-12",
+      },
+      { id: "c", date: "2026-11-11", slot: "lunch", recipeId: "r2", servings: 1 },
+    ],
+  };
+  const next = unmarkMealAte(plan, "b", "2026-11-10", "2026-11-12");
+  assert.equal(next.entries[1].cookedAt, undefined, "the mis-tapped meal is not eaten any more");
+  assert.equal("cookedAt" in next.entries[1], false, "the field is gone, not set to undefined");
+  assert.equal(next.entries[0].cookedAt, "2026-11-10", "another meal's tick and its date stay");
+  assert.equal(
+    next.entries[2].cookedAt,
+    undefined,
+    "an unconfirmed meal is never ticked by an undo",
+  );
+  assert.equal(
+    unmarkMealAte(plan, "c", "2026-11-11", "2026-11-12"),
+    plan,
+    "nothing to take back is a no-op",
+  );
+  assert.equal(
+    unmarkMealAte(plan, "nope", "2026-11-10", "2026-11-12"),
+    plan,
+    "an unknown meal is a no-op",
+  );
+});
+
+test("unmarkMealAte on a day marked eaten in full: the day mark goes, the other meals and the swipe keep their tick", () => {
+  const plan = markDayAte(
+    {
+      week: "2026-W46",
+      entries: [
+        { id: "a", date: "2026-11-10", slot: "breakfast", recipeId: "r1", servings: 1 },
+        { id: "b", date: "2026-11-10", slot: "lunch", recipeId: "r2", servings: 1 },
+        {
+          id: "s",
+          date: "2026-11-10",
+          slot: "dinner",
+          freeText: "dining swipe",
+          servings: 1,
+          out: true,
+          currency: "swipes",
+        },
+        {
+          id: "o",
+          date: "2026-11-10",
+          slot: "snack",
+          freeText: "eating out",
+          servings: 1,
+          out: true,
+        },
+        { id: "z", date: "2026-11-11", slot: "lunch", recipeId: "r2", servings: 1 },
+      ],
+    },
+    "2026-11-10",
+  );
+  const next = unmarkMealAte(plan, "b", "2026-11-10", "2026-11-12");
+  assert.equal(dayAte(next, "2026-11-10"), false, "the day is no longer eaten in full");
+  assert.equal(next.entries[1].cookedAt, undefined, "the meal he did not eat reads as not eaten");
+  assert.equal(
+    next.entries[0].cookedAt,
+    "2026-11-12",
+    "the other meal keeps its tick as its own stamp",
+  );
+  assert.equal(
+    next.entries[2].eatenAt,
+    "2026-11-12",
+    "the swipe the day mark covered keeps its tick",
+  );
+  assert.equal(
+    next.entries[3].eatenAt,
+    undefined,
+    "a plain eating-out slot has nothing to confirm",
+  );
+  assert.equal(next.entries[4].cookedAt, undefined, "another day is never touched");
+  // a shared-table row is not in the plan: the day is still converted
+  const viaTable = unmarkMealAte(plan, "table-row", "2026-11-10", "2026-11-12");
+  assert.equal(dayAte(viaTable, "2026-11-10"), false);
+  assert.equal(viaTable.entries[1].cookedAt, "2026-11-12");
 });

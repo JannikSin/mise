@@ -129,6 +129,7 @@ function potLines(entry, entries, tables, dayName) {
  *   onSwitch: (id: string) => void,
  *   onOpen: (entry: Record<string, any>) => void,
  *   onCooked?: (entry: Record<string, any>) => void,
+ *   onUncooked?: (entry: Record<string, any>) => void,
  *   onToggleOut: (date: string, slot: string) => void,
  *   onSwipeEaten?: (date: string, slot: string) => void,
  *   onAteDay?: (date: string, ate: boolean) => void,
@@ -179,6 +180,7 @@ export function PlannerView({
   onSwitch,
   onOpen,
   onCooked = undefined,
+  onUncooked = undefined,
   onToggleOut,
   onSwipeEaten = undefined,
   onAteDay = undefined,
@@ -287,6 +289,34 @@ export function PlannerView({
     for (const e of swipes) onSwipeEaten?.(date, String(e.slot));
     onAteDay?.(date, true);
   };
+  // ATE IT IS A SWITCH (P11, P1; David, 2026-11-12: "i clicked eat it for a
+  // meal that i didnt eat and i cannot unclick it"). The button used to
+  // vanish once pressed, leaving a tick nothing could take back. Now the
+  // same button carries the tick and undoes it, today and on any earlier day.
+  const ateBtn = (
+    /** @type {Record<string, any>} */ entry,
+    /** @type {string} */ name,
+    /** @type {boolean} */ eaten,
+  ) =>
+    eaten
+      ? onUncooked &&
+        html`<button
+          class="cooktap on"
+          aria-pressed="true"
+          aria-label="${name} is marked eaten: tap to undo"
+          onClick=${() => onUncooked(entry)}
+        >
+          ✓ ATE IT
+        </button>`
+      : onCooked &&
+        html`<button
+          class="cooktap"
+          aria-pressed="false"
+          aria-label="Ate ${name}: mark it eaten"
+          onClick=${() => onCooked(entry)}
+        >
+          ATE IT
+        </button>`;
   // "Did you eat everything planned yesterday?" (2026-11-09, P11 + P1)
   const ateAsk = onAteDay
     ? ateBannerDay(
@@ -705,6 +735,63 @@ export function PlannerView({
                   // altogether". A slot shows when it is one of this person's
                   // meals or a shared meal, or when it already holds food.
                   if (!outEntry && stacked.length === 0 && !shownSlots.has(key)) return null;
+                  // THE AWAY TAP AND THE SWIPE'S ATE IT, ON EVERY DAY UP TO
+                  // TODAY (P10, P11; David, 2026-11-12: "i cant go back to
+                  // tuesday for example and say i ate a meal swipe"). A past
+                  // day used to render with neither, so a swipe eaten on
+                  // Tuesday could not be recorded on Wednesday. Recording
+                  // what happened is a confirmation, valid after the fact
+                  // (doctrine Article 1); a past day is still never re-rolled.
+                  const awayBtn =
+                    // 7.11: with a buffet currency the tap cycles
+                    // planned → OUT → SWIPE → empty; the swipe state
+                    // carries buffet estimates (protein piled where its
+                    // marginal cost is zero)
+                    html`<button
+                      class="outbtn ${outEntry ? "on" : ""}"
+                      aria-pressed=${Boolean(outEntry)}
+                      aria-label=${
+                        outEntry
+                          ? /** @type {any} */ (outEntry).currency
+                            ? `${full} ${monthDay(date)} is a dining swipe (buffet, load up on protein), tap to clear`
+                            : hasBuffet
+                              ? `${full} ${monthDay(date)} is eating out, tap to make it a dining swipe`
+                              : `${full} ${monthDay(date)} is eating out, tap to plan a meal again`
+                          : `Mark ${full} ${monthDay(date)} as eating out: clears the slot, nothing shopped or re-rolled`
+                      }
+                      onClick=${() => onToggleOut(date, key)}
+                    >
+                      ${/** @type {any} */ (outEntry)?.currency ? "🎫" : "🍴"}
+                    </button>`;
+                  // the swipe is the SECOND tap of that cycle, and the first
+                  // one lands on "ate out", which read as a dead end (David,
+                  // 2026-11-12: "it doesnt allow me to and just says ate out")
+                  const swipeHint =
+                    outEntry && !(/** @type {any} */ (outEntry).currency) && hasBuffet
+                      ? " · tap 🍴 again for a meal swipe"
+                      : "";
+                  const swipeBtn =
+                    // THE SWIPE'S COOKED BUTTON (P1, P11, David
+                    // 2026-08-29): one tap says the swipe was actually
+                    // spent and its allocated macros actually eaten —
+                    // more valuable than any estimate. SCAN MY PLATE's
+                    // log stamps this on its own; this is the no-photo
+                    // path, valid after the fact like every
+                    // confirmation surface (doctrine Article 1).
+                    onSwipeEaten &&
+                    /** @type {any} */ (outEntry)?.currency &&
+                    date <= todayIso &&
+                    // a day marked eaten in full (the phone's "Ate
+                    // everything") already covers the swipe
+                    !(dayAte(plan, date) && !(/** @type {any} */ (outEntry)?.eatenAt)) &&
+                    html`<button
+                      class=${/** @type {any} */ (outEntry)?.eatenAt ? "cooktap on" : "cooktap"}
+                      aria-pressed=${Boolean(/** @type {any} */ (outEntry)?.eatenAt)}
+                      aria-label=${`Mark the ${full} ${monthDay(date)} swipe eaten`}
+                      onClick=${() => onSwipeEaten(date, key)}
+                    >
+                      ${/** @type {any} */ (outEntry)?.eatenAt ? "✓ ATE IT" : "ATE IT"}
+                    </button>`;
                   if (past) {
                     // READ-ONLY, BUT NEVER BLANK (David, 2026-09-05: "when a
                     // day is passed and a meal is passed it just writes wayne
@@ -715,11 +802,26 @@ export function PlannerView({
                     // The dish is resolved the same way the live rows do, the
                     // row stays tappable so the recipe is one tap away on any
                     // past day (find the one you liked, see what you skipped),
-                    // and only the SWITCH / OUT controls are withheld.
+                    // and only SWITCH is withheld. A swipe reads as a swipe,
+                    // never as "ate out" (David, 2026-10-16 and 2026-11-12).
                     return html`
                       <div class="slotrow" key=${key}>
                         <span class="t" aria-label=${full}>${label}</span>
-                        ${outEntry && html`<span class="outslot">🍴 ate out</span>`}
+                        ${
+                          outEntry &&
+                          html`<span class="outslot">
+                            ${/** @type {any} */ (outEntry).currency ? "🎫 meal swipe" : "🍴 ate out"}
+                            ${
+                              outEntry.estCalories != null
+                                ? html` ·
+                                    <span class="num"
+                                      >~${outEntry.estCalories} · ${outEntry.estProtein}P</span
+                                    >`
+                                : ""
+                            }
+                            ${swipeHint}
+                          </span>`
+                        }
                         ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">-</span>`}
                         ${
                           stacked.length > 0 &&
@@ -742,7 +844,9 @@ export function PlannerView({
                                       <span class="n">
                                         ${name}
                                         ${
+                                          // the chip only where no button carries the tick
                                           (entry.cookedAt || marked) &&
+                                          !(recipe && onUncooked) &&
                                           html` <span class="usesoon cookedchip">✓ ate it</span>`
                                         }
                                         ${
@@ -773,23 +877,24 @@ export function PlannerView({
                                     // is confirmed cooked right here, never by
                                     // opening the recipe and finding COOKED IT
                                     // (two confirmations in ten weeks, 2026-09-21)
-                                    onCooked &&
                                     recipe &&
-                                    !entry.cookedAt &&
-                                    !marked &&
-                                    html`<button
-                                      class="cooktap"
-                                      aria-label="Ate ${name}: mark it eaten"
-                                      onClick=${() => onCooked(entry)}
-                                    >
-                                      ATE IT
-                                    </button>`
+                                    ateBtn(entry, String(name), Boolean(entry.cookedAt || marked))
                                   }
                                 </div>
                               `;
                             })}
                           </div>`
                         }
+                        ${
+                          // a past meal already marked eaten, or a shared
+                          // dinner the house record still holds, is never
+                          // replaced by the away tap: take the tick back
+                          // first (review, 2026-11-12)
+                          !(marked && stacked.length > 0) &&
+                          !stacked.some((e) => e.cookedAt || /** @type {any} */ (e).fromTable) &&
+                          awayBtn
+                        }
+                        ${swipeBtn}
                       </div>
                     `;
                   }
@@ -831,6 +936,7 @@ export function PlannerView({
                                   ? html` · <span class="num">~${outEntry.estCalories} · ${outEntry.estProtein}P</span>`
                                   : ""
                               }
+                              ${swipeHint}
                             </span>`
                       }
                       ${!outEntry && stacked.length === 0 && html`<span class="emptyslot">-</span>`}
@@ -860,7 +966,7 @@ export function PlannerView({
                                   <span class="chipbody">
                                     <span class="n">
                                       ${name}
-                                      ${(entry.cookedAt || marked) && html` <span class="usesoon cookedchip">✓ ate it</span>`}
+                                      ${(entry.cookedAt || marked) && !(recipe && onUncooked) && html` <span class="usesoon cookedchip">✓ ate it</span>`}
                                       ${
                                         /** @type {any} */ (entry).plate &&
                                         html`<span class="hint plateline"
@@ -902,18 +1008,9 @@ export function PlannerView({
                                   // day has nothing to confirm yet; past days
                                   // render above). Same handler as the serve
                                   // step, so a table entry confirms the table.
-                                  onCooked &&
                                   recipe &&
-                                  !entry.cookedAt &&
-                                  !marked &&
                                   date <= todayIso &&
-                                  html`<button
-                                    class="cooktap"
-                                    aria-label="Ate ${name}: mark it eaten"
-                                    onClick=${() => onCooked(entry)}
-                                  >
-                                    ATE IT
-                                  </button>`
+                                  ateBtn(entry, String(name), Boolean(entry.cookedAt || marked))
                                 }
                                 ${
                                   // SWITCH replaces the meal with another
@@ -968,51 +1065,7 @@ export function PlannerView({
                           })}
                         </div>`
                       }
-                      ${
-                        // 7.11: with a buffet currency the tap cycles
-                        // planned → OUT → SWIPE → empty; the swipe state
-                        // carries buffet estimates (protein piled where its
-                        // marginal cost is zero)
-                        html`<button
-                          class="outbtn ${outEntry ? "on" : ""}"
-                          aria-pressed=${Boolean(outEntry)}
-                          aria-label=${
-                            outEntry
-                              ? /** @type {any} */ (outEntry).currency
-                                ? `${full} ${monthDay(date)} is a dining swipe (buffet, load up on protein), tap to clear`
-                                : hasBuffet
-                                  ? `${full} ${monthDay(date)} is eating out, tap to make it a dining swipe`
-                                  : `${full} ${monthDay(date)} is eating out, tap to plan a meal again`
-                              : `Mark ${full} ${monthDay(date)} as eating out: clears the slot, nothing shopped or re-rolled`
-                          }
-                          onClick=${() => onToggleOut(date, key)}
-                        >
-                          ${/** @type {any} */ (outEntry)?.currency ? "🎫" : "🍴"}
-                        </button>`
-                      }
-                      ${
-                        // THE SWIPE'S COOKED BUTTON (P1, P11, David
-                        // 2026-08-29): one tap says the swipe was actually
-                        // spent and its allocated macros actually eaten —
-                        // more valuable than any estimate. SCAN MY PLATE's
-                        // log stamps this on its own; this is the no-photo
-                        // path, valid after the fact like every
-                        // confirmation surface (doctrine Article 1).
-                        onSwipeEaten &&
-                        /** @type {any} */ (outEntry)?.currency &&
-                        date <= todayIso &&
-                        // a day marked eaten in full (the phone's "Ate
-                        // everything") already covers the swipe
-                        !(dayAte(plan, date) && !(/** @type {any} */ (outEntry)?.eatenAt)) &&
-                        html`<button
-                          class=${/** @type {any} */ (outEntry)?.eatenAt ? "cooktap on" : "cooktap"}
-                          aria-pressed=${Boolean(/** @type {any} */ (outEntry)?.eatenAt)}
-                          aria-label=${`Mark the ${full} ${monthDay(date)} swipe eaten`}
-                          onClick=${() => onSwipeEaten(date, key)}
-                        >
-                          ${/** @type {any} */ (outEntry)?.eatenAt ? "✓ ATE IT" : "ATE IT"}
-                        </button>`
-                      }
+                      ${awayBtn} ${swipeBtn}
                     </div>
                   `;
                 })}

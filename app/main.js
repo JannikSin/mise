@@ -159,6 +159,7 @@ import {
   toggleSwipeEaten,
   markDayAte,
   unmarkDayAte,
+  unmarkMealAte,
   settledEntryId,
   tripFor,
   buildDays,
@@ -188,6 +189,7 @@ import {
   removeTable,
   patchSeat,
   setTableCooked,
+  unsetTableCooked,
   setTablePot,
   slotShareFor,
   guestSeats,
@@ -2083,7 +2085,10 @@ function App() {
       // not linger as things to buy (post-shop the re-derive IS the delta
       // list, 7.2 — bought food already sits in the pantry and subtracts);
       // an empty list stays empty — OUT never builds a list nobody asked for
-      if (shoppingRef.current.items.length > 0) {
+      // A PAST DAY NEVER TOUCHES THE LIST (review, 2026-11-12): its food was
+      // bought or skipped days ago, and on a browsed-back week this derive
+      // runs in full and would replace the one list with that old week's.
+      if (date >= localIsoDate(new Date()) && shoppingRef.current.items.length > 0) {
         updateShopping(
           deriveShoppingList(
             withCookExtras(next),
@@ -2138,6 +2143,8 @@ function App() {
     updatePlan(restoreFallback(/** @type {import("./lib/plan.js").Plan} */ (planRef.current)));
   }, [updatePlan, askConfirm]);
 
+  // meals whose ATE IT was taken back on this phone since it opened
+  const uneatenRef = useRef(/** @type {Set<string>} */ (new Set()));
   const handleMarkCooked = useCallback(
     (/** @type {string} */ entryId, /** @type {number} */ seconds = -1) => {
       const plan = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
@@ -2153,6 +2160,9 @@ function App() {
       // off the shelves they were put on. Only on the way IN — un-ticking a
       // meal cannot un-cook the food, so nothing is put back.
       if (!entry || entry.cookedAt) return;
+      // a tick taken back and pressed again on this phone took its food off
+      // the shelves the first time (review, 2026-11-12)
+      if (uneatenRef.current.has(entryId)) return;
       // a batch is bought and cooked ONCE: the leftover days the generator
       // schedules are the same recipe again, and taking its ingredients off
       // the shelf a second time would empty a fridge that is genuinely full
@@ -3721,6 +3731,31 @@ function App() {
     [handleMarkCooked, handleMarkTableCooked],
   );
 
+  // ATE IT TAKEN BACK (P11, P1; David, 2026-11-12: "i clicked eat it for a
+  // meal that i didnt eat and i cannot unclick it"). The Plan row's button is
+  // a switch: a shared meal un-confirms its table, a personal one loses its
+  // stamp, and a day marked eaten in full stops being one. The pantry is not
+  // put back, same as Cook Mode's un-tick: nothing here can know what a
+  // mis-tap took off the shelf.
+  const handleUneatEntry = useCallback(
+    (/** @type {Record<string, any>} */ entry) => {
+      const today = localIsoDate(new Date());
+      if (entry.table) {
+        for (const { house, events } of houseEventsRef.current) {
+          if (!events.tables.some((x) => x.id === entry.table && x.cookedAt)) continue;
+          writeHouseEvents(house, unsetTableCooked(events, entry.table, today));
+          break;
+        }
+      }
+      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      const next = unmarkMealAte(p, String(entry.id ?? ""), String(entry.date ?? ""), today);
+      if (next === p) return;
+      if (p.entries.some((e) => e.id === entry.id && e.cookedAt)) uneatenRef.current.add(entry.id);
+      updatePlan(next);
+    },
+    [updatePlan, writeHouseEvents],
+  );
+
   // MY running (or imminent) occasion, for the Plan tab banner. The screen
   // lives in Settings and is invisible the other 360 days of the year, so on
   // the days it matters it has to announce itself where the food is.
@@ -5119,6 +5154,7 @@ function App() {
         onSwitch=${handleSwitchEntry}
         onOpen=${handleOpenEntry}
         onCooked=${handleCookedEntry}
+        onUncooked=${handleUneatEntry}
         onToggleOut=${handleToggleOut}
         onSwipeEaten=${(/** @type {string} */ date, /** @type {string} */ slot) =>
           updatePlan(
