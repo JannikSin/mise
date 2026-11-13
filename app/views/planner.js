@@ -1,3 +1,4 @@
+import { LIVE_VERSION, PALETTE } from "../lib/release.js";
 import { weekSwapLine } from "../lib/swaps.js";
 import { html } from "htm/preact";
 import { useRef, useState } from "preact/hooks";
@@ -7,6 +8,7 @@ import {
   ateBannerDay,
   cookLine,
   dayAte,
+  isFreeTextMeal,
   datesOfWeek,
   dayTotals,
   entriesAt,
@@ -268,7 +270,8 @@ export function PlannerView({
               e.date === date &&
               !e.out &&
               !e.cookedAt &&
-              byId.get(String(e.recipeId ?? /** @type {any} */ (e).viewRecipeId ?? "")),
+              (byId.get(String(e.recipeId ?? /** @type {any} */ (e).viewRecipeId ?? "")) ||
+                isFreeTextMeal(e)),
           ),
     swipes:
       date > todayIso
@@ -399,6 +402,9 @@ export function PlannerView({
         <div class="wkmid">
           <h1>Plan <span class="num">${weekId.split("-")[1]}</span></h1>
           <div class="sub num">${monthDay(dates[0] ?? "")} – ${monthDay(dates[6] ?? "")}</div>
+          <div class="sub num relmark" aria-label=${`Mise version ${LIVE_VERSION}, colors ${PALETTE}`}>
+            v${LIVE_VERSION} · ${PALETTE}
+          </div>
         </div>
         <button class="wk" aria-label="Next week" onClick=${() => onWeek(1)}>›</button>
       </div>
@@ -846,7 +852,7 @@ export function PlannerView({
                                         ${
                                           // the chip only where no button carries the tick
                                           (entry.cookedAt || marked) &&
-                                          !(recipe && onUncooked) &&
+                                          !((recipe || isFreeTextMeal(entry)) && onUncooked) &&
                                           html` <span class="usesoon cookedchip">✓ ate it</span>`
                                         }
                                         ${
@@ -877,7 +883,7 @@ export function PlannerView({
                                     // is confirmed cooked right here, never by
                                     // opening the recipe and finding COOKED IT
                                     // (two confirmations in ten weeks, 2026-09-21)
-                                    recipe &&
+                                    (recipe || isFreeTextMeal(entry)) &&
                                     ateBtn(entry, String(name), Boolean(entry.cookedAt || marked))
                                   }
                                 </div>
@@ -886,12 +892,12 @@ export function PlannerView({
                           </div>`
                         }
                         ${
-                          // a past meal already marked eaten, or a shared
-                          // dinner the house record still holds, is never
+                          // a past meal already marked eaten is never
                           // replaced by the away tap: take the tick back
-                          // first (review, 2026-11-12)
+                          // first (review, 2026-11-12). A settled shared
+                          // dinner may be: toggleSlotOut keeps its table id.
                           !(marked && stacked.length > 0) &&
-                          !stacked.some((e) => e.cookedAt || /** @type {any} */ (e).fromTable) &&
+                          !stacked.some((e) => e.cookedAt) &&
                           awayBtn
                         }
                         ${swipeBtn}
@@ -966,7 +972,7 @@ export function PlannerView({
                                   <span class="chipbody">
                                     <span class="n">
                                       ${name}
-                                      ${(entry.cookedAt || marked) && !(recipe && onUncooked) && html` <span class="usesoon cookedchip">✓ ate it</span>`}
+                                      ${(entry.cookedAt || marked) && !((recipe || isFreeTextMeal(entry)) && onUncooked) && html` <span class="usesoon cookedchip">✓ ate it</span>`}
                                       ${
                                         /** @type {any} */ (entry).plate &&
                                         html`<span class="hint plateline"
@@ -1008,7 +1014,7 @@ export function PlannerView({
                                   // day has nothing to confirm yet; past days
                                   // render above). Same handler as the serve
                                   // step, so a table entry confirms the table.
-                                  recipe &&
+                                  (recipe || isFreeTextMeal(entry)) &&
                                   date <= todayIso &&
                                   ateBtn(entry, String(name), Boolean(entry.cookedAt || marked))
                                 }

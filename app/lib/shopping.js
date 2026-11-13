@@ -2413,12 +2413,16 @@ function commonUnit(a, b, key) {
  * @param {Record<string, any>} pantry
  * @param {{ food: string, qty?: number, unit?: string, staple?: boolean }[]} ingredients
  *   already scaled to the servings actually cooked
- * @returns {{ pantry: Record<string, any>, used: string[] }}
+ * @returns {{ pantry: Record<string, any>, used: string[], took: Record<string, any>[] }}
+ *   `took` = exactly what left the shelves, as rows restoreFromCook can put
+ *   back: a removed row whole, a reduced row carrying only the amount taken
  */
 export function consumeForCook(pantry, ingredients) {
   let items = [...pantryItems(pantry)];
   /** @type {string[]} */
   const used = [];
+  /** @type {Record<string, any>[]} */
+  const took = [];
   let changed = false;
   for (const ing of ingredients ?? []) {
     if (!ing || ing.staple) continue;
@@ -2445,12 +2449,14 @@ export function consumeForCook(pantry, ingredients) {
         // cannot measure it: it was used, so the row goes
         drop.add(idx);
         used.push(p.food);
+        took.push({ ...items[idx] });
         changed = true;
         break;
       }
       if (both.b >= both.a * 0.98) {
         drop.add(idx);
         used.push(p.food);
+        took.push({ ...items[idx] });
         changed = true;
         // carry the shortfall onto the next row of the same food
         const left = both.b - both.a;
@@ -2461,12 +2467,49 @@ export function consumeForCook(pantry, ingredients) {
         continue;
       }
       items[idx] = { ...p, qty: `${Number((both.a - both.b).toFixed(2))} ${both.unit}` };
+      took.push({ ...p, qty: `${Number(both.b.toFixed(2))} ${both.unit}` });
       changed = true;
       break;
     }
     if (drop.size > 0) items = items.filter((_p, idx) => !drop.has(idx));
   }
-  return changed ? { pantry: packPantry(items), used } : { pantry, used };
+  return changed ? { pantry: packPantry(items), used, took } : { pantry, used, took };
+}
+
+/**
+ * Put back what a mistaken ATE IT took off the shelves (P6; David,
+ * 2026-11-12: "fix all the other fixes"). The inverse of consumeForCook,
+ * and ADD-ONLY: a row that is still there gets the amount added, a row that
+ * is gone comes back as it was. Nothing is ever lowered or removed, so a
+ * housemate's later edits to the shared pantry stay as they are.
+ * @param {Record<string, any>} pantry
+ * @param {Record<string, any>[]} took consumeForCook's `took`
+ * @returns {Record<string, any>} the same pantry when there is nothing to put back
+ */
+export function restoreFromCook(pantry, took) {
+  const rows = (Array.isArray(took) ? took : []).filter(
+    (t) => t && typeof t === "object" && typeof t.food === "string" && t.food,
+  );
+  if (rows.length === 0) return pantry;
+  const items = [...pantryItems(pantry)];
+  for (const t of rows) {
+    const at = items.findIndex((p) => p.id === t.id);
+    if (at < 0) {
+      items.push({ ...t });
+      continue;
+    }
+    const cur = /** @type {Record<string, any>} */ (items[at]);
+    const have = isDatedItem(cur) ? parseQty(cur.qty) : null;
+    const back = parseQty(t.qty);
+    const both = have && back ? commonUnit(have, back, canonicalFood(cur.food)) : null;
+    if (both) {
+      items[at] = { ...cur, qty: `${Number((both.a + both.b).toFixed(2))} ${both.unit}` };
+    } else {
+      // cannot add the two amounts: a second row says so honestly
+      items.push({ ...t, id: `${t.id}-back` });
+    }
+  }
+  return packPantry(items);
 }
 
 /**

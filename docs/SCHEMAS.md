@@ -1564,6 +1564,18 @@ even the same slot — merge without losing either entry.
       //   7.10). Absent = never confirmed: the Plan scoreboard shows "not
       //   logged" instead of "eaten" on past days, and the cron keeps
       //   reminding until it's set. A date alone NEVER implies eaten.
+      "took": [{ "id": "p-chicken", "food": "chicken thigh", "qty": "300 g", "added": "2026-11-08", "location": "fridge" }],
+      //   ? WHAT THE TICK TOOK OFF THE SHELVES (2026-11-12, David: un-ticking
+      //   must put the food back). Written with cookedAt when consumeForCook
+      //   changed the pantry: a removed pantry row whole, a reduced row
+      //   carrying only the amount taken. Taking ATE IT back hands it to
+      //   restoreFromCook (add-only: never lowers or removes a row) and
+      //   deletes it with cookedAt. Absent = nothing was taken, or the tick
+      //   predates the field; then an undo puts nothing back.
+      "fromTable": "t-abc", // ? this row is my settled copy of a past house
+      //   table (see below). Since 2026-11-12 an OUT or swipe placeholder
+      //   may carry it too: the slot's shared dinner was marked away, and
+      //   the id keeps the house record from putting the dinner back.
       "cookSeconds": 1740, // ? the cook timer's recorded hands-on span (7.10,
       //   promise P7): what the recipe's stated time answers to. Written by
       //   recordCook at the timer's END; absent = cooked without the timer.

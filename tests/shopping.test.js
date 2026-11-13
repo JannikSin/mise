@@ -31,6 +31,7 @@ import {
   locationForBuy,
   applyReceiptStock,
   consumeForCook,
+  restoreFromCook,
   subtractPantryFromTrip,
   clearReceiptRows,
   packHint,
@@ -2947,4 +2948,70 @@ test("asserting PLENTY stamps the day, so the clock has something to run on (P6)
   const row = pantry.items.find((/** @type {any} */ i) => i.food === "eggs");
   assert.equal(row.state, "plenty");
   assert.match(row.since, /^\d{4}-\d{2}-\d{2}$/);
+});
+
+// ---- un-ticking a meal puts its food back (David, 2026-11-12) ---------------
+
+test("restoreFromCook: an undo puts back exactly what the cook took, row for row", () => {
+  const pantry = {
+    staples: [{ id: "olive-oil", name: "Olive oil", onHand: true }],
+    perishables: [
+      { id: "old", food: "chicken thigh", qty: "200 g", added: "2026-07-20", location: "fridge" },
+      { id: "new", food: "chicken thigh", qty: "900 g", added: "2026-07-25", location: "fridge" },
+      { id: "bag", food: "spinach", qty: "half a bag", added: "2026-07-25", location: "fridge" },
+    ],
+  };
+  const cooked = consumeForCook(pantry, [
+    { food: "chicken thigh", qty: 500, unit: "g" },
+    { food: "spinach", qty: 60, unit: "g" },
+    { food: "olive oil", qty: 1, unit: "tbsp", staple: true },
+  ]);
+  assert.deepEqual(
+    cooked.pantry.perishables.map((r) => [r.id, r.qty]),
+    [["new", "600 g"]],
+  );
+  assert.equal(cooked.took.length, 3, "the finished pack, the amount off the next pack, the bag");
+  const back = restoreFromCook(cooked.pantry, cooked.took);
+  const byId = Object.fromEntries(back.perishables.map((r) => [r.id, r.qty]));
+  // the bag row reads back the way the pantry itself reads it ("half a bag" is 0.5 each)
+  assert.deepEqual(byId, { old: "200 g", new: "900 g", bag: "0.5 each" });
+  assert.equal(back.staples[0].onHand, true, "staples are untouched both ways");
+});
+
+test("restoreFromCook is add-only: a housemate's later edit is kept, nothing is lowered or removed", () => {
+  const pantry = {
+    perishables: [
+      { id: "new", food: "chicken thigh", qty: "900 g", added: "2026-07-25", location: "fridge" },
+    ],
+  };
+  const cooked = consumeForCook(pantry, [{ food: "chicken thigh", qty: 300, unit: "g" }]);
+  // meanwhile a housemate used 100 g more and added milk
+  const later = {
+    perishables: [
+      { id: "new", food: "chicken thigh", qty: "500 g", added: "2026-07-25", location: "fridge" },
+      { id: "milk", food: "milk", qty: "1 l", added: "2026-07-26", location: "fridge" },
+    ],
+  };
+  const back = restoreFromCook(later, cooked.took);
+  const byId = Object.fromEntries(back.perishables.map((r) => [r.id, r.qty]));
+  assert.deepEqual(byId, { new: "800 g", milk: "1 l" });
+  // the row was used up by someone else: the amount comes back as its own row
+  const gone = restoreFromCook({ perishables: [] }, cooked.took);
+  assert.deepEqual(
+    gone.perishables.map((r) => [r.food, r.qty]),
+    [["chicken thigh", "300 g"]],
+  );
+  // nothing recorded means nothing changes, by identity
+  assert.equal(restoreFromCook(later, []), later);
+  assert.equal(restoreFromCook(later, undefined), later);
+});
+
+test("restoreFromCook never makes two rows with one id: an undated row of that id gets a second, marked row", () => {
+  const took = [{ id: "p-oats", food: "rolled oats", qty: "200 g", added: "2026-11-08", location: "pantry" }];
+  const later = { items: [{ id: "p-oats", food: "rolled oats", state: "plenty" }] };
+  const back = restoreFromCook(later, took);
+  const ids = back.items.map((r) => r.id);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.ok(back.items.some((r) => r.food === "rolled oats" && r.qty === "200 g"));
+  assert.ok(back.items.some((r) => r.id === "p-oats" && r.state === "plenty"), "the plenty row is untouched");
 });

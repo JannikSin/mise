@@ -21,7 +21,12 @@
 // and SIGN UP screens call /guest/login, /guest/me and the login field of
 // /invite/claim; against the old Worker they fail.
 
-/** @typedef {{ version: string, date: string, notes: string[] }} Release */
+// THE COLOR SET (David, 2026-11-12: "i want each fix to come with a new color
+// scheme", then "only for releases"). Each release names its color set in
+// `palette`; the colors themselves are the tokens at the top of
+// app/styles.css. A release never reuses the one before it.
+
+/** @typedef {{ version: string, date: string, notes: string[], palette?: string }} Release */
 
 export const UNRELEASED = "unreleased";
 
@@ -30,7 +35,13 @@ export const RELEASES = [
   {
     version: "1.97",
     date: "2026-11-13",
+    palette: "Harbor",
     notes: [
+      "New colors: 1.97 is deep blue (\"Harbor\"). From now on every release changes the colors, so one look tells you the new version reached your phone (David, 11/12: \"i want each fix to come with a new color scheme\", \"only for releases\"). Plan shows the version under the week.",
+      "A meal you typed in yourself (no recipe) has ATE IT and its undo, like any other meal.",
+      "Taking ATE IT back puts the food back on the shelves: whatever that tick took out of the pantry returns. A tick made before 1.97 has no record of what it took, so nothing returns for those.",
+      "A shared kitchen dinner on a day that has passed can be changed to ate out or a meal swipe with the fork button. Only your own week changes; the kitchen's record and everyone else's stay as they are. If it is ticked, take the tick back first.",
+      "If your phone's Ate everything marked today and you then take one meal back, that night's shared dinner stays marked.",
       "Log a whole day from your phone: the 11:00 pm \"Ate it?\" notification now has an Ate everything button. Press and hold the notification, tap Ate everything, and the day is marked eaten without opening the app.",
       "Missed it? At 8:00 am a \"Yesterday not logged\" notification offers the same button for yesterday.",
       "Plan asks once: \"Did you eat everything planned yesterday?\" (and about today from 6:00 pm). YES, ALL OF IT marks the day; NOT ALL opens the day so you can tap single meals. A day marked eaten shows \"✓ you ate everything\", with undo if you tapped it by mistake.",
@@ -56,6 +67,7 @@ export const RELEASES = [
   {
     version: "1.96",
     date: "2026-10-31",
+    palette: "Console",
     notes: [
       "Fix (11/6): a generated week no longer overshoots protein to reach calories. When a day's dishes as written carry too much protein for the calories you need, the plan keeps the same recipes and cooks them with less of the meat, whey or yogurt and more of the rice, oats or pasta, so the day lands near your protein aim and under the ceiling. Replayed on the 11/2 week, David went from about 245 g a day (30 of 36 days over 215 g) to about 200 g (none over), every day still at 3,500 kcal or more.",
       "Fix (11/6): the amounts you see follow that choice everywhere: the day's calories and protein on Plan, the recipe page's amounts, the plates, and the shopping list, which buys the smaller amount of meat and the larger amount of starch.",
@@ -230,6 +242,9 @@ export const RELEASES = [
     ],
   },
 ];
+
+/** the color set of the newest release that names one ("Console" before 1.97) */
+export const PALETTE = RELEASES.find((r) => r.palette)?.palette ?? "Console";
 
 /** the newest SHIPPED version */
 export const LIVE_VERSION = RELEASES.find((r) => r.version !== UNRELEASED)?.version ?? "1.0";

@@ -5,7 +5,7 @@ import { isoWeekId, localIsoDate, parseLocalIso, tripDates } from "./dates.js";
 import { CHECK_LABEL_TERMS } from "./targets.js";
 
 /**
- * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, leftoverOf?: string, leftoverDate?: string, cookId?: string, cookName?: string, estCalories?: number, estProtein?: number, cookedAt?: string, eatenAt?: string, cookSeconds?: number, cookComment?: string, preparedOn?: string, leftoverPrepared?: string, batchAlongside?: { name: string, date: string, cookId?: string, cookName?: string, proteinFresh?: string, freshNights?: string[] }, proteinFresh?: string, freshNights?: string[], freshMeat?: { food: string, qty: number, unit: string }[], occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean, useItUp?: boolean }} PlanEntry
+ * @typedef {{ id: string, date: string, slot: string, recipeId?: string, freeText?: string, servings: number, pinned?: boolean, fixed?: boolean, out?: boolean, currency?: string, table?: string, viewRecipeId?: string, cookTotal?: number, leftoverOf?: string, leftoverDate?: string, cookId?: string, cookName?: string, estCalories?: number, estProtein?: number, cookedAt?: string, eatenAt?: string, cookSeconds?: number, cookComment?: string, preparedOn?: string, leftoverPrepared?: string, batchAlongside?: { name: string, date: string, cookId?: string, cookName?: string, proteinFresh?: string, freshNights?: string[] }, proteinFresh?: string, freshNights?: string[], freshMeat?: { food: string, qty: number, unit: string }[], occasion?: string, occasionName?: string, occasionNote?: string, potFromBank?: boolean, useItUp?: boolean, fromTable?: string, took?: Record<string, any>[] }} PlanEntry
  * @typedef {{ recipeId: string, portions: number }} PlanBuffer
  * @typedef {{ week: string, entries: PlanEntry[], locked?: boolean, shoppedAt?: string, buffer?: PlanBuffer, unlocked?: string[], manifest?: Record<string, any>, fallback?: { savedAt: string, entries: PlanEntry[] }, spend?: { store: string, date: string, total: number }[], reviewNote?: string, ateDays?: string[] }} Plan
  */
@@ -767,13 +767,26 @@ export function toggleSlotOut(plan, date, slot, est) {
     };
   }
   const kept = plan.entries.filter((e) => !(e.date === date && e.slot === slot));
-  return addEntry({ ...plan, entries: kept }, date, slot, {
+  // A SETTLED SHARED DINNER can be marked away too (David, 2026-11-12: "fix
+  // all the other fixes"). Its row is this person's copy of a house table,
+  // and the house record puts a missing copy back. So the placeholder
+  // carries the table's id: the table still counts as settled here, nothing
+  // comes back, and nobody else's record is touched. Clearing the
+  // placeholder later lets the dinner return on its own.
+  const settled = plan.entries.find((e) => e.date === date && e.slot === slot && e.fromTable);
+  const next = addEntry({ ...plan, entries: kept }, date, slot, {
     freeText: OUT_TEXT,
     servings: 1,
     pinned: true,
     out: true,
     ...(est ?? {}),
   });
+  if (!settled) return next;
+  const last = next.entries.length - 1;
+  return {
+    ...next,
+    entries: next.entries.map((e, i) => (i === last ? { ...e, fromTable: settled.fromTable } : e)),
+  };
 }
 
 /** The placeholder a currency-covered slot carries (7.11). */
@@ -1218,6 +1231,7 @@ export function setEntryRecipe(plan, entryId, recipeId) {
       const rest = { ...e };
       // a switched meal is not the meal you cooked
       delete rest.cookedAt;
+      delete rest.took;
       return { ...rest, recipeId, freeText: undefined };
     }),
   };
@@ -1357,7 +1371,7 @@ export function toggleEntryCooked(plan, entryId, dateIso) {
     entries: plan.entries.map((e) =>
       e.id === entryId
         ? e.cookedAt
-          ? (({ cookedAt: _gone, ...rest }) => rest)(e)
+          ? (({ cookedAt: _gone, took: _took, ...rest }) => rest)(e)
           : { ...e, cookedAt: dateIso }
         : e,
     ),
@@ -1388,14 +1402,28 @@ export function settledEntryId(tableId) {
  * @returns {PlanEntry[]}
  */
 export function dedupeSettled(entries) {
+  // a table marked away (2026-11-12) is held by an OUT placeholder carrying
+  // its id; when a merge leaves both, the away mark is the newer statement
+  const away = new Set(entries.filter((e) => e.out && e.fromTable).map((e) => e.fromTable));
   const seen = new Set();
   return entries.filter((e) => {
     const t = /** @type {any} */ (e).fromTable;
     if (!t) return true;
-    if (seen.has(t)) return false;
+    if (seen.has(t) || (away.has(t) && !e.out)) return false;
     seen.add(t);
     return true;
   });
+}
+
+/**
+ * A meal the person typed in themselves: free text, no recipe. NOT an away
+ * placeholder, a shared-table row, or an occasion's note ("Nothing by mouth",
+ * "Away"), none of which is food to mark eaten.
+ * @param {Record<string, any>} e
+ * @returns {boolean}
+ */
+export function isFreeTextMeal(e) {
+  return Boolean(e.freeText) && !e.recipeId && !e.out && !e.table && !e.occasion;
 }
 
 const KNOWN_PLAN_KEYS = new Set([
@@ -1413,6 +1441,23 @@ const KNOWN_PLAN_KEYS = new Set([
 ]);
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Record what ATE IT took off the shelves on the meal that took it (P6, P11;
+ * David, 2026-11-12: un-ticking must put the food back). Pure; an empty list
+ * records nothing.
+ * @param {Plan} plan
+ * @param {string} entryId
+ * @param {Record<string, any>[]} took consumeForCook's `took`
+ * @returns {Plan}
+ */
+export function setEntryTook(plan, entryId, took) {
+  if (!Array.isArray(took) || took.length === 0) return plan;
+  return {
+    ...plan,
+    entries: plan.entries.map((e) => (e.id === entryId ? { ...e, took } : e)),
+  };
+}
 
 /**
  * A plan's ateDays, cleaned: valid local ISO dates only, unique, sorted.
@@ -1497,8 +1542,9 @@ export function unmarkDayAte(plan, date) {
  * it for a meal that i didnt eat and i cannot unclick it"). The meal's own
  * cookedAt goes. When the DAY was marked eaten in full, that fact no longer
  * holds either: the day mark goes, and every OTHER meal and swipe of the day
- * keeps its tick as its own stamp, so one un-tick never clears the rest. The pantry is
- * not touched. Pure; returns the same plan when there is nothing to take back.
+ * keeps its tick as its own stamp, so one un-tick never clears the rest. The meal's
+ * `took` record goes with its stamp; putting that food back on the shelf is the
+ * caller's job (restoreFromCook). Pure; returns the same plan when there is nothing to take back.
  * @param {Plan} plan
  * @param {string} entryId the meal; may be a shared-table row that is not in
  *   this plan, in which case only the day is converted
@@ -1514,7 +1560,7 @@ export function unmarkMealAte(plan, entryId, date, today) {
     ...base,
     entries: base.entries.map((e) => {
       if (e.id === entryId) {
-        return e.cookedAt ? (({ cookedAt: _gone, ...rest }) => rest)(e) : e;
+        return e.cookedAt ? (({ cookedAt: _gone, took: _took, ...rest }) => rest)(e) : e;
       }
       if (!wasDay || e.date !== date) return e;
       // the day mark covered the swipe too (the Plan row hides its button)
@@ -1522,7 +1568,7 @@ export function unmarkMealAte(plan, entryId, date, today) {
         const s = /** @type {any} */ (e);
         return s.currency && !s.eatenAt ? { ...s, eatenAt: today } : e;
       }
-      return e.recipeId && !e.cookedAt ? { ...e, cookedAt: today } : e;
+      return (e.recipeId || isFreeTextMeal(e)) && !e.cookedAt ? { ...e, cookedAt: today } : e;
     }),
   };
 }

@@ -1340,7 +1340,14 @@ export function isIsoDate(s) {
  */
 export function openMealCount(entries, dateIso) {
   const meals = entries.filter(
-    (e) => e.date === dateIso && (e.recipeId || e.table) && !e.out && !e.cookedAt && !e.batchOnly,
+    (e) =>
+      e.date === dateIso &&
+      // a meal typed in by hand counts too, as in the app (2026-11-12); an
+      // occasion's note is not a meal
+      (e.recipeId || e.table || (e.freeText && !e.occasion)) &&
+      !e.out &&
+      !e.cookedAt &&
+      !e.batchOnly,
   ).length;
   const swipes = entries.filter(
     (e) => e.date === dateIso && e.out && e.currency && !e.eatenAt,

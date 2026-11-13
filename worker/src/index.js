@@ -580,6 +580,10 @@ async function runNotifications(token, topic, now, send, ateSecret = "") {
       if (t?.date !== yIso) continue;
       const seat = (t.seats ?? []).find((/** @type {any} */ x) => x?.id === "david");
       if (!seat || seat.status === "skipped") continue;
+      // a shared dinner he marked away (2026-11-12) is held in his plan by
+      // an OUT placeholder carrying the table's id: nothing left to log
+      if ((yPlan?.entries ?? []).some((/** @type {any} */ e) => e?.out && e.fromTable === t.id))
+        continue;
       yShared.push({
         date: t.date,
         slot: t.slot,

@@ -104,6 +104,7 @@ import {
   substitutionPlan,
   clearReceiptRows,
   consumeForCook,
+  restoreFromCook,
   PANTRY_LOCATIONS,
   withAutoUseSoon,
   removeFromPantry,
@@ -158,8 +159,10 @@ import {
   planSwipes,
   toggleSwipeEaten,
   markDayAte,
+  dayAte,
   unmarkDayAte,
   unmarkMealAte,
+  setEntryTook,
   settledEntryId,
   tripFor,
   buildDays,
@@ -1081,6 +1084,9 @@ function App() {
     [],
   );
 
+  const updatePantryRef = useRef(
+    /** @type {null | ((next: Record<string, any>) => void)} */ (null),
+  );
   const updatePantry = useCallback((/** @type {Record<string, any>} */ next) => {
     pantryRef.current = next;
     setPantry(next);
@@ -1102,6 +1108,7 @@ function App() {
       void write(resolved, next, { raw: true });
     })();
   }, []);
+  updatePantryRef.current = updatePantry;
 
   // in-app confirm (roadmap A2): one modal at the App root replaces every
   // window.confirm. askConfirm(message) resolves true on OK, false on
@@ -2159,12 +2166,39 @@ function App() {
 
   // meals whose ATE IT was taken back on this phone since it opened
   const uneatenRef = useRef(/** @type {Set<string>} */ (new Set()));
+  /**
+   * The food a tick took goes back when the tick does (2026-11-12). One
+   * exception: while another night of the same batch is still marked eaten,
+   * the pot WAS cooked, so the record moves to that night instead of the raw
+   * food returning (review). Returns the plan change to make, if any.
+   * @param {import("./lib/plan.js").Plan} p
+   * @param {Record<string, any> | undefined} mine the meal being un-ticked, as stored
+   * @returns {{ restored: boolean, moveTo?: string, took?: Record<string, any>[] }}
+   */
+  const takeBackFood = (p, mine) => {
+    const took = mine?.took;
+    if (!mine || !Array.isArray(took) || took.length === 0) return { restored: false };
+    const sibling = p.entries.find(
+      (e) => e.id !== mine.id && e.recipeId && e.recipeId === mine.recipeId && e.cookedAt,
+    );
+    if (sibling) return { restored: true, moveTo: sibling.id, took };
+    updatePantryRef.current?.(restoreFromCook(pantryRef.current, took));
+    return { restored: true };
+  };
   const handleMarkCooked = useCallback(
     (/** @type {string} */ entryId, /** @type {number} */ seconds = -1) => {
       const plan = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
       const entry = plan.entries.find((e) => e.id === entryId);
       // the cook timer's END passes its recorded span (7.10) and never
       // un-cooks; Cook Mode's plain tap keeps the old toggle semantics
+      if (seconds < 0 && entry?.cookedAt) {
+        // the un-tick: the food it took goes back with it (2026-11-12)
+        const back = takeBackFood(plan, entry);
+        const undone = toggleEntryCooked(plan, entryId, localIsoDate(new Date()));
+        if (!back.restored) uneatenRef.current.add(entryId);
+        updatePlan(back.moveTo ? setEntryTook(undone, back.moveTo, back.took ?? []) : undone);
+        return;
+      }
       updatePlan(
         seconds >= 0
           ? recordCook(plan, entryId, localIsoDate(new Date()), seconds)
@@ -2184,12 +2218,27 @@ function App() {
         return;
       const recipe = allRecipesRef.current.find((r) => r.id === entry.recipeId);
       if (!recipe) return;
-      const { pantry: next, used } = consumeForCook(
+      const {
+        pantry: next,
+        used,
+        took,
+      } = consumeForCook(
         pantryRef.current,
         /** @type {any} */ (cookPlan(recipe, entry.servings).ingredients),
       );
       if (used.length === 0 && next === pantryRef.current) return;
       updatePantry(next);
+      // what left the shelves is written on the meal, so taking ATE IT back
+      // can put exactly that food back (2026-11-12)
+      if (took.length > 0) {
+        updatePlan(
+          setEntryTook(
+            /** @type {import("./lib/plan.js").Plan} */ (planRef.current),
+            entryId,
+            took,
+          ),
+        );
+      }
     },
     [updatePlan, updatePantry],
   );
@@ -3748,9 +3797,9 @@ function App() {
   // ATE IT TAKEN BACK (P11, P1; David, 2026-11-12: "i clicked eat it for a
   // meal that i didnt eat and i cannot unclick it"). The Plan row's button is
   // a switch: a shared meal un-confirms its table, a personal one loses its
-  // stamp, and a day marked eaten in full stops being one. The pantry is not
-  // put back, same as Cook Mode's un-tick: nothing here can know what a
-  // mis-tap took off the shelf.
+  // stamp, and a day marked eaten in full stops being one. Food the tick
+  // took off the shelves goes back (the meal's `took` record); a tick made
+  // before that record existed has nothing to put back.
   const handleUneatEntry = useCallback(
     (/** @type {Record<string, any>} */ entry) => {
       const today = localIsoDate(new Date());
@@ -3762,12 +3811,26 @@ function App() {
         }
       }
       const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
-      const next = unmarkMealAte(p, String(entry.id ?? ""), String(entry.date ?? ""), today);
+      const date = String(entry.date ?? "");
+      // THE DAY MARK COVERED THE SHARED DINNER TOO (2026-11-12): the phone's
+      // "Ate everything" stamps no table, so un-ticking one meal used to
+      // un-mark that night's shared dinner with it. The day's other shared
+      // meals are confirmed the way ATE EVERYTHING in the app confirms them.
+      if (dayAte(p, date)) {
+        for (const t of tableDerived.entries) {
+          if (t.table && t.date === date && t.table !== entry.table && !t.cookedAt)
+            void handleMarkTableCooked(String(t.table));
+        }
+      }
+      const next = unmarkMealAte(p, String(entry.id ?? ""), date, today);
       if (next === p) return;
-      if (p.entries.some((e) => e.id === entry.id && e.cookedAt)) uneatenRef.current.add(entry.id);
-      updatePlan(next);
+      const mine = p.entries.find((e) => e.id === entry.id && e.cookedAt);
+      const back = takeBackFood(p, mine);
+      if (back.restored) uneatenRef.current.delete(String(entry.id));
+      else if (mine) uneatenRef.current.add(String(entry.id));
+      updatePlan(back.moveTo ? setEntryTook(next, back.moveTo, back.took ?? []) : next);
     },
-    [updatePlan, writeHouseEvents],
+    [updatePlan, writeHouseEvents, tableDerived, handleMarkTableCooked],
   );
 
   // MY running (or imminent) occasion, for the Plan tab banner. The screen

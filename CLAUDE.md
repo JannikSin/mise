@@ -172,3 +172,13 @@ number and date it with the ship day before tagging. `release.ps1` gate 4b refus
 top entry is unnamed, not above live, or not dated the ship day. Right after a release, `next`
 opens a fresh `unreleased` entry. A hotfix to `main` adds its line to the current live
 version's notes and does not change the number.
+
+**Release colors (David, 2026-11-12).** "i want each fix to come with a new color scheme",
+then "only for releases": every numbered release ships a new color set, so one look at the
+phone says the new version arrived. The set is named in the release's `palette` in
+`app/lib/release.js` and lives in the tokens at the top of `app/styles.css` (with the
+`/* palette: Name */` line), plus `theme-color` in `index.html` and the two colors in
+`manifest.webmanifest`. Plan shows `vX.Y · Name` under the week. `tests/release.test.js`
+fails a release that reuses the previous set, leaves a file on the old one, or loses
+readable contrast. A hotfix keeps the live version's colors. 1.97 is "Harbor" (deep blue);
+1.0 to 1.96 were "Console" (green).

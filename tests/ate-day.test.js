@@ -20,6 +20,13 @@ import {
   markDayAte,
   unmarkDayAte,
   unmarkMealAte,
+  setEntryTook,
+  toggleSlotOut,
+  cycleSlotAway,
+  isFreeTextMeal,
+  dedupeSettled,
+  toggleEntryCooked,
+  setEntryRecipe,
   dayAte,
   ateBannerDay,
   datesOfWeek,
@@ -592,4 +599,114 @@ test("an un-ticked meal stays un-ticked through a sync merge with another device
   const byId = Object.fromEntries(merged.entries.map((/** @type {any} */ e) => [e.id, e]));
   assert.equal(byId.a.cookedAt, undefined, "the undo survives the merge");
   assert.equal(byId.b.cookedAt, "2026-11-12", "the other device's tick survives too");
+});
+
+// ---- "fix all the other fixes" (David, 2026-11-12) --------------------------
+
+test("a free-text meal can be un-ticked, and keeps its tick when a day mark converts", () => {
+  const plan = markDayAte(
+    {
+      week: "2026-W46",
+      entries: [
+        { id: "f", date: "2026-11-10", slot: "lunch", freeText: "sandwich at the lab", servings: 1 },
+        { id: "m", date: "2026-11-10", slot: "dinner", recipeId: "r1", servings: 1 },
+      ],
+    },
+    "2026-11-10",
+  );
+  const next = unmarkMealAte(plan, "m", "2026-11-10", "2026-11-12");
+  assert.equal(next.entries[0].cookedAt, "2026-11-12", "the free-text meal keeps its tick");
+  const again = unmarkMealAte(next, "f", "2026-11-10", "2026-11-12");
+  assert.equal("cookedAt" in again.entries[0], false, "and can be un-ticked on its own");
+});
+
+test("the took record rides on the meal and leaves with its tick", () => {
+  const plan = {
+    week: "2026-W46",
+    entries: [{ id: "a", date: "2026-11-10", slot: "dinner", recipeId: "r1", servings: 1, cookedAt: "2026-11-10" }],
+  };
+  assert.equal(setEntryTook(plan, "a", []), plan, "nothing taken records nothing");
+  const took = [{ id: "new", food: "chicken thigh", qty: "300 g" }];
+  const withTook = setEntryTook(plan, "a", took);
+  assert.deepEqual(withTook.entries[0].took, took);
+  const undone = unmarkMealAte(withTook, "a", "2026-11-10", "2026-11-12");
+  assert.equal("took" in undone.entries[0], false);
+  assert.equal("cookedAt" in undone.entries[0], false);
+});
+
+test("a settled shared dinner marked away keeps its table id, through the swipe step too", () => {
+  const plan = {
+    week: "2026-W46",
+    entries: [
+      { id: "s1", date: "2026-11-10", slot: "dinner", recipeId: "r1", servings: 1, pinned: true, fromTable: "tb9" },
+      { id: "x", date: "2026-11-10", slot: "lunch", recipeId: "r2", servings: 1 },
+    ],
+  };
+  const est = { estCalories: 700, estProtein: 35 };
+  const out = toggleSlotOut(plan, "2026-11-10", "dinner", est);
+  const ph = out.entries.find((e) => e.date === "2026-11-10" && e.slot === "dinner");
+  assert.equal(ph.out, true);
+  assert.equal(ph.fromTable, "tb9", "the house table still counts as settled, so it is not put back");
+  assert.equal(out.entries.filter((e) => e.fromTable === "tb9").length, 1);
+  const swipe = cycleSlotAway(out, "2026-11-10", "dinner", est, { estCalories: 800, estProtein: 65 }, "swipes");
+  const sw = swipe.entries.find((e) => e.slot === "dinner");
+  assert.equal(sw.currency, "swipes");
+  assert.equal(sw.fromTable, "tb9");
+  // a slot with no settled dinner gets a plain placeholder
+  const plain = toggleSlotOut(plan, "2026-11-10", "lunch", est).entries.find((e) => e.slot === "lunch");
+  assert.equal("fromTable" in plain, false);
+});
+
+// ---- review of the four fixes (2026-11-13) ----------------------------------
+
+test("an occasion's note, an away slot and a shared row are not free-text meals", () => {
+  assert.equal(isFreeTextMeal({ freeText: "sandwich at the lab" }), true);
+  assert.equal(isFreeTextMeal({ freeText: "Nothing by mouth, per your letter", occasion: "colo-1" }), false);
+  assert.equal(isFreeTextMeal({ freeText: "eating out", out: true }), false);
+  assert.equal(isFreeTextMeal({ freeText: "the batch: chili", table: "batch" }), false);
+  assert.equal(isFreeTextMeal({ recipeId: "r1", freeText: "x" }), false);
+  // and the day-mark conversion never stamps an occasion's note as eaten
+  const plan = markDayAte(
+    {
+      week: "2026-W46",
+      entries: [
+        { id: "o", date: "2026-11-10", slot: "lunch", freeText: "Water only until the draw", servings: 1, occasion: "lab-1" },
+        { id: "m", date: "2026-11-10", slot: "dinner", recipeId: "r1", servings: 1 },
+        { id: "n", date: "2026-11-10", slot: "breakfast", recipeId: "r2", servings: 1 },
+      ],
+    },
+    "2026-11-10",
+  );
+  const next = unmarkMealAte(plan, "m", "2026-11-10", "2026-11-12");
+  assert.equal(next.entries[0].cookedAt, undefined);
+  assert.equal(next.entries[2].cookedAt, "2026-11-12");
+});
+
+test("the took record never outlives the tick: un-tick and SWITCH both drop it", () => {
+  const plan = {
+    week: "2026-W46",
+    entries: [
+      { id: "a", date: "2026-11-10", slot: "dinner", recipeId: "r1", servings: 1, cookedAt: "2026-11-10", took: [{ id: "x", food: "rice", qty: "200 g" }] },
+    ],
+  };
+  assert.equal("took" in toggleEntryCooked(plan, "a", "2026-11-12").entries[0], false);
+  assert.equal("took" in setEntryRecipe(plan, "a", "r2").entries[0], false);
+});
+
+test("dedupeSettled keeps the away mark when a merge leaves it beside the settled dinner", () => {
+  const meal = { id: "s1", date: "2026-11-10", slot: "dinner", recipeId: "r1", servings: 1, fromTable: "tb9" };
+  const away = { id: "p1", date: "2026-11-10", slot: "dinner", freeText: "eating out", servings: 1, out: true, fromTable: "tb9" };
+  const other = { id: "s2", date: "2026-11-11", slot: "dinner", recipeId: "r2", servings: 1, fromTable: "tb7" };
+  assert.deepEqual(dedupeSettled([meal, away, other]).map((e) => e.id), ["p1", "s2"]);
+  assert.deepEqual(dedupeSettled([away, meal]).map((e) => e.id), ["p1"]);
+  assert.deepEqual(dedupeSettled([meal, { ...meal, id: "dup" }]).map((e) => e.id), ["s1"], "two settled copies: first kept, as before");
+});
+
+test("the phone counts a hand-typed meal as open, and never an occasion's note", () => {
+  const entries = [
+    { date: "2026-11-10", slot: "lunch", freeText: "sandwich at the lab", servings: 1 },
+    { date: "2026-11-10", slot: "dinner", freeText: "Nothing by mouth", servings: 1, occasion: "colo-1" },
+    { date: "2026-11-10", slot: "breakfast", recipeId: "r1", servings: 1, cookedAt: "2026-11-10" },
+  ];
+  assert.equal(openMealCount(entries, "2026-11-10"), 1);
 });

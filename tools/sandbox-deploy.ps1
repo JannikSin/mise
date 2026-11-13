@@ -92,7 +92,10 @@ $html = Get-Content -Raw -Encoding UTF8 $idx
 if ($html -notmatch 'name="mise-data-branch" content="main"') { throw "index.html lacks the committed data-branch meta; refusing to deploy a shell that cannot fail closed" }
 $html = $html.Replace('name="mise-data-branch" content="main"', 'name="mise-data-branch" content="sandbox"')
 $html = $html.Replace('<meta name="apple-mobile-web-app-title" content="Mise" />', '<meta name="apple-mobile-web-app-title" content="Mise NEXT" />')
-$html = $html.Replace('<meta name="theme-color" content="#13271c" />', '<meta name="theme-color" content="#ff9500" />')
+# the release's own colour changes every release (app/styles.css, "palette:"), so match any value
+$themed = [regex]::Replace($html, '<meta name="theme-color" content="#[0-9a-fA-F]{6}" />', '<meta name="theme-color" content="#ff9500" />')
+if ($themed -eq $html) { throw "index.html has no theme-color meta to recolour for the sandbox" }
+$html = $themed
 $html = $html.Replace('<title>Mise</title>', '<title>Mise NEXT</title>')
 [System.IO.File]::WriteAllText($idx, $html, (New-Object System.Text.UTF8Encoding($false)))
 
