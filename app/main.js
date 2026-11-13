@@ -5078,6 +5078,12 @@ function App() {
   const routeTable = route.table
     ? houseEvents.flatMap((h) => h.events.tables).find((t) => t.id === route.table)
     : undefined;
+  // the quick card over the plan shows the dish the same way the page does
+  // (audit 2026-11-06, finding 2: it showed the full meat while the list
+  // bought the proportioned amount)
+  const peekTable = peek?.tableId
+    ? houseEvents.flatMap((h) => h.events.tables).find((t) => t.id === peek.tableId)
+    : undefined;
   const routeServe =
     routeTable && !routeTable.sameForEveryone
       ? buildServe(
@@ -5648,7 +5654,11 @@ function App() {
     ${
       peek &&
       html`<${RecipePeek}
-        recipe=${recipeById(peek.recipeId) ?? null}
+        recipe=${
+          (peekTable
+            ? withSwaps(withRatio(recipeById(peek.recipeId), /** @type {any} */ (peekTable).ratio), /** @type {any} */ (peekTable).swaps)
+            : recipeById(peek.recipeId)) ?? null
+        }
         servings=${peek.servings}
         date=${peek.date}
         entryId=${peek.entryId}
