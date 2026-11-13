@@ -55,9 +55,9 @@ const clockOf = (ms) => {
  * START / PAUSE / END on a planned entry. END records the span AND marks the
  * meal cooked (the rehomed COOKED write); a cooked entry shows recorded vs
  * stated and takes the "overrun was me" comment the review reads.
- * @param {{ entry: Record<string, any>, statedMinutes?: number, onCooked: (entryId: string, seconds?: number) => void, onCookComment?: (entryId: string, text: string) => void }} props
+ * @param {{ entry: Record<string, any>, statedMinutes?: number, onCooked: (entryId: string, seconds?: number) => void, onUncooked?: (entry: Record<string, any>) => void, onCookComment?: (entryId: string, text: string) => void }} props
  */
-function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
+function CookTimer({ entry, statedMinutes, onCooked, onUncooked = undefined, onCookComment }) {
   const [timer, setTimer] = useState(readTimer);
   const [, setTick] = useState(0);
   const [comment, setComment] = useState(/** @type {string} */ (entry.cookComment ?? ""));
@@ -100,6 +100,14 @@ function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
           >COOKED
           ✓${took != null ? ` · took ${took}m` : ""}${statedMinutes ? ` · plan said ${statedMinutes}m` : ""}</span
         >
+        ${
+          // a mistaken tap is taken back here too, not only on the Plan row
+          // (David, 2026-11-12: "i cannot unclick it")
+          onUncooked &&
+          html`<button class="linktext" aria-label="Undo: not cooked" onClick=${() => onUncooked(entry)}>
+            undo
+          </button>`
+        }
       </div>
       ${
         onCookComment &&
@@ -149,7 +157,7 @@ function CookTimer({ entry, statedMinutes, onCooked, onCookComment }) {
 }
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, date?: string, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void, avoid?: string[] | null, cookNight?: boolean, mealBLines?: string[] }} props `mealBLines` = a second-Sunday-dish night's own lines (the Plan row's); `cookNight` = this page is the shared pot's own cook night; `avoid` = the viewer's avoid list (null = unread); picks they avoid are left off
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, date?: string, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onUncooked?: (entry: Record<string, any>) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void, avoid?: string[] | null, cookNight?: boolean, mealBLines?: string[] }} props `mealBLines` = a second-Sunday-dish night's own lines (the Plan row's); `cookNight` = this page is the shared pot's own cook night; `avoid` = the viewer's avoid list (null = unread); picks they avoid are left off
  */
 export function RecipeView({
   recipe,
@@ -169,6 +177,7 @@ export function RecipeView({
   mealBLines = [],
   entry = undefined,
   onCooked = undefined,
+  onUncooked = undefined,
   onCookComment = undefined,
   serve = null,
   tableCooked = false,
@@ -298,6 +307,7 @@ export function RecipeView({
           entry=${entry}
           statedMinutes=${recipe.totalTime}
           onCooked=${onCooked}
+          onUncooked=${onUncooked}
           onCookComment=${onCookComment}
         />`
       }
@@ -471,7 +481,17 @@ export function RecipeView({
           <div class="actions">
             ${
               tableCooked
-                ? html`<span class="k">COOKED ✓</span>`
+                ? html`<span class="k">COOKED ✓</span>
+                    ${
+                      onUncooked &&
+                      html`<button
+                        class="linktext"
+                        aria-label="Undo: the table is not cooked"
+                        onClick=${() => onUncooked({ table: tableId, date })}
+                      >
+                        undo
+                      </button>`
+                    }`
                 : html`<button class="primary" onClick=${() => onCookedTable(tableId)}>
                     ■ SERVED: MARK THE TABLE COOKED
                   </button>`

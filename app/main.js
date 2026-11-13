@@ -2054,6 +2054,7 @@ function App() {
   const handleToggleOut = useCallback(
     async (/** @type {string} */ date, /** @type {string} */ slot) => {
       let p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      let removed = false;
       // marking a filled slot OUT deletes its planned meal (pins included) —
       // one 44px tap, and un-toggling brings back an EMPTY slot, not the
       // meal. So a filled slot always asks first. Turning OUT back off just
@@ -2065,6 +2066,7 @@ function App() {
         )
           return;
         p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+        removed = true;
       }
       // 7.11: with a buffet currency on the profile, the away tap cycles
       // planned → OUT → SWIPE (buffet estimates: protein piled where its
@@ -2081,6 +2083,18 @@ function App() {
         buffet?.id ?? null,
       );
       updatePlan(next);
+      const listBefore = shoppingRef.current;
+      // the tap removed a meal: the way back is one tap too, as on SWITCH.
+      // On a past day nothing else can bring that meal back (2026-11-12).
+      if (removed) {
+        setUndoToast({
+          message: "meal removed",
+          restore: () => {
+            updatePlan(p);
+            if (shoppingRef.current !== listBefore) updateShopping(listBefore);
+          },
+        });
+      }
       // keep an already-built list truthful: the out meal's ingredients must
       // not linger as things to buy (post-shop the re-derive IS the delta
       // list, 7.2 — bought food already sits in the pantry and subtracts);
@@ -5250,6 +5264,7 @@ function App() {
         onAvoid=${handleAvoidRecipe}
         entry=${route.entry ? (plan.entries ?? []).find((e) => e.id === route.entry) : undefined}
         onCooked=${handleMarkCooked}
+        onUncooked=${handleUneatEntry}
         onCookComment=${handleCookComment}
         serve=${routeServe}
         tableCooked=${Boolean(routeTable?.cookedAt)}

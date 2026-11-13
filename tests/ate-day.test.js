@@ -573,3 +573,23 @@ test("unmarkMealAte on a day marked eaten in full: the day mark goes, the other 
   assert.equal(dayAte(viaTable, "2026-11-10"), false);
   assert.equal(viaTable.entries[1].cookedAt, "2026-11-12");
 });
+
+test("an un-ticked meal stays un-ticked through a sync merge with another device's write", async () => {
+  const { mergeFieldWise } = await import("../app/lib/merge.js");
+  const base = {
+    week: "2026-W46",
+    entries: [
+      { id: "a", date: "2026-11-10", slot: "lunch", recipeId: "r1", servings: 1, cookedAt: "2026-11-10" },
+      { id: "b", date: "2026-11-11", slot: "lunch", recipeId: "r2", servings: 1 },
+    ],
+  };
+  const local = unmarkMealAte(base, "a", "2026-11-10", "2026-11-12");
+  const remote = {
+    ...base,
+    entries: [base.entries[0], { ...base.entries[1], cookedAt: "2026-11-12" }],
+  };
+  const merged = /** @type {any} */ (mergeFieldWise(base, local, remote));
+  const byId = Object.fromEntries(merged.entries.map((/** @type {any} */ e) => [e.id, e]));
+  assert.equal(byId.a.cookedAt, undefined, "the undo survives the merge");
+  assert.equal(byId.b.cookedAt, "2026-11-12", "the other device's tick survives too");
+});
