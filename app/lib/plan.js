@@ -1232,6 +1232,11 @@ export function setEntryRecipe(plan, entryId, recipeId) {
       // a switched meal is not the meal you cooked
       delete rest.cookedAt;
       delete rest.took;
+      // nor the plate a shared table served: its estimate belongs to that dish
+      if (rest.fromTable) {
+        delete rest.estCalories;
+        delete rest.estProtein;
+      }
       return { ...rest, recipeId, freeText: undefined };
     }),
   };
@@ -1393,6 +1398,30 @@ export function settledEntryId(tableId) {
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   return `s${h.toString(16).padStart(8, "0")}`;
+}
+
+/**
+ * A past shared meal turned into MY plan's own row (SETTLED HISTORY). It
+ * carries the table's estimate, the trimmed or tailored plate the Plan meter
+ * counted, so the day does not jump back to the full recipe the morning after
+ * (audit 2026-11-06, finding 1: about 200 g on Plan read 245 g in Review).
+ * @param {Record<string, any>} e a derived table entry (deriveTables)
+ * @returns {PlanEntry}
+ */
+export function settleTableEntry(e) {
+  return /** @type {any} */ ({
+    id: settledEntryId(String(e.table)),
+    date: e.date,
+    slot: e.slot,
+    recipeId: e.viewRecipeId,
+    servings: e.servings,
+    pinned: true,
+    fromTable: e.table,
+    ...(e.estCalories != null ? { estCalories: e.estCalories } : {}),
+    ...(e.estProtein != null ? { estProtein: e.estProtein } : {}),
+    ...(e.cookedAt ? { cookedAt: e.cookedAt } : {}),
+    ...(e.leftoverOf ? { leftoverOf: e.leftoverOf } : {}),
+  });
 }
 
 /**
@@ -1701,8 +1730,11 @@ export function dayTotals(entries, recipesById, date) {
     if (e.date !== date) continue;
     // est fields are the honest path for anything not cooked from this
     // profile's own pool (a table's recipe may not even be IN their
-    // filtered pool; a described away meal has no recipe at all)
-    if (e.out || e.table || (!e.recipeId && (e.estCalories != null || e.estProtein != null))) {
+    // filtered pool; a described away meal has no recipe at all). A settled
+    // shared meal keeps the plate the table served (audit 2026-11-06,
+    // finding 1); a row settled before that fix has no est and reads the recipe.
+    const hasEst = e.estCalories != null || e.estProtein != null;
+    if (e.out || e.table || ((!e.recipeId || e.fromTable) && hasEst)) {
       calories += e.estCalories ?? 0;
       protein += e.estProtein ?? 0;
       continue;

@@ -1591,7 +1591,9 @@ even the same slot — merge without losing either entry.
       "fromTable": "b-wayne-kitchen-2026-09-01-dinner", // ? SETTLED HISTORY
       //   (David 2026-09-05: "i want to always see what was cooked"). Once a
       //   shared meal's date is past, main.js copies it into MY plan as a real
-      //   entry (recipeId + servings, cookedAt when the table carried one)
+      //   entry (recipeId + servings, cookedAt when the table carried one,
+      //   and the table's estCalories/estProtein so the day keeps the trimmed
+      //   or tailored plate it showed; dayTotals reads them, audit 2026-11-06)
       //   stamped with the table id, so it outlives the 14-day table
       //   retention and is searchable like any meal I cooked alone. A table
       //   my plan has settled derives nothing (deriveTables skips it) and is

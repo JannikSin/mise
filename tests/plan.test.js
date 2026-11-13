@@ -32,6 +32,7 @@ import {
   unlockRecipe,
   switchCandidate,
   setEntryRecipe,
+  settleTableEntry,
   planSwipes,
   weekRunSwipes,
   dailyCovered,
@@ -1083,4 +1084,43 @@ test("normalizePlan carries unknown top-level keys through (release train: read-
   assert.deepEqual(out.futureField, { x: 1 }, "an older shell must not delete a newer field");
   assert.equal(out.shoppedAt, "2026-09-06");
   assert.equal(out.week, "2026-W37");
+});
+
+test("a settled shared dinner keeps the day's numbers it showed on Plan (P1, P11; audit 2026-11-06 finding 1)", () => {
+  // full recipe: 2 servings x 60 g = 120 g; the proportioned table served 95 g
+  const recipes = new Map([["beef", { nutrition: { calories: 700, protein: 60 } }]]);
+  const derived = {
+    id: "table-t1",
+    table: "t1",
+    date: "2026-11-02",
+    slot: "dinner",
+    viewRecipeId: "beef",
+    servings: 2,
+    pinned: true,
+    estCalories: 1150,
+    estProtein: 95,
+  };
+  const before = dayTotals(/** @type {any} */ ([derived]), recipes, "2026-11-02");
+  const row = settleTableEntry(derived);
+  assert.equal(row.fromTable, "t1");
+  assert.equal(row.recipeId, "beef");
+  assert.ok(!("table" in row), "a settled row is a real plan row, never stripped");
+  assert.deepEqual(dayTotals([row], recipes, "2026-11-02"), before);
+  assert.deepEqual(before, { calories: 1150, protein: 95 });
+  // a row settled before the fix carries no estimate and still reads the recipe
+  const old = { ...row };
+  delete old.estCalories;
+  delete old.estProtein;
+  assert.deepEqual(dayTotals([old], recipes, "2026-11-02"), { calories: 1400, protein: 120 });
+  // switching the dish drops the table's plate, so the new dish counts in full
+  const switched = setEntryRecipe(
+    /** @type {any} */ ({ week: "2026-W45", entries: [row] }),
+    row.id,
+    "beef",
+  );
+  assert.equal(switched.entries[0].estProtein, undefined);
+  assert.deepEqual(dayTotals(switched.entries, recipes, "2026-11-02"), {
+    calories: 1400,
+    protein: 120,
+  });
 });

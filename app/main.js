@@ -163,7 +163,7 @@ import {
   unmarkDayAte,
   unmarkMealAte,
   setEntryTook,
-  settledEntryId,
+  settleTableEntry,
   tripFor,
   buildDays,
   pickableDays,
@@ -3039,27 +3039,9 @@ function App() {
     for (const e of toSettle) {
       // one id per table, so two devices settling the same meal collapse
       // to one row in the keyed merge instead of showing it twice
-      const id = settledEntryId(String(e.table));
-      if (next.entries.some((x) => x.id === id)) continue;
-      next = {
-        ...next,
-        entries: [
-          ...next.entries,
-          /** @type {any} */ ({
-            id,
-            date: e.date,
-            slot: e.slot,
-            recipeId: e.viewRecipeId,
-            servings: e.servings,
-            pinned: true,
-            fromTable: e.table,
-            ...(e.cookedAt ? { cookedAt: e.cookedAt } : {}),
-            .../** @type {any} */ (
-              e.leftoverOf ? { leftoverOf: /** @type {any} */ (e).leftoverOf } : {}
-            ),
-          }),
-        ],
-      };
+      const row = settleTableEntry(e);
+      if (next.entries.some((x) => x.id === row.id)) continue;
+      next = { ...next, entries: [...next.entries, row] };
     }
     updatePlan(next);
   }, [tableDerived, plan, weekId, hasToken, updatePlan]);
