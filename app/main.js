@@ -5728,9 +5728,15 @@ if (location.search.includes("fresh")) {
   const clean = location.href.split("?")[0] + location.hash;
   void (async () => {
     try {
+      // OWN worker and caches only (audit 2026-11-06, finding 4): every PWA
+      // on janniksin.github.io shares this origin, and clearing them all
+      // left Tally, Finesse and the rest without their offline copy, the
+      // same failure sw.js's activate handler was fixed for on 2026-08-18.
+      // register("./sw.js") scopes the worker to this page's folder.
+      const own = new URL("./", location.href).href;
       const regs = await navigator.serviceWorker?.getRegistrations?.();
-      for (const r of regs ?? []) await r.unregister();
-      for (const k of await caches.keys()) await caches.delete(k);
+      for (const r of regs ?? []) if (r.scope === own) await r.unregister();
+      for (const k of await caches.keys()) if (k.startsWith("mise-")) await caches.delete(k);
     } catch {
       // nothing to clear, or the browser refused: reload anyway
     }
