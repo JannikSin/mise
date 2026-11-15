@@ -30,6 +30,9 @@ import {
   dayAte,
   ateBannerDay,
   datesOfWeek,
+  toggleSwipeEaten,
+  dayTotals,
+  SWIPE_TEXT,
 } from "../app/lib/plan.js";
 import { weekAdherence } from "../app/lib/adherence.js";
 
@@ -655,6 +658,43 @@ test("a settled shared dinner marked away keeps its table id, through the swipe 
   // a slot with no settled dinner gets a plain placeholder
   const plain = toggleSlotOut(plan, "2026-11-10", "lunch", est).entries.find((e) => e.slot === "lunch");
   assert.equal("fromTable" in plain, false);
+});
+
+test("a meal swipe is recorded on a day that has passed: planned, ate out, swipe, ate it, and the day counts the tray (David, 2026-11-12)", () => {
+  // Thursday looking back at Tuesday: the dinner Tuesday planned was not cooked
+  const tuesday = "2026-11-10";
+  const thursday = "2026-11-12";
+  const recipes = new Map([["r1", { nutrition: { calories: 600, protein: 40 } }]]);
+  const plan = {
+    week: "2026-W46",
+    entries: [
+      { id: "d", date: tuesday, slot: "dinner", recipeId: "r1", servings: 1 },
+      { id: "l", date: tuesday, slot: "lunch", recipeId: "r1", servings: 1 },
+    ],
+  };
+  const outEst = { estCalories: 700, estProtein: 35 };
+  const swipeEst = { estCalories: 1200, estProtein: 90 };
+  // first tap of the away button: the planned dinner goes, the slot reads ate out
+  const out = cycleSlotAway(plan, tuesday, "dinner", outEst, swipeEst, "swipes");
+  const o = out.entries.filter((e) => e.date === tuesday && e.slot === "dinner");
+  assert.equal(o.length, 1, "the planned dinner is replaced, never stacked");
+  assert.equal(o[0].out, true);
+  assert.equal("currency" in o[0], false, "the first tap is ate out, not yet a swipe");
+  // second tap: the same slot becomes a meal swipe with the tray estimate
+  const swipe = cycleSlotAway(out, tuesday, "dinner", outEst, swipeEst, "swipes");
+  const sw = swipe.entries.find((e) => e.date === tuesday && e.slot === "dinner");
+  assert.equal(sw.currency, "swipes");
+  assert.equal(sw.freeText, SWIPE_TEXT);
+  assert.equal(sw.estCalories, 1200);
+  // ATE IT on the swipe, pressed two days later, stamps that it was eaten
+  const ate = toggleSwipeEaten(swipe, tuesday, "dinner", thursday);
+  assert.equal(ate.entries.find((e) => e.date === tuesday && e.slot === "dinner").eatenAt, thursday);
+  // Tuesday's totals: lunch as cooked plus the swipe's tray, not the old dinner
+  assert.deepEqual(dayTotals(plan.entries, recipes, tuesday), { calories: 1200, protein: 80 });
+  assert.deepEqual(dayTotals(ate.entries, recipes, tuesday), { calories: 1800, protein: 130 });
+  // a second ATE IT takes it back
+  const undone = toggleSwipeEaten(ate, tuesday, "dinner", thursday);
+  assert.equal("eatenAt" in undone.entries.find((e) => e.date === tuesday && e.slot === "dinner"), false);
 });
 
 // ---- review of the four fixes (2026-11-13) ----------------------------------
