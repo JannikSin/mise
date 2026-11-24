@@ -578,7 +578,36 @@ test("saved instructions KEEP the temps and margin notes (Realist 5)", () => {
     recipe.instructions[0].text.includes("71 \u00b0C (ground meat done temp)"),
     "the supplied doneness figure survives into the text every view renders",
   );
-  assert.ok(recipe.instructions[0].text.includes("crust is flavor"), "margin notes survive too");
+  assert.ok(
+    (recipe.instructions[0].notes ?? []).some((/** @type {string} */ n) => n.includes("crust is flavor")),
+    "margin notes survive too, in the field the recipe page prints under the step",
+  );
+});
+
+test("an HBP save carries the game plan, tools, spoon measures and inline amount slots (2026-11-24)", () => {
+  const input = good();
+  input.synopsis = "Brown the beef, build the pot, simmer.";
+  input.tools = ["large pot", "wooden spoon"];
+  input.ingredients[0].measure = "1 lb";
+  input.steps[1].text = "Cook {{2}} onion down, then the garlic briefly.";
+  const v = validateAnnotation(input, CTX);
+  assert.equal(v.ok, true, JSON.stringify(/** @type {any} */ (v).errors ?? []));
+  const recipe = annotationToRecipe(/** @type {any} */ (v).result, {
+    id: "x",
+    sourceUrl: "https://e.x",
+    transcription: SRC,
+    pantryStaples: [],
+  });
+  assert.equal(recipe.synopsis, "Brown the beef, build the pot, simmer.");
+  assert.deepEqual(recipe.tools, ["large pot", "wooden spoon"]);
+  assert.equal(recipe.ingredients[0].measure, "1 lb");
+  assert.ok(recipe.instructions[1].text.includes("{{2}}"));
+
+  const badSlot = good();
+  badSlot.steps[1].text = "Cook {{40}} onion down.";
+  const bv = validateAnnotation(badSlot, CTX);
+  assert.equal(bv.ok, false);
+  assert.ok(/** @type {any} */ (bv).errors.some((/** @type {string} */ e) => e.includes("names no ingredient row")));
 });
 
 test("the saved recipe holds up in the real consumers (ENG F8b)", () => {

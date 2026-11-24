@@ -612,6 +612,43 @@ summary.block-title {
   border-bottom: 1px solid var(--line);
 }
 
+.steps .step-note {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  font-style: italic;
+  color: var(--dim);
+  line-height: 1.45;
+}
+
+.ing[role="checkbox"] {
+  cursor: pointer;
+}
+
+.ing .tick {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 15px;
+  vertical-align: -2px;
+  color: var(--signal);
+}
+
+.ing.have > span:first-child {
+  color: var(--dim);
+  text-decoration: line-through;
+}
+
+.synopsis p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .steps li::before {
   content: counter(step, decimal-leading-zero);
   font-family: var(--mono);

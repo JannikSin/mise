@@ -2751,6 +2751,8 @@ export function validateAnnotation(input, ctx) {
     const row = /** @type {Record<string, any>} */ ({ food, grams: Math.round(grams * 10) / 10 });
     const was = str(it.wasOriginal, 60);
     const note = str(it.note, 200);
+    const measure = str(it.measure, 40);
+    if (measure) row.measure = measure;
     if (was) row.wasOriginal = was;
     if (note) row.note = note;
     if (it.optional === true) row.optional = true;
@@ -2775,6 +2777,8 @@ export function validateAnnotation(input, ctx) {
         p: input.planFit,
         q: input.refusalReason,
         c: input.cuisine,
+        y: input.synopsis,
+        o: input.tools,
       }),
     );
     for (const t of extractTemps(respText)) {
@@ -2857,11 +2861,22 @@ export function validateAnnotation(input, ctx) {
     if (!deal.time && !deal.buys) bad("rebuild mode with no deal block");
   }
 
+  // inline amounts (2026-11-24): a step may name ingredient row k as {{k}};
+  // every k must be a real row, or the cook reads a blank where an amount was
+  for (const st of steps) {
+    for (const m of st.text.matchAll(/\{\{(\d{1,2})\}\}/g)) {
+      const k = Number(m[1]);
+      if (k < 1 || k > ingredients.length) bad(`step ${st.n}: {{${k}}} names no ingredient row`);
+    }
+  }
+
   if (errors.length > 0) return { ok: false, errors };
 
   return {
     ok: true,
     result: {
+      synopsis: str(input.synopsis, 300),
+      tools: strList(input.tools, 20, 60),
       mode,
       objective,
       refusalReason: str(input.refusalReason, 400),
@@ -2971,6 +2986,8 @@ export function annotationToRecipe(result, { id, sourceUrl, transcription, pantr
       (result.summary[0] ?? "Scanned and annotated by the HBP engine.") +
       (result.riskGroups ? ` ${HBP_RISK_LINE}` : ""),
     sourceUrl,
+    ...(result.synopsis ? { synopsis: result.synopsis } : {}),
+    ...(result.tools?.length ? { tools: result.tools } : {}),
     servings: result.servings,
     totalTime: result.totalTime,
     mealType: result.mealType, // D3: never saved without one
@@ -2989,6 +3006,7 @@ export function annotationToRecipe(result, { id, sourceUrl, transcription, pantr
       unit: "g",
       food: i.food,
       ...(i.note ? { note: i.note } : {}),
+      ...(i.measure ? { measure: i.measure } : {}),
       ...(i.optional ? { optional: true } : {}),
       ...(stapleSet.has(hbpSlug(i.food)) ? { staple: true } : {}),
     })),
@@ -2997,6 +3015,8 @@ export function annotationToRecipe(result, { id, sourceUrl, transcription, pantr
     // renders instructions only, and a saved scan whose 71 C lives in an
     // unrendered JSON field has lost the entire point of the feature. The
     // hbp block below keeps the structured copy for a richer renderer later.
+    // margin notes ride in their own field (2026-11-24: the recipe page
+    // prints them as small lines under the step); temps stay in the text
     instructions: result.steps.map((/** @type {Record<string, any>} */ s) => ({
       step: s.n,
       text: [
@@ -3005,8 +3025,8 @@ export function annotationToRecipe(result, { id, sourceUrl, transcription, pantr
           (/** @type {any} */ t) =>
             `${t.value} °${t.unit} (${HBP_TEMP_LABEL_NAMES[t.label] ?? t.label})`,
         ),
-        ...(s.notes ?? []),
       ].join(" · "),
+      ...((s.notes ?? []).length ? { notes: s.notes } : {}),
     })),
     nutrition: { ...result.nutrition, method: "estimated" },
     foodGroups: { ...result.foodGroups, method: "estimated" },

@@ -5,6 +5,8 @@ import { localIsoDate } from "../lib/dates.js";
 import { useEffect, useState } from "preact/hooks";
 import { cookFor, cookPlan, scaleQty, COOK_FOR_MAX, COOK_FOR_MIN } from "../lib/portions.js";
 import { formatRecipeQty } from "../lib/shopping.js";
+import { stepView, hasInlineAmounts } from "../lib/stepview.js";
+import { EQUIPMENT } from "../lib/equipment.js";
 import { keepAwake } from "../lib/awake.js";
 import { labelChecks, untrustedForAutoPlan } from "../lib/plan.js";
 
@@ -104,7 +106,11 @@ function CookTimer({ entry, statedMinutes, onCooked, onUncooked = undefined, onC
           // a mistaken tap is taken back here too, not only on the Plan row
           // (David, 2026-11-12: "i cannot unclick it")
           onUncooked &&
-          html`<button class="linktext" aria-label="Undo: not cooked" onClick=${() => onUncooked(entry)}>
+          html`<button
+            class="linktext"
+            aria-label="Undo: not cooked"
+            onClick=${() => onUncooked(entry)}
+          >
             undo
           </button>`
         }
@@ -190,6 +196,26 @@ export function RecipeView({
   // COOK FOR N (D-03): null follows the plan or the table; a number is the
   // cook's own choice, and only then do the amounts leave the plan's
   const [cookN, setCookN] = useState(/** @type {number | null} */ (null));
+  // the ingredient list doubles as a have-everything check (David,
+  // 2026-11-24: "what it is useful for though is knowing if you have
+  // everything"); ticks are this phone's only, per recipe
+  const haveKey = `mise.have.${recipe?.id ?? ""}`;
+  const [have, setHave] = useState(() => {
+    try {
+      return /** @type {string[]} */ (JSON.parse(localStorage.getItem(haveKey) ?? "[]"));
+    } catch {
+      return /** @type {string[]} */ ([]);
+    }
+  });
+  const toggleHave = (/** @type {string} */ food) => {
+    const next = have.includes(food) ? have.filter((f) => f !== food) : [...have, food];
+    setHave(next);
+    try {
+      localStorage.setItem(haveKey, JSON.stringify(next));
+    } catch {
+      // storage refused: the ticks just do not survive a reload
+    }
+  };
   const origin = originOf(from);
   // the recipe page holds the screen as well as Cook mode. Reading the steps
   // off THIS page with full hands is exactly when it used to sleep, because
@@ -256,7 +282,7 @@ export function RecipeView({
     ingredients.filter((/** @type {any} */ i) => i.optional),
     avoid,
   ).left;
-  const step =(/** @type {number} */ by) =>
+  const step = (/** @type {number} */ by) =>
     setCookN(Math.min(COOK_FOR_MAX, Math.max(COOK_FOR_MIN, shownN + by)));
   return html`
     <div class="view detail">
@@ -275,12 +301,12 @@ export function RecipeView({
           forN
             ? html`cooking for ${forN.portions}`
             : plan.mode === "bowl"
-            ? html`one portion, yours`
-            : plan.mode === "single"
-              ? html`your plate`
-              : plan.mode === "scaled"
-                ? html`the whole pot`
-                : html`makes extra on purpose`
+              ? html`one portion, yours`
+              : plan.mode === "single"
+                ? html`your plate`
+                : plan.mode === "scaled"
+                  ? html`the whole pot`
+                  : html`makes extra on purpose`
         }
         · ${recipe.effort}
         ${(recipe.purpose ?? []).map((/** @type {string} */ p) => html`<span class="tag ${p}">${p === "pre-activity" ? "pre-act" : p}</span>`)}
@@ -296,6 +322,16 @@ export function RecipeView({
         }
       </div>
       <p class="hint">${recipe.description}</p>
+      ${
+        // the game plan in one or two lines (David, 2026-11-24: "a synopsis
+        // at the top of what you are doing")
+        typeof recipe.synopsis === "string" &&
+        recipe.synopsis.trim() &&
+        html`<div class="tile synopsis" role="note">
+          <div class="k">GAME PLAN</div>
+          <p>${recipe.synopsis}</p>
+        </div>`
+      }
       ${
         // THE COOK TIMER (fix list 7.10, promise P7): START when you begin,
         // END when you serve — the recorded span is what the stated time
@@ -461,7 +497,11 @@ export function RecipeView({
                     apart${
                       // "not for Sam: ... Do not plate it." is its own sentence
                       // (1.96 re-gate, Engineer F7)
-                      r.note ? (/^not for /.test(r.note) ? `. ${r.note.replace(/^n/, "N")}` : ` (${r.note})`) : ""
+                      r.note
+                        ? /^not for /.test(r.note)
+                          ? `. ${r.note.replace(/^n/, "N")}`
+                          : ` (${r.note})`
+                        : ""
                     }
                   </div>
                 </div>`
@@ -481,8 +521,7 @@ export function RecipeView({
           <div class="actions">
             ${
               tableCooked
-                ? html`<span class="k">COOKED ✓</span>
-                    ${
+                ? html`<span class="k">COOKED ✓</span> ${
                       onUncooked &&
                       html`<button
                         class="linktext"
@@ -532,7 +571,9 @@ export function RecipeView({
           ${
             recipe.batchPrep.weekdayAssembly &&
             html`<div>
-              <div class="k">${cookNight ? "The nights after, from the fridge" : "Day-of assembly"}</div>
+              <div class="k">
+                ${cookNight ? "The nights after, from the fridge" : "Day-of assembly"}
+              </div>
               <div class="d">${recipe.batchPrep.weekdayAssembly}</div>
             </div>`
           }
@@ -605,9 +646,11 @@ export function RecipeView({
             ${
               leftOff.length > 0 &&
               html`<p class="hint redflag" role="note">
-                ${avoid === null
-                  ? "Not checked: your profile could not be read, so nothing is listed. Check signal and reopen."
-                  : `Left off for you: ${leftOff.map((/** @type {any} */ c) => c.food).join(", ")}.`}
+                ${
+                  avoid === null
+                    ? "Not checked: your profile could not be read, so nothing is listed. Check signal and reopen."
+                    : `Left off for you: ${leftOff.map((/** @type {any} */ c) => c.food).join(", ")}.`
+                }
               </p>`
             }
             ${
@@ -667,41 +710,81 @@ export function RecipeView({
           ${
             forN &&
             html`<p class="hint">
-              The amounts below are scaled; the steps are written for the recipe as written.
+              ${
+                hasInlineAmounts(recipe)
+                  ? "The amounts below and in the steps are scaled."
+                  : "The amounts below are scaled; the steps are written for the recipe as written."
+              }
             </p>`
           }
           ${
             forN &&
             planned &&
             html`<div class="actions">
-              <button class="secondary" onClick=${() => setCookN(null)}>BACK TO THE PLAN'S AMOUNTS</button>
+              <button class="secondary" onClick=${() => setCookN(null)}>
+                BACK TO THE PLAN'S AMOUNTS
+              </button>
             </div>`
           }
         </div>`
       }
       ${
         !rotates(recipe) &&
-        html`<h2 class="block-title">Ingredients</h2>
+        html`${(() => {
+            const labels = [
+              ...(Array.isArray(recipe.equipment) ? recipe.equipment : [])
+                .map((/** @type {string} */ id) => EQUIPMENT.find((e) => e.id === id)?.label)
+                .filter(Boolean),
+              ...(Array.isArray(recipe.tools) ? recipe.tools : []).filter(
+                (/** @type {any} */ t) => typeof t === "string" && t.trim(),
+              ),
+            ];
+            return (
+              labels.length > 0 &&
+              html`<h2 class="block-title">Equipment</h2>
+                <p class="hint equipment">${labels.join(" · ")}</p>`
+            );
+          })()}
+          <h2 class="block-title">Ingredients</h2>
           ${
             optionalOff.length > 0 &&
             html`<p class="hint redflag" role="note">
-              ${avoid === null
-                ? "Not checked: your profile could not be read, so the optional extras are not listed. Check signal and reopen."
-                : `Left off for you: ${optionalOff.map((/** @type {any} */ c) => c.food).join(", ")}.`}
+              ${
+                avoid === null
+                  ? "Not checked: your profile could not be read, so the optional extras are not listed. Check signal and reopen."
+                  : `Left off for you: ${optionalOff.map((/** @type {any} */ c) => c.food).join(", ")}.`
+              }
             </p>`
           }
           <div>
-            ${ingredients.filter((/** @type {any} */ i) => !optionalOff.includes(i)).map(
-              (/** @type {Record<string, any>} */ i) => html`
-                <div class="ing ${i.staple ? "staple" : ""}">
-                  <span>
-                    ${i.food}${i.note ? html` <span class="note">(${i.note})</span>` : ""}
-                    ${i.staple ? html` <span class="pantry-mark">pantry</span>` : ""}
-                  </span>
-                  <span class="q">${formatRecipeQty(i.qty, i.unit)}</span>
-                </div>
-              `,
-            )}
+            ${ingredients
+              .filter((/** @type {any} */ i) => !optionalOff.includes(i))
+              .map(
+                (/** @type {Record<string, any>} */ i) => html`
+                  <div
+                    class="ing ${i.staple ? "staple" : ""} ${have.includes(i.food) ? "have" : ""}"
+                    role="checkbox"
+                    aria-checked=${have.includes(i.food)}
+                    tabindex="0"
+                    onClick=${() => toggleHave(i.food)}
+                    onKeyDown=${(/** @type {KeyboardEvent} */ e) => {
+                    if (e.key === " " || e.key === "Enter") {
+                      e.preventDefault();
+                      toggleHave(i.food);
+                    }
+                  }}
+                  >
+                    <span>
+                      <span class="tick" aria-hidden="true"
+                        >${have.includes(i.food) ? "✓" : ""}</span
+                      >
+                      ${i.food}${i.note ? html` <span class="note">(${i.note})</span>` : ""}
+                      ${i.staple ? html` <span class="pantry-mark">pantry</span>` : ""}
+                    </span>
+                    <span class="q">${formatRecipeQty(i.qty, i.unit)}</span>
+                  </div>
+                `,
+              )}
           </div>`
       }
 
@@ -717,13 +800,27 @@ export function RecipeView({
         unshopped &&
         html`<p class="hint receiptnote">
           No receipt scanned for this week yet, so nothing here is confirmed bought. Cook it anyway
-          if you already have the food. <a class="secondary linkbtn receiptbtn" href="#/list">SCAN THE RECEIPT →</a>
+          if you already have the food.
+          <a class="secondary linkbtn receiptbtn" href="#/list">SCAN THE RECEIPT →</a>
         </p>`
       }
       <ol class="steps">
         ${(recipe.instructions ?? []).map(
-          (/** @type {{ step: number, text: string }} */ s) =>
-            html`<li key=${s.step}>${s.text}</li>`,
+          (/** @type {{ step: number, text: string, notes?: string[] }} */ s) => {
+            const v = stepView(s, ingredients, {
+              asWritten: ingredients.every(
+                (/** @type {any} */ row, /** @type {number} */ k) =>
+                  Number(row?.qty) === Number(recipe.ingredients?.[k]?.qty),
+              ),
+              hbp: (recipe.tags ?? []).includes("hbp-annotated"),
+            });
+            return html`<li key=${s.step}>
+              <div>
+                ${v.text}
+                ${v.notes.map((note, k) => html`<p class="step-note" key=${k}>${note}</p>`)}
+              </div>
+            </li>`;
+          },
         )}
       </ol>
     </div>
