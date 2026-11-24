@@ -374,8 +374,7 @@ function App() {
       setKrogerLinkNote("Kroger account linked, SEND TO CART is ready on List.");
       // land on the List the note points at, not on Plan
       window.location.hash = "#/list";
-    }
-    else if (r === "error")
+    } else if (r === "error")
       setKrogerLinkNote("Kroger sign-in did not complete. Try LINK KROGER again.");
   }, []);
 
@@ -835,17 +834,18 @@ function App() {
         // no events file read at all (offline, cold): keep the remembered
         // guests rather than purge their targets (Tribunal Engineer, loop 2)
         const anyEvents = loaded.some((h) => (h.events?.tables ?? []).length > 0);
-        if (anyEvents) await setScopeGuests(
-          loaded
-            .flatMap((h) =>
-              (h.events?.tables ?? [])
-                .filter((t) => t?.date >= from && t?.date <= to)
-                .flatMap((t) =>
-                  (t?.seats ?? []).map((/** @type {any} */ st) => String(st?.id ?? "")),
-                ),
-            )
-            .filter(Boolean),
-        );
+        if (anyEvents)
+          await setScopeGuests(
+            loaded
+              .flatMap((h) =>
+                (h.events?.tables ?? [])
+                  .filter((t) => t?.date >= from && t?.date <= to)
+                  .flatMap((t) =>
+                    (t?.seats ?? []).map((/** @type {any} */ st) => String(st?.id ?? "")),
+                  ),
+              )
+              .filter(Boolean),
+          );
         if (alive) setHouseEvents(loaded);
       })();
     };
@@ -3152,7 +3152,9 @@ function App() {
       // against my personal weeklyBudgetUsd (David, 2026-08-30)
       seats: Math.max(1, (active.memberIds ?? []).length),
       shopperName: cookName,
-      othersBuy: [...others].sort(([a], [b]) => a.localeCompare(b)).map(([date, name]) => ({ date, name })),
+      othersBuy: [...others]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, name]) => ({ date, name })),
     };
   }, [houseEvents, allProfiles, me, tableDerived]);
   listBrigadeRef.current = listBrigade;
@@ -3417,10 +3419,13 @@ function App() {
    */
   const liveSynthFor = (/** @type {import("./lib/tables.js").TableEvent} */ t) => {
     // on its planned plating (t.ratio): the plates are that dish, as sized
-    const recipe = withSwaps(withRatio(
-      bankRecipesRef.current.find((r) => r.id === t.recipeId),
-      /** @type {any} */ (t).ratio,
-    ), /** @type {any} */ (t).swaps);
+    const recipe = withSwaps(
+      withRatio(
+        bankRecipesRef.current.find((r) => r.id === t.recipeId),
+        /** @type {any} */ (t).ratio,
+      ),
+      /** @type {any} */ (t).swaps,
+    );
     if (!recipe || recipe.assembly !== "plated" || t.sameForEveryone) return null;
     // rung 0f for render-time consumers: on a BOUGHT week with NO frozen
     // pot, the food in the house is uniform quantities — a solved plate
@@ -3489,10 +3494,13 @@ function App() {
 
   /** Freeze a table's pot per spec 10. Solved-only: null in uniform mode. */
   const potStringFor = async (/** @type {import("./lib/tables.js").TableEvent} */ t) => {
-    const recipe = withSwaps(withRatio(
-      bankRecipesRef.current.find((r) => r.id === t.recipeId),
-      /** @type {any} */ (t).ratio,
-    ), /** @type {any} */ (t).swaps);
+    const recipe = withSwaps(
+      withRatio(
+        bankRecipesRef.current.find((r) => r.id === t.recipeId),
+        /** @type {any} */ (t).ratio,
+      ),
+      /** @type {any} */ (t).swaps,
+    );
     if (!recipe || t.sameForEveryone) return null;
     const seats = [...(t.seats ?? []), ...guestSeats(t)];
     const targetsById = new Map();
@@ -3773,7 +3781,12 @@ function App() {
           // FRESH copy, never the one read before the await (Tribunal
           // Red Team + Realist, 2026-10-18: the last write lost the others)
           const fresh = houseEventsRef.current.find((h) => h.house === house)?.events ?? events;
-          next = setTablePot(setTableCooked(fresh, tableId, today, today), tableId, pot ?? null, today);
+          next = setTablePot(
+            setTableCooked(fresh, tableId, today, today),
+            tableId,
+            pot ?? null,
+            today,
+          );
         }
         writeHouseEvents(house, next);
         return;
@@ -4088,9 +4101,7 @@ function App() {
     let moved = false;
     for (const b0 of cur.brigades ?? []) {
       const b =
-        b0.open === undefined && b0.until >= today
-          ? { ...b0, open: true, breaks: "purdue" }
-          : b0;
+        b0.open === undefined && b0.until >= today ? { ...b0, open: true, breaks: "purdue" } : b0;
       const r = rolledRule(b, today) ?? (b !== b0 ? { from: b.from, until: b.until } : null);
       if (!r) continue;
       const after = updateBrigade(
@@ -4191,9 +4202,8 @@ function App() {
       const house = myHouseOf();
       const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
       const active =
-        (cur?.brigades ?? []).find(
-          (b) => b.memberIds.includes(me) && brigadeCovers(b, date),
-        ) ?? null;
+        (cur?.brigades ?? []).find((b) => b.memberIds.includes(me) && brigadeCovers(b, date)) ??
+        null;
       if (!cur || !active) return { note: "No standing brigade covers that day.", retry: false };
       // only someone this phone already shows may be seated, so a stray id
       // cannot pull another house's profile onto it (Tribunal Red Team,
@@ -4206,7 +4216,9 @@ function App() {
       const targets = /** @type {any} */ (await readTargetsForSeat(profileId, mayShow));
       // the fresh copy: the read above waited on the network
       const fresh = houseEventsRef.current.find((h) => h.house === house)?.events ?? cur;
-      const name = String(allProfilesRef.current.find((p) => p.id === profileId)?.name ?? profileId);
+      const name = String(
+        allProfilesRef.current.find((p) => p.id === profileId)?.name ?? profileId,
+      );
       const r = seatGuestOnDay(
         fresh,
         active.id,
@@ -4218,8 +4230,7 @@ function App() {
         {
           today: localIsoDate(new Date()),
           bankLoading: !(
-            collectionFresh("recipes", { raw: true }) ||
-            collectionStalled("recipes", { raw: true })
+            collectionFresh("recipes", { raw: true }) || collectionStalled("recipes", { raw: true })
           ),
         },
       );
@@ -4289,7 +4300,8 @@ function App() {
   const handleAddAllergy = useCallback(
     async (/** @type {string} */ id, /** @type {string} */ key) => {
       const cur = /** @type {any} */ (await readTargetsOf(id));
-      if (!cur) return "Could not read their profile, so nothing was changed. Try again once synced.";
+      if (!cur)
+        return "Could not read their profile, so nothing was changed. Try again once synced.";
       const have = Array.isArray(cur.allergens) ? cur.allergens : [];
       if (have.includes(key)) return "Already on their allergies.";
       await writeTargetsOf(id, { ...cur, allergens: [...have, key] });
@@ -4298,17 +4310,20 @@ function App() {
     [],
   );
 
-  const handleInviteLink = useCallback(async (
-    /** @type {"member" | "guest"} */ kind,
-    /** @type {string | undefined} */ forProfile = undefined,
-  ) => {
-    const me = activeProfile();
-    const hostHouse = allProfilesRef.current.find((p) => p.id === me)?.household ?? "home";
-    const { code } = await newInvite(kind, hostHouse, me, forProfile);
-    const base = `${location.origin}${location.pathname}`;
-    // a roommate's link says so, so their form skips "which dinners can you make"
-    return `${base}#/join?code=${encodeURIComponent(code)}${kind === "member" ? "&as=member" : ""}`;
-  }, []);
+  const handleInviteLink = useCallback(
+    async (
+      /** @type {"member" | "guest"} */ kind,
+      /** @type {string | undefined} */ forProfile = undefined,
+    ) => {
+      const me = activeProfile();
+      const hostHouse = allProfilesRef.current.find((p) => p.id === me)?.household ?? "home";
+      const { code } = await newInvite(kind, hostHouse, me, forProfile);
+      const base = `${location.origin}${location.pathname}`;
+      // a roommate's link says so, so their form skips "which dinners can you make"
+      return `${base}#/join?code=${encodeURIComponent(code)}${kind === "member" ? "&as=member" : ""}`;
+    },
+    [],
+  );
 
   const handleNewGuestProfile = useCallback(() => {
     try {
@@ -4556,9 +4571,7 @@ function App() {
     // clean, and with the 2.0 sync scope an unseated guest always reads as
     // unread. seatScreen names it, so the seat is refused, not waved on.
     // A dish not in the bank refuses every seat too (terrigen, 10/27)
-    return screenSeats(recipe, allProfilesRef.current, (id) =>
-      readTargetsOf(id).catch(() => null),
-    );
+    return screenSeats(recipe, allProfilesRef.current, (id) => readTargetsOf(id).catch(() => null));
   }, []);
 
   // THE KITCHEN RULE'S PEOPLE (2.0, I-08): each member's targets for the
@@ -4594,10 +4607,13 @@ function App() {
       const cur = houseEventsRef.current.find((h) => h.house === house)?.events;
       const t = cur?.tables.find((x) => x.id === tableId);
       const recipe = t
-        ? withSwaps(withRatio(
-            recipesById(bankRecipesRef.current).get(t.recipeId),
-            /** @type {any} */ (t).ratio,
-          ), /** @type {any} */ (t).swaps)
+        ? withSwaps(
+            withRatio(
+              recipesById(bankRecipesRef.current).get(t.recipeId),
+              /** @type {any} */ (t).ratio,
+            ),
+            /** @type {any} */ (t).swaps,
+          )
         : null;
       if (!cur || !t || !recipe) throw new Error("table or recipe missing, sync first");
       const live = (t.seats ?? []).filter((s) => s.status !== "skipped");
@@ -4743,7 +4759,13 @@ function App() {
             // is seated skipped with the reason, never served it
             const no = seatScreen(recipe, targetsById?.get(id));
             return no.length > 0
-              ? { id, servings, status: /** @type {"skipped"} */ ("skipped"), auto: true, blocked: no.join(", ") }
+              ? {
+                  id,
+                  servings,
+                  status: /** @type {"skipped"} */ ("skipped"),
+                  auto: true,
+                  blocked: no.join(", "),
+                }
               : { id, servings };
           }),
         },
@@ -4914,7 +4936,10 @@ function App() {
           const cook = cookOf(t, house, profilesById);
           const payer = /** @type {any} */ (t).buyerId ?? cook?.id;
           if (!payer || payer !== me) continue; // the payer records
-          const recipe = withSwaps(withRatio(bankById.get(t.recipeId), /** @type {any} */ (t).ratio), /** @type {any} */ (t).swaps);
+          const recipe = withSwaps(
+            withRatio(bankById.get(t.recipeId), /** @type {any} */ (t).ratio),
+            /** @type {any} */ (t).swaps,
+          );
           if (!recipe) continue;
           // price the debt at MY store, not whatever sits first in the shared
           // catalogue (that was trader-joes — a store nobody here shops at)
@@ -4979,7 +5004,10 @@ function App() {
           if (house !== myHouseNow) continue;
           for (const t of events.tables) {
             if (typeof t.date !== "string" || t.date < from || t.date > to) continue;
-            const recipe = withSwaps(withRatio(bankById.get(t.recipeId), /** @type {any} */ (t).ratio), /** @type {any} */ (t).swaps);
+            const recipe = withSwaps(
+              withRatio(bankById.get(t.recipeId), /** @type {any} */ (t).ratio),
+              /** @type {any} */ (t).swaps,
+            );
             if (!recipe) continue;
             const e = ledgerEntryFor(t, me, recipe, priceCatalogue, myPriceStore(), profilesById);
             if (e) {
@@ -5008,8 +5036,7 @@ function App() {
     },
     [myHouseNow],
   );
-  const moneyId = () =>
-    `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const moneyId = () => `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const handlePurchase = useCallback(
     (
       /** @type {{ payerId: string, total: number, date: string, split: "eaten" | "even" }} */ a,
@@ -5100,10 +5127,13 @@ function App() {
     routeTable && !routeTable.sameForEveryone
       ? buildServe(
           routeTable,
-          withSwaps(withRatio(
-            bankRecipes.find((r) => r.id === routeTable.recipeId),
-            /** @type {any} */ (routeTable).ratio,
-          ), /** @type {any} */ (routeTable).swaps),
+          withSwaps(
+            withRatio(
+              bankRecipes.find((r) => r.id === routeTable.recipeId),
+              /** @type {any} */ (routeTable).ratio,
+            ),
+            /** @type {any} */ (routeTable).swaps,
+          ),
           allProfiles,
           serveRules,
           liveSynthFor(routeTable),
@@ -5297,7 +5327,10 @@ function App() {
         recipe=${
           // a table's page shows the dish on the plating its plan bought
           routeTable
-            ? withSwaps(withRatio(recipeById(route.id), /** @type {any} */ (routeTable).ratio), /** @type {any} */ (routeTable).swaps)
+            ? withSwaps(
+                withRatio(recipeById(route.id), /** @type {any} */ (routeTable).ratio),
+                /** @type {any} */ (routeTable).swaps,
+              )
             : recipeById(route.id)
         }
         loading=${loading}
@@ -5333,6 +5366,13 @@ function App() {
         tableCooked=${Boolean(routeTable?.cookedAt)}
         onCookedTable=${handleMarkTableCooked}
         cookNight=${Boolean(routeTable && !routeTable.leftoverOf && !(/** @type {any} */ (routeTable).preparedOn))}
+        people=${(() => {
+          const mine = String(allProfiles.find((p) => p.id === me)?.household ?? "home");
+          return visibleProfiles
+            .filter((p) => String(p.household ?? "home") === mine)
+            .map((p) => ({ id: p.id, name: p.name ?? p.id, emoji: p.emoji }));
+        })()}
+        onReadTargets=${handleReadTargets}
         mealBLines=${
           // a second-Sunday-dish night: the same lines its Plan row prints,
           // read from the derived table entry the row reads (1.96 re-gate,
@@ -5365,18 +5405,20 @@ function App() {
         loading=${!listLoaded}
         onBuild=${handleBuildList}
         bankReady=${bankReady}
-        money=${hasCap("money") && ledgerLoaded
-          ? {
-              me,
-              members: houseMembers,
-              balances: moneyBalances,
-              recent: moneyRecent,
-              weightsFor: moneyWeightsFor,
-              onPurchase: handlePurchase,
-              onPayment: handlePayment,
-              onRemove: handleRemoveMoney,
-            }
-          : null}
+        money=${
+          hasCap("money") && ledgerLoaded
+            ? {
+                me,
+                members: houseMembers,
+                balances: moneyBalances,
+                recent: moneyRecent,
+                weightsFor: moneyWeightsFor,
+                onPurchase: handlePurchase,
+                onPayment: handlePayment,
+                onRemove: handleRemoveMoney,
+              }
+            : null
+        }
         profiles=${visibleProfiles}
         onSettle=${handleSettle}
         substitutions=${substitutions}
@@ -5426,7 +5468,6 @@ function App() {
         }
         weeklyBudgetUsd=${targets?.weeklyBudgetUsd}
         budgetWeek=${weekBudget(targets?.weeklyBudgetUsd, prevWeekPlan)}
-
         region=${targets?.region}
         storeSlug=${storeSlugOf(targets?.stores?.[0])}
         onReceiptApprove=${handleReceiptApprove}
@@ -5483,16 +5524,21 @@ function App() {
         }}
       />`
     }
-    ${route.view === "join" && html`<${JoinView}
-      code=${/** @type {any} */ (route).code ?? ""}
-      member=${Boolean(/** @type {any} */ (route).member)}
-    />`}
+    ${
+      route.view === "join" &&
+      html`<${JoinView}
+        code=${/** @type {any} */ (route).code ?? ""}
+        member=${Boolean(/** @type {any} */ (route).member)}
+      />`
+    }
     ${route.view === "status" && html`<${StatusView} code=${/** @type {any} */ (route).code ?? ""} />`}
     ${
       // a signed-in phone opening a guest's page: say whose page it is
       // rather than show a blank screen (v1.6 builder note)
       route.view === "me" &&
-      html`<div class="view"><p class="hint">This page is for guests. Your own meals are on Plan.</p></div>`
+      html`<div class="view">
+        <p class="hint">This page is for guests. Your own meals are on Plan.</p>
+      </div>`
     }
     ${
       route.view === "hall" &&

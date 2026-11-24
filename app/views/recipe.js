@@ -6,6 +6,7 @@ import { useEffect, useState } from "preact/hooks";
 import { cookFor, cookPlan, scaleQty, COOK_FOR_MAX, COOK_FOR_MIN } from "../lib/portions.js";
 import { formatRecipeQty } from "../lib/shopping.js";
 import { stepView, hasInlineAmounts } from "../lib/stepview.js";
+import { whoIsEating, portionsLabel } from "../lib/whoseating.js";
 import { EQUIPMENT } from "../lib/equipment.js";
 import { keepAwake } from "../lib/awake.js";
 import { labelChecks, untrustedForAutoPlan } from "../lib/plan.js";
@@ -163,7 +164,7 @@ function CookTimer({ entry, statedMinutes, onCooked, onUncooked = undefined, onC
 }
 
 /**
- * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, date?: string, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onUncooked?: (entry: Record<string, any>) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void, avoid?: string[] | null, cookNight?: boolean, mealBLines?: string[] }} props `mealBLines` = a second-Sunday-dish night's own lines (the Plan row's); `cookNight` = this page is the shared pot's own cook night; `avoid` = the viewer's avoid list (null = unread); picks they avoid are left off
+ * @param {{ recipe: Record<string, any> | undefined, loading: boolean, from?: string, servings?: number, date?: string, tableId?: string, tableUnresolved?: boolean, potRows?: { food: string, unit: string, qty: number }[], unshopped?: boolean, onPromote?: (recipe: Record<string, any>) => Promise<void>, avoided?: boolean, onAvoid?: (id: string, avoid: boolean) => Promise<void>, entry?: Record<string, any>, onCooked?: (entryId: string, seconds?: number) => void, onUncooked?: (entry: Record<string, any>) => void, onCookComment?: (entryId: string, text: string) => void, serve?: import("../lib/serve.js").ServeModel | null, tableCooked?: boolean, onCookedTable?: (tableId: string) => void, avoid?: string[] | null, cookNight?: boolean, mealBLines?: string[], people?: { id: string, name: string, emoji?: string }[], onReadTargets?: (ids: string[]) => Promise<Record<string, any>> }} props `people` = the household the viewer may cook for; `onReadTargets` reads their targets (null = unreadable); `mealBLines` = a second-Sunday-dish night's own lines (the Plan row's); `cookNight` = this page is the shared pot's own cook night; `avoid` = the viewer's avoid list (null = unread); picks they avoid are left off
  */
 export function RecipeView({
   recipe,
@@ -188,6 +189,8 @@ export function RecipeView({
   serve = null,
   tableCooked = false,
   onCookedTable = undefined,
+  people = [],
+  onReadTargets = undefined,
 }) {
   const [avoidBusy, setAvoidBusy] = useState(false);
   const [promoting, setPromoting] = useState(
@@ -196,6 +199,11 @@ export function RecipeView({
   // COOK FOR N (D-03): null follows the plan or the table; a number is the
   // cook's own choice, and only then do the amounts leave the plan's
   const [cookN, setCookN] = useState(/** @type {number | null} */ (null));
+  // WHO'S EATING (David, 2026-11-24): people instead of a bare number
+  const [eaterIds, setEaterIds] = useState(/** @type {string[]} */ ([]));
+  const [guests, setGuests] = useState(/** @type {{ id: string, name: string }[]} */ ([]));
+  const [guestName, setGuestName] = useState("");
+  const [targetsById, setTargetsById] = useState(/** @type {Record<string, any>} */ ({}));
   // the ingredient list doubles as a have-everything check (David,
   // 2026-11-24: "what it is useful for though is knowing if you have
   // everything"); ticks are this phone's only, per recipe
@@ -271,7 +279,42 @@ export function RecipeView({
   const planned = Boolean(servings) || plan !== basePlan;
   const makes = Math.max(1, Number(recipe.servings) || 1);
   const baseN = planned ? Math.max(COOK_FOR_MIN, Math.round(plan.cookServings)) : makes;
-  const forN = scalable && cookN !== null ? cookFor(recipe, cookN) : null;
+  const eating = whoIsEating(recipe, [
+    ...eaterIds
+      .filter((id) => id in targetsById)
+      .map((id) => ({
+        id,
+        name: people.find((p) => p.id === id)?.name ?? id,
+        targets: targetsById[id],
+      })),
+    ...guests.map((g) => ({ ...g, guest: true })),
+  ]);
+  const pickedAny = eaterIds.length + guests.length > 0;
+  const togglePerson = async (/** @type {string} */ id) => {
+    if (eaterIds.includes(id)) {
+      const next = eaterIds.filter((x) => x !== id);
+      setEaterIds(next);
+      setCookN(null);
+      return;
+    }
+    setEaterIds([...eaterIds, id]);
+    setCookN(null);
+    if (!(id in targetsById) && onReadTargets) {
+      const got = /** @type {Record<string, any>} */ (await onReadTargets([id]).catch(() => ({})));
+      setTargetsById((cur) => ({ ...cur, [id]: got?.[id] ?? null }));
+    }
+  };
+  const addGuest = () => {
+    const name = guestName.trim().slice(0, 30);
+    if (!name) return;
+    setGuests([...guests, { id: `guest:${Date.now()}`, name }]);
+    setGuestName("");
+    setCookN(null);
+  };
+  // people picked and no manual tap since: the pot follows the people
+  const peopleN = pickedAny && eating.cookPortions > 0 ? eating.cookPortions : null;
+  const wantN = cookN ?? peopleN;
+  const forN = scalable && wantN !== null ? cookFor(recipe, wantN) : null;
   const shownN = forN ? forN.portions : baseN;
   const forLine = scalable ? cookFor(recipe, shownN) : null;
   const ingredients = forN ? forN.ingredients : plan.ingredients;
@@ -718,6 +761,80 @@ export function RecipeView({
             </p>`
           }
           ${
+            (people.length > 0 || pickedAny) &&
+            html`<div class="eaters">
+              <div class="k">WHO'S EATING</div>
+              <div class="eater-chips">
+                ${people.map(
+                  (p) =>
+                    html`<button
+                      key=${p.id}
+                      class="chip ${eaterIds.includes(p.id) ? "on" : ""}"
+                      aria-pressed=${eaterIds.includes(p.id)}
+                      onClick=${() => togglePerson(p.id)}
+                    >
+                      ${p.emoji ? `${p.emoji} ` : ""}${p.name}
+                    </button>`,
+                )}
+                ${guests.map(
+                  (g) =>
+                    html`<button
+                      key=${g.id}
+                      class="chip on"
+                      aria-label=${`Remove ${g.name}`}
+                      onClick=${() => {
+                        const next = guests.filter((x) => x.id !== g.id);
+                        setGuests(next);
+                        setCookN(null);
+                      }}
+                    >
+                      ${g.name} ×
+                    </button>`,
+                )}
+              </div>
+              <div class="eater-add">
+                <input
+                  type="text"
+                  placeholder="add a name"
+                  aria-label="Add someone without a profile"
+                  value=${guestName}
+                  maxlength="30"
+                  onInput=${(/** @type {any} */ e) => setGuestName(e.currentTarget.value)}
+                  onKeyDown=${(/** @type {KeyboardEvent} */ e) => {
+                    if (e.key === "Enter") addGuest();
+                  }}
+                />
+                <button class="secondary" onClick=${addGuest} disabled=${!guestName.trim()}>
+                  ADD
+                </button>
+              </div>
+              ${eating.rows.map(
+                (r) =>
+                  html`<p class="hint eater-line ${r.blocked.length ? "redflag" : ""}" key=${r.id}>
+                    ${
+                      r.blocked.length
+                        ? `${r.name}: not counted, ${r.blocked.join("; ")}`
+                        : `${r.name}: ${portionsLabel(r.portions)}${r.kcal ? `, about ${r.kcal} kcal` : ""}${r.protein ? ` and ${r.protein} g protein` : ""}`
+                    }
+                  </p>`,
+              )}
+              ${eaterIds
+                .filter((id) => !(id in targetsById))
+                .map(
+                  (id) =>
+                    html`<p class="hint" key=${`l${id}`}>
+                      reading ${people.find((p) => p.id === id)?.name ?? id}…
+                    </p>`,
+                )}
+              ${
+                eating.total > 0 &&
+                html`<p class="hint">
+                  ${`Together ${portionsLabel(Math.round(eating.total * 100) / 100)}; cooking ${portionsLabel(eating.cookPortions)}. A typed name counts 1 portion; a profile counts its own.`}
+                </p>`
+              }
+            </div>`
+          }
+          ${
             forN &&
             planned &&
             html`<div class="actions">
@@ -768,11 +885,11 @@ export function RecipeView({
                     tabindex="0"
                     onClick=${() => toggleHave(i.food)}
                     onKeyDown=${(/** @type {KeyboardEvent} */ e) => {
-                    if (e.key === " " || e.key === "Enter") {
-                      e.preventDefault();
-                      toggleHave(i.food);
-                    }
-                  }}
+                      if (e.key === " " || e.key === "Enter") {
+                        e.preventDefault();
+                        toggleHave(i.food);
+                      }
+                    }}
                   >
                     <span>
                       <span class="tick" aria-hidden="true"

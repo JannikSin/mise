@@ -3254,3 +3254,45 @@ label.checkline input[type="checkbox"] {
   border-style: dashed;
   border-color: var(--signal);
 }
+
+.cookfor .eaters {
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.cookfor .eater-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.cookfor .chip {
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+}
+
+.cookfor .chip.on {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+.cookfor .eater-add {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.cookfor .eater-add input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cookfor .eater-line {
+  margin: 2px 0;
+}
