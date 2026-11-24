@@ -2906,7 +2906,11 @@ export function saveEligible(result, path) {
     };
   if (result.mode === "abandon")
     return { ok: false, reason: "a rebuild-by-hand verdict saves nothing" };
-  if (result.riskGroups || result.tier2Present)
+  // a runny or jammy yolk (riskGroups with no tier-2 doneness figure) saves
+  // with the risk line printed on the recipe (David, 2026-11-24: "why does
+  // mise not allow runny yolk. obviously that needs to get fixed"); tier-2
+  // meat and fish doneness figures still render but never save (gate2 E1)
+  if (result.tier2Present)
     return {
       ok: false,
       reason: "this recipe uses a lower food-safety margin, so it is shown here but not saved",
@@ -2946,6 +2950,10 @@ export function hbpSlug(name) {
     .slice(0, 60);
 }
 
+/** the one optional food-safety line a saved runny-yolk recipe carries */
+export const HBP_RISK_LINE =
+  "Runny yolk: fine for a healthy adult; for pregnant, immunocompromised, under-5 or over-65 eaters cook the yolk until set.";
+
 /**
  * D2: the deterministic map from the record_annotation shape to the
  * canonical on-disk recipe shape shopping.js and the generators read.
@@ -2959,7 +2967,9 @@ export function annotationToRecipe(result, { id, sourceUrl, transcription, pantr
   return {
     id,
     name: result.title,
-    description: result.summary[0] ?? "Scanned and annotated by the HBP engine.",
+    description:
+      (result.summary[0] ?? "Scanned and annotated by the HBP engine.") +
+      (result.riskGroups ? ` ${HBP_RISK_LINE}` : ""),
     sourceUrl,
     servings: result.servings,
     totalTime: result.totalTime,

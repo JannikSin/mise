@@ -226,7 +226,7 @@ export function SystemView({
   const [notify, setNotify] = useState(/** @type {null | "busy" | "done"} */ (null));
   const [notifyErr, setNotifyErr] = useState("");
   const [notifyResult, setNotifyResult] = useState(
-    /** @type {null | { pinged: boolean, topicSet: boolean, cronReady: boolean, preview: { title: string, body: string }[] }} */ (
+    /** @type {null | { pinged: boolean, ntfyStatus: number, ntfyError: string, topicSet: boolean, cronReady: boolean, preview: { title: string, body: string }[] }} */ (
       null
     ),
   );
@@ -1429,7 +1429,13 @@ export function SystemView({
           notifyResult &&
           html`<div class="tile" role="status">
             <div class="k">
-              ${notifyResult.pinged ? "✓ ping sent, check your phone" : "no ping"} ·
+              ${
+                notifyResult.pinged
+                  ? "✓ ping sent, check your phone"
+                  : notifyResult.ntfyStatus
+                    ? `no ping: ntfy answered ${notifyResult.ntfyStatus}${notifyResult.ntfyError ? ` (${notifyResult.ntfyError})` : ""}`
+                    : "no ping"
+              } ·
               ${
                 notifyResult.cronReady
                   ? "hourly cron LIVE"

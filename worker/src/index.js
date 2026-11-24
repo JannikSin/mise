@@ -1625,6 +1625,10 @@ export default {
           ateSecretOf(env),
         );
         let pinged = false;
+        // why a ping failed, shown on the SYS button (11/24: topic set, ping
+        // false, and nothing said why); the topic itself is never echoed
+        let ntfyStatus = 0;
+        let ntfyError = "";
         if (env.NTFY_TOPIC) {
           const res = await fetch(`https://ntfy.sh/${env.NTFY_TOPIC}`, {
             method: "POST",
@@ -1632,11 +1636,15 @@ export default {
             body: `Test ping ${now.dateIso} ${now.hour}:00. Today's schedule has ${result.preview.length} notification(s).`,
           });
           pinged = res.ok;
+          ntfyStatus = res.status;
+          if (!res.ok) ntfyError = (await res.text().catch(() => "")).slice(0, 200);
         }
         return json(
           200,
           {
             pinged,
+            ntfyStatus,
+            ntfyError,
             topicSet: Boolean(env.NTFY_TOPIC),
             cronReady: Boolean(env.MISE_DATA_TOKEN && env.NTFY_TOPIC),
             preview: result.preview,

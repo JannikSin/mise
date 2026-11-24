@@ -524,12 +524,14 @@ export async function dinnerTurn(messages, people, candidates) {
 /**
  * Test the notification pipeline: sends one live ntfy ping and returns the
  * whole day's would-fire schedule plus whether the cron is fully configured.
- * @returns {Promise<{ pinged: boolean, topicSet: boolean, cronReady: boolean, preview: { title: string, body: string }[] }>}
+ * @returns {Promise<{ pinged: boolean, ntfyStatus: number, ntfyError: string, topicSet: boolean, cronReady: boolean, preview: { title: string, body: string }[] }>}
  */
 export async function notifyTest() {
   const data = await post("/notify-test", {});
   return {
     pinged: Boolean(data.pinged),
+    ntfyStatus: Number(data.ntfyStatus) || 0,
+    ntfyError: typeof data.ntfyError === "string" ? data.ntfyError : "",
     topicSet: Boolean(data.topicSet),
     cronReady: Boolean(data.cronReady),
     preview: Array.isArray(data.preview) ? data.preview : [],

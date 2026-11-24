@@ -20,6 +20,7 @@ import {
   screenSourceAvoid,
   validateAnnotation,
   saveEligible,
+  HBP_RISK_LINE,
   annotationToRecipe,
   extractRecipeFromHtml,
   sanitizeAnnotateContext,
@@ -223,6 +224,18 @@ test("tier-2 under the 71 C line needs the risk-group flag, and never saves in v
   assert.equal(flagged.ok, true, JSON.stringify(/** @type {any} */ (flagged).errors ?? []));
   const save = saveEligible(/** @type {any} */ (flagged).result, "url");
   assert.equal(save.ok, false, "tier-2 renders but does not save");
+});
+
+test("a runny yolk (risk flag, no tier-2 figure) saves with the risk line (David 2026-11-24)", () => {
+  const runny = good();
+  runny.riskGroups = true;
+  const v = validateAnnotation(runny, CTX);
+  assert.equal(v.ok, true, JSON.stringify(/** @type {any} */ (v).errors ?? []));
+  const r = /** @type {any} */ (v).result;
+  assert.equal(r.tier2Present, false);
+  assert.equal(saveEligible(r, "url").ok, true, "runny yolk saves");
+  const recipe = annotationToRecipe(r, { id: "x", sourceUrl: "https://e.x", transcription: SRC, pantryStaples: [] });
+  assert.ok(recipe.description.includes(HBP_RISK_LINE), "the risk line rides on the saved recipe");
 });
 
 test("the unlabelled sweep: any in-band figure anywhere in the response must be declared (B)", () => {
