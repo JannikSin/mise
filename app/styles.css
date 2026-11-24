@@ -553,7 +553,8 @@ summary.block-title {
 
 .macros4 {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* minmax(0, 1fr): four tiles in one row down to 320 px, never a column */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin: 12px 0;
 }
