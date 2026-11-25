@@ -55,7 +55,7 @@ import {
 } from "../app/lib/tables.js";
 import { partOf, synthesize } from "../app/lib/synth.js";
 import { composeWeekReview } from "../app/lib/review.js";
-import { setReviewNote, untrustedForAutoPlan } from "../app/lib/plan.js";
+import { setReviewNote, untrustedForAutoPlan, autoPlanEligible } from "../app/lib/plan.js";
 import { screenMenuReport, unconfirmedReason } from "../app/lib/annotate.js";
 import { composeTray, itemsForMeal, parseItem } from "../app/lib/dininghall.js";
 
@@ -1110,6 +1110,14 @@ const PROMISES = [
       const files = readdirSync(BANK_DIR).filter((f) => f.endsWith(".json"));
       const liveBank = files.map((f) => JSON.parse(readFileSync(new URL(f, BANK_DIR), "utf8")));
       for (const r of liveBank) {
+        // A GUEST IS NOT A BANK MEMBER (P12: "a recipe brought in mid-week
+        // through the annotator is a guest of the plan, not a member of the
+        // bank"). The recipe scan saves its page into this same folder, and
+        // on 2026-11-24 nine such guests arrived with no safeDays. A guest is
+        // fenced out of every auto-planner (untrustedForAutoPlan) and an
+        // unknown window is treated as a short one (asserted above), so the
+        // bank's rule is asked of the bank.
+        if (untrustedForAutoPlan(r)) continue;
         assert.ok(
           Number(r.safeDays) > 0,
           `${r.id}: no safeDays, so its leftovers have no window at all`,
@@ -1598,6 +1606,8 @@ const PROMISES = [
       /** @type {Record<string, number>} */
       const voices = {};
       let audited = 0;
+      // scanned guests in the folder: counted, fenced, not bank members
+      let guests = 0;
       for (const f of files) {
         const r = JSON.parse(readFileSync(new URL(f, BANK_DIR), "utf8"));
 
@@ -1606,6 +1616,13 @@ const PROMISES = [
         // could confirm or refute it, and an unfalsifiable promise reads as a
         // passing one.
         if (!("audited" in r)) {
+          // a scanned guest (P12) carries no audit record because it has not
+          // been through the audit; what the promise needs of it is that no
+          // auto-planner can pick it, and that is checked, not assumed
+          if (untrustedForAutoPlan(r) && !autoPlanEligible(r)) {
+            guests += 1;
+            continue;
+          }
           offences.push(`${r.id}: no audited field at all`);
           continue;
         }
@@ -1646,8 +1663,8 @@ const PROMISES = [
       // than printed and hoped over.
       assert.equal(
         audited,
-        files.length,
-        `${files.length - audited} bank recipes carry no audit at all`,
+        files.length - guests,
+        `${files.length - guests - audited} bank recipes carry no audit at all`,
       );
 
       // ONE ID, ONE RECIPE. Found while auditing 2026-08-19: two files

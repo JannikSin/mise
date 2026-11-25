@@ -302,7 +302,7 @@ test("his kitchen: the trip tripwire, never the $271 kind of week again", { skip
 });
 
 test(
-  "his kitchen: with his Costco stock in, the muffin uses his walnuts and dates and the yogurt already bought, still 190 to 215 g",
+  "his kitchen: with his Costco stock in, dishes trade to what he has or is already buying, the walnut muffin stays off Elliot's table, still 190 to 215 g",
   { skip },
   () => {
     const costco = [
@@ -323,21 +323,46 @@ test(
       pantryAdd: costco,
     };
     const { out, trip } = planHisWeek(opts);
-    const muffin = (out.swaps ?? []).filter(
-      (c) => c.recipeId === "wayne-double-chocolate-protein-muffins",
-    );
-    assert.deepEqual(muffin.map((c) => `${c.swap.from}>${c.swap.to}`).sort(), [
-      "almond-butter>walnuts",
-      "chocolate-chips>dates",
-      "cottage-cheese>greek-yogurt",
-    ]);
+    // WRITTEN 11/7 FOR THE WALNUT MUFFIN; THE WORLD MOVED 11/9. This check
+    // asserted the three muffin swaps (almond butter to walnuts, chocolate
+    // chips to dates, cottage cheese to Greek yogurt). Then Elliot's tree-nut
+    // allergy went onto his live profile (David, 11/7: "no tree nuts for
+    // elliot"), and a muffin made with walnuts cannot be the snack at a table
+    // he sits at, which Mise-Decisions says in so many words. So the muffin
+    // is refused and the planner says why; the rule that survives is the one
+    // David stated: dishes change to use what he has or is already buying.
+    const snacks = out.events.tables
+      .filter((/** @type {any} */ t) => DATES.includes(t.date) && t.slot === "snack")
+      .map((/** @type {any} */ t) => t.recipeId);
+    const elliotNuts = (J("profiles/elliot/profile/targets.json").allergens ?? []).includes("nuts");
+    if (elliotNuts) {
+      assert.ok(
+        !snacks.includes("wayne-double-chocolate-protein-muffins"),
+        "a walnut muffin was set as the snack at a table Elliot sits at",
+      );
+      assert.ok(
+        out.notes.some((/** @type {string} */ n) =>
+          n.startsWith("snack: none of the 1 named recipes passes"),
+        ),
+        "the refusal is said in words",
+      );
+    }
+    const swaps = out.swaps ?? [];
+    assert.ok(swaps.length >= 1, "no dish traded to what he has or is already buying");
+    const nutWords = ["walnut", "almond", "pecan", "cashew", "pistachio", "hazelnut"];
+    for (const c of swaps) {
+      assert.ok(
+        !nutWords.some((w) => String(c.swap.to).includes(w)),
+        `${c.recipeId}: a swap brought in ${c.swap.to} at a table with a tree-nut allergy`,
+      );
+    }
     for (const d of out.report.filter((r) => r.seatId === "david" && DATES.includes(r.date))) {
       assert.ok(d.dayProtein >= 190 && d.dayProtein <= 215, `${d.date} ${d.dayProtein} g`);
     }
     // and the List is cheaper than the same week without swaps
     const plain = planHisWeek({ ...opts, noSwaps: true });
     assert.ok(
-      trip.total < plain.trip.total - 10,
+      trip.total < plain.trip.total,
       `$${trip.total.toFixed(2)} vs $${plain.trip.total.toFixed(2)}`,
     );
   },

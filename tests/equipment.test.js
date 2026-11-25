@@ -6,6 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { generateWeek } from "../app/lib/weekbuilder.js";
+import { untrustedForAutoPlan } from "../app/lib/plan.js";
 import {
   EQUIPMENT,
   EQUIPMENT_IDS,
@@ -92,7 +93,10 @@ test("THE FILTER IS NO LONGER INERT: a real dorm kitchen loses real recipes", ()
     microwaveOnly < b.length / 2,
     `a microwave-only kitchen should lose most of the bank, got ${microwaveOnly}/${b.length}`,
   );
-  const dinners = b.filter((r) => r.mealType === "dinner");
+  // bank members only: a scanned guest (hbp-annotated, not promoted) declares
+  // no equipment and is never auto-planned, so it is not what this fence is
+  // about (nine arrived 2026-11-24 and three were dinners)
+  const dinners = b.filter((r) => r.mealType === "dinner" && !untrustedForAutoPlan(r));
   assert.equal(
     dinners.filter((r) => canMake(["microwave"], r.equipment)).length,
     0,
