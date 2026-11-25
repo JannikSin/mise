@@ -8,8 +8,17 @@ import {
   canonicalUnit,
   convertUnit,
   dimensionOf,
+  dryPurchase,
   toGrams,
 } from "./ingredients.js";
+
+/**
+ * Foods a recipe counts by the piece and the store sells by the bunch as
+ * "1 each": pieces in one bunch. Short on purpose; a food not here is one
+ * priced thing per piece, as before.
+ * @type {Record<string, number>}
+ */
+const PIECES_PER_EACH = { scallion: 6 };
 
 /** @typedef {{ price: number, size?: string, estimate?: boolean, at?: string }} StorePrice */
 /** @typedef {{ id: string, name: string, prices: Record<string, StorePrice> }} PriceItem */
@@ -195,6 +204,8 @@ const PER_LB_MIN_G = {
  *   list's need → buy line (David, 2026-08-19).
  */
 export function itemCost(item, catalogue, store) {
+  // a cooked grain is priced on the dry amount that cooks up to it
+  item = dryPurchase(item);
   const entry = catalogue?.items ? matchPrice(item.food, catalogue.items) : null;
   const home = entry?.prices?.[store];
   if (!home) return null;
@@ -262,10 +273,15 @@ export function itemCost(item, catalogue, store) {
     // 10 cloves ≈ 1 purchasable head — packHint's own rule, which this
     // branch never learned: a 16-clove week billed 16 heads at $0.75 each,
     // $12 for a dollar and a half of garlic (2026-08-30)
+    // and a recipe's scallion is ONE STALK while the store's "1 each" is a
+    // BUNCH: the week of 2026-12-06 billed 10 bunches, $10.90, for 10 stalks
+    const perBunch = PIECES_PER_EACH[canonicalFood(item.food)];
     const pieces =
       /clove/.test(item.unit.toLowerCase()) && canonicalFood(item.food).includes("garlic")
         ? Math.ceil(item.qty / 10)
-        : item.qty;
+        : perBunch && pack?.qty === 1
+          ? Math.ceil(item.qty / perBunch)
+          : item.qty;
     const per = pack && dimensionOf(pack.unit) === "count" && pack.qty > 0 ? pack.qty : 1;
     const packs = Math.max(1, Math.ceil(pieces / per));
     const cost = round(sp.price * packs);

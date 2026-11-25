@@ -40,6 +40,7 @@ export const RELEASES = [
       "Your protein stays under 215 g when you plan on your own. After a day was sized, a later step traded recipes to share ingredients and kept the old portions, so a day planned at 191 g reached your phone at 285 g. Any day those trades push outside your numbers now goes back to the day as planned.",
       "When a day needs more calories, Mise reaches for the lean snack before making protein-heavy meals bigger.",
       "Plan shows whole numbers. A day read 3689.25 / 3700 and 272.75 / 190P.",
+      "The List buys cooked rice as the dry bag it takes: the week of 12/6 listed 8 one-pound bags of rice where 3 cover it. Scallions are bought by the bunch, not one bunch per stalk ($10.90 became $2.18).",
       "Opening Mise with ?fresh=1 (the reset link) now clears only Mise. It used to clear the offline copy of every app on the same site (Tally, Finesse, Bonmot, Grandstand).",
     ],
   },

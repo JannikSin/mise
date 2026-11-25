@@ -501,6 +501,53 @@ function slugify(food) {
 }
 
 /**
+ * COOKED GRAIN IS BOUGHT DRY (P4, P5). A recipe row "brown rice, cooked,
+ * 800 g" names what goes in the bowl; the store sells the dry bag, and
+ * canonicalFood strips ", cooked" so the row prices against that bag. Nothing
+ * converted the weight: the week of 2026-12-06 needed 3.4 kg of cooked rice
+ * and the List bought 8 one-pound bags of dry rice where 3 cover it.
+ *
+ * Dry weight as a share of cooked weight, by the last word of the food key.
+ * Grains and pasta only. Beans are left alone (a "cooked" bean row is a can),
+ * and so is meat (cooked chicken is bought as chicken, and loses weight).
+ * @type {Record<string, number>}
+ */
+const COOKED_YIELD = {
+  rice: 0.36, // 1 cup dry (185 g) cooks to about 3 cups (520 g)
+  quinoa: 0.36,
+  farro: 0.4,
+  barley: 0.33,
+  bulgur: 0.36,
+  couscous: 0.4,
+  pasta: 0.44, // dry pasta a bit more than doubles
+  spaghetti: 0.44,
+  penne: 0.44,
+  macaroni: 0.44,
+  noodles: 0.44,
+};
+/** grams in a cup of cooked grain, for rows written in cups */
+const COOKED_CUP_G = 190;
+
+/**
+ * What a recipe row has to BUY, when it names a cooked grain: the dry
+ * amount. Every other row comes back unchanged (same object).
+ * @param {{ food: string, qty: number, unit: string }} item
+ * @returns {{ food: string, qty: number, unit: string }}
+ */
+export function dryPurchase(item) {
+  const food = String(item?.food ?? "");
+  if (!/,\s*cooked\b|^\s*cooked\s/i.test(food) || !(Number(item.qty) > 0)) return item;
+  const key = canonicalFood(food.replace(/^\s*cooked\s+/i, ""));
+  const last = key.split("-").pop() ?? "";
+  const share = COOKED_YIELD[last];
+  if (!share) return item;
+  const u = canonicalUnit(item.unit);
+  if (dimensionOf(u) === "mass") return { ...item, qty: item.qty * share };
+  if (u === "cup") return { ...item, qty: item.qty * COOKED_CUP_G * share, unit: "g" };
+  return item;
+}
+
+/**
  * The one key a food is known by: prep suffix stripped, then aliased. A name
  * the table has never seen passes through as its own slug, so a new recipe
  * with a novel spelling behaves exactly as it does today rather than

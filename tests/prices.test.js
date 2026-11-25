@@ -486,9 +486,71 @@ test("PRICE SANITY: a fresh row 3x off the other stores by weight is the wrong p
 test("8.5 cups of broth against a 4 ct / 8 fl oz package buys 3 packages, not 9 (2026-11-06)", () => {
   const cat = {
     stores: ["pay-less"],
-    items: [{ id: "chicken-broth", name: "chicken broth", prices: { "pay-less": { price: 5.99, size: "4 ct / 8 fl oz" } } }],
+    items: [
+      {
+        id: "chicken-broth",
+        name: "chicken broth",
+        prices: { "pay-less": { price: 5.99, size: "4 ct / 8 fl oz" } },
+      },
+    ],
   };
   const r = itemCost({ food: "chicken broth", qty: 8.5, unit: "cup" }, cat, "pay-less");
   assert.equal(r?.packs, 3);
   assert.equal(r?.cost, 17.97);
+});
+
+// ── the week of 2026-12-06: two rows of plain arithmetic on a $221.95 List ──
+test("cooked grain is bought dry: 3.4 kg of cooked rice is 3 one-pound bags, not 8", () => {
+  const cat = {
+    items: [
+      {
+        id: "brown-rice",
+        name: "brown rice",
+        prices: { "pay-less": { price: 0.99, size: "16 oz" } },
+      },
+    ],
+  };
+  const cooked = itemCost({ food: "brown rice, cooked", qty: 3.4, unit: "kg" }, cat, "pay-less");
+  assert.equal(cooked?.packs, 3);
+  assert.equal(cooked?.cost, 2.97);
+  // the dry row itself is untouched: 3.4 kg of dry rice is still 8 bags
+  assert.equal(itemCost({ food: "brown rice", qty: 3.4, unit: "kg" }, cat, "pay-less")?.packs, 8);
+  // "cooked brown rice" spelled the other way, and a row in cups
+  assert.equal(
+    itemCost({ food: "cooked brown rice", qty: 600, unit: "g" }, cat, "pay-less")?.packs,
+    1,
+  );
+  assert.equal(
+    itemCost({ food: "brown rice, cooked", qty: 4, unit: "cup" }, cat, "pay-less")?.packs,
+    1,
+  );
+});
+
+test("only grains and pasta convert: a cooked bean row is a can and stays as written", () => {
+  const cat = {
+    items: [
+      {
+        id: "cannellini-beans",
+        name: "cannellini beans",
+        prices: { "pay-less": { price: 0.89, size: "15.5 oz" } },
+      },
+    ],
+  };
+  const row = itemCost({ food: "cannellini beans, cooked", qty: 800, unit: "g" }, cat, "pay-less");
+  assert.equal(row?.packs, 2, "800 g of cooked beans is two cans");
+});
+
+test("a recipe's scallion is a stalk and the store's is a bunch: 10 stalks is 2 bunches, not 10", () => {
+  const cat = {
+    items: [
+      { id: "scallion", name: "scallion", prices: { "pay-less": { price: 1.09, size: "1 each" } } },
+      { id: "avocado", name: "avocado", prices: { "pay-less": { price: 0.66, size: "1 each" } } },
+    ],
+  };
+  const ten = itemCost({ food: "scallion", qty: 10, unit: "each" }, cat, "pay-less");
+  assert.equal(ten?.packs, 2);
+  assert.equal(ten?.cost, 2.18);
+  assert.equal(itemCost({ food: "scallion", qty: 3, unit: "each" }, cat, "pay-less")?.packs, 1);
+  // a food with no bunch rule is one priced thing per piece, as before
+  assert.equal(itemCost({ food: "avocado", qty: 3, unit: "each" }, cat, "pay-less")?.packs, 3);
 });

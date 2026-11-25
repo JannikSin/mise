@@ -8,7 +8,14 @@
 // Network lives in lib/worker.js (krogerSearch/krogerPricesById); this module
 // never fetches.
 
-import { aisleOf, canonicalFood, canonicalUnit, convertUnit, toGrams } from "./ingredients.js";
+import {
+  aisleOf,
+  canonicalFood,
+  canonicalUnit,
+  convertUnit,
+  dryPurchase,
+  toGrams,
+} from "./ingredients.js";
 import { matchPrice, parsePackSize } from "./prices.js";
 
 /** @typedef {{ upc: string, description: string, brand: string, categories: string[], size: string, soldBy: string, price: { regular: number | null, promo: number | null }, stock: string, aisle: string, shelf?: { number?: string, side?: string, bay?: string, shelf?: string, description?: string } }} KrogerProduct */
@@ -588,6 +595,8 @@ function coverSpend(p, food, qty, unit) {
       ? Math.min(p.price.promo, p.price.regular)
       : p.price.regular;
   if (reg == null || !(qty > 0)) return null;
+  // a cooked grain is bought dry (ingredients.js dryPurchase)
+  ({ qty, unit } = dryPurchase({ food, qty, unit }));
   const u = canonicalUnit(unit);
   const key = pinKey(food);
   if (p.soldBy === "WEIGHT") {

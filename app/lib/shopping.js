@@ -5,6 +5,7 @@
 
 import {
   canonicalFood,
+  dryPurchase,
   canonicalUnit,
   convertUnit,
   dimensionOf,
@@ -858,6 +859,9 @@ const PACK_HINTS = [
 export function packHint(food, qty, unit, catalogue = null, store = "") {
   const f = String(food ?? "").toLowerCase();
   if (!(Number(qty) > 0)) return "";
+  // a cooked grain is bought dry: hint the bags the dry amount needs, the
+  // same amount itemCost prices
+  ({ qty, unit } = dryPurchase({ food: String(food ?? ""), qty, unit }));
   if (f.includes("garlic") && /clove/.test(unit)) {
     const heads = Math.ceil(qty / 10);
     return `≈ ${heads} ${heads === 1 ? "head" : "heads"}`;
