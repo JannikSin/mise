@@ -84,7 +84,7 @@ import { AskView } from "./views/ask.js";
 import { TablesView } from "./views/tables.js";
 import { screenSeats, screenOccasion } from "./lib/screen-seats.js";
 import { ConfirmModal } from "./views/confirm-modal.js";
-import { upsertDay, mergeProfileAnswers } from "./lib/targets.js";
+import { upsertDay, mergeProfileAnswers, enforcedFloors, enforcedCeilings } from "./lib/targets.js";
 import {
   deriveShoppingList,
   tripPlan,
@@ -157,6 +157,7 @@ import {
   mergeRecipePool,
   SLOT_KEYS,
   planSwipes,
+  keepDaysInBand,
   toggleSwipeEaten,
   markDayAte,
   dayAte,
@@ -212,6 +213,7 @@ import {
   sundayBatchOn,
   sundayTwoPotsOn,
   brigadeCovers,
+  diningClosed,
   removeSeat,
   brigadeTableId,
   seatScreen,
@@ -2425,6 +2427,7 @@ function App() {
             slot,
             estimate: buffetMacroEstimate(recipesRef.current, slot, buffet),
             today: planStartIso(new Date()),
+            skipDate: (d) => diningClosed(buffet, d),
           });
         }
       }
@@ -2552,6 +2555,30 @@ function App() {
         // says so rather than reporting a fit that never happened
         fitReport = { ran: false, fits: false, swaps: 0, reason: "the fit pass failed to run" };
       }
+      // THE LAST GATE (P1, P5; council 2026-11-25). The two passes above trade
+      // recipes after the generator sized each day and keep the servings; a
+      // day they push outside his numbers goes back to the day as generated.
+      /** @type {string[]} */
+      let keptDays = [];
+      try {
+        const macros = targetsRef.current?.macros;
+        const gate = keepDaysInBand(
+          result.plan,
+          built,
+          recipesById(recipesRef.current),
+          {
+            calorieFloor: enforcedFloors(macros).calories,
+            proteinFloor: enforcedFloors(macros).protein,
+            proteinCeiling: enforcedCeilings(macros).protein ?? undefined,
+          },
+          datesOfWeek(built.week).filter((d) => d >= planStartIso(new Date())),
+        );
+        built = gate.plan;
+        keptDays = gate.kept;
+      } catch {
+        // a gate that throws leaves the week as the passes made it
+      }
+      if (fitReport) fitReport = { ...fitReport, keptDays };
       // THE GENERATION MANIFEST (fix list 2.5, council 2026-08-18): compose
       // the full subsystem report and persist it ON the plan, so every device
       // sees what every engine did — the structural answer to four engines
@@ -4520,6 +4547,7 @@ function App() {
           slot,
           estimate: buffetMacroEstimate(recipesRef.current, slot, buffet),
           today,
+          skipDate: (d) => diningClosed(buffet, d),
         });
         if (seeded !== before) {
           const had = new Set(before.entries.map((e) => e.id));
@@ -5758,7 +5786,7 @@ function App() {
  * no address bar.
  *
  * So the escape hatch is a URL. Opening the app with ?fresh=1 unregisters
- * every worker, drops every cache, and reloads clean. It runs BEFORE the app
+ * Mise's own worker, drops Mise's own caches, and reloads clean. It runs BEFORE the app
  * renders, and it never touches localStorage, so the token, the profile and
  * every queued write survive.
  */
@@ -5782,9 +5810,15 @@ if (location.search.includes("fresh")) {
   const clean = location.href.split("?")[0] + location.hash;
   void (async () => {
     try {
+      // OWN worker and caches only (audit 2026-11-06, finding 4): every PWA
+      // on janniksin.github.io shares this origin, and clearing them all
+      // left Tally, Finesse and the rest without their offline copy, the
+      // same failure sw.js's activate handler was fixed for on 2026-08-18.
+      // register("./sw.js") scopes the worker to this page's folder.
+      const own = new URL("./", location.href).href;
       const regs = await navigator.serviceWorker?.getRegistrations?.();
-      for (const r of regs ?? []) await r.unregister();
-      for (const k of await caches.keys()) await caches.delete(k);
+      for (const r of regs ?? []) if (r.scope === own) await r.unregister();
+      for (const k of await caches.keys()) if (k.startsWith("mise-")) await caches.delete(k);
     } catch {
       // nothing to clear, or the browser refused: reload anyway
     }

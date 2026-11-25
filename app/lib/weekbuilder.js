@@ -670,6 +670,8 @@ export function foodGroupFloorPass(plan, pool, recipesById, floors, opts = {}) {
  *   weekFoodPool?: Set<string>,
  *   report?: Record<string, any>,
  *   proteinTargetG?: number,
+ *   proteinCeilingG?: number,
+ *   deferFloor?: boolean,
  *   lockedSlots?: string[]
  * }} [opts] fix list 2.4 (council 2026-08-18): macroTopUp takes the SAME
  *   budget parameter as pickCommittee. Without it the budget dial was a
@@ -679,6 +681,15 @@ export function foodGroupFloorPass(plan, pool, recipesById, floors, opts = {}) {
  *   `report`, when passed, receives a `macroTopUp` entry for the manifest.
  *   `proteinTargetG` (7.11, P5): a day already at its protein TARGET stops
  *   getting protein-first fills — bumps and snacks buy calories lean instead.
+ *   `proteinCeilingG` (P1, P5; David's rule in Mise-Decisions: 215 g on
+ *   everything eaten that day): a fill that would carry the day's EATEN
+ *   protein past it is held back while a leaner lever can still close the
+ *   floor. The floor still wins: when nothing lean is left, the held-back
+ *   bumps run after all. Found 2026-11-25 on his real Fri 11/27: the trim
+ *   landed 191 g, then the floor restore bumped three dense meals to 285 g
+ *   with a 440 kcal / 16 g snack sitting unused in the pool. `deferFloor`
+ *   skips that last floor-wins run because a later pass with a wider snack
+ *   pool follows and gets the first try.
  * @returns {import("./plan.js").Plan}
  */
 export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks = 3, opts = {}) {
@@ -751,6 +762,12 @@ export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks 
   const proteinEnough = (/** @type {string} */ date) =>
     opts.proteinTargetG != null &&
     dayTotals(next.entries, recipesById, date).protein >= opts.proteinTargetG;
+  const ceilingG = Number(opts.proteinCeilingG) > 0 ? Number(opts.proteinCeilingG) : null;
+  // would adding `grams` of protein to this day carry it past the ceiling?
+  const pastCeiling = (/** @type {string} */ date, /** @type {number} */ grams) =>
+    ceilingG != null && dayTotals(next.entries, recipesById, date).protein + grams > ceilingG;
+  const proteinOf = (/** @type {string | undefined} */ id) =>
+    Number(recipesById.get(id ?? "")?.nutrition?.protein) || 0;
 
   for (const date of dates) {
     // lever 1: portion bumps on already-chosen meals, 0.5 steps at a time.
@@ -774,18 +791,28 @@ export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks 
       };
       bumpCandidates.sort((a, b) => densityOf(a.target) - densityOf(b.target));
     }
-    for (const { target, maxBump } of bumpCandidates) {
-      if (!target) continue;
-      const cap = Math.min(target.servings + maxBump, MAX_ENTRY_SERVINGS);
-      let servings = target.servings;
-      while (servings + 0.5 <= cap && shortOf(date).any) {
-        servings += 0.5;
-        next = {
-          ...next,
-          entries: next.entries.map((e) => (e.id === target.id ? { ...e, servings } : e)),
-        };
+    // how far each meal has been bumped so far: the cap is on the TOTAL
+    // bump, across the ceiling-held run and the floor-wins run below
+    /** @type {Map<string, number>} */
+    const bumped = new Map();
+    const runBumps = (/** @type {boolean} */ holdCeiling) => {
+      for (const { target, maxBump } of bumpCandidates) {
+        if (!target) continue;
+        const base = target.servings;
+        const cap = Math.min(base + maxBump, MAX_ENTRY_SERVINGS);
+        let servings = base + (bumped.get(target.id) ?? 0);
+        while (servings + 0.5 <= cap && shortOf(date).any) {
+          if (holdCeiling && pastCeiling(date, proteinOf(target.recipeId) * 0.5)) break;
+          servings += 0.5;
+          bumped.set(target.id, servings - base);
+          next = {
+            ...next,
+            entries: next.entries.map((e) => (e.id === target.id ? { ...e, servings } : e)),
+          };
+        }
       }
-    }
+    };
+    runBumps(ceilingG != null);
     // lever 2: stack snacks, at most 3 servings-worth per day (raised from 2
     // for the 2026-07-10 gain-phase calorie bump: the 3700/3500 floor needs
     // more top-up headroom than the old 3400/3200). A repeat of the same
@@ -808,6 +835,14 @@ export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks 
       const existing = entriesAt(next.entries, date, "snack").find(
         (e) => !e.pinned && e.recipeId === pick.id,
       );
+      // a snack that would carry the day past the protein ceiling is passed
+      // over for the next-leanest one; the floor-wins run below is the
+      // backstop when none fits
+      if (ceilingG != null && !s.protein && pastCeiling(date, proteinOf(pick.id))) {
+        maxedOut.add(pick.id);
+        stacked--;
+        continue;
+      }
       if (existing && existing.servings >= MAX_ENTRY_SERVINGS) {
         maxedOut.add(pick.id);
         stacked--; // this attempt didn't spend a stack, retry with the next-best pick
@@ -822,6 +857,10 @@ export function macroTopUp(plan, snackPool, recipesById, floors, maxSnackStacks 
           }
         : addEntry(next, date, "snack", { recipeId: pick.id, servings: 1 });
     }
+    // THE FLOOR STILL WINS. Nothing lean could close the day inside the
+    // ceiling, so the bumps held back above run now, exactly as they always
+    // did. A no-op when the day is closed or no ceiling was given.
+    if (ceilingG != null && !opts.deferFloor && shortOf(date).any) runBumps(false);
   }
   return next;
 }
@@ -2469,6 +2508,10 @@ export function generateWeek({
     budget: targets?.budget,
     weekFoodPool,
     proteinTargetG: proteinTarget,
+    proteinCeilingG: ceilings.protein ?? undefined,
+    // the weekly-snack relax (4.66) follows with the full snack pool and
+    // gets its try before the floor overrides the ceiling
+    deferFloor: !!(snackWeeklyMode && bufferPick),
     lockedSlots,
   });
 
@@ -2497,6 +2540,7 @@ export function generateWeek({
           budget: targets?.budget,
           weekFoodPool,
           proteinTargetG: proteinTarget,
+          proteinCeilingG: ceilings.protein ?? undefined,
           lockedSlots,
         },
       );

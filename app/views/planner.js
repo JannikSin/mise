@@ -622,7 +622,13 @@ export function PlannerView({
       }
       ${dates.map((date) => {
         const past = isPast(date);
-        const totals = dayTotals(/** @type {any} */ (plan.entries), byId, date);
+        // whole numbers on the row (found 2026-11-25: quarter servings put
+        // "3689.25 / 3700" and "272.75 / 190P" on his phone)
+        const exact = dayTotals(/** @type {any} */ (plan.entries), byId, date);
+        const totals = {
+          calories: Math.round(exact.calories),
+          protein: Math.round(exact.protein),
+        };
         const kcalPct = kcalTarget
           ? Math.min(100, Math.round((totals.calories / kcalTarget) * 100))
           : 0;

@@ -18,6 +18,7 @@ import process from "node:process";
 import { planBrigadeWeek } from "../app/lib/compose.js";
 import {
   normalizeEvents,
+  brigadeCovers,
   sundayBatchOn,
   sundayTwoPotsOn,
   deriveTables,
@@ -30,7 +31,8 @@ import {
   subtractPantryFromTrip,
 } from "../app/lib/shopping.js";
 import { itemCost, resolveHomeStore, storeSlugOf, tripTotal } from "../app/lib/prices.js";
-import { datesOfWeek, recipesById } from "../app/lib/plan.js";
+import { datesOfWeek, recipesById, shiftWeek } from "../app/lib/plan.js";
+import { isoWeekId } from "../app/lib/dates.js";
 import { recipeTripCost, recipeTripItems } from "../app/lib/money.js";
 import { withSwaps } from "../app/lib/swaps.js";
 import {
@@ -42,12 +44,39 @@ import {
 
 const DATA = process.env.MISE_DATA ?? path.join(import.meta.dirname, "..", "..", "mise-data");
 const HAVE = fs.existsSync(path.join(DATA, "households", "wayne", "events.json"));
-const skip = HAVE
-  ? false
-  : `no mise-data clone at ${DATA} (set MISE_DATA); his-kitchen rules not checked`;
+
+// THE WEEK FOLLOWS THE CALENDAR (2026-11-25). This file pinned
+// WEEK = "2026-W47"; when that week passed and his kitchen rule was renewed
+// from 11/24, no rule covered the pinned dates and all six checks went red
+// with the planner untouched: the guard on his numbers was dead for ten
+// days and nobody was told. Now it is the first whole week AHEAD of today
+// that his rule plans on every day (inside its dates, no school-break day),
+// so the checks always run on a week he is about to shop for. MISE_TEST_WEEK
+// pins one by hand. When no such week exists (the kitchen has ended) the
+// checks are SKIPPED with that reason printed, never passed on nothing.
+function comingKitchenWeek() {
+  if (!HAVE) return null;
+  if (process.env.MISE_TEST_WEEK) return process.env.MISE_TEST_WEEK;
+  const brigades = normalizeEvents(
+    JSON.parse(fs.readFileSync(path.join(DATA, "households", "wayne", "events.json"), "utf8")),
+  ).brigades.filter((/** @type {any} */ b) => b.memberIds.includes("david"));
+  const thisWeek = isoWeekId(new Date());
+  for (let ahead = 1; ahead <= 8; ahead++) {
+    const w = shiftWeek(thisWeek, ahead);
+    const dates = datesOfWeek(w);
+    if (brigades.some((/** @type {any} */ b) => dates.every((d) => brigadeCovers(b, d)))) return w;
+  }
+  return null;
+}
+const FOUND = comingKitchenWeek();
+const skip = !HAVE
+  ? `no mise-data clone at ${DATA} (set MISE_DATA); his-kitchen rules not checked`
+  : !FOUND
+    ? "his kitchen rule plans no whole week in the next eight (it has ended, or only break weeks remain); his-kitchen rules not checked"
+    : false;
 
 // a week far enough ahead that no table is set yet: a fresh SET MY WEEK
-const WEEK = "2026-W47";
+const WEEK = FOUND ?? "2026-W47";
 const DATES = datesOfWeek(WEEK);
 // his numbers, from Mise-Decisions (not read from his targets file, so a
 // targets edit that drifts from his answers fails loudly instead of moving

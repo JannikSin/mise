@@ -856,6 +856,7 @@ export function buffetMacroEstimate(recipes, slot, currency = /** @type {any} */
  *    twice does not spend fourteen swipes on a seven-swipe plan.
  *  - Replaces nothing. A slot with a planned meal in it is skipped rather than
  *    cleared; the generator fills around what this leaves.
+ *  - Never lands on a date `skipDate` refuses (a school break, P10).
  * @param {Plan} plan
  * @param {string[]} dates the week's dates, in order
  * @param {{
@@ -863,7 +864,8 @@ export function buffetMacroEstimate(recipes, slot, currency = /** @type {any} */
  *   currencyId: string,
  *   slot: string,
  *   estimate: { estCalories: number, estProtein: number },
- *   today?: string | null
+ *   today?: string | null,
+ *   skipDate?: (date: string) => boolean
  * }} opts
  * @returns {Plan}
  */
@@ -882,6 +884,10 @@ export function planSwipes(plan, dates, opts) {
   for (const date of dates) {
     if (budget <= 0) break;
     if (opts.today && date < opts.today) continue; // a past day is read-only
+    // A day the dining hall is not his to eat at (a school break at his
+    // parents' house) gets no swipe: Fri 11/27/2026 planned a 900 kcal / 70 g
+    // lunch that did not exist and sized the rest of the day around it.
+    if (opts.skipDate?.(date)) continue;
     if (busy.has(date)) continue; // already eating away that day, however placed
     // Only a PINNED meal is a real obstacle. generateWeek's step 1 clears
     // every unpinned entry, so a slot holding an auto-picked lunch is about
@@ -917,6 +923,60 @@ export function planSwipes(plan, dates, opts) {
 }
 
 /**
+ * THE LAST GATE ON A GENERATED WEEK (P1, P5; council 2026-11-25: "make his
+ * numbers a gate"). Passes that run AFTER the generator has sized every day
+ * (the house ingredient swap, swap-to-fit) trade one recipe for another and
+ * keep the servings, and nothing re-checked the day. Found on his real Fri
+ * 11/27: a day the generator landed at 191 g protein reached the phone at
+ * 285 g against a 215 g ceiling.
+ *
+ * For each date, if the later passes left the day outside the band (eaten
+ * protein over the ceiling, or calories or protein under a floor) and the
+ * day as generated was no worse on that same number, the generated day is
+ * kept and the swap is dropped for that date. A day that was already outside
+ * the band before the passes is left as they made it unless they made it
+ * worse. Past days are never touched.
+ * @param {Plan} generated the generator's own plan
+ * @param {Plan} after the plan after the later passes
+ * @param {Map<string, any>} recipesById
+ * @param {{ calorieFloor?: number, proteinFloor?: number, proteinCeiling?: number }} bounds
+ * @param {string[]} dates the dates the run planned (today onward)
+ * @returns {{ plan: Plan, kept: string[] }} `kept` = dates returned to the generated day
+ */
+export function keepDaysInBand(generated, after, recipesById, bounds, dates) {
+  const cFloor = Number(bounds.calorieFloor) || 0;
+  const pFloor = Number(bounds.proteinFloor) || 0;
+  const pCeil = Number(bounds.proteinCeiling) || 0;
+  // how far outside the band a day sits, in its own units; 0 = inside.
+  // Half a gram of slack on the ceiling: every lever moves in quarter
+  // servings, so a day can sit 0.25 g over with no legal move.
+  const miss = (/** @type {PlanEntry[]} */ entries, /** @type {string} */ date) => {
+    const t = dayTotals(entries, recipesById, date);
+    return {
+      over: pCeil > 0 ? Math.max(0, t.protein - (pCeil + 0.5)) : 0,
+      underP: Math.max(0, pFloor - t.protein),
+      underC: Math.max(0, cFloor - t.calories),
+    };
+  };
+  /** @type {string[]} */
+  const kept = [];
+  let entries = after.entries;
+  for (const date of dates) {
+    const a = miss(after.entries, date);
+    if (a.over === 0 && a.underP === 0 && a.underC === 0) continue;
+    const g = miss(generated.entries, date);
+    const worse = a.over > g.over || a.underP > g.underP || a.underC > g.underC;
+    if (!worse) continue;
+    entries = [
+      ...entries.filter((e) => e.date !== date),
+      ...generated.entries.filter((e) => e.date === date),
+    ];
+    kept.push(date);
+  }
+  return kept.length > 0 ? { plan: { ...after, entries }, kept } : { plan: after, kept };
+}
+
+/**
  * THE WEEK RUN EATS ITS SWIPES (P5, P10, David 2026-08-28 plenum: "put
  * swipes for lunch every day and have that in there").
  *
@@ -934,9 +994,10 @@ export function planSwipes(plan, dates, opts) {
  * @param {{ id?: string, perWeek?: number, preferredSlot?: string } | null | undefined} buffet
  * @param {Plan} plan the runner's own stored plan (table entries stripped)
  * @param {string} today
+ * @param {(date: string) => boolean} [skipDate] dates with no dining hall
  * @returns {{ date: string, slot: string }[]}
  */
-export function weekRunSwipes(meals, buffet, plan, today) {
+export function weekRunSwipes(meals, buffet, plan, today, skipDate) {
   const perWeek = Math.max(0, Math.floor(Number(buffet?.perWeek) || 0));
   if (perWeek === 0 || !buffet?.id) return [];
   const slot = String(buffet.preferredSlot || "lunch");
@@ -950,6 +1011,7 @@ export function weekRunSwipes(meals, buffet, plan, today) {
   const out = [];
   for (const m of [...meals].sort((a, b) => a.date.localeCompare(b.date))) {
     if (m.slot !== slot || m.date < today) continue;
+    if (skipDate?.(m.date)) continue; // no dining hall that day (school break)
     if (outAt.has(`${m.date}|${m.slot}`)) {
       out.push(m); // already eating this meal away — off the pot, no spend
       continue;

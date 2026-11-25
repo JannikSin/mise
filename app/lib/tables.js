@@ -133,6 +133,18 @@ export function breakOn(b, date) {
 }
 
 /**
+ * Is the dining hall shut to him on `date` (P10): the school is on break, so a
+ * meal-plan swipe is not a meal he can eat. A currency may name its own
+ * SCHOOL_BREAKS key in `breaks`; absent = "purdue", the only calendar the app
+ * carries. Swipe budgeting skips these dates.
+ * @param {{ breaks?: string } | null | undefined} currency
+ * @param {string} date YYYY-MM-DD
+ */
+export function diningClosed(currency, date) {
+  return !!breakOn({ breaks: currency?.breaks ?? "purdue" }, date);
+}
+
+/**
  * Does this rule plan shared meals on `date`: inside its dates and not on a
  * school break. Every place that asks "is the kitchen on that day" asks this.
  * @param {{ from: string, until: string, breaks?: string }} b

@@ -33,6 +33,17 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
+    version: UNRELEASED,
+    date: "",
+    notes: [
+      "A day at home on a school break plans no dining-hall swipe. Planning Fri 11/27 from your parents' house used to count a 900 calorie, 70 g swipe lunch you could not eat and size the rest of the day around it. Thanksgiving break and winter break now get home food only; swipes come back the day classes resume.",
+      "Your protein stays under 215 g when you plan on your own. After a day was sized, a later step traded recipes to share ingredients and kept the old portions, so a day planned at 191 g reached your phone at 285 g. Any day those trades push outside your numbers now goes back to the day as planned.",
+      "When a day needs more calories, Mise reaches for the lean snack before making protein-heavy meals bigger.",
+      "Plan shows whole numbers. A day read 3689.25 / 3700 and 272.75 / 190P.",
+      "Opening Mise with ?fresh=1 (the reset link) now clears only Mise. It used to clear the offline copy of every app on the same site (Tally, Finesse, Bonmot, Grandstand).",
+    ],
+  },
+  {
     version: "1.97",
     date: "2026-11-13",
     palette: "Harbor",
