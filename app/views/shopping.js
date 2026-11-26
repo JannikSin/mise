@@ -1810,6 +1810,26 @@ export function ShoppingView({
             </span>
           </div>
           ${
+            // THE BASICS ARE AN OPEN QUESTION, AND THE TOTAL SAYS SO (P5;
+            // 2026-11-26). The week of 12/6 read $208 against a $100 trip
+            // with $92 of it oats, oil, spices and the like that nobody had
+            // been asked about. Nothing is assumed either way: the total
+            // still counts them, and this line says how much of it is open.
+            (() => {
+              if (checkIds.size === 0) return "";
+              const open = tripTotal(
+                tripItems.filter((i) => checkIds.has(i.id)),
+                prices,
+                homeStore,
+                region,
+              );
+              if (!(open.total > 0)) return "";
+              return html`<p class="hint" role="note" data-testid="open-basics">
+                ${`$${open.total.toFixed(2)} of that is ${checkIds.size} ${checkIds.size === 1 ? "basic" : "basics"} under CHECK YOU HAVE THESE. If you have them all, this trip is $${Math.max(0, homeSummary.total - open.total).toFixed(2)}.`}
+              </p>`;
+            })()
+          }
+          ${
             typeof weeklyBudgetUsd === "number" &&
             weeklyBudgetUsd > 0 &&
             (() => {
@@ -2433,9 +2453,8 @@ export function ShoppingView({
             html`<div class="checkfirst">
               <h2 class="block-title">CHECK YOU HAVE THESE</h2>
               <p class="hint">
-                Long-lasting basics your pantry does not list. They count in the total, and none
-                goes to the cart until you answer. HAVE IT adds it to your pantry so the next BUILD
-                leaves it off.
+                Long-lasting basics your pantry does not list. They count in the total until you
+                answer. HAVE IT adds it to your pantry so the next BUILD leaves it off.
               </p>
               ${colHead()}
               <div class="slots">
