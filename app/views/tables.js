@@ -2,7 +2,7 @@ import { html } from "htm/preact";
 import { tokenBroken } from "../lib/github.js";
 import { useEffect, useState } from "preact/hooks";
 import { datesOfWeek, recipesById, shiftWeek, SLOT_KEYS, SLOT_META } from "../lib/plan.js";
-import { parseLocalIso, isoWeekId } from "../lib/dates.js";
+import { parseLocalIso, isoWeekId, planStartIso } from "../lib/dates.js";
 import {
   SERVINGS_MIN,
   SERVINGS_MAX,
@@ -10,6 +10,7 @@ import {
   effectiveBuyerOf,
   resolveHead,
   brigadeCovers,
+  brigadeDaysLeft,
   breakOn,
   namedSlotLine,
   ruleRecipeCheck,
@@ -1221,8 +1222,11 @@ export function TablesView({
         // 28 visible W36 meals never changed). Same rule the List's BUILD
         // learned: these buttons target the week holding MORE upcoming
         // in-span days, viewed week or the next one; ties keep the view.
+        // counted from the day the planner starts (tomorrow after the dinner
+        // cutoff), or a Saturday 8 pm tap sets an empty week
+        const planFrom = planStartIso(new Date());
         const upcomingIn = (/** @type {string} */ w) =>
-          datesOfWeek(w).filter((d) => brigadeCovers(b, d) && d >= todayIso).length;
+          brigadeDaysLeft(b, datesOfWeek(w), planFrom).length;
         const dayAfter = parseLocalIso(/** @type {string} */ (datesOfWeek(weekId)[6] ?? todayIso));
         dayAfter.setDate(dayAfter.getDate() + 1);
         const nextWeekId = isoWeekId(dayAfter);
@@ -1240,7 +1244,7 @@ export function TablesView({
         // confident range that would dead-end in outOfRange
         const overlaps = weekDates.some((d) => brigadeCovers(b, d));
         const range = overlaps
-          ? `${parseLocalIso([weekDates[0] ?? todayIso, todayIso, b.from].sort()[2] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })} – ${parseLocalIso(weekDates[6] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })}`
+          ? `${parseLocalIso([weekDates[0] ?? planFrom, planFrom, b.from].sort()[2] ?? planFrom).toLocaleDateString([], { month: "short", day: "numeric" })} – ${parseLocalIso(weekDates[6] ?? todayIso).toLocaleDateString([], { month: "short", day: "numeric" })}`
           : weekDates.some((d) => breakOn(b, d))
             ? `off this week: ${breakOn(b, weekDates.find((d) => breakOn(b, d)) ?? "")?.why ?? "school break"}`
             : `starts ${parseLocalIso(b.from).toLocaleDateString([], { month: "short", day: "numeric" })}, flip Plan to that week`;

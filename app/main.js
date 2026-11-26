@@ -212,6 +212,7 @@ import {
   sundayBatchOn,
   sundayTwoPotsOn,
   brigadeCovers,
+  brigadeDaysLeft,
   removeSeat,
   brigadeTableId,
   seatScreen,
@@ -2329,7 +2330,7 @@ function App() {
               (b) =>
                 b.memberIds.includes(me) &&
                 (b.until ?? "") >= todayIso &&
-                weekDates.some((d) => brigadeCovers(b, d) && d >= todayIso),
+                brigadeDaysLeft(b, weekDates, planStartIso(new Date())).length > 0,
             )
             .sort((a, b) => (b.until ?? "").localeCompare(a.until ?? ""))[0] ?? null;
         if (active && runBrigadeRef.current) {
@@ -5750,7 +5751,7 @@ function App() {
  * no address bar.
  *
  * So the escape hatch is a URL. Opening the app with ?fresh=1 unregisters
- * every worker, drops every cache, and reloads clean. It runs BEFORE the app
+ * Mise's worker, drops Mise's caches, and reloads clean. It runs BEFORE the app
  * renders, and it never touches localStorage, so the token, the profile and
  * every queued write survive.
  */
@@ -5770,7 +5771,7 @@ if (location.search.includes("notour")) {
   }
 }
 
-if (location.search.includes("fresh")) {
+if (new URLSearchParams(location.search).get("fresh") === "1") {
   const clean = location.href.split("?")[0] + location.hash;
   void (async () => {
     try {
