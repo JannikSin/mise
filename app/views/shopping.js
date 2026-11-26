@@ -418,6 +418,9 @@ export function ShoppingView({
   // shelf at a time. `fresh` = step index into FRESH_STEPS, null = not
   // running. Wizard scans are ADDITIVE ("add" mode) — the wipe already
   // guaranteed a clean slate, and a big fridge takes more than one photo.
+  // Keyed by profile: the wipe was of one person's pantry, so another profile
+  // on the same phone must not resume that walk on a pantry never wiped.
+  const freshKey = `mise.freshStart.${activeProfile()}`;
   const [fresh, setFresh] = useState(
     /** @type {number | null} */ (
       (() => {
@@ -425,7 +428,7 @@ export function ShoppingView({
         // reload or PWA background-kill instead of stranding a half-scanned
         // kitchen with no prompt (Tribunal L7)
         try {
-          const raw = localStorage.getItem("mise.freshStart");
+          const raw = localStorage.getItem(freshKey);
           if (raw == null) return null;
           const n = Number(raw);
           return Number.isInteger(n) && n >= 0 && n < FRESH_STEPS.length ? n : null;
@@ -438,8 +441,8 @@ export function ShoppingView({
   const [freshShots, setFreshShots] = useState(0); // photos approved this step
   useEffect(() => {
     try {
-      if (fresh == null) localStorage.removeItem("mise.freshStart");
-      else localStorage.setItem("mise.freshStart", String(fresh));
+      if (fresh == null) localStorage.removeItem(freshKey);
+      else localStorage.setItem(freshKey, String(fresh));
     } catch {
       // storage blocked: the step just does not survive a reload
     }
@@ -991,9 +994,17 @@ export function ShoppingView({
   // UPC match, quantity, store selection.
   //
   // The three cheapest rows on purpose: if the store selection turns out to be
-  // wrong, the mistake is a few dollars, not a week of food.
+  // wrong, the mistake is a few dollars, not a week of food. Each goes as ONE
+  // pack, so cheapest means one pack's price; an unpriced row sorts last
+  // (audit 2026-10-23 finding 6: this once sorted by pack count, so one $15
+  // salmon fillet beat a $2 bag of rice).
+  const onePackPrice = (/** @type {string} */ upc) => {
+    const item = tripItems.find((i) => pinFor(pins, i.food, homeStore)?.upc === upc);
+    const c = item ? rowCost(item) : null;
+    return c ? c.cost / (c.packs ?? 1) : Infinity;
+  };
   const testRows = [...cartRows]
-    .sort((a, b) => a.quantity - b.quantity)
+    .sort((a, b) => onePackPrice(a.upc) - onePackPrice(b.upc))
     .slice(0, 3)
     .map((r) => ({ ...r, quantity: 1 }));
 

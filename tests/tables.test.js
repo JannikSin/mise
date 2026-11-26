@@ -21,8 +21,10 @@ import {
   stripTableEntries,
   mergeViewPlan,
   seatScreen,
+  brigadeDaysLeft,
 } from "../app/lib/tables.js";
-import { recipeConflicts, mergeRecipePool } from "../app/lib/plan.js";
+import { recipeConflicts, mergeRecipePool, datesOfWeek } from "../app/lib/plan.js";
+import { isoWeekId, planStartIso } from "../app/lib/dates.js";
 import { mergeFieldWise } from "../app/lib/merge.js";
 
 const KEBAB = {
@@ -751,4 +753,18 @@ test("SNACK FIRST sizes the snack like a meal and breakfast smaller; absent keep
   const rule = { id: "r", name: "k", memberIds: ["a"], slots: ["breakfast", "snack"], from: "2026-11-08", until: "2026-11-29" };
   assert.equal(T.validBrigade({ ...rule, snackFirst: true }), true);
   assert.equal(T.validBrigade({ ...rule, snackFirst: "yes" }), false);
+});
+
+// Audit 2026-10-16, finding 1: on a week's last day after the 7:30 pm cutoff
+// the planner starts tomorrow, so the button must count from that day too,
+// or it offers SET THIS WEEK, plans nothing and reports "already set".
+test("brigadeDaysLeft: Saturday 8 pm leaves nothing of this week, so the run moves to next week", () => {
+  const rule = { from: "2026-10-01", until: "2026-12-31" };
+  const sat6pm = new Date(2026, 9, 24, 18, 0);
+  const sat8pm = new Date(2026, 9, 24, 20, 0);
+  const thisWeek = datesOfWeek(isoWeekId(sat8pm));
+  const nextWeek = datesOfWeek(isoWeekId(new Date(2026, 9, 25, 12)));
+  assert.deepEqual(brigadeDaysLeft(rule, thisWeek, planStartIso(sat6pm)), ["2026-10-24"]);
+  assert.deepEqual(brigadeDaysLeft(rule, thisWeek, planStartIso(sat8pm)), []);
+  assert.equal(brigadeDaysLeft(rule, nextWeek, planStartIso(sat8pm)).length, 7);
 });

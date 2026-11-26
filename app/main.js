@@ -73,6 +73,7 @@ import { SystemView } from "./views/system.js";
 import { HallView } from "./views/hall.js";
 import { TourOverlay, TourOffer } from "./views/tour.js";
 import { readTourState, writeTourState } from "./lib/tour.js";
+import { isParked } from "./lib/parked.js";
 import { PlannerView } from "./views/planner.js";
 import { ShoppingView } from "./views/shopping.js";
 import { RemediesView } from "./views/remedies.js";
@@ -164,7 +165,7 @@ import {
   unmarkDayAte,
   unmarkMealAte,
   setEntryTook,
-  settledEntryId,
+  settleTableEntry,
   tripFor,
   buildDays,
   pickableDays,
@@ -214,6 +215,7 @@ import {
   sundayTwoPotsOn,
   brigadeCovers,
   diningClosed,
+  brigadeDaysLeft,
   removeSeat,
   brigadeTableId,
   seatScreen,
@@ -2331,7 +2333,7 @@ function App() {
               (b) =>
                 b.memberIds.includes(me) &&
                 (b.until ?? "") >= todayIso &&
-                weekDates.some((d) => brigadeCovers(b, d) && d >= todayIso),
+                brigadeDaysLeft(b, weekDates, planStartIso(new Date())).length > 0,
             )
             .sort((a, b) => (b.until ?? "").localeCompare(a.until ?? ""))[0] ?? null;
         if (active && runBrigadeRef.current) {
@@ -2905,6 +2907,7 @@ function App() {
   // the offer shut forever for someone who tapped END on the first step
   const tourResumeStep = tourRecord?.status === "bailed" ? Math.max(1, tourRecord.lastStep) : null;
   const tourOfferVisible =
+    !isParked("tour") &&
     Boolean(tourProfileId) &&
     !tourOpen &&
     !tourOfferHidden &&
@@ -3066,27 +3069,9 @@ function App() {
     for (const e of toSettle) {
       // one id per table, so two devices settling the same meal collapse
       // to one row in the keyed merge instead of showing it twice
-      const id = settledEntryId(String(e.table));
-      if (next.entries.some((x) => x.id === id)) continue;
-      next = {
-        ...next,
-        entries: [
-          ...next.entries,
-          /** @type {any} */ ({
-            id,
-            date: e.date,
-            slot: e.slot,
-            recipeId: e.viewRecipeId,
-            servings: e.servings,
-            pinned: true,
-            fromTable: e.table,
-            ...(e.cookedAt ? { cookedAt: e.cookedAt } : {}),
-            .../** @type {any} */ (
-              e.leftoverOf ? { leftoverOf: /** @type {any} */ (e).leftoverOf } : {}
-            ),
-          }),
-        ],
-      };
+      const row = settleTableEntry(e);
+      if (next.entries.some((x) => x.id === row.id)) continue;
+      next = { ...next, entries: [...next.entries, row] };
     }
     updatePlan(next);
   }, [tableDerived, plan, weekId, hasToken, updatePlan]);
@@ -5151,6 +5136,12 @@ function App() {
   const routeTable = route.table
     ? houseEvents.flatMap((h) => h.events.tables).find((t) => t.id === route.table)
     : undefined;
+  // the quick card over the plan shows the dish the same way the page does
+  // (audit 2026-11-06, finding 2: it showed the full meat while the list
+  // bought the proportioned amount)
+  const peekTable = peek?.tableId
+    ? houseEvents.flatMap((h) => h.events.tables).find((t) => t.id === peek.tableId)
+    : undefined;
   const routeServe =
     routeTable && !routeTable.sameForEveryone
       ? buildServe(
@@ -5740,7 +5731,11 @@ function App() {
     ${
       peek &&
       html`<${RecipePeek}
-        recipe=${recipeById(peek.recipeId) ?? null}
+        recipe=${
+          (peekTable
+            ? withSwaps(withRatio(recipeById(peek.recipeId), /** @type {any} */ (peekTable).ratio), /** @type {any} */ (peekTable).swaps)
+            : recipeById(peek.recipeId)) ?? null
+        }
         servings=${peek.servings}
         date=${peek.date}
         entryId=${peek.entryId}
@@ -5786,7 +5781,7 @@ function App() {
  * no address bar.
  *
  * So the escape hatch is a URL. Opening the app with ?fresh=1 unregisters
- * Mise's own worker, drops Mise's own caches, and reloads clean. It runs BEFORE the app
+ * Mise's worker, drops Mise's caches, and reloads clean. It runs BEFORE the app
  * renders, and it never touches localStorage, so the token, the profile and
  * every queued write survive.
  */
@@ -5806,7 +5801,7 @@ if (location.search.includes("notour")) {
   }
 }
 
-if (location.search.includes("fresh")) {
+if (new URLSearchParams(location.search).get("fresh") === "1") {
   const clean = location.href.split("?")[0] + location.hash;
   void (async () => {
     try {

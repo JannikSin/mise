@@ -78,6 +78,16 @@ test("resolveHomeStore: no declaration falls to the caller's fallback, then the 
   assert.equal(resolveHomeStore({ stores: [] }), "");
 });
 
+// audit 2026-10-23 finding 4: the Fresh Start step was one key for the whole
+// device, so a half-done wizard opened on the next profile. A source scan
+// (shopping.js is a view), so it guards the key's spelling, not the render.
+test("the Fresh Start step is stored per profile", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../app/views/shopping.js", import.meta.url), "utf8");
+  assert.match(src, /const freshKey = `mise\.freshStart\.\$\{activeProfile\(\)\}`;/);
+  assert.doesNotMatch(src, /"mise\.freshStart"/, "no device-wide Fresh Start key left");
+});
+
 test("storeSlugOf: the apostrophe strip is what makes marianos findable", () => {
   assert.equal(storeSlugOf("Pay Less"), "pay-less");
   assert.equal(storeSlugOf("Mariano's"), "marianos");
