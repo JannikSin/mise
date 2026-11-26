@@ -73,6 +73,7 @@ import { SystemView } from "./views/system.js";
 import { HallView } from "./views/hall.js";
 import { TourOverlay, TourOffer } from "./views/tour.js";
 import { readTourState, writeTourState } from "./lib/tour.js";
+import { isParked } from "./lib/parked.js";
 import { PlannerView } from "./views/planner.js";
 import { ShoppingView } from "./views/shopping.js";
 import { RemediesView } from "./views/remedies.js";
@@ -2879,6 +2880,7 @@ function App() {
   // the offer shut forever for someone who tapped END on the first step
   const tourResumeStep = tourRecord?.status === "bailed" ? Math.max(1, tourRecord.lastStep) : null;
   const tourOfferVisible =
+    !isParked("tour") &&
     Boolean(tourProfileId) &&
     !tourOpen &&
     !tourOfferHidden &&

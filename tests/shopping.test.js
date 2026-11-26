@@ -3015,3 +3015,13 @@ test("restoreFromCook never makes two rows with one id: an undated row of that i
   assert.ok(back.items.some((r) => r.food === "rolled oats" && r.qty === "200 g"));
   assert.ok(back.items.some((r) => r.id === "p-oats" && r.state === "plenty"), "the plenty row is untouched");
 });
+
+// audit 2026-10-23 finding 6: the three-item test push promised the cheapest
+// rows but sorted by pack count, so one $15 fillet beat a $2 bag of rice. A
+// source scan (testRows lives in the view), so it guards the sort key's
+// spelling, not the render.
+test("the test push sorts by one pack's price, not by pack count", () => {
+  const src = readFileSync(new URL("../app/views/shopping.js", import.meta.url), "utf8");
+  assert.match(src, /\.sort\(\(a, b\) => onePackPrice\(a\.upc\) - onePackPrice\(b\.upc\)\)/);
+  assert.doesNotMatch(src, /\.sort\(\(a, b\) => a\.quantity - b\.quantity\)/);
+});
