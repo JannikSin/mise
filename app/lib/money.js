@@ -432,7 +432,9 @@ export function purchaseEntry(a) {
     a.split === "even"
       ? [...new Set([a.payerId, ...a.members])]
       : Object.keys(a.weights).filter((id) => (a.weights[id] ?? 0) > 0);
-  if (ids.length < 2) return null;
+  // one eater who is not the payer owes the whole receipt; only an entry with
+  // nobody but the payer in it has nothing to split
+  if (!ids.some((id) => id !== a.payerId)) return null;
   const sum = ids.reduce((s, id) => s + (a.split === "even" ? 1 : (a.weights[id] ?? 0)), 0);
   /** @type {Record<string, number>} */
   const shares = {};
