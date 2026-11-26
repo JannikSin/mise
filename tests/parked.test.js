@@ -12,6 +12,7 @@ test("the parked set is exactly what David parked on 2026-10-12 and 2026-10-16, 
   assert.deepEqual(
     [...PARKED].sort(),
     [
+      "cart",
       "cookbook",
       "dinnerchat",
       "liveprices",

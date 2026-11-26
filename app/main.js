@@ -141,6 +141,8 @@ import {
   normalizePlan,
   switchCandidate,
   setEntryRecipe,
+  pickMeal,
+  sizeDay,
   recordCook,
   setCookComment,
   recipesById,
@@ -2032,6 +2034,58 @@ function App() {
       updatePlan(setEntryRecipe(p, id, next));
       // one tap replaced a meal: the way back has to be one tap too
       setUndoToast({ message: "switched", restore: () => updatePlan(p) });
+    },
+    [updatePlan],
+  );
+
+  // A DAY HE PICKS HIMSELF (P1, P2, P10; David's go relayed 2026-11-26): he
+  // taps the meal he is making for a slot, then SIZE THIS DAY sets the
+  // portions to his numbers. Neither touches any other day or the List's ticks.
+  const handlePickMeal = useCallback(
+    (/** @type {string} */ date, /** @type {string} */ slot, /** @type {string} */ recipeId) => {
+      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      updatePlan(pickMeal(p, date, slot, recipeId));
+      setUndoToast({ message: "meal set", restore: () => updatePlan(p) });
+    },
+    [updatePlan],
+  );
+  const handleSizeDay = useCallback(
+    (/** @type {string} */ date) => {
+      const p = /** @type {import("./lib/plan.js").Plan} */ (planRef.current);
+      const macros = targetsRef.current?.macros;
+      const calories = Number(macros?.calories) || 0;
+      if (!calories) return;
+      // measured on the plan as the screen shows it, so a shared table plate
+      // counts; written back onto his own meals only, by id
+      const seen = /** @type {import("./lib/plan.js").Plan} */ (viewPlanRef.current ?? p);
+      const out = sizeDay(seen, date, recipesById(allRecipesRef.current), {
+        calories,
+        calorieFloor: enforcedFloors(macros).calories,
+        proteinFloor: enforcedFloors(macros).protein,
+        proteinCeiling: enforcedCeilings(macros).protein ?? undefined,
+      });
+      const to = new Map(out.plan.entries.map((e) => [e.id, e.servings]));
+      if (out.sized > 0)
+        updatePlan({
+          ...p,
+          entries: p.entries.map((e) =>
+            to.has(e.id) && to.get(e.id) !== e.servings
+              ? { ...e, servings: /** @type {number} */ (to.get(e.id)) }
+              : e,
+          ),
+        });
+      const said = `${out.calories.toLocaleString()} kcal, ${out.protein} g protein`;
+      const gap = [
+        out.shortCalories > 0 ? `${out.shortCalories} kcal short` : "",
+        out.shortProtein > 0 ? `${out.shortProtein} g protein short` : "",
+        out.overProtein > 0 ? `${out.overProtein} g protein over` : "",
+      ].filter(Boolean);
+      setUndoToast({
+        message: out.inBand
+          ? `portions set: ${said}`
+          : `closest these meals get: ${said} (${gap.join(", ")}). Add or change a meal.`,
+        restore: () => updatePlan(p),
+      });
     },
     [updatePlan],
   );
@@ -5278,6 +5332,8 @@ function App() {
         onInviteLink=${handleInviteLink}
         onWeek=${handleWeekNav}
         onSwitch=${handleSwitchEntry}
+        onPickMeal=${handlePickMeal}
+        onSizeDay=${handleSizeDay}
         onOpen=${handleOpenEntry}
         onCooked=${handleCookedEntry}
         onUncooked=${handleUneatEntry}

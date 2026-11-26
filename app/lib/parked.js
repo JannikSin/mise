@@ -14,6 +14,10 @@
 // different meals if I don't like what I see"), and the cart button, which
 // opens after GOING TO THE STORE. "liveprices" (was "kroger") parks only the List's
 // live-price controls.
+//
+// Parked again 2026-11-26 (David, 11/25: "the whole store press never worked
+// ... we want to use the api for ordering online for pricing reasons only"):
+// "cart" closes the SEND TO CART doors on the List. The store's prices stay.
 
 /** @type {ReadonlySet<string>} */
 export const PARKED = new Set([
@@ -22,6 +26,7 @@ export const PARKED = new Set([
   "occasions",
   "money",
   "liveprices",
+  "cart",
   "cookbook",
   "dinnerchat",
   "tour",

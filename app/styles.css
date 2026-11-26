@@ -3297,3 +3297,50 @@ label.checkline input[type="checkbox"] {
 .cookfor .eater-line {
   margin: 2px 0;
 }
+
+/* A DAY HE PICKS HIMSELF (2026-11-26): the slot's meal list, in the page, no
+   overlay; and the day's SIZE button */
+.picklist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 2px 0 8px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.picklist .pickrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.picklist .pickrow:active,
+.picklist .pickrow:focus-visible {
+  outline: 2px solid var(--recover);
+  outline-offset: -2px;
+}
+
+.picklist .pickrow .m {
+  flex-shrink: 0;
+  color: var(--dim);
+}
+
+.daymeals .sizeday {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 8px;
+}

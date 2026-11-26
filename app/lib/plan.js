@@ -1877,3 +1877,149 @@ export function setReviewNote(plan, text) {
   }
   return { ...plan, reviewNote: note };
 }
+
+/**
+ * A DAY HE PICKS HIMSELF (P1, P2, P10; David, 2026-11-25: "maybe we'll just
+ * fix it for a day"; the head relayed his go on 2026-11-26 for "he taps what
+ * he is making, Mise sizes the portions"). One meal per slot: picking for a
+ * slot that already holds one of his own uneaten meals replaces it, an empty
+ * slot gets the meal at one serving. A shared table meal, an eaten meal and
+ * an eating-out mark are never replaced here. Pure.
+ * @param {Plan} plan
+ * @param {string} date
+ * @param {string} slot
+ * @param {string} recipeId
+ * @returns {Plan}
+ */
+export function pickMeal(plan, date, slot, recipeId) {
+  if (!recipeId) return plan;
+  const own = entriesAt(plan.entries, date, slot).find(
+    (e) => e.recipeId && !e.out && !e.table && !e.fromTable && !e.cookedAt,
+  );
+  if (own) return setEntryRecipe(plan, own.id, recipeId);
+  const out = outEntryAt(plan.entries, date, slot);
+  const base = out && !(/** @type {any} */ (out).eatenAt) ? removeEntryById(plan, out.id) : plan;
+  return addEntry(base, date, slot, { recipeId, servings: 1 });
+}
+
+/** Portion steps SIZE THIS DAY may choose from: half a serving up to three. */
+const SIZE_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3];
+
+/**
+ * SIZE ONE DAY TO HIS NUMBERS (P1). The meals stay the ones he picked; only
+ * the servings of his own uneaten meals move, in quarter steps. Everything
+ * else on the day (a shared table plate, a swipe, an eaten meal) counts as
+ * it stands. Protein inside the band comes first, the calorie floor second,
+ * closeness to the calorie target third, and the smallest change from one
+ * serving breaks ties. When the picked meals cannot reach the band at any
+ * portion, the closest day is returned with `inBand: false` and what is
+ * missing, so the screen can say so instead of pretending. Pure.
+ * @param {Plan} plan
+ * @param {string} date
+ * @param {Map<string, any>} recipesById
+ * @param {{ calories: number, calorieFloor: number, proteinFloor: number, proteinCeiling?: number | null }} bounds
+ * @returns {{ plan: Plan, calories: number, protein: number, inBand: boolean, sized: number, shortCalories: number, shortProtein: number, overProtein: number }}
+ */
+export function sizeDay(plan, date, recipesById, bounds) {
+  const mine = plan.entries.filter(
+    (e) =>
+      e.date === date &&
+      e.recipeId &&
+      !e.out &&
+      !e.table &&
+      !e.fromTable &&
+      !e.cookedAt &&
+      recipesById.get(e.recipeId)?.nutrition,
+  );
+  const now = dayTotals(plan.entries, recipesById, date);
+  const per = mine.map((e) => {
+    const n = recipesById.get(String(e.recipeId)).nutrition;
+    return { c: Number(n.calories) || 0, p: Number(n.protein) || 0 };
+  });
+  let fixedC = now.calories;
+  let fixedP = now.protein;
+  mine.forEach((e, i) => {
+    fixedC -= /** @type {any} */ (per[i]).c * e.servings;
+    fixedP -= /** @type {any} */ (per[i]).p * e.servings;
+  });
+  const ceil = bounds.proteinCeiling ?? Infinity;
+  const measure = (/** @type {number[]} */ s) => {
+    let c = fixedC;
+    let p = fixedP;
+    let moved = 0;
+    for (let i = 0; i < s.length; i++) {
+      const x = /** @type {{c:number,p:number}} */ (per[i]);
+      const v = /** @type {number} */ (s[i]);
+      c += x.c * v;
+      p += x.p * v;
+      moved += Math.abs(v - 1);
+    }
+    const shortProtein = Math.max(0, bounds.proteinFloor - p);
+    const overProtein = Math.max(0, p - ceil);
+    const shortCalories = Math.max(0, bounds.calorieFloor - c);
+    const score =
+      1000 * (shortProtein + overProtein) +
+      20 * shortCalories +
+      Math.abs(c - bounds.calories) +
+      5 * moved;
+    return { c, p, score, shortProtein, overProtein, shortCalories };
+  };
+  let best = mine.map((e) => e.servings);
+  let bestM = measure(best);
+  if (mine.length > 0 && mine.length <= 5) {
+    const s = mine.map(() => 0.5);
+    const walk = (/** @type {number} */ i) => {
+      if (i === s.length) {
+        const m = measure(s);
+        if (m.score < bestM.score - 1e-9) {
+          bestM = m;
+          best = [...s];
+        }
+        return;
+      }
+      for (const v of SIZE_STEPS) {
+        s[i] = v;
+        walk(i + 1);
+      }
+    };
+    walk(0);
+  } else if (mine.length > 5) {
+    // more than five dishes on one day: improve one portion at a time
+    let improved = true;
+    while (improved) {
+      improved = false;
+      for (let i = 0; i < best.length; i++) {
+        for (const v of SIZE_STEPS) {
+          const t = [...best];
+          t[i] = v;
+          const m = measure(t);
+          if (m.score < bestM.score - 1e-9) {
+            bestM = m;
+            best = t;
+            improved = true;
+          }
+        }
+      }
+    }
+  }
+  const to = new Map(mine.map((e, i) => [e.id, /** @type {number} */ (best[i])]));
+  const sized = mine.filter((e) => to.get(e.id) !== e.servings).length;
+  return {
+    plan:
+      sized === 0
+        ? plan
+        : {
+            ...plan,
+            entries: plan.entries.map((e) =>
+              to.has(e.id) ? { ...e, servings: /** @type {number} */ (to.get(e.id)) } : e,
+            ),
+          },
+    calories: Math.round(bestM.c),
+    protein: Math.round(bestM.p),
+    inBand: bestM.shortProtein < 0.5 && bestM.overProtein < 0.5 && bestM.shortCalories < 0.5,
+    sized,
+    shortCalories: Math.round(bestM.shortCalories),
+    shortProtein: Math.round(bestM.shortProtein),
+    overProtein: Math.round(bestM.overProtein),
+  };
+}

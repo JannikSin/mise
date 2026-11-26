@@ -1949,6 +1949,7 @@ export function ShoppingView({
             // the cart has its own door (2026-10-18): open once GOING TO THE
             // STORE has saved the week, whatever the price controls do
             cartOpen &&
+            !isParked("cart") &&
             html`
           ${
             // NO FEATURE SHIPS DARK, and this one did (David,

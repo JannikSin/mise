@@ -129,6 +129,8 @@ function potLines(entry, entries, tables, dayName) {
  *   todayIso: string,
  *   onWeek: (delta: number) => void,
  *   onSwitch: (id: string) => void,
+ *   onPickMeal?: (date: string, slot: string, recipeId: string) => void,
+ *   onSizeDay?: (date: string) => void,
  *   onOpen: (entry: Record<string, any>) => void,
  *   onCooked?: (entry: Record<string, any>) => void,
  *   onUncooked?: (entry: Record<string, any>) => void,
@@ -180,6 +182,8 @@ export function PlannerView({
   todayIso,
   onWeek,
   onSwitch,
+  onPickMeal = undefined,
+  onSizeDay = undefined,
   onOpen,
   onCooked = undefined,
   onUncooked = undefined,
@@ -210,6 +214,10 @@ export function PlannerView({
   // expanded. Absent = default (today open, everything else collapsed);
   // native <details> does the rest, this map only remembers user toggles
   const [openDays, setOpenDays] = useState(/** @type {Record<string, boolean>} */ ({}));
+  // the slot whose meal list is open (a day he picks himself, 2026-11-26)
+  const [picking, setPicking] = useState(
+    /** @type {{ date: string, slot: string } | null} */ (null),
+  );
   const todayRef = useRef(todayIso);
   todayRef.current = todayIso;
 
@@ -1002,7 +1010,13 @@ export function PlannerView({
                                     ${
                                       recipe &&
                                       html`<span class="m num"
-                                        >${recipe.nutrition?.calories} ·
+                                        >${
+                                          // the portion, said (2026-11-26): the row showed one
+                                          // serving's numbers whatever the portion was
+                                          entry.recipeId && !entry.table && entry.servings !== 1
+                                            ? `${entry.servings} × `
+                                            : ""
+                                        }${recipe.nutrition?.calories} ·
                                         ${recipe.nutrition?.protein}P</span
                                       >`
                                     }
@@ -1040,7 +1054,21 @@ export function PlannerView({
                                   html`<button
                                     class="switchbtn"
                                     aria-label="Switch ${name} for another ${full.toLowerCase()}"
-                                    onClick=${() => onSwitch(entry.id)}
+                                    aria-expanded=${
+                                      onPickMeal
+                                        ? picking?.date === date && picking?.slot === key
+                                        : undefined
+                                    }
+                                    onClick=${() =>
+                                      // with the meal list wired, SWITCH opens it: he
+                                      // names the meal instead of cycling to it (2026-11-26)
+                                      onPickMeal && !entry.cookedAt
+                                        ? setPicking(
+                                            picking?.date === date && picking?.slot === key
+                                              ? null
+                                              : { date, slot: key },
+                                          )
+                                        : onSwitch(entry.id)}
                                   >
                                     ⇄
                                   </button>`
@@ -1077,11 +1105,81 @@ export function PlannerView({
                           })}
                         </div>`
                       }
+                      ${
+                        // PICK: the meal he is making, from the meals that fit
+                        // him for this slot. Not on a shared table meal, an
+                        // eaten meal or an eating-out mark.
+                        onPickMeal &&
+                        !outEntry &&
+                        stacked.length === 0 &&
+                        html`<button
+                          class="switchbtn pickbtn"
+                          aria-expanded=${picking?.date === date && picking?.slot === key}
+                          aria-label=${`Pick the ${full.toLowerCase()} for ${dayName} ${monthDay(date)}`}
+                          onClick=${() =>
+                            setPicking(
+                              picking?.date === date && picking?.slot === key
+                                ? null
+                                : { date, slot: key },
+                            )}
+                        >
+                          +
+                        </button>`
+                      }
                       ${awayBtn} ${swipeBtn}
                     </div>
+                    ${
+                      picking?.date === date &&
+                      picking?.slot === key &&
+                      html`<div class="picklist" role="group" aria-label=${`${full} choices`}>
+                        ${
+                          recipes.filter((r) => r.mealType === key).length === 0
+                            ? html`<p class="hint">no ${full.toLowerCase()} recipes fit you yet</p>`
+                            : recipes
+                                .filter((r) => r.mealType === key)
+                                .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+                                .map(
+                                  (r) =>
+                                    html`<button
+                                      class="pickrow"
+                                      key=${r.id}
+                                      aria-label=${`Make ${r.name} the ${full.toLowerCase()}`}
+                                      onClick=${() => {
+                                        onPickMeal?.(date, key, String(r.id));
+                                        setPicking(null);
+                                      }}
+                                    >
+                                      <span class="n">${r.name}</span>
+                                      <span class="m num"
+                                        >${r.nutrition?.calories} · ${r.nutrition?.protein}P</span
+                                      >
+                                    </button>`,
+                                )
+                        }
+                      </div>`
+                    }
                   `;
                 })}
               </div>
+              ${
+                // SIZE THIS DAY (P1): his own uneaten meals, portioned to his numbers
+                !past &&
+                onSizeDay &&
+                !noTargets &&
+                !marked &&
+                plan.entries.some(
+                  (e) =>
+                    e.date === date && e.recipeId && !e.out && !e.table && !e.fromTable && !e.cookedAt,
+                ) &&
+                html`<button
+                  class="secondary sizeday"
+                  aria-label=${`Size the portions for ${dayName} ${monthDay(date)} to ${kcalTarget} calories and my protein range`}
+                  onClick=${() => onSizeDay(date)}
+                >
+                  SIZE ${date === todayIso ? "TODAY" : dayName.toUpperCase()} TO MY NUMBERS
+                  <small>keeps these meals, sets the portions</small>
+                </button>`
+              }
             </div>
           </details>
         `;

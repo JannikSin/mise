@@ -36,6 +36,10 @@ export const RELEASES = [
     version: UNRELEASED,
     date: "",
     notes: [
+      "Plan one day yourself. On any day from today on, tap + on an empty meal (or the switch arrows on a set one), pick what you are making from the list, then tap SIZE TODAY TO MY NUMBERS. Mise keeps your meals and sets the portions to 3,700 calories and 190 to 215 g of protein, and says so plainly when those meals cannot get there. No other day and nothing on the List's ticks is touched.",
+      "A meal with a portion other than one shows it on the Plan row (1.5 x 760 calories).",
+      "The SEND TO CART buttons are gone from the List (you: \"the whole store press never worked\"). Store prices on the List stay.",
+      "Four fixes found by the Friday audits: SET THIS WEEK works after 7:30 pm on a week's last day, the three-item test picks the cheapest packs, the pantry fresh-start walk belongs to one profile, and an unpaid housemate's receipt and shared-meal estimates are settled correctly.",
       "A day at home on a school break plans no dining-hall swipe. Planning Fri 11/27 from your parents' house used to count a 900 calorie, 70 g swipe lunch you could not eat and size the rest of the day around it. Thanksgiving break and winter break now get home food only; swipes come back the day classes resume.",
       "Your protein stays under 215 g when you plan on your own. After a day was sized, a later step traded recipes to share ingredients and kept the old portions, so a day planned at 191 g reached your phone at 285 g. Any day those trades push outside your numbers now goes back to the day as planned.",
       "When a day needs more calories, Mise reaches for the lean snack before making protein-heavy meals bigger.",
