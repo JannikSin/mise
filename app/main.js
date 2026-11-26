@@ -163,7 +163,7 @@ import {
   unmarkDayAte,
   unmarkMealAte,
   setEntryTook,
-  settledEntryId,
+  settleTableEntry,
   tripFor,
   buildDays,
   pickableDays,
@@ -3039,27 +3039,9 @@ function App() {
     for (const e of toSettle) {
       // one id per table, so two devices settling the same meal collapse
       // to one row in the keyed merge instead of showing it twice
-      const id = settledEntryId(String(e.table));
-      if (next.entries.some((x) => x.id === id)) continue;
-      next = {
-        ...next,
-        entries: [
-          ...next.entries,
-          /** @type {any} */ ({
-            id,
-            date: e.date,
-            slot: e.slot,
-            recipeId: e.viewRecipeId,
-            servings: e.servings,
-            pinned: true,
-            fromTable: e.table,
-            ...(e.cookedAt ? { cookedAt: e.cookedAt } : {}),
-            .../** @type {any} */ (
-              e.leftoverOf ? { leftoverOf: /** @type {any} */ (e).leftoverOf } : {}
-            ),
-          }),
-        ],
-      };
+      const row = settleTableEntry(e);
+      if (next.entries.some((x) => x.id === row.id)) continue;
+      next = { ...next, entries: [...next.entries, row] };
     }
     updatePlan(next);
   }, [tableDerived, plan, weekId, hasToken, updatePlan]);
@@ -5123,6 +5105,12 @@ function App() {
   const routeTable = route.table
     ? houseEvents.flatMap((h) => h.events.tables).find((t) => t.id === route.table)
     : undefined;
+  // the quick card over the plan shows the dish the same way the page does
+  // (audit 2026-11-06, finding 2: it showed the full meat while the list
+  // bought the proportioned amount)
+  const peekTable = peek?.tableId
+    ? houseEvents.flatMap((h) => h.events.tables).find((t) => t.id === peek.tableId)
+    : undefined;
   const routeServe =
     routeTable && !routeTable.sameForEveryone
       ? buildServe(
@@ -5712,7 +5700,11 @@ function App() {
     ${
       peek &&
       html`<${RecipePeek}
-        recipe=${recipeById(peek.recipeId) ?? null}
+        recipe=${
+          (peekTable
+            ? withSwaps(withRatio(recipeById(peek.recipeId), /** @type {any} */ (peekTable).ratio), /** @type {any} */ (peekTable).swaps)
+            : recipeById(peek.recipeId)) ?? null
+        }
         servings=${peek.servings}
         date=${peek.date}
         entryId=${peek.entryId}
@@ -5782,9 +5774,15 @@ if (location.search.includes("fresh")) {
   const clean = location.href.split("?")[0] + location.hash;
   void (async () => {
     try {
+      // OWN worker and caches only (audit 2026-11-06, finding 4): every PWA
+      // on janniksin.github.io shares this origin, and clearing them all
+      // left Tally, Finesse and the rest without their offline copy, the
+      // same failure sw.js's activate handler was fixed for on 2026-08-18.
+      // register("./sw.js") scopes the worker to this page's folder.
+      const own = new URL("./", location.href).href;
       const regs = await navigator.serviceWorker?.getRegistrations?.();
-      for (const r of regs ?? []) await r.unregister();
-      for (const k of await caches.keys()) await caches.delete(k);
+      for (const r of regs ?? []) if (r.scope === own) await r.unregister();
+      for (const k of await caches.keys()) if (k.startsWith("mise-")) await caches.delete(k);
     } catch {
       // nothing to clear, or the browser refused: reload anyway
     }
