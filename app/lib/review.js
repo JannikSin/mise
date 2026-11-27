@@ -16,6 +16,7 @@
  *   weekDates: string[],
  *   recipesById?: Map<string, any>,
  *   pantry?: Record<string, any> | null,
+ *   budgetUsd?: number | null,
  * }} inputs
  * @returns {{
  *   hasData: boolean,
@@ -29,7 +30,16 @@
  *   signals: { tossedFoods: string[], skippedRecipeIds: string[] },
  * }}
  */
-export function composeWeekReview({ plan, waste, daily, targets, weekDates, recipesById, pantry }) {
+export function composeWeekReview({
+  plan,
+  waste,
+  daily,
+  targets,
+  weekDates,
+  recipesById,
+  pantry,
+  budgetUsd = undefined,
+}) {
   const dates = new Set(weekDates);
   const entries = (plan?.entries ?? []).filter((e) => dates.has(e.date));
   // planned = meals that were REAL cooking commitments: recipe entries,
@@ -37,9 +47,9 @@ export function composeWeekReview({ plan, waste, daily, targets, weekDates, reci
   const planned = entries.filter((e) => e.recipeId && !e.out && !e.table);
   const done = planned.filter((e) => e.cookedAt);
 
-  const receipts = (Array.isArray(/** @type {any} */ (plan)?.spend) ? /** @type {any} */ (plan).spend : []).filter(
-    (/** @type {any} */ s) => dates.has(s.date),
-  );
+  const receipts = (
+    Array.isArray(/** @type {any} */ (plan)?.spend) ? /** @type {any} */ (plan).spend : []
+  ).filter((/** @type {any} */ s) => dates.has(s.date));
   const spend =
     receipts.length > 0
       ? {
@@ -51,7 +61,14 @@ export function composeWeekReview({ plan, waste, daily, targets, weekDates, reci
               ) * 100,
             ) / 100,
           receipts: receipts.length,
-          budget: typeof targets?.weeklyBudgetUsd === "number" ? targets.weeklyBudgetUsd : null,
+          // the house's week when the caller knows it (receipts are the
+          // house's trip); else the number as stored
+          budget:
+            typeof budgetUsd === "number"
+              ? budgetUsd
+              : typeof targets?.weeklyBudgetUsd === "number"
+                ? targets.weeklyBudgetUsd
+                : null,
         }
       : null;
 
@@ -69,10 +86,7 @@ export function composeWeekReview({ plan, waste, daily, targets, weekDates, reci
       ? {
           timed: timed.length,
           statedMin: Math.round(
-            timed.reduce(
-              (s, e) => s + (recipesById?.get(e.recipeId ?? "")?.totalTime ?? 0),
-              0,
-            ),
+            timed.reduce((s, e) => s + (recipesById?.get(e.recipeId ?? "")?.totalTime ?? 0), 0),
           ),
           recordedMin: Math.round(timed.reduce((s, e) => s + (e.cookSeconds ?? 0) / 60, 0)),
         }
@@ -102,9 +116,10 @@ export function composeWeekReview({ plan, waste, daily, targets, weekDates, reci
   // YOUR OWN COMMENTS, IN PLAIN WORDS. "was not hungry Tuesday, ate it for
   // lunch Wednesday." Stored on the closed week, never parsed, never scored:
   // it exists so the person reading the review next week sees what they said.
-  const note = typeof (/** @type {any} */ (plan)?.reviewNote) === "string"
-    ? /** @type {any} */ (plan).reviewNote
-    : "";
+  const note =
+    typeof (/** @type {any} */ (plan)?.reviewNote) === "string"
+      ? /** @type {any} */ (plan).reviewNote
+      : "";
 
   // THE SIGNALS THE NEXT WEEK READS. This is the half P11 was missing: the
   // review reported and nothing consumed it. Both are MEASURED, never stated.

@@ -2069,10 +2069,15 @@ Seeded from the FITNESS.md system; edited rarely.
   "stores": ["Mariano's", "Aldi"], // ? string array of store names. The FIRST
   //   entry, slugified, is the default store the List view prices against
   //   (main.js -> ShoppingView storeSlug); the shopper can override per trip.
-  "weeklyBudgetUsd": 100, // ? the weekly grocery number (P5, PF.3 spend leg).
-  //   Since 2026-11-06 it is the WHOLE HOUSE TRIP, not each person's ("100
-  //   total"). Since 2026-11-07 it is reduced by last week's overage (see plan
-  //   `spend`), and half of it is the aim for what the week's meals eat.
+  "weeklyBudgetUsd": 50, // ? the weekly grocery number (P5, PF.3 spend leg).
+  "budgetPer": "person", // ? written with weeklyBudgetUsd since 2026-11-27
+  //   (David: "obviously the $50 is just for me ... they pay their own 50"):
+  //   the number is THIS PERSON'S own, and the house's week is its people's
+  //   numbers added up (budget.js personBudget, houseBudget). A file WITHOUT
+  //   `budgetPer` holds the 2026-11-06 meaning, the whole house trip ("100
+  //   total"), and is read as that total split across the kitchen's people.
+  //   Since 2026-11-07 the house's week is reduced by last week's overage (see
+  //   plan `spend`); the food the week's meals eat is judged per person.
   //   The trip tile shows the trip total, the EATEN-THIS-WEEK share (itemCost
   //   `eaten` — P5's stocking rule: whole packages are the trip, the consumed
   //   share is what the budget answers to), and over/under of eaten vs this.

@@ -11,6 +11,7 @@
 // one: set MISE_DATA to a clone, or keep one beside this repo (../mise-data).
 // Without it the tests are SKIPPED and say so; they never pass on nothing.
 import test from "node:test";
+import { houseBudget, personBudget } from "../app/lib/budget.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -89,17 +90,20 @@ const J = (p) => JSON.parse(fs.readFileSync(path.join(DATA, p), "utf8"));
 
 /**
  * THE ONE BUDGET NUMBER (P5; David, 2026-11-27: "we have tlaked abt this so
- * many times why is this still an issue"). It lives in one place, his
- * targets file (weeklyBudgetUsd, set in Settings), and the planner, the
- * List and these checks all read it from there. No dollar figure is written
+ * many times why is this still an issue"). It lives in one place, each
+ * person's targets file (weeklyBudgetUsd, set in Settings), and it is that
+ * person's OWN number ("obviously the $50 is just for me. and so if there are
+ * more people in the house they pay their own 50."). The planner, the List
+ * and these checks all read it through budget.js. No dollar figure is written
  * into a check: a number typed here is how a "$200" nobody ever agreed to
  * became the line this file enforced.
  * @param {Map<string, any>} targetsById
+ * @param {string[]} memberIds the people of his kitchen
  */
-function houseBudget(targetsById) {
-  const n = Number(targetsById.get("david")?.weeklyBudgetUsd);
-  assert.ok(n > 0, "his targets carry no weeklyBudgetUsd");
-  return n;
+function kitchenBudget(targetsById, memberIds) {
+  const b = houseBudget(memberIds.map((id) => targetsById.get(id)));
+  assert.ok(b && b.house > 0, "nobody in his kitchen has a weekly budget");
+  return /** @type {{ house: number, perPerson: number, people: number }} */ (b);
 }
 
 /** Plan his kitchen's week exactly as SET MY WEEK does. */
@@ -185,7 +189,7 @@ function planHisWeek(
         /** @type {number} */ qty,
         /** @type {string} */ unit,
       ) => itemCost({ food, qty, unit }, cat, store)?.cost ?? 0,
-      budgetUsd: houseBudget(targetsById),
+      budgetUsd: kitchenBudget(targetsById, brigade.memberIds).house,
       ...(opts.noSwaps
         ? {}
         : {
@@ -239,7 +243,8 @@ function planHisWeek(
     brigade,
     trip,
     buy,
-    budget: houseBudget(targetsById),
+    budget: kitchenBudget(targetsById, brigade.memberIds).house,
+    each: kitchenBudget(targetsById, brigade.memberIds).perPerson,
     people: brigade.memberIds.length,
   };
 }
@@ -307,12 +312,13 @@ test(
   },
 );
 
-test("his kitchen: a swipe week's food costs what his budget says, about $50 a person", { skip }, () => {
+test("his kitchen: a swipe week's food costs what his budget says, his own $50", { skip }, () => {
   // David, 11/27: "never has i tbeen 200 per person per week that is an
   // innsane number. when i am on a meal swipe and only making dinners and
   // some muffins and breakfast i want more like $50 a week." And 11/6: "100
-  // total ... it is not a hard hard cap". His stored budget is the house's
-  // week, two people, so it is $50 a person. The line this check holds is
+  // total ... it is not a hard hard cap". Then, asked whose $50: "obviously
+  // the $50 is just for me. and so if there are more people in the house they
+  // pay their own 50." So it is $50 a person. The line this check holds is
   // the FOOD THE WEEK EATS, per person, against that number. What the trip
   // adds on top is the unused part of packs bought whole (a 4 lb bag of
   // blueberries for 425 g); it is printed here, said on the List, and the
@@ -321,8 +327,7 @@ test("his kitchen: a swipe week's food costs what his budget says, about $50 a p
     {},
     { snackFirst: true, pantryAdd: ["walnuts", "rolled oats", "honey", "baking powder"] },
   ]) {
-    const { out, trip, budget, people } = planHisWeek(opts);
-    const each = budget / people;
+    const { out, trip, budget, each, people } = planHisWeek(opts);
     console.log(
       `# his week ${WEEK} ${JSON.stringify(opts)}: eats $${trip.eaten.toFixed(2)} ($${(trip.eaten / people).toFixed(2)} a person, budget $${each.toFixed(0)}); the trip is $${trip.total.toFixed(2)} with whole packs, budget $${budget.toFixed(0)}`,
     );
@@ -340,26 +345,30 @@ test("his kitchen: a swipe week's food costs what his budget says, about $50 a p
   }
 });
 
-// OPEN, OWNER DAVID (asked through the head 2026-11-27): the List's own line
-// reads "eaten this week (aim $50 or less)" for the HOUSE, from his 11/6
-// words ("keep the actual eaten bit at 50 or less"). On 11/27 he said "$50 a
-// week" in a sentence about cost per person. For two people those are
-// different lines: the week of 12/6 eats about $94, which is $47 a person and
-// $44 over a house aim of $50. The check above holds the per-person reading;
-// this stays printed until he says which one he means.
 test(
-  "his kitchen: is $50 a week his share, or the whole house's food?",
-  { todo: "David: $50 a person (as checked now) or $50 for the house" },
-  () => {},
+  "his kitchen: his number reads as his own $50, and the house's week is each person's added up",
+  { skip },
+  () => {
+    const { budget, each, people } = planHisWeek();
+    const mine = personBudget(J("profile/targets.json"), people);
+    assert.equal(mine, each, "Settings shows him the number the checks hold");
+    assert.equal(budget, each * people);
+  },
 );
 
-test("his kitchen: nothing on the List is a food somebody at his table cannot eat", { skip }, () => {
-  const { buy } = planHisWeek();
-  const elliot = J("profiles/elliot/profile/targets.json").avoidIngredients ?? [];
-  const hit = avoidMatcher(elliot);
-  const bad = buy.filter((/** @type {any} */ i) => hit(i.food)).map((/** @type {any} */ i) => i.food);
-  assert.deepEqual(bad, [], "the List buys a food Elliot cannot eat");
-});
+test(
+  "his kitchen: nothing on the List is a food somebody at his table cannot eat",
+  { skip },
+  () => {
+    const { buy } = planHisWeek();
+    const elliot = J("profiles/elliot/profile/targets.json").avoidIngredients ?? [];
+    const hit = avoidMatcher(elliot);
+    const bad = buy
+      .filter((/** @type {any} */ i) => hit(i.food))
+      .map((/** @type {any} */ i) => i.food);
+    assert.deepEqual(bad, [], "the List buys a food Elliot cannot eat");
+  },
+);
 
 test(
   "his kitchen: with his Costco stock in, dishes trade to what he has or is already buying, the walnut muffin stays off Elliot's table, still 190 to 215 g",

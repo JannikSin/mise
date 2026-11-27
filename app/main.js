@@ -175,7 +175,13 @@ import {
 import { generateWeek, generatorEligible, poolAdequacy } from "./lib/weekbuilder.js";
 import { planBrigadeWeek } from "./lib/compose.js";
 import { composeManifest, remanifest } from "./lib/manifest.js";
-import { recordTripEstimate, swapToFit, weekBudget } from "./lib/budget.js";
+import {
+  houseBudget,
+  personBudget,
+  recordTripEstimate,
+  swapToFit,
+  weekBudget,
+} from "./lib/budget.js";
 import { boughtQty } from "./lib/bulk.js";
 import {
   capacityCheck,
@@ -400,7 +406,8 @@ function App() {
   const handleSaveBudget = useCallback(async (/** @type {number} */ usd) => {
     const me = activeProfile();
     const cur = /** @type {any} */ (await readTargetsOf(me)) ?? {};
-    await writeTargetsOf(me, { ...cur, weeklyBudgetUsd: usd });
+    // the number typed in Settings is this person's own (David, 2026-11-27)
+    await writeTargetsOf(me, { ...cur, weeklyBudgetUsd: usd, budgetPer: "person" });
     setTargets(/** @type {any} */ (await readTargetsOf(me)));
   }, []);
 
@@ -1836,7 +1843,7 @@ function App() {
 
   // set beside the listBrigade memo below; declared here so earlier
   // callbacks can body-reference it without a use-before-define
-  const listBrigadeRef = useRef(/** @type {{ iShop: boolean } | null} */ (null));
+  const listBrigadeRef = useRef(/** @type {{ iShop: boolean, seats?: number } | null} */ (null));
   const handleJustBought = useCallback(() => {
     // fridgeFirst only when this list IS the rendered trip — a solo profile,
     // or the brigade's shopper, whose list is the whole kitchen's one buy
@@ -2581,7 +2588,8 @@ function App() {
       try {
         const cat = manifestInputs.current.catalogue;
         const store = targetsRef.current?.stores?.[0] ?? "";
-        const budgetUsd = Number(targetsRef.current?.weeklyBudgetUsd) || 0;
+        // his own number: this planner builds one person's week
+        const budgetUsd = personBudget(targetsRef.current, listBrigadeRef.current?.seats ?? 1) ?? 0;
         if (cat && store && budgetUsd > 0) {
           const fit = swapToFit({
             plan: built,
@@ -3241,6 +3249,7 @@ function App() {
       // per-seat share of the eaten figure, never the whole kitchen's bill,
       // against my personal weeklyBudgetUsd (David, 2026-08-30)
       seats: Math.max(1, (active.memberIds ?? []).length),
+      memberIds: /** @type {string[]} */ (active.memberIds ?? []),
       shopperName: cookName,
       othersBuy: [...others]
         .sort(([a], [b]) => a.localeCompare(b))
@@ -3248,6 +3257,12 @@ function App() {
     };
   }, [houseEvents, allProfiles, me, tableDerived]);
   listBrigadeRef.current = listBrigade;
+  // THE HOUSE'S WEEK FOR THE LIST: each person's own number added up (David,
+  // 2026-11-27). Mine from my targets, the others' from the house's.
+  const listBudget = useMemo(() => {
+    const ids = listBrigade?.memberIds?.length ? listBrigade.memberIds : [me];
+    return houseBudget(ids.map((id) => (id === me ? targets : houseTargets.get(id)?.data)));
+  }, [listBrigade, targets, houseTargets, me]);
 
   // the trip BUILD will shop from the viewed week, for the button's label and
   // the JUST SOME DAYS chips (null on a past week: that builds the week)
@@ -4506,11 +4521,9 @@ function App() {
         priceNeed = (food, qty, unit) => itemCost({ food, qty, unit }, cat, store)?.cost ?? 0;
       }
       // the kitchen's per-person weekly budget: the members who set one
-      const budgets = brigade.memberIds
-        .map((id) => Number(targetsById.get(id)?.weeklyBudgetUsd))
-        .filter((n) => n > 0);
-      const baseBudget =
-        budgets.length > 0 ? budgets.reduce((a, b) => a + b, 0) / budgets.length : undefined;
+      // each person's own number, added up (David, 2026-11-27: "the $50 is
+      // just for me ... they pay their own 50")
+      const baseBudget = houseBudget(brigade.memberIds.map((id) => targetsById.get(id)))?.house;
       // LAST WEEK'S OVERAGE COMES OFF THIS WEEK (David, 2026-11-06: "if
       // necessary can go above but that means next weeks should be less"):
       // the members' plans for the week before this run, whichever recorded
@@ -5407,6 +5420,7 @@ function App() {
           waste: /** @type {any} */ (wasteLog),
           daily: dailyLog,
           targets,
+          budgetUsd: listBudget?.house ?? null,
           weekDates: datesOfWeek(shiftWeek(weekId, -1)),
           recipesById: recipesById(allRecipes),
           pantry,
@@ -5558,8 +5572,9 @@ function App() {
             }))
             .filter((x) => x.avoid.length > 0)
         }
-        weeklyBudgetUsd=${targets?.weeklyBudgetUsd}
-        budgetWeek=${weekBudget(targets?.weeklyBudgetUsd, prevWeekPlan)}
+        weeklyBudgetUsd=${listBudget?.house}
+        budgetPeople=${listBudget?.people ?? 1}
+        budgetWeek=${weekBudget(listBudget?.house, prevWeekPlan)}
         region=${targets?.region}
         storeSlug=${storeSlugOf(targets?.stores?.[0])}
         onReceiptApprove=${handleReceiptApprove}
@@ -5764,6 +5779,7 @@ function App() {
         onSaveEquipment=${handleSaveEquipment}
         onSaveMealSlots=${handleSaveMealSlots}
         onSaveBudget=${handleSaveBudget}
+        myBudgetUsd=${personBudget(targets, listBrigade?.seats ?? 1)}
         onSaveBuyDay=${handleSaveBuyDay}
         onSaveProfile=${hasToken ? handleSaveProfile : undefined}
         onInviteLink=${hasToken ? handleInviteLink : undefined}
@@ -5806,7 +5822,10 @@ function App() {
       html`<${RecipePeek}
         recipe=${
           (peekTable
-            ? withSwaps(withRatio(recipeById(peek.recipeId), /** @type {any} */ (peekTable).ratio), /** @type {any} */ (peekTable).swaps)
+            ? withSwaps(
+                withRatio(recipeById(peek.recipeId), /** @type {any} */ (peekTable).ratio),
+                /** @type {any} */ (peekTable).swaps,
+              )
             : recipeById(peek.recipeId)) ?? null
         }
         servings=${peek.servings}

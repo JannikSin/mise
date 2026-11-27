@@ -265,6 +265,7 @@ const FRESH_STEPS = [
  *   onSavePrices?: (next: import("../lib/prices.js").PriceCatalogue) => void,
  *   avoid?: string[],
  *   weeklyBudgetUsd?: number,
+ *   budgetPeople?: number,
  *   budgetWeek?: { base: number, carried: number, cap: number, eatenCap: number, lastTrip: { total: number, cap: number | null, estimate: boolean } | null, bulkCharge?: number, bulkCarry?: { perWeek: number, weeksLeft: number }[] } | null,
  *   region?: { country?: string, state?: string },
  *   storeSlug?: string,
@@ -327,6 +328,7 @@ export function ShoppingView({
   onSavePrices = undefined,
   avoid = [],
   weeklyBudgetUsd = undefined,
+  budgetPeople = 1,
   budgetWeek = null,
   region = undefined,
   storeSlug = "",
@@ -1016,9 +1018,7 @@ export function ShoppingView({
     .slice(0, 3)
     .map((r) => ({ ...r, quantity: 1 }));
 
-  const sendToKrogerCart = async (
-    /** @type {{ test?: boolean, fresh?: boolean }} */ opts = {},
-  ) => {
+  const sendToKrogerCart = async (/** @type {{ test?: boolean, fresh?: boolean }} */ opts = {}) => {
     const rows = opts.test === true ? testRows : opts.fresh === true ? freshRows : cartRows;
     if (rows.length === 0) return;
     // a test push is small and repeatable by design, and a fresh send holds
@@ -1609,8 +1609,8 @@ export function ShoppingView({
             </div>
             <p class="hint">
               tick the lines to save, then apply. Only lines that match a tracked item update. A
-              till abbreviation the scan read wrong is EDITABLE, fix the name and the price lands
-              on the right food.
+              till abbreviation the scan read wrong is EDITABLE, fix the name and the price lands on
+              the right food.
             </p>
             <div class="slots">
               ${receipt.lines.map(
@@ -1800,7 +1800,8 @@ export function ShoppingView({
           </div>
           <div class="row">
             <span class="k"
-              >${STORE_NAMES[homeStore] ?? homeStore} total${homeSummary.tax > 0 ? " with tax" : ""}</span
+              >${STORE_NAMES[homeStore] ?? homeStore}
+              total${homeSummary.tax > 0 ? " with tax" : ""}</span
             >
             <span class="status num">
               ${
@@ -1841,38 +1842,63 @@ export function ShoppingView({
               const cap = budgetWeek ? budgetWeek.cap : weeklyBudgetUsd;
               const carried = budgetWeek?.carried ?? 0;
               const owed = budgetWeek?.bulkCharge ?? 0;
-              const eatenCap = budgetWeek?.eatenCap ?? weeklyBudgetUsd / 2;
+              // EACH PERSON'S OWN NUMBER (David, 2026-11-27: "obviously the
+              // $50 is just for me ... they pay their own 50"): the house's
+              // week is the people's numbers added up, and the eaten line is
+              // read per person
+              const people = Math.max(1, Number(budgetPeople) || 1);
+              const each = (budgetWeek?.eatenCap ?? weeklyBudgetUsd) / people;
+              const many = people > 1;
               // this week's own food: the month rows count one week's share
               const judged = Math.round((share - ahead.prepaid) * 100) / 100;
               const eaten = homeSummary.eaten;
               return html`<div class="row">
-                <span class="k"
-                  >budget $${cap.toFixed(0)} for the trip${carried > 0 || owed > 0
-                    ? html` <span class="hint"
-                        >($${weeklyBudgetUsd.toFixed(0)}${carried > 0 ? ` less $${carried.toFixed(2)} over last week` : ""}${owed > 0 ? ` less $${owed.toFixed(2)} of food already bought for this week` : ""})</span
-                      >`
-                    : " this week"}</span
-                >
-                <span class="status num ${judged > cap ? "warn" : ""}" data-testid="budget-trip"
-                  >${judged > cap ? `${label} $${judged.toFixed(2)}, over by $${(judged - cap).toFixed(2)} · comes off next week` : `${label} ≈ $${judged.toFixed(2)} ✓`}</span
-                >
-              </div>
-              ${
+                  <span class="k"
+                    >budget $${cap.toFixed(0)} for the
+                    trip${
+                    carried > 0 || owed > 0
+                      ? html` <span class="hint"
+                          >($${weeklyBudgetUsd.toFixed(0)}${carried > 0 ? ` less $${carried.toFixed(2)} over last week` : ""}${owed > 0 ? ` less $${owed.toFixed(2)} of food already bought for this week` : ""})</span
+                        >`
+                      : " this week"
+                  }${
+                    many
+                      ? html` <span class="hint"
+                          >$${each.toFixed(0)} a person, ${people} people</span
+                        >`
+                      : ""
+                  }</span
+                  >
+                  <span class="status num ${judged > cap ? "warn" : ""}" data-testid="budget-trip"
+                    >${judged > cap ? `${label} $${judged.toFixed(2)}, over by $${(judged - cap).toFixed(2)} · comes off next week` : `${label} ≈ $${judged.toFixed(2)} ✓`}</span
+                  >
+                </div>
+                ${
                 ahead.prepaid > 0 &&
                 html`<div class="row">
                   <span class="k">bought ahead for the month</span>
                   <span class="status num" data-testid="budget-ahead"
-                    >+ $${ahead.prepaid.toFixed(2)} of later weeks' food, $${ahead.perWeek.toFixed(2)} a week
-                    for ${ahead.weeks} weeks</span
+                    >+ $${ahead.prepaid.toFixed(2)} of later weeks' food,
+                    $${ahead.perWeek.toFixed(2)} a week for ${ahead.weeks} weeks</span
                   >
                 </div>`
               }
-              <div class="row">
-                <span class="k">eaten this week (aim $${eatenCap.toFixed(0)} or less)</span>
-                <span class="status num ${eaten > eatenCap ? "warn" : ""}" data-testid="budget-eaten"
-                  >$${eaten.toFixed(2)}${eaten > eatenCap ? `, over by $${(eaten - eatenCap).toFixed(2)}` : " ✓"} · the rest stays as stock</span
-                >
-              </div>`;
+                <div class="row">
+                  <span class="k"
+                    >eaten this week (aim $${each.toFixed(0)}${many ? " a person" : ""} or
+                    less)</span
+                  >
+                  <span
+                    class="status num ${eaten / people > each ? "warn" : ""}"
+                    data-testid="budget-eaten"
+                    >$${(eaten / people).toFixed(2)}${many ? " a person" : ""}${
+                    eaten / people > each
+                      ? `, over by $${(eaten / people - each).toFixed(2)}`
+                      : " ✓"
+                  }
+                    · the rest stays as stock</span
+                  >
+                </div>`;
             })()
           }
           ${
@@ -1881,8 +1907,8 @@ export function ShoppingView({
             // only the finished summary; progress and offline chatter stay
             // behind the parked controls (Tribunal, v1.7a)
             repriceNote &&
-              /^prices checked today/.test(repriceNote) &&
-              html`<p class="hint">${repriceNote}</p>`
+            /^prices checked today/.test(repriceNote) &&
+            html`<p class="hint">${repriceNote}</p>`
           }
           ${
             homeSummary.unpriced > 0 &&
@@ -1894,7 +1920,10 @@ export function ShoppingView({
           ${
             // the marks on prices, explained once (Tribunal Usability)
             items.length > 0 &&
-            html`<p class="hint">~ an estimated price · † a price that may be out of date · "weighed" is sold by the pound</p>`
+            html`<p class="hint">
+              ~ an estimated price · † a price that may be out of date · "weighed" is sold by the
+              pound
+            </p>`
           }
           ${pricePick?.fromTile ? pickSheet() : ""}
           ${
@@ -1903,7 +1932,7 @@ export function ShoppingView({
             // the live-price controls and the Kroger cart stay built, doors shut
             !isParked("liveprices") &&
             html`
-          ${
+              ${
             canLive &&
             html`<div class="row">
               <span class="k"
@@ -1919,8 +1948,8 @@ export function ShoppingView({
               </button>
             </div>`
           }
-          ${canLive && refreshNote && html`<p class="hint">${refreshNote}</p>`}
-          ${
+              ${canLive && refreshNote && html`<p class="hint">${refreshNote}</p>`}
+              ${
             canLive &&
             provisionalRows.length > 0 &&
             html`<div class="row">
@@ -1946,11 +1975,16 @@ export function ShoppingView({
                     `${name} buys some of the food for ${(brigade?.othersBuy ?? [])
                       .filter((o) => o.name === name)
                       .map((o) =>
-                        parseLocalIso(o.date).toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" }),
+                        parseLocalIso(o.date).toLocaleDateString([], {
+                          weekday: "short",
+                          month: "numeric",
+                          day: "numeric",
+                        }),
                       )
                       .join(", ")}`,
                 )
-                .join("; ")}, so that food is not on your list.
+                .join("; ")},
+              so that food is not on your list.
             </p>`
           }
           ${
@@ -1959,7 +1993,7 @@ export function ShoppingView({
             cartOpen &&
             !isParked("cart") &&
             html`
-          ${
+              ${
             // NO FEATURE SHIPS DARK, and this one did (David,
             // 2026-08-25: "it said not linked and push failed"). The
             // Worker was missing KROGER_STATE_SECRET and
@@ -1976,7 +2010,7 @@ export function ShoppingView({
               configuration gap, not something you did wrong.
             </p>`
           }
-          ${
+              ${
             canLive &&
             !cartOff &&
             html`<div class="row">
@@ -2014,9 +2048,7 @@ export function ShoppingView({
                 sentCount > 0 &&
                 freshRows.length > 0 &&
                 html`<div class="row">
-                    <span class="k"
-                      >${freshRows.length} new since you sent the cart</span
-                    >
+                    <span class="k">${freshRows.length} new since you sent the cart</span>
                     <button
                       class="secondary"
                       style="min-height: 44px"
@@ -2048,8 +2080,8 @@ export function ShoppingView({
                   </p>`
               }`
           }
-          ${canLive && cartNote && html`<p class="hint">${cartNote}</p>`}
-          ${
+              ${canLive && cartNote && html`<p class="hint">${cartNote}</p>`}
+              ${
             // every row the cart will not carry, by name and why, under the
             // send note itself so it is read right after a send (10/25
             // rehearsal: ponzu skipped without a word). Live, so a NEED IT
@@ -2060,7 +2092,7 @@ export function ShoppingView({
               (line) => html`<p class="hint notsent" key=${line}>${line}</p>`,
             )
           }
-          ${
+              ${
             // WHAT ACTUALLY HAPPENED (David, 2026-08-25: "I'm logged in
             // to my account on the Pay Less app, but I see nothing").
             // Kroger cannot be read back, so this shows what WE sent and
@@ -2231,9 +2263,8 @@ export function ShoppingView({
         shopping.items.length > 0 &&
         /^\d{4}-W\d{2}$/.test(String(shopping.generatedFrom ?? "")) &&
         html`<p class="hint listweek">
-          This list is for the week of ${tripLabel(
-            datesOfWeek(String(shopping.generatedFrom)).slice(0, 1),
-          ).split(" – ")[0]}${
+          This list is for the week of
+          ${tripLabel(datesOfWeek(String(shopping.generatedFrom)).slice(0, 1)).split(" – ")[0]}${
             shopping.generatedFrom === weekId ? "" : html`, <b>not the week on screen</b>`
           }.
         </p>`
@@ -2271,10 +2302,10 @@ export function ShoppingView({
                     !bankReady
                       ? "LOADING THE RECIPES…"
                       : buyDays.length > 0 || buySlots.length > 0
-                      ? `BUILD FOR ${buyDays.length || 7} ${(buyDays.length || 7) === 1 ? "DAY" : "DAYS"}`
-                      : trip
-                        ? `BUILD ${tripLabel(trip)}`
-                        : `BUILD FROM W${weekId.split("-W")[1]}`
+                        ? `BUILD FOR ${buyDays.length || 7} ${(buyDays.length || 7) === 1 ? "DAY" : "DAYS"}`
+                        : trip
+                          ? `BUILD ${tripLabel(trip)}`
+                          : `BUILD FROM W${weekId.split("-W")[1]}`
                   }
                 </button>
                 <button
@@ -2309,9 +2340,10 @@ export function ShoppingView({
                   >
                 </div>
                 ${month.covers.map(
-                  (c) => html`<div class="d" key=${c.id}>
-                    ${c.food}: ${c.size} holds ${c.weeks} weeks of it; the rest goes on the shelf
-                  </div>`,
+                  (c) =>
+                    html`<div class="d" key=${c.id}>
+                      ${c.food}: ${c.size} holds ${c.weeks} weeks of it; the rest goes on the shelf
+                    </div>`,
                 )}
                 <p class="hint">
                   These keep a month or more where they are stored. ADD TO PANTRY records the whole
@@ -2404,9 +2436,9 @@ export function ShoppingView({
                 })}
               </div>
               <p class="hint">
-                Nothing picked = the whole trip. Pick any days in the next week, up to 7. Days alone buys every meal on those days; adding
-                meals narrows it further. The weekly buffer snack sits out a partial shop, since it
-                is a week-long batch.
+                Nothing picked = the whole trip. Pick any days in the next week, up to 7. Days alone
+                buys every meal on those days; adding meals narrows it further. The weekly buffer
+                snack sits out a partial shop, since it is a week-long batch.
               </p>
             </div>`
           }
@@ -2429,7 +2461,6 @@ export function ShoppingView({
             /** @type {any} */ (plan)?.fallback &&
             html`<p class="hint lockhint">Shopped plan saved ✓</p>`
           }
-
           ${
             // CHECK YOU HAVE THESE (Mise 2.0, I-10; post-mortem 7: a pantry
             // without salt and olive oil bought both, every time). At the top,
@@ -2443,8 +2474,8 @@ export function ShoppingView({
                 ASSUMED ON HAND · ${rowGroups(tripItems.filter((i) => checkIds.has(i.id))).length}
               </summary>
               <p class="hint">
-                Salt, oil, spices and other long-lasting basics. Mise assumes you have them, so
-                they are not in the total. Out of one? Tap NEED IT and it joins the list.
+                Salt, oil, spices and other long-lasting basics. Mise assumes you have them, so they
+                are not in the total. Out of one? Tap NEED IT and it joins the list.
               </p>
               ${colHead()}
               <div class="slots">
@@ -2548,8 +2579,7 @@ export function ShoppingView({
                                 </button>
                                 ${canLive && unpriced && html`<button class="ownbtn" aria-label="Find live price for ${i.food}" onClick=${() => openPricePick(unpriced)}>$?</button>`}
                               </div>
-                              ${grouped ? groupCells(members) : colCells(i)}
-                              ${flagLine(members)}
+                              ${grouped ? groupCells(members) : colCells(i)} ${flagLine(members)}
                             </div>
                             ${members.some((m) => pricePick?.item?.id === m.id) && !pricePick.fromTile ? pickSheet() : ""}
                           <//>`;
@@ -2690,45 +2720,45 @@ export function ShoppingView({
                       </span>
                     </span>
                     ${
-                    editing
-                      ? html`<span class="rowbtns">
-                          <input
-                            class="qtyin"
-                            type="text"
-                            placeholder="how much? e.g. half a bottle, 3 tubs, 6"
-                            value=${countEdit?.text ?? ""}
-                            onInput=${(/** @type {any} */ e) =>
+                      editing
+                        ? html`<span class="rowbtns">
+                            <input
+                              class="qtyin"
+                              type="text"
+                              placeholder="how much? e.g. half a bottle, 3 tubs, 6"
+                              value=${countEdit?.text ?? ""}
+                              onInput=${(/** @type {any} */ e) =>
                               setCountEdit({ food: r.food, text: String(e.currentTarget.value) })}
-                            onKeyDown=${(/** @type {any} */ e) => {
+                              onKeyDown=${(/** @type {any} */ e) => {
                               if (e.key === "Enter" && countEdit?.text.trim()) {
                                 onSetCount(r.food, countEdit.text.trim());
                                 setCountEdit(null);
                               }
                               if (e.key === "Escape") setCountEdit(null);
                             }}
-                          />
-                          <button
-                            class="secondary"
-                            disabled=${!countEdit?.text.trim()}
-                            onClick=${() => {
+                            />
+                            <button
+                              class="secondary"
+                              disabled=${!countEdit?.text.trim()}
+                              onClick=${() => {
                               if (countEdit?.text.trim()) onSetCount(r.food, countEdit.text.trim());
                               setCountEdit(null);
                             }}
-                          >
-                            SAVE
-                          </button>
-                          <button class="secondary" onClick=${() => setCountEdit(null)}>✕</button>
-                        </span>`
-                      : html`<span class="rowbtns">
-                          <button
-                            class="ownbtn"
-                            aria-label="Say how much ${r.food} you have"
-                            onClick=${() => setCountEdit({ food: r.food, text: "" })}
-                          >
-                            ${r.status === "enough" ? "CORRECT" : "HOW MUCH?"}
-                          </button>
-                        </span>`
-                  }
+                            >
+                              SAVE
+                            </button>
+                            <button class="secondary" onClick=${() => setCountEdit(null)}>✕</button>
+                          </span>`
+                        : html`<span class="rowbtns">
+                            <button
+                              class="ownbtn"
+                              aria-label="Say how much ${r.food} you have"
+                              onClick=${() => setCountEdit({ food: r.food, text: "" })}
+                            >
+                              ${r.status === "enough" ? "CORRECT" : "HOW MUCH?"}
+                            </button>
+                          </span>`
+                    }
                   </div>`;
                 })}
               ${(() => {
@@ -2738,33 +2768,33 @@ export function ShoppingView({
                     ${showMinor ? "HIDE" : "SHOW"} ${minor.length} small amounts the week barely
                     touches
                     (${minor
-                    .slice(0, 4)
-                    .map((r) => r.food)
-                    .join(", ")}${minor.length > 4 ? "…" : ""})
+                      .slice(0, 4)
+                      .map((r) => r.food)
+                      .join(", ")}${minor.length > 4 ? "…" : ""})
                   </button>
                   ${
-                  showMinor &&
-                  minor.map(
-                    (r) =>
-                      html`<div class="checkrow shelfrow done" key=${r.food}>
-                        <span class="food">
-                          ${r.food}
-                          <span class="q num">
-                            week needs ${formatStoreQty(r.need.qty, r.need.unit)} · have
-                            ${r.have ?? "plenty"}
+                    showMinor &&
+                    minor.map(
+                      (r) =>
+                        html`<div class="checkrow shelfrow done" key=${r.food}>
+                          <span class="food">
+                            ${r.food}
+                            <span class="q num">
+                              week needs ${formatStoreQty(r.need.qty, r.need.unit)} · have
+                              ${r.have ?? "plenty"}
+                            </span>
                           </span>
-                        </span>
-                        <span class="rowbtns">
-                          <button
-                            class="ownbtn"
-                            onClick=${() => setCountEdit({ food: r.food, text: "" })}
-                          >
-                            HOW MUCH?
-                          </button>
-                        </span>
-                      </div>`,
-                  )
-                }`;
+                          <span class="rowbtns">
+                            <button
+                              class="ownbtn"
+                              onClick=${() => setCountEdit({ food: r.food, text: "" })}
+                            >
+                              HOW MUCH?
+                            </button>
+                          </span>
+                        </div>`,
+                    )
+                  }`;
               })()}
             </div>`
           }
@@ -3072,12 +3102,14 @@ export function ShoppingView({
             ${
               walk?.items &&
               html`<p class="hint">
-                ${walk.items.length} frames looked at${
+                ${walk.items.length} frames looked
+                at${
                   walk.limited
                     ? `, ${walk.limited} skipped because Mise was asked too fast (try again in a few minutes)`
                     : ""
                 }${(walk.failed ?? 0) - (walk.limited ?? 0) > 0 ? `, ${(walk.failed ?? 0) - (walk.limited ?? 0)} could not be read` : ""}.
-                What you say wins over what a frame guessed. The read-back shows under Say what you have.
+                What you say wins over what a frame guessed. The read-back shows under Say what you
+                have.
               </p>`
             }
           </details>
@@ -3237,22 +3269,22 @@ export function ShoppingView({
                               class="secondary"
                               aria-label=${`${u.name}: ${st === "low" ? "running low" : "I have it"}`}
                               onClick=${() =>
-                              setHeard({
-                                ...heard,
-                                unsure: heard.unsure.filter((_, j) => j !== i),
-                                items: [
-                                  ...heard.items,
-                                  {
-                                    name: u.name,
-                                    kind: "staple",
-                                    qty: "",
-                                    ...(st === "low"
-                                      ? { state: /** @type {"low"} */ ("low") }
-                                      : {}),
-                                    location: "unsorted",
-                                  },
-                                ],
-                              })}
+                                setHeard({
+                                  ...heard,
+                                  unsure: heard.unsure.filter((_, j) => j !== i),
+                                  items: [
+                                    ...heard.items,
+                                    {
+                                      name: u.name,
+                                      kind: "staple",
+                                      qty: "",
+                                      ...(st === "low"
+                                        ? { state: /** @type {"low"} */ ("low") }
+                                        : {}),
+                                      location: "unsorted",
+                                    },
+                                  ],
+                                })}
                             >
                               ${st === "low" ? "LOW" : "HAVE IT"}
                             </button>`,
@@ -3328,7 +3360,7 @@ export function ShoppingView({
                     ? ` Not saved: ${lastPantryNote.unsure.join(", ")}.`
                     : ""
                 }
-                </p>`
+              </p>`
             }
           </details>
           <h2 class="block-title">Shelf-stable</h2>
@@ -3337,9 +3369,7 @@ export function ShoppingView({
             return html`
               ${
                 stateRows.length === 0 &&
-                html`<div class="empty">
-                  nothing asserted yet, they arrive with your seed data
-                </div>`
+                html`<div class="empty">nothing asserted yet, they arrive with your seed data</div>`
               }
               <div class="slots">
                 ${stateRows.map(
@@ -3514,8 +3544,8 @@ export function ShoppingView({
               (shopping.items ?? []).some((i) => String(i.id).endsWith("-famdinners")) &&
               onRemoveDinnerRows &&
               html`<p class="hint scanerr" role="status">
-                  ⚠ Old manually-added dinner rows are still on your list from before claims existed,
-                 they may double-count. Remove them; claimed dinners re-derive cleanly.
+                  ⚠ Old manually-added dinner rows are still on your list from before claims
+                  existed, they may double-count. Remove them; claimed dinners re-derive cleanly.
                 </p>
                 <div class="actions">
                   <button class="secondary" onClick=${onRemoveDinnerRows}>
@@ -3647,8 +3677,8 @@ export function ShoppingView({
                         ${
                           noPlan &&
                           html`<p class="hint scanerr" role="status">
-                            ⚠ No meal plan for this week for ${p.name}, their whole list rides
-                            along until they generate one.
+                            ⚠ No meal plan for this week for ${p.name}, their whole list rides along
+                            until they generate one.
                           </p>`
                         }
                         ${

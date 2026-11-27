@@ -4,16 +4,45 @@
 // necessary can go above but that means next weeks should be less."
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EATEN_SHARE, recordTripEstimate, tripSpent, weekBudget } from "../app/lib/budget.js";
+import {
+  houseBudget,
+  personBudget,
+  recordTripEstimate,
+  tripSpent,
+  weekBudget,
+} from "../app/lib/budget.js";
 import { normalizePlan } from "../app/lib/plan.js";
 
-test("budget carry: no shopped week before means the full $100, eaten aim $50", () => {
+test("budget carry: no shopped week before means the full $100, and the eaten aim is the same people's numbers", () => {
   const wb = weekBudget(100, null);
   assert.deepEqual(
     { cap: wb?.cap, carried: wb?.carried, eatenCap: wb?.eatenCap },
-    { cap: 100, carried: 0, eatenCap: 50 },
+    { cap: 100, carried: 0, eatenCap: 100 },
   );
-  assert.equal(EATEN_SHARE, 0.5);
+});
+
+// David, 2026-11-27: "obviously the $50 is just for me. and so if there are
+// more people in the house they pay their own 50."
+test("the budget is each person's own: the house's week is the people's numbers added up", () => {
+  const mine = { weeklyBudgetUsd: 50, budgetPer: "person" };
+  assert.equal(personBudget(mine, 2), 50);
+  assert.deepEqual(houseBudget([mine]), { house: 50, perPerson: 50, people: 1 });
+  // a housemate with no number pays what the others pay
+  assert.deepEqual(houseBudget([mine, {}]), { house: 100, perPerson: 50, people: 2 });
+  assert.deepEqual(houseBudget([mine, { weeklyBudgetUsd: 70, budgetPer: "person" }, null]), {
+    house: 180,
+    perPerson: 60,
+    people: 3,
+  });
+  assert.equal(houseBudget([{}, null]), null, "nobody set one: no budget, never an invented one");
+});
+
+test("a file saved before 11/27 held the whole house's trip: it reads as that total split across the kitchen", () => {
+  const old = { weeklyBudgetUsd: 100 };
+  assert.equal(personBudget(old, 2), 50, "his stored 100 with one housemate is his $50");
+  assert.deepEqual(houseBudget([old, {}]), { house: 100, perPerson: 50, people: 2 });
+  assert.equal(personBudget(old, 1), 100);
+  assert.equal(personBudget({}, 2), null);
 });
 
 test("budget carry: a $130 trip last week makes this week $70", () => {
@@ -27,7 +56,7 @@ test("budget carry: a $130 trip last week makes this week $70", () => {
   assert.equal(wb?.cap, 70);
   assert.equal(
     wb?.eatenCap,
-    50,
+    100,
     "the eaten aim is about what meals cost, not reduced by the carry",
   );
 });

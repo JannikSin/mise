@@ -76,6 +76,7 @@ const BUY_DAY_NAMES = [
  *   onSaveEquipment?: (owned: string[]) => Promise<void>,
  *   onSaveMealSlots?: (slots: string[]) => Promise<void>,
  *   onSaveBudget?: (usd: number) => Promise<void>,
+ *   myBudgetUsd?: number | null,
  *   onSaveBuyDay?: (day: number) => Promise<void>,
  *   onSaveProfile?: (fresh: Record<string, any>, stated: any) => Promise<boolean>,
  *   onInviteLink?: (kind: "member" | "guest") => Promise<string>
@@ -99,6 +100,7 @@ export function SystemView({
   onSaveEquipment,
   onSaveMealSlots = undefined,
   onSaveBudget = undefined,
+  myBudgetUsd = undefined,
   onSaveBuyDay = undefined,
   onSaveProfile = undefined,
   onInviteLink = undefined,
@@ -183,8 +185,13 @@ export function SystemView({
   // at onboarding and nothing in the app could change it, so every session
   // asked again. The List's budget tile judges your share against it and the
   // solo planner's swap-to-fit aims under it.
+  // shown as HIS OWN number: main.js resolves an older house-total file
   const savedBudget =
-    Number(targets?.weeklyBudgetUsd) > 0 ? Number(targets?.weeklyBudgetUsd) : null;
+    Number(myBudgetUsd) > 0
+      ? Number(myBudgetUsd)
+      : Number(targets?.weeklyBudgetUsd) > 0
+        ? Number(targets?.weeklyBudgetUsd)
+        : null;
   const [budgetDraft, setBudgetDraft] = useState(/** @type {string | null} */ (null));
   const [budgetNote, setBudgetNote] = useState("");
   const budgetValue = budgetDraft ?? (savedBudget != null ? String(savedBudget) : "");
@@ -397,7 +404,9 @@ export function SystemView({
       } catch {
         // storage refused: this phone asks for the passkey next time
       }
-      setPinNote(`saved: ${newPin}. Opening your profile from the chooser now asks for it, on every phone.`);
+      setPinNote(
+        `saved: ${newPin}. Opening your profile from the chooser now asks for it, on every phone.`,
+      );
       setNewPin("");
       setNewPin2("");
       setCurPin("");
@@ -500,7 +509,9 @@ export function SystemView({
           readFile(`households/${to}/pantry.json`),
         ]);
       } catch {
-        setHouseNote("can't check that name with GitHub right now; nothing changed, try again online");
+        setHouseNote(
+          "can't check that name with GitHub right now; nothing changed, try again online",
+        );
         return;
       }
       if (existing.some(Boolean)) {
@@ -706,7 +717,7 @@ export function SystemView({
             <div class="k">
               Your passkey · ${keyOf(profile) ? "set (type a new one to change it)" : "not set"}
             </div>
-              ${
+            ${
                 keyOf(profile) &&
                 html`<input
                   class="pin-input"
@@ -721,18 +732,18 @@ export function SystemView({
                   onInput=${(/** @type {any} */ e) => setCurPin(cleanPasskey(e.currentTarget.value))}
                 />`
               }
-              <input
+            <input
               class="pin-input"
               aria-label="New passkey"
               type="password"
-                inputmode="numeric"
+              inputmode="numeric"
               pattern="[0-9]*"
               autocomplete="off"
               maxlength="8"
               placeholder="new passkey, 4 to 8 digits"
               value=${newPin}
               onInput=${(/** @type {any} */ e) => setNewPin(cleanPasskey(e.currentTarget.value))}
-              />
+            />
             <input
               class="pin-input"
               aria-label="Same passkey again"
@@ -754,10 +765,10 @@ export function SystemView({
             </button>
             ${pinNote && html`<p class="hint" role="status">${pinNote}</p>`}
             ${
-                isAdmin(profile) &&
-                (allProfiles ?? []).some((x) => x.id !== me && keyOf(x)) &&
-                html`<div class="k">Forgot theirs? Clear it, they set a new one</div>
-                  ${(allProfiles ?? [])
+              isAdmin(profile) &&
+              (allProfiles ?? []).some((x) => x.id !== me && keyOf(x)) &&
+              html`<div class="k">Forgot theirs? Clear it, they set a new one</div>
+                ${(allProfiles ?? [])
                     .filter((x) => x.id !== me && keyOf(x))
                     .map(
                       (x) =>
@@ -765,7 +776,7 @@ export function SystemView({
                           CLEAR ${x.emoji} ${x.name}'s passkey
                         </button>`,
                     )}`
-              }
+            }
           </div>`
         }
         ${
@@ -812,8 +823,8 @@ export function SystemView({
 
         <h3>Your weekly food budget</h3>
         <p class="hint">
-          Your share of the groceries per week, in dollars. The List's budget tile checks your share
-          against it, and the planner aims under it.
+          What your own food should cost per week, in dollars. Everyone in the house has their own
+          number; the List adds them up for the trip, and the planner aims under it.
         </p>
         <div class="field">
           <input
@@ -947,22 +958,22 @@ export function SystemView({
       }
       ${
         !isParked("tour") &&
-        html`      <div class="tile">
-        <h2 class="k">Tour</h2>
-        <div class="row tourrow">
-          <span class="k">Guided tour</span>
-          <button class="secondary" onClick=${onReplayTour}>REPLAY THE TOUR</button>
-        </div>
-        ${
+        html` <div class="tile">
+          <h2 class="k">Tour</h2>
+          <div class="row tourrow">
+            <span class="k">Guided tour</span>
+            <button class="secondary" onClick=${onReplayTour}>REPLAY THE TOUR</button>
+          </div>
+          ${
           tourState &&
           html`<p class="hint num">
             last run:
             ${tourState.status === "done" ? "finished" : `reached step ${tourState.lastStep} of ${TOUR_STEPS.length}`}
           </p>`
         }
-        <details class="whatlist">
-          <summary class="block-title">What everything does</summary>
-          ${Object.entries(TOUR_TABS).map(
+          <details class="whatlist">
+            <summary class="block-title">What everything does</summary>
+            ${Object.entries(TOUR_TABS).map(
             ([route, tab]) => html`
               <div class="batch" key=${route}>
                 <div class="k">${tab}</div>
@@ -975,8 +986,8 @@ export function SystemView({
               </div>
             `,
           )}
-        </details>
-      </div>`
+          </details>
+        </div>`
       }
 
       <div class="tile">
@@ -1079,10 +1090,7 @@ export function SystemView({
         ${
           (!hasToken || repo?.auth === "invalid" || repo?.auth === "norepo" || renewSoon) &&
           html`
-            ${
-              repo?.auth === "invalid" &&
-              html`<p class="hint">${tokenProblem("invalid")}</p>`
-            }
+            ${repo?.auth === "invalid" && html`<p class="hint">${tokenProblem("invalid")}</p>`}
             ${
               repo?.auth === "norepo" &&
               html`<p class="hint">
@@ -1130,24 +1138,24 @@ export function SystemView({
           // non-admin never sees other households here, nor moves into one
           canEditHouses
             ? html`
-        <h3>Houses</h3>
-        <div class="row">
-          <span class="k">House</span>
-          <select
-            aria-label="House this profile cooks and shops from"
-            value=${housePicked}
-            onChange=${(/** @type {any} */ e) => setHousePick(e.currentTarget.value)}
-          >
-            ${houseOptions.map(
+                <h3>Houses</h3>
+                <div class="row">
+                  <span class="k">House</span>
+                  <select
+                    aria-label="House this profile cooks and shops from"
+                    value=${housePicked}
+                    onChange=${(/** @type {any} */ e) => setHousePick(e.currentTarget.value)}
+                  >
+                    ${houseOptions.map(
               (h) =>
                 html`<option key=${h} value=${h}>
                   ${h}${h === household ? " (you are here)" : ""}
                 </option>`,
             )}
-            <option value=${NEW_HOUSE}>+ new house…</option>
-          </select>
-        </div>
-        ${
+                    <option value=${NEW_HOUSE}>+ new house…</option>
+                  </select>
+                </div>
+                ${
           housePicked === NEW_HOUSE &&
           html`<div class="row">
             <span class="k">Name it</span>
@@ -1159,28 +1167,28 @@ export function SystemView({
             />
           </div>`
         }
-        <div class="actions">
-          <button
-            class="secondary"
-            onClick=${saveHousehold}
-            disabled=${!profile || !houseTarget || houseTarget === household}
-          >
-            ${
+                <div class="actions">
+                  <button
+                    class="secondary"
+                    onClick=${saveHousehold}
+                    disabled=${!profile || !houseTarget || houseTarget === household}
+                  >
+                    ${
               housePicked === NEW_HOUSE
                 ? `CREATE "${houseTarget || "…"}" AND MOVE IN`
                 : "MOVE HOUSE"
             }
-          </button>
-        </div>
-        <p class="hint">
+                  </button>
+                </div>
+                <p class="hint">
                   A house is one kitchen: everyone in it shares the pantry, the shopping trip, the
                   table calendar and the ledger. Moving re-points you at that kitchen; it never
                   carries your groceries with you. A brand-new house starts empty.
-        </p>
-        <div class="row">
-          <span class="k">In this house</span>
-          <span class="status dim">
-            ${
+                </p>
+                <div class="row">
+                  <span class="k">In this house</span>
+                  <span class="status dim">
+                    ${
               allProfiles === null
                 ? "…"
                 : housemates.length > 0
@@ -1194,9 +1202,9 @@ export function SystemView({
                       .join(" · ")
                   : "just you"
             }
-          </span>
-        </div>
-        ${
+                  </span>
+                </div>
+                ${
           normalizeHousehold(houseDoc).occupancy.until &&
           html`<div class="row">
             <span class="k">Occupancy</span>
@@ -1206,9 +1214,9 @@ export function SystemView({
             </span>
           </div>`
         }
-        <div class="row">
-          <span class="k">Add housemate</span>
-          ${
+                <div class="row">
+                  <span class="k">Add housemate</span>
+                  ${
             outsiders.length > 0
               ? html`<select
                   aria-label="Profile to add to this house"
@@ -1227,8 +1235,8 @@ export function SystemView({
                   ${allProfiles === null ? "…" : "everybody already lives here"}
                 </span>`
           }
-        </div>
-        ${
+                </div>
+                ${
           outsiders.length > 0 &&
           html`<div class="actions">
             <button class="secondary" onClick=${addMember} disabled=${!addPick || houseBusy}>
@@ -1236,7 +1244,7 @@ export function SystemView({
             </button>
           </div>`
         }
-        ${
+                ${
           // INVITE BY LINK (David, 2026-10-05: "invite through a link, so I can
           // send it through iMessage or Gmail"; each person makes their own
           // profile). The machinery is the 2026-09-14 join-by-link: one person,
@@ -1251,12 +1259,12 @@ export function SystemView({
             <div class="actions wrap">
               ${
                 /** @type {const} */ (["member", "guest"]).map(
-                (kind) =>
-                  html`<button
-                    key=${kind}
-                    class="secondary"
-                    disabled=${invite.busy}
-                    onClick=${async () => {
+                  (kind) =>
+                    html`<button
+                      key=${kind}
+                      class="secondary"
+                      disabled=${invite.busy}
+                      onClick=${async () => {
                       setInvite({ busy: true, url: "", note: "" });
                       try {
                         const url = await onInviteLink(kind);
@@ -1269,9 +1277,9 @@ export function SystemView({
                         });
                       }
                     }}
-                  >
-                    ${kind === "member" ? "INVITE A HOUSEMATE" : "INVITE A GUEST"}
-                  </button>`,
+                    >
+                      ${kind === "member" ? "INVITE A HOUSEMATE" : "INVITE A GUEST"}
+                    </button>`,
                 )
               }
             </div>
@@ -1287,16 +1295,16 @@ export function SystemView({
                 <button
                   class="primary"
                   onClick=${async () => {
-                  const nav = /** @type {any} */ (navigator);
-                  try {
-                    if (typeof nav.share === "function")
-                      await nav.share({ title: "Join my Mise kitchen", url: invite.url });
-                    else await nav.clipboard.writeText(invite.url);
-                    setInvite({ ...invite, note: "link ready to send" });
-                  } catch {
-                    setInvite({ ...invite, note: "copy the link above" });
-                  }
-                }}
+                    const nav = /** @type {any} */ (navigator);
+                    try {
+                      if (typeof nav.share === "function")
+                        await nav.share({ title: "Join my Mise kitchen", url: invite.url });
+                      else await nav.clipboard.writeText(invite.url);
+                      setInvite({ ...invite, note: "link ready to send" });
+                    } catch {
+                      setInvite({ ...invite, note: "copy the link above" });
+                    }
+                  }}
                 >
                   ${typeof (/** @type {any} */ (navigator).share) === "function" ? "SHARE" : "COPY"}
                 </button>
@@ -1309,53 +1317,53 @@ export function SystemView({
               one link, good for seven days; paste it into iMessage or Gmail.
             </p>`
         }
-        <div class="row">
-          <span class="k">Rename house</span>
-          <input
-            aria-label="New name for this house, moves everyone in it"
-            placeholder=${household}
-            value=${renameDraft}
-            onInput=${(/** @type {any} */ e) => setRenameDraft(e.currentTarget.value)}
-          />
-        </div>
-        <div class="actions">
-          <button
-            class="secondary"
-            onClick=${renameHouse}
-            disabled=${houseBusy || !slugify(renameDraft) || slugify(renameDraft) === household}
-          >
-            RENAME FOR EVERYONE
-          </button>
-        </div>
-        ${houseNote && html`<p class="hint" role="status">${houseNote}</p>`}
-        <p class="hint">
+                <div class="row">
+                  <span class="k">Rename house</span>
+                  <input
+                    aria-label="New name for this house, moves everyone in it"
+                    placeholder=${household}
+                    value=${renameDraft}
+                    onInput=${(/** @type {any} */ e) => setRenameDraft(e.currentTarget.value)}
+                  />
+                </div>
+                <div class="actions">
+                  <button
+                    class="secondary"
+                    onClick=${renameHouse}
+                    disabled=${houseBusy || !slugify(renameDraft) || slugify(renameDraft) === household}
+                  >
+                    RENAME FOR EVERYONE
+                  </button>
+                </div>
+                ${houseNote && html`<p class="hint" role="status">${houseNote}</p>`}
+                <p class="hint">
                   a house is a physical kitchen: everyone in the same house shares the EVERYONE
                   grocery trip AND the pantry (one kitchen, one fridge). Moving house also switches
                   you to that house's pantry. Move someone for a visit week, move them back after.
-        </p>
-        <div class="row">
-          <span class="k">Family</span>
-          <input
-            aria-label="Family this person belongs to"
-            placeholder="e.g. thornton"
-            value=${familyShown}
-            onInput=${(/** @type {any} */ e) => setFamilyDraft(e.currentTarget.value)}
-          />
-        </div>
-        <div class="actions">
-          <button
-            class="secondary"
-            onClick=${saveFamily}
-            disabled=${!profile || familyDraft === null || familyShown.trim() === family}
-          >
-            SET FAMILY
-          </button>
-        </div>
-        <p class="hint">
+                </p>
+                <div class="row">
+                  <span class="k">Family</span>
+                  <input
+                    aria-label="Family this person belongs to"
+                    placeholder="e.g. thornton"
+                    value=${familyShown}
+                    onInput=${(/** @type {any} */ e) => setFamilyDraft(e.currentTarget.value)}
+                  />
+                </div>
+                <div class="actions">
+                  <button
+                    class="secondary"
+                    onClick=${saveFamily}
+                    disabled=${!profile || familyDraft === null || familyShown.trim() === family}
+                  >
+                    SET FAMILY
+                  </button>
+                </div>
+                <p class="hint">
                   family is who you ARE, a house is the kitchen you cook and shop from right now.
                   The profile chooser groups people by family; houses can change week to week.
-        </p>
-            `
+                </p>
+              `
             : html`<p class="hint">Houses and family are set by the kitchen's admin.</p>`
         }
         <h3>Data repo</h3>
@@ -1412,8 +1420,8 @@ export function SystemView({
           <button class="primary" onClick=${onTestWrite}>TEST SYNC WRITE</button>
         </div>
         <p class="hint">
-          Writes a timestamp to meta.json in the data repo. Works offline, it queues and pushes
-          when signal returns.
+          Writes a timestamp to meta.json in the data repo. Works offline, it queues and pushes when
+          signal returns.
         </p>
         <div class="actions">
           <button class="secondary" disabled=${notify === "busy"} onClick=${runNotifyTest}>
@@ -1435,7 +1443,8 @@ export function SystemView({
                   : notifyResult.ntfyStatus
                     ? `no ping: ntfy answered ${notifyResult.ntfyStatus}${notifyResult.ntfyError ? ` (${notifyResult.ntfyError})` : ""}`
                     : "no ping"
-              } ·
+              }
+              ·
               ${
                 notifyResult.cronReady
                   ? "hourly cron LIVE"
@@ -1480,10 +1489,10 @@ export function SystemView({
               html`<div key=${r.version}>
                 <p class="k">
                   ${
-                  r.version === UNRELEASED
-                    ? "Unreleased · on the sandbox, gets its number when it ships"
-                    : `v${r.version} · ${r.date}`
-                }
+                    r.version === UNRELEASED
+                      ? "Unreleased · on the sandbox, gets its number when it ships"
+                      : `v${r.version} · ${r.date}`
+                  }
                 </p>
                 <ul>
                   ${r.notes.map((n) => html`<li class="hint">${n}</li>`)}

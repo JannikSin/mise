@@ -282,21 +282,56 @@ export function swapToFit(args) {
 // keep the actual eaten bit at 50 or less. and if necessary can go above but
 // that means next weeks should be less.").
 //
+// THE NUMBER IS EACH PERSON'S OWN (David, 2026-11-27: "obviously the $50 is
+// just for me. and so if there are more people in the house they pay their
+// own 50."). The house's week is the sum of its people's numbers, $100 for
+// him and one housemate. personBudget and houseBudget below are the one place
+// that reading lives; the planner, the List, Settings and the checks call them.
+//
 // Three numbers, all for the whole house trip:
 //   cap      the trip budget this week: the weekly budget less whatever the
 //            last shopped trip went over ITS cap (the cap it was shopped
 //            against is stamped on the spend row, so a run of over weeks
 //            keeps carrying instead of forgiving after one).
 //   carried  that overage, shown so the smaller number is never a mystery.
-//   eatenCap half the weekly budget: the food this week's meals actually use.
-//            At $100 that is his $50. It is not reduced by a carry: the carry
-//            is about money already spent on stock, the eaten line is about
-//            what the meals cost.
+//   eatenCap the house's number itself: the food this week's meals actually
+//            use, $50 a person. It is not reduced by a carry: the carry is
+//            about money already spent on stock, the eaten line is about what
+//            the meals cost.
 // A soft cap: over it the planner sweeps cheaper and the List says by how
 // much. Food is never cut to fit (Mise-Decisions, consolidate rule).
 
-/** The share of the weekly budget the eaten food answers to ($50 of $100). */
-export const EATEN_SHARE = 0.5;
+/**
+ * One person's own weekly number, in dollars.
+ * A targets file saved since 2026-11-27 carries `budgetPer: "person"` and its
+ * `weeklyBudgetUsd` is that person's number as typed. An older file's number
+ * was the whole house's trip (2026-11-06, "100 total"), so it is split across
+ * the people of the kitchen: his stored 100 with one housemate reads as $50.
+ * @param {Record<string, any> | null | undefined} targets
+ * @param {number} [people] how many people his kitchen feeds (older files only)
+ * @returns {number | null}
+ */
+export function personBudget(targets, people = 1) {
+  const n = Number(targets?.weeklyBudgetUsd);
+  if (!(n > 0)) return null;
+  if (targets?.budgetPer === "person") return n;
+  return Math.round((n / Math.max(1, Math.floor(people) || 1)) * 100) / 100;
+}
+
+/**
+ * The house's week: every person's own number added up. Somebody who has set
+ * none pays what the others pay on average ("they pay their own 50").
+ * Null when nobody in the kitchen has a number.
+ * @param {(Record<string, any> | null | undefined)[]} memberTargets one per person eating from the List
+ * @returns {{ house: number, perPerson: number, people: number } | null}
+ */
+export function houseBudget(memberTargets) {
+  const people = Math.max(1, memberTargets.length);
+  const own = memberTargets.map((t) => personBudget(t, people) ?? 0).filter((n) => n > 0);
+  if (own.length === 0) return null;
+  const perPerson = Math.round((own.reduce((a, b) => a + b, 0) / own.length) * 100) / 100;
+  return { house: Math.round(perPerson * people * 100) / 100, perPerson, people };
+}
 
 /**
  * What a shopped week actually cost: receipt totals when any were approved
@@ -323,7 +358,7 @@ export function tripSpent(plan) {
 
 /**
  * This week's trip cap, after last week's overage.
- * @param {number | undefined} weeklyBudgetUsd
+ * @param {number | undefined} weeklyBudgetUsd the HOUSE's week (houseBudget().house)
  * @param {Record<string, any> | null | undefined} prevPlan the previous week's plan
  * @returns {{ base: number, carried: number, cap: number, eatenCap: number, lastTrip: ReturnType<typeof tripSpent>, bulkCharge: number, bulkCarry: { perWeek: number, weeksLeft: number }[] } | null}
  *   `bulkCharge` is this week's share of food bought ahead for the month
@@ -364,7 +399,7 @@ export function weekBudget(weeklyBudgetUsd, prevPlan) {
     bulkCharge,
     bulkCarry,
     cap,
-    eatenCap: Math.round(base * EATEN_SHARE * 100) / 100,
+    eatenCap: Math.round(base * 100) / 100,
     lastTrip: lastTrip ?? null,
   };
 }

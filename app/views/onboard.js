@@ -104,7 +104,10 @@ async function finalizeProfile(p0, existing) {
   };
   // things the questionnaire math does not own, written onto the same
   // targets document the rest of the app reads
-  if (p.weeklyBudgetUsd != null) targets.weeklyBudgetUsd = p.weeklyBudgetUsd;
+  if (p.weeklyBudgetUsd != null) {
+    targets.weeklyBudgetUsd = p.weeklyBudgetUsd;
+    targets.budgetPer = "person";
+  }
   if (p.diningSwipesPerWeek) {
     targets.currencies = [
       {
