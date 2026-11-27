@@ -340,6 +340,19 @@ test("his kitchen: a swipe week's food costs what his budget says, about $50 a p
   }
 });
 
+// OPEN, OWNER DAVID (asked through the head 2026-11-27): the List's own line
+// reads "eaten this week (aim $50 or less)" for the HOUSE, from his 11/6
+// words ("keep the actual eaten bit at 50 or less"). On 11/27 he said "$50 a
+// week" in a sentence about cost per person. For two people those are
+// different lines: the week of 12/6 eats about $94, which is $47 a person and
+// $44 over a house aim of $50. The check above holds the per-person reading;
+// this stays printed until he says which one he means.
+test(
+  "his kitchen: is $50 a week his share, or the whole house's food?",
+  { todo: "David: $50 a person (as checked now) or $50 for the house" },
+  () => {},
+);
+
 test("his kitchen: nothing on the List is a food somebody at his table cannot eat", { skip }, () => {
   const { buy } = planHisWeek();
   const elliot = J("profiles/elliot/profile/targets.json").avoidIngredients ?? [];
