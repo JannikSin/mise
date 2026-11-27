@@ -180,5 +180,5 @@ phone says the new version arrived. The set is named in the release's `palette` 
 `/* palette: Name */` line), plus `theme-color` in `index.html` and the two colors in
 `manifest.webmanifest`. Plan shows `vX.Y · Name` under the week. `tests/release.test.js`
 fails a release that reuses the previous set, leaves a file on the old one, or loses
-readable contrast. A hotfix keeps the live version's colors. 1.97 is "Harbor" (deep blue);
+readable contrast. A hotfix keeps the live version's colors. the release after 1.97 is "Plum" (deep plum); 1.97 was "Harbor" (deep blue);
 1.0 to 1.96 were "Console" (green).

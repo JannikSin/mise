@@ -22,18 +22,20 @@
    and differ from the release before it; tests/release.test.js checks both,
    and that text stays readable. Change index.html theme-color and the two
    manifest colors to the new --bg in the same commit.
+   1.97 was "Harbor": bg #0f1f30, panel #15293f, panel-2 #1c344f, line #2b4a69,
+   dim #93a6ba, signal #4be3b0, signal-dark #2cc391.
    1.0 to 1.96 were "Console": bg #13271c, panel #1a3224, panel-2 #213c2c,
    line #2f4d3b, dim #93a59c, signal #3ddc84, signal-dark #22b866. */
-/* palette: Harbor */
+/* palette: Plum */
 :root {
-  --bg: #0f1f30;
-  --panel: #15293f;
-  --panel-2: #1c344f;
-  --line: #2b4a69;
+  --bg: #23152e;
+  --panel: #2e1d3c;
+  --panel-2: #3a264b;
+  --line: #55396d;
   --text: #e8edef;
-  --dim: #93a6ba;
-  --signal: #4be3b0;
-  --signal-dark: #2cc391;
+  --dim: #b9aac8;
+  --signal: #6fe3a1;
+  --signal-dark: #3fc47d;
   --amber: #ffb224;
   --warn: #e0a34a;
   --recover: #4cc3ff;
@@ -41,10 +43,10 @@
   --satiety: #d2a8ff;
   --red: #f85149;
   --red-bg: #2d1216;
-  --on-signal: #04161a;
-  --signal-08: rgba(75, 227, 176, 0.08);
-  --signal-10: rgba(75, 227, 176, 0.1);
-  --signal-25: rgba(75, 227, 176, 0.25);
+  --on-signal: #06170e;
+  --signal-08: rgba(111, 227, 161, 0.08);
+  --signal-10: rgba(111, 227, 161, 0.1);
+  --signal-25: rgba(111, 227, 161, 0.25);
   --line-strong: #3a454d;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sans: "Archivo", -apple-system, "Segoe UI", system-ui, sans-serif;

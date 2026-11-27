@@ -33,9 +33,11 @@ export const UNRELEASED = "unreleased";
 /** @type {Release[]} newest first */
 export const RELEASES = [
   {
-    version: UNRELEASED,
-    date: "",
+    version: "1.98",
+    date: "2026-11-27",
+    palette: "Plum",
     notes: [
+      "New colors: this release is deep plum (\"Plum\"), so one look tells you it reached your phone.",
       "Plan one day yourself. On any day from today on, tap + on an empty meal (or the switch arrows on a set one), pick what you are making from the list, then tap SIZE TODAY TO MY NUMBERS. Mise keeps your meals and sets the portions to 3,700 calories and 190 to 215 g of protein, and says so plainly when those meals cannot get there. No other day and nothing on the List's ticks is touched.",
       "A meal with a portion other than one shows it on the Plan row (1.5 x 760 calories).",
       "The SEND TO CART buttons are gone from the List (you: \"the whole store press never worked\"). Store prices on the List stay.",
