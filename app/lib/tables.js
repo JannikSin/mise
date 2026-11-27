@@ -4,7 +4,7 @@
 // cross-profile writes, ever. Cancel/edit = one file edit, propagates on
 // the next sync tick. Derived entries are NEVER persisted into a plan file
 // (main.js strips `e.table` before every plan write).
-import { autoPlanEligible, recipeConflicts, SLOT_KEYS, SLOT_META } from "./plan.js";
+import { autoPlanEligible, avoidMatcher, recipeConflicts, SLOT_KEYS, SLOT_META } from "./plan.js";
 import { parsePot, solveSeat, withRatio } from "./synth.js";
 import { withSwaps } from "./swaps.js";
 import { freshMeatFor } from "./cadence.js";
@@ -461,8 +461,10 @@ export function effectiveBuyerOf(t, house, profilesById) {
  *   ownEntries: Record<string, any>[],
  *   today: string,
  *   profilesById?: Map<string, any>,
- *   myTargets?: Record<string, any> | null
- * }} ctx
+ *   myTargets?: Record<string, any> | null,
+ *   seatAvoid?: (profileId: string) => string[] | undefined
+ * }} ctx `seatAvoid` gives each seat's avoid terms, so an optional
+ *   ingredient somebody at the table cannot eat is not bought
  * @returns {{
  *   entries: Record<string, any>[],
  *   conflicts: { table: TableEvent, reasons: string[] }[],
@@ -613,6 +615,18 @@ export function deriveTables(houses, ctx) {
             // quantities wholesale: deriveTables reads t.pot when present and
             // computes only when absent. Invalid pots drop to the plain path.
             const frozen = parsePot(/** @type {any} */ (t).pot, recipe);
+            // AN OPTIONAL GARNISH SOMEBODY AT THE TABLE CANNOT EAT IS NOT
+            // BOUGHT (P8, P5; found 2026-11-27: the week of 12/6 put $7.99
+            // of slivered almonds on the List for a kofta dinner Elliot,
+            // allergic to tree nuts, shares). The seat screen lets the dish
+            // through because the row is optional and is left off his
+            // plate; the List bought it for the pot anyway.
+            const cannot = ctx.seatAvoid
+              ? known.map((s) => avoidMatcher(ctx.seatAvoid?.(s.id)))
+              : [];
+            const leftOff = (/** @type {any} */ i) =>
+              i?.optional === true && cannot.some((hit) => hit(i.food));
+            const trimmed = (recipe.ingredients ?? []).some(leftOff);
             cookExtras.push(
               /** @type {any} */ ({
                 recipeId: t.recipeId,
@@ -630,13 +644,21 @@ export function deriveTables(houses, ctx) {
                 // the pot rows so the list prices and displays them like any
                 // other line, absolute grams, no perServing multiply
                 ...(frozen
-                  ? { potRows: [...frozen.rows, ...(frozen.topUps ?? [])] }
-                  : recipe.ratio || recipe.swaps
+                  ? {
+                      potRows: [...frozen.rows, ...(frozen.topUps ?? [])].filter(
+                        (r) =>
+                          !(recipe.ingredients ?? []).some(
+                            (/** @type {any} */ i) => leftOff(i) && i.food === r.food,
+                          ),
+                      ),
+                    }
+                  : recipe.ratio || recipe.swaps || trimmed
                     ? {
                         // the PLANNED plating is what gets bought (P5: never
                         // buy the protein the plan trimmed off the plate)
-                        potRows: (recipe.ingredients ?? []).map(
-                          (/** @type {Record<string, any>} */ i) => ({
+                        potRows: (recipe.ingredients ?? [])
+                          .filter((/** @type {any} */ i) => !leftOff(i))
+                          .map((/** @type {Record<string, any>} */ i) => ({
                             ...i,
                             qty: (Number(i.qty) || 0) * (total / (recipe.servings || 1)),
                           }),

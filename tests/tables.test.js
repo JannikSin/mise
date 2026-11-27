@@ -768,3 +768,36 @@ test("brigadeDaysLeft: Saturday 8 pm leaves nothing of this week, so the run mov
   assert.deepEqual(brigadeDaysLeft(rule, thisWeek, planStartIso(sat8pm)), []);
   assert.equal(brigadeDaysLeft(rule, nextWeek, planStartIso(sat8pm)).length, 7);
 });
+
+// AN OPTIONAL GARNISH SOMEBODY AT THE TABLE CANNOT EAT IS NOT BOUGHT (P8, P5;
+// found 2026-11-27 on the week of 12/6: $7.99 of slivered almonds on the List
+// for a kofta dinner shared with a seat allergic to tree nuts).
+test("the table buy leaves off an optional ingredient a seat cannot eat, and keeps it when nobody minds", () => {
+  const KOFTA = {
+    id: "kofta",
+    servings: 2,
+    nutrition: { calories: 600, protein: 40 },
+    ingredients: [
+      { food: "ground beef", qty: 400, unit: "g" },
+      { food: "slivered almonds", qty: 2, unit: "tbsp", optional: true },
+      { food: "parsley", qty: 1, unit: "tbsp", optional: true },
+    ],
+  };
+  const houses = [
+    { house: "home", events: { tables: [table({ recipeId: "kofta", buyerId: "david" })] } },
+  ];
+  const bank = new Map([[KOFTA.id, KOFTA]]);
+  const plain = deriveTables(houses, ctx({ bankById: bank }));
+  assert.equal(/** @type {any} */ (plain.cookExtras[0]).potRows, undefined, "nobody minds: the recipe as written");
+  const nutFree = deriveTables(
+    houses,
+    ctx({ bankById: bank, seatAvoid: (/** @type {string} */ id) => (id === "mom" ? ["almond"] : []) }),
+  );
+  const rows = /** @type {any} */ (nutFree.cookExtras[0]).potRows;
+  assert.deepEqual(
+    rows.map((/** @type {any} */ r) => r.food),
+    ["ground beef", "parsley"],
+    "the almonds are not bought; the other garnish is",
+  );
+  assert.equal(rows[0].qty, 500, "400 g for 2 servings, cooked for 2.5");
+});

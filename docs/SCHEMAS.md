@@ -1757,7 +1757,7 @@ verbatim.
       "manual": false, // true = David added by hand, survives regeneration
       "fromRecipes": ["chicken-bulgogi-bowl"], // ?
       "needIt": true, // ? Mise 2.0, I-10: David answered NEED IT on this long-lasting
-      //   basic under CHECK YOU HAVE THESE, so it shops in its aisle and goes to
+      //   basic under ASSUMED ON HAND (was CHECK YOU HAVE THESE), so it shops in its aisle and goes to
       //   the cart. Absent = not answered: a basic the pantry does not list
       //   (checkFirstIds) stays on the list and in the total but out of the
       //   cart. Carried across a re-BUILD like `checked`. HAVE IT writes no row

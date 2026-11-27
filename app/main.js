@@ -988,6 +988,17 @@ function App() {
   // early is what lets the handlers that read them sit above their sources
   // without a temporal dead zone (2026-07-26).
   const viewPlanRef = useRef(/** @type {any} */ (null));
+  // Every profile's targets IN STATE, cached-first (per-person-plates spec
+  // 10 / Engineer H1): deriving plates and freezing pots needs each seated
+  // profile's targets synchronously. Reads are intentionally house-wide
+  // (spec 8.7); shas ride along for the frozen pot's input fingerprint.
+  const [houseTargets, setHouseTargets] = useState(
+    /** @type {Map<string, { data: Record<string, any> | null, sha: string | null, dirty: boolean }>} */ (
+      new Map()
+    ),
+  );
+  const houseTargetsRef = useRef(houseTargets);
+  houseTargetsRef.current = houseTargets;
   const tableDerivedRef = useRef(
     /** @type {any} */ ({
       entries: [],
@@ -2409,6 +2420,10 @@ function App() {
                 today: todayIso,
                 profilesById: new Map(allProfilesRef.current.map((p) => [p.id, p])),
                 myTargets: t,
+                seatAvoid: (id) =>
+                  id === me
+                    ? t?.avoidIngredients
+                    : houseTargetsRef.current.get(id)?.data?.avoidIngredients,
               });
               // the list build below reads this ref; the memo rewrites it with
               // the identical result on the next render
@@ -3067,6 +3082,14 @@ function App() {
     };
   }, [houseEvents, allProfiles, me]);
 
+  // each seat's avoid terms, for the table buy (an optional garnish a seat
+  // cannot eat is not bought): mine from my own targets, the rest from the house
+  const seatAvoidOf = (/** @type {string} */ id) =>
+    /** @type {string[] | undefined} */ (
+      id === me
+        ? targetsRef.current?.avoidIngredients
+        : houseTargetsRef.current.get(id)?.data?.avoidIngredients
+    );
   const tableDerived = useMemo(() => {
     try {
       const profilesById = new Map(allProfiles.map((p) => [p.id, p]));
@@ -3080,11 +3103,12 @@ function App() {
         today: localIsoDate(new Date()),
         profilesById,
         myTargets: targets,
+        seatAvoid: seatAvoidOf,
       });
     } catch {
       return { entries: [], conflicts: [], collisions: [], cookExtras: [], allCookExtras: [] };
     }
-  }, [houseEvents, allProfiles, targets, bankRecipes, plan, me]);
+  }, [houseEvents, allProfiles, targets, bankRecipes, plan, me, houseTargets]);
   const merged = useMemo(
     () =>
       mergeViewPlan(
@@ -3363,6 +3387,10 @@ function App() {
           ownEntries: /** @type {any} */ (planRef.current).entries,
           today: localIsoDate(new Date()),
           profilesById: new Map(allProfilesRef.current.map((p) => [p.id, p])),
+          seatAvoid: (id) =>
+            id === me
+              ? t?.avoidIngredients
+              : houseTargetsRef.current.get(id)?.data?.avoidIngredients,
         });
         const weekSet = new Set(datesOfWeek(weekRef.current));
         const listPlan = {
@@ -3390,17 +3418,6 @@ function App() {
     [updateShopping, me],
   );
 
-  // Every profile's targets IN STATE, cached-first (per-person-plates spec
-  // 10 / Engineer H1): deriving plates and freezing pots needs each seated
-  // profile's targets synchronously. Reads are intentionally house-wide
-  // (spec 8.7); shas ride along for the frozen pot's input fingerprint.
-  const [houseTargets, setHouseTargets] = useState(
-    /** @type {Map<string, { data: Record<string, any> | null, sha: string | null, dirty: boolean }>} */ (
-      new Map()
-    ),
-  );
-  const houseTargetsRef = useRef(houseTargets);
-  houseTargetsRef.current = houseTargets;
   useEffect(() => {
     let alive = true;
     const load = () => {

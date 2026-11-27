@@ -720,7 +720,15 @@ export function ShoppingView({
     stores: allStores,
     fallback: ranked[0]?.store ?? "",
   });
-  const homeSummary = homeStore ? tripTotal(tripItems, prices, homeStore, region) : null;
+  // staples assumed on hand are not part of the trip's money (2026-11-27)
+  const homeSummary = homeStore
+    ? tripTotal(
+        tripItems.filter((i) => !checkIds.has(i.id)),
+        prices,
+        homeStore,
+        region,
+      )
+    : null;
   // BUY FOR THE MONTH (bulk.js, David 2026-11-07): what keeps long enough to
   // buy for the rest of the month, and the part of this trip that is later
   // weeks' food (judged against those weeks, not this one)
@@ -1810,26 +1818,6 @@ export function ShoppingView({
             </span>
           </div>
           ${
-            // THE BASICS ARE AN OPEN QUESTION, AND THE TOTAL SAYS SO (P5;
-            // 2026-11-26). The week of 12/6 read $208 against a $100 trip
-            // with $92 of it oats, oil, spices and the like that nobody had
-            // been asked about. Nothing is assumed either way: the total
-            // still counts them, and this line says how much of it is open.
-            (() => {
-              if (checkIds.size === 0) return "";
-              const open = tripTotal(
-                tripItems.filter((i) => checkIds.has(i.id)),
-                prices,
-                homeStore,
-                region,
-              );
-              if (!(open.total > 0)) return "";
-              return html`<p class="hint" role="note" data-testid="open-basics">
-                ${`$${open.total.toFixed(2)} of that is ${checkIds.size} ${checkIds.size === 1 ? "basic" : "basics"} under CHECK YOU HAVE THESE. If you have them all, this trip is $${Math.max(0, homeSummary.total - open.total).toFixed(2)}.`}
-              </p>`;
-            })()
-          }
-          ${
             typeof weeklyBudgetUsd === "number" &&
             weeklyBudgetUsd > 0 &&
             (() => {
@@ -2450,11 +2438,13 @@ export function ShoppingView({
             // the row into its aisle and the cart.
             checkIds.size > 0 &&
             onNeedItem &&
-            html`<div class="checkfirst">
-              <h2 class="block-title">CHECK YOU HAVE THESE</h2>
+            html`<details class="checkfirst">
+              <summary class="block-title">
+                ASSUMED ON HAND · ${rowGroups(tripItems.filter((i) => checkIds.has(i.id))).length}
+              </summary>
               <p class="hint">
-                Long-lasting basics your pantry does not list. They count in the total until you
-                answer. HAVE IT adds it to your pantry so the next BUILD leaves it off.
+                Salt, oil, spices and other long-lasting basics. Mise assumes you have them, so
+                they are not in the total. Out of one? Tap NEED IT and it joins the list.
               </p>
               ${colHead()}
               <div class="slots">
@@ -2469,14 +2459,7 @@ export function ShoppingView({
                     <div class="rowbtns">
                       <button
                         class="ownbtn"
-                        aria-label="Have ${i.food}, add it to the pantry and take it off the list"
-                        onClick=${() => members.forEach((m) => onOwnItem(m.id))}
-                      >
-                        HAVE IT
-                      </button>
-                      <button
-                        class="ownbtn"
-                        aria-label="Need ${i.food}, move it to its aisle to buy"
+                        aria-label="Out of ${i.food}, move it to its aisle to buy"
                         onClick=${() => onNeedItem(members.map((m) => m.id))}
                       >
                         NEED IT
@@ -2486,7 +2469,7 @@ export function ShoppingView({
                   </div>`;
                 })}
               </div>
-            </div>`
+            </details>`
           }
           ${trips.map(
             (trip) => html`

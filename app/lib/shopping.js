@@ -108,7 +108,7 @@ export const CHECK_BASICS = [
   ],
   [
     "bottled sauces",
-    /\bsoy sauce\b|\btamari\b|\bfish sauce\b|\bworcestershire\b|\bhot sauce\b|\bsriracha\b|\boyster sauce\b|\bmirin\b/,
+    /\bsoy sauce\b|\btahini\b|\btamari\b|\bfish sauce\b|\bworcestershire\b|\bhot sauce\b|\bsriracha\b|\boyster sauce\b|\bmirin\b/,
   ],
 ];
 
@@ -134,6 +134,44 @@ export function isCheckBasic(food) {
 }
 
 /**
+ * Every name the pantry mentions, in the three spellings the List compares.
+ * @param {Record<string, any> | null | undefined} pantry
+ * @returns {Set<string>}
+ */
+function pantryNames(pantry) {
+  /** @type {Set<string>} */
+  const listed = new Set();
+  for (const it of pantryItems(pantry)) {
+    if (!it.food) continue;
+    listed.add(slug(it.food));
+    listed.add(canonicalFood(it.food));
+    listed.add(plentyKey(it.food));
+  }
+  return listed;
+}
+
+/**
+ * STAPLES ARE ON HAND UNLESS HE SAYS HE IS OUT (P6, P5; David, 2026-11-27,
+ * after the List asked about salt, oil and spices he owns: "why are we still
+ * asking abt the basicas that are present"). A long-lasting basic the pantry
+ * does not mention is assumed to be in the kitchen: the planner does not
+ * price it, the List leaves it out of the total and shows it folded under
+ * ASSUMED ON HAND. He says he is out with NEED IT on that row, or by marking
+ * the food LOW or OUT in the pantry; any pantry row for the food means the
+ * pantry speaks for it and nothing is assumed.
+ * @param {Record<string, any> | null | undefined} pantry
+ * @returns {(food: string) => boolean}
+ */
+export function stapleAssumed(pantry) {
+  const listed = pantryNames(pantry);
+  return (food) =>
+    isCheckBasic(food) &&
+    !listed.has(slug(food)) &&
+    !listed.has(canonicalFood(food)) &&
+    !listed.has(plentyKey(food));
+}
+
+/**
  * CHECK YOU HAVE THESE (Mise 2.0, I-10; plan: "a 'check you have these'
  * group for salt, oil and spices"). The ids of the list rows to ask about
  * instead of buying: a long-lasting basic the pantry does not mention at all.
@@ -149,14 +187,7 @@ export function isCheckBasic(food) {
  * @returns {Set<string>}
  */
 export function checkFirstIds(items, pantry) {
-  /** @type {Set<string>} */
-  const listed = new Set();
-  for (const it of pantryItems(pantry)) {
-    if (!it.food) continue;
-    listed.add(slug(it.food));
-    listed.add(canonicalFood(it.food));
-    listed.add(plentyKey(it.food));
-  }
+  const listed = pantryNames(pantry);
   /** @type {Set<string>} */
   const ids = new Set();
   for (const i of items ?? []) {
@@ -1518,7 +1549,12 @@ export function kitchenHas(pantry, shopping) {
     have.add(canonicalFood(String(i.food)));
     have.add(plentyKey(String(i.food)));
   }
-  return (food) => have.has(canonicalFood(String(food))) || have.has(plentyKey(String(food)));
+  // a staple the pantry says nothing about counts as held (2026-11-27)
+  const assumed = stapleAssumed(pantry);
+  return (food) =>
+    have.has(canonicalFood(String(food))) ||
+    have.has(plentyKey(String(food))) ||
+    assumed(String(food));
 }
 
 /**

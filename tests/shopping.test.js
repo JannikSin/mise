@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { recipesById } from "../app/lib/plan.js";
-import {
+import { kitchenHas, stapleAssumed,
   deriveShoppingList,
   normalizePantry,
   sectionOf,
@@ -2737,17 +2737,35 @@ test("an unanswered basic stays in the total but out of the cart, and the cart s
   assert.match(notSentLines(planned.notSent, "Pay Less")[0], /^Not sent: salt, you have not said if you have it\./);
 });
 
-test("the List keeps unanswered basics in its total and asks before the aisles (I-10)", () => {
+test("the List assumes staples are on hand: out of the total, folded above the aisles, one tap to say he is out", () => {
+  // David, 2026-11-27: "why are we still asking abt the basicas that are present"
   const src = readFileSync(new URL("../app/views/shopping.js", import.meta.url), "utf8");
-  assert.match(src, /tripTotal\(tripItems, prices, homeStore, region\)/, "the total prices every trip row");
-  assert.match(src, /i\.section === s && !checkIds\.has\(i\.id\)/, "an asked row is not also in its aisle");
-  assert.match(src, /CHECK YOU HAVE THESE/);
-  assert.match(src, />\s*HAVE IT\s*</);
+  assert.match(
+    src,
+    /tripTotal\(\s*tripItems\.filter\(\(i\) => !checkIds\.has\(i\.id\)\)/,
+    "the total leaves the assumed staples out",
+  );
+  assert.match(src, /i\.section === s && !checkIds\.has\(i\.id\)/, "an assumed row is not also in its aisle");
+  assert.match(src, /ASSUMED ON HAND/);
   assert.match(src, />\s*NEED IT\s*</);
+  assert.doesNotMatch(src, /CHECK YOU HAVE THESE<\/h2>/, "the question is gone");
   assert.ok(
-    src.indexOf("CHECK YOU HAVE THESE</h2>") < src.indexOf("${trips.map("),
+    src.indexOf("ASSUMED ON HAND") < src.indexOf("${trips.map("),
     "the group sits above the aisles",
   );
+});
+
+test("a staple the pantry says nothing about counts as held; LOW, OUT or any pantry row speaks for itself", () => {
+  const none = kitchenHas({ items: [] }, null);
+  assert.equal(none("olive oil"), true);
+  assert.equal(none("salt"), true);
+  assert.equal(none("tahini"), true);
+  assert.equal(none("chicken thighs"), false, "food is never assumed");
+  assert.equal(none("rolled oats"), false, "oats are eaten by the kilo, not a staple");
+  const out = kitchenHas({ items: [{ id: "oo", food: "olive oil", state: "out" }] }, null);
+  assert.equal(out("olive oil"), false, "he said he is out");
+  assert.equal(out("salt"), true);
+  assert.equal(stapleAssumed({ items: [{ id: "v", food: "vanilla extract", state: "low" }] })("vanilla extract"), false);
 });
 
 // ---- Mise 2.0: the cart names every row it did not send ---------------------

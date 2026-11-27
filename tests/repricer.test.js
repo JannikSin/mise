@@ -13,6 +13,7 @@ import {
   reapplyOps,
 } from "../app/lib/repricer.js";
 import { applyLivePrice, normalizePins, pinFor, setPin } from "../app/lib/kroger.js";
+import { itemCost } from "../app/lib/prices.js";
 
 const TODAY = "2026-08-30";
 const STORE = "pay-less";
@@ -436,4 +437,136 @@ test("THIS WEEK'S SALES (2026-10-18): a pinned row checked days ago is re-checke
   assert.deepEqual(asked, ["111"], "only the row not checked today is asked for");
   assert.equal(res.checkedToday, 2, "both rows now carry today's price");
   assert.equal(res.onSale, 1, "this week's promo lands as a sale");
+});
+
+// ---- a pack that does not fit this week (P5; 2026-11-27) --------------------
+// David: "ok why is there budget issues with mise still". The week of 12/6
+// bought 2.6 kg of oats as six 16 oz canisters and 425 g of blueberries as a
+// 4 lb bag, because a product the app picked by itself stayed picked for good.
+
+/** a book and catalogue with one food priced by one product */
+function pinned(
+  /** @type {string} */ food,
+  /** @type {any} */ product,
+  /** @type {boolean} */ confirmed,
+) {
+  const base = normalizePins({
+    redList: [],
+    stores: { [STORE]: { locationId: "02100824", name: "Pay Less" } },
+    pins: {},
+  });
+  return {
+    pins: setPin(base, food, STORE, product, TODAY, confirmed),
+    prices: applyLivePrice(/** @type {any} */ (EMPTY_CAT), STORE, food, product, "2026-08-01"),
+  };
+}
+const OATS_16 = productFor("111", {
+  description: "Rolled Oats",
+  size: "16 oz",
+  price: { regular: 4.49, promo: null },
+  categories: ["Breakfast"],
+});
+const OATS_42 = productFor("222", {
+  description: "Old Fashioned Rolled Oats",
+  size: "42 oz",
+  price: { regular: 4.99, promo: null },
+  categories: ["Breakfast"],
+});
+const BERRY_4LB = productFor("333", {
+  description: "Frozen Blueberries",
+  size: "4 lb",
+  price: { regular: 10.49, promo: null },
+  categories: ["Frozen"],
+});
+const BERRY_12 = productFor("444", {
+  description: "Frozen Blueberries",
+  size: "12 oz",
+  price: { regular: 3.49, promo: null },
+  categories: ["Frozen"],
+});
+/** @param {any[]} found @param {string[]} [asked] */
+const apiWith = (found, asked = []) => ({
+  pricesById: async (/** @type {string[]} */ upcs) => ({
+    products: found.filter((p) => upcs.includes(p.upc)),
+    failed: [],
+    requested: upcs.length,
+  }),
+  search: async (/** @type {string} */ food) => {
+    asked.push(food);
+    return found;
+  },
+});
+
+test("a pick the app made is replaced when the week needs six of it and a bigger pack covers it for less", async () => {
+  const { pins, prices } = pinned("rolled oats", OATS_16, false);
+  const row = { food: "rolled oats", qty: 2600, unit: "g", section: "pantry" };
+  const res = await repriceList({
+    items: [row],
+    pins,
+    prices,
+    store: STORE,
+    todayIso: TODAY,
+    api: apiWith([OATS_16, OATS_42]),
+  });
+  assert.equal(pinFor(res.pins, "rolled oats", STORE)?.upc, "222", "the 42 oz canister is the pick now");
+  const before = itemCost(row, prices, STORE)?.cost ?? 0;
+  const after = itemCost(row, res.prices, STORE)?.cost ?? 0;
+  assert.equal(before, 26.94, "six 16 oz canisters");
+  assert.ok(after < 16, "three 42 oz canisters, not " + after);
+});
+
+test("a pick the app made is replaced when the week uses a sliver of a big pack and a small one costs less", async () => {
+  const { pins, prices } = pinned("blueberries", BERRY_4LB, false);
+  const row = { food: "blueberries", qty: 425, unit: "g", section: "frozen" };
+  const res = await repriceList({
+    items: [row],
+    pins,
+    prices,
+    store: STORE,
+    todayIso: TODAY,
+    api: apiWith([BERRY_4LB, BERRY_12]),
+  });
+  assert.equal(pinFor(res.pins, "blueberries", STORE)?.upc, "444");
+});
+
+test("a product he chose himself is never asked about again, however badly it fits", async () => {
+  const { pins, prices } = pinned("rolled oats", OATS_16, true);
+  /** @type {string[]} */
+  const asked = [];
+  const res = await repriceList({
+    items: [{ food: "rolled oats", qty: 2600, unit: "g", section: "pantry" }],
+    pins,
+    prices,
+    store: STORE,
+    todayIso: TODAY,
+    api: apiWith([OATS_16, OATS_42], asked),
+  });
+  assert.deepEqual(asked, []);
+  assert.equal(pinFor(res.pins, "rolled oats", STORE)?.upc, "111");
+});
+
+test("a pick that fits the week is left alone, and a misfit is kept when nothing covers the week for less", async () => {
+  /** @type {string[]} */
+  const asked = [];
+  await repriceList({
+    items: [{ food: "rolled oats", qty: 400, unit: "g", section: "pantry" }],
+    ...pinned("rolled oats", OATS_16, false),
+    store: STORE,
+    todayIso: TODAY,
+    api: apiWith([OATS_16, OATS_42], asked),
+  });
+  assert.deepEqual(asked, [], "400 g of a 16 oz canister is a fit");
+  const DEAR = { ...OATS_42, price: { regular: 14.99, promo: null } };
+  const res = await repriceList({
+    items: [{ food: "rolled oats", qty: 2600, unit: "g", section: "pantry" }],
+    ...pinned("rolled oats", OATS_16, false),
+    store: STORE,
+    todayIso: TODAY,
+    api: apiWith([OATS_16, DEAR]),
+  });
+  assert.equal(
+    pinFor(res.pins, "rolled oats", STORE)?.upc,
+    "111",
+    "three at 14.99 is not less than six at 4.49",
+  );
 });

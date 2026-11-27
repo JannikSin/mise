@@ -49,6 +49,12 @@ export const BYID_CHUNK = 40;
 export const BYID_MAX_CHUNKS = 3;
 /** Live searches per build: 12 rate units. */
 export const SEARCH_BUDGET = 12;
+/** A pick the app made is asked again when the week needs this many packs of it. */
+export const MISFIT_PACKS = 3;
+/** ...or when a pack costing at least this much... */
+export const MISFIT_MIN_USD = 5;
+/** ...has under this share of it eaten this week. */
+export const MISFIT_EATEN_SHARE = 1 / 3;
 
 /**
  * Is this food inside its unexpired miss window at this store?
@@ -237,11 +243,36 @@ export async function repriceList({ items, pins, prices, store, avoid = [], toda
   // ---- phase 2: search budget on pinless rows — dark rows first, then
   // most expensive estimate. "Estimate" = this store's own estimate row;
   // a row with none is dark and jumps the queue (see the sort comment).
+  // A PACK THAT DOES NOT FIT THIS WEEK (P5; 2026-11-27, David: "why is there
+  // budget issues with mise still"). A product the app picked by itself
+  // stayed picked for good, whatever the week needed: the week of 12/6 bought
+  // 2.6 kg of oats as six 16 oz canisters ($26.94) and 425 g of blueberries
+  // as a 4 lb bag ($10.49). A pick he never confirmed is asked again when
+  // the week needs three or more of it, or uses under a third of a pack
+  // costing $5 or more, and it is replaced only by a product that covers
+  // this week's amount for less. A product he chose himself is never touched.
+  /** @type {Map<string, number>} what the row costs with the pick it has */
+  const misfit = new Map();
+  for (const it of rows) {
+    const pin = /** @type {any} */ (pinFor(book, it.food, store));
+    if (!pin?.upc || pin.provisional !== true || !(it.qty > 0)) continue;
+    const c = itemCost(it, cat, store);
+    if (!c || !(c.cost > 0)) continue;
+    const many = Number(c.packs) >= MISFIT_PACKS;
+    const mostlyStock = c.cost >= MISFIT_MIN_USD && c.eaten / c.cost < MISFIT_EATEN_SHARE;
+    if (many || mostlyStock) misfit.set(plentyKey(it.food), c.cost);
+  }
   const searchable = rows
-    .filter((it) => !pinFor(book, it.food, store) || failedFoods.has(plentyKey(it.food)))
+    .filter(
+      (it) =>
+        !pinFor(book, it.food, store) ||
+        failedFoods.has(plentyKey(it.food)) ||
+        misfit.has(plentyKey(it.food)),
+    )
     .filter((it) => !isMissed(book, it.food, store, todayIso))
     .filter((it) => {
       if (failedFoods.has(plentyKey(it.food))) return true;
+      if (misfit.has(plentyKey(it.food))) return true;
       const row = (cat.items ?? []).find((r) => r.id === pinKey(it.food));
       const sp = /** @type {any} */ (row?.prices?.[store]);
       return !sp || sp.estimate || isStalePrice(sp, todayIso);
@@ -268,12 +299,37 @@ export async function repriceList({ items, pins, prices, store, avoid = [], toda
       // a failed ASK is not a miss — leave the food eligible for next build
       return done(summaryNote(refreshed, autoPicked, missed, needPick, truncated) || "live pricing cut short");
     }
-    const best = rankCandidates(products, it.food, book.redList, it.section ?? "", it.qty > 0 ? { qty: it.qty, unit: it.unit } : null)
+    const ranked = rankCandidates(products, it.food, book.redList, it.section ?? "", it.qty > 0 ? { qty: it.qty, unit: it.unit } : null)
       .filter((c) => allergenHits(c, avoid).length === 0)
       // a pack-sold product with no size can be pinned but never priced
       // (applyLivePrice's P4 guard) — pinning it would trap the row: priced
       // by nothing, excluded from every future search by its own pin
-      .filter((c) => c.soldBy === "WEIGHT" || c.size)[0];
+      .filter((c) => c.soldBy === "WEIGHT" || c.size);
+    const paying = misfit.get(plentyKey(it.food));
+    // a first pick takes the cleanest name; a second look takes the cheapest
+    // way to cover the week among names nearly as clean (two extra words)
+    const cleanest = ranked[0]?.noise ?? 0;
+    const best =
+      paying != null
+        ? ranked
+            .filter((c) => c.noise <= cleanest + 2 && c.spend != null)
+            .sort((x, y) => Number(x.spend) - Number(y.spend))[0]
+        : ranked[0];
+    if (paying != null) {
+      // a second look at a pick that already prices the row: change it only
+      // for a product that covers this week's amount for less, else leave it
+      const now = /** @type {any} */ (pinFor(book, it.food, store));
+      if (!best || best.upc === now?.upc || best.spend == null || !(best.spend < paying - 0.005))
+        continue;
+      book = setPin(book, it.food, store, best, todayIso, false);
+      ops.push({ kind: "pin", food: it.food, product: best });
+      const next = applyLivePrice(cat, store, it.food, best, todayIso);
+      if (next !== cat) {
+        cat = next;
+        autoPicked += 1;
+      }
+      continue;
+    }
     if (best) {
       book = setPin(book, it.food, store, best, todayIso, false);
       ops.push({ kind: "pin", food: it.food, product: best });

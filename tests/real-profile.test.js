@@ -32,7 +32,7 @@ import {
   checkFirstIds,
 } from "../app/lib/shopping.js";
 import { itemCost, resolveHomeStore, storeSlugOf, tripTotal } from "../app/lib/prices.js";
-import { datesOfWeek, recipesById, shiftWeek } from "../app/lib/plan.js";
+import { avoidMatcher, datesOfWeek, recipesById, shiftWeek } from "../app/lib/plan.js";
 import { isoWeekId } from "../app/lib/dates.js";
 import { recipeTripCost, recipeTripItems } from "../app/lib/money.js";
 import { withSwaps } from "../app/lib/swaps.js";
@@ -86,6 +86,21 @@ const DAVID = { proteinFloor: 190, proteinCeiling: 215, swipeKcal: 900, swipePro
 
 /** @param {string} p */
 const J = (p) => JSON.parse(fs.readFileSync(path.join(DATA, p), "utf8"));
+
+/**
+ * THE ONE BUDGET NUMBER (P5; David, 2026-11-27: "we have tlaked abt this so
+ * many times why is this still an issue"). It lives in one place, his
+ * targets file (weeklyBudgetUsd, set in Settings), and the planner, the
+ * List and these checks all read it from there. No dollar figure is written
+ * into a check: a number typed here is how a "$200" nobody ever agreed to
+ * became the line this file enforced.
+ * @param {Map<string, any>} targetsById
+ */
+function houseBudget(targetsById) {
+  const n = Number(targetsById.get("david")?.weeklyBudgetUsd);
+  assert.ok(n > 0, "his targets carry no weeklyBudgetUsd");
+  return n;
+}
 
 /** Plan his kitchen's week exactly as SET MY WEEK does. */
 function planHisWeek(
@@ -170,7 +185,7 @@ function planHisWeek(
         /** @type {number} */ qty,
         /** @type {string} */ unit,
       ) => itemCost({ food, qty, unit }, cat, store)?.cost ?? 0,
-      budgetUsd: 100,
+      budgetUsd: houseBudget(targetsById),
       ...(opts.noSwaps
         ? {}
         : {
@@ -195,6 +210,7 @@ function planHisWeek(
     today: DATES[0],
     profilesById: new Map(profiles.map((/** @type {any} */ p) => [p.id, p])),
     myTargets: targetsById.get("david"),
+    seatAvoid: (id) => targetsById.get(id)?.avoidIngredients,
   });
   const listPlan = {
     week: WEEK,
@@ -213,16 +229,19 @@ function planHisWeek(
     bankById,
   );
   const toBuy = subtractPantryFromTrip(list.items, pantry).toBuy;
-  const trip = tripTotal(toBuy, cat, store);
-  // the basics nobody has answered for (List: CHECK YOU HAVE THESE), priced
-  // on their own: an open question, not yet a purchase and not yet owned
-  const askIds = checkFirstIds(/** @type {any} */ (toBuy), pantry);
-  const open = tripTotal(
-    toBuy.filter((/** @type {any} */ i) => askIds.has(i.id)),
-    cat,
-    store,
-  );
-  return { out, brigade, trip, open, asked: askIds.size };
+  // staples the pantry says nothing about are on hand (David, 11/27), so
+  // the trip is everything else
+  const assumed = checkFirstIds(/** @type {any} */ (toBuy), pantry);
+  const buy = toBuy.filter((/** @type {any} */ i) => !assumed.has(i.id));
+  const trip = tripTotal(buy, cat, store);
+  return {
+    out,
+    brigade,
+    trip,
+    buy,
+    budget: houseBudget(targetsById),
+    people: brigade.memberIds.length,
+  };
 }
 
 test("his kitchen: protein lands 190 to 215 g every day, swipe lunch included", { skip }, () => {
@@ -288,38 +307,30 @@ test(
   },
 );
 
-test("his kitchen: the trip tripwire, never the $271 kind of week again", { skip }, () => {
-  // a SOFT cap (David, 11/6: "it is not a hard hard cap"), so the goal is
-  // not asserted as a hard number. This is the tripwire: twice the budget
-  // is "significantly over" by any reading, and the 11/6 week was $271.
+test("his kitchen: a swipe week's food costs what his budget says, about $50 a person", { skip }, () => {
+  // David, 11/27: "never has i tbeen 200 per person per week that is an
+  // innsane number. when i am on a meal swipe and only making dinners and
+  // some muffins and breakfast i want more like $50 a week." And 11/6: "100
+  // total ... it is not a hard hard cap". His stored budget is the house's
+  // week, two people, so it is $50 a person. The line this check holds is
+  // the FOOD THE WEEK EATS, per person, against that number. What the trip
+  // adds on top is the unused part of packs bought whole (a 4 lb bag of
+  // blueberries for 425 g); it is printed here, said on the List, and the
+  // List's pack choice is checked in tests/repricer.test.js.
   for (const opts of [
     {},
     { snackFirst: true, pantryAdd: ["walnuts", "rolled oats", "honey", "baking powder"] },
   ]) {
-    const { out, trip, open, asked } = planHisWeek(opts);
-    // RE-SCOPED 2026-11-26 ON THE HEAD'S RELAY OF DAVID'S GO ("Basics at
-    // Wayne ... still unanswered: assume nothing, mark them as open in the
-    // list math"). The week of 12/6 lists at $208, of which about $92 is
-    // long-lasting basics (oats, oil, honey, spices) the pantry has no
-    // record of and the List asks about under CHECK YOU HAVE THESE. The
-    // tripwire is for a week of FOOD that costs twice the budget, so it
-    // reads the rows that are not an open question; the open part is
-    // printed on every run and capped on its own, so it cannot grow quietly.
-    // When he answers (HAVE IT or NEED IT), the rows leave the open part and
-    // this reads the whole trip again.
-    const settled = trip.total - open.total;
+    const { out, trip, budget, people } = planHisWeek(opts);
+    const each = budget / people;
     console.log(
-      `# his week ${WEEK} ${JSON.stringify(opts)}: List $${trip.total.toFixed(2)} = $${settled.toFixed(2)} to buy + $${open.total.toFixed(2)} in ${asked} basics still to check`,
+      `# his week ${WEEK} ${JSON.stringify(opts)}: eats $${trip.eaten.toFixed(2)} ($${(trip.eaten / people).toFixed(2)} a person, budget $${each.toFixed(0)}); the trip is $${trip.total.toFixed(2)} with whole packs, budget $${budget.toFixed(0)}`,
     );
     assert.ok(
-      settled <= 200,
-      `the List for his week is $${settled.toFixed(2)} without the basics still to check ($${trip.total.toFixed(2)} with them) (${JSON.stringify(opts)})`,
+      trip.eaten / people <= each,
+      `the food his week eats is $${(trip.eaten / people).toFixed(2)} a person against $${each.toFixed(0)} (${JSON.stringify(opts)})`,
     );
-    assert.ok(
-      open.total <= 100,
-      `the basics still to check come to $${open.total.toFixed(2)}: that is no longer a few jars`,
-    );
-    // and when over the $100, the planner says so in words (never silent)
+    // and when the trip is over the budget, the planner says so in words
     if (out.budget && out.budget.trip > out.budget.cap + 0.5) {
       assert.ok(
         out.notes.some((/** @type {string} */ n) => /over budget/.test(n)),
@@ -327,6 +338,14 @@ test("his kitchen: the trip tripwire, never the $271 kind of week again", { skip
       );
     }
   }
+});
+
+test("his kitchen: nothing on the List is a food somebody at his table cannot eat", { skip }, () => {
+  const { buy } = planHisWeek();
+  const elliot = J("profiles/elliot/profile/targets.json").avoidIngredients ?? [];
+  const hit = avoidMatcher(elliot);
+  const bad = buy.filter((/** @type {any} */ i) => hit(i.food)).map((/** @type {any} */ i) => i.food);
+  assert.deepEqual(bad, [], "the List buys a food Elliot cannot eat");
 });
 
 test(
